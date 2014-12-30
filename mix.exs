@@ -25,6 +25,6 @@ defmodule Kafka.Mixfile do
   #
   # Type `mix help deps` for more examples and options
   defp deps do
-    [:gen_tcp]
+    []
   end
 end
