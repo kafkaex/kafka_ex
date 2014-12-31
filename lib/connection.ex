@@ -3,24 +3,22 @@ defmodule Kafka.Connection do
     {:error, "no brokers available"}
   end
 
-  def connect(broker_list, client_id) do
+  def connect(broker_list) do
     [first | rest] = broker_list
     case :gen_tcp.connect(Enum.at(first, 0), Enum.at(first, 1), [:binary, {:packet, 4}]) do
-      {:error, _}      -> connect(rest, client_id)
-      {:ok, socket}    ->
-        case get_metadata(socket, client_id) do
-          {:ok, brokers, topic_metadata} ->
-            {:ok, %{socket: socket, brokers: brokers, metadata: topic_metadata}}
-          error -> error
-        end
+      {:error, _}      -> connect(rest)
+      {:ok, socket}    -> {:ok, socket}
     end
   end
 
-  defp get_metadata(socket, client_id) do
-    :gen_tcp.send(socket, Kafka.Metadata.create_request(client_id, 1))
+  def close(socket) do
+    :gen_tcp.close(socket)
+  end
+
+  def send(socket, message) do
+    :gen_tcp.send(socket, message)
     receive do
-      {:tcp, _, << correlation_id :: 32, data :: binary >>} ->
-        Kafka.Metadata.parse_response(data)
+      {:tcp, _, data} -> data
     end
   end
 end

@@ -1,11 +1,16 @@
 defmodule Kafka.Metadata do
-  def create_request(client_id, correlation_id) do
+  def get_metadata(connection, correlation_id, client_id) do
+    Kafka.Connection.send(connection, create_request(connection, correlation_id, client_id))
+    |> parse_response
+  end
+    
+  defp create_request(connection, correlation_id, client_id) do
     << 3 :: 16, 0 :: 16, correlation_id :: 32, String.length(client_id) :: 16 >> <>
       client_id <> << 0 :: 32 >>
   end
 
-  def parse_response(metadata) do
-    << num_brokers :: 32, rest :: binary >> = metadata
+  defp parse_response(metadata) do
+    << _ :: 32, num_brokers :: 32, rest :: binary >> = metadata
     {broker_map, rest} = parse_broker_list(%{}, num_brokers, rest)
     << num_topic_metadata :: 32, rest :: binary >> = rest
     {topic_map, _} = parse_topic_metadata(%{}, num_topic_metadata, rest)
@@ -19,7 +24,7 @@ defmodule Kafka.Metadata do
   defp parse_broker_list(map, num_brokers, data) do
     << node_id :: 32, host_len :: 16, host :: size(host_len)-binary, port :: 32, rest :: binary >> = data
     {broker_map, rest} = parse_broker_list(map, num_brokers-1, rest)
-    {Map.put(broker_map, node_id, %{host: host, port: port}), rest}
+    {Map.put(broker_map, node_id, %{host: host, port: port, socket: nil}), rest}
   end
 
   defp parse_topic_metadata(map, 0, rest) do
