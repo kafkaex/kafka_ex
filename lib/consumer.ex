@@ -20,10 +20,18 @@ defmodule Kafka.Consumer do
   end
 
   def handle_call({:subscribe, topic_list}, _, state) do
-    IO.inspect({:reply, :ok, Enum.reduce(topic_list, state, &subscribe/2)})
+    IO.inspect({:reply, :ok, Enum.reduce(topic_list, state, &do_subscribe/2)})
   end
 
-  defp subscribe(topic, %{brokers: broker_map, topics: topic_map} = state) do
+  defp do_subscribe(topic, %{brokers: broker_map, topics: topic_map} = state) do
     state
+  end
+
+  def start(broker_list, client_id) do
+    GenServer.start(__MODULE__, {broker_list, client_id})
+  end
+
+  def subscribe(consumer, topic_list) do
+    GenServer.call(consumer, {:subscribe, topic_list})
   end
 end

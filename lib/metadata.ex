@@ -1,10 +1,10 @@
 defmodule Kafka.Metadata do
   def get_metadata(connection, correlation_id, client_id) do
-    Kafka.Connection.send(connection, create_request(connection, correlation_id, client_id))
+    Kafka.Connection.send(connection, create_request(correlation_id, client_id))
     |> parse_response
   end
     
-  defp create_request(connection, correlation_id, client_id) do
+  defp create_request(correlation_id, client_id) do
     << 3 :: 16, 0 :: 16, correlation_id :: 32, String.length(client_id) :: 16 >> <>
       client_id <> << 0 :: 32 >>
   end
