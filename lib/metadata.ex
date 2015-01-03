@@ -11,7 +11,7 @@ defmodule Kafka.Metadata do
       metadata
     end
   end
-    
+
   defp create_request(correlation_id, client_id) do
     << 3 :: 16, 0 :: 16, correlation_id :: 32, String.length(client_id) :: 16 >> <>
       client_id <> << 0 :: 32 >>
