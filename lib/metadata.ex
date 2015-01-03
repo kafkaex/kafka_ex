@@ -1,7 +1,15 @@
 defmodule Kafka.Metadata do
-  def get_metadata(connection, correlation_id, client_id) do
-    Kafka.Connection.send(connection, create_request(correlation_id, client_id))
+  def get(connection, client_id) do
+    Kafka.Connection.send(connection, create_request(connection.correlation_id, client_id))
     |> parse_response
+  end
+
+  def get(metadata, connection, client_id) do
+    if Kafka.Helper.get_timestamp - metadata.timestamp >= 5 * 60 do
+      get(connection, client_id)
+    else
+      metadata
+    end
   end
     
   defp create_request(correlation_id, client_id) do
@@ -10,11 +18,12 @@ defmodule Kafka.Metadata do
   end
 
   defp parse_response(metadata) do
+    timestamp = Kafka.Helper.get_timestamp
     << _ :: 32, num_brokers :: 32, rest :: binary >> = metadata
     {broker_map, rest} = parse_broker_list(%{}, num_brokers, rest)
     << num_topic_metadata :: 32, rest :: binary >> = rest
     {topic_map, _} = parse_topic_metadata(%{}, num_topic_metadata, rest)
-    {broker_map, topic_map}
+    %{brokers: broker_map, topics: topic_map, timestamp: timestamp}
   end
 
   defp parse_broker_list(map, 0, rest) do
