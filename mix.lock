@@ -1,0 +1,2 @@
+%{"meck": {:hex, :meck, "0.8.2"},
+  "mock": {:hex, :mock, "0.1.0"}}
