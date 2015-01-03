@@ -6,7 +6,7 @@ defmodule Kafka.Connection do
   def connect(broker_list) do
     [first | rest] = broker_list
     case connect(Enum.at(first, 0), Enum.at(first, 1)) do
-      {:ok, socket} -> {:ok, socket}
+      {:ok, socket} -> {:ok, %{correlation_id: 1, socket: socket}}
       {:error, _}   -> connect(rest)
     end
   end
@@ -22,14 +22,15 @@ defmodule Kafka.Connection do
     end
   end
 
-  def close(socket) do
-    :gen_tcp.close(socket)
+  def close(connection) do
+    :gen_tcp.close(connection.socket)
   end
 
-  def send(socket, message) do
-    :gen_tcp.send(socket, message)
+  def send(connection, message) do
+    :gen_tcp.send(connection.socket, message)
     receive do
-      {:tcp, _, data} -> data
+      {:tcp, _, data} ->
+        {%{connection | correlation_id: connection.correlation_id + 1}, data}
     end
   end
 end
