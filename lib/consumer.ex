@@ -1,6 +1,4 @@
 defmodule Kafka.Consumer do
-  use GenServer
-
   def new({broker_list, client_id}) do
     %{broker_list: broker_list, client_id: client_id}
   end
@@ -51,6 +49,8 @@ defmodule Kafka.Consumer do
   end
 
   defmodule Server do
+    use GenServer
+
     def init(broker) do
       case Kafka.Connection.connect(broker.host, broker.port) do
         {:ok, connection} -> {:ok, %{connection: connection, topics: %{}, agent: nil, fetcher: nil}}
