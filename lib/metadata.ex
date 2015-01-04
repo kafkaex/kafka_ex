@@ -1,12 +1,39 @@
 defmodule Kafka.Metadata do
-  def get(connection, client_id) do
-    Kafka.Connection.send(connection, create_request(connection.correlation_id, client_id))
-    |> parse_response
+  def new(connection, client_id) do
+    get(connection, client_id)
   end
 
-  def get(metadata, connection, client_id) do
+  # %{broker => %{topic => [partitions]}}
+  def get_brokers(metadata, client_id, topics) do
+    update(metadata, client_id)
+    Enum.reduce(topics, %{}, fn(topic, acc) -> get_brokers_for_topic(metadata, acc, topic) end)
+  end
+
+  defp get_brokers_for_topic(metadata, map, topic) do
+    Enum.reduce(metadata.topics[topic][:partitions],
+                map,
+                fn({k, v}, acc) ->
+                  broker = metadata.brokers[v[:leader]]
+                  if Map.has_key?(acc, broker) do
+                    if Map.has_key?(acc[broker], topic) do
+                      Map.put(acc, broker, Map.put(acc[broker], topic, acc[broker][topic] ++ [k]))
+                    else
+                      Map.put(acc, broker, Map.put(acc[broker], topic, [k]))
+                    end
+                  else
+                    Map.put(acc, broker, Map.put(%{}, topic, [k]))
+                  end
+                end)
+  end
+
+  def get(connection, client_id) do
+    Kafka.Connection.send(connection, create_request(connection.correlation_id, client_id))
+    |> parse_response(connection)
+  end
+
+  def update(metadata, client_id) do
     if Kafka.Helper.get_timestamp - metadata.timestamp >= 5 * 60 do
-      get(connection, client_id)
+      get(metadata.connection, client_id)
     else
       metadata
     end
@@ -17,13 +44,13 @@ defmodule Kafka.Metadata do
       client_id <> << 0 :: 32 >>
   end
 
-  defp parse_response(metadata) do
+  defp parse_response(metadata, connection) do
     timestamp = Kafka.Helper.get_timestamp
     << _ :: 32, num_brokers :: 32, rest :: binary >> = metadata
     {broker_map, rest} = parse_broker_list(%{}, num_brokers, rest)
     << num_topic_metadata :: 32, rest :: binary >> = rest
     {topic_map, _} = parse_topic_metadata(%{}, num_topic_metadata, rest)
-    %{brokers: broker_map, topics: topic_map, timestamp: timestamp}
+    %{brokers: broker_map, topics: topic_map, timestamp: timestamp, connection: connection}
   end
 
   defp parse_broker_list(map, 0, rest) do

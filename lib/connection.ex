@@ -6,18 +6,18 @@ defmodule Kafka.Connection do
   def connect(broker_list) do
     [first | rest] = broker_list
     case connect(Enum.at(first, 0), Enum.at(first, 1)) do
-      {:ok, socket} -> {:ok, %{correlation_id: 1, socket: socket}}
+      {:ok, connection} -> {:ok, connection}
       {:error, _}   -> connect(rest)
     end
   end
 
-  defp connect(host, port) when is_binary(host) do
+  def connect(host, port) when is_binary(host) do
     connect(to_char_list(host), port)
   end
 
-  defp connect(host, port) do
+  def connect(host, port) do
     case :gen_tcp.connect(host, port, [:binary, {:packet, 4}]) do
-      {:ok, socket}    -> {:ok, socket}
+      {:ok, socket}    -> {:ok, %{correlation_id: 1, socket: socket}}
       error            -> error
     end
   end
