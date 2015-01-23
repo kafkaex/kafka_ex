@@ -1,41 +1,57 @@
 defmodule Kafka.Metadata do
-  def new(connection, client_id) do
-    get(connection, client_id)
+  def new(broker_list, client_id) do
+    Kafka.Connection.connect(broker_list, client_id)
+    |> get(client_id)
   end
 
-  # %{broker => %{topic => [partitions]}}
-  def get_brokers(metadata, client_id, topics) do
+  defp _get_brokers({:ok, metadata}, _client_id, topic, partition) do
+    {:ok, metadata, get_brokers_for_topic(metadata, %{}, topic, partition)}
+  end
+
+  defp _get_brokers({:error, reason}, _, _) do
+    {:error, reason}
+  end
+
+  def get_brokers(metadata, client_id, topic, partition) do
     update(metadata, client_id)
-    Enum.reduce(topics, %{}, fn(topic, acc) -> get_brokers_for_topic(metadata, acc, topic) end)
+    |> _get_brokers(client_id, topic, partition)
   end
 
-  defp get_brokers_for_topic(metadata, map, topic) do
+  defp get_brokers_for_topic(metadata, map, topic, partition) do
     Enum.reduce(metadata.topics[topic][:partitions],
                 map,
-                fn({k, v}, acc) ->
-                  broker = metadata.brokers[v[:leader]]
-                  if Map.has_key?(acc, broker) do
-                    if Map.has_key?(acc[broker], topic) do
-                      Map.put(acc, broker, Map.put(acc[broker], topic, acc[broker][topic] ++ [k]))
+                fn({partition_id, partition_map}, acc) ->
+                  if partition == partition_id || partition == :all do
+                    broker = metadata.brokers[partition_map[:leader]]
+                    if Map.has_key?(acc, broker) do
+                      if Map.has_key?(acc[broker], topic) do
+                        Map.put(acc, broker, Map.put(acc[broker], topic, acc[broker][topic] ++ [partition_id]))
+                      else
+                        Map.put(acc, broker, Map.put(acc[broker], topic, [partition_id]))
+                      end
                     else
-                      Map.put(acc, broker, Map.put(acc[broker], topic, [k]))
+                      Map.put(acc, broker, Map.put(%{}, topic, [partition_id]))
                     end
                   else
-                    Map.put(acc, broker, Map.put(%{}, topic, [k]))
+                    acc
                   end
                 end)
   end
 
-  def get(connection, client_id) do
+  defp get({:ok, connection}, client_id) do
     Kafka.Connection.send(connection, create_request(connection.correlation_id, client_id))
-    |> parse_response(connection)
+    |> parse_response
+  end
+
+  defp get({:error, message}, _client_id) do
+    {:error, "Error connecting to Kafka: #{message}", %{}}
   end
 
   def update(metadata, client_id) do
     if Kafka.Helper.get_timestamp - metadata.timestamp >= 5 * 60 do
-      get(metadata.connection, client_id)
+      get({:ok, metadata.connection}, client_id)
     else
-      metadata
+      {:ok, metadata}
     end
   end
 
@@ -44,13 +60,13 @@ defmodule Kafka.Metadata do
       client_id <> << 0 :: 32 >>
   end
 
-  defp parse_response(metadata, connection) do
+  defp parse_response({:ok, connection, metadata}) do
     timestamp = Kafka.Helper.get_timestamp
     << _ :: 32, num_brokers :: 32, rest :: binary >> = metadata
     {broker_map, rest} = parse_broker_list(%{}, num_brokers, rest)
     << num_topic_metadata :: 32, rest :: binary >> = rest
     {topic_map, _} = parse_topic_metadata(%{}, num_topic_metadata, rest)
-    %{brokers: broker_map, topics: topic_map, timestamp: timestamp, connection: connection}
+    {:ok, %{brokers: broker_map, topics: topic_map, timestamp: timestamp, connection: connection}}
   end
 
   defp parse_broker_list(map, 0, rest) do
