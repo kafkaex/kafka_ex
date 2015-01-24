@@ -92,7 +92,7 @@ defmodule Kafka.Protocol.Metadata do
   end
 
   defp parse_int32_array(array, num, << value :: 32, rest :: binary >>) do
-    parse_int32_array([value | array], num-1, rest)
+    parse_int32_array(Enum.concat(array, [value]), num-1, rest)
   end
 
   defp parse_int32_array(_array, _num, _data) do
