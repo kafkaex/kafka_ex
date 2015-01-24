@@ -39,7 +39,7 @@ defmodule Kafka.Metadata do
   end
 
   defp get({:ok, connection}) do
-    Kafka.Connection.send(connection, Kafka.Protocol.create_metadata_request(connection))
+    Kafka.Connection.send(connection, Kafka.Protocol.Metadata.create_request(connection))
     |> parse_response
   end
 
@@ -56,7 +56,7 @@ defmodule Kafka.Metadata do
   end
 
   defp parse_response({:ok, connection, metadata}) do
-    Kafka.Protocol.parse_metadata_response(connection, metadata)
+    Kafka.Protocol.Metadata.parse_response(connection, metadata)
   end
 
   defp parse_response(error) do
