@@ -25,6 +25,12 @@ defmodule Kafka.Consumer do
     error
   end
 
+  def subscribe(consumer, topic, offset \\ :earliest, partition \\ :all, callback) do
+    Kafka.Metadata.update(consumer.metadata, consumer.client_id)
+    |> update_metadata(consumer)
+    |> start(topic, offset, partition, callback)
+  end
+
   defp update_metadata({:ok, metadata}, consumer) do
     {:ok, Map.put(consumer, :metadata, metadata)}
   end
@@ -35,38 +41,32 @@ defmodule Kafka.Consumer do
 
   defp start({:ok, consumer}, topic, offset, partition, callback) do
     Kafka.Metadata.get_brokers(consumer.metadata, consumer.client_id, topic, partition)
-    |> handle_brokers(topic, partition, offset, callback, consumer)
+    |> get_server_for_broker(topic, partition, offset, callback, consumer)
   end
 
   defp start(error, _topic, _offset, _partition, _callback) do
     error
   end
 
-  defp handle_brokers({:ok, metadata, brokers}, topic, partition, offset, callback, consumer) do
+  defp get_server_for_broker({:ok, metadata, brokers}, topic, partition, offset, callback, consumer) do
     Enum.each(brokers,
-              fn({broker, topics_and_partitions}) ->
-                case find_or_create_server(broker) do
-                  {:ok, server}     ->
-                    GenServer.call(server, {:subscribe, topics_and_partitions, offset, callback})
-                  {:error, message} ->
-                    IO.puts("Error starting server for broker #{broker}: #{message}")
-                end
-              end)
+    fn({broker, topics_and_partitions}) ->
+      case find_or_create_server(broker) do
+        {:ok, server}     ->
+          GenServer.call(server, {:subscribe, topics_and_partitions, offset, callback})
+        {:error, message} ->
+          IO.puts("Error starting server for broker #{broker}: #{message}")
+      end
+    end)
     {:ok, consumer}
   end
 
-  defp handle_brokers({:ok, nil}, topic, partition) do
+  defp get_server_for_broker({:ok, nil}, topic, partition) do
     {:error, "No brokers found for #{topic}, partition #{partition}"}
   end
 
-  defp handle_brokers(error, topic, partition) do
+  defp get_server_for_broker(error, topic, partition) do
     error
-  end
-
-  def subscribe(consumer, topic, offset \\ :earliest, partition \\ :all, callback) do
-    Kafka.Metadata.update(consumer.metadata, consumer.client_id)
-    |> update_metadata(consumer)
-    |> start(topic, offset, partition, callback)
   end
 
   defp find_or_create_server(broker) do
