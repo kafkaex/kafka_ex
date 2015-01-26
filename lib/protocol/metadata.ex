@@ -3,7 +3,7 @@ defmodule Kafka.Protocol.Metadata do
     Kafka.Protocol.create_request(:metadata, connection) <> << 0 :: 32 >>
   end
 
-  def parse_response(connection, << _ :: 32, num_brokers :: 32, rest :: binary >>) do
+  def parse_response(connection, << _correlation_id :: 32, num_brokers :: 32, rest :: binary >>) do
     timestamp = Kafka.Helper.get_timestamp
     parse_broker_list(%{}, num_brokers, rest)
     |> parse_topic_metadata_list
@@ -18,8 +18,8 @@ defmodule Kafka.Protocol.Metadata do
     {:ok, %{brokers: broker_map, topics: topic_map, timestamp: timestamp, connection: connection}}
   end
 
-  defp generate_result({:error, message}, _ts, _connection) do
-    {:error, message}
+  defp generate_result({:error, message}, _ts, connection) do
+    {:error, message, connection}
   end
 
   defp parse_broker_list(map, 0, rest) do
