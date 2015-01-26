@@ -10,16 +10,16 @@ defmodule Kafka.Protocol.Fetch do
     |> generate_result(connection)
   end
 
-  def parse_response(connection, _data) do
-    {:error, "Error parsing num_topics in fetch response"}
+  def parse_response(_connection, data) do
+    {:error, "Error parsing num_topics in fetch response", data}
   end
 
-  defp generate_result({:ok, response_map, rest}, connection) do
+  defp generate_result({:ok, response_map, _rest}, connection) do
     {:ok, response_map, connection}
   end
 
-  defp generate_result({:error, message}, connection) do
-    {:error, message, connection}
+  defp generate_result({:error, message, data}, connection) do
+    {:error, message, data, connection}
   end
 
   defp parse_topics(map, 0, rest) do
@@ -33,8 +33,8 @@ defmodule Kafka.Protocol.Fetch do
     end
   end
 
-  defp parse_topics(_map, _num, _data) do
-    {:error, "Error parsing topic or number of partitions in fetch response"}
+  defp parse_topics(_map, _num, data) do
+    {:error, "Error parsing topic or number of partitions in fetch response", data}
   end
 
   defp parse_partitions(map, 0, rest) do
@@ -59,13 +59,13 @@ defmodule Kafka.Protocol.Fetch do
 
   defp parse_message_set(list, << offset :: 64, msg_size :: 32, msg_data :: size(msg_size)-binary, rest :: binary >>) do
     case parse_message(msg_data) do
-      {:ok, message} -> parse_message_set(Enum.concat(list, [message]), rest)
+      {:ok, message} -> parse_message_set(Enum.concat(list, [Map.put(message, :offset, offset)]), rest)
       {:error, error_message} -> {:error, error_message}
     end
   end
 
-  defp parse_message_set(_map, _data) do
-    {:error, "Error parsing message set in fetch response"}
+  defp parse_message_set(_map, data) do
+    {:error, "Error parsing message set in fetch response", data}
   end
 
   defp parse_message(<< crc :: 32, _magic :: 8, attributes :: 8, rest :: binary>>) do
@@ -80,8 +80,8 @@ defmodule Kafka.Protocol.Fetch do
     parse_value(crc, attributes, key, rest)
   end
 
-  defp parse_key(_crc, _attributes, _data) do
-    {:error, "Error parsing key from message in fetch response"}
+  defp parse_key(_crc, _attributes, data) do
+    {:error, "Error parsing key from message in fetch response", data}
   end
 
   defp parse_value(crc, attributes, key, << 255, 255, 255, 255 >>) do
@@ -92,7 +92,7 @@ defmodule Kafka.Protocol.Fetch do
     {:ok, %{crc: crc, attributes: attributes, key: key, value: value}}
   end
 
-  defp parse_value(_crc, _attributes, _key, _data) do
-    {:error, "Error parsing value from message in fetch response"}
+  defp parse_value(_crc, _attributes, _key, data) do
+    {:error, "Error parsing value from message in fetch response", data}
   end
 end

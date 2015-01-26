@@ -62,6 +62,6 @@ defmodule Kafka.Protocol.Fetch.Test do
   test "parse_response returns an error parsing an invalid response" do
     response = << 0 :: 32, -1 :: 32, 3 :: 16, "bar" :: binary, 1 :: 32, 0 :: 32, 0 :: 16, 10 :: 64, 32 :: 32, 1 :: 64, 20 :: 32, 0 :: 32, 0 :: 8, 0 :: 8,
       3 :: 32, "foo" :: binary, 3 :: 32, "bar" :: binary >>
-    assert {:error, _, %{client_id: "foo", correlation_id: 1}} = Kafka.Protocol.Fetch.parse_response(%{correlation_id: 1, client_id: "foo"}, response)
+    assert {:error, _, _, %{client_id: "foo", correlation_id: 1}} = Kafka.Protocol.Fetch.parse_response(%{correlation_id: 1, client_id: "foo"}, response)
   end
 end
