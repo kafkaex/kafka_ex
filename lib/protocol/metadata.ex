@@ -15,7 +15,7 @@ defmodule Kafka.Protocol.Metadata do
   end
 
   defp generate_result({:ok, broker_map, topic_map, rest}, timestamp, connection) do
-    {:ok, %{brokers: broker_map, topics: topic_map, timestamp: timestamp, connection: connection}}
+    {:ok, %{:brokers => broker_map, :topics => topic_map, :timestamp => timestamp, :connection => connection}}
   end
 
   defp generate_result({:error, message, data}, _ts, connection) do
@@ -27,7 +27,7 @@ defmodule Kafka.Protocol.Metadata do
   end
 
   defp parse_broker_list(map, num_brokers, << node_id :: 32, host_len :: 16, host :: size(host_len)-binary, port :: 32, rest :: binary >>) do
-    parse_broker_list(Map.put(map, node_id, %{host: host, port: port, socket: nil}), num_brokers-1, rest)
+    parse_broker_list(Map.put(map, node_id, %{:host => host, :port => port, :socket => nil}), num_brokers-1, rest)
   end
 
   defp parse_broker_list(_map, _brokers, data) do
@@ -65,7 +65,7 @@ defmodule Kafka.Protocol.Metadata do
   defp parse_partition_metadata(map, num_partitions, << error_code :: 16, id :: 32, leader :: 32, rest :: binary >>) do
     case parse_replicas_and_isrs(rest) do
       {:ok, replicas, isrs, rest} ->
-        parse_partition_metadata(Map.put(map, id, %{error_code: error_code, leader: leader, replicas: replicas, isrs: isrs}), num_partitions-1, rest)
+        parse_partition_metadata(Map.put(map, id, %{:error_code => error_code, :leader => leader, :replicas => replicas, :isrs => isrs}), num_partitions-1, rest)
       {:error, message, data} -> {:error, message, data}
     end
   end

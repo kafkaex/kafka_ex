@@ -18,7 +18,7 @@ defmodule Kafka.Consumer do
   end
 
   defp create_consumer({:ok, metadata}, broker_list, client_id) do
-    {:ok, %{broker_list: broker_list, client_id: client_id, metadata: metadata}}
+    {:ok, %{:broker_list => broker_list, :client_id => client_id, :metadata => metadata}}
   end
 
   defp create_consumer(error, _, _) do
@@ -114,7 +114,7 @@ defmodule Kafka.Consumer do
     end
 
     defp initialize_state({:ok, connection}, _) do
-      {:ok, %{connection: connection, topics: %{}, agent: nil, fetcher: nil}}
+      {:ok, %{:connection => connection, :topics => %{}, :agent => nil, :fetcher => nil}}
     end
 
     defp initialize_state({:error, message}, _broker) do
@@ -156,7 +156,7 @@ defmodule Kafka.Consumer do
     end
 
     defp set_agent({:ok, agent}, state) do
-      {:ok, %{state | agent: agent}}
+      {:ok, %{state | :agent => agent}}
     end
 
     defp set_agent({:error, message}, state) do
@@ -175,7 +175,7 @@ defmodule Kafka.Consumer do
     defp spawn_fetcher({:ok, state}, offset) do
       unless state.fetcher && Process.alive?(state.fetcher) do
         fetcher = spawn(fn -> Kafka.Consumer.Server.fetch(state.connection, state.agent, offset) end)
-        state = %{state | fetcher: fetcher}
+        state = %{state | :fetcher => fetcher}
       end
       {:noreply, state}
     end

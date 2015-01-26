@@ -44,7 +44,7 @@ defmodule Kafka.Protocol.Fetch do
   defp parse_partitions(map, num_partitions, << partition :: 32, error_code :: 16, hw_mark_offset :: 64, msg_set_size :: 32, msg_set_data :: size(msg_set_size)-binary, rest :: binary >>) do
     case parse_message_set([], msg_set_data) do
       {:ok, message_set} ->
-        parse_partitions(Map.put(map, partition, %{error_code: error_code, hw_mark_offset: hw_mark_offset, message_set: message_set}), num_partitions-1, rest)
+        parse_partitions(Map.put(map, partition, %{:error_code => error_code, :hw_mark_offset => hw_mark_offset, :message_set => message_set}), num_partitions-1, rest)
       {:error, message}        -> {:error, message}
     end
   end
@@ -72,7 +72,7 @@ defmodule Kafka.Protocol.Fetch do
     parse_key(crc, attributes, rest)
   end
 
-  defp parse_key(crc, attributes, << 255, 255, 255, 255, rest :: binary >>) do
+  defp parse_key(crc, attributes, << -1 :: 32-signed, rest :: binary >>) do
     parse_value(crc, attributes, nil, rest)
   end
 
@@ -84,12 +84,12 @@ defmodule Kafka.Protocol.Fetch do
     {:error, "Error parsing key from message in fetch response", data}
   end
 
-  defp parse_value(crc, attributes, key, << 255, 255, 255, 255 >>) do
-    {:ok, %{crc: crc, attributes: attributes, key: key, value: nil}}
+  defp parse_value(crc, attributes, key, << -1 :: 32-signed >>) do
+    {:ok, %{:crc => crc, :attributes => attributes, :key => key, :value => nil}}
   end
 
   defp parse_value(crc, attributes, key, << value_size :: 32, value :: size(value_size)-binary >>) do
-    {:ok, %{crc: crc, attributes: attributes, key: key, value: value}}
+    {:ok, %{:crc => crc, :attributes => attributes, :key => key, :value => value}}
   end
 
   defp parse_value(_crc, _attributes, _key, data) do

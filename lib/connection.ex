@@ -17,7 +17,7 @@ defmodule Kafka.Connection do
 
   def connect(host, port, client_id) do
     case :gen_tcp.connect(host, port, [:binary, {:packet, 4}]) do
-      {:ok, socket}    -> {:ok, %{correlation_id: 1, client_id: client_id, socket: socket}}
+      {:ok, socket}    -> {:ok, %{:correlation_id => 1, :client_id => client_id, :socket => socket}}
       error            -> error
     end
   end
@@ -30,7 +30,7 @@ defmodule Kafka.Connection do
     :gen_tcp.send(connection.socket, message)
     receive do
       {:tcp, _, data} ->
-        {:ok, %{connection | correlation_id: connection.correlation_id + 1}, data}
+        {:ok, %{connection | :correlation_id => connection.correlation_id + 1}, data}
     end
   end
 end
