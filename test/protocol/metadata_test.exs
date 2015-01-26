@@ -22,6 +22,6 @@ defmodule Kafka.Protocol.Metadata.Test do
   test "parse_response returns an error parsing an invalid response" do
     response = << 0 :: 32, 1 :: 32, 0 :: 32, 3 :: 16, "foo" :: binary, 9092 :: 32, 1 :: 32, 0 :: 16, 3 :: 16, "bar" :: binary,
       1 :: 16, 0 :: 16, 0 :: 32, 0 :: 32, 0 :: 32, 1 :: 32, 0 :: 32 >>
-    assert {:error, _} = Kafka.Protocol.Metadata.parse_response(%{correlation_id: 1, client_id: "foo"}, response)
+    assert {:error, _, _, %{correlation_id: 1, client_id: "foo"}} = Kafka.Protocol.Metadata.parse_response(%{correlation_id: 1, client_id: "foo"}, response)
   end
 end
