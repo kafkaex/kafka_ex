@@ -1,8 +1,8 @@
 defmodule Kafka.Protocol.Fetch do
   def create_request(connection, topic, partition, offset, wait_time, min_bytes, max_bytes) do
     Kafka.Protocol.create_request(:fetch, connection) <>
-      << -1 :: 32, wait_time :: 32, min_bytes :: 32, byte_size(topic) :: 16, topic :: binary,
-         partition :: 32, offset :: 64, max_bytes :: 32 >>
+      << -1 :: 32, wait_time :: 32, min_bytes :: 32, 1 :: 32, byte_size(topic) :: 16, topic :: binary,
+         1 :: 32, partition :: 32, offset :: 64, max_bytes :: 32 >>
   end
 
   def parse_response(connection, << _correlation_id :: 32, num_topics :: 32, rest :: binary>>) do

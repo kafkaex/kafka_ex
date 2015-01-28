@@ -3,7 +3,7 @@ defmodule Kafka.Protocol.Fetch.Test do
   import Mock
 
   test "create_request creates a valid fetch request" do
-    good_request = << 1 :: 16, 0 :: 16, 1 :: 32, 3 :: 16, "foo" :: binary, -1 :: 32, 10 :: 32, 1 :: 32, 3 :: 16, "bar" :: binary, 0 :: 32, 1 :: 64, 10000 :: 32 >>
+    good_request = << 1 :: 16, 0 :: 16, 1 :: 32, 3 :: 16, "foo" :: binary, -1 :: 32, 10 :: 32, 1 :: 32, 1 :: 32, 3 :: 16, "bar" :: binary, 1 :: 32, 0 :: 32, 1 :: 64, 10000 :: 32 >>
     request = Kafka.Protocol.Fetch.create_request(%{correlation_id: 1, client_id: "foo"}, "bar", 0, 1, 10, 1, 10000)
     assert request == good_request
   end
