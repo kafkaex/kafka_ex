@@ -4,7 +4,7 @@ defmodule Kafka.Metadata do
     |> get
   end
 
-  defp _get_brokers({:ok, metadata}, _client_id, topic, partition) do
+  defp _get_brokers({:ok, metadata}, topic, partition) do
     {:ok, metadata, get_brokers_for_topic(metadata, %{}, topic, partition)}
   end
 
@@ -12,9 +12,9 @@ defmodule Kafka.Metadata do
     {:error, reason}
   end
 
-  def get_brokers(metadata, client_id, topic, partition) do
-    update(metadata, client_id)
-    |> _get_brokers(client_id, topic, partition)
+  def get_brokers(metadata, topic, partition) do
+    update(metadata)
+    |> _get_brokers(topic, partition)
   end
 
   defp get_brokers_for_topic(metadata, map, topic, partition) do
@@ -47,7 +47,7 @@ defmodule Kafka.Metadata do
     {:error, "Error connecting to Kafka: #{message}", %{}}
   end
 
-  def update(metadata, client_id) do
+  def update(metadata) do
     if Kafka.Helper.get_timestamp - metadata.timestamp >= 5 * 60 do
       get({:ok, metadata.connection})
     else
