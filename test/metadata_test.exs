@@ -17,7 +17,7 @@ defmodule Kafka.Metadata.Test do
     with_mock Kafka.Connection, [send: fn(_, _) -> {:ok, connection, response} end,
                                  connect: fn(_, _) -> {:ok, connection} end] do
       {:ok, metadata} = Kafka.Metadata.new([["localhost", 9092]], "foo")
-      {:ok, metadata, brokers_for_topic} = Kafka.Metadata.get_brokers(metadata, "foo", "fnord", 0)
+      {:ok, metadata, brokers_for_topic} = Kafka.Metadata.get_brokers(metadata, "fnord", 0)
       assert brokers_for_topic == %{%{:host => "foo", :port => 9092, :socket => nil} => %{"fnord" => [0]}}
     end
   end
@@ -78,7 +78,7 @@ defmodule Kafka.Metadata.Test do
                                  connect: fn(_, _) -> {:ok, connection} end] do
       {:ok, metadata} = Kafka.Metadata.new(%{:correlation_id => 1}, "foo")
       :timer.sleep(1000)
-      assert {:ok, metadata} == Kafka.Metadata.update(metadata, "foo")
+      assert {:ok, metadata} == Kafka.Metadata.update(metadata)
     end
   end
 
@@ -95,7 +95,7 @@ defmodule Kafka.Metadata.Test do
       {mega, secs, _} = :os.timestamp
       ts = mega * 1000000 + secs + 6 * 60
       with_mock Kafka.Helper, [get_timestamp: fn -> ts end] do
-        assert {:ok, metadata} != Kafka.Metadata.update(metadata, "foo")
+        assert {:ok, metadata} != Kafka.Metadata.update(metadata)
       end
     end
   end
