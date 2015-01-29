@@ -3,6 +3,10 @@ defmodule Kafka.Connection do
     {:error, "no brokers available"}
   end
 
+  def connect(%{:host => host, :port => port}, client_id) do
+    connect(host, port, client_id)
+  end
+
   def connect(broker_list, client_id) do
     [[host, port] | rest] = broker_list
     case connect(host, port, client_id) do

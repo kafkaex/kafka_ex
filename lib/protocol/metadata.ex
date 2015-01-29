@@ -27,7 +27,7 @@ defmodule Kafka.Protocol.Metadata do
   end
 
   defp parse_broker_list(map, num_brokers, << node_id :: 32, host_len :: 16, host :: size(host_len)-binary, port :: 32, rest :: binary >>) do
-    parse_broker_list(Map.put(map, node_id, %{:host => host, :port => port, :socket => nil}), num_brokers-1, rest)
+    parse_broker_list(Map.put(map, node_id, %{:host => host, :port => port}), num_brokers-1, rest)
   end
 
   defp parse_broker_list(_map, _brokers, data) do

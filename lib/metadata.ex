@@ -1,53 +1,21 @@
 defmodule Kafka.Metadata do
   def new(broker_list, client_id) do
     Kafka.Connection.connect(broker_list, client_id)
-    |> get
+    |> get_metadata
   end
 
-  defp _get_brokers({:ok, metadata}, topic, partition) do
-    {:ok, metadata, get_brokers_for_topic(metadata, %{}, topic, partition)}
-  end
-
-  defp _get_brokers({:error, reason}, _, _) do
-    {:error, reason}
-  end
-
-  def get_brokers(metadata, topic, partition) do
-    update(metadata)
-    |> _get_brokers(topic, partition)
-  end
-
-  defp get_brokers_for_topic(metadata, map, topic, partition) do
-    Enum.reduce(metadata.topics[topic][:partitions], map, fn({partition_id, partition_map}, acc) ->
-      if partition == partition_id || partition == :all do
-        broker = metadata.brokers[partition_map[:leader]]
-        if Map.has_key?(acc, broker) do
-          if Map.has_key?(acc[broker], topic) do
-            Map.put(acc, broker, Map.put(acc[broker], topic, acc[broker][topic] ++ [partition_id]))
-          else
-            Map.put(acc, broker, Map.put(acc[broker], topic, [partition_id]))
-          end
-        else
-          Map.put(acc, broker, Map.put(%{}, topic, [partition_id]))
-        end
-      else
-        acc
-      end
-    end)
-  end
-
-  defp get({:ok, connection}) do
+  defp get_metadata({:ok, connection}) do
     Kafka.Connection.send(connection, Kafka.Protocol.Metadata.create_request(connection))
     |> parse_response
   end
 
-  defp get({:error, message}) do
+  defp get_metadata({:error, message}) do
     {:error, "Error connecting to Kafka: #{message}", %{}}
   end
 
-  def update(metadata) do
+  defp update(metadata) do
     if Kafka.Helper.get_timestamp - metadata.timestamp >= 5 * 60 do
-      get({:ok, metadata.connection})
+      get_metadata({:ok, metadata.connection})
     else
       {:ok, metadata}
     end
@@ -59,5 +27,35 @@ defmodule Kafka.Metadata do
 
   defp parse_response(error) do
     error
+  end
+
+  defp get_broker_from_metadata({:ok, metadata}, topic, partition) do
+    {:ok, metadata, get_brokers_for_topic(metadata, topic, partition)}
+  end
+
+  defp get_broker_from_metadata({:error, reason}, _, _) do
+    {:error, reason}
+  end
+
+  def get_broker(metadata, topic, partition) do
+    update(metadata)
+    |> get_broker_from_metadata(topic, partition)
+  end
+
+  defp get_leader_for_topic_partition(metadata, topic, partition) do
+    metadata.topics[topic][:partitions][partition][:leader]
+  end
+
+  defp get_brokers_for_topic(metadata, topic, partition) do
+    get_leader_for_topic_partition(metadata, topic, partition)
+    |> get_broker_for_broker_id(metadata)
+  end
+
+  defp get_broker_for_broker_id(nil, metadata) do
+    {nil, metadata}
+  end
+
+  defp get_broker_for_broker_id(broker_id, metadata) do
+    metadata.brokers[broker_id]
   end
 end

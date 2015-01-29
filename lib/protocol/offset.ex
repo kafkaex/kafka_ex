@@ -64,7 +64,6 @@ defmodule Kafka.Protocol.Offset do
   end
 
   defp parse_offsets(list, 0, rest) do
-    IO.inspect list
     {:ok, list, rest}
   end
 
