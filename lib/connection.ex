@@ -4,10 +4,10 @@ defmodule Kafka.Connection do
   end
 
   def connect(broker_list, client_id) do
-    [first | rest] = broker_list
-    case connect(Enum.at(first, 0), Enum.at(first, 1), client_id) do
-      {:ok, connection} -> {:ok, connection}
-      {:error, _}   -> connect(rest, client_id)
+    [[host, port] | rest] = broker_list
+    case connect(host, port, client_id) do
+      {:ok, connection} -> {:ok, Map.put(connection, :broker_list, broker_list)}
+      {:error, _}       -> connect(rest, client_id)
     end
   end
 
@@ -28,9 +28,17 @@ defmodule Kafka.Connection do
 
   def send(connection, message) do
     :gen_tcp.send(connection.socket, message)
+    |> receive(connection)
+  end
+
+  defp receive(:ok, connection) do
     receive do
       {:tcp, _, data} ->
         {:ok, %{connection | :correlation_id => connection.correlation_id + 1}, data}
     end
+  end
+
+  defp receive({:error, reason}, _connection) do
+    {:error, reason}
   end
 end
