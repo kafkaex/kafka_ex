@@ -18,24 +18,22 @@ defmodule Kafka.Metadata do
   end
 
   defp get_brokers_for_topic(metadata, map, topic, partition) do
-    Enum.reduce(metadata.topics[topic][:partitions],
-                map,
-                fn({partition_id, partition_map}, acc) ->
-                  if partition == partition_id || partition == :all do
-                    broker = metadata.brokers[partition_map[:leader]]
-                    if Map.has_key?(acc, broker) do
-                      if Map.has_key?(acc[broker], topic) do
-                        Map.put(acc, broker, Map.put(acc[broker], topic, acc[broker][topic] ++ [partition_id]))
-                      else
-                        Map.put(acc, broker, Map.put(acc[broker], topic, [partition_id]))
-                      end
-                    else
-                      Map.put(acc, broker, Map.put(%{}, topic, [partition_id]))
-                    end
-                  else
-                    acc
-                  end
-                end)
+    Enum.reduce(metadata.topics[topic][:partitions], map, fn({partition_id, partition_map}, acc) ->
+      if partition == partition_id || partition == :all do
+        broker = metadata.brokers[partition_map[:leader]]
+        if Map.has_key?(acc, broker) do
+          if Map.has_key?(acc[broker], topic) do
+            Map.put(acc, broker, Map.put(acc[broker], topic, acc[broker][topic] ++ [partition_id]))
+          else
+            Map.put(acc, broker, Map.put(acc[broker], topic, [partition_id]))
+          end
+        else
+          Map.put(acc, broker, Map.put(%{}, topic, [partition_id]))
+        end
+      else
+        acc
+      end
+    end)
   end
 
   defp get({:ok, connection}) do
