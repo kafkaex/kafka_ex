@@ -10,14 +10,17 @@ defmodule Kafka.Metadata do
   end
 
   defp get_metadata({:error, message}) do
-    {:error, "Error connecting to Kafka: #{message}", %{}}
+    {:error, "Error connecting to Kafka: #{message}"}
   end
 
-  defp update(metadata) do
+  def update(metadata) do
     if Kafka.Helper.get_timestamp - metadata.timestamp >= 5 * 60 do
-      get_metadata({:ok, metadata.connection})
+      case get_metadata({:ok, metadata.connection}) do
+        {:ok, metadata}  -> {:ok, :updated, metadata}
+        {:error, reason} -> {:error, reason}
+      end
     else
-      {:ok, metadata}
+      {:ok, :cached, metadata}
     end
   end
 
@@ -29,8 +32,8 @@ defmodule Kafka.Metadata do
     error
   end
 
-  defp get_broker_from_metadata({:ok, metadata}, topic, partition) do
-    {:ok, metadata, get_brokers_for_topic(metadata, topic, partition)}
+  defp get_broker_from_metadata({:ok, _, metadata}, topic, partition) do
+    get_brokers_for_topic(metadata, topic, partition)
   end
 
   defp get_broker_from_metadata({:error, reason}, _, _) do
@@ -52,10 +55,13 @@ defmodule Kafka.Metadata do
   end
 
   defp get_broker_for_broker_id(nil, metadata) do
-    {nil, metadata}
+    {:error, "No leader found for topic and partition", metadata}
   end
 
   defp get_broker_for_broker_id(broker_id, metadata) do
-    metadata.brokers[broker_id]
+    case metadata.brokers[broker_id] do
+      nil      -> {:error, "no broker found for broker id #{broker_id}", metadata}
+      broker   -> {:ok, broker, metadata}
+    end
   end
 end

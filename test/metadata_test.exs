@@ -17,8 +17,8 @@ defmodule Kafka.Metadata.Test do
     with_mock Kafka.Connection, [send: fn(_, _) -> {:ok, connection, response} end,
                                  connect: fn(_, _) -> {:ok, connection} end] do
       {:ok, metadata} = Kafka.Metadata.new([["localhost", 9092]], "foo")
-      {:ok, metadata, brokers_for_topic} = Kafka.Metadata.get_broker(metadata, "fnord", 0)
-      assert brokers_for_topic == %{:host => "foo", :port => 9092}
+      {:ok, broker, metadata} = Kafka.Metadata.get_broker(metadata, "fnord", 0)
+      assert broker == %{:host => "foo", :port => 9092}
     end
   end
 
@@ -78,7 +78,7 @@ defmodule Kafka.Metadata.Test do
                                  connect: fn(_, _) -> {:ok, connection} end] do
       {:ok, metadata} = Kafka.Metadata.new(%{:correlation_id => 1}, "foo")
       :timer.sleep(1000)
-      assert {:ok, metadata, %{host: "localhost", port: 9092}} == Kafka.Metadata.get_broker(metadata, "test", 0)
+      assert {:ok, %{host: "localhost", port: 9092}, metadata} == Kafka.Metadata.get_broker(metadata, "test", 0)
     end
   end
 
