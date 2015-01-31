@@ -6,7 +6,7 @@ defmodule Kafka.Metadata do
 
   defp get_metadata({:ok, connection}) do
     Kafka.Protocol.Metadata.create_request(connection)
-    |> Kafka.Connection.send(connection)
+    |> Kafka.Connection.send_and_return_response(connection)
     |> parse_response
   end
 

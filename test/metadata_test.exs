@@ -14,7 +14,7 @@ defmodule Kafka.Metadata.Test do
            %{:error_code => 0, :id => 1, :leader => 1, :replicas => [0,1], :isrs => [0,1]}]}])
 
     connection = %{:correlation_id => 1, :client_id => "client_id"}
-    with_mock Kafka.Connection, [send: fn(_, _) -> {:ok, connection, response} end,
+    with_mock Kafka.Connection, [send_and_return_response: fn(_, _) -> {:ok, connection, response} end,
                                  connect: fn(_, _) -> {:ok, connection} end] do
       {:ok, metadata} = Kafka.Metadata.new([["localhost", 9092]], "foo")
       {:ok, broker, metadata} = Kafka.Metadata.get_broker(metadata, "fnord", 0)
@@ -29,7 +29,7 @@ defmodule Kafka.Metadata.Test do
           [%{:error_code => 0, :id => 0, :leader => 0, :replicas => [0], :isrs => [0]}]}])
 
     connection = %{:correlation_id => 1, :client_id => "client_id"}
-    with_mock Kafka.Connection, [send: fn(_, _) -> {:ok, connection, response} end,
+    with_mock Kafka.Connection, [send_and_return_response: fn(_, _) -> {:ok, connection, response} end,
                                  connect: fn(_, _) -> {:ok, connection} end] do
       {:ok, %{:brokers => broker_map, :topics => topic_map, :timestamp => _}} =
         Kafka.Metadata.new(%{:correlation_id => 1}, "foo")
@@ -51,7 +51,7 @@ defmodule Kafka.Metadata.Test do
            %{:error_code => 0, :id => 1, :leader => 1, :replicas => [0,1], :isrs => [0,1]}]}])
 
     connection = %{:correlation_id => 1, :client_id => "client_id"}
-    with_mock Kafka.Connection, [send: fn(_, _) -> {:ok, connection, response} end,
+    with_mock Kafka.Connection, [send_and_return_response: fn(_, _) -> {:ok, connection, response} end,
                                  connect: fn(_, _) -> {:ok, connection} end] do
 
       {:ok, %{:brokers => broker_map, :topics => topic_map, :timestamp => _}} =
@@ -74,7 +74,7 @@ defmodule Kafka.Metadata.Test do
           [%{:error_code => 0, :id => 0, :leader => 0, :replicas => [0], :isrs => [0]}]}])
 
     connection = %{:correlation_id => 1, :client_id => "client_id"}
-    with_mock Kafka.Connection, [send: fn(_, _) -> {:ok, connection, response} end,
+    with_mock Kafka.Connection, [send_and_return_response: fn(_, _) -> {:ok, connection, response} end,
                                  connect: fn(_, _) -> {:ok, connection} end] do
       {:ok, metadata} = Kafka.Metadata.new(%{:correlation_id => 1}, "foo")
       :timer.sleep(1000)
@@ -89,7 +89,7 @@ defmodule Kafka.Metadata.Test do
           [%{:error_code => 0, :id => 0, :leader => 0, :replicas => [0], :isrs => [0]}]}])
 
     connection = %{:correlation_id => 1, :client_id => "client_id"}
-    with_mock Kafka.Connection, [send: fn(_, _) -> {:ok, connection, response} end,
+    with_mock Kafka.Connection, [send_and_return_response: fn(_, _) -> {:ok, connection, response} end,
                                  connect: fn(_, _) -> {:ok, connection} end] do
       {:ok, metadata} = Kafka.Metadata.new(%{:correlation_id => 1}, "foo")
       {mega, secs, _} = :os.timestamp

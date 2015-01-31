@@ -27,7 +27,7 @@ defmodule Kafka.Connection.Test do
                                      end] do
       client_id = "client_id"
       {:ok, connection} = Kafka.Connection.connect([["localhost", 9092]], client_id)
-      {:ok, connection, data} = Kafka.Connection.send(connection, "foo")
+      {:ok, connection, data} = Kafka.Connection.send_and_return_response("foo", connection)
       assert connection == %{:correlation_id => 2, :client_id => client_id, :socket => %{}, :broker_list => [["localhost", 9092]]}
     end
   end

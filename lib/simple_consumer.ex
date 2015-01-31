@@ -1,8 +1,8 @@
 defmodule Kafka.SimpleConsumer do
   def new(broker_list, client_id, topic, partition) do
     Kafka.Metadata.new(broker_list, client_id)
-    |> get_broker(topic, partition)
-    |> connect(client_id)
+    |> Kafka.Util.get_broker(topic, partition)
+    |> Kafka.Util.connect(client_id)
     |> create_consumer(topic, partition)
   end
 
@@ -14,7 +14,7 @@ defmodule Kafka.SimpleConsumer do
 
   def fetch({:ok, :cached, metadata}, consumer, offset, wait_time, min_bytes, max_bytes) do
     Kafka.Protocol.Fetch.create_request(consumer.connection, consumer.topic, consumer.partition, offset, wait_time, min_bytes, max_bytes)
-    |> Kafka.Connection.send(consumer.connection)
+    |> Kafka.Connection.send_and_return_response(consumer.connection)
     |> parse_response(consumer)
   end
 
@@ -23,7 +23,7 @@ defmodule Kafka.SimpleConsumer do
       {:ok, broker, metadata} ->
         cond do
           broker != consumer.broker ->
-            connect({:ok, broker, metadata}, consumer.connection.client_id)
+            Kafka.Util.connect({:ok, broker, metadata}, consumer.connection.client_id)
             |> update_consumer(consumer, consumer.topic, consumer.partition)
             |> fetch(offset, wait_time, min_bytes, max_bytes)
 
@@ -72,24 +72,5 @@ defmodule Kafka.SimpleConsumer do
 
   defp update_consumer({:error, reason, _}, _topic, _partition) do
     {:error, reason}
-  end
-
-  defp connect({:error, reason, metadata}, client_id) do
-    {:error, reason, metadata}
-  end
-
-  defp connect({:ok, broker, metadata}, client_id) do
-    case Kafka.Connection.connect(broker, client_id) do
-      {:ok, connection} -> {:ok, connection, metadata, broker}
-      {:error, reason}  -> {:error, reason, metadata}
-    end
-  end
-
-  defp get_broker({:ok, metadata}, topic, partition) do
-    Kafka.Metadata.get_broker(metadata, topic, partition)
-  end
-
-  defp get_broker({:error, reason}, _topic, _partition) do
-    {:error, reason, nil}
   end
 end

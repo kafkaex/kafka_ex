@@ -1,6 +1,6 @@
 defmodule Kafka.Protocol.Offset do
   def create_request(connection, topic, partition, time) do
-    message = Kafka.Protocol.create_request(:offset, connection) <>
+    Kafka.Protocol.create_request(:offset, connection) <>
       << -1 :: 32, 1 :: 32, byte_size(topic) :: 16, topic :: binary, 1 :: 32, partition :: 32, parse_time(time) :: 64, 1 :: 32>>
   end
 
