@@ -3,7 +3,6 @@ defmodule Kafka.SimpleConsumer do
     Kafka.Metadata.new(broker_list, client_id)
     |> get_broker(topic, partition)
     |> connect(client_id)
-    |> IO.inspect
     |> create_consumer(topic, partition)
   end
 
@@ -76,12 +75,10 @@ defmodule Kafka.SimpleConsumer do
   end
 
   defp connect({:error, reason, metadata}, client_id) do
-    IO.puts("connect :error")
     {:error, reason, metadata}
   end
 
   defp connect({:ok, broker, metadata}, client_id) do
-    IO.puts("connect :ok")
     case Kafka.Connection.connect(broker, client_id) do
       {:ok, connection} -> {:ok, connection, metadata, broker}
       {:error, reason}  -> {:error, reason, metadata}
@@ -89,12 +86,10 @@ defmodule Kafka.SimpleConsumer do
   end
 
   defp get_broker({:ok, metadata}, topic, partition) do
-    IO.puts "get_broker :ok"
     Kafka.Metadata.get_broker(metadata, topic, partition)
   end
 
   defp get_broker({:error, reason}, _topic, _partition) do
-    IO.puts "get_broker :error"
     {:error, reason, nil}
   end
 end
