@@ -3,6 +3,7 @@ defmodule Kafka.SimpleConsumer do
     Kafka.Metadata.new(broker_list, client_id)
     |> get_broker(topic, partition)
     |> connect(client_id)
+    |> IO.inspect
     |> create_consumer(topic, partition)
   end
 
@@ -13,11 +14,9 @@ defmodule Kafka.SimpleConsumer do
   end
 
   def fetch({:ok, :cached, metadata}, consumer, offset, wait_time, min_bytes, max_bytes) do
-    case Kafka.Connection.send(consumer.connection,
-      Kafka.Protocol.Fetch.create_request(consumer.connection, consumer.topic, consumer.partition, offset, wait_time, min_bytes, max_bytes)) do
-        {:ok, _, response} -> {:ok, consumer, response}
-        {:error, reason}   -> {:error, reason}
-    end
+    Kafka.Protocol.Fetch.create_request(consumer.connection, consumer.topic, consumer.partition, offset, wait_time, min_bytes, max_bytes)
+    |> Kafka.Connection.send(consumer.connection)
+    |> parse_response(consumer)
   end
 
   def fetch({:ok, :updated, metadata}, consumer, offset, wait_time, min_bytes, max_bytes) do
@@ -46,6 +45,15 @@ defmodule Kafka.SimpleConsumer do
     |> fetch(consumer, offset, wait_time, min_bytes, max_bytes)
   end
 
+  defp parse_response({:ok, connection, data}, consumer) do
+    %{consumer | connection: connection}
+    Kafka.Protocol.Fetch.parse_response(consumer, data)
+  end
+
+  defp parse_response({:error, reason}, _) do
+    {:error, reason}
+  end
+
   defp create_consumer({:ok, connection, metadata, broker}, topic, partition) do
     {:ok, %{:connection => connection, :broker => broker, :metadata => metadata, :topic => topic, :partition => partition}}
   end
@@ -68,11 +76,12 @@ defmodule Kafka.SimpleConsumer do
   end
 
   defp connect({:error, reason, metadata}, client_id) do
+    IO.puts("connect :error")
     {:error, reason, metadata}
   end
 
   defp connect({:ok, broker, metadata}, client_id) do
-    IO.puts("Calling Kafka.Connection.connect")
+    IO.puts("connect :ok")
     case Kafka.Connection.connect(broker, client_id) do
       {:ok, connection} -> {:ok, connection, metadata, broker}
       {:error, reason}  -> {:error, reason, metadata}
@@ -80,10 +89,12 @@ defmodule Kafka.SimpleConsumer do
   end
 
   defp get_broker({:ok, metadata}, topic, partition) do
+    IO.puts "get_broker :ok"
     Kafka.Metadata.get_broker(metadata, topic, partition)
   end
 
   defp get_broker({:error, reason}, _topic, _partition) do
+    IO.puts "get_broker :error"
     {:error, reason, nil}
   end
 end

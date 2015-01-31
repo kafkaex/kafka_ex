@@ -5,21 +5,21 @@ defmodule Kafka.Protocol.Fetch do
          1 :: 32, partition :: 32, offset :: 64, max_bytes :: 32 >>
   end
 
-  def parse_response(connection, << _correlation_id :: 32, num_topics :: 32, rest :: binary>>) do
+  def parse_response(passthrough, << _correlation_id :: 32, num_topics :: 32, rest :: binary>>) do
     parse_topics(%{}, num_topics, rest)
-    |> generate_result(connection)
+    |> generate_result(passthrough)
   end
 
   def parse_response(_connection, data) do
     {:error, "Error parsing num_topics in fetch response", data}
   end
 
-  defp generate_result({:ok, response_map, _rest}, connection) do
-    {:ok, response_map, connection}
+  defp generate_result({:ok, response_map, _rest}, passthrough) do
+    {:ok, response_map, passthrough}
   end
 
-  defp generate_result({:error, message, data}, connection) do
-    {:error, message, data, connection}
+  defp generate_result({:error, message, data}, passthrough) do
+    {:error, message, data, passthrough}
   end
 
   defp parse_topics(map, 0, rest) do
