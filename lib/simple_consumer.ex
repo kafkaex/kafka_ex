@@ -19,20 +19,8 @@ defmodule Kafka.SimpleConsumer do
   end
 
   def fetch({:ok, :updated, metadata}, consumer, offset, wait_time, min_bytes, max_bytes) do
-    case Kafka.Metadata.get_broker(metadata, consumer.topic, consumer.partition) do
-      {:ok, broker, metadata} ->
-        cond do
-          broker != consumer.broker ->
-            Kafka.Util.connect({:ok, broker, metadata}, consumer.connection.client_id)
-            |> update_consumer(consumer, consumer.topic, consumer.partition)
-            |> fetch(offset, wait_time, min_bytes, max_bytes)
-
-          true ->
-            fetch({:ok, :cached, metadata}, consumer, offset, wait_time, min_bytes, max_bytes)
-        end
-
-        {:error, reason} -> {:error, reason}
-    end
+    rebalance(metadata, consumer)
+    |> fetch(offset, wait_time, min_bytes, max_bytes)
   end
 
   def fetch({:error, reason}, _offset, _wait_time, _min_bytes, _max_bytes) do
@@ -42,6 +30,21 @@ defmodule Kafka.SimpleConsumer do
   def fetch(consumer, offset, wait_time, min_bytes, max_bytes) do
     Kafka.Metadata.update(consumer.metadata)
     |> fetch(consumer, offset, wait_time, min_bytes, max_bytes)
+  end
+
+  defp rebalance(metadata, consumer) do
+    case Kafka.Metadata.get_broker(metadata, consumer.topic, consumer.partition) do
+      {:ok, broker, metadata} ->
+        cond do
+          broker != consumer.broker ->
+            Kafka.Util.connect({:ok, broker, metadata}, consumer.connection.client_id)
+            |> update_consumer(consumer, consumer.topic, consumer.partition)
+
+          true -> {:ok, consumer}
+        end
+
+        {:error, reason} -> {:error, reason}
+    end
   end
 
   defp parse_response({:ok, connection, data}, consumer) do
