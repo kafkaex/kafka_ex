@@ -14,7 +14,7 @@ defmodule Kafka.Protocol.Produce.Test do
     response = << 0 :: 32, 1 :: 32, 3 :: 16, "bar" :: binary, 1 :: 32, 0 :: 32, 0 :: 16, 10 :: 64 >>
     producer = %{:connection => %{:correlation_id => 1, :client_id => "foo"}, :broker => %{:host => "localhost", :port => 9092},
       :metadata => %{}, :topic => "test", :partition => 0}
-    assert {:ok, %{"bar" => %{0 => %{:error_code => 0, :offset => 10}}}, producer} = Kafka.Protocol.Produce.parse_response(producer, response)
+    assert {:ok, %{"bar" => %{0 => %{:error_code => 0, :offset => 10}}}, producer} == Kafka.Protocol.Produce.parse_response(producer, response)
   end
 
   test "parse_response correctly parses a valid response with multiple topics and partitions" do
@@ -23,13 +23,13 @@ defmodule Kafka.Protocol.Produce.Test do
     producer = %{:connection => %{:correlation_id => 1, :client_id => "foo"}, :broker => %{:host => "localhost", :port => 9092},
       :metadata => %{}, :topic => "test", :partition => 0}
     assert {:ok, %{"bar" => %{0 => %{:error_code => 0, :offset => 10}, 1 => %{:error_code => 0, :offset => 20}},
-                   "baz" => %{0 => %{:error_code => 0, :offset => 30}, 1 => %{:error_code => 0, :offset => 40}}}, producer} = Kafka.Protocol.Produce.parse_response(producer, response)
+                   "baz" => %{0 => %{:error_code => 0, :offset => 30}, 1 => %{:error_code => 0, :offset => 40}}}, producer} == Kafka.Protocol.Produce.parse_response(producer, response)
   end
 
   test "parse_response correctly parses an invalid response returning an error" do
     response = << 0 :: 32, 2 :: 32, 3 :: 16, "bar" :: binary, 1 :: 32, 0 :: 32, 0 :: 16, 10 :: 64 >>
     producer = %{:connection => %{:correlation_id => 1, :client_id => "foo"}, :broker => %{:host => "localhost", :port => 9092},
       :metadata => %{}, :topic => "test", :partition => 0}
-    assert {:error, _, _, producer} = Kafka.Protocol.Produce.parse_response(producer, response)
+    assert {:error, "Error parsing topic or number of partitions in produce response", "", producer} == Kafka.Protocol.Produce.parse_response(producer, response)
   end
 end

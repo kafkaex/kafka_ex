@@ -33,6 +33,7 @@ defmodule Kafka.Producer do
   def produce({:ok, :cached, metadata}, producer, value, key, 0, timeout) do
     Kafka.Protocol.Produce.create_request(producer.connection, producer.topic, producer.partition, value, key, 0, timeout)
     |> Kafka.Connection.send(producer.connection)
+    |> create_result(producer)
   end
 
   def produce({:ok, :cached, metadata}, producer, value, key, required_acks, timeout) do
@@ -41,7 +42,15 @@ defmodule Kafka.Producer do
     |> parse_response(producer)
   end
 
-  def rebalance(metadata, producer) do
+  defp create_result({:ok, connection}, producer) do
+    {:ok, %{producer | :connection => connection}}
+  end
+
+  defp create_result({:error, reason}, producer) do
+    {:error, reason, producer}
+  end
+
+  defp rebalance(metadata, producer) do
     case Kafka.Metadata.get_broker(metadata, producer.topic, producer.partition) do
       {:ok, broker, metadata} ->
         cond do
