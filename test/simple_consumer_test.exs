@@ -62,7 +62,6 @@ defmodule Kafka.SimpleConsumer.Test do
 
   test "fetch returns error when it can't send to broker" do
     connection = %{:correlation_id => 1, :client_id => "client_id"}
-    response = "response"
     consumer = %{:connection => connection, :broker => %{:host => "foo", :port => 9092}, :metadata => %{:timestamp => Kafka.Helper.get_timestamp},
       :topic => "test", :partition => 0}
     with_mock Kafka.Connection, [send_and_return_response: fn(_, _) -> {:error, :boom} end] do
