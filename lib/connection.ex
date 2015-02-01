@@ -31,22 +31,25 @@ defmodule Kafka.Connection do
   end
 
   def send(message, connection) do
-    :gen_tcp.send(connection.socket, message)
+    case :gen_tcp.send(connection.socket, message) do
+      :ok -> {:ok, %{connection | :correlation_id => connection.correlation_id + 1}}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   def send_and_return_response(message, connection) do
     Kafka.Connection.send(message, connection)
-    |> receive(connection)
+    |> get_response
   end
 
-  defp receive(:ok, connection) do
+  defp get_response({:ok, connection}) do
     receive do
       {:tcp, _, data} ->
-        {:ok, %{connection | :correlation_id => connection.correlation_id + 1}, data}
+        {:ok, connection, data}
     end
   end
 
-  defp receive({:error, reason}, _connection) do
+  defp get_response({:error, reason}, _connection) do
     {:error, reason}
   end
 end
