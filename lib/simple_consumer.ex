@@ -6,30 +6,28 @@ defmodule Kafka.SimpleConsumer do
     |> create_consumer(topic, partition)
   end
 
-  def fetch(consumer, offset, wait_time \\ 10, min_bytes \\ 1, max_bytes \\ 1_000_000)
-
-  def fetch({:ok, consumer}, offset, wait_time, min_bytes, max_bytes) do
-    fetch({:ok, :cached, consumer.metadata}, consumer, offset, wait_time, min_bytes, max_bytes)
+  def fetch(consumer, offset, wait_time \\ 10, min_bytes \\ 1, max_bytes \\ 1_000_000) do
+    Kafka.Metadata.update(consumer.metadata)
+    |> fetch_with_update(consumer, offset, wait_time, min_bytes, max_bytes)
   end
 
-  def fetch({:ok, :cached, metadata}, consumer, offset, wait_time, min_bytes, max_bytes) do
+  defp fetch_with_update({:ok, :cached, metadata}, consumer, offset, wait_time, min_bytes, max_bytes) do
     Kafka.Protocol.Fetch.create_request(consumer.connection, consumer.topic, consumer.partition, offset, wait_time, min_bytes, max_bytes)
     |> Kafka.Connection.send_and_return_response(consumer.connection)
     |> parse_response(consumer)
   end
 
-  def fetch({:ok, :updated, metadata}, consumer, offset, wait_time, min_bytes, max_bytes) do
+  defp fetch_with_update({:ok, :updated, metadata}, consumer, offset, wait_time, min_bytes, max_bytes) do
     rebalance(metadata, consumer)
-    |> fetch(offset, wait_time, min_bytes, max_bytes)
+    |> fetch_with_rebalance(offset, wait_time, min_bytes, max_bytes)
   end
 
-  def fetch({:error, reason}, _offset, _wait_time, _min_bytes, _max_bytes) do
+  defp fetch_with_update({:error, reason}, _offset, _wait_time, _min_bytes, _max_bytes) do
     {:error, reason}
   end
 
-  def fetch(consumer, offset, wait_time, min_bytes, max_bytes) do
-    Kafka.Metadata.update(consumer.metadata)
-    |> fetch(consumer, offset, wait_time, min_bytes, max_bytes)
+  defp fetch_with_rebalance({:ok, consumer}, offset, wait_time, min_bytes, max_bytes) do
+    fetch_with_update({:ok, :cached, consumer.metadata}, consumer, offset, wait_time, min_bytes, max_bytes)
   end
 
   defp rebalance(metadata, consumer) do
