@@ -49,7 +49,7 @@ defmodule Kafka.Connection do
     end
   end
 
-  defp get_response({:error, reason}, _connection) do
+  defp get_response({:error, reason}) do
     {:error, reason}
   end
 end

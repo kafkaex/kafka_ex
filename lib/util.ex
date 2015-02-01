@@ -7,7 +7,7 @@ defmodule Kafka.Util do
     {:error, reason, nil}
   end
 
-  def connect({:error, reason, metadata}, client_id) do
+  def connect({:error, reason, metadata}, _client_id) do
     {:error, reason, metadata}
   end
 

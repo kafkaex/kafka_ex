@@ -30,13 +30,13 @@ defmodule Kafka.Producer do
     end
   end
 
-  def produce({:ok, :cached, metadata}, producer, value, key, 0, timeout) do
+  def produce({:ok, :cached, _metadata}, producer, value, key, 0, timeout) do
     Kafka.Protocol.Produce.create_request(producer.connection, producer.topic, producer.partition, value, key, 0, timeout)
     |> Kafka.Connection.send(producer.connection)
     |> create_result(producer)
   end
 
-  def produce({:ok, :cached, metadata}, producer, value, key, required_acks, timeout) do
+  def produce({:ok, :cached, _metadata}, producer, value, key, required_acks, timeout) do
     Kafka.Protocol.Produce.create_request(producer.connection, producer.topic, producer.partition, value, key, required_acks, timeout)
     |> Kafka.Connection.send_and_return_response(producer.connection)
     |> parse_response(producer)
@@ -56,7 +56,7 @@ defmodule Kafka.Producer do
         cond do
           broker != producer.broker ->
             Kafka.Util.connect({:ok, broker, metadata}, producer.connection.client_id)
-            |> update_producer(producer, producer.topic, producer.partition)
+            |> update_producer(producer)
 
           true -> {:ok, producer}
         end
@@ -65,12 +65,12 @@ defmodule Kafka.Producer do
     end
   end
 
-  defp update_producer({:ok, connection, metadata, broker}, producer, topic, partition) do
+  defp update_producer({:ok, connection, metadata, broker}, producer) do
     Kafka.Connection.close(producer.connection)
     {:ok, %{producer | :metadata => metadata, :broker => broker, :connection => connection}}
   end
 
-  defp update_producer({:error, reason, _}, _topic, _partition) do
+  defp update_producer({:error, reason, _}, _producer) do
     {:error, reason}
   end
 

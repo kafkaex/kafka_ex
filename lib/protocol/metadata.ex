@@ -14,7 +14,7 @@ defmodule Kafka.Protocol.Metadata do
     {:error, "Error parsing number of brokers from metadata response", data}
   end
 
-  defp generate_result({:ok, broker_map, topic_map, rest}, timestamp, connection) do
+  defp generate_result({:ok, broker_map, topic_map, _rest}, timestamp, connection) do
     {:ok, %{:brokers => broker_map, :topics => topic_map, :timestamp => timestamp, :connection => connection}}
   end
 
@@ -38,7 +38,7 @@ defmodule Kafka.Protocol.Metadata do
     parse_topic_metadata(%{}, broker_map, num_topic_metadata, rest)
   end
 
-  defp parse_topic_metadata_list({:error, message, data}, _map) do
+  defp parse_topic_metadata_list({:error, message, data}) do
     {:error, message, data}
   end
 
@@ -54,7 +54,7 @@ defmodule Kafka.Protocol.Metadata do
     end
   end
 
-  defp parse_topic_metadata(_map, _num, data) do
+  defp parse_topic_metadata(_map, _broker_map, _num, data) do
     {:error, "Error parsing topic metadata from metadata response", data}
   end
 
