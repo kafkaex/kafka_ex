@@ -1,55 +1,32 @@
 defmodule Kafka.Connection do
-  def connect([], _) do
-    {:error, "no brokers available"}
+  def connect_brokers(uri) when is_tuple(uri) do
+    connect_brokers([uri])
   end
 
-  def connect(%{:host => host, :port => port}, client_id) do
-    connect(host, port, client_id)
+  def connect_brokers([]) do
+    raise "Error cannot connect"
   end
 
-  def connect(broker_list, client_id) do
-    [[host, port] | rest] = broker_list
-    case connect(host, port, client_id) do
-      {:ok, connection} -> {:ok, Map.put(connection, :broker_list, broker_list)}
-      {:error, _}       -> connect(rest, client_id)
+  def connect_brokers(uris) when is_list(uris) do
+    [{host, port} | rest] = uris
+    case connect(host, port) do
+      {:error, _}        -> connect_brokers(rest)
+      {:ok, socket}      -> socket
     end
   end
 
-  def connect(host, port, client_id) when is_binary(host) do
-    connect(to_char_list(host), port, client_id)
+  def connect(host, port) do
+    host |> format_host |> :gen_tcp.connect(port, [:binary, {:packet, 4}])
   end
 
-  def connect(host, port, client_id) do
-    case :gen_tcp.connect(host, port, [:binary, {:packet, 4}]) do
-      {:ok, socket}    -> {:ok, %{:correlation_id => 1, :client_id => client_id, :socket => socket}}
-      error            -> error
+  def close(socket), do: :gen_tcp.close(socket)
+
+  def send(message, socket), do: :gen_tcp.send(socket, message)
+
+  defp format_host(host) do
+    case Regex.scan(~r/\d+/, host) do
+      nil -> to_char_list(host)
+      match_data -> match_data |> List.flatten |> Enum.map(&String.to_integer/1) |> List.to_tuple
     end
-  end
-
-  def close(connection) do
-    :gen_tcp.close(connection.socket)
-  end
-
-  def send(message, connection) do
-    case :gen_tcp.send(connection.socket, message) do
-      :ok -> {:ok, %{connection | :correlation_id => connection.correlation_id + 1}}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  def send_and_return_response(message, connection) do
-    Kafka.Connection.send(message, connection)
-    |> get_response
-  end
-
-  defp get_response({:ok, connection}) do
-    receive do
-      {:tcp, _, data} ->
-        {:ok, connection, data}
-    end
-  end
-
-  defp get_response({:error, reason}) do
-    {:error, reason}
   end
 end

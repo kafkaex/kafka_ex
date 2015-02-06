@@ -24,16 +24,16 @@ defmodule Kafka.SimpleConsumer do
     end
   end
 
-  defp lookup_offset(consumer, value) do
+  defp lookup_offset(consumer, _value) do
     Kafka.Protocol.Offset.create_request(consumer.connection, consumer.topic, consumer.partition, -1)
     |> Kafka.Connection.send_and_return_response(consumer.connection)
     |> parse_offset_response(consumer)
   end
 
   defp parse_offset_response({:ok, connection, data}, consumer) do
-    %{consumer | connection: connection}
+    consumer = %{consumer | connection: connection}
     case Kafka.Protocol.Offset.parse_response(consumer, data) do
-      {:ok, response, connection} -> {:ok, List.first(response[consumer.topic][consumer.partition].offsets)}
+      {:ok, response, _connection} -> {:ok, List.first(response[consumer.topic][consumer.partition].offsets)}
       {:error, reason}            -> {:error, reason}
     end
   end

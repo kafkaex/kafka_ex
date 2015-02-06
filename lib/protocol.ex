@@ -22,9 +22,9 @@ defmodule Kafka.Protocol do
     @metadata_request
   end
 
-  def create_request(type, connection) do
-    << api_key(type) :: 16, @api_version :: 16, connection.correlation_id :: 32,
-       byte_size(connection.client_id) :: 16, connection.client_id :: binary >>
+  def create_request(type, correlation_id, client_id) do
+    << api_key(type) :: 16, @api_version :: 16, correlation_id :: 32,
+       byte_size(client_id) :: 16, client_id :: binary >>
   end
 
   @error_map %{

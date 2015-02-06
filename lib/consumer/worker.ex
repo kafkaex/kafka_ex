@@ -47,16 +47,16 @@ defmodule Kafka.Consumer.Worker do
     |> update_consumer_in_worker(consumer, worker)
   end
 
+  defp parse_result({:error, reason, consumer}, worker) do
+    {:error, reason, %{worker | :consumer => consumer}}
+  end
+
   defp transform_error_code(parsed) do
     %{parsed | :error_code => Kafka.Protocol.error(parsed.error_code)}
   end
 
   defp update_consumer_in_worker(parsed, consumer, worker) do
     {parsed, %{worker | :consumer => consumer}}
-  end
-
-  defp parse_result({:error, reason, consumer}, worker) do
-    {:error, reason, %{worker | :consumer => consumer}}
   end
 
   defp send_data_and_get_next({:error, reason, worker}) do
