@@ -7,8 +7,39 @@ defmodule Kafka.SimpleConsumer do
   end
 
   def fetch(consumer, offset, wait_time \\ 10, min_bytes \\ 1, max_bytes \\ 1_000_000) do
-    Kafka.Metadata.update(consumer.metadata)
-    |> fetch_with_update(consumer, offset, wait_time, min_bytes, max_bytes)
+    case get_offset(consumer, offset) do
+      {:ok, offset} -> 
+        Kafka.Metadata.update(consumer.metadata)
+        |> fetch_with_update(consumer, offset, wait_time, min_bytes, max_bytes)
+
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp get_offset(consumer, offset) do
+    case offset do
+      :latest   -> lookup_offset(consumer, -1)
+      :earliest -> lookup_offset(consumer, -2)
+      _         -> {:ok, offset}
+    end
+  end
+
+  defp lookup_offset(consumer, value) do
+    Kafka.Protocol.Offset.create_request(consumer.connection, consumer.topic, consumer.partition, -1)
+    |> Kafka.Connection.send_and_return_response(consumer.connection)
+    |> parse_offset_response(consumer)
+  end
+
+  defp parse_offset_response({:ok, connection, data}, consumer) do
+    %{consumer | connection: connection}
+    case Kafka.Protocol.Offset.parse_response(consumer, data) do
+      {:ok, response, connection} -> {:ok, List.first(response[consumer.topic][consumer.partition].offsets)}
+      {:error, reason}            -> {:error, reason}
+    end
+  end
+
+  defp parse_offset_response({:error, reason}, _) do
+    {:error, reason}
   end
 
   defp fetch_with_update({:ok, :cached, _metadata}, consumer, offset, wait_time, min_bytes, max_bytes) do
@@ -41,7 +72,7 @@ defmodule Kafka.SimpleConsumer do
           true -> {:ok, consumer}
         end
 
-        {:error, reason} -> {:error, reason}
+      {:error, reason} -> {:error, reason}
     end
   end
 
