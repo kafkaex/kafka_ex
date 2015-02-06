@@ -26,9 +26,12 @@ defmodule Kafka.Protocol.Fetch do
     {:ok, map, rest}
   end
 
-  defp parse_topics(map, num_topics, << topic_size :: 16, topic :: size(topic_size)-binary, num_partitions :: 32, rest :: binary >>) do
+  defp parse_topics(map, num_topics, << topic_size :: 16, topic :: size(topic_size)-binary,
+                                        num_partitions :: 32, rest :: binary >>) do
     case parse_partitions(%{}, num_partitions, rest) do
-      {:ok, partition_map, rest} -> parse_topics(Map.put(map, topic, partition_map), num_topics-1, rest)
+      {:ok, partition_map, rest} ->
+        parse_topics(Map.put(map, topic, partition_map), num_topics-1, rest)
+
       {:error, message}          -> {:error, message}
     end
   end
@@ -41,11 +44,23 @@ defmodule Kafka.Protocol.Fetch do
     {:ok, map, rest}
   end
 
-  defp parse_partitions(map, num_partitions, << partition :: 32, error_code :: 16, hw_mark_offset :: 64, msg_set_size :: 32, msg_set_data :: size(msg_set_size)-binary, rest :: binary >>) do
+  defp parse_partitions(map, num_partitions,
+                        << partition :: 32, error_code :: 16, hw_mark_offset :: 64,
+                           msg_set_size :: 32, msg_set_data :: size(msg_set_size)-binary,
+                           rest :: binary >>) do
     case Kafka.Util.parse_message_set([], msg_set_data) do
       {:ok, message_set} ->
-        parse_partitions(Map.put(map, partition, %{:error_code => error_code, :hw_mark_offset => hw_mark_offset, :message_set => message_set}), num_partitions-1, rest)
-      {:error, message}        -> {:error, message}
+        parse_partitions(
+          Map.put(map, partition,
+            %{
+              :error_code => error_code,
+              :hw_mark_offset => hw_mark_offset,
+              :message_set => message_set
+            }),
+          num_partitions-1,
+          rest)
+
+      {:error, message} -> {:error, message}
     end
   end
 
