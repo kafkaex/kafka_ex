@@ -2,6 +2,7 @@ defmodule Kafka.Server do
   @type datetime() :: {{pos_integer, pos_integer, pos_integer}, {pos_integer, pos_integer, pos_integer}}
   ###Public Api
   @client_id "kafka_ex"
+
   def start(uris) do
     GenServer.start_link(__MODULE__, uris, [name: __MODULE__])
   end
@@ -19,12 +20,27 @@ defmodule Kafka.Server do
     GenServer.call(__MODULE__, {:offset, topic, partition, time})
   end
 
+  def fetch(topic, partition, offset, wait_time \\ 10, min_bytes \\ 1, max_bytes \\ 1_000_000) do
+    GenServer.call(__MODULE__, {:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes})
+  end
+
   ### GenServer Callbacks
   use GenServer
 
   def init(uris) do
     socket = Kafka.Connection.connect_brokers(uris)
     {:ok, {1, socket}}
+  end
+
+  def handle_call({:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes}, _from, {correlation_id, socket}) do
+    data = Kafka.Protocol.Fetch.create_request(correlation_id, @client_id, topic, partition, offset, wait_time, min_bytes, max_bytes)
+    Kafka.Connection.send(data, socket)
+
+    receive do
+      {:tcp, _, data} ->
+        parsed = Kafka.Protocol.Fetch.parse_response(data)
+        {:reply, parsed, {correlation_id + 1, socket}}
+    end
   end
 
   def handle_call({:offset, topic, partition, time}, _from, {correlation_id, socket}) do

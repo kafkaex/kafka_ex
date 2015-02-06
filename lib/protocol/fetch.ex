@@ -1,25 +1,25 @@
 defmodule Kafka.Protocol.Fetch do
-  def create_request(connection, topic, partition, offset, wait_time, min_bytes, max_bytes) do
-    Kafka.Protocol.create_request(:fetch, connection) <>
+  def create_request(correlation_id, client_id, topic, partition, offset, wait_time, min_bytes, max_bytes) do
+    Kafka.Protocol.create_request(:fetch, correlation_id, client_id) <>
       << -1 :: 32, wait_time :: 32, min_bytes :: 32, 1 :: 32, byte_size(topic) :: 16, topic :: binary,
          1 :: 32, partition :: 32, offset :: 64, max_bytes :: 32 >>
   end
 
-  def parse_response(passthrough, << _correlation_id :: 32, num_topics :: 32, rest :: binary>>) do
+  def parse_response(<< _correlation_id :: 32, num_topics :: 32, rest :: binary>>) do
     parse_topics(%{}, num_topics, rest)
-    |> generate_result(passthrough)
+    |> generate_result
   end
 
-  def parse_response(_connection, data) do
+  def parse_response(data) do
     {:error, "Error parsing num_topics in fetch response", data}
   end
 
-  defp generate_result({:ok, response_map, _rest}, passthrough) do
-    {:ok, response_map, passthrough}
+  defp generate_result({:ok, response_map, _rest}) do
+    {:ok, response_map}
   end
 
-  defp generate_result({:error, message, data}, passthrough) do
-    {:error, message, data, passthrough}
+  defp generate_result({:error, message, data}) do
+    {:error, message, data}
   end
 
   defp parse_topics(map, 0, rest) do
@@ -31,7 +31,6 @@ defmodule Kafka.Protocol.Fetch do
     case parse_partitions(%{}, num_partitions, rest) do
       {:ok, partition_map, rest} ->
         parse_topics(Map.put(map, topic, partition_map), num_topics-1, rest)
-
       {:error, message}          -> {:error, message}
     end
   end
