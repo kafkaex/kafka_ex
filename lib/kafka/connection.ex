@@ -15,6 +15,10 @@ defmodule Kafka.Connection do
     end
   end
 
+  def connect_brokers(_) do
+    raise "Error cannot connect"
+  end
+
   def connect(host, port) do
     host |> format_host |> :gen_tcp.connect(port, [:binary, {:packet, 4}])
   end
@@ -25,7 +29,7 @@ defmodule Kafka.Connection do
 
   defp format_host(host) do
     case Regex.scan(~r/\d+/, host) do
-      nil -> to_char_list(host)
+      [] -> to_char_list(host)
       match_data -> match_data |> List.flatten |> Enum.map(&String.to_integer/1) |> List.to_tuple
     end
   end
