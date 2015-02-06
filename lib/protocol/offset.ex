@@ -1,7 +1,16 @@
 defmodule Kafka.Protocol.Offset do
-  def create_request(connection, topic, partition, time) do
-    Kafka.Protocol.create_request(:offset, connection) <>
+  def create_request(correlation_id, client_id, topic, partition, time) do
+    Kafka.Protocol.create_request(:offset, correlation_id, client_id) <>
       << -1 :: 32, 1 :: 32, byte_size(topic) :: 16, topic :: binary, 1 :: 32, partition :: 32, parse_time(time) :: 64, 1 :: 32>>
+  end
+
+  def parse_response(<< _correlation_id :: 32, num_topics :: 32, rest :: binary >>) do
+    parse_topics(%{}, num_topics, rest)
+    |> generate_result
+  end
+
+  def parse_response(data) do
+    {:error, "Error parsing num_topics in offset response", data}
   end
 
   defp parse_time(:latest) do
@@ -12,25 +21,19 @@ defmodule Kafka.Protocol.Offset do
     -2
   end
 
+  @spec parse_time({{number, number, number}, {number, number, number}}) :: number
   defp parse_time(time) do
-    time
+    current_time_in_seconds = time |> :calendar.datetime_to_gregorian_seconds
+    unix_epoch_in_seconds = {{1970,1,1},{0,0,0}} |> :calendar.datetime_to_gregorian_seconds
+    (current_time_in_seconds - unix_epoch_in_seconds) * 1000
   end
 
-  def parse_response(connection, << _correlation_id :: 32, num_topics :: 32, rest :: binary >>) do
-    parse_topics(%{}, num_topics, rest)
-    |> generate_result(connection)
+  defp generate_result({:ok, response_map, _rest}) do
+    {:ok, response_map}
   end
 
-  def parse_response(_connection, data) do
-    {:error, "Error parsing num_topics in offset response", data}
-  end
-
-  defp generate_result({:ok, response_map, _rest}, connection) do
-    {:ok, response_map, connection}
-  end
-
-  defp generate_result({:error, message, data}, connection) do
-    {:error, message, data, connection}
+  defp generate_result({:error, message, data}) do
+    {:error, message, data}
   end
 
   defp parse_topics(map, 0, rest) do
