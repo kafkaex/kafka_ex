@@ -1,5 +1,6 @@
 defmodule Kafka.Server do
   @type datetime() :: {{pos_integer, pos_integer, pos_integer}, {pos_integer, pos_integer, pos_integer}}
+
   ###Public Api
   @client_id "kafka_ex"
 
@@ -24,12 +25,33 @@ defmodule Kafka.Server do
     GenServer.call(__MODULE__, {:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes})
   end
 
+  def produce(topic, partition, value, key \\ nil, required_acks \\ 0, timeout \\ 100) do
+    GenServer.call(__MODULE__, {:produce, topic, partition, value, key, required_acks, timeout})
+  end
+
   ### GenServer Callbacks
   use GenServer
 
   def init(uris) do
     socket = Kafka.Connection.connect_brokers(uris)
     {:ok, {1, socket}}
+  end
+
+  def handle_call({:produce, topic, partition, value, key, required_acks, timeout}, _from, {correlation_id, socket}) do
+    data = Kafka.Protocol.Produce.create_request(correlation_id, @client_id, topic, partition, value, key, required_acks, timeout)
+    Kafka.Connection.send(data, socket)
+
+    if required_acks == 0 do
+      {:reply, :ok, {correlation_id + 1, socket}}
+    else
+      receive do
+        {:tcp, _, data} ->
+          parsed = Kafka.Protocol.Produce.parse_response(data)
+          {:reply, parsed, {correlation_id + 1, socket}}
+      after
+        (timeout + 1000) -> {:reply, :timeout, {correlation_id + 1, socket}}
+      end
+    end
   end
 
   def handle_call({:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes}, _from, {correlation_id, socket}) do

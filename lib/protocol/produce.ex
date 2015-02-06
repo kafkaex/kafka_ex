@@ -1,22 +1,22 @@
 defmodule Kafka.Protocol.Produce do
-  def create_request(connection, topic, partition, value, key \\ nil, required_acks \\ 0, timeout \\ 100) do
+  def create_request(correlation_id, client_id, topic, partition, value, key, required_acks, timeout) do
     message_set = Kafka.Util.create_message_set(value, key)
-    Kafka.Protocol.create_request(:produce, connection) <>
+    Kafka.Protocol.create_request(:produce, correlation_id, client_id) <>
       << required_acks :: 16, timeout :: 32, 1 :: 32, byte_size(topic) :: 16, topic :: binary, 1 :: 32, partition :: 32, byte_size(message_set) :: 32 >> <>
       message_set
   end
 
-  def parse_response(producer, << _correlation_id :: 32, num_topics :: 32, rest :: binary >>) do
+  def parse_response(<< _correlation_id :: 32, num_topics :: 32, rest :: binary >>) do
     parse_topics(%{}, num_topics, rest)
-    |> generate_result(producer)
+    |> generate_result
   end
 
-  defp generate_result({:ok, response_map, _rest}, producer) do
-    {:ok, response_map, producer}
+  defp generate_result({:ok, response_map, _rest}) do
+    {:ok, response_map}
   end
 
-  defp generate_result({:error, message, data}, producer) do
-    {:error, message, data, producer}
+  defp generate_result({:error, message, data}) do
+    {:error, message, data}
   end
 
   defp parse_topics(map, 0, data) do
