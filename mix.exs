@@ -9,6 +9,10 @@ defmodule Kafka.Mixfile do
   end
 
   def application do
+    [
+      mod: {Kafka, []},
+      applications: [:logger]
+    ]
   end
 
   defp deps do

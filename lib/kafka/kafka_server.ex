@@ -4,7 +4,7 @@ defmodule Kafka.Server do
   ###Public Api
   @client_id "kafka_ex"
 
-  def start(uris) do
+  def start_link(uris) do
     GenServer.start_link(__MODULE__, uris, [name: __MODULE__])
   end
 

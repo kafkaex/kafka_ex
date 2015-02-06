@@ -7,7 +7,7 @@ defmodule Kafka.Supervisor do
 
   def init([]) do
     children = [
-      worker(Stack, [[]])
+      worker(Kafka.Server, [Application.get_env(Kafka, :brokers)])
     ]
 
   supervise(children, strategy: :one_for_one)
