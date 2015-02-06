@@ -1,5 +1,7 @@
 ExUnit.start()
 
+ExUnit.configure exclude: [integration: true]
+
 defmodule TestHelper do
   def generate_metadata_response(correlation_id, brokers, topics_and_partitions) do
     << correlation_id :: 32 >> <>

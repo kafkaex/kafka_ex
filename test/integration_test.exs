@@ -16,6 +16,6 @@ defmodule Kafka.Integration.Test do
 
     {:ok, consumer} = Kafka.Consumer.new([["localhost", 9092]], "foo")
     Kafka.Consumer.subscribe(consumer, TestHandler, "test", 0, 0)
-    :timer.sleep(20000000)
+    :timer.sleep(2000)
   end
 end
