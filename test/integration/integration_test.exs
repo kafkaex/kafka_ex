@@ -14,25 +14,33 @@ defmodule Kafka.Integration.Test do
 
   test "start_link raises an exception when it cannot connect to any of the supplied brokers" do
     Process.flag(:trap_exit, true)
-    {_, {_, [{_, _, [message|_], _}|_]}} = Kafka.Server.start_link([{"bad_host", 9092}], :bad_host)
+    {:error,
+      {%Kafka.ConnectionError{message: message},
+        [_, _, _, _]}} = Kafka.Server.start_link([{"bad_host", 9092}], :bad_host)
     assert message == "Error cannot connect"
   end
 
   test "start_link raises an exception when it is provided a bad connection" do
     Process.flag(:trap_exit, true)
-    {_, {_, [{_, _, [message|_], _}|_]}} = Kafka.Server.start_link(nil, :no_host)
+    {:error,
+      {%Kafka.ConnectionError{message: message},
+        [_, _, _, _]}} = Kafka.Server.start_link(nil, :no_host)
     assert message == "Error bad broker details"
   end
 
   test "start_link raises an exception when it is provided a non binary host" do
     Process.flag(:trap_exit, true)
-    {_, {_, [{_, _, [message|_], _}|_]}} = Kafka.Server.start_link([{'192.178.0.1', 9093}], :char_list_host)
+    {:error,
+      {%Kafka.ConnectionError{message: message},
+        [_, _, _, _, _]}} = Kafka.Server.start_link([{'192.178.0.1', 9093}], :char_list_host)
     assert message == "Error bad broker details"
   end
 
   test "start_link raises an exception when it is provided a non integer port" do
     Process.flag(:trap_exit, true)
-    {_, {_, [{_, _, [message|_], _}|_]}} = Kafka.Server.start_link([{"192.178.0.1", "9093"}], :binary_port)
+    {:error,
+      {%Kafka.ConnectionError{message: message},
+        [_, _, _, _, _]}} = Kafka.Server.start_link([{"192.178.0.1", "9093"}], :binary_port)
     assert message == "Error bad broker details"
   end
 
