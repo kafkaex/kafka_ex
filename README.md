@@ -33,7 +33,11 @@ Kafka.Server.produce(topic, partition, value, key \\ nil, required_acks \\ 0, ti
 
 ### Test
 Run unit tests with:
-`mix test --no-start`
+```
+mix test --no-start
+```
 
-Rub integration tests with:
-HOST=kafka_host PORT=kafka_port mix test --integration
+Run integration tests with:
+```
+HOST=<kafka_host> PORT=<kafka_port> mix test --only integration
+```
