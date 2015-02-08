@@ -2,7 +2,7 @@ defmodule Kafka.Connection.Test do
   use ExUnit.Case
   import Mock
 
-  test "connect_brokers returns {{host, port}, socket} on successful connection" do
+  test "connect_brokers returns socket on successful connection" do
     host = "foo"
     port = 1024
     with_mock :gen_tcp, [:unstick], [connect: fn(_, _, _) -> {:ok, :socket} end] do
