@@ -48,7 +48,7 @@ defmodule Kafka.Protocol.Metadata do
   defp parse_topic_metadata(map, broker_map, num_topic_metadata, << error_code :: 16, topic_len :: 16, topic :: size(topic_len)-binary, num_partitions :: 32, rest :: binary >>) do
     case parse_partition_metadata(%{}, num_partitions, rest) do
       {:ok, partition_map, rest} ->
-        parse_topic_metadata(Map.put(map, topic, error_code: error_code, partitions: partition_map), broker_map, num_topic_metadata-1, rest)
+        parse_topic_metadata(Map.put(map, topic, %{:error_code => error_code, :partitions => partition_map}), broker_map, num_topic_metadata-1, rest)
       {:error, message, data} -> {:error, message, data}
     end
   end

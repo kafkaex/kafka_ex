@@ -33,57 +33,104 @@ defmodule Kafka.Server do
   use GenServer
 
   def init(uris) do
-    socket = Kafka.Connection.connect_brokers(uris)
-    {:ok, {1, socket}}
+    {host_port, socket} = Kafka.Connection.connect_brokers(uris)
+    socket_map = Map.put(%{}, host_port, socket)
+    {:reply, {:ok, metadata}, {correlation_id, _, socket_map}} = handle_call(:metadata, self(), {1, nil, socket_map})
+    {:ok, {correlation_id, metadata, socket_map}}
   end
 
-  def handle_call({:produce, topic, partition, value, key, required_acks, timeout}, _from, {correlation_id, socket}) do
-    data = Kafka.Protocol.Produce.create_request(correlation_id, @client_id, topic, partition, value, key, required_acks, timeout)
-    Kafka.Connection.send(data, socket)
-
-    if required_acks == 0 do
-      {:reply, :ok, {correlation_id + 1, socket}}
-    else
-      receive do
-        {:tcp, _, data} ->
-          parsed = Kafka.Protocol.Produce.parse_response(data)
-          {:reply, parsed, {correlation_id + 1, socket}}
-      after
-        (timeout + 1000) -> {:reply, :timeout, {correlation_id + 1, socket}}
+  defp get_socket_for_broker(socket_map, metadata, topic, partition) do
+    socket = nil
+    broker = get_broker_for_topic_partition(metadata, topic, partition)
+    if broker do
+      socket = socket_map[broker]
+      if socket == nil do
+        {_, socket} = Kafka.Connection.connect_brokers(broker)
+        socket_map = Map.put(socket_map, broker, socket)
       end
     end
+    {socket, socket_map}
   end
 
-  def handle_call({:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes}, _from, {correlation_id, socket}) do
+  defp get_broker_for_topic_partition(metadata, topic, partition) do
+    broker = nil
+    topic_data = metadata.topics[topic]
+    if topic_data do
+      partition_data = topic_data.partitions[partition]
+      if partition_data do
+        leader = partition_data.leader
+        broker = metadata.brokers[leader]
+      end
+    end
+    broker
+  end
+
+  def handle_call({:produce, topic, partition, value, key, required_acks, timeout}, _from, {correlation_id, metadata, socket_map}) do
+    data = Kafka.Protocol.Produce.create_request(correlation_id, @client_id, topic, partition, value, key, required_acks, timeout)
+    {socket, socket_map} = get_socket_for_broker(socket_map, metadata, topic, partition)
+    if socket do
+      Kafka.Connection.send(data, socket)
+    end
+
+    cond do
+      socket == nil      -> {:reply, {:error, "Unknown topic or partition"}, {correlation_id, metadata, socket_map}}
+
+      required_acks == 0 -> {:reply, :ok, {correlation_id + 1, metadata, socket_map}}
+
+      true ->
+        receive do
+          {:tcp, _, data} ->
+            parsed = Kafka.Protocol.Produce.parse_response(data)
+            {:reply, parsed, {correlation_id + 1, metadata, socket_map}}
+        after
+          (timeout + 1000) -> {:reply, :timeout, {correlation_id + 1, metadata, socket_map}}
+        end
+    end
+  end
+
+  def handle_call({:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes}, _from, {correlation_id, metadata, socket_map}) do
     data = Kafka.Protocol.Fetch.create_request(correlation_id, @client_id, topic, partition, offset, wait_time, min_bytes, max_bytes)
-    Kafka.Connection.send(data, socket)
+    {socket, socket_map} = get_socket_for_broker(socket_map, metadata, topic, partition)
 
-    receive do
-      {:tcp, _, data} ->
-        parsed = Kafka.Protocol.Fetch.parse_response(data)
-        {:reply, parsed, {correlation_id + 1, socket}}
+    if socket do
+      Kafka.Connection.send(data, socket)
+
+      receive do
+        {:tcp, _, data} ->
+          parsed = Kafka.Protocol.Fetch.parse_response(data)
+          {:reply, parsed, {correlation_id + 1, metadata, socket_map}}
+      end
+    else
+      {:reply, {:error, "Unknown topic or partition"}, {correlation_id, metadata, socket_map}}
     end
   end
 
-  def handle_call({:offset, topic, partition, time}, _from, {correlation_id, socket}) do
+  def handle_call({:offset, topic, partition, time}, _from, {correlation_id, metadata, socket_map}) do
     data = Kafka.Protocol.Offset.create_request(correlation_id, @client_id, topic, partition, time)
-    Kafka.Connection.send(data, socket)
+    {socket, socket_map} = get_socket_for_broker(socket_map, metadata, topic, partition)
 
-    receive do
-      {:tcp, _, data} ->
-        parsed = Kafka.Protocol.Offset.parse_response(data)
-        {:reply, parsed, {correlation_id + 1, socket}}
+    if socket do
+      Kafka.Connection.send(data, socket)
+
+      receive do
+        {:tcp, _, data} ->
+          parsed = Kafka.Protocol.Offset.parse_response(data)
+          {:reply, parsed, {correlation_id + 1, metadata, socket_map}}
+      end
+    else
+      {:reply, {:error, "Unknown topic or partition"}, {correlation_id, metadata, socket_map}}
     end
   end
 
-  def handle_call(:metadata, _from, {correlation_id, socket}) do
+  def handle_call(:metadata, _from, {correlation_id, metadata, socket_map}) do
     data = Kafka.Protocol.Metadata.create_request(correlation_id, @client_id)
+    socket = List.first(Map.values(socket_map))
     Kafka.Connection.send(data, socket)
 
     receive do
       {:tcp, _, data} ->
         parsed = Kafka.Protocol.Metadata.parse_response(data)
-        {:reply, parsed, {correlation_id + 1, socket}}
+        {:reply, parsed, {correlation_id + 1, metadata, socket_map}}
     end
   end
 

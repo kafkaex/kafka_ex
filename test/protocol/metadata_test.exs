@@ -12,9 +12,9 @@ defmodule Kafka.Protocol.Metadata.Test do
       1 :: 32, 0 :: 16, 0 :: 32, 0 :: 32, 0 :: 32, 1 :: 32, 0 :: 32 >>
     assert {:ok,
       %{:brokers => %{0 => {"foo", 9092}},
-        :topics => %{"bar" => [error_code: 0,
-            partitions: %{0 => %{:error_code => 0, :isrs => [0], :leader => 0,
-                :replicas => []}}]}}} = Kafka.Protocol.Metadata.parse_response(response)
+        :topics => %{"bar" => %{:error_code => 0,
+            :partitions => %{0 => %{:error_code => 0, :isrs => [0], :leader => 0,
+                :replicas => []}}}}}} = Kafka.Protocol.Metadata.parse_response(response)
   end
 
   test "parse_response returns an error parsing an invalid response" do

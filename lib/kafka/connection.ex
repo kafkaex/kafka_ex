@@ -11,7 +11,7 @@ defmodule Kafka.Connection do
     [{host, port} | rest] = uris
     case connect(host, port) do
       {:error, _}        -> connect_brokers(rest)
-      {:ok, socket}      -> socket
+      {:ok, socket}      -> {{host, port}, socket}
     end
   end
 
