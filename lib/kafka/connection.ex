@@ -21,7 +21,7 @@ defmodule Kafka.Connection do
     host |> format_host |> :gen_tcp.connect(port, [:binary, {:packet, 4}])
   end
 
-  def connect(host, port), do: raise(Kafka.ConnectionError, message: "Error bad broker details")
+  def connect(_host, _port), do: raise(Kafka.ConnectionError, message: "Error bad broker details")
 
   def close(socket), do: :gen_tcp.close(socket)
 
