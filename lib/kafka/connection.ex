@@ -27,10 +27,10 @@ defmodule Kafka.Connection do
 
   def send(message, socket), do: :gen_tcp.send(socket, message)
 
-  defp format_host(host) do
+  def format_host(host) do
     case Regex.scan(~r/\d+/, host) do
-      [] -> to_char_list(host)
-      match_data -> match_data |> List.flatten |> Enum.map(&String.to_integer/1) |> List.to_tuple
+      match_data = [_, _, _, _] -> match_data |> List.flatten |> Enum.map(&String.to_integer/1) |> List.to_tuple
+      _ -> to_char_list(host)
     end
   end
 end

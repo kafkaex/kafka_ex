@@ -2,6 +2,18 @@ defmodule Kafka.Connection.Test do
   use ExUnit.Case
   import Mock
 
+  test "format_host returns Erlang IP address format if IP address string is specified" do
+    assert {100, 20, 3, 4} == Kafka.Connection.format_host("100.20.3.4")
+  end
+
+  test "format_host returns the char list version of the string passed in if host is not IP address" do
+    assert 'host' == Kafka.Connection.format_host("host")
+  end
+
+  test "format_host handles hosts with embedded digits correctly" do
+    assert 'host0' == Kafka.Connection.format_host("host0")
+  end
+
   test "connect_brokers returns socket on successful connection" do
     host = "foo"
     port = 1024
