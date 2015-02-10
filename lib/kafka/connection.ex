@@ -4,7 +4,7 @@ defmodule Kafka.Connection do
   end
 
   def connect_brokers([]) do
-    raise Kafka.ConnectionError, message: "Error cannot connect"
+    raise Kafka.ConnectionError, message: "Error: Cannot connect to any brokers provided"
   end
 
   def connect_brokers(uris) when is_list(uris) do
@@ -15,13 +15,25 @@ defmodule Kafka.Connection do
     end
   end
 
-  def connect_brokers(_), do: raise(Kafka.ConnectionError, message: "Error bad broker details")
+  def connect_brokers(uris), do: raise(Kafka.ConnectionError, message: "Error: Bad broker format '#{uris}'")
+
+  def connect(host, port) when is_list(port) do
+    connect(host, to_string(port))
+  end
+
+  def connect(host, port) when is_binary(port) do
+    connect(host, String.to_integer(port))
+  end
+
+  def connect(host, port) when is_list(host) do
+    connect(to_string(host), port)
+  end
 
   def connect(host, port) when is_binary(host) and is_integer(port) do
     host |> format_host |> :gen_tcp.connect(port, [:binary, {:packet, 4}])
   end
 
-  def connect(_host, _port), do: raise(Kafka.ConnectionError, message: "Error bad broker details")
+  def connect(host, port), do: raise(Kafka.ConnectionError, message: "Error: Bad broker format '{#{host}, #{port}}'")
 
   def close(socket), do: :gen_tcp.close(socket)
 
