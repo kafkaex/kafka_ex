@@ -27,7 +27,7 @@ defmodule Kafka.Connection.Test do
     host = "foo"
     port = 1024
     with_mock :gen_tcp, [:unstick], [connect: fn(_, _, _) -> {:error, :something} end] do
-      assert_raise Kafka.ConnectionError, "Error cannot connect", fn ->
+      assert_raise Kafka.ConnectionError, "Error: Cannot connect to any brokers provided", fn ->
         Kafka.Connection.connect_brokers([{host, port}])
       end
       assert called :gen_tcp.connect(to_char_list(host), port, [:binary, {:packet, 4}])

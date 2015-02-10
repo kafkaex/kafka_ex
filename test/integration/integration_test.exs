@@ -17,7 +17,7 @@ defmodule Kafka.Integration.Test do
     {:error,
       {%Kafka.ConnectionError{message: message},
         [_, _, _, _]}} = Kafka.Server.start_link([{"bad_host", 9092}], :bad_host)
-    assert message == "Error cannot connect"
+    assert "Error: Cannot connect to any brokers provided" == message
   end
 
   test "start_link raises an exception when it is provided a bad connection" do
@@ -25,23 +25,17 @@ defmodule Kafka.Integration.Test do
     {:error,
       {%Kafka.ConnectionError{message: message},
         [_, _, _, _]}} = Kafka.Server.start_link(nil, :no_host)
-    assert message == "Error bad broker details"
+    assert "Error: Bad broker format ''" == message
   end
 
-  test "start_link raises an exception when it is provided a non binary host" do
+  test "start_link handles a non binary host" do
     Process.flag(:trap_exit, true)
-    {:error,
-      {%Kafka.ConnectionError{message: message},
-        [_, _, _, _, _]}} = Kafka.Server.start_link([{'192.178.0.1', 9093}], :char_list_host)
-    assert message == "Error bad broker details"
+    {:ok, _} = Kafka.Server.start_link([{'localhost', 9092}], :char_list_host)
   end
 
-  test "start_link raises an exception when it is provided a non integer port" do
+  test "start_link handles a string port" do
     Process.flag(:trap_exit, true)
-    {:error,
-      {%Kafka.ConnectionError{message: message},
-        [_, _, _, _, _]}} = Kafka.Server.start_link([{"192.178.0.1", "9093"}], :binary_port)
-    assert message == "Error bad broker details"
+    {:ok, pid} = Kafka.Server.start_link([{"localhost", "9092"}], :binary_port)
   end
 
   def uris do
