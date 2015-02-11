@@ -10,15 +10,18 @@ defmodule TestHelper do
   # fetch
   defp handle({_correlation_id, _brokers, _topics}, << 1 :: 16, _rest :: binary >>) do
     send self(), {:tcp, nil, << >>}
+    :ok
   end
 
   # metadata
   defp handle({correlation_id, brokers, topics}, << 3 :: 16, _rest :: binary >>) do
     send self(), {:tcp, nil, generate_metadata_response(correlation_id, brokers, topics)}
+    :ok
   end
 
   defp handle(_state, _data) do
     # no-op
+    :ok
   end
 
   def generate_metadata_response(correlation_id, brokers, topics_and_partitions) do

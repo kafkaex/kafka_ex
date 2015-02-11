@@ -18,7 +18,7 @@ defmodule Kafka.Server.Test do
   end
 
   test "server connects to leader for topic/partition on fetch" do
-    with_mock :gen_tcp, [:unstick], [connect: fn(_, _, _) -> {:ok, {1, @brokers, @topics}} end,
+    with_mock :gen_tcp, [:unstick], [connect: fn(h, p, _) -> {:ok, {1, @brokers, @topics}} end,
                                      send: fn(s, m) -> TestHelper.mock_send(s, m) end] do
       Kafka.Server.start_link([{"broker0", 9092}])
       Kafka.Server.fetch("test", 1, 0)
