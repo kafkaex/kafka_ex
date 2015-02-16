@@ -1,21 +1,18 @@
 defmodule Kafka.Connection do
-  def connect_brokers(uri) when is_tuple(uri) do
-    connect_brokers([uri])
-  end
+  def connect_brokers(uris, socket_map \\ %{})
 
-  def connect_brokers([]) do
+  def connect_brokers([], socket_map) when socket_map == %{} do
     raise Kafka.ConnectionError, message: "Error: Cannot connect to any brokers provided"
   end
 
-  def connect_brokers(uris) when is_list(uris) do
-    [{host, port} | rest] = uris
+  def connect_brokers([], socket_map), do: socket_map
+
+  def connect_brokers([{host, port} | rest], socket_map) do
     case connect(host, port) do
-      {:error, _}        -> connect_brokers(rest)
-      {:ok, socket}      -> {{host, port}, socket}
+      {:error, _}        -> connect_brokers(rest, socket_map)
+      {:ok, socket}      -> connect_brokers(rest, Map.put(socket_map, {host, port}, socket))
     end
   end
-
-  def connect_brokers(uris), do: raise(Kafka.ConnectionError, message: "Error: Bad broker format '#{uris}'")
 
   def connect(host, port) when is_list(port) do
     connect(host, to_string(port))

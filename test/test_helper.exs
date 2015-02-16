@@ -31,16 +31,17 @@ defmodule TestHelper do
   end
 
   defp encode_brokers(brokers) do
-    << length(Map.keys(brokers)) :: 32 >> <>
-    Enum.reduce(brokers,
-                << >>,
-                fn({id, {host, port}}, data) ->
-                  data <>
-                  << id :: 32,
-                     String.length(host) :: 16,
-                     host :: binary,
-                     port :: 32 >>
-                end)
+    payload = brokers
+      |> Enum.with_index
+      |> Enum.reduce("",
+                  fn({{host, port}, id}, data) ->
+                    data <>
+                    << id :: 32,
+                       String.length(host) :: 16,
+                       host :: binary,
+                       port :: 32 >>
+                  end)
+    << length(brokers) :: 32 >> <> payload
   end
 
   defp encode_topics_and_partitions(topics_and_partitions) do

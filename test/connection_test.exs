@@ -18,7 +18,7 @@ defmodule Kafka.Connection.Test do
     host = "foo"
     port = 1024
     with_mock :gen_tcp, [:unstick], [connect: fn(_, _, _) -> {:ok, :socket} end] do
-      assert {{host, port}, :socket} = Kafka.Connection.connect_brokers([{host, port}])
+      assert %{{"foo", 1024} => :socket} = Kafka.Connection.connect_brokers([{host, port}], %{})
       assert called :gen_tcp.connect(to_char_list(host), port, [:binary, {:packet, 4}])
     end
   end
@@ -38,7 +38,7 @@ defmodule Kafka.Connection.Test do
     host = "127.0.0.1"
     port = 1024
     with_mock :gen_tcp, [:unstick], [connect: fn(_, _, _) -> {:ok, :socket} end] do
-      assert {{host, port}, :socket} = Kafka.Connection.connect_brokers([{host, port}])
+      assert %{{"127.0.0.1", 1024} => :socket} == Kafka.Connection.connect_brokers([{host, port}])
       assert called :gen_tcp.connect({127, 0, 0, 1}, port, [:binary, {:packet, 4}])
     end
   end
