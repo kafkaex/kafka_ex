@@ -14,6 +14,18 @@ defmodule Kafka.Connection.Test do
     assert 'host0' == Kafka.Connection.format_host("host0")
   end
 
+  test "format_uri handles port as char_list" do
+    assert {'host0', 9092} = Kafka.Connection.format_uri('host0', '9092')
+  end
+
+  test "format_uri handles a string port" do
+    assert {'host0', 9092} = Kafka.Connection.format_uri('host0', "9092")
+  end
+
+  test "format_uri handles a char_list host" do
+    assert {'host0', 9092} = Kafka.Connection.format_uri('host0', "9092")
+  end
+
   test "connect_brokers returns {{host, port}, socket} on successful connection" do
     host = "foo"
     port = 1024
@@ -27,7 +39,7 @@ defmodule Kafka.Connection.Test do
     host = "foo"
     port = 1024
     with_mock :gen_tcp, [:unstick], [connect: fn(_, _, _) -> {:error, :something} end] do
-      assert_raise Kafka.ConnectionError, "Error: Cannot connect to any brokers provided", fn ->
+      assert_raise Kafka.ConnectionError, "Error: Cannot connect to any of the broker(s) provided", fn ->
         Kafka.Connection.connect_brokers([{host, port}])
       end
       assert called :gen_tcp.connect(to_char_list(host), port, [:binary, {:packet, 4}])
