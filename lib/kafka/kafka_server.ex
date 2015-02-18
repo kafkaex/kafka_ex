@@ -8,8 +8,8 @@ defmodule Kafka.Server do
     GenServer.start_link(__MODULE__, uris, [name: name])
   end
 
-  def metadata do
-    GenServer.call(__MODULE__, :metadata)
+  def metadata(topic \\ "", name \\ __MODULE__) do
+    GenServer.call(name, {:metadata, topic})
   end
 
   def latest_offset(topic, partition), do: offset(topic, partition, :latest)
@@ -34,166 +34,114 @@ defmodule Kafka.Server do
 
   def init(uris) do
     socket_map = Kafka.Connection.connect_brokers(uris)
-    {:reply, {:ok, metadata}, {correlation_id, _, socket_map}} = handle_call(:metadata, self(), {1, nil, socket_map})
-    {:ok, {correlation_id, metadata, socket_map}}
+    send(self, :metadata)
+    {:ok, {0, %{}, socket_map}}
   end
 
   def handle_call({:produce, topic, partition, value, key, required_acks, timeout}, _from, {correlation_id, metadata, socket_map} = state) do
     data = Kafka.Protocol.Produce.create_request(correlation_id, @client_id, topic, partition, value, key, required_acks, timeout)
-    get_socket_for_broker(socket_map, metadata, topic, partition)
-    |> send_data(data)
-    |> handle_produce_response(required_acks, timeout, state)
+    metadata = topic_metadata(state, topic)
+    socket = get_socket_for_broker(socket_map, metadata, topic, partition)
+    send_data(socket, data)
+    parsed_response = case required_acks do
+      0 -> :ok
+      _ -> handle_produce_response(timeout)
+    end
+    {:reply, parsed_response, {correlation_id + 1, metadata, socket_map}}
   end
 
   def handle_call({:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes}, _from, {correlation_id, metadata, socket_map} = state) do
     data = Kafka.Protocol.Fetch.create_request(correlation_id, @client_id, topic, partition, offset, wait_time, min_bytes, max_bytes)
-    get_socket_for_broker(socket_map, metadata, topic, partition)
-    |> send_data(data)
-    |> handle_fetch_response(state)
+    metadata = topic_metadata(state, topic)
+    socket = get_socket_for_broker(socket_map, metadata, topic, partition)
+    send_data(socket, data)
+    {:reply, handle_fetch_response, {correlation_id + 1, metadata, socket_map}}
   end
 
   def handle_call({:offset, topic, partition, time}, _from, {correlation_id, metadata, socket_map} = state) do
     data = Kafka.Protocol.Offset.create_request(correlation_id, @client_id, topic, partition, time)
-    get_socket_for_broker(socket_map, metadata, topic, partition)
-    |> send_data(data)
-    |> handle_offset_response(state)
+    metadata = topic_metadata(state, topic)
+    socket = get_socket_for_broker(socket_map, metadata, topic, partition)
+    send_data(socket, data)
+    {:reply, handle_offset_response, {correlation_id + 1, metadata, socket_map}}
   end
 
-  def handle_call(:metadata, _from, {correlation_id, _metadata, socket_map} = state) do
-    data = Kafka.Protocol.Metadata.create_request(correlation_id, @client_id)
-    {List.first(Map.values(socket_map)), socket_map}
-    |> send_data(data)
-    |> handle_metadata_response(state)
+  def handle_call({:metadata, topic}, _from, {correlation_id, metadata, socket_map} = state) do
+    data = topic_metadata(state, topic)
+    {:reply, data, {correlation_id + 1, metadata, socket_map}}
+  end
+
+  def handle_info(:metadata, {correlation_id, _, socket_map} = state) do
+    {:noreply, {correlation_id + 1, topic_metadata(state, ""), socket_map}}
   end
 
   def handle_info(_, state) do
     {:noreply, state}
   end
 
-  def terminate(_, {_, _, socket_map} = state) do
+  def terminate(_, {_, _, socket_map}) do
     Map.values(socket_map) |> Enum.each(&Kafka.Connection.close/1)
   end
 
+  defp topic_metadata({correlation_id, _metadata, socket_map}, topic) do
+    data = Kafka.Protocol.Metadata.create_request(correlation_id, @client_id, topic)
+    Map.values(socket_map) |> send_metadata_request(data)
+    handle_metadata_response
+  end
+
+  defp send_metadata_request([socket|rest], data) when length(rest) == 0 do
+    case send_data(socket, data) do
+      {:error, _} -> raise "Cannot send metadata request"
+      _ -> :ok
+    end
+  end
+
+  defp send_metadata_request([socket|rest], data) do
+    case send_data(socket, data) do
+      {:error, _} -> send_metadata_request(rest, data)
+      _ -> :ok
+    end
+  end
+
+  defp get_socket_for_broker(socket_map, metadata, topic, partition) when metadata == %{} do
+    get_socket_for_broker(socket_map, metadata(""), topic, partition)
+  end
+
   defp get_socket_for_broker(socket_map, metadata, topic, partition) do
-    get_broker_for_topic_partition(metadata, topic, partition)
-    |> get_cached_socket(socket_map)
-    |> create_and_cache_socket
+    brokers = Map.get(metadata, :brokers, %{})
+    leader = Map.get(metadata, :topics, %{}) |> Map.get(topic, %{}) |> Map.get(:partitions, %{}) |> Map.get(partition, %{}) |> Map.get(:leader) #handle when there is no leader or no partition
+    socket_map[brokers[leader]]
   end
 
-  defp get_broker_for_topic_partition(metadata, topic, partition) do
-    metadata.topics[topic]
-    |> get_partition_data(partition)
-    |> get_leader(metadata)
+  defp send_data(socket, data) do
+    Kafka.Connection.send(data, socket)
   end
 
-  defp get_cached_socket(nil, socket_map) do
-    {nil, socket_map}
-  end
-
-  defp get_cached_socket(broker, socket_map) do
-    {socket_map[broker], broker, socket_map}
-  end
-
-  defp create_and_cache_socket({nil, socket_map}) do
-    {nil, socket_map}
-  end
-
-  defp create_and_cache_socket({nil, broker, socket_map}) do
-    {_, socket} = Kafka.Connection.connect_brokers(broker)
-    socket_map = Map.put(socket_map, broker, socket)
-    {socket, socket_map}
-  end
-
-  defp create_and_cache_socket({socket, _broker, socket_map}) do
-    {socket, socket_map}
-  end
-
-  defp get_partition_data(nil, _partition) do
-    nil
-  end
-
-  defp get_partition_data(topic_data, partition) do
-    topic_data.partitions[partition]
-  end
-
-  defp get_leader(nil, _metadata) do
-    nil
-  end
-
-  defp get_leader(partition_data, metadata) do
-    metadata.brokers[partition_data.leader]
-  end
-
-  defp send_data({socket, socket_map}, data) do
-    case Kafka.Connection.send(data, socket) do
-      :ok -> socket_map
-      {:error, reason} -> {:error, reason, socket_map}
-    end
-  end
-
-  defp handle_produce_response({nil, socket_map}, _required_acks, _timeout, {correlation_id, metadata, _socket_map}) do
-    {:reply, {:error, "Unknown topic or partition"}, {correlation_id, metadata, socket_map}}
-  end
-
-  defp handle_produce_response(socket_map, _required_acks, timeout, {correlation_id, metadata, _socket_map}) do
+  defp handle_produce_response(timeout) do
     receive do
-      {:tcp, _, data} ->
-        parsed = Kafka.Protocol.Produce.parse_response(data)
-        {:reply, parsed, {correlation_id + 1, metadata, socket_map}}
+      {:tcp, _, data} -> Kafka.Protocol.Produce.parse_response(data)
     after
-      (timeout + 1000) -> {:reply, :timeout, {correlation_id + 1, metadata, socket_map}}
+      (timeout + 1000) -> :timeout
     end
   end
 
-  defp handle_produce_response(socket_map, 0, _timeout, {correlation_id, metadata, _socket_map}) do
-    {:reply, :ok, {correlation_id + 1, metadata, socket_map}}
-  end
-
-  defp handle_produce_response({:error, reason, socket_map}, _acks, _timeout, {correlation_id, metadata, _socket_map}) do
-    {:reply, {:error, reason}, {correlation_id, metadata, socket_map}}
-  end
-
-  defp handle_fetch_response({nil, socket_map}, {correlation_id, metadata, _socket_map}) do
-    {:reply, {:error, "Unknown topic or partition"}, {correlation_id, metadata, socket_map}}
-  end
-
-  defp handle_fetch_response(socket_map, {correlation_id, metadata, _socket_map}) do
+  defp handle_fetch_response do
     receive do
-      {:tcp, _, data} ->
-        parsed = Kafka.Protocol.Fetch.parse_response(data)
-        {:reply, parsed, {correlation_id + 1, metadata, socket_map}}
+      {:tcp, _, data} -> Kafka.Protocol.Fetch.parse_response(data)
     end
   end
 
-  defp handle_fetch_response({:error, reason, socket_map}, {correlation_id, metadata, _socket_map}) do
-    {:reply, {:error, reason}, {correlation_id, metadata, socket_map}}
-  end
-
-  defp handle_offset_response({nil, socket_map}, {correlation_id, metadata, _socket_map}) do
-    {:reply, {:error, "Unknown topic or partition"}, {correlation_id, metadata, socket_map}}
-  end
-
-  defp handle_offset_response(socket_map, {correlation_id, metadata, _socket_map}) do
+  defp handle_offset_response do
     receive do
-      {:tcp, _, data} ->
-        parsed = Kafka.Protocol.Offset.parse_response(data)
-        {:reply, parsed, {correlation_id + 1, metadata, socket_map}}
+      {:tcp, _, data} -> Kafka.Protocol.Offset.parse_response(data)
     end
   end
 
-  defp handle_offset_response({:error, reason, socket_map}, {correlation_id, metadata, _socket_map}) do
-    {:reply, {:error, reason}, {correlation_id, metadata, socket_map}}
-  end
-
-  defp handle_metadata_response(socket_map, {correlation_id, metadata, _socket_map}) do
+  defp handle_metadata_response do
     receive do
-      {:tcp, _, data} ->
-        parsed = Kafka.Protocol.Metadata.parse_response(data)
-        {:reply, parsed, {correlation_id + 1, metadata, socket_map}}
+      {:tcp, _, data} -> Kafka.Protocol.Metadata.parse_response(data)
+    after
+      5000 -> :timeout
     end
-  end
-
-  defp handle_metadata_response({:error, reason, socket_map}, {correlation_id, metadata, _socket_map}) do
-    {:reply, {:error, reason}, {correlation_id, metadata, socket_map}}
   end
 end

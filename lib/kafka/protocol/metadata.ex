@@ -1,6 +1,12 @@
 defmodule Kafka.Protocol.Metadata do
-  def create_request(correlation_id, client_id) do
+  def create_request(correlation_id, client_id, topic \\ "")
+
+  def create_request(correlation_id, client_id, "") do
     Kafka.Protocol.create_request(:metadata, correlation_id, client_id) <> << 0 :: 32 >>
+  end
+
+  def create_request(correlation_id, client_id, topic) do
+    Kafka.Protocol.create_request(:metadata, correlation_id, client_id) <> << 1 :: 32 >> <> << byte_size(topic) :: 16 >> <> topic
   end
 
   def parse_response(<< _correlation_id :: 32, num_brokers :: 32, rest :: binary >>) do
@@ -14,7 +20,7 @@ defmodule Kafka.Protocol.Metadata do
   end
 
   defp generate_result({:ok, broker_map, topic_map, _rest}) do
-    {:ok, %{:brokers => broker_map, :topics => topic_map}}
+    %{:brokers => broker_map, :topics => topic_map}
   end
 
   defp generate_result({:error, message, data}) do
@@ -61,7 +67,7 @@ defmodule Kafka.Protocol.Metadata do
     {:ok, map, rest}
   end
 
-  defp parse_partition_metadata(map, num_partitions, << error_code :: 16, id :: 32, leader :: 32, rest :: binary >>) do
+  defp parse_partition_metadata(map, num_partitions, << error_code :: 16, id :: 32-signed, leader :: 32-signed, rest :: binary >>) do
     case parse_replicas_and_isrs(rest) do
       {:ok, replicas, isrs, rest} ->
         parse_partition_metadata(Map.put(map, id, %{:error_code => error_code, :leader => leader, :replicas => replicas, :isrs => isrs}), num_partitions-1, rest)
