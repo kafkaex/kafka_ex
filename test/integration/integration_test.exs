@@ -9,13 +9,13 @@ defmodule Kafka.Integration.Test do
 
   test "Kafka.Server connects to all supplied brokers" do
     pid = Process.whereis(Kafka.Server)
-    {_, _metadata, socket_map} = :sys.get_state(pid)
+    {_, _metadata, socket_map, _} = :sys.get_state(pid)
     assert Enum.sort(Map.keys(socket_map)) == Enum.sort(uris)
   end
 
   test "Kafka.Server generates metadata on start up" do
     pid = Process.whereis(Kafka.Server)
-    {_, metadata, _socket_map} = :sys.get_state(pid)
+    {_, metadata, _socket_map, _} = :sys.get_state(pid)
     refute metadata == %{}
 
     brokers = Map.values(metadata[:brokers])
@@ -38,20 +38,15 @@ defmodule Kafka.Integration.Test do
   end
 
   test "produce with ack required returns an ack" do
-    {:ok, %{"food" => %{0 => %{error_code: 0, offset: offset}}}} =  Kafka.Server.produce("food", 0, "hey", nil, 1)
-    refute offset == nil
-  end
-
-  test "produce with ack required returns an ack" do
-    {:ok, %{"food" => %{0 => %{error_code: 0, offset: offset}}}} =  Kafka.Server.produce("food", 0, "hey", nil, 1)
+    {:ok, %{"food" => %{0 => %{error_code: 0, offset: offset}}}} =  Kafka.Server.produce("food", 0, "hey", Kafka.Server, nil, 1)
     refute offset == nil
   end
 
   test "produce updates metadata" do
     pid = Process.whereis(Kafka.Server)
-    :sys.replace_state(pid, fn({correlation_id, _metadata, socket_map}) -> {correlation_id, %{}, socket_map} end)
+    :sys.replace_state(pid, fn({correlation_id, _metadata, socket_map, _}) -> {correlation_id, %{}, socket_map, nil} end)
     Kafka.Server.produce("food", 0, "hey")
-    {_, metadata, _socket_map} = :sys.get_state(pid)
+    {_, metadata, _socket_map, _} = :sys.get_state(pid)
     refute metadata == %{}
 
     brokers = Map.values(metadata[:brokers])
@@ -61,10 +56,9 @@ defmodule Kafka.Integration.Test do
 
   test "produce creates log for a non-existing topic" do
     random_string = generate_random_string
-    random_topic_metadata = Kafka.Server.metadata(random_string)[:topics][random_string]
     Kafka.Server.produce(random_string, 0, "hey")
     pid = Process.whereis(Kafka.Server)
-    {_, metadata, _socket_map} = :sys.get_state(pid)
+    {_, metadata, _socket_map, _} = :sys.get_state(pid)
     random_topic_metadata_found = metadata[:topics] |> Map.keys |> Enum.member?(random_string)
 
     assert random_topic_metadata_found
@@ -73,7 +67,7 @@ defmodule Kafka.Integration.Test do
   #metadata
   test "metadata attempts to connect via one of the exisiting sockets" do
     {:ok, pid} = Kafka.Server.start_link(uris, :one_working_port)
-    {_, _metadata, socket_map} = :sys.get_state(pid)
+    {_, _metadata, socket_map, _} = :sys.get_state(pid)
     [_ |rest] = Map.values(socket_map) |> Enum.reverse
     Enum.each(rest, &:gen_tcp.close/1)
     brokers = Kafka.Server.metadata("", :one_working_port)[:brokers] |> Map.values
@@ -87,7 +81,7 @@ defmodule Kafka.Integration.Test do
     refute random_topic_metadata[:partitions] == %{}
 
     pid = Process.whereis(Kafka.Server)
-    {_, metadata, _socket_map} = :sys.get_state(pid)
+    {_, metadata, _socket_map, _} = :sys.get_state(pid)
     random_topic_metadata_found = metadata[:topics] |> Map.keys |> Enum.member?(random_string)
 
     assert random_topic_metadata_found
@@ -96,9 +90,9 @@ defmodule Kafka.Integration.Test do
   #fetch
   test "fetch updates metadata" do
     pid = Process.whereis(Kafka.Server)
-    :sys.replace_state(pid, fn({correlation_id, _metadata, socket_map}) -> {correlation_id, %{}, socket_map} end)
+    :sys.replace_state(pid, fn({correlation_id, _metadata, socket_map, _}) -> {correlation_id, %{}, socket_map, nil} end)
     Kafka.Server.fetch("food", 0, 0)
-    {_, metadata, _socket_map} = :sys.get_state(pid)
+    {_, metadata, _socket_map, _} = :sys.get_state(pid)
     refute metadata == %{}
 
     brokers = Map.values(metadata[:brokers])
@@ -108,7 +102,6 @@ defmodule Kafka.Integration.Test do
 
   test "fetch retrieves empty logs for non-exisiting topic" do
     random_string = generate_random_string
-    random_topic_metadata = Kafka.Server.metadata(random_string)[:topics][random_string]
     {:ok, map} = Kafka.Server.fetch(random_string, 0, 0)
     %{0 => %{message_set: message_set}} = Map.get(map, random_string)
 
@@ -116,7 +109,7 @@ defmodule Kafka.Integration.Test do
   end
 
   test "fetch works" do
-    {:ok, %{"food" => %{0 => %{error_code: 0, offset: offset}}}} =  Kafka.Server.produce("food", 0, "hey foo", nil, 1)
+    {:ok, %{"food" => %{0 => %{error_code: 0, offset: offset}}}} =  Kafka.Server.produce("food", 0, "hey foo", Kafka.Server, nil, 1)
     {:ok, %{"food" => %{0 => %{message_set: message_set}}}} = Kafka.Server.fetch("food", 0, 0)
     message = message_set |> Enum.reverse |> hd
 
@@ -127,9 +120,9 @@ defmodule Kafka.Integration.Test do
   #offset
   test "offset updates metadata" do
     pid = Process.whereis(Kafka.Server)
-    :sys.replace_state(pid, fn({correlation_id, _metadata, socket_map}) -> {correlation_id, %{}, socket_map} end)
+    :sys.replace_state(pid, fn({correlation_id, _metadata, socket_map, _}) -> {correlation_id, %{}, socket_map, nil} end)
     Kafka.Server.latest_offset("food", 0)
-    {_, metadata, _socket_map} = :sys.get_state(pid)
+    {_, metadata, _socket_map, _} = :sys.get_state(pid)
     refute metadata == %{}
 
     brokers = Map.values(metadata[:brokers])
@@ -139,11 +132,26 @@ defmodule Kafka.Integration.Test do
 
   test "latest_offset retrieves offset of 0 for non-existing topic" do
     random_string = generate_random_string
-    random_topic_metadata = Kafka.Server.metadata(random_string)[:topics][random_string]
     {:ok, map} = Kafka.Server.latest_offset(random_string, 0)
     %{0 => %{offsets: [offset]}} = Map.get(map, random_string)
 
     assert offset == 0
+  end
+
+  #stream
+  test "streams kafka logs" do
+    random_string = generate_random_string
+    Kafka.Server.start_link(uris, :stream)
+    Kafka.Server.produce(random_string, 0, "hey", :stream)
+    Kafka.Server.produce(random_string, 0, "hi", :stream)
+    pid = Kafka.Server.start_streaming(random_string, 0, :stream)
+    log = Enum.take(Kafka.Server.stream(pid), 2)
+    IO.inspect log
+
+    refute Enum.empty?(log)
+    [first,second|_] = log
+    assert first.value == "hey"
+    assert second.value == "hi"
   end
 
   def uris do
