@@ -144,9 +144,7 @@ defmodule Kafka.Integration.Test do
     Kafka.Server.start_link(uris, :stream)
     Kafka.Server.produce(random_string, 0, "hey", :stream)
     Kafka.Server.produce(random_string, 0, "hi", :stream)
-    pid = Kafka.Server.start_streaming(random_string, 0, :stream)
-    log = Enum.take(Kafka.Server.stream(pid), 2)
-    IO.inspect log
+    log = Kafka.Server.stream(random_string, 0, :stream) |> Enum.take(2)
 
     refute Enum.empty?(log)
     [first,second|_] = log

@@ -12,9 +12,9 @@ defmodule Kafka.Server do
     GenServer.call(name, {:metadata, topic})
   end
 
-  def latest_offset(topic, partition), do: offset(topic, partition, :latest)
+  def latest_offset(topic, partition, name \\ __MODULE__), do: offset(topic, partition, :latest, name)
 
-  def earliest_offset(topic, partition), do: offset(topic, partition, :earliest)
+  def earliest_offset(topic, partition, name \\ __MODULE__), do: offset(topic, partition, :earliest, name)
 
   @spec offset(binary, number, datetime|atom) :: map
   def offset(topic, partition, time, name \\ __MODULE__) do
@@ -24,7 +24,7 @@ defmodule Kafka.Server do
   @wait_time 10
   @min_bytes 1
   @max_bytes 1_000_000
-  @spec start_streaming(binary, number, atom, number, atom) :: pid
+  @spec fetch(binary, number, number, atom, number, number, number) :: any
   def fetch(topic, partition, offset, name \\ __MODULE__, wait_time \\ @wait_time, min_bytes \\ @min_bytes, max_bytes \\ @max_bytes) do
     GenServer.call(name, {:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes})
   end
@@ -34,34 +34,26 @@ defmodule Kafka.Server do
   end
 
   @doc """
-  This puts a kafka worker in streaming mode and blocks the worker indefinitely, the pid returned from this function would be passed to the stream function to consume fetched messages.
+  Returns a stream that consumes fetched messages.
+  This puts the specified worker in streaming mode and blocks the worker indefinitely.
   The handler is a normal GenEvent handler so you can supply a custom handler, otherwise a default handler is used.
 
-  This function should be used with care as the queue is unbounded and can cause OOM
-  """
-  @spec start_streaming(binary, number, atom, number, atom) :: pid
-  def start_streaming(topic, partition, name \\ __MODULE__, offset \\ 0, handler \\ KafkaHandler) do
-    {:ok, pid} = GenEvent.start_link
-    :ok = GenEvent.add_handler(pid, handler, [])
-    send(name, {:start_streaming, topic, partition, offset, pid, handler})
-    pid
-  end
-
-  @doc """
-  Returns a stream that consumes fetched messages, pid returned from start_streaming/5 is the expected pid here.
+  This function should be used with care as the queue is unbounded and can cause OOM.
 
   e.g:
 
     Kafka.Server.start_link([{"localhost", 9092}], :stream)
     Kafka.Server.produce("foo", 0, "hey", :stream)
     Kafka.Server.produce("foo", 0, "hi", :stream)
-    Kafka.Server.start_streaming("foo", 0) |>
-      Kafka.Server.stream |>
-      Enum.take(2)  #> [%{attributes: 0, crc: 4264455069, key: nil, offset: 0, value: "hey"},
-      %{attributes: 0, crc: 4251893211, key: nil, offset: 1, value: "hi"}]
+    Kafka.Server.start_stream("foo", 0) |>
+    Enum.take(2)  #> [%{attributes: 0, crc: 4264455069, key: nil, offset: 0, value: "hey"},
+    %{attributes: 0, crc: 4251893211, key: nil, offset: 1, value: "hi"}]
   """
-  @spec stream(pid) :: GenEvent.Stream.t
-  def stream(pid) do
+  @spec stream(binary, number, atom, number, atom) :: GenEvent.Stream.t
+  def stream(topic, partition, name \\ __MODULE__, offset \\ 0, handler \\ KafkaHandler) do
+    {:ok, pid} = GenEvent.start_link
+    :ok = GenEvent.add_handler(pid, handler, [])
+    send(name, {:start_streaming, topic, partition, offset, pid, handler})
     GenEvent.stream(pid)
   end
 
