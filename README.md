@@ -12,32 +12,36 @@ config Kafka,
   brokers: [{HOST, PORT}]
 
 # Retrieve kafka metadata
-Kakfa.Server.metadata
+Kafka.Server.metadata
 
 # Retrieve the latest offset
-Kakfa.Server.latest_offset(topic, partition)
+Kafka.Server.latest_offset(topic, partition, name \\ Kafka.Server)
 
 # Retrieve the earliest offset
-Kafka.Server.earliest_offset(topic, partition)
+Kafka.Server.earliest_offset(topic, partition, name \\ Kafka.Server)
 
 # Retrieve offset from a specific time
-Kafka.Server.offset(topic, partition, time) # time is of type [datetime](http://erlang.org/doc/man/calendar.html#type-datetime)
+Kafka.Server.offset(topic, partition, time, name \\ Kafka.Server) # time is of type [datetime](http://erlang.org/doc/man/calendar.html#type-datetime)
 
 # Fetch kafka logs
-Kafka.Server.fetch(topic, partition, offset, wait_time \\ 10, min_bytes \\ 1, max_bytes \\ 1_000_000)
+Kafka.Server.fetch(topic, partition, offset, name \\ Kafka.Server, wait_time \\ 10, min_bytes \\ 1, max_bytes \\ 1_000_000)
 
 # Produce kafka logs
-Kafka.Server.produce(topic, partition, value, key \\ nil, required_acks \\ 0, timeout \\ 100)
+Kafka.Server.produce(topic, partition, value, name \\ Kafka.Server, key \\ nil, required_acks \\ 0, timeout \\ 100)
+
+# Stream kafka logs
+Kafka.Server.stream(topic, partition, name \\ Kafka.Server, offset \\ 0, handler \\ KafkaHandler)
 ```
 
 
 ### Test
-Run unit tests with:
+#### Unit tests
 ```
 mix test --no-start
 ```
 
-Run integration tests with:
+#### Integration tests 
+Add the broker config to `config/config.exs` and run:
 ```
-HOST=<kafka_host> PORT=<kafka_port> mix test --only integration
+mix test --only integration
 ```
