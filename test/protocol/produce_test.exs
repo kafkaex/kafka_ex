@@ -12,9 +12,4 @@ defmodule KafkaEx.Protocol.Produce.Test do
     assert {:ok, %{"bar" => %{0 => %{:error_code => 0, :offset => 10}, 1 => %{:error_code => 0, :offset => 20}},
                    "baz" => %{0 => %{:error_code => 0, :offset => 30}, 1 => %{:error_code => 0, :offset => 40}}}} == KafkaEx.Protocol.Produce.parse_response(response)
   end
-
-  test "parse_response correctly parses an invalid response returning an error" do
-    response = << 0 :: 32, 2 :: 32, 3 :: 16, "bar" :: binary, 1 :: 32, 0 :: 32, 0 :: 16, 10 :: 64 >>
-    assert {:error, "Error parsing topic or number of partitions in produce response", ""} == KafkaEx.Protocol.Produce.parse_response(response)
-  end
 end

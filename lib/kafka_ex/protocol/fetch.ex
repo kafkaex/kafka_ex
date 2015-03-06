@@ -10,10 +10,6 @@ defmodule KafkaEx.Protocol.Fetch do
     |> generate_result
   end
 
-  def parse_response(data) do
-    {:error, "Error parsing num_topics in fetch response", data}
-  end
-
   defp generate_result({:ok, response_map, _rest}) do
     {:ok, response_map}
   end
@@ -31,12 +27,7 @@ defmodule KafkaEx.Protocol.Fetch do
     case parse_partitions(%{}, num_partitions, rest) do
       {:ok, partition_map, rest} ->
         parse_topics(Map.put(map, topic, partition_map), num_topics-1, rest)
-      {:error, message}          -> {:error, message}
     end
-  end
-
-  defp parse_topics(_map, _num, data) do
-    {:error, "Error parsing topic or number of partitions in fetch response", data}
   end
 
   defp parse_partitions(map, 0, rest) do
@@ -61,9 +52,5 @@ defmodule KafkaEx.Protocol.Fetch do
 
       {:error, message} -> {:error, message}
     end
-  end
-
-  defp parse_partitions(_map, _num, data) do
-    {:error, "Error parsing partition data in fetch response", data}
   end
 end
