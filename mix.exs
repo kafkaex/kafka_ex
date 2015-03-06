@@ -16,6 +16,10 @@ defmodule KafkaEx.Mixfile do
   end
 
   defp deps do
-    [{:mock, ">= 0.1.0"}]
+    [
+      {:mock, ">= 0.1.0", only: :test},
+      {:earmark, "~> 0.1", only: :dev},
+      {:ex_doc, "~> 0.7", only: :dev},
+    ]
   end
 end

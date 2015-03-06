@@ -10,8 +10,10 @@ defmodule KafkaEx do
 
   ## Example
 
+  ```elixir
   iex> KafkaEx.create_worker(:pr)
   {:ok, #PID<0.171.0>}
+  ```
   """
   @spec create_worker(atom) :: Supervisor.on_start_child
   def create_worker(name) do
@@ -24,8 +26,11 @@ defmodule KafkaEx do
 
   ## Example
 
+  ```elixir
+  iex> KafkaEx.create_worker(:pr)
   iex> KafkaEx.create_worker([{"localhost", 9092}], :pr)
   {:ok, #PID<0.171.0>}
+  ```
   """
   @spec create_worker(KafkaEx.Server.uri, atom) :: Supervisor.on_start_child
   def create_worker(uris, name) do
@@ -37,6 +42,8 @@ defmodule KafkaEx do
 
   ## Example
 
+  ```elixir
+  iex> KafkaEx.create_worker(:pr)
   iex> KafkaEx.metadata("foo", :mt)
   %{brokers: %{1 => {"localhost", 9092}},
     topics: %{"foo" => %{error_code: 0,
@@ -45,6 +52,7 @@ defmodule KafkaEx do
           2 => %{error_code: 0, isrs: [1], leader: 1, replicas: [1]},
           3 => %{error_code: 0, isrs: [1], leader: 1, replicas: [1]},
           4 => %{error_code: 0, isrs: [1], leader: 1, replicas: [1]}}}}}
+  ```
   """
   def metadata(topic \\ "", name \\ KafkaEx.Server) do
     GenServer.call(name, {:metadata, topic})
@@ -55,8 +63,10 @@ defmodule KafkaEx do
 
   ## Example
 
+  ```elixir
   iex> KafkaEx.latest_offset("foo", 0, :mt)
   {:ok, %{"foo" => %{0 => %{error_code: 0, offsets: [16]}}}}
+  ```
   """
   def latest_offset(topic, partition, name \\ KafkaEx.Server), do: offset(topic, partition, :latest, name)
 
@@ -65,8 +75,10 @@ defmodule KafkaEx do
 
   ## Example
 
+  ```elixir
   iex> KafkaEx.latest_offset("foo", 0, :mt)
   {:ok, %{"foo" => %{0 => %{error_code: 0, offsets: [0]}}}}
+  ```
   """
   def earliest_offset(topic, partition, name \\ KafkaEx.Server), do: offset(topic, partition, :earliest, name)
 
@@ -86,13 +98,16 @@ defmodule KafkaEx do
   Fetch a set of messages from Kafka from the given topic, partition ID, and offset
 
   ## Example
+
+  ```elixir
   iex> KafkaEx.fetch("food", 0, 0)
   {:ok,
    %{"food" => %{0 => %{error_code: 0, hw_mark_offset: 133,
          message_set: [%{attributes: 0, crc: 4264455069, key: nil, offset: 0,
             value: "hey"},
           %{attributes: 0, crc: 4264455069, key: nil, offset: 1, value: "hey"},
-          ...]}}}}
+  ...]}}}}
+  ```
   """
   @spec fetch(binary, number, number, atom, number, number, number) :: any
   def fetch(topic, partition, offset, name \\ KafkaEx.Server, wait_time \\ @wait_time, min_bytes \\ @min_bytes, max_bytes \\ @max_bytes) do
@@ -103,10 +118,13 @@ defmodule KafkaEx do
   Produces messages to kafka logs
 
   ## Example
+
+  ```elixir
   iex> KafkaEx.produce("food", 0, 0)
   :ok
   iex> KafkaEx.produce("foo", 0, "hey", :pr, nil, 1)
   {:ok, %{"foo" => %{0 => %{error_code: 0, offset: 15}}}}
+  ```
   """
   @spec produce(binary, number, binary, atom, binary, number, number) :: any
   def produce(topic, partition, value, name \\ KafkaEx.Server, key \\ nil, required_acks \\ 0, timeout \\ 100) do
@@ -122,15 +140,17 @@ defmodule KafkaEx do
 
   ## Example
 
-    iex> KafkaEx.create_worker([{"localhost", 9092}], :stream)
-    {:ok, #PID<0.196.0>}
-    iex> KafkaEx.produce("foo", 0, "hey", :stream)
-    :ok
-    iex> KafkaEx.produce("foo", 0, "hi", :stream)
-    :ok
-    iex> KafkaEx.stream("foo", 0) |> iex> Enum.take(2)
-    [%{attributes: 0, crc: 4264455069, key: nil, offset: 0, value: "hey"},
-     %{attributes: 0, crc: 4251893211, key: nil, offset: 1, value: "hi"}]
+  ```elixir
+  iex> KafkaEx.create_worker([{"localhost", 9092}], :stream)
+  {:ok, #PID<0.196.0>}
+  iex> KafkaEx.produce("foo", 0, "hey", :stream)
+  :ok
+  iex> KafkaEx.produce("foo", 0, "hi", :stream)
+  :ok
+  iex> KafkaEx.stream("foo", 0) |> iex> Enum.take(2)
+  [%{attributes: 0, crc: 4264455069, key: nil, offset: 0, value: "hey"},
+   %{attributes: 0, crc: 4251893211, key: nil, offset: 1, value: "hi"}]
+  ```
   """
   @spec stream(binary, number, atom, number, atom) :: GenEvent.Stream.t
   def stream(topic, partition, name \\ KafkaEx.Server, offset \\ 0, handler \\ KafkaExHandler) do
