@@ -1,4 +1,4 @@
-defmodule KafkaHandler do
+defmodule KafkaExHandler do
   use GenEvent
 
   def handle_event(message_set, message_sets) do

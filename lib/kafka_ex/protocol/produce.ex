@@ -1,7 +1,7 @@
-defmodule Kafka.Protocol.Produce do
+defmodule KafkaEx.Protocol.Produce do
   def create_request(correlation_id, client_id, topic, partition, value, key, required_acks, timeout) do
-    message_set = Kafka.Util.create_message_set(value, key)
-    Kafka.Protocol.create_request(:produce, correlation_id, client_id) <>
+    message_set = KafkaEx.Util.create_message_set(value, key)
+    KafkaEx.Protocol.create_request(:produce, correlation_id, client_id) <>
       << required_acks :: 16, timeout :: 32, 1 :: 32, byte_size(topic) :: 16, topic :: binary, 1 :: 32, partition :: 32, byte_size(message_set) :: 32 >> <>
       message_set
   end

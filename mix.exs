@@ -1,8 +1,8 @@
-defmodule Kafka.Mixfile do
+defmodule KafkaEx.Mixfile do
   use Mix.Project
 
   def project do
-    [app: :kafka,
+    [app: :kafka_ex,
      version: "0.0.1",
      elixir: "~> 1.0",
      deps: deps]
@@ -10,7 +10,7 @@ defmodule Kafka.Mixfile do
 
   def application do
     [
-      mod: {Kafka, []},
+      mod: {KafkaEx, []},
       applications: [:logger]
     ]
   end

@@ -1,4 +1,4 @@
-Kafka_Ex
+Kafka
 ========
 
 Kafka client for Elixir/Erlang.

@@ -1,15 +1,15 @@
-defmodule Kafka.Protocol.Metadata.Test do
+defmodule KafkaEx.Protocol.Metadata.Test do
   use ExUnit.Case, async: true
 
   test "create_request creates a valid metadata request" do
     good_request = << 3 :: 16, 0 :: 16, 1 :: 32, 3 :: 16, "foo" :: binary, 0 :: 32 >>
-    request = Kafka.Protocol.Metadata.create_request(1, "foo")
+    request = KafkaEx.Protocol.Metadata.create_request(1, "foo")
     assert request == good_request
   end
 
   test "create_request creates a valid topic metadata request" do
     good_request = << 3 :: 16, 0 :: 16, 1 :: 32, 3 :: 16, "foo" :: binary, 1 :: 32, 3 :: 16, "bar" >>
-    request = Kafka.Protocol.Metadata.create_request(1, "foo", "bar")
+    request = KafkaEx.Protocol.Metadata.create_request(1, "foo", "bar")
     assert request == good_request
   end
 
@@ -19,6 +19,6 @@ defmodule Kafka.Protocol.Metadata.Test do
     assert %{:brokers => %{0 => {"foo", 9092}},
         :topics => %{"bar" => %{:error_code => 0,
             :partitions => %{0 => %{:error_code => 0, :isrs => [0], :leader => 0,
-                :replicas => []}}}}} = Kafka.Protocol.Metadata.parse_response(response)
+                :replicas => []}}}}} = KafkaEx.Protocol.Metadata.parse_response(response)
   end
 end

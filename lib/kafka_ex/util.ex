@@ -1,4 +1,4 @@
-defmodule Kafka.Util do
+defmodule KafkaEx.Util do
   def create_message_set(value, key \\ nil) do
     message = create_message(value, key)
     << 0 :: 64, byte_size(message) :: 32 >> <> message

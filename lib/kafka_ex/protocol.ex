@@ -1,4 +1,4 @@
-defmodule Kafka.Protocol do
+defmodule KafkaEx.Protocol do
   @produce_request   0
   @fetch_request     1
   @offset_request    2

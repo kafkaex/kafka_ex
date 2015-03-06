@@ -1,12 +1,12 @@
-defmodule Kafka.Protocol.Metadata do
+defmodule KafkaEx.Protocol.Metadata do
   def create_request(correlation_id, client_id, topic \\ "")
 
   def create_request(correlation_id, client_id, "") do
-    Kafka.Protocol.create_request(:metadata, correlation_id, client_id) <> << 0 :: 32 >>
+    KafkaEx.Protocol.create_request(:metadata, correlation_id, client_id) <> << 0 :: 32 >>
   end
 
   def create_request(correlation_id, client_id, topic) do
-    Kafka.Protocol.create_request(:metadata, correlation_id, client_id) <> << 1 :: 32 >> <> << byte_size(topic) :: 16 >> <> topic
+    KafkaEx.Protocol.create_request(:metadata, correlation_id, client_id) <> << 1 :: 32 >> <> << byte_size(topic) :: 16 >> <> topic
   end
 
   def parse_response(<< _correlation_id :: 32, num_brokers :: 32, rest :: binary >>) do

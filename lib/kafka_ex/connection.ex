@@ -1,8 +1,8 @@
-defmodule Kafka.Connection do
+defmodule KafkaEx.Connection do
   def connect_brokers(uris, socket_map \\ %{})
 
   def connect_brokers([], socket_map) when socket_map == %{} do
-    raise Kafka.ConnectionError, message: "Error: Cannot connect to any of the broker(s) provided"
+    raise KafkaEx.ConnectionError, message: "Error: Cannot connect to any of the broker(s) provided"
   end
 
   def connect_brokers([], socket_map), do: socket_map
@@ -35,7 +35,7 @@ defmodule Kafka.Connection do
     {format_host(host), port}
   end
 
-  def connect(host, port), do: raise(Kafka.ConnectionError, message: "Error: Bad broker format '{#{host}, #{port}}'")
+  def connect(host, port), do: raise(KafkaEx.ConnectionError, message: "Error: Bad broker format '{#{host}, #{port}}'")
 
   def close(socket), do: :gen_tcp.close(socket)
 

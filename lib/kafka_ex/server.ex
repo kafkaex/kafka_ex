@@ -1,74 +1,21 @@
-defmodule Kafka.Server do
-  @type datetime() :: {{pos_integer, pos_integer, pos_integer}, {pos_integer, pos_integer, pos_integer}}
-  @type uri() :: [{binary|char_list, number}]
-
-  ###Public Api
+defmodule KafkaEx.Server do
   @client_id "kafka_ex"
+
+  ### GenServer Callbacks
+  use GenServer
 
   def start_link(uris, name \\ __MODULE__) do
     GenServer.start_link(__MODULE__, uris, [name: name])
   end
 
-  def metadata(topic \\ "", name \\ __MODULE__) do
-    GenServer.call(name, {:metadata, topic})
-  end
-
-  def latest_offset(topic, partition, name \\ __MODULE__), do: offset(topic, partition, :latest, name)
-
-  def earliest_offset(topic, partition, name \\ __MODULE__), do: offset(topic, partition, :earliest, name)
-
-  @spec offset(binary, number, datetime|atom) :: map
-  def offset(topic, partition, time, name \\ __MODULE__) do
-    GenServer.call(name, {:offset, topic, partition, time})
-  end
-
-  @wait_time 10
-  @min_bytes 1
-  @max_bytes 1_000_000
-  @spec fetch(binary, number, number, atom, number, number, number) :: any
-  def fetch(topic, partition, offset, name \\ __MODULE__, wait_time \\ @wait_time, min_bytes \\ @min_bytes, max_bytes \\ @max_bytes) do
-    GenServer.call(name, {:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes})
-  end
-
-  def produce(topic, partition, value, name \\ __MODULE__, key \\ nil, required_acks \\ 0, timeout \\ 100) do
-    GenServer.call(name, {:produce, topic, partition, value, key, required_acks, timeout})
-  end
-
-  @doc """
-  Returns a stream that consumes fetched messages.
-  This puts the specified worker in streaming mode and blocks the worker indefinitely.
-  The handler is a normal GenEvent handler so you can supply a custom handler, otherwise a default handler is used.
-
-  This function should be used with care as the queue is unbounded and can cause OOM.
-
-  e.g:
-
-    Kafka.Server.start_link([{"localhost", 9092}], :stream)
-    Kafka.Server.produce("foo", 0, "hey", :stream)
-    Kafka.Server.produce("foo", 0, "hi", :stream)
-    Kafka.Server.start_stream("foo", 0) |>
-    Enum.take(2)  #> [%{attributes: 0, crc: 4264455069, key: nil, offset: 0, value: "hey"},
-    %{attributes: 0, crc: 4251893211, key: nil, offset: 1, value: "hi"}]
-  """
-  @spec stream(binary, number, atom, number, atom) :: GenEvent.Stream.t
-  def stream(topic, partition, name \\ __MODULE__, offset \\ 0, handler \\ KafkaHandler) do
-    {:ok, pid} = GenEvent.start_link
-    :ok = GenEvent.add_handler(pid, handler, [])
-    send(name, {:start_streaming, topic, partition, offset, pid, handler})
-    GenEvent.stream(pid)
-  end
-
-  ### GenServer Callbacks
-  use GenServer
-
   def init(uris) do
-    socket_map = Kafka.Connection.connect_brokers(uris)
+    socket_map = KafkaEx.Connection.connect_brokers(uris)
     send(self, :metadata)
     {:ok, {0, %{}, socket_map, nil}}
   end
 
   def handle_call({:produce, topic, partition, value, key, required_acks, timeout}, _from, {correlation_id, _metadata, socket_map, event_pid} = state) do
-    data = Kafka.Protocol.Produce.create_request(correlation_id, @client_id, topic, partition, value, key, required_acks, timeout)
+    data = KafkaEx.Protocol.Produce.create_request(correlation_id, @client_id, topic, partition, value, key, required_acks, timeout)
     metadata = topic_metadata(state, topic)
     socket = get_socket_for_broker(socket_map, metadata, topic, partition)
     send_data(socket, data)
@@ -80,7 +27,7 @@ defmodule Kafka.Server do
   end
 
   def handle_call({:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes}, _from, {correlation_id, _metadata, socket_map, event_pid} = state) do
-    data = Kafka.Protocol.Fetch.create_request(correlation_id, @client_id, topic, partition, offset, wait_time, min_bytes, max_bytes)
+    data = KafkaEx.Protocol.Fetch.create_request(correlation_id, @client_id, topic, partition, offset, wait_time, min_bytes, max_bytes)
     metadata = topic_metadata(state, topic)
     socket = get_socket_for_broker(socket_map, metadata, topic, partition)
     send_data(socket, data)
@@ -88,7 +35,7 @@ defmodule Kafka.Server do
   end
 
   def handle_call({:offset, topic, partition, time}, _from, {correlation_id, _metadata, socket_map, event_pid} = state) do
-    data = Kafka.Protocol.Offset.create_request(correlation_id, @client_id, topic, partition, time)
+    data = KafkaEx.Protocol.Offset.create_request(correlation_id, @client_id, topic, partition, time)
     metadata = topic_metadata(state, topic)
     socket = get_socket_for_broker(socket_map, metadata, topic, partition)
     send_data(socket, data)
@@ -100,8 +47,11 @@ defmodule Kafka.Server do
     {:reply, data, {correlation_id + 1, metadata, socket_map, event_pid}}
   end
 
+  @wait_time 10
+  @min_bytes 1
+  @max_bytes 1_000_000
   def handle_info({:start_streaming, topic, partition, offset, pid, handler}, {correlation_id, _metadata, socket_map, _event_pid} = state) do
-    data = Kafka.Protocol.Fetch.create_request(correlation_id, @client_id, topic, partition, offset, @wait_time, @min_bytes, @max_bytes)
+    data = KafkaEx.Protocol.Fetch.create_request(correlation_id, @client_id, topic, partition, offset, @wait_time, @min_bytes, @max_bytes)
     metadata = topic_metadata(state, topic)
     socket = get_socket_for_broker(socket_map, metadata, topic, partition)
     send_data(socket, data)
@@ -122,8 +72,8 @@ defmodule Kafka.Server do
     {:noreply, state}
   end
 
-  def terminate(_, {_, _, socket_map, _event_pid) do
-    Map.values(socket_map) |> Enum.each(&Kafka.Connection.close/1)
+  def terminate(_, {_, _, socket_map, _event_pid}) do
+    Map.values(socket_map) |> Enum.each(&KafkaEx.Connection.close/1)
   end
 
   @success                    0
@@ -131,7 +81,7 @@ defmodule Kafka.Server do
   @retry_delay                500
   @leader_not_available       5
   defp topic_metadata({correlation_id, metadata, socket_map, event_pid}, topic, retry_count \\ @retry_count) do
-    data = Kafka.Protocol.Metadata.create_request(correlation_id + 1, @client_id, topic)
+    data = KafkaEx.Protocol.Metadata.create_request(correlation_id + 1, @client_id, topic)
     Map.values(socket_map) |> send_metadata_request(data)
     metadata_response = handle_metadata_response
 
@@ -163,10 +113,6 @@ defmodule Kafka.Server do
     end
   end
 
-  defp get_socket_for_broker(socket_map, metadata, topic, partition) when metadata == %{} do
-    get_socket_for_broker(socket_map, metadata(""), topic, partition)
-  end
-
   defp get_socket_for_broker(socket_map, metadata, topic, partition) do
     brokers = Map.get(metadata, :brokers, %{})
     leader = Map.get(metadata, :topics, %{}) |> Map.get(topic, %{}) |> Map.get(:partitions, %{}) |> Map.get(partition, %{}) |> Map.get(:leader) #handle when there is no leader or no partition
@@ -174,12 +120,12 @@ defmodule Kafka.Server do
   end
 
   defp send_data(socket, data) do
-    Kafka.Connection.send(data, socket)
+    KafkaEx.Connection.send(data, socket)
   end
 
   defp handle_produce_response(timeout) do
     receive do
-      {:tcp, _, data} -> Kafka.Protocol.Produce.parse_response(data)
+      {:tcp, _, data} -> KafkaEx.Protocol.Produce.parse_response(data)
     after
       (timeout + 1000) -> :timeout
     end
@@ -189,7 +135,7 @@ defmodule Kafka.Server do
     receive do
       {:tcp, _, data} ->
         if byte_size(data) > 0 do
-          {:ok, map} = Kafka.Protocol.Fetch.parse_response(data)
+          {:ok, map} = KafkaEx.Protocol.Fetch.parse_response(data)
           map[topic][partition][:message_set] |>
             Enum.each(fn(message_set) -> GenEvent.notify(pid, message_set) end)
         end
@@ -199,19 +145,19 @@ defmodule Kafka.Server do
 
   defp handle_fetch_response do
     receive do
-      {:tcp, _, data} -> Kafka.Protocol.Fetch.parse_response(data)
+      {:tcp, _, data} -> KafkaEx.Protocol.Fetch.parse_response(data)
     end
   end
 
   defp handle_offset_response do
     receive do
-      {:tcp, _, data} -> Kafka.Protocol.Offset.parse_response(data)
+      {:tcp, _, data} -> KafkaEx.Protocol.Offset.parse_response(data)
     end
   end
 
   defp handle_metadata_response do
     receive do
-      {:tcp, _, data} -> Kafka.Protocol.Metadata.parse_response(data)
+      {:tcp, _, data} -> KafkaEx.Protocol.Metadata.parse_response(data)
     after
       5000 -> :timeout
     end

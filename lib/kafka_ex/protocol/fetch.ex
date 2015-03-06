@@ -1,6 +1,6 @@
-defmodule Kafka.Protocol.Fetch do
+defmodule KafkaEx.Protocol.Fetch do
   def create_request(correlation_id, client_id, topic, partition, offset, wait_time, min_bytes, max_bytes) do
-    Kafka.Protocol.create_request(:fetch, correlation_id, client_id) <>
+    KafkaEx.Protocol.create_request(:fetch, correlation_id, client_id) <>
       << -1 :: 32, wait_time :: 32, min_bytes :: 32, 1 :: 32, byte_size(topic) :: 16, topic :: binary,
          1 :: 32, partition :: 32, offset :: 64, max_bytes :: 32 >>
   end
@@ -47,7 +47,7 @@ defmodule Kafka.Protocol.Fetch do
                         << partition :: 32, error_code :: 16, hw_mark_offset :: 64,
                            msg_set_size :: 32, msg_set_data :: size(msg_set_size)-binary,
                            rest :: binary >>) do
-    case Kafka.Util.parse_message_set([], msg_set_data) do
+    case KafkaEx.Util.parse_message_set([], msg_set_data) do
       {:ok, message_set} ->
         parse_partitions(
           Map.put(map, partition,
