@@ -7,6 +7,12 @@ defmodule Kafka.Integration.Test do
     assert is_pid(pid)
   end
 
+  #create_worker
+  test "Kafka.Supervisor dynamically creates workers" do
+    pid = Kafka.Supervisor.create_worker(uris, :bar)
+    assert Process.whereis(:bar) == pid
+  end
+
   test "Kafka.Server connects to all supplied brokers" do
     pid = Process.whereis(Kafka.Server)
     {_, _metadata, socket_map, _} = :sys.get_state(pid)

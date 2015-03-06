@@ -1,5 +1,6 @@
 defmodule Kafka.Server do
   @type datetime() :: {{pos_integer, pos_integer, pos_integer}, {pos_integer, pos_integer, pos_integer}}
+  @type uri() :: [{binary|char_list, number}]
 
   ###Public Api
   @client_id "kafka_ex"
@@ -66,7 +67,7 @@ defmodule Kafka.Server do
     {:ok, {0, %{}, socket_map, nil}}
   end
 
-  def handle_call({:produce, topic, partition, value, key, required_acks, timeout}, _from, {correlation_id, metadata, socket_map, event_pid} = state) do
+  def handle_call({:produce, topic, partition, value, key, required_acks, timeout}, _from, {correlation_id, _metadata, socket_map, event_pid} = state) do
     data = Kafka.Protocol.Produce.create_request(correlation_id, @client_id, topic, partition, value, key, required_acks, timeout)
     metadata = topic_metadata(state, topic)
     socket = get_socket_for_broker(socket_map, metadata, topic, partition)
@@ -78,7 +79,7 @@ defmodule Kafka.Server do
     {:reply, parsed_response, {correlation_id + 1, metadata, socket_map, event_pid}}
   end
 
-  def handle_call({:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes}, _from, {correlation_id, metadata, socket_map, event_pid} = state) do
+  def handle_call({:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes}, _from, {correlation_id, _metadata, socket_map, event_pid} = state) do
     data = Kafka.Protocol.Fetch.create_request(correlation_id, @client_id, topic, partition, offset, wait_time, min_bytes, max_bytes)
     metadata = topic_metadata(state, topic)
     socket = get_socket_for_broker(socket_map, metadata, topic, partition)
@@ -86,7 +87,7 @@ defmodule Kafka.Server do
     {:reply, handle_fetch_response, {correlation_id + 1, metadata, socket_map, event_pid}}
   end
 
-  def handle_call({:offset, topic, partition, time}, _from, {correlation_id, metadata, socket_map, event_pid} = state) do
+  def handle_call({:offset, topic, partition, time}, _from, {correlation_id, _metadata, socket_map, event_pid} = state) do
     data = Kafka.Protocol.Offset.create_request(correlation_id, @client_id, topic, partition, time)
     metadata = topic_metadata(state, topic)
     socket = get_socket_for_broker(socket_map, metadata, topic, partition)
@@ -99,7 +100,7 @@ defmodule Kafka.Server do
     {:reply, data, {correlation_id + 1, metadata, socket_map, event_pid}}
   end
 
-  def handle_info({:start_streaming, topic, partition, offset, pid, handler}, {correlation_id, metadata, socket_map, event_pid} = state) do
+  def handle_info({:start_streaming, topic, partition, offset, pid, handler}, {correlation_id, _metadata, socket_map, _event_pid} = state) do
     data = Kafka.Protocol.Fetch.create_request(correlation_id, @client_id, topic, partition, offset, @wait_time, @min_bytes, @max_bytes)
     metadata = topic_metadata(state, topic)
     socket = get_socket_for_broker(socket_map, metadata, topic, partition)
@@ -112,7 +113,7 @@ defmodule Kafka.Server do
     {:noreply, {correlation_id + 1, topic_metadata(state, ""), socket_map, event_pid}}
   end
 
-  def handle_info({:update_metadata, new_correlation_id, metadata, topic_metadata}, {correlation_id, _, socket_map, event_pid} = state) do
+  def handle_info({:update_metadata, new_correlation_id, metadata, topic_metadata}, {_correlation_id, _, socket_map, event_pid}) do
     updated_metadata = Map.merge(metadata, topic_metadata, fn(_, v1, v2) -> Map.merge(v1, v2) end)
     {:noreply, {new_correlation_id, updated_metadata, socket_map, event_pid}}
   end
@@ -121,7 +122,7 @@ defmodule Kafka.Server do
     {:noreply, state}
   end
 
-  def terminate(_, {_, _, socket_map, event_pid}) do
+  def terminate(_, {_, _, socket_map, _event_pid) do
     Map.values(socket_map) |> Enum.each(&Kafka.Connection.close/1)
   end
 
