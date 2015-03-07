@@ -35,7 +35,7 @@ defmodule KafkaEx.Connection do
     {format_host(host), port}
   end
 
-  def connect(host, port), do: raise(KafkaEx.ConnectionError, message: "Error: Bad broker format '{#{host}, #{port}}'")
+  def format_uri(host, port), do: raise(KafkaEx.ConnectionError, message: "Error: Bad broker format '{#{host}, #{port}}'")
 
   def close(socket), do: :gen_tcp.close(socket)
 

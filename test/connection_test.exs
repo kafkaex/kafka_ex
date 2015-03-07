@@ -46,6 +46,17 @@ defmodule KafkaEx.Connection.Test do
     end
   end
 
+  test "connect_brokers raises ConnectionError on badly formatted broker info" do
+    host = 1
+    port = 1024
+    with_mock :gen_tcp, [:unstick], [connect: fn(_, _, _) -> {:error, :something} end] do
+      assert_raise KafkaEx.ConnectionError, "Error: Bad broker format '{1, 1024}'", fn ->
+        KafkaEx.Connection.connect_brokers([{host, port}])
+      end
+      refute called :gen_tcp.connect(to_char_list(host), port, [:binary, {:packet, 4}])
+    end
+  end
+
   test "connect_brokers connects successfully to IP address" do
     host = "127.0.0.1"
     port = 1024
