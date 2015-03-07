@@ -11,26 +11,29 @@ Usage
 config Kafka,
   brokers: [{HOST, PORT}]
 
+# Create KakfaEx worker
+KafkaEx.create_worker(name)
+
 # Retrieve kafka metadata
-Kafka.Server.metadata
+KafkaEx.metadata
 
 # Retrieve the latest offset
-Kafka.Server.latest_offset(topic, partition, name \\ Kafka.Server)
+KafkaEx.latest_offset(topic, partition, name \\ Kafka.Server)
 
 # Retrieve the earliest offset
-Kafka.Server.earliest_offset(topic, partition, name \\ Kafka.Server)
+KafkaEx.earliest_offset(topic, partition, name \\ Kafka.Server)
 
 # Retrieve offset from a specific time
-Kafka.Server.offset(topic, partition, time, name \\ Kafka.Server) # time is of type [datetime](http://erlang.org/doc/man/calendar.html#type-datetime)
+KafkaEx.offset(topic, partition, time, name \\ Kafka.Server) # time is of type [datetime](http://erlang.org/doc/man/calendar.html#type-datetime)
 
 # Fetch kafka logs
-Kafka.Server.fetch(topic, partition, offset, name \\ Kafka.Server, wait_time \\ 10, min_bytes \\ 1, max_bytes \\ 1_000_000)
+KafkaEx.fetch(topic, partition, offset, name \\ Kafka.Server, wait_time \\ 10, min_bytes \\ 1, max_bytes \\ 1_000_000)
 
 # Produce kafka logs
-Kafka.Server.produce(topic, partition, value, name \\ Kafka.Server, key \\ nil, required_acks \\ 0, timeout \\ 100)
+KafkaEx.produce(topic, partition, value, name \\ Kafka.Server, key \\ nil, required_acks \\ 0, timeout \\ 100)
 
 # Stream kafka logs
-Kafka.Server.stream(topic, partition, name \\ Kafka.Server, offset \\ 0, handler \\ KafkaHandler)
+KafkaEx.stream(topic, partition, name \\ Kafka.Server, offset \\ 0, handler \\ KafkaHandler)
 ```
 
 
