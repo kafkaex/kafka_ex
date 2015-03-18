@@ -32,7 +32,7 @@ defmodule KafkaEx do
   {:ok, #PID<0.171.0>}
   ```
   """
-  @spec create_worker(KafkaEx.Server.uri, atom) :: Supervisor.on_start_child
+  @spec create_worker(KafkaEx.uri, atom) :: Supervisor.on_start_child
   def create_worker(uris, name) do
     Supervisor.start_child(KafkaEx.Supervisor, [uris, name])
   end
