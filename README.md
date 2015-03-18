@@ -8,7 +8,7 @@ Usage
 
 ```elixir
 # In your config/config.exs
-config Kafka,
+config KafkaEx,
   brokers: [{HOST, PORT}]
 
 # Create KakfaEx worker
