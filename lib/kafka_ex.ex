@@ -126,7 +126,7 @@ defmodule KafkaEx do
   {:ok, %{"foo" => %{0 => %{error_code: 0, offset: 15}}}}
   ```
   """
-  @spec produce(binary, number, binary, atom, binary, number, number) :: any
+  @spec produce(binary, number, binary, atom, nil | binary, number, number) :: any
   def produce(topic, partition, value, name \\ KafkaEx.Server, key \\ nil, required_acks \\ 0, timeout \\ 100) do
     GenServer.call(name, {:produce, topic, partition, value, key, required_acks, timeout})
   end
