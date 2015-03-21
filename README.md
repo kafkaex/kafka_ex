@@ -102,7 +102,7 @@ iex> KafkaEx.stream("foo", 0) |> iex> Enum.take(2)
 mix test --no-start
 ```
 
-#### Integration tests 
+#### Integration tests
 Add the broker config to `config/config.exs` and run:
 ```
 mix test --only integration
@@ -113,3 +113,6 @@ mix test --only integration
 ```
 mix dialyze --unmatched-returns --error-handling --race-conditions --underspecs
 ```
+
+### Contributing
+Please see [CONTRIBUTING.md](CONTRIBUTING.md)
