@@ -6,6 +6,18 @@ Kafka client for Elixir/Erlang.
 Usage
 -----
 
+Add KafkaEx to your mix.exs:
+
+```elixir
+{:kafka_ex, "~> 0.0.1"}
+```
+
+And run:
+
+```
+mix deps.get
+```
+
 ### Configuration
 
 In your config/config.exs add the list of kafka brokers as below:
