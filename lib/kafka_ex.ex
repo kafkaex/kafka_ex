@@ -164,7 +164,9 @@ defmodule KafkaEx do
   def start(_type, _args) do
     {:ok, pid} = KafkaEx.Supervisor.start_link
     uris = Application.get_env(KafkaEx, :brokers)
-    KafkaEx.create_worker(uris, KafkaEx.Server)
-    {:ok, pid}
+    case KafkaEx.create_worker(uris, KafkaEx.Server) do
+      {:error, reason} -> {:error, reason}
+      {:ok, _}         -> {:ok, pid}
+    end
   end
 end
