@@ -1,7 +1,6 @@
 defmodule KafkaEx do
   use Application
 
-  @type datetime() :: {{pos_integer, pos_integer, pos_integer}, {pos_integer, pos_integer, pos_integer}}
   @type uri() :: [{binary|char_list, number}]
 
 
@@ -84,7 +83,7 @@ defmodule KafkaEx do
   @doc """
   Get the offset of the message sent at the specified date/time
   """
-  @spec offset(binary, number, datetime|atom) :: map
+  @spec offset(binary, number, :calendar.datetime|atom) :: map
   def offset(topic, partition, time, name \\ KafkaEx.Server) do
     GenServer.call(name, {:offset, topic, partition, time})
   end

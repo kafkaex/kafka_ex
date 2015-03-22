@@ -17,7 +17,7 @@ defmodule KafkaEx.Protocol.Offset do
     -2
   end
 
-  @spec parse_time({{number, number, number}, {number, number, number}}) :: number
+  @spec parse_time(:calendar.datetime) :: integer
   defp parse_time(time) do
     current_time_in_seconds = time |> :calendar.datetime_to_gregorian_seconds
     unix_epoch_in_seconds = {{1970,1,1},{0,0,0}} |> :calendar.datetime_to_gregorian_seconds
