@@ -63,7 +63,7 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "produce creates log for a non-existing topic" do
-    random_string = generate_random_string
+    random_string = TestHelper.generate_random_string
     KafkaEx.produce(random_string, 0, "hey")
     pid = Process.whereis(KafkaEx.Server)
     {_, metadata, _socket_map, _} = :sys.get_state(pid)
@@ -83,7 +83,7 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "metadata for a non-existing topic creates a new topic" do
-    random_string = generate_random_string
+    random_string = TestHelper.generate_random_string
     random_topic_metadata = KafkaEx.metadata(random_string)[:topics][random_string]
     assert random_topic_metadata[:error_code] == 0
     refute random_topic_metadata[:partitions] == %{}
@@ -109,7 +109,7 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "fetch retrieves empty logs for non-exisiting topic" do
-    random_string = generate_random_string
+    random_string = TestHelper.generate_random_string
     {:ok, map} = KafkaEx.fetch(random_string, 0, 0)
     %{0 => %{message_set: message_set}} = Map.get(map, random_string)
 
@@ -139,7 +139,7 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "latest_offset retrieves offset of 0 for non-existing topic" do
-    random_string = generate_random_string
+    random_string = TestHelper.generate_random_string
     {:ok, map} = KafkaEx.latest_offset(random_string, 0)
     %{0 => %{offsets: [offset]}} = Map.get(map, random_string)
 
@@ -148,7 +148,7 @@ defmodule KafkaEx.Integration.Test do
 
   #stream
   test "streams kafka logs" do
-    random_string = generate_random_string
+    random_string = TestHelper.generate_random_string
     KafkaEx.create_worker(uris, :stream)
     KafkaEx.produce(random_string, 0, "hey", :stream)
     KafkaEx.produce(random_string, 0, "hi", :stream)
@@ -162,10 +162,5 @@ defmodule KafkaEx.Integration.Test do
 
   def uris do
     Mix.Config.read!("config/config.exs") |> hd |> elem(1) |> hd |> elem(1)
-  end
-
-  def generate_random_string(string_length \\ 20) do
-    :random.seed(:os.timestamp)
-    Enum.map(1..string_length, fn _ -> (:random.uniform * 25 + 65) |> round end) |> to_string
   end
 end

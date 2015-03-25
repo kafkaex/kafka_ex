@@ -3,77 +3,22 @@ ExUnit.start()
 ExUnit.configure exclude: [integration: true]
 
 defmodule TestHelper do
-  def mock_send(state, message) do
-    handle(state, message)
+  def get_bootstrap_hosts do
+    Mix.Config.read!("config/config.exs") |> hd |> elem(1) |> hd |> elem(1)
   end
 
-  # fetch
-  defp handle({_correlation_id, _brokers, _topics}, << 1 :: 16, _rest :: binary >>) do
-    send self(), {:tcp, nil, << >>}
-    :ok
+  def generate_random_string(string_length \\ 20) do
+    :random.seed(:os.timestamp)
+    Enum.map(1..string_length, fn _ -> (:random.uniform * 25 + 65) |> round end) |> to_string
   end
 
-  # metadata
-  defp handle({correlation_id, brokers, topics}, << 3 :: 16, _rest :: binary >>) do
-    send self(), {:tcp, nil, generate_metadata_response(correlation_id, brokers, topics)}
-    :ok
-  end
-
-  defp handle(_state, _data) do
-    # no-op
-    :ok
-  end
-
-  def generate_metadata_response(correlation_id, brokers, topics_and_partitions) do
-    << correlation_id :: 32 >> <>
-    encode_brokers(brokers) <>
-    encode_topics_and_partitions(topics_and_partitions)
-  end
-
-  defp encode_brokers(brokers) do
-    payload = brokers
-      |> Enum.with_index
-      |> Enum.reduce("", fn({{host, port}, id}, data) ->
-        data <>
-        << id :: 32,
-        String.length(host) :: 16,
-        host :: binary,
-        port :: 32 >>
-      end)
-    << length(brokers) :: 32 >> <> payload
-  end
-
-  defp encode_topics_and_partitions(topics_and_partitions) do
-    << length(Map.keys(topics_and_partitions)) :: 32 >> <>
-    Enum.reduce(topics_and_partitions, << >>,
-    fn({topic_name, topic}, data) ->
-      data <>
-      << topic.error_code :: 16,
-      String.length(topic_name) :: 16,
-      topic_name :: binary >> <>
-      encode_partitions(topic.partitions)
-    end)
-  end
-
-  defp encode_partitions(partitions) do
-    << length(Map.keys(partitions)) :: 32 >> <>
-    Enum.reduce(partitions, << >>,
-    fn({id, partition_data}, data) ->
-      data <>
-      << partition_data.error_code :: 16,
-      id :: 32,
-      partition_data.leader :: 32 >> <>
-      encode_array(partition_data.replicas) <>
-      encode_array(partition_data.isrs)
-    end)
-  end
-
-  defp encode_array(array) do
-    << length(array) :: 32 >> <>
-    Enum.reduce(array, << >>,
-    fn(item, data) ->
-      data <>
-      << item :: 32 >>
-    end)
+  def wait_until_topic_available(metadata, client, topic) do
+    {metadata, client} = KafkaEx.Metadata.update(metadata, client, true)
+    if metadata.topics[topic].error_code == :leader_not_available do
+      :timer.sleep(500)
+      wait_until_topic_available(metadata, client, topic)
+    else
+      {metadata, client}
+    end
   end
 end

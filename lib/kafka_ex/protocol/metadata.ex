@@ -1,12 +1,31 @@
 defmodule KafkaEx.Protocol.Metadata do
-  def create_request(correlation_id, client_id, topic \\ "")
-
-  def create_request(correlation_id, client_id, "") do
-    KafkaEx.Protocol.create_request(:metadata, correlation_id, client_id) <> << 0 :: 32 >>
+  def create_request(correlation_id, client_id, topic) do
+    request = KafkaEx.Protocol.create_request(:metadata, correlation_id, client_id)
+                <> << byte_size(topic) :: 32 >>
+    case topic do
+      "" -> request
+      _  -> request <> create_request([topic])
+    end
   end
 
-  def create_request(correlation_id, client_id, topic) do
-    KafkaEx.Protocol.create_request(:metadata, correlation_id, client_id) <> << 1 :: 32 >> <> << byte_size(topic) :: 16 >> <> topic
+  def create_request_fn(topic \\ "")
+
+  def create_request_fn(topic_list) do
+    fn(correlation_id, client_id) ->
+      request = KafkaEx.Protocol.create_request(:metadata, correlation_id, client_id)
+                  <> << length(topic_list) :: 32 >>
+      case topic_list do
+        [] -> request
+        _  -> request <> create_request(topic_list)
+      end
+    end
+  end
+
+  defp create_request([topic|rest]) do
+    case rest do
+      [] -> << byte_size(topic) :: 16 >> <> topic
+      _  -> << byte_size(topic) :: 16 >> <> topic <> create_request(rest)
+    end
   end
 
   def parse_response(<< _correlation_id :: 32, num_brokers :: 32, rest :: binary >>) do
@@ -38,7 +57,7 @@ defmodule KafkaEx.Protocol.Metadata do
   defp parse_topic_metadata(map, broker_map, num_topic_metadata, << error_code :: 16, topic_len :: 16, topic :: size(topic_len)-binary, num_partitions :: 32, rest :: binary >>) do
     case parse_partition_metadata(%{}, num_partitions, rest) do
       {partition_map, rest} ->
-        parse_topic_metadata(Map.put(map, topic, %{:error_code => error_code, :partitions => partition_map}), broker_map, num_topic_metadata-1, rest)
+        parse_topic_metadata(Map.put(map, topic, %{:error_code => KafkaEx.Protocol.error(error_code), :partitions => partition_map}), broker_map, num_topic_metadata-1, rest)
     end
   end
 
@@ -49,7 +68,7 @@ defmodule KafkaEx.Protocol.Metadata do
   defp parse_partition_metadata(map, num_partitions, << error_code :: 16, id :: 32-signed, leader :: 32-signed, rest :: binary >>) do
     {replicas, rest} =  parse_replicas(rest)
     {isrs, rest} =  parse_isrs(rest)
-    parse_partition_metadata(Map.put(map, id, %{:error_code => error_code, :leader => leader, :replicas => replicas, :isrs => isrs}), num_partitions-1, rest)
+    parse_partition_metadata(Map.put(map, id, %{:error_code => KafkaEx.Protocol.error(error_code), :leader => leader, :replicas => replicas, :isrs => isrs}), num_partitions-1, rest)
   end
 
   defp parse_replicas(<< num_replicas :: 32, rest :: binary >>) do

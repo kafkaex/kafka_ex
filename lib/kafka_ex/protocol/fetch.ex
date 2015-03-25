@@ -1,4 +1,12 @@
 defmodule KafkaEx.Protocol.Fetch do
+  def create_request_fn(topic, partition, offset, wait_time, min_bytes, max_bytes) do
+    fn(correlation_id, client_id) ->
+      KafkaEx.Protocol.create_request(:fetch, correlation_id, client_id) <>
+        << -1 :: 32, wait_time :: 32, min_bytes :: 32, 1 :: 32, byte_size(topic) :: 16, topic :: binary,
+           1 :: 32, partition :: 32, offset :: 64, max_bytes :: 32 >>
+    end
+  end
+
   def create_request(correlation_id, client_id, topic, partition, offset, wait_time, min_bytes, max_bytes) do
     KafkaEx.Protocol.create_request(:fetch, correlation_id, client_id) <>
       << -1 :: 32, wait_time :: 32, min_bytes :: 32, 1 :: 32, byte_size(topic) :: 16, topic :: binary,

@@ -1,15 +1,17 @@
 defmodule KafkaEx.Protocol.Metadata.Test do
   use ExUnit.Case, async: true
 
-  test "create_request creates a valid metadata request" do
+  test "create_request_fn with no topics creates a valid metadata request" do
     good_request = << 3 :: 16, 0 :: 16, 1 :: 32, 3 :: 16, "foo" :: binary, 0 :: 32 >>
-    request = KafkaEx.Protocol.Metadata.create_request(1, "foo")
+    request_fn = KafkaEx.Protocol.Metadata.create_request_fn([])
+    request = request_fn.(1, "foo")
     assert request == good_request
   end
 
-  test "create_request creates a valid topic metadata request" do
-    good_request = << 3 :: 16, 0 :: 16, 1 :: 32, 3 :: 16, "foo" :: binary, 1 :: 32, 3 :: 16, "bar" >>
-    request = KafkaEx.Protocol.Metadata.create_request(1, "foo", "bar")
+  test "create_request_fn with a single topic creates a valid metadata request" do
+    good_request = << 3 :: 16, 0 :: 16, 1 :: 32, 3 :: 16, "foo" :: binary, 1 :: 32, 3 :: 16, "bar" :: binary >>
+    request_fn = KafkaEx.Protocol.Metadata.create_request_fn(["bar"])
+    request = request_fn.(1, "foo")
     assert request == good_request
   end
 

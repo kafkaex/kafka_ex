@@ -9,48 +9,55 @@ defmodule KafkaEx.Server do
   end
 
   def init(uris) do
-    socket_map = KafkaEx.Connection.connect_brokers(uris)
+    client = KafkaEx.NetworkClient.new(@client_id)
+    metadata = KafkaEx.Metadata.new(uris)
     send(self, :metadata)
-    {:ok, {0, %{}, socket_map, nil}}
+    {:ok, {metadata, client, nil}}
   end
 
-  def handle_call({:produce, topic, partition, value, key, required_acks, timeout}, _from, {correlation_id, _metadata, socket_map, event_pid} = state) do
-    data = KafkaEx.Protocol.Produce.create_request(correlation_id, @client_id, topic, partition, value, key, required_acks, timeout)
-    metadata = topic_metadata(state, topic)
-    socket = get_socket_for_broker(socket_map, metadata, topic, partition)
-    send_data(socket, data)
+  def handle_call({:produce, topic, partition, value, key, required_acks, timeout}, _from, {metadata, client, event_pid}) do
+    {metadata, client} = KafkaEx.Metadata.add_topic(metadata, client, topic)
+    broker = KafkaEx.Metadata.broker_for_topic(metadata, topic, partition)
+    request_fn = KafkaEx.Protocol.Produce.create_request_fn(topic, partition, value, key, required_acks, timeout)
+    {client, response} = KafkaEx.NetworkClient.send_request(client, [broker], request_fn, timeout)
     parsed_response = case required_acks do
       0 -> :ok
-      _ -> handle_produce_response(timeout)
+      _ -> KafkaEx.Protocol.Produce.parse_response(response)
     end
-    {:reply, parsed_response, {correlation_id + 1, metadata, socket_map, event_pid}}
+    {:reply, parsed_response, {metadata, client, event_pid}}
   end
 
-  def handle_call({:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes}, _from, {correlation_id, _metadata, socket_map, event_pid} = state) do
-    data = KafkaEx.Protocol.Fetch.create_request(correlation_id, @client_id, topic, partition, offset, wait_time, min_bytes, max_bytes)
-    metadata = topic_metadata(state, topic)
-    socket = get_socket_for_broker(socket_map, metadata, topic, partition)
-    send_data(socket, data)
-    {:reply, handle_fetch_response, {correlation_id + 1, metadata, socket_map, event_pid}}
+  def handle_call({:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes}, _from, {metadata, client, event_pid}) do
+    {metadata, client} = KafkaEx.Metadata.add_topic(metadata, client, topic)
+    broker = KafkaEx.Metadata.broker_for_topic(metadata, topic, partition)
+    request_fn = KafkaEx.Protocol.Fetch.create_request_fn(topic, partition, offset, wait_time, min_bytes, max_bytes)
+    {client, response} = KafkaEx.NetworkClient.send_request(client, [broker], request_fn, timeout)
+    parsed_response = KafkaEx.Protocol.Fetch.parse_response(data)
+    {:reply, parsed_response, {metadata, client, event_pid}}
   end
 
-  def handle_call({:offset, topic, partition, time}, _from, {correlation_id, _metadata, socket_map, event_pid} = state) do
-    data = KafkaEx.Protocol.Offset.create_request(correlation_id, @client_id, topic, partition, time)
-    metadata = topic_metadata(state, topic)
-    socket = get_socket_for_broker(socket_map, metadata, topic, partition)
-    send_data(socket, data)
-    {:reply, handle_offset_response, {correlation_id + 1, metadata, socket_map, event_pid}}
+  def handle_call({:offset, topic, partition, time}, _from, {metadata, client, event_pid}) do
+    {metadata, client} = KafkaEx.Metadata.add_topic(metadata, client, topic)
+    broker = KafkaEx.Metadata.broker_for_topic(metadata, topic, partition)
+    request_fn = KafkaEx.Protocol.Offset.create_request_fn(topic, partition, time)
+    {client, response} = KafkaEx.NetworkClient.send_request(client, [broker], request_fn, timeout)
+    parsed_response = KafkaEx.Protocol.Offset.parse_response(data)
+    {:reply, parsed_response, {metadata, client, event_pid}}
   end
 
-  def handle_call({:metadata, topic}, _from, {correlation_id, metadata, socket_map, event_pid} = state) do
-    data = topic_metadata(state, topic)
-    {:reply, data, {correlation_id + 1, metadata, socket_map, event_pid}}
+  def handle_call({:metadata, topic}, _from, {metadata, client, event_pid} = state) do
+    {metadata, client} = KafkaEx.Metadata.update(metadata, client)
+    {:reply, metadata, {metadata, client, event_pid}}
   end
 
   @wait_time 10
   @min_bytes 1
   @max_bytes 1_000_000
   def handle_info({:start_streaming, topic, partition, offset, pid, handler}, {correlation_id, _metadata, socket_map, _event_pid} = state) do
+    {metadata, client} = KafkaEx.Metadata.add_topic(metadata, client, topic)
+    broker = KafkaEx.Metadata.broker_for_topic(metadata, topic, partition)
+    request_fn = KafkaEx.Protocol.Fetch.create_request_fn(topic, partition, offset, wait_time, min_bytes, max_bytes)
+    {client, response} = KafkaEx.NetworkClient.send_request(client, [broker], request_fn, timeout)
     data = KafkaEx.Protocol.Fetch.create_request(correlation_id, @client_id, topic, partition, offset, @wait_time, @min_bytes, @max_bytes)
     metadata = topic_metadata(state, topic)
     socket = get_socket_for_broker(socket_map, metadata, topic, partition)
@@ -59,8 +66,9 @@ defmodule KafkaEx.Server do
     {:noreply, state}
   end
 
-  def handle_info(:metadata, {correlation_id, _, socket_map, event_pid} = state) do
-    {:noreply, {correlation_id + 1, topic_metadata(state, ""), socket_map, event_pid}}
+  def handle_info(:metadata, {metadata, client, event_pid} = state) do
+    {metadata, client} = KafkaEx.Metadata.update(metadata, client)
+    {:noreply, {metadata, client, event_pid}}
   end
 
   def handle_info({:update_metadata, new_correlation_id, metadata, topic_metadata}, {_correlation_id, _, socket_map, event_pid}) do
@@ -123,14 +131,6 @@ defmodule KafkaEx.Server do
     KafkaEx.Connection.send(data, socket)
   end
 
-  defp handle_produce_response(timeout) do
-    receive do
-      {:tcp, _, data} -> KafkaEx.Protocol.Produce.parse_response(data)
-    after
-      (timeout + 1000) -> :timeout
-    end
-  end
-
   defp start_stream(pid, handler, topic, partition) do
     receive do
       {:tcp, _, data} ->
@@ -140,18 +140,6 @@ defmodule KafkaEx.Server do
             Enum.each(fn(message_set) -> GenEvent.notify(pid, message_set) end)
         end
         start_stream(pid, handler, topic, partition)
-    end
-  end
-
-  defp handle_fetch_response do
-    receive do
-      {:tcp, _, data} -> KafkaEx.Protocol.Fetch.parse_response(data)
-    end
-  end
-
-  defp handle_offset_response do
-    receive do
-      {:tcp, _, data} -> KafkaEx.Protocol.Offset.parse_response(data)
     end
   end
 

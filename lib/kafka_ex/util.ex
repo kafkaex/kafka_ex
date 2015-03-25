@@ -1,4 +1,9 @@
 defmodule KafkaEx.Util do
+  def current_timestamp do
+    {mega, seconds, micros} = :os.timestamp
+    mega * 1_000_000_000 + seconds * 1_000 + round(micros / 1_000)
+  end
+
   def create_message_set(value, key \\ nil) do
     message = create_message(value, key)
     << 0 :: 64, byte_size(message) :: 32 >> <> message
