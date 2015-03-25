@@ -21,6 +21,7 @@ defmodule KafkaEx.Mixfile do
     [
       {:mock, ">= 0.1.0", only: :test},
       {:earmark, "~> 0.1", only: :dev},
+      {:dialyze, "~> 0.1.3", only: :dev},
       {:ex_doc, "~> 0.7", only: :dev},
     ]
   end

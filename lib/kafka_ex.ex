@@ -1,7 +1,6 @@
 defmodule KafkaEx do
   use Application
 
-  @type datetime() :: {{pos_integer, pos_integer, pos_integer}, {pos_integer, pos_integer, pos_integer}}
   @type uri() :: [{binary|char_list, number}]
 
 
@@ -27,12 +26,11 @@ defmodule KafkaEx do
   ## Example
 
   ```elixir
-  iex> KafkaEx.create_worker(:pr)
   iex> KafkaEx.create_worker([{"localhost", 9092}], :pr)
   {:ok, #PID<0.171.0>}
   ```
   """
-  @spec create_worker(KafkaEx.Server.uri, atom) :: Supervisor.on_start_child
+  @spec create_worker(KafkaEx.uri, atom) :: Supervisor.on_start_child
   def create_worker(uris, name) do
     Supervisor.start_child(KafkaEx.Supervisor, [uris, name])
   end
@@ -43,7 +41,7 @@ defmodule KafkaEx do
   ## Example
 
   ```elixir
-  iex> KafkaEx.create_worker(:pr)
+  iex> KafkaEx.create_worker(:mt)
   iex> KafkaEx.metadata("foo", :mt)
   %{brokers: %{1 => {"localhost", 9092}},
     topics: %{"foo" => %{error_code: 0,
@@ -64,7 +62,7 @@ defmodule KafkaEx do
   ## Example
 
   ```elixir
-  iex> KafkaEx.latest_offset("foo", 0, :mt)
+  iex> KafkaEx.latest_offset("foo", 0)
   {:ok, %{"foo" => %{0 => %{error_code: 0, offsets: [16]}}}}
   ```
   """
@@ -76,7 +74,7 @@ defmodule KafkaEx do
   ## Example
 
   ```elixir
-  iex> KafkaEx.latest_offset("foo", 0, :mt)
+  iex> KafkaEx.earliest_offset("foo", 0)
   {:ok, %{"foo" => %{0 => %{error_code: 0, offsets: [0]}}}}
   ```
   """
@@ -85,7 +83,7 @@ defmodule KafkaEx do
   @doc """
   Get the offset of the message sent at the specified date/time
   """
-  @spec offset(binary, number, datetime|atom) :: map
+  @spec offset(binary, number, :calendar.datetime|atom) :: map
   def offset(topic, partition, time, name \\ KafkaEx.Server) do
     GenServer.call(name, {:offset, topic, partition, time})
   end
@@ -120,13 +118,13 @@ defmodule KafkaEx do
   ## Example
 
   ```elixir
-  iex> KafkaEx.produce("food", 0, 0)
+  iex> KafkaEx.produce("food", 0, "hey")
   :ok
   iex> KafkaEx.produce("foo", 0, "hey", :pr, nil, 1)
   {:ok, %{"foo" => %{0 => %{error_code: 0, offset: 15}}}}
   ```
   """
-  @spec produce(binary, number, binary, atom, binary, number, number) :: any
+  @spec produce(binary, number, binary, atom, nil | binary, number, number) :: any
   def produce(topic, partition, value, name \\ KafkaEx.Server, key \\ nil, required_acks \\ 0, timeout \\ 100) do
     GenServer.call(name, {:produce, topic, partition, value, key, required_acks, timeout})
   end
@@ -164,7 +162,9 @@ defmodule KafkaEx do
   def start(_type, _args) do
     {:ok, pid} = KafkaEx.Supervisor.start_link
     uris = Application.get_env(KafkaEx, :brokers)
-    KafkaEx.create_worker(uris, KafkaEx.Server)
-    {:ok, pid}
+    case KafkaEx.create_worker(uris, KafkaEx.Server) do
+      {:error, reason} -> {:error, reason}
+      {:ok, _}         -> {:ok, pid}
+    end
   end
 end

@@ -79,11 +79,13 @@ defmodule KafkaEx.Protocol.Metadata do
     parse_int32_array([], num_isrs, rest)
   end
 
+  defp parse_int32_array(array \\ [], num, data)
+
   defp parse_int32_array(array, 0, rest) do
     {Enum.reverse(array), rest}
   end
 
-  defp parse_int32_array(array \\ [], num, << value :: 32, rest :: binary >>) do
+  defp parse_int32_array(array, num, << value :: 32, rest :: binary >>) do
     parse_int32_array([value|array], num-1, rest)
   end
 end

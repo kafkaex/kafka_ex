@@ -22,10 +22,6 @@ defmodule KafkaEx.Protocol.Fetch do
     {:ok, response_map}
   end
 
-  defp generate_result({:error, message, data}) do
-    {:error, message, data}
-  end
-
   defp parse_topics(map, 0, rest) do
     {:ok, map, rest}
   end
@@ -46,19 +42,15 @@ defmodule KafkaEx.Protocol.Fetch do
                         << partition :: 32, error_code :: 16, hw_mark_offset :: 64,
                            msg_set_size :: 32, msg_set_data :: size(msg_set_size)-binary,
                            rest :: binary >>) do
-    case KafkaEx.Util.parse_message_set([], msg_set_data) do
-      {:ok, message_set} ->
-        parse_partitions(
-          Map.put(map, partition,
-            %{
-              :error_code => error_code,
-              :hw_mark_offset => hw_mark_offset,
-              :message_set => message_set
-            }),
-          num_partitions-1,
-          rest)
-
-      {:error, message} -> {:error, message}
-    end
+    {:ok, message_set} = KafkaEx.Util.parse_message_set([], msg_set_data)
+    parse_partitions(
+      Map.put(map, partition,
+        %{
+          :error_code => error_code,
+          :hw_mark_offset => hw_mark_offset,
+          :message_set => message_set
+        }
+      ), num_partitions-1, rest
+    )
   end
 end

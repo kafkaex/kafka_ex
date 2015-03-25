@@ -15,31 +15,22 @@ defmodule KafkaEx.Util do
     << crc :: 32 >> <> sub
   end
 
+  def bytes(nil), do: << -1 :: 32 >>
+
   def bytes(data) do
-    cond do
-      is_nil(data) -> << -1 :: 32 >>
-      true ->
-        size = byte_size(data)
-        case size do
-          0 -> << -1 :: 32 >>
-          _ -> << size :: 32, data :: binary >>
-        end
+    case byte_size(data) do
+      0 -> << -1 :: 32 >>
+      size -> << size :: 32, data :: binary >>
     end
   end
 
   def parse_message_set(list, << >>) do
-    {:ok, list}
+    {:ok, Enum.reverse(list)}
   end
 
   def parse_message_set(list, << offset :: 64, msg_size :: 32, msg_data :: size(msg_size)-binary, rest :: binary >>) do
-    case parse_message(msg_data) do
-      {:ok, message} -> parse_message_set(Enum.concat(list, [Map.put(message, :offset, offset)]), rest)
-      {:error, error_message} -> {:error, error_message}
-    end
-  end
-
-  def parse_message_set(_map, data) do
-    {:error, "Error parsing message set in fetch response", data}
+    {:ok, message} = parse_message(msg_data)
+    parse_message_set([Map.put(message, :offset, offset)|list], rest)
   end
 
   def parse_message(<< crc :: 32, _magic :: 8, attributes :: 8, rest :: binary>>) do
@@ -54,19 +45,11 @@ defmodule KafkaEx.Util do
     parse_value(crc, attributes, key, rest)
   end
 
-  def parse_key(_crc, _attributes, data) do
-    {:error, "Error parsing key from message in fetch response", data}
-  end
-
   def parse_value(crc, attributes, key, << -1 :: 32-signed >>) do
     {:ok, %{:crc => crc, :attributes => attributes, :key => key, :value => nil}}
   end
 
   def parse_value(crc, attributes, key, << value_size :: 32, value :: size(value_size)-binary >>) do
     {:ok, %{:crc => crc, :attributes => attributes, :key => key, :value => value}}
-  end
-
-  def parse_value(_crc, _attributes, _key, data) do
-    {:error, "Error parsing value from message in fetch response", data}
   end
 end

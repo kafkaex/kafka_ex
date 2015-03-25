@@ -107,17 +107,15 @@ defmodule KafkaEx.Server do
     end
   end
 
-  defp send_metadata_request([socket|rest], data) when length(rest) == 0 do
-    case send_data(socket, data) do
-      {:error, _} -> raise "Cannot send metadata request"
-      _ -> :ok
-    end
+  defp send_metadata_request(rest, _) when length(rest) == 0 do
+    raise "Cannot send metadata request"
   end
 
   defp send_metadata_request([socket|rest], data) do
-    case send_data(socket, data) do
-      {:error, _} -> send_metadata_request(rest, data)
-      _ -> :ok
+    try do
+      send_data(socket, data)
+    rescue
+      _ in KafkaEx.ConnectionError -> send_metadata_request(rest, data)
     end
   end
 
@@ -128,7 +126,10 @@ defmodule KafkaEx.Server do
   end
 
   defp send_data(socket, data) do
-    KafkaEx.Connection.send(data, socket)
+    case KafkaEx.Connection.send(data, socket) do
+      {:error, reason} -> raise KafkaEx.ConnectionError, message: "Cannot send data to broker due to #{inspect reason}"
+      response -> response
+    end
   end
 
   defp start_stream(pid, handler, topic, partition) do
