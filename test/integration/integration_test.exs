@@ -46,7 +46,7 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "produce with ack required returns an ack" do
-    {:ok, %{"food" => %{0 => %{error_code: 0, offset: offset}}}} =  KafkaEx.produce("food", 0, "hey", KafkaEx.Server, nil, 1)
+    {:ok, %{"food" => %{0 => %{error_code: 0, offset: offset}}}} =  KafkaEx.produce("food", 0, "hey", worker_name: KafkaEx.Server, required_acks: 1)
     refute offset == nil
   end
 
@@ -78,13 +78,13 @@ defmodule KafkaEx.Integration.Test do
     {_, _metadata, socket_map, _} = :sys.get_state(pid)
     [_ |rest] = Map.values(socket_map) |> Enum.reverse
     Enum.each(rest, &:gen_tcp.close/1)
-    brokers = KafkaEx.metadata("", :one_working_port)[:brokers] |> Map.values
+    brokers = KafkaEx.metadata(topic: "", worker_name: :one_working_port)[:brokers] |> Map.values
     assert Enum.sort(brokers) == Enum.sort(uris)
   end
 
   test "metadata for a non-existing topic creates a new topic" do
     random_string = generate_random_string
-    random_topic_metadata = KafkaEx.metadata(random_string)[:topics][random_string]
+    random_topic_metadata = KafkaEx.metadata(topic: random_string)[:topics][random_string]
     assert random_topic_metadata[:error_code] == 0
     refute random_topic_metadata[:partitions] == %{}
 
@@ -117,7 +117,7 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "fetch works" do
-    {:ok, %{"food" => %{0 => %{error_code: 0, offset: offset}}}} =  KafkaEx.produce("food", 0, "hey foo", KafkaEx.Server, nil, 1)
+    {:ok, %{"food" => %{0 => %{error_code: 0, offset: offset}}}} =  KafkaEx.produce("food", 0, "hey foo", worker_name: KafkaEx.Server, required_acks: 1)
     {:ok, %{"food" => %{0 => %{message_set: message_set}}}} = KafkaEx.fetch("food", 0, 0)
     message = message_set |> Enum.reverse |> hd
 
@@ -150,9 +150,9 @@ defmodule KafkaEx.Integration.Test do
   test "streams kafka logs" do
     random_string = generate_random_string
     KafkaEx.create_worker(:stream, uris)
-    KafkaEx.produce(random_string, 0, "hey", :stream)
-    KafkaEx.produce(random_string, 0, "hi", :stream)
-    log = KafkaEx.stream(random_string, 0, :stream) |> Enum.take(2)
+    KafkaEx.produce(random_string, 0, "hey", worker_name: :stream)
+    KafkaEx.produce(random_string, 0, "hi", worker_name: :stream)
+    log = KafkaEx.stream(random_string, 0, worker_name: :stream) |> Enum.take(2)
 
     refute Enum.empty?(log)
     [first,second|_] = log
