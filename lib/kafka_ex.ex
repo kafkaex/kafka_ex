@@ -10,7 +10,7 @@ defmodule KafkaEx do
   ## Example
 
   ```elixir
-  iex> KafkaEx.create_worker(:pr)
+  iex> KafkaEx.create_worker(:pr) # where :pr is the name of the worker created
   {:ok, #PID<0.171.0>}
   ```
   """
@@ -30,8 +30,8 @@ defmodule KafkaEx do
   {:ok, #PID<0.171.0>}
   ```
   """
-  @spec create_worker(KafkaEx.uri, atom) :: Supervisor.on_start_child
-  def create_worker(uris, name) do
+  @spec create_worker(atom, KafkaEx.uri) :: Supervisor.on_start_child
+  def create_worker(name, uris) do
     Supervisor.start_child(KafkaEx.Supervisor, [uris, name])
   end
 
@@ -162,7 +162,7 @@ defmodule KafkaEx do
   def start(_type, _args) do
     {:ok, pid} = KafkaEx.Supervisor.start_link
     uris = Application.get_env(KafkaEx, :brokers)
-    case KafkaEx.create_worker(uris, KafkaEx.Server) do
+    case KafkaEx.create_worker(KafkaEx.Server, uris) do
       {:error, reason} -> {:error, reason}
       {:ok, _}         -> {:ok, pid}
     end

@@ -9,7 +9,7 @@ defmodule KafkaEx.Integration.Test do
 
   #create_worker
   test "KafkaEx.Supervisor dynamically creates workers" do
-    {:ok, pid} = KafkaEx.create_worker(uris, :bar)
+    {:ok, pid} = KafkaEx.create_worker(:bar, uris)
     assert Process.whereis(:bar) == pid
   end
 
@@ -30,12 +30,12 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "start_link creates the server and registers it as the module name" do
-    {:ok, pid} = KafkaEx.create_worker(uris, :test_server)
+    {:ok, pid} = KafkaEx.create_worker(:test_server, uris)
     assert pid == Process.whereis(:test_server)
   end
 
   test "start_link raises an exception when it is provided a bad connection" do
-    {:error, {exception, _}} = KafkaEx.create_worker([{"bad_host", 1000}], :no_host)
+    {:error, {exception, _}} = KafkaEx.create_worker(:no_host, [{"bad_host", 1000}])
     assert exception.__struct__ == KafkaEx.ConnectionError
     assert exception.message == "Error: Cannot connect to any of the broker(s) provided"
   end
@@ -74,7 +74,7 @@ defmodule KafkaEx.Integration.Test do
 
   #metadata
   test "metadata attempts to connect via one of the exisiting sockets" do
-    {:ok, pid} = KafkaEx.create_worker(uris, :one_working_port)
+    {:ok, pid} = KafkaEx.create_worker(:one_working_port, uris)
     {_, _metadata, socket_map, _} = :sys.get_state(pid)
     [_ |rest] = Map.values(socket_map) |> Enum.reverse
     Enum.each(rest, &:gen_tcp.close/1)
@@ -149,7 +149,7 @@ defmodule KafkaEx.Integration.Test do
   #stream
   test "streams kafka logs" do
     random_string = generate_random_string
-    KafkaEx.create_worker(uris, :stream)
+    KafkaEx.create_worker(:stream, uris)
     KafkaEx.produce(random_string, 0, "hey", :stream)
     KafkaEx.produce(random_string, 0, "hi", :stream)
     log = KafkaEx.stream(random_string, 0, :stream) |> Enum.take(2)
