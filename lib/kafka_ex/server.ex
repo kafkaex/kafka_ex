@@ -72,7 +72,12 @@ defmodule KafkaEx.Server do
     {:noreply, state}
   end
 
-  def terminate(_, {_, _, socket_map, _event_pid}) do
+  def terminate(_, {_, _, socket_map, nil}) do
+    Map.values(socket_map) |> Enum.each(&KafkaEx.Connection.close/1)
+  end
+
+  def terminate(_, {_, _, socket_map, event_pid}) do
+    Process.exit(event_pid, :kill)
     Map.values(socket_map) |> Enum.each(&KafkaEx.Connection.close/1)
   end
 
