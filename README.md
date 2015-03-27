@@ -53,7 +53,7 @@ iex> KafkaEx.metadata
 For a specific topic
 
 ```elixir
-iex> KafkaEx.metadata("foo")
+iex> KafkaEx.metadata(topic: "foo")
 %{brokers: %{1 => {"localhost", 9092}},
   topics: %{"foo" => %{error_code: 0,
       partitions: %{0 => %{error_code: 0, isrs: [1], leader: 1, replicas: [1]}}}}}
