@@ -1,7 +1,7 @@
 KafkaEx
 ========
 
-Kafka client for Elixir/Erlang.
+[Apache Kafka](http://kafka.apache.org/) client for Elixir/Erlang.
 
 Usage
 -----
