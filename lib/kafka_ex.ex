@@ -37,6 +37,10 @@ defmodule KafkaEx do
   @doc """
   Return metadata for the given topic; returns for all topics if topic is empty string
 
+  Optional arguments(KeywordList)
+  - worker_name: the worker we want to run this metadata request through, when none is provided the default worker `KafkaEx.Server` is used
+  - topic: name of the topic for which metadata is requested, when none is provided all metadata is retrieved
+
   ## Example
 
   ```elixir
@@ -53,9 +57,9 @@ defmodule KafkaEx do
   """
   @spec metadata(Keyword.t) :: map
   def metadata(opts \\ []) do
-    name  = Keyword.get(opts, :worker_name, KafkaEx.Server)
+    worker_name  = Keyword.get(opts, :worker_name, KafkaEx.Server)
     topic = Keyword.get(opts, :topic, "")
-    GenServer.call(name, {:metadata, topic})
+    GenServer.call(worker_name, {:metadata, topic})
   end
 
   @doc """
@@ -99,6 +103,12 @@ defmodule KafkaEx do
   @doc """
   Fetch a set of messages from Kafka from the given topic, partition ID, and offset
 
+  Optional arguments(KeywordList)
+  - worker_name: the worker we want to run this metadata request through
+  - wait_time: maximum amount of time in milliseconds to block waiting if insufficient data is available at the time the request is issued.
+  - min_bytes: minimum number of bytes of messages that must be available to give a response. If the client sets this to 0 the server will always respond immediately, however if there is no new data since their last request they will just get back empty message sets. If this is set to 1, the server will respond as soon as at least one partition has at least 1 byte of data or the specified timeout occurs. By setting higher values in combination with the timeout the consumer can tune for throughput and trade a little additional latency for reading only large chunks of data (e.g. setting wait_time to 100 and setting min_bytes 64000 would allow the server to wait up to 100ms to try to accumulate 64k of data before responding).
+  - max_bytes: maximum bytes to include in the message set for this partition. This helps bound the size of the response.
+
   ## Example
 
   ```elixir
@@ -117,11 +127,18 @@ defmodule KafkaEx do
     wait_time   = Keyword.get(opts, :wait_time, @wait_time)
     min_bytes   = Keyword.get(opts, :min_bytes, @min_bytes)
     max_bytes   = Keyword.get(opts, :max_bytes, @max_bytes)
+
     GenServer.call(worker_name, {:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes})
   end
 
   @doc """
   Produces messages to kafka logs
+
+  Optional arguments(KeywordList)
+  - worker_name: the worker we want to run this metadata request through, when none is provided the default worker `KafkaEx.Server` is used
+  - key: is used for partition assignment, can be nil, when none is provided it is defaulted to nil 
+  - require_acks: indicates how many acknowledgements the servers should receive before responding to the request. If it is 0 the server will not send any response (this is the only case where the server will not reply to a request). If it is 1, the server will wait the data is written to the local log before sending a response. If it is -1 the server will block until the message is committed by all in sync replicas before sending a response. For any number > 1 the server will block waiting for this number of acknowledgements to occur (but the server will never wait for more acknowledgements than there are in-sync replicas), default is 0
+  - timeout: provides a maximum time in milliseconds the server can await the receipt of the number of acknowledgements in RequiredAcks, default is 100 milliseconds
 
   ## Example
 
@@ -148,6 +165,12 @@ defmodule KafkaEx do
   The handler is a normal GenEvent handler so you can supply a custom handler, otherwise a default handler is used.
 
   This function should be used with care as the queue is unbounded and can cause OOM.
+
+  Optional arguments(KeywordList)
+  - worker_name: the worker we want to run this metadata request through, when none is provided the default worker `KafkaEx.Server` is used
+  - offset: offset to begin this fetch from, when none is provided 0 is assumed
+  - handler: the handler we want to handle the streaming events, when none is provided the default KafkaExHandler is used
+  
 
   ## Example
 
