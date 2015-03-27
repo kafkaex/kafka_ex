@@ -34,7 +34,7 @@ iex> Application.put_env(KafkaEx, :brokers, [{"localhost", 9092}, {"localhost", 
 
 ### Create KafkaEx worker
 ```elixir
-iex> KafkaEx.create_worker(:pr)
+iex> KafkaEx.create_worker(:pr) # where :pr is the process name of the created worker
 {:ok, #PID<0.171.0>}
 ```
 
