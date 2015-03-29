@@ -9,7 +9,7 @@ Usage
 Add KafkaEx to your mix.exs:
 
 ```elixir
-{:kafka_ex, "~> 0.0.1"}
+{:kafka_ex, "~> 0.0.2"}
 ```
 
 And run:
