@@ -108,6 +108,10 @@ defmodule KafkaEx.Integration.Test do
     assert Enum.sort(brokers) == Enum.sort(uris)
   end
 
+  test "fetch does not blow up with incomplete bytes" do
+    {:ok, map} = KafkaEx.fetch("food", 0, 0, max_bytes: 100)
+  end
+
   test "fetch retrieves empty logs for non-exisiting topic" do
     random_string = generate_random_string
     {:ok, map} = KafkaEx.fetch(random_string, 0, 0)

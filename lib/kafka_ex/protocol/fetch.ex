@@ -5,7 +5,7 @@ defmodule KafkaEx.Protocol.Fetch do
          1 :: 32, partition :: 32, offset :: 64, max_bytes :: 32 >>
   end
 
-  def parse_response(<< _correlation_id :: 32, num_topics :: 32, rest :: binary>>) do
+  def parse_response(<< _correlation_id :: 32, num_topics :: 32, rest :: binary>> = a) do
     parse_topics(%{}, num_topics, rest)
     |> generate_result
   end
