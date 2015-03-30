@@ -129,7 +129,7 @@ defmodule KafkaEx.Integration.Test do
   test "offset updates metadata" do
     pid = Process.whereis(KafkaEx.Server)
     :sys.replace_state(pid, fn({correlation_id, _metadata, socket_map, _}) -> {correlation_id, %{}, socket_map, nil} end)
-    KafkaEx.latest_offset("food", 0)
+    KafkaEx.offset("food", 0, utc_time)
     {_, metadata, _socket_map, _} = :sys.get_state(pid)
     refute metadata == %{}
 
@@ -138,12 +138,39 @@ defmodule KafkaEx.Integration.Test do
     assert Enum.sort(brokers) == Enum.sort(uris)
   end
 
+  test "offset retrieves most recent offset by time specification" do
+    random_string = generate_random_string
+    KafkaEx.produce(random_string, 0, "hey")
+    {:ok, map} = KafkaEx.offset(random_string, 0, utc_time)
+    %{0 => %{offsets: [offset]}} = Map.get(map, random_string)
+
+    assert offset != 0
+  end
+
+  test "earliest_offset retrieves offset of 0" do
+    random_string = generate_random_string
+    KafkaEx.produce(random_string, 0, random_string)
+    {:ok, map} = KafkaEx.earliest_offset(random_string, 0)
+    %{0 => %{offsets: [offset]}} = Map.get(map, random_string)
+
+    assert offset == 0
+  end
+
   test "latest_offset retrieves offset of 0 for non-existing topic" do
     random_string = generate_random_string
     {:ok, map} = KafkaEx.latest_offset(random_string, 0)
     %{0 => %{offsets: [offset]}} = Map.get(map, random_string)
 
     assert offset == 0
+  end
+
+  test "latest_offset retrieves a non-zero offset for a topic published to" do
+    random_string = generate_random_string
+    KafkaEx.produce(random_string, 0, "foo")
+    {:ok, map} = KafkaEx.latest_offset(random_string, 0)
+    %{0 => %{offsets: [offset]}} = Map.get(map, random_string)
+
+    assert offset != 0
   end
 
   #stream
@@ -167,5 +194,10 @@ defmodule KafkaEx.Integration.Test do
   def generate_random_string(string_length \\ 20) do
     :random.seed(:os.timestamp)
     Enum.map(1..string_length, fn _ -> (:random.uniform * 25 + 65) |> round end) |> to_string
+  end
+
+  def utc_time do
+    {x, {a,b,c}} = :calendar.local_time |> :calendar.local_time_to_universal_time_dst |> hd
+    {x, {a,b,c + 30}}
   end
 end

@@ -59,6 +59,15 @@ iex> KafkaEx.metadata(topic: "foo")
       partitions: %{0 => %{error_code: 0, isrs: [1], leader: 1, replicas: [1]}}}}}
 ```
 
+### Retrieve offset from a particular time
+
+Kafka will get the starting offset of the log segment that is created no later than the given timestamp. Due to this, and since the offset request is served only at segment granularity, the offset fetch request returns less accurate results for larger segment sizes.
+
+```elixir
+  iex> KafkaEx.offset("foo", 0, {{2015, 3, 29}, {23, 56, 40}}) # Note that the time specified should match/be ahead of time on the server that kafka runs
+  {:ok, %{"foo" => %{0 => %{error_code: 0, offsets: [256]}}}}
+```
+
 ### Retrieve the latest offset
 
 ```elixir

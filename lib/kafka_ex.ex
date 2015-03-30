@@ -90,6 +90,13 @@ defmodule KafkaEx do
 
   @doc """
   Get the offset of the message sent at the specified date/time
+
+  ## Example
+
+  ```elixir
+  iex> KafkaEx.offset("foo", 0, {{2015, 3, 29}, {23, 56, 40}}) # Note that the time specified should match/be ahead of time on the server that kafka runs
+  {:ok, %{"foo" => %{0 => %{error_code: 0, offsets: [256]}}}}
+  ```
   """
   @spec offset(binary, number, :calendar.datetime|atom, atom|pid) :: {atom, map}
   def offset(topic, partition, time, name \\ KafkaEx.Server) do
