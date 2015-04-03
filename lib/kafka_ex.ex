@@ -143,7 +143,7 @@ defmodule KafkaEx do
 
   Optional arguments(KeywordList)
   - worker_name: the worker we want to run this metadata request through, when none is provided the default worker `KafkaEx.Server` is used
-  - key: is used for partition assignment, can be nil, when none is provided it is defaulted to nil 
+  - key: is used for partition assignment, can be nil, when none is provided it is defaulted to nil
   - require_acks: indicates how many acknowledgements the servers should receive before responding to the request. If it is 0 the server will not send any response (this is the only case where the server will not reply to a request). If it is 1, the server will wait the data is written to the local log before sending a response. If it is -1 the server will block until the message is committed by all in sync replicas before sending a response. For any number > 1 the server will block waiting for this number of acknowledgements to occur (but the server will never wait for more acknowledgements than there are in-sync replicas), default is 0
   - timeout: provides a maximum time in milliseconds the server can await the receipt of the number of acknowledgements in RequiredAcks, default is 100 milliseconds
 
@@ -177,7 +177,7 @@ defmodule KafkaEx do
   - worker_name: the worker we want to run this metadata request through, when none is provided the default worker `KafkaEx.Server` is used
   - offset: offset to begin this fetch from, when none is provided 0 is assumed
   - handler: the handler we want to handle the streaming events, when none is provided the default KafkaExHandler is used
-  
+
 
   ## Example
 
