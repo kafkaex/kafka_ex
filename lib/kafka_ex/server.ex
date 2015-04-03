@@ -58,8 +58,7 @@ defmodule KafkaEx.Server do
   @max_bytes 1_000_000
   def handle_info({:start_streaming, topic, partition, offset, pid, handler}, {metadata, client, _event_pid} = state) do
     request_fn = KafkaEx.Protocol.Fetch.create_request_fn(topic, partition, offset, @wait_time, @min_bytes, @max_bytes)
-    {metadata, client, response} = send_request(metadata, client, topic, partition, request_fn, &KafkaEx.Protocol.Fetch.parse_response/1)
-    start_stream(pid, handler, topic, partition)
+    start_stream(pid, metadata, client, handler, topic, partition, request_fn)
     {:noreply, state}
   end
 
@@ -77,20 +76,19 @@ defmodule KafkaEx.Server do
     {:noreply, state}
   end
 
-  def terminate(_, {_, client, _event_pid}) do
+  def terminate(_, {_, client, nil}) do
+    KafkaEx.NetworkClient.shutdown(client)
+  end
+
+  def terminate(_, {_, client, event_pid}) do
     KafkaEx.NetworkClient.shutdown(client)
     Process.exit(event_pid, :kill)
   end
 
-  defp start_stream(pid, handler, topic, partition) do
-    receive do
-      {:tcp, _, data} ->
-        if byte_size(data) > 0 do
-          {:ok, map} = KafkaEx.Protocol.Fetch.parse_response(data)
-          map[topic][partition][:message_set] |>
-            Enum.each(fn(message_set) -> GenEvent.notify(pid, message_set) end)
-        end
-        start_stream(pid, handler, topic, partition)
-    end
+  defp start_stream(pid, metadata, client, handler, topic, partition, request_fn) do
+    {metadata, client, {:ok, response}} = send_request(metadata, client, topic, partition, request_fn, &KafkaEx.Protocol.Fetch.parse_response/1)
+    response[topic][partition][:message_set] |>
+      Enum.each(fn(message_set) -> GenEvent.notify(pid, message_set) end)
+    start_stream(pid, metadata, client, handler, topic, partition, request_fn)
   end
 end
