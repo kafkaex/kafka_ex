@@ -28,11 +28,11 @@ defmodule KafkaEx.Integration.Test do
     assert pid == Process.whereis(:test_server)
   end
 
-  # test "start_link raises an exception when it is provided a bad connection" do
-  #   {:error, {exception, _}} = KafkaEx.create_worker([{"bad_host", 1000}], :no_host)
-  #   assert exception.__struct__ == KafkaEx.ConnectionError
-  #   assert exception.message == "Error: Cannot connect to any of the broker(s) provided"
-  # end
+  test "start_link raises an exception when it is provided a bad connection" do
+    {:error, {exception, _}} = KafkaEx.create_worker([{"bad_host", 1000}], :no_host)
+    assert exception.__struct__ == KafkaEx.ConnectionError
+    assert exception.message == "Error: Cannot connect to any of the broker(s) provided"
+  end
 
   #produce
   test "produce withiout an acq required returns :ok" do
@@ -165,19 +165,19 @@ defmodule KafkaEx.Integration.Test do
     assert offset != 0
   end
 
-  #stream
-  # test "streams kafka logs" do
-  #   random_string = TestHelper.generate_random_string
-  #   KafkaEx.create_worker(:stream, uris)
-  #   KafkaEx.produce(random_string, 0, "hey", worker_name: :stream)
-  #   KafkaEx.produce(random_string, 0, "hi", worker_name: :stream)
-  #   log = KafkaEx.stream(random_string, 0, worker_name: :stream) |> Enum.take(2)
+  # stream
+  test "streams kafka logs" do
+    random_string = TestHelper.generate_random_string
+    KafkaEx.create_worker(:stream, uris)
+    KafkaEx.produce(random_string, 0, "hey", worker_name: :stream)
+    KafkaEx.produce(random_string, 0, "hi", worker_name: :stream)
+    log = KafkaEx.stream(random_string, 0, worker_name: :stream) |> Enum.take(2)
 
-  #   refute Enum.empty?(log)
-  #   [first,second|_] = log
-  #   assert first.value == "hey"
-  #   assert second.value == "hi"
-  # end
+    refute Enum.empty?(log)
+    [first,second|_] = log
+    assert first.value == "hey"
+    assert second.value == "hi"
+  end
 
   def uris do
     Mix.Config.read!("config/config.exs") |> hd |> elem(1) |> hd |> elem(1)
