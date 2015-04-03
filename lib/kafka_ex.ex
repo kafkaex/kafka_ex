@@ -201,7 +201,7 @@ defmodule KafkaEx do
 
     {:ok, pid}  = GenEvent.start_link
     :ok         = GenEvent.add_handler(pid, handler, [])
-    send(worker_name, {:start_streaming, topic, partition, offset, pid, handler})
+    send(worker_name, {:stream, topic, partition, offset, pid, handler, 0})
     GenEvent.stream(pid)
   end
 
