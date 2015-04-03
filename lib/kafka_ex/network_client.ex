@@ -11,6 +11,10 @@ defmodule KafkaEx.NetworkClient do
 
   def send_request(client, host_list, request, timeout \\ 100)
 
+  def send_request(_client, [], _request_fn, _timeout) do
+    raise "No brokers specified"
+  end
+
   def send_request(client, [{host, port}|rest], request_fn, timeout) do
     request = request_fn.(client.correlation_id, client.client_id)
     case send_to_host(client, host, port, request, timeout) do
