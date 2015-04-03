@@ -7,7 +7,7 @@ defmodule KafkaEx.Metadata do
   end
 
   def add_topic(metadata, network_client, topic) do
-    if Enum.member?(Map.keys(metadata.topics), topic) do
+    if Enum.member?(Map.keys(metadata.topics), topic) && metadata.topics[topic].error_code == :no_error do
       {metadata, network_client}
     else
       update_metadata(metadata, network_client, [topic])
@@ -52,15 +52,21 @@ defmodule KafkaEx.Metadata do
     end
   end
 
+  # Note: need to check for :leader_not_available for the topics, and wait until error clears to return
   def update_metadata(metadata, client, topic_list) do
     request_fn = KafkaEx.Protocol.Metadata.create_request_fn(topic_list)
     case KafkaEx.NetworkClient.send_request(client, broker_list(metadata), request_fn) do
       {:error, reason} -> {:error, reason}
       {client, response} ->
         from_broker = KafkaEx.Protocol.Metadata.parse_response(response)
-        updated_metadata = Map.merge(metadata, from_broker) |> Map.put(:timestamp, KafkaEx.Util.current_timestamp)
-        updated_client = KafkaEx.NetworkClient.update_from_metadata(client, Map.values(updated_metadata.brokers))
-        {updated_metadata, updated_client}
+        if Enum.any?(Enum.map(from_broker.topics, fn({topic, values}) -> values.error_code end), fn(error) -> error == :leader_not_available end) do
+          :timer.sleep(100)
+          update_metadata(metadata, client, topic_list)
+        else
+          updated_metadata = Map.merge(metadata, from_broker) |> Map.put(:timestamp, KafkaEx.Util.current_timestamp)
+          updated_client = KafkaEx.NetworkClient.update_from_metadata(client, Map.values(updated_metadata.brokers))
+          {updated_metadata, updated_client}
+        end
     end
   end
 end
