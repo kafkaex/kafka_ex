@@ -1,7 +1,7 @@
 KafkaEx
 ========
 
-Kafka client for Elixir/Erlang.
+[Apache Kafka](http://kafka.apache.org/) client for Elixir/Erlang.
 
 Usage
 -----
@@ -9,7 +9,7 @@ Usage
 Add KafkaEx to your mix.exs:
 
 ```elixir
-{:kafka_ex, "~> 0.0.1"}
+{:kafka_ex, "~> 0.0.2"}
 ```
 
 And run:
@@ -34,7 +34,7 @@ iex> Application.put_env(KafkaEx, :brokers, [{"localhost", 9092}, {"localhost", 
 
 ### Create KafkaEx worker
 ```elixir
-iex> KafkaEx.create_worker(:pr)
+iex> KafkaEx.create_worker(:pr) # where :pr is the process name of the created worker
 {:ok, #PID<0.171.0>}
 ```
 
@@ -53,10 +53,19 @@ iex> KafkaEx.metadata
 For a specific topic
 
 ```elixir
-iex> KafkaEx.metadata("foo")
+iex> KafkaEx.metadata(topic: "foo")
 %{brokers: %{1 => {"localhost", 9092}},
   topics: %{"foo" => %{error_code: 0,
       partitions: %{0 => %{error_code: 0, isrs: [1], leader: 1, replicas: [1]}}}}}
+```
+
+### Retrieve offset from a particular time
+
+Kafka will get the starting offset of the log segment that is created no later than the given timestamp. Due to this, and since the offset request is served only at segment granularity, the offset fetch request returns less accurate results for larger segment sizes.
+
+```elixir
+  iex> KafkaEx.offset("foo", 0, {{2015, 3, 29}, {23, 56, 40}}) # Note that the time specified should match/be ahead of time on the server that kafka runs
+  {:ok, %{"foo" => %{0 => %{error_code: 0, offsets: [256]}}}}
 ```
 
 ### Retrieve the latest offset

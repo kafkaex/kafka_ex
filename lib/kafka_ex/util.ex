@@ -33,6 +33,10 @@ defmodule KafkaEx.Util do
     parse_message_set([Map.put(message, :offset, offset)|list], rest)
   end
 
+  def parse_message_set(list, _) do
+    {:ok, Enum.reverse(list)}
+  end
+
   def parse_message(<< crc :: 32, _magic :: 8, attributes :: 8, rest :: binary>>) do
     parse_key(crc, attributes, rest)
   end
