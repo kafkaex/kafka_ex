@@ -79,6 +79,7 @@ defmodule KafkaEx.Server do
 
   def terminate(_, {_, client, _event_pid}) do
     KafkaEx.NetworkClient.shutdown(client)
+    Process.exit(event_pid, :kill)
   end
 
   defp start_stream(pid, handler, topic, partition) do
