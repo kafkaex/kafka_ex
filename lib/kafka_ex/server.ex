@@ -67,11 +67,6 @@ defmodule KafkaEx.Server do
     {:noreply, {metadata, client, event_pid}}
   end
 
-  def handle_info({:update_metadata, new_correlation_id, metadata, topic_metadata}, {_correlation_id, _, socket_map, event_pid}) do
-    updated_metadata = Map.merge(metadata, topic_metadata, fn(_, v1, v2) -> Map.merge(v1, v2) end)
-    {:noreply, {new_correlation_id, updated_metadata, socket_map, event_pid}}
-  end
-
   def handle_info(_, state) do
     {:noreply, state}
   end
