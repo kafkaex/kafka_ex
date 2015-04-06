@@ -19,7 +19,7 @@ defmodule KafkaEx.Integration.Metadata.Test do
     client = KafkaEx.NetworkClient.new("test")
     topic = TestHelper.generate_random_string
 
-    {metadata, client} = KafkaEx.Metadata.add_topic(metadata, client, topic)
+    {metadata, _client} = KafkaEx.Metadata.add_topic(metadata, client, topic)
 
     broker = KafkaEx.Metadata.broker_for_topic(metadata, topic)
     assert broker == metadata.brokers[0]
@@ -30,7 +30,7 @@ defmodule KafkaEx.Integration.Metadata.Test do
     client = KafkaEx.NetworkClient.new("test")
     topic = TestHelper.generate_random_string
 
-    {metadata, client} = KafkaEx.Metadata.add_topic(metadata, client, topic)
-    refute Enum.any?(Enum.map(metadata.topics, fn({topic, values}) -> values.error_code end), fn(error) -> error == :leader_not_available end)
+    {metadata, _client} = KafkaEx.Metadata.add_topic(metadata, client, topic)
+    refute Enum.any?(Enum.map(metadata.topics, fn({_topic, values}) -> values.error_code end), fn(error) -> error == :leader_not_available end)
   end
 end
