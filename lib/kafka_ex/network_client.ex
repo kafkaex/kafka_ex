@@ -17,7 +17,7 @@ defmodule KafkaEx.NetworkClient do
 
   def send_request(client, [{host, port}|rest], request_fn, timeout, return_response) do
     request = request_fn.(client.correlation_id, client.client_id)
-    case send_to_host(client, host, port, request, timeout) do
+    case send_to_host(client, host, port, request) do
       {:error, reason} ->
         case rest do
           [] -> raise "Error sending request: #{reason}"
@@ -55,23 +55,23 @@ defmodule KafkaEx.NetworkClient do
     end
   end
 
-  defp send_to_host(client, host, port, request, timeout) when is_list(port) do
-    send_to_host(client, host, to_string(port), request, timeout)
+  defp send_to_host(client, host, port, request) when is_list(port) do
+    send_to_host(client, host, to_string(port), request)
   end
 
-  defp send_to_host(client, host, port, request, timeout) when is_binary(port) do
-    send_to_host(client, host, String.to_integer(port), request, timeout)
+  defp send_to_host(client, host, port, request) when is_binary(port) do
+    send_to_host(client, host, String.to_integer(port), request)
   end
 
-  defp send_to_host(client, host, port, request, timeout) when is_list(host) do
-    send_to_host(client, to_string(host), port, request, timeout)
+  defp send_to_host(client, host, port, request) when is_list(host) do
+    send_to_host(client, to_string(host), port, request)
   end
 
-  defp send_to_host(client, host, port, request, timeout) when is_binary(host) and is_integer(port) do
+  defp send_to_host(client, host, port, request) when is_binary(host) and is_integer(port) do
     case get_socket(client, host, port) do
       {:error, reason} -> {:error, reason}
       {client, socket} ->
-        case do_send(socket, request, timeout) do
+        case do_send(socket, request) do
           :ok -> client
           error -> error
         end
@@ -97,7 +97,7 @@ defmodule KafkaEx.NetworkClient do
     end
   end
 
-  defp do_send(socket, request, timeout) do
+  defp do_send(socket, request) do
     :gen_tcp.send(socket, request)
   end
 
