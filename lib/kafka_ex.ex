@@ -199,10 +199,15 @@ defmodule KafkaEx do
     offset      = Keyword.get(opts, :offset, 0)
     handler     = Keyword.get(opts, :handler, KafkaExHandler)
 
-    {:ok, pid}  = GenEvent.start_link
-    :ok         = GenEvent.add_handler(pid, handler, [])
-    send(worker_name, {:stream, topic, partition, offset, pid, handler, 0})
-    GenEvent.stream(pid)
+    stream      = GenServer.call(worker_name, {:create_stream, handler})
+    send(worker_name, {:start_streaming, topic, partition, offset, handler})
+    stream
+  end
+
+  @spec stop_streaming(Keyword.t) :: :ok
+  def stop_streaming(opts \\ []) do
+    worker_name = Keyword.get(opts, :worker_name, KafkaEx.Server)
+    send(worker_name, :stop_streaming)
   end
 
 #OTP API

@@ -9,13 +9,13 @@ defmodule KafkaEx.NetworkClient do
     end)
   end
 
-  def send_request(client, host_list, request, timeout \\ 100)
+  def send_request(client, host_list, request, timeout \\ 100, return_response \\ true)
 
-  def send_request(_client, [], _request_fn, _timeout) do
+  def send_request(_client, [], _request_fn, _timeout, _return_response) do
     raise "No brokers specified"
   end
 
-  def send_request(client, [{host, port}|rest], request_fn, timeout) do
+  def send_request(client, [{host, port}|rest], request_fn, timeout, return_response) do
     request = request_fn.(client.correlation_id, client.client_id)
     case send_to_host(client, host, port, request, timeout) do
       {:error, reason} ->
@@ -23,7 +23,12 @@ defmodule KafkaEx.NetworkClient do
           [] -> raise "Error sending request: #{reason}"
           _  -> send_request(rest, request, timeout)
         end
-      client -> get_response(%{client | correlation_id: client.correlation_id + 1}, timeout)
+      client ->
+        if return_response do
+          get_response(%{client | correlation_id: client.correlation_id + 1}, timeout)
+        else
+          client
+        end
     end
   end
 

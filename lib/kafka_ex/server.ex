@@ -15,14 +15,22 @@ defmodule KafkaEx.Server do
     {:ok, {metadata, client, nil}}
   end
 
-  defp send_request(metadata, client, topic, partition, request_fn, parser, timeout \\ 100) do
+  defp send_request(metadata, client, topic, partition, request_fn, parser, timeout \\ 100, return_response \\ true) do
     {metadata, client} = KafkaEx.Metadata.add_topic(metadata, client, topic)
+
     broker = KafkaEx.Metadata.broker_for_topic(metadata, topic, partition)
-    {client, response} = KafkaEx.NetworkClient.send_request(client, [broker], request_fn, timeout)
-    if parser do
-      {metadata, client, parser.(response)}
+    if broker == nil, do: raise "No broker found for topic #{topic}"
+
+    if return_response do
+      {client, response} = KafkaEx.NetworkClient.send_request(client, [broker], request_fn, timeout, return_response)
+      if parser do
+        {metadata, client, parser.(response)}
+      else
+        {metadata, client, response}
+      end
     else
-      {metadata, client, response}
+      client = KafkaEx.NetworkClient.send_request(client, [broker], request_fn, timeout, return_response)
+      {metadata, client}
     end
   end
 
@@ -53,25 +61,19 @@ defmodule KafkaEx.Server do
     {:reply, metadata, {metadata, client, event_pid}}
   end
 
+  def handle_call({:create_stream, handler}, _from, {metadata, client, event_pid}) do
+    unless event_pid && Process.alive?(event_pid) do
+      {:ok, event_pid}  = GenEvent.start_link
+    end
+    GenEvent.add_handler(event_pid, handler, [])
+    {:reply, GenEvent.stream(event_pid), {metadata, client, event_pid}}
+  end
+
   @wait_time 10
   @min_bytes 1
   @max_bytes 1_000_000
-  @sleep_when_empty 1000
-  def handle_info({:stream, topic, partition, offset, pid, handler, sleep}, {metadata, client, event_pid}) do
-    if sleep > 0, do: :timer.sleep(sleep)
-
-    request_fn = KafkaEx.Protocol.Fetch.create_request_fn(topic, partition, offset, @wait_time, @min_bytes, @max_bytes)
-    {metadata, client, {:ok, response}} = send_request(metadata, client, topic, partition, request_fn, &KafkaEx.Protocol.Fetch.parse_response/1)
-    message_sets = response[topic][partition][:message_set]
-
-    unless Enum.empty?(message_sets) do
-      Enum.each(message_sets, fn(message_set) -> GenEvent.notify(pid, message_set) end)
-      last_offset = Enum.at(Enum.reverse(message_sets), 0).offset
-      send(self, {:stream, topic, partition, last_offset+1, pid, handler, 0})
-    else
-      send(self, {:stream, topic, partition, offset, pid, handler, @sleep_when_empty})
-    end
-
+  def handle_info({:start_streaming, topic, partition, offset, handler}, {metadata, client, event_pid}) do
+    {metadata, client} = start_stream(event_pid, metadata, client, handler, topic, partition, offset)
     {:noreply, {metadata, client, event_pid}}
   end
 
@@ -91,5 +93,25 @@ defmodule KafkaEx.Server do
   def terminate(_, {_, client, event_pid}) do
     KafkaEx.NetworkClient.shutdown(client)
     Process.exit(event_pid, :kill)
+  end
+
+  defp start_stream(pid, metadata, client, handler, topic, partition, offset) do
+    request_fn = KafkaEx.Protocol.Fetch.create_request_fn(topic, partition, offset, @wait_time, @min_bytes, @max_bytes)
+    {metadata, client} = send_request(metadata, client, topic, partition, request_fn, nil, 100, false)
+    receive do
+      {:tcp, _, data} ->
+        {:ok, response} = KafkaEx.Protocol.Fetch.parse_response(data)
+        message_sets = response[topic][partition].message_set
+        if Enum.empty?(message_sets) do
+          :timer.sleep(1000)
+          start_stream(pid, metadata, client, handler, topic, partition, offset)
+        else
+          Enum.each(message_sets, fn(message_set) -> GenEvent.notify(pid, message_set) end)
+          last_offset = Enum.at(Enum.reverse(message_sets), 0).offset
+          start_stream(pid, metadata, client, handler, topic, partition, last_offset+1)
+        end
+      :stop_streaming ->
+        {metadata, client}
+    end
   end
 end

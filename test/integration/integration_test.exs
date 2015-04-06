@@ -179,6 +179,36 @@ defmodule KafkaEx.Integration.Test do
     assert second.value == "hi"
   end
 
+  test "stop_streaming stops streaming, and stream starts it up again" do
+    random_string = TestHelper.generate_random_string
+    KafkaEx.create_worker(:stream2, uris)
+    stream = KafkaEx.stream(random_string, 0, worker_name: :stream2)
+
+    KafkaEx.create_worker(:producer, uris)
+    KafkaEx.produce(random_string, 0, "one", worker_name: :producer)
+    KafkaEx.produce(random_string, 0, "two", worker_name: :producer)
+
+    :timer.sleep(1000)
+    log = GenEvent.call(stream.manager, KafkaExHandler, :messages)
+    assert length(log) == 2
+    last_offset = hd(Enum.reverse(log)).offset
+
+    KafkaEx.stop_streaming(worker_name: :stream2)
+    :timer.sleep(1000)
+    KafkaEx.produce(random_string, 0, "three", worker_name: :producer)
+    KafkaEx.produce(random_string, 0, "four", worker_name: :producer)
+    :timer.sleep(1000)
+    log = GenEvent.call(stream.manager, KafkaExHandler, :messages)
+    assert length(log) == 0
+
+    stream = KafkaEx.stream(random_string, 0, worker_name: :stream2, offset: last_offset+1)
+    KafkaEx.produce(random_string, 0, "five", worker_name: :producer)
+    KafkaEx.produce(random_string, 0, "six", worker_name: :producer)
+    :timer.sleep(1000)
+    log = GenEvent.call(stream.manager, KafkaExHandler, :messages)
+    assert length(log) == 4
+  end
+
   def uris do
     Mix.Config.read!("config/config.exs") |> hd |> elem(1) |> hd |> elem(1)
   end
