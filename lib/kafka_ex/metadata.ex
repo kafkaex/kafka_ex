@@ -53,7 +53,7 @@ defmodule KafkaEx.Metadata do
   end
 
   defp has_leader_not_available?(metadata) do
-    Enum.any?(Enum.map(metadata.topics, fn({topic, values}) -> values.error_code end), fn(error) -> error == :leader_not_available end)
+    Enum.any?(Enum.map(metadata.topics, fn({_topic, values}) -> values.error_code end), fn(error) -> error == :leader_not_available end)
   end
 
   # Note: need to check for :leader_not_available for the topics, and wait until error clears to return
