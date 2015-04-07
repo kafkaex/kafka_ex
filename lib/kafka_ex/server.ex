@@ -15,7 +15,7 @@ defmodule KafkaEx.Server do
     {:ok, {metadata, client, nil}}
   end
 
-  defp send_request(metadata, client, topic, partition, request_fn, parser) do
+  defp send_request(metadata, client, topic, partition, request_fn) do
     {metadata, client} = KafkaEx.Metadata.add_topic(metadata, client, topic)
 
     broker = KafkaEx.Metadata.broker_for_topic(metadata, topic, partition)
@@ -26,7 +26,7 @@ defmodule KafkaEx.Server do
   end
 
   defp send_request_and_return_response(metadata, client, topic, partition, request_fn, parser, timeout \\ 100) do
-    {metadata, client} = send_request(metadata, client, topic, partition, request_fn, parser)
+    {metadata, client} = send_request(metadata, client, topic, partition, request_fn)
 
     {client, response} = KafkaEx.NetworkClient.get_response(client, timeout)
     if parser do
@@ -97,21 +97,31 @@ defmodule KafkaEx.Server do
     Process.exit(event_pid, :kill)
   end
 
+  defp notify_handler([], _handler_pid, offset), do: offset
+
+  defp notify_handler([message_set|message_sets], handler_pid, _offset) do
+    GenEvent.notify(handler_pid, message_set)
+    notify_handler(message_sets, handler_pid, message_set.offset)
+  end
+
+  defp handle_message_sets([], pid, metadata, client, handler, topic, partition, offset) do
+    :timer.sleep(1000)
+    start_stream(pid, metadata, client, handler, topic, partition, offset)
+  end
+
+  defp handle_message_sets(message_sets, pid, metadata, client, handler, topic, partition, offset) do
+    last_offset = notify_handler(message_sets, pid, offset)
+    start_stream(pid, metadata, client, handler, topic, partition, last_offset+1)
+  end
+
   defp start_stream(pid, metadata, client, handler, topic, partition, offset) do
     request_fn = KafkaEx.Protocol.Fetch.create_request_fn(topic, partition, offset, @wait_time, @min_bytes, @max_bytes)
-    {metadata, client} = send_request(metadata, client, topic, partition, request_fn, nil)
+    {metadata, client} = send_request(metadata, client, topic, partition, request_fn)
     receive do
       {:tcp, _, data} ->
         {:ok, response} = KafkaEx.Protocol.Fetch.parse_response(data)
         message_sets = response[topic][partition].message_set
-        if Enum.empty?(message_sets) do
-          :timer.sleep(1000)
-          start_stream(pid, metadata, client, handler, topic, partition, offset)
-        else
-          Enum.each(message_sets, fn(message_set) -> GenEvent.notify(pid, message_set) end)
-          last_offset = Enum.at(Enum.reverse(message_sets), 0).offset
-          start_stream(pid, metadata, client, handler, topic, partition, last_offset+1)
-        end
+        handle_message_sets(message_sets, pid, metadata, client, handler, topic, partition, offset)
       :stop_streaming ->
         {metadata, client}
     end
