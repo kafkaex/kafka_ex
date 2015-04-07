@@ -53,25 +53,22 @@ defmodule KafkaEx.Metadata do
   end
 
   defp has_leader_not_available?(metadata) do
-    Enum.any?(Enum.map(metadata.topics, fn({topic, values}) -> values.error_code end), fn(error) -> error == :leader_not_available end)
+    Enum.any?(Enum.map(Map.values(metadata[:topics]), fn(values) -> values.error_code end), fn(error) -> error == :leader_not_available end)
   end
 
   # Note: need to check for :leader_not_available for the topics, and wait until error clears to return
   @retry_count 3
   def update_metadata(metadata, client, topic_list, retry_count \\ @retry_count) do
     request_fn = KafkaEx.Protocol.Metadata.create_request_fn(topic_list)
-    case KafkaEx.NetworkClient.send_request(client, broker_list(metadata), request_fn) do
-      {:error, reason} -> {:error, reason}
-      {client, response} ->
-        from_broker = KafkaEx.Protocol.Metadata.parse_response(response)
-        if has_leader_not_available?(from_broker) && retry_count > 0 do
-          :timer.sleep(100)
-          update_metadata(metadata, client, topic_list, retry_count - 1)
-        else
-          updated_metadata = Map.merge(metadata, from_broker) |> Map.put(:timestamp, KafkaEx.Util.current_timestamp)
-          updated_client = KafkaEx.NetworkClient.update_from_metadata(client, Map.values(updated_metadata.brokers))
-          {updated_metadata, updated_client}
-        end
+    {client, response} = KafkaEx.NetworkClient.send_request(client, broker_list(metadata), request_fn)
+    from_broker = KafkaEx.Protocol.Metadata.parse_response(response)
+    if has_leader_not_available?(from_broker) && retry_count > 0 do
+      :timer.sleep(100)
+      update_metadata(metadata, client, topic_list, retry_count - 1)
+    else
+      updated_metadata = Map.merge(metadata, from_broker) |> Map.put(:timestamp, KafkaEx.Util.current_timestamp)
+      updated_client = KafkaEx.NetworkClient.update_from_metadata(client, Map.values(updated_metadata[:brokers]))
+      {updated_metadata, updated_client}
     end
   end
 end
