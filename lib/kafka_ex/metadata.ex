@@ -60,7 +60,8 @@ defmodule KafkaEx.Metadata do
   @retry_count 3
   def update_metadata(metadata, client, topic_list, retry_count \\ @retry_count) do
     request_fn = KafkaEx.Protocol.Metadata.create_request_fn(topic_list)
-    case KafkaEx.NetworkClient.send_request(client, broker_list(metadata), request_fn) do
+    client = KafkaEx.NetworkClient.send_request(client, broker_list(metadata), request_fn)
+    case KafkaEx.NetworkClient.get_response(client) do
       {:error, reason} -> {:error, reason}
       {client, response} ->
         from_broker = KafkaEx.Protocol.Metadata.parse_response(response)

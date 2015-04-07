@@ -9,26 +9,27 @@ defmodule KafkaEx.NetworkClient do
     end)
   end
 
-  def send_request(client, host_list, request, timeout \\ 100, return_response \\ true)
+  defp increment_correlation_id(client) do
+    %{client | correlation_id: client.correlation_id + 1}
+  end
 
-  def send_request(_client, [], _request_fn, _timeout, _return_response) do
+  def send_request(client, brokers, request_fn) do
+    request = request_fn.(client.correlation_id, client.client_id)
+    send_created_request(client, brokers, request)
+  end
+
+  defp send_created_request(_client, [], _request) do
     raise "No brokers specified"
   end
 
-  def send_request(client, [{host, port}|rest], request_fn, timeout, return_response) do
-    request = request_fn.(client.correlation_id, client.client_id)
+  defp send_created_request(client, [{host, port}|rest], request) do
     case send_to_host(client, host, port, request) do
       {:error, reason} ->
         case rest do
           [] -> raise "Error sending request: #{reason}"
-          _  -> send_request(rest, request, timeout)
+          _  -> send_created_request(client, rest, request)
         end
-      client ->
-        if return_response do
-          get_response(%{client | correlation_id: client.correlation_id + 1}, timeout)
-        else
-          client
-        end
+      client -> increment_correlation_id(client)
     end
   end
 
@@ -101,11 +102,11 @@ defmodule KafkaEx.NetworkClient do
     :gen_tcp.send(socket, request)
   end
 
-  defp get_response(client, 0) do
+  def get_response(client, 0) do
     {client, nil}
   end
 
-  defp get_response(client, timeout) do
+  def get_response(client, timeout \\ 100) do
     receive do
       {:tcp, _, data} -> {client, data}
     after
