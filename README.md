@@ -6,10 +6,20 @@ KafkaEx
 Usage
 -----
 
-Add KafkaEx to your mix.exs:
+Add KafkaEx to your mix.exs dependencies:
 
 ```elixir
-{:kafka_ex, "~> 0.0.2"}
+defp deps do
+  [{:kafka_ex, "~> 0.0.2"}]
+end
+```
+
+Add KafkaEx to your mix.exs applications:
+
+```elixir
+def application do
+  [applications: [:kafka_ex]]
+end
 ```
 
 And run:

@@ -22,7 +22,7 @@ defmodule KafkaEx.Integration.Metadata.Test do
     {metadata, _client} = KafkaEx.Metadata.add_topic(metadata, client, topic)
 
     broker = KafkaEx.Metadata.broker_for_topic(metadata, topic)
-    assert broker == metadata.brokers[0]
+    assert broker == hd(Map.values(metadata.brokers))
   end
 
   test "update waits for leader election when auto-creating topic before returning metadata" do
