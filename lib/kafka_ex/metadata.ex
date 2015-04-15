@@ -53,7 +53,7 @@ defmodule KafkaEx.Metadata do
   end
 
   defp has_leader_not_available?(metadata) do
-    Enum.any?(Enum.map(metadata.topics, fn({_topic, values}) -> values.error_code end), fn(error) -> error == :leader_not_available end)
+    Enum.any?(Enum.map(metadata[:topics], fn({_topic, values}) -> values.error_code end), fn(error) -> error == :leader_not_available end)
   end
 
   # Note: need to check for :leader_not_available for the topics, and wait until error clears to return
@@ -70,7 +70,7 @@ defmodule KafkaEx.Metadata do
           update_metadata(metadata, client, topic_list, retry_count - 1)
         else
           updated_metadata = Map.merge(metadata, from_broker) |> Map.put(:timestamp, KafkaEx.Util.current_timestamp)
-          updated_client = KafkaEx.NetworkClient.update_from_metadata(client, Map.values(updated_metadata.brokers))
+          updated_client = KafkaEx.NetworkClient.update_from_metadata(client, Map.values(updated_metadata[:brokers]))
           {updated_metadata, updated_client}
         end
     end
