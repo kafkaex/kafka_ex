@@ -3,6 +3,8 @@ defmodule KafkaEx.Protocol do
   @fetch_request             1
   @offset_request            2
   @metadata_request          3
+  @offset_commit_request     8
+  @offset_fetch_request      9
   @consumer_metadata_request 10
 
   @api_version  0
@@ -23,7 +25,15 @@ defmodule KafkaEx.Protocol do
     @metadata_request
   end
 
-  defp api_key(:consumer_metadata_request) do
+  defp api_key(:offset_commit) do
+    @offset_commit_request
+  end
+
+  defp api_key(:offset_fetch) do
+    @offset_fetch_request
+  end
+
+  defp api_key(:consumer_metadata) do
     @consumer_metadata_request
   end
 
