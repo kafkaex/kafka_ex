@@ -67,7 +67,7 @@ defmodule KafkaEx.Server do
     unless event_pid && Process.alive?(event_pid) do
       {:ok, event_pid}  = GenEvent.start_link
     end
-    GenEvent.add_handler(event_pid, handler, [])
+    :ok = GenEvent.add_handler(event_pid, handler, [])
     {:reply, GenEvent.stream(event_pid), {metadata, client, event_pid}}
   end
 
