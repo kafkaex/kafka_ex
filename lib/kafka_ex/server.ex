@@ -15,46 +15,25 @@ defmodule KafkaEx.Server do
     {:ok, {metadata, client, nil}}
   end
 
-  defp send_request(metadata, client, topic, partition, request_fn) do
-    {metadata, client} = KafkaEx.Metadata.add_topic(metadata, client, topic)
-
-    broker = KafkaEx.Metadata.broker_for_topic(metadata, topic, partition)
-    if broker == nil, do: raise "No broker found for topic #{topic}"
-
-    client = KafkaEx.NetworkClient.send_request(client, [broker], request_fn)
-    {metadata, client}
-  end
-
-  defp send_request_and_return_response(metadata, client, topic, partition, request_fn, parser, timeout \\ 100) do
-    {metadata, client} = send_request(metadata, client, topic, partition, request_fn)
-
-    {client, response} = KafkaEx.NetworkClient.get_response(client, timeout)
-    if parser do
-      {metadata, client, parser.(response)}
-    else
-      {metadata, client, response}
-    end
-  end
-
   def handle_call({:produce, topic, partition, value, key, required_acks, timeout}, _from, {metadata, client, event_pid}) do
-    request_fn = KafkaEx.Protocol.Produce.create_request_fn(topic, partition, value, key, required_acks, timeout)
-    {metadata, client, response} = send_request_and_return_response(metadata, client, topic, partition, request_fn, nil, timeout)
-    parsed_response = case required_acks do
+    data = [topic, partition, value, key, required_acks, timeout]
+    {metadata, client, response} = send_request(metadata, client, topic, partition, KafkaEx.Protocol.Produce, data, timeout)
+    response = case required_acks do
       0 -> :ok
-      _ -> KafkaEx.Protocol.Produce.parse_response(response)
+      _ -> response
     end
-    {:reply, parsed_response, {metadata, client, event_pid}}
+    {:reply, response, {metadata, client, event_pid}}
   end
 
   def handle_call({:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes}, _from, {metadata, client, event_pid}) do
-    request_fn = KafkaEx.Protocol.Fetch.create_request_fn(topic, partition, offset, wait_time, min_bytes, max_bytes)
-    {metadata, client, response} = send_request_and_return_response(metadata, client, topic, partition, request_fn, &KafkaEx.Protocol.Fetch.parse_response/1)
+    data = [topic, partition, offset, wait_time, min_bytes, max_bytes]
+    {metadata, client, response} = send_request(metadata, client, topic, partition, KafkaEx.Protocol.Fetch, data)
     {:reply, response, {metadata, client, event_pid}}
   end
 
   def handle_call({:offset, topic, partition, time}, _from, {metadata, client, event_pid}) do
-    request_fn = KafkaEx.Protocol.Offset.create_request_fn(topic, partition, time)
-    {metadata, client, response} = send_request_and_return_response(metadata, client, topic, partition, request_fn, &KafkaEx.Protocol.Offset.parse_response/1)
+    data = [topic, partition, time]
+    {metadata, client, response} = send_request(metadata, client, topic, partition, KafkaEx.Protocol.Offset, data)
     {:reply, response, {metadata, client, event_pid}}
   end
 
@@ -67,7 +46,7 @@ defmodule KafkaEx.Server do
     unless event_pid && Process.alive?(event_pid) do
       {:ok, event_pid}  = GenEvent.start_link
     end
-    :ok = GenEvent.add_handler(event_pid, handler, [])
+    GenEvent.add_handler(event_pid, handler, [])
     {:reply, GenEvent.stream(event_pid), {metadata, client, event_pid}}
   end
 
@@ -115,8 +94,8 @@ defmodule KafkaEx.Server do
   end
 
   defp start_stream(pid, metadata, client, handler, topic, partition, offset) do
-    request_fn = KafkaEx.Protocol.Fetch.create_request_fn(topic, partition, offset, @wait_time, @min_bytes, @max_bytes)
-    {metadata, client} = send_request(metadata, client, topic, partition, request_fn)
+    data = [topic, partition, offset, @wait_time, @min_bytes, @max_bytes]
+    {metadata, client} = send_request(metadata, client, topic, partition, KafkaEx.Protocol.Fetch, data, 100, false)
     receive do
       {:tcp, _, data} ->
         {:ok, response} = KafkaEx.Protocol.Fetch.parse_response(data)
@@ -124,6 +103,21 @@ defmodule KafkaEx.Server do
         handle_message_sets(message_sets, pid, metadata, client, handler, topic, partition, offset)
       :stop_streaming ->
         {metadata, client}
+    end
+  end
+
+  defp send_request(metadata, client, topic, partition, protocol_mod, data, timeout \\ 100, require_response \\ true) do
+    {metadata, client} = KafkaEx.Metadata.add_topic(metadata, client, topic)
+
+    broker = KafkaEx.Metadata.broker_for_topic(metadata, topic, partition)
+    if broker == nil, do: raise "No broker found for topic #{topic}"
+
+    client = KafkaEx.NetworkClient.send_request(client, [broker], data, protocol_mod)
+    if require_response do
+      {client, response} = KafkaEx.NetworkClient.get_response(client, timeout)
+      {metadata, client, protocol_mod.parse_response(response)}
+    else
+      {metadata, client}
     end
   end
 end
