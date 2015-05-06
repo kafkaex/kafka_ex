@@ -13,8 +13,8 @@ defmodule KafkaEx.NetworkClient do
     %{client | correlation_id: client.correlation_id + 1}
   end
 
-  def send_request(client, brokers, request_fn) do
-    request = request_fn.(client.correlation_id, client.client_id)
+  def send_request(client, brokers, data, protocol_mod) do
+    request = apply(protocol_mod, :create_request, [client.correlation_id, client.client_id| data])
     send_created_request(client, brokers, request)
   end
 

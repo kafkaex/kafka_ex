@@ -59,11 +59,11 @@ defmodule KafkaEx.Metadata do
   # Note: need to check for :leader_not_available for the topics, and wait until error clears to return
   @retry_count 3
   def update_metadata(metadata, client, topic_list, retry_count \\ @retry_count) do
-    request_fn = KafkaEx.Protocol.Metadata.create_request_fn(topic_list)
-    client = KafkaEx.NetworkClient.send_request(client, broker_list(metadata), request_fn)
+    client = KafkaEx.NetworkClient.send_request(client, broker_list(metadata), [topic_list], KafkaEx.Protocol.Metadata)
     case KafkaEx.NetworkClient.get_response(client) do
       {:error, reason} -> {:error, reason}
       {client, response} ->
+        #response can be {:error, :timeout} need to fix
         from_broker = KafkaEx.Protocol.Metadata.parse_response(response)
         if has_leader_not_available?(from_broker) && retry_count > 0 do
           :timer.sleep(100)

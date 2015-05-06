@@ -1,13 +1,4 @@
 defmodule KafkaEx.Protocol.Produce do
-  def create_request_fn(topic, partition, value, key, required_acks, timeout) do
-    fn(correlation_id, client_id) ->
-      message_set = KafkaEx.Util.create_message_set(value, key)
-      KafkaEx.Protocol.create_request(:produce, correlation_id, client_id) <>
-        << required_acks :: 16, timeout :: 32, 1 :: 32, byte_size(topic) :: 16, topic :: binary, 1 :: 32, partition :: 32, byte_size(message_set) :: 32 >> <>
-        message_set
-    end
-  end
-
   def create_request(correlation_id, client_id, topic, partition, value, key, required_acks, timeout) do
     message_set = KafkaEx.Util.create_message_set(value, key)
     KafkaEx.Protocol.create_request(:produce, correlation_id, client_id) <>
@@ -19,6 +10,8 @@ defmodule KafkaEx.Protocol.Produce do
     parse_topics(%{}, num_topics, rest)
     |> generate_result
   end
+
+  def parse_response(unknown), do: unknown
 
   defp generate_result({:ok, response_map, _rest}) do
     {:ok, response_map}
