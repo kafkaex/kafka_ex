@@ -156,6 +156,15 @@ defmodule KafkaEx.Integration.Test do
     assert offset == 0
   end
 
+  test "offset_commit commits an offset and offset_fetch retrieves the committed offset" do
+    random_string = TestHelper.generate_random_string
+    Enum.each(1..10, fn _ -> KafkaEx.produce(random_string, 0, "foo") end)
+    assert KafkaEx.offset_commit(KafkaEx.Server, %KafkaEx.Protocol.OffsetCommit.Request{topic: random_string, offset: 9}) ==  
+      [%KafkaEx.Protocol.OffsetCommit.Response{partitions: [0], topic: random_string}]
+    assert KafkaEx.offset_fetch(KafkaEx.Server, %KafkaEx.Protocol.OffsetFetch.Request{topic: random_string}) == 
+      [%KafkaEx.Protocol.OffsetFetch.Response{partitions: [%{metadata: "", offset: 9, partition: 0}], topic: random_string}]
+  end
+
   test "latest_offset retrieves a non-zero offset for a topic published to" do
     random_string = TestHelper.generate_random_string
     KafkaEx.produce(random_string, 0, "foo")

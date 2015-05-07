@@ -37,6 +37,16 @@ defmodule KafkaEx.Server do
     {:reply, response, {metadata, client, event_pid}}
   end
 
+  def handle_call({:offset_fetch, offset_fetch_request}, _from, {metadata, client, event_pid}) do
+    {metadata, client, response} = send_request(metadata, client, offset_fetch_request.topic, offset_fetch_request.partition, KafkaEx.Protocol.OffsetFetch, [offset_fetch_request])
+    {:reply, response, {metadata, client, event_pid}}
+  end
+
+  def handle_call({:offset_commit, offset_commit_request}, _from, {metadata, client, event_pid}) do
+    {metadata, client, response} = send_request(metadata, client, offset_commit_request.topic, offset_commit_request.partition, KafkaEx.Protocol.OffsetCommit, [offset_commit_request])
+    {:reply, response, {metadata, client, event_pid}}
+  end
+
   def handle_call({:metadata, topic}, _from, {metadata, client, event_pid}) do
     {metadata, client} = KafkaEx.Metadata.add_topic(metadata, client, topic)
     {:reply, metadata, {metadata, client, event_pid}}

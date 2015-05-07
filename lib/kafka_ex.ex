@@ -138,6 +138,16 @@ defmodule KafkaEx do
     GenServer.call(worker_name, {:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes})
   end
 
+  @spec offset_commit(atom, KafkaEx.Protocol.OffsetCommit.Request.t) :: KafkaEx.Protocol.OffsetCommit.Response.t
+  def offset_commit(worker_name, offset_commit_request) do
+    GenServer.call(worker_name, {:offset_commit, offset_commit_request})
+  end
+
+  @spec offset_fetch(atom, KafkaEx.Protocol.OffsetFetch.Request.t) :: KafkaEx.Protocol.OffsetFetch.Response.t
+  def offset_fetch(worker_name, offset_fetch_request) do
+    GenServer.call(worker_name, {:offset_fetch, offset_fetch_request})
+  end
+
   @doc """
   Produces messages to kafka logs
 
