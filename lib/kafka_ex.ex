@@ -62,6 +62,11 @@ defmodule KafkaEx do
     GenServer.call(worker_name, {:metadata, topic})
   end
 
+  @spec consumer_group_metadata(atom, binary) :: KafkaEx.Protocol.ConsumerMetadata.Response.t
+  def consumer_group_metadata(worker_name, consumer_group) do
+    GenServer.call(worker_name, {:consumer_group_metadata, consumer_group})
+  end
+
   @doc """
   Get the offset of the latest message written to Kafka
 

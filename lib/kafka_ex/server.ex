@@ -1,5 +1,6 @@
 defmodule KafkaEx.Server do
   @client_id "kafka_ex"
+  defstruct metadata: %{}, client: %{}, event_pid: nil, consumer_metadata: %KafkaEx.Protocol.ConsumerMetadata.Response{}
 
   ### GenServer Callbacks
   use GenServer
@@ -12,78 +13,103 @@ defmodule KafkaEx.Server do
     client = KafkaEx.NetworkClient.new(@client_id)
     metadata = KafkaEx.Metadata.new(uris)
     send(self, :metadata)
-    {:ok, {metadata, client, nil}}
+    {:ok, %KafkaEx.Server{metadata: metadata, client: client}}
   end
 
-  def handle_call({:produce, topic, partition, value, key, required_acks, timeout}, _from, {metadata, client, event_pid}) do
+  def handle_call({:produce, topic, partition, value, key, required_acks, timeout}, _from, state) do
     data = [topic, partition, value, key, required_acks, timeout]
-    {metadata, client, response} = send_request(metadata, client, topic, partition, KafkaEx.Protocol.Produce, data, timeout)
+    {metadata, client, response} = send_request(state.metadata, state.client, topic, partition, KafkaEx.Protocol.Produce, data, timeout)
+    state = %{state | :metadata => metadata, :client => client}
     response = case required_acks do
       0 -> :ok
       _ -> response
     end
-    {:reply, response, {metadata, client, event_pid}}
+    {:reply, response, state}
   end
 
-  def handle_call({:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes}, _from, {metadata, client, event_pid}) do
+  def handle_call({:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes}, _from, state) do
     data = [topic, partition, offset, wait_time, min_bytes, max_bytes]
-    {metadata, client, response} = send_request(metadata, client, topic, partition, KafkaEx.Protocol.Fetch, data)
-    {:reply, response, {metadata, client, event_pid}}
+    {metadata, client, response} = send_request(state.metadata, state.client, topic, partition, KafkaEx.Protocol.Fetch, data)
+    state = %{state | :metadata => metadata, :client => client}
+    {:reply, response, state}
   end
 
-  def handle_call({:offset, topic, partition, time}, _from, {metadata, client, event_pid}) do
+  def handle_call({:offset, topic, partition, time}, _from, state) do
     data = [topic, partition, time]
-    {metadata, client, response} = send_request(metadata, client, topic, partition, KafkaEx.Protocol.Offset, data)
-    {:reply, response, {metadata, client, event_pid}}
+    {metadata, client, response} = send_request(state.metadata, state.client, topic, partition, KafkaEx.Protocol.Offset, data)
+    state = %{state | :metadata => metadata, :client => client}
+    {:reply, response, state}
   end
 
-  def handle_call({:offset_fetch, offset_fetch_request}, _from, {metadata, client, event_pid}) do
-    {metadata, client, response} = send_request(metadata, client, offset_fetch_request.topic, offset_fetch_request.partition, KafkaEx.Protocol.OffsetFetch, [offset_fetch_request])
-    {:reply, response, {metadata, client, event_pid}}
-  end
-
-  def handle_call({:offset_commit, offset_commit_request}, _from, {metadata, client, event_pid}) do
-    {metadata, client, response} = send_request(metadata, client, offset_commit_request.topic, offset_commit_request.partition, KafkaEx.Protocol.OffsetCommit, [offset_commit_request])
-    {:reply, response, {metadata, client, event_pid}}
-  end
-
-  def handle_call({:metadata, topic}, _from, {metadata, client, event_pid}) do
-    {metadata, client} = KafkaEx.Metadata.add_topic(metadata, client, topic)
-    {:reply, metadata, {metadata, client, event_pid}}
-  end
-
-  def handle_call({:create_stream, handler}, _from, {metadata, client, event_pid}) do
-    unless event_pid && Process.alive?(event_pid) do
-      {:ok, event_pid}  = GenEvent.start_link
+  def handle_call({:offset_fetch, offset_fetch_request}, _from, state) do
+    if state.consumer_metadata.coordinator_host == "" do
+      consumer_metadata = update_consumer_metadata(state, offset_fetch_request.consumer_group)
+      state = %{state | :consumer_metadata => consumer_metadata}
     end
-    GenEvent.add_handler(event_pid, handler, [])
-    {:reply, GenEvent.stream(event_pid), {metadata, client, event_pid}}
+    client = KafkaEx.NetworkClient.send_request(state.client, [{state.consumer_metadata.coordinator_host, state.consumer_metadata.coordinator_port}], [offset_fetch_request], KafkaEx.Protocol.OffsetFetch)
+    {_, data} = KafkaEx.NetworkClient.get_response(client)
+    response = KafkaEx.Protocol.OffsetFetch.parse_response(data)
+    {:reply, response, state}
+  end
+
+  def handle_call({:offset_commit, offset_commit_request}, _from, state) do
+    if state.consumer_metadata.coordinator_host == "" do
+      consumer_metadata = update_consumer_metadata(state, offset_commit_request.consumer_group)
+      state = %{state | :consumer_metadata => consumer_metadata}
+    end
+    client = KafkaEx.NetworkClient.send_request(state.client, [{state.consumer_metadata.coordinator_host, state.consumer_metadata.coordinator_port}], [offset_commit_request], KafkaEx.Protocol.OffsetCommit)
+    {_, data} = KafkaEx.NetworkClient.get_response(client)
+    response = KafkaEx.Protocol.OffsetCommit.parse_response(data)
+    {:reply, response, state}
+  end
+
+  def handle_call({:consumer_group_metadata, consumer_group}, _from, state) do
+    consumer_metadata = update_consumer_metadata(state, consumer_group)
+    {:reply, consumer_metadata, %{state | :consumer_metadata => consumer_metadata}}
+  end
+
+  def handle_call({:metadata, topic}, _from, state) do
+    {metadata, client} = KafkaEx.Metadata.add_topic(state.metadata, state.client, topic)
+    state = %{state | :metadata => metadata, :client => client}
+    {:reply, metadata, state}
+  end
+
+  def handle_call({:create_stream, handler}, _from, state) do
+    unless state.event_pid && Process.alive?(state.event_pid) do
+      {:ok, event_pid}  = GenEvent.start_link
+      state = %{state | event_pid: event_pid}
+    end
+    GenEvent.add_handler(state.event_pid, handler, [])
+    {:reply, GenEvent.stream(state.event_pid), state}
+  end
+
+  defp update_consumer_metadata(state, consumer_group) do
+    consumer_client = KafkaEx.NetworkClient.send_request(state.client, Map.keys(state.client.hosts), [consumer_group], KafkaEx.Protocol.ConsumerMetadata)
+    {_, data} = KafkaEx.NetworkClient.get_response(consumer_client)
+    KafkaEx.Protocol.ConsumerMetadata.parse_response(data)
   end
 
   @wait_time 10
   @min_bytes 1
   @max_bytes 1_000_000
-  def handle_info({:start_streaming, topic, partition, offset, handler}, {metadata, client, event_pid}) do
-    {metadata, client} = start_stream(event_pid, metadata, client, handler, topic, partition, offset)
-    {:noreply, {metadata, client, event_pid}}
+  def handle_info({:start_streaming, topic, partition, offset, handler}, state) do
+    {metadata, client} = start_stream(state.event_pid, state.metadata, state.client, handler, topic, partition, offset)
+    state = %{state | :metadata => metadata, :client => client}
+    {:noreply, state}
   end
 
-  def handle_info(:metadata, {metadata, client, event_pid}) do
-    {metadata, client} = KafkaEx.Metadata.update(metadata, client)
-    {:noreply, {metadata, client, event_pid}}
+  def handle_info(:metadata, state) do
+    {metadata, client} = KafkaEx.Metadata.update(state.metadata, state.client)
+    state = %{state | :metadata => metadata, :client => client}
+    {:noreply, state}
   end
 
   def handle_info(_, state) do
     {:noreply, state}
   end
 
-  def terminate(_, {_, client, nil}) do
-    KafkaEx.NetworkClient.shutdown(client)
-  end
-
-  def terminate(_, {_, client, event_pid}) do
-    KafkaEx.NetworkClient.shutdown(client)
-    Process.exit(event_pid, :kill)
+  def terminate(_, state) do
+    KafkaEx.NetworkClient.shutdown(state.client)
   end
 
   defp notify_handler([], _handler_pid, offset), do: offset
