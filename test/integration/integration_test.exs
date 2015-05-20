@@ -15,7 +15,7 @@ defmodule KafkaEx.Integration.Test do
 
   test "KafkaEx.Server generates metadata on start up" do
     pid = Process.whereis(KafkaEx.Server)
-    {metadata, _client, _} = :sys.get_state(pid)
+    metadata = :sys.get_state(pid).metadata
     refute metadata == %{}
 
     brokers = Map.values(metadata[:brokers])
@@ -35,7 +35,7 @@ defmodule KafkaEx.Integration.Test do
   # end
 
   #produce
-  test "produce withiout an acq required returns :ok" do
+  test "produce without an acq required returns :ok" do
     assert KafkaEx.produce("food", 0, "hey") == :ok
   end
 
@@ -47,9 +47,9 @@ defmodule KafkaEx.Integration.Test do
   test "produce updates metadata" do
     pid = Process.whereis(KafkaEx.Server)
     empty_metadata = KafkaEx.Metadata.new(uris)
-    :sys.replace_state(pid, fn({_metadata, client, _}) -> {empty_metadata, client, nil} end)
+    :sys.replace_state(pid, fn(state) -> %{state | metadata: empty_metadata} end)
     KafkaEx.produce("food", 0, "hey")
-    {metadata, _client, _} = :sys.get_state(pid)
+    metadata = :sys.get_state(pid).metadata
     refute metadata == empty_metadata
 
     brokers = Map.values(metadata[:brokers])
@@ -61,7 +61,7 @@ defmodule KafkaEx.Integration.Test do
     random_string = TestHelper.generate_random_string
     KafkaEx.produce(random_string, 0, "hey")
     pid = Process.whereis(KafkaEx.Server)
-    {metadata, _client, _} = :sys.get_state(pid)
+    metadata = :sys.get_state(pid).metadata
     random_topic_metadata_found = metadata[:topics] |> Map.keys |> Enum.member?(random_string)
 
     assert random_topic_metadata_found
@@ -75,19 +75,31 @@ defmodule KafkaEx.Integration.Test do
     refute random_topic_metadata[:partitions] == %{}
 
     pid = Process.whereis(KafkaEx.Server)
-    {metadata, _client, _} = :sys.get_state(pid)
+    metadata = :sys.get_state(pid).metadata
     random_topic_metadata_found = metadata[:topics] |> Map.keys |> Enum.member?(random_string)
 
     assert random_topic_metadata_found
+  end
+
+  test "consumer_group_metadata works" do
+    random_string = TestHelper.generate_random_string
+    pid = Process.whereis(KafkaEx.Server)
+    metadata = KafkaEx.consumer_group_metadata(KafkaEx.Server, random_string)
+    consumer_group_metadata = :sys.get_state(pid).consumer_metadata
+
+    assert metadata != %KafkaEx.Protocol.ConsumerMetadata.Response{}
+    assert metadata.coordinator_host != nil
+    assert metadata.error_code == 0
+    assert metadata == consumer_group_metadata
   end
 
   #fetch
   test "fetch updates metadata" do
     pid = Process.whereis(KafkaEx.Server)
     empty_metadata = KafkaEx.Metadata.new(uris)
-    :sys.replace_state(pid, fn({_metadata, client, _}) -> {empty_metadata, client, nil} end)
+    :sys.replace_state(pid, fn(state) -> %{state | :metadata => empty_metadata} end)
     KafkaEx.fetch("food", 0, 0)
-    {metadata, _client, _} = :sys.get_state(pid)
+    metadata = :sys.get_state(pid).metadata
     refute metadata == empty_metadata
 
     brokers = Map.values(metadata[:brokers])
@@ -96,7 +108,7 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "fetch does not blow up with incomplete bytes" do
-    {:ok, map} = KafkaEx.fetch("food", 0, 0, max_bytes: 100)
+    {:ok, _} = KafkaEx.fetch("food", 0, 0, max_bytes: 100)
   end
 
   test "fetch retrieves empty logs for non-exisiting topic" do
@@ -108,8 +120,11 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "fetch works" do
-    {:ok, %{"food" => %{0 => %{error_code: 0, offset: offset}}}} =  KafkaEx.produce("food", 0, "hey foo", worker_name: KafkaEx.Server, required_acks: 1)
-    {:ok, %{"food" => %{0 => %{message_set: message_set}}}} = KafkaEx.fetch("food", 0, 0)
+    random_string = TestHelper.generate_random_string
+    {:ok, produce_response} =  KafkaEx.produce(random_string, 0, "hey foo", worker_name: KafkaEx.Server, required_acks: 1)
+    [%{0 => %{error_code: 0, offset: offset}}] = Map.values(produce_response)
+    {:ok, message} = KafkaEx.fetch(random_string, 0, 0)
+    [%{0 => %{message_set: message_set}}] = Map.values(message)
     message = message_set |> Enum.reverse |> hd
 
     assert message.value == "hey foo"
@@ -120,9 +135,9 @@ defmodule KafkaEx.Integration.Test do
   test "offset updates metadata" do
     pid = Process.whereis(KafkaEx.Server)
     empty_metadata = KafkaEx.Metadata.new(uris)
-    :sys.replace_state(pid, fn({_metadata, client, _}) -> {empty_metadata, client, nil} end)
+    :sys.replace_state(pid, fn(state) -> %{state | :metadata => empty_metadata} end)
     KafkaEx.offset("food", 0, utc_time)
-    {metadata, _client, _} = :sys.get_state(pid)
+    metadata = :sys.get_state(pid).metadata
     refute metadata == empty_metadata
 
     brokers = Map.values(metadata[:brokers])
@@ -154,6 +169,15 @@ defmodule KafkaEx.Integration.Test do
     %{0 => %{offsets: [offset]}} = Map.get(map, random_string)
 
     assert offset == 0
+  end
+
+  test "offset_commit commits an offset and offset_fetch retrieves the committed offset" do
+    random_string = TestHelper.generate_random_string
+    Enum.each(1..10, fn _ -> KafkaEx.produce(random_string, 0, "foo") end)
+    assert KafkaEx.offset_commit(KafkaEx.Server, %KafkaEx.Protocol.OffsetCommit.Request{topic: random_string, offset: 9}) ==  
+      [%KafkaEx.Protocol.OffsetCommit.Response{partitions: [0], topic: random_string}]
+    assert KafkaEx.offset_fetch(KafkaEx.Server, %KafkaEx.Protocol.OffsetFetch.Request{topic: random_string}) == 
+      [%KafkaEx.Protocol.OffsetFetch.Response{partitions: [%{metadata: "", offset: 9, partition: 0}], topic: random_string}]
   end
 
   test "latest_offset retrieves a non-zero offset for a topic published to" do
