@@ -28,12 +28,6 @@ defmodule KafkaEx.Integration.Test do
     assert pid == Process.whereis(:test_server)
   end
 
-  # test "start_link raises an exception when it is provided a bad connection" do
-  #   {:error, {exception, _}} = KafkaEx.create_worker(:no_host, [{"bad_host", 1000}])
-  #   assert exception.__struct__ == KafkaEx.ConnectionError
-  #   assert exception.message == "Error: Cannot connect to any of the broker(s) provided"
-  # end
-
   #produce
   test "produce without an acq required returns :ok" do
     assert KafkaEx.produce("food", 0, "hey") == :ok
@@ -108,13 +102,13 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "fetch does not blow up with incomplete bytes" do
-    {:ok, _} = KafkaEx.fetch("food", 0, 0, max_bytes: 100)
+    KafkaEx.fetch("food", 0, 0, max_bytes: 100)
   end
 
   test "fetch retrieves empty logs for non-exisiting topic" do
     random_string = TestHelper.generate_random_string
-    {:ok, map} = KafkaEx.fetch(random_string, 0, 0)
-    %{0 => %{message_set: message_set}} = Map.get(map, random_string)
+    fetch_response = KafkaEx.fetch(random_string, 0, 0) |> hd
+    message_set = fetch_response.partitions |> hd |> Map.get(:message_set)
 
     assert message_set == []
   end
@@ -123,9 +117,8 @@ defmodule KafkaEx.Integration.Test do
     random_string = TestHelper.generate_random_string
     {:ok, produce_response} =  KafkaEx.produce(random_string, 0, "hey foo", worker_name: KafkaEx.Server, required_acks: 1)
     [%{0 => %{error_code: 0, offset: offset}}] = Map.values(produce_response)
-    {:ok, message} = KafkaEx.fetch(random_string, 0, 0)
-    [%{0 => %{message_set: message_set}}] = Map.values(message)
-    message = message_set |> Enum.reverse |> hd
+    fetch_response = KafkaEx.fetch(random_string, 0, 0) |>  hd
+    message = fetch_response.partitions |> hd |> Map.get(:message_set) |> hd
 
     assert message.value == "hey foo"
     assert message.offset == offset
@@ -177,7 +170,7 @@ defmodule KafkaEx.Integration.Test do
     assert KafkaEx.offset_commit(KafkaEx.Server, %KafkaEx.Protocol.OffsetCommit.Request{topic: random_string, offset: 9}) ==  
       [%KafkaEx.Protocol.OffsetCommit.Response{partitions: [0], topic: random_string}]
     assert KafkaEx.offset_fetch(KafkaEx.Server, %KafkaEx.Protocol.OffsetFetch.Request{topic: random_string}) == 
-      [%KafkaEx.Protocol.OffsetFetch.Response{partitions: [%{metadata: "", offset: 9, partition: 0}], topic: random_string}]
+      [%KafkaEx.Protocol.OffsetFetch.Response{partitions: [%{metadata: "", error_code: 0, offset: 9, partition: 0}], topic: random_string}]
   end
 
   test "latest_offset retrieves a non-zero offset for a topic published to" do
@@ -239,6 +232,6 @@ defmodule KafkaEx.Integration.Test do
 
   def utc_time do
     {x, {a,b,c}} = :calendar.local_time |> :calendar.local_time_to_universal_time_dst |> hd
-    {x, {a,b,c + 30}}
+    {x, {a,b,c + 60}}
   end
 end

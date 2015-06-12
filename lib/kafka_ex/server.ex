@@ -134,8 +134,8 @@ defmodule KafkaEx.Server do
     {metadata, client} = send_request(metadata, client, topic, partition, KafkaEx.Protocol.Fetch, data, 100, false)
     receive do
       {:tcp, _, data} ->
-        {:ok, response} = KafkaEx.Protocol.Fetch.parse_response(data)
-        message_sets = response[topic][partition].message_set
+        fetch_response = KafkaEx.Protocol.Fetch.parse_response(data) |> hd
+        message_sets = fetch_response.partitions |> hd |> Map.get(:message_set) 
         handle_message_sets(message_sets, pid, metadata, client, handler, topic, partition, offset)
       :stop_streaming ->
         {metadata, client}

@@ -125,12 +125,13 @@ defmodule KafkaEx do
 
   ```elixir
   iex> KafkaEx.fetch("foo", 0, 0)
-  {:ok,
-   %{"food" => %{0 => %{error_code: 0, hw_mark_offset: 133,
-         message_set: [%{attributes: 0, crc: 4264455069, key: nil, offset: 0,
-            value: "hey"},
-          %{attributes: 0, crc: 4264455069, key: nil, offset: 1, value: "hey"},
-  ...]}}}}
+  [
+    %KafkaEx.Protocol.Fetch.Response{partitions: [
+      %{error_code: 0, hw_mark_offset: 1, message_set: [
+        %{attributes: 0, crc: 748947812, key: nil, offset: 0, value: "hey foo"}
+      ], partition: 0}
+    ], topic: "foo"}
+  ]
   ```
   """
   @spec fetch(binary, number, number, Keyword.t) :: {atom, map}
