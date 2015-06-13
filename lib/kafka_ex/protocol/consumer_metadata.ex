@@ -10,7 +10,7 @@ defmodule KafkaEx.Protocol.ConsumerMetadata do
   end
 
   @spec parse_response(binary) :: Response.t
-  def parse_response(<< _corr_id :: 32, error_code :: 16, coord_id :: 32, coord_host_size :: 16, coord_host :: size(coord_host_size)-binary, coord_port :: 32, rest :: binary >>) do
+  def parse_response(<< _corr_id :: 32, error_code :: 16, coord_id :: 32, coord_host_size :: 16, coord_host :: size(coord_host_size)-binary, coord_port :: 32, _ :: binary >>) do
     %Response{coordinator_id: coord_id, coordinator_host: coord_host, coordinator_port: coord_port, error_code: error_code}
   end
 end

@@ -102,11 +102,13 @@ defmodule KafkaEx.NetworkClient do
     :gen_tcp.send(socket, request)
   end
 
+  def get_response(client, timeout \\ 100)
+
   def get_response(client, 0) do
     {client, nil}
   end
 
-  def get_response(client, timeout \\ 100) do
+  def get_response(client, timeout) do
     receive do
       {:tcp, _, data} -> {client, data}
     after
