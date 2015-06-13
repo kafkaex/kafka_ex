@@ -1,21 +1,24 @@
 defmodule KafkaEx.Protocol.Offset do
+  defmodule Request do
+    defstruct replica_id: -1, topic_name: "", partition: 0, time: -1, max_number_of_offsets: 1
+    @type t :: %Request{replica_id: integer, topic_name: binary, partition: integer, time: integer, max_number_of_offsets: integer}
+  end
+
+  defmodule Response do
+    defstruct topic: "", partition_offsets: []
+    @type t :: %Response{topic: binary, partition_offsets: list}
+  end
+
   def create_request(correlation_id, client_id, topic, partition, time) do
     KafkaEx.Protocol.create_request(:offset, correlation_id, client_id) <>
       << -1 :: 32, 1 :: 32, byte_size(topic) :: 16, topic :: binary, 1 :: 32, partition :: 32, parse_time(time) :: 64, 1 :: 32>>
   end
 
-  def parse_response(<< _correlation_id :: 32, num_topics :: 32, rest :: binary >>) do
-    parse_topics(%{}, num_topics, rest)
-    |> generate_result
-  end
+  def parse_response(<< _correlation_id :: 32, num_topics :: 32, rest :: binary >>), do: parse_topics(num_topics, rest)
 
-  defp parse_time(:latest) do
-    -1
-  end
+  defp parse_time(:latest), do: -1
 
-  defp parse_time(:earliest) do
-    -2
-  end
+  defp parse_time(:earliest), do: -2
 
   @spec parse_time(:calendar.datetime) :: integer
   defp parse_time(time) do
@@ -24,35 +27,27 @@ defmodule KafkaEx.Protocol.Offset do
     (current_time_in_seconds - unix_epoch_in_seconds) * 1000
   end
 
-  defp generate_result({:ok, response_map, _rest}) do
-    {:ok, response_map}
+  defp parse_topics(0, rest), do: []
+
+  defp parse_topics(topics_size, << topic_size :: 16, topic :: size(topic_size)-binary, partitions_size :: 32, rest :: binary >>) do
+    {partitions, topics_data} = parse_partitions(partitions_size, rest)
+    [%Response{topic: topic, partition_offsets: partitions} | parse_topics(topics_size - 1, topics_data)]
   end
 
-  defp parse_topics(map, 0, rest) do
-    {:ok, map, rest}
+  defp parse_partitions(partitions_size, rest, partitions \\ [])
+
+  defp parse_partitions(0, rest, partitions), do: {partitions, rest}
+
+  defp parse_partitions(partitions_size, << partition :: 32, error_code :: 16, offsets_size :: 32, rest :: binary >>, partitions) do
+    {offsets, rest} = parse_offsets(offsets_size, rest)
+    parse_partitions(partitions_size-1, rest, [%{partition: partition, error_code: error_code, offset: offsets} | partitions])
   end
 
-  defp parse_topics(map, num_topics, << topic_size :: 16, topic :: size(topic_size)-binary, num_partitions :: 32, rest :: binary >>) do
-    case parse_partitions(%{}, num_partitions, rest) do
-      {:ok, partition_map, rest} -> parse_topics(Map.put(map, topic, partition_map), num_topics-1, rest)
-    end
-  end
+  defp parse_offsets(offsets_size, rest, offsets \\ [])
 
-  defp parse_partitions(map, 0, rest) do
-    {:ok, map, rest}
-  end
+  defp parse_offsets(0, rest, offsets), do: {Enum.reverse(offsets), rest}
 
-  defp parse_partitions(map, num_partitions, << partition :: 32, error_code :: 16, num_offsets :: 32, rest :: binary >>) do
-    case parse_offsets([], num_offsets, rest) do
-      {:ok, offsets, rest} -> parse_partitions(Map.put(map, partition, %{:error_code => error_code, :offsets => offsets}), num_partitions-1, rest)
-    end
-  end
-
-  defp parse_offsets(list, 0, rest) do
-    {:ok, Enum.reverse(list), rest}
-  end
-
-  defp parse_offsets(list, num_partitions, << offset :: 64, rest :: binary >>) do
-    parse_offsets([offset|list], num_partitions-1, rest)
+  defp parse_offsets(offsets_size, << offset :: 64, rest :: binary >>, offsets) do
+    parse_offsets(offsets_size-1, rest, [offset|offsets])
   end
 end

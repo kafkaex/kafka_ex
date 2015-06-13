@@ -141,25 +141,24 @@ defmodule KafkaEx.Integration.Test do
   test "offset retrieves most recent offset by time specification" do
     random_string = TestHelper.generate_random_string
     KafkaEx.produce(random_string, 0, "hey")
-    {:ok, map} = KafkaEx.offset(random_string, 0, utc_time)
-    %{0 => %{offsets: [offset]}} = Map.get(map, random_string)
+    offset_response = KafkaEx.offset(random_string, 0, utc_time) |> hd
+    offset = offset_response.partition_offsets |> hd |> Map.get(:offset) |> hd
 
     assert offset != 0
   end
 
   test "earliest_offset retrieves offset of 0" do
     random_string = TestHelper.generate_random_string
-    KafkaEx.produce(random_string, 0, random_string)
-    {:ok, map} = KafkaEx.earliest_offset(random_string, 0)
-    %{0 => %{offsets: [offset]}} = Map.get(map, random_string)
+    offset_response = KafkaEx.latest_offset(random_string, 0) |> hd
+    offset = offset_response.partition_offsets |> hd |> Map.get(:offset) |> hd
 
     assert offset == 0
   end
 
   test "latest_offset retrieves offset of 0 for non-existing topic" do
     random_string = TestHelper.generate_random_string
-    {:ok, map} = KafkaEx.latest_offset(random_string, 0)
-    %{0 => %{offsets: [offset]}} = Map.get(map, random_string)
+    offset_response = KafkaEx.latest_offset(random_string, 0) |> hd
+    offset = offset_response.partition_offsets |> hd |> Map.get(:offset) |> hd
 
     assert offset == 0
   end
@@ -176,8 +175,8 @@ defmodule KafkaEx.Integration.Test do
   test "latest_offset retrieves a non-zero offset for a topic published to" do
     random_string = TestHelper.generate_random_string
     KafkaEx.produce(random_string, 0, "foo")
-    {:ok, map} = KafkaEx.latest_offset(random_string, 0)
-    %{0 => %{offsets: [offset]}} = Map.get(map, random_string)
+    offset_response = KafkaEx.latest_offset(random_string, 0) |> hd
+    offset = offset_response.partition_offsets |> hd |> Map.get(:offset) |> hd
 
     assert offset != 0
   end

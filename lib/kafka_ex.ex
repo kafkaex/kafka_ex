@@ -74,7 +74,7 @@ defmodule KafkaEx do
 
   ```elixir
   iex> KafkaEx.latest_offset("foo", 0)
-  {:ok, %{"foo" => %{0 => %{error_code: 0, offsets: [16]}}}}
+  [%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offsets: [16], partition: 0}], topic: "foo"}]
   ```
   """
   @spec latest_offset(binary, integer, atom|pid) :: {atom, map}
@@ -87,7 +87,7 @@ defmodule KafkaEx do
 
   ```elixir
   iex> KafkaEx.earliest_offset("foo", 0)
-  {:ok, %{"foo" => %{0 => %{error_code: 0, offsets: [0]}}}}
+  [%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offset: [0], partition: 0}], topic: "foo"}]
   ```
   """
   @spec earliest_offset(binary, integer, atom|pid) :: {atom, map}
@@ -100,7 +100,7 @@ defmodule KafkaEx do
 
   ```elixir
   iex> KafkaEx.offset("foo", 0, {{2015, 3, 29}, {23, 56, 40}}) # Note that the time specified should match/be ahead of time on the server that kafka runs
-  {:ok, %{"foo" => %{0 => %{error_code: 0, offsets: [256]}}}}
+  [%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offset: [256], partition: 0}], topic: "foo"}]
   ```
   """
   @spec offset(binary, number, :calendar.datetime|atom, atom|pid) :: {atom, map}
