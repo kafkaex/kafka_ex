@@ -27,7 +27,7 @@ defmodule KafkaEx.Protocol.Offset do
     (current_time_in_seconds - unix_epoch_in_seconds) * 1000
   end
 
-  defp parse_topics(0, rest), do: []
+  defp parse_topics(0, _), do: []
 
   defp parse_topics(topics_size, << topic_size :: 16, topic :: size(topic_size)-binary, partitions_size :: 32, rest :: binary >>) do
     {partitions, topics_data} = parse_partitions(partitions_size, rest)

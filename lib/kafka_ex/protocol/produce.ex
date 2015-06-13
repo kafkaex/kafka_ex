@@ -1,4 +1,14 @@
 defmodule KafkaEx.Protocol.Produce do
+  defmodule Request do
+    defstruct required_acks: 0, timeout: 0, topic: "", partition: 0, data: ""
+    @type t :: %Request{required_acks: binary, timeout: integer, topic: binary, partition: integer, data: binary}
+  end
+
+  defmodule Response do
+    defstruct topic: "", partitions: []
+    @type t :: %Response{topic: binary, partitions: list} 
+  end
+
   def create_request(correlation_id, client_id, topic, partition, value, key, required_acks, timeout) do
     message_set = KafkaEx.Util.create_message_set(value, key)
     KafkaEx.Protocol.create_request(:produce, correlation_id, client_id) <>
@@ -6,32 +16,20 @@ defmodule KafkaEx.Protocol.Produce do
       message_set
   end
 
-  def parse_response(<< _correlation_id :: 32, num_topics :: 32, rest :: binary >>) do
-    parse_topics(%{}, num_topics, rest)
-    |> generate_result
-  end
+  def parse_response(<< _correlation_id :: 32, num_topics :: 32, rest :: binary >>), do: parse_topics(num_topics, rest)
 
   def parse_response(unknown), do: unknown
 
-  defp generate_result({:ok, response_map, _rest}) do
-    {:ok, response_map}
+  defp parse_topics(0, _), do: []
+
+  defp parse_topics(topics_size, << topic_size :: 16, topic :: size(topic_size)-binary, partitions_size :: 32, rest :: binary >>) do
+    {partitions, topics_data} = parse_partitions(partitions_size, rest, [])
+    [%Response{topic: topic, partitions: partitions} | parse_topics(topics_size - 1, topics_data)]
   end
 
-  defp parse_topics(map, 0, data) do
-    {:ok, map, data}
-  end
+  defp parse_partitions(0, rest, partitions), do: {partitions, rest}
 
-  defp parse_topics(map, num_topics, << topic_size :: 16, topic_name :: size(topic_size)-binary, num_partitions :: 32, rest :: binary >>) do
-    case parse_partitions(%{}, num_partitions, rest) do
-      {:ok, partition_map, rest} -> parse_topics(Map.put(map, topic_name, partition_map), num_topics - 1, rest)
-    end
-  end
-
-  defp parse_partitions(map, 0, rest) do
-    {:ok, map, rest}
-  end
-
-  defp parse_partitions(map, num_partitions, << partition :: 32, error_code :: 16, offset :: 64, rest :: binary >>) do
-    parse_partitions(Map.put(map, partition, %{:error_code => error_code, :offset => offset}), num_partitions-1, rest)
+  defp parse_partitions(partitions_size, << partition :: 32, error_code :: 16, offset :: 64, rest :: binary >>, partitions) do
+    parse_partitions(partitions_size-1, rest, [%{partition: partition, error_code: error_code, offset: offset} | partitions])
   end
 end

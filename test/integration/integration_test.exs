@@ -34,7 +34,9 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "produce with ack required returns an ack" do
-    {:ok, %{"food" => %{0 => %{error_code: 0, offset: offset}}}} =  KafkaEx.produce("food", 0, "hey", worker_name: KafkaEx.Server, required_acks: 1)
+    produce_response = KafkaEx.produce("food", 0, "hey", worker_name: KafkaEx.Server, required_acks: 1) |> hd
+    offset = produce_response.partitions |> hd |> Map.get(:offset)
+
     refute offset == nil
   end
 
@@ -115,8 +117,8 @@ defmodule KafkaEx.Integration.Test do
 
   test "fetch works" do
     random_string = TestHelper.generate_random_string
-    {:ok, produce_response} =  KafkaEx.produce(random_string, 0, "hey foo", worker_name: KafkaEx.Server, required_acks: 1)
-    [%{0 => %{error_code: 0, offset: offset}}] = Map.values(produce_response)
+    produce_response =  KafkaEx.produce(random_string, 0, "hey foo", worker_name: KafkaEx.Server, required_acks: 1) |> hd
+    offset = produce_response.partitions |> hd |> Map.get(:offset)
     fetch_response = KafkaEx.fetch(random_string, 0, 0) |>  hd
     message = fetch_response.partitions |> hd |> Map.get(:message_set) |> hd
 

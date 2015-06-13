@@ -169,7 +169,7 @@ defmodule KafkaEx do
   iex> KafkaEx.produce("bar", 0, "hey")
   :ok
   iex> KafkaEx.produce("foo", 0, "hey", [worker_name: :pr, require_acks: 1])
-  {:ok, %{"foo" => %{0 => %{error_code: 0, offset: 15}}}}
+  [%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: 0, offset: 75, partition: 0}], topic: "foo"}]
   ```
   """
   @spec produce(binary, number, binary, Keyword.t) :: :ok|{:ok, map}
