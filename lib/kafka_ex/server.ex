@@ -1,7 +1,8 @@
 defmodule KafkaEx.Server do
   alias KafkaEx.Protocol, as: Proto
   @client_id "kafka_ex"
-  defstruct metadata: %Proto.Metadata.Response{}, brokers: [], event_pid: nil, consumer_metadata: %Proto.ConsumerMetadata.Response{}, correlation_id: 0
+  @consumer_group "kafka_ex"
+  defstruct metadata: %Proto.Metadata.Response{}, brokers: [], event_pid: nil, consumer_metadata: %Proto.ConsumerMetadata.Response{}, correlation_id: 0, consumer_group: @client_id
 
   ### GenServer Callbacks
   use GenServer
@@ -14,7 +15,8 @@ defmodule KafkaEx.Server do
     brokers = Enum.map(uris, fn({host, port}) -> %Proto.Metadata.Broker{host: host, port: port, socket: KafkaEx.NetworkClient.create_socket(host, port)} end)
     {correlation_id, metadata} = metadata(brokers, 0)
     {:ok, _} = :timer.send_interval(30000, :update_metadata)
-    {:ok, %__MODULE__{metadata: metadata, brokers: brokers, correlation_id: correlation_id}}
+    {:ok, _} = :timer.send_interval(30000, :update_consumer_metadata)
+    {:ok, %__MODULE__{metadata: metadata, brokers: brokers, correlation_id: correlation_id, consumer_group: @consumer_group}}
   end
 
   def handle_call({:produce, topic, partition, value, key, required_acks, timeout}, _from, state) do
@@ -141,6 +143,10 @@ defmodule KafkaEx.Server do
 
   def handle_info(:update_metadata, state) do
     {:noreply, update_metadata(state)}
+  end
+
+  def handle_info(:update_consumer_metadata, state) do
+    {:noreply, update_consumer_metadata(state, state.consumer_group) |> elem(1)}
   end
 
   def handle_info(_, state) do

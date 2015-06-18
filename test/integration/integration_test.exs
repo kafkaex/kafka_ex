@@ -80,6 +80,8 @@ defmodule KafkaEx.Integration.Test do
 
   test "consumer_group_metadata works" do
     random_string = TestHelper.generate_random_string
+    produce_response =  KafkaEx.produce("food", 0, "hey foo", worker_name: KafkaEx.Server, required_acks: 1)
+    KafkaEx.offset_commit(KafkaEx.Server, %Proto.OffsetCommit.Request{topic: "food", consumer_group: random_string})
     pid = Process.whereis(KafkaEx.Server)
     metadata = KafkaEx.consumer_group_metadata(KafkaEx.Server, random_string)
     consumer_group_metadata = :sys.get_state(pid).consumer_metadata
