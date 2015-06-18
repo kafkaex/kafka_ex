@@ -13,7 +13,7 @@ defmodule KafkaEx.Server do
   def init(uris) do
     brokers = Enum.map(uris, fn({host, port}) -> %Proto.Metadata.Broker{host: host, port: port, socket: KafkaEx.NetworkClient.create_socket(host, port)} end)
     {correlation_id, metadata} = metadata(brokers, 0)
-    :timer.send_interval(30000, :update_metadata)
+    {:ok, _} = :timer.send_interval(30000, :update_metadata)
     {:ok, %__MODULE__{metadata: metadata, brokers: brokers, correlation_id: correlation_id}}
   end
 
@@ -114,7 +114,7 @@ defmodule KafkaEx.Server do
       {:ok, event_pid}  = GenEvent.start_link
       %{state | event_pid: event_pid}
     end
-    GenEvent.add_handler(state.event_pid, handler, [])
+    :ok = GenEvent.add_handler(state.event_pid, handler, [])
     {:reply, GenEvent.stream(state.event_pid), state}
   end
 
