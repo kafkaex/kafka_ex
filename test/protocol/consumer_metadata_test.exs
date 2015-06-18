@@ -12,4 +12,26 @@ defmodule KafkaEx.Protocol.ConsumerMetadata.Test do
 
     assert KafkaEx.Protocol.ConsumerMetadata.parse_response(response) == %KafkaEx.Protocol.ConsumerMetadata.Response{coordinator_id: 49158, coordinator_host: "192.168.59.103", coordinator_port: 49158, error_code: 0}
   end
+
+  test "Response.broker_for_consumer_group returns correct coordinator_broker" do
+    consumer_group_metadata = %KafkaEx.Protocol.ConsumerMetadata.Response{coordinator_host: "192.168.59.103", coordinator_id: 49162, coordinator_port: 49162, error_code: 0}
+
+    brokers = [
+        %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", port: 9092},
+        %KafkaEx.Protocol.Metadata.Broker{host: "192.168.59.103", port: 49162}
+    ]
+
+  assert KafkaEx.Protocol.ConsumerMetadata.Response.broker_for_consumer_group(brokers, consumer_group_metadata) == %KafkaEx.Protocol.Metadata.Broker{host: "192.168.59.103", port: 49162}
+  end
+
+  test "Response.broker_for_consumer_group returns 'nil' when the broker does not exist" do
+    consumer_group_metadata = %KafkaEx.Protocol.ConsumerMetadata.Response{coordinator_host: "192.168.59.103", coordinator_id: 49162, coordinator_port: 49162, error_code: 0}
+
+    brokers = [
+        %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", port: 9092},
+        %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.103", port: 9092}
+    ]
+
+  assert KafkaEx.Protocol.ConsumerMetadata.Response.broker_for_consumer_group(brokers, consumer_group_metadata) == nil
+  end
 end

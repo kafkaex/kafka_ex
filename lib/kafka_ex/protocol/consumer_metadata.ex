@@ -2,6 +2,10 @@ defmodule KafkaEx.Protocol.ConsumerMetadata do
   defmodule Response do
     defstruct coordinator_id: 0, coordinator_host: "", coordinator_port: 0, error_code: 0
     @type t :: %Response{coordinator_id: integer, coordinator_host: binary, coordinator_port: 0..65535, error_code: integer}
+
+    def broker_for_consumer_group(brokers, consumer_group_metadata) do
+      Enum.find(brokers, &(&1.host == consumer_group_metadata.coordinator_host && &1.port == consumer_group_metadata.coordinator_port))
+    end
   end
 
   @spec create_request(integer, binary, binary) :: binary
