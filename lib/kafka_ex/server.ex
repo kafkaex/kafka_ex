@@ -30,12 +30,15 @@ defmodule KafkaEx.Server do
       broker -> {broker, state}
     end
 
-    response = case required_acks do
-      0 ->  KafkaEx.NetworkClient.send_async_request(broker, produce_request)
-      _ -> KafkaEx.NetworkClient.send_sync_request(broker, produce_request) |> Proto.Produce.parse_response
+    response = case broker do
+      nil    -> :leader_not_available
+      broker -> case required_acks do
+        0 ->  KafkaEx.NetworkClient.send_async_request(broker, produce_request)
+        _ -> KafkaEx.NetworkClient.send_sync_request(broker, produce_request) |> Proto.Produce.parse_response
+      end
     end
 
-    state = %{state | correlation_id: correlation_id}
+    state = %{state | correlation_id: correlation_id+1}
     {:reply, response, state}
   end
 
