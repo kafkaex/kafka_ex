@@ -20,7 +20,7 @@ defmodule KafkaEx.NetworkClient do
       :ok ->
         receive do
           {:tcp, ^socket, data} -> data
-          {:tcp_closed, ^socket} -> IO.puts "someone closed"
+          {:tcp_closed, ^socket} -> nil
         after
           timeout -> nil
         end
