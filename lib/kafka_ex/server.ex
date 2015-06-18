@@ -65,8 +65,7 @@ defmodule KafkaEx.Server do
 
   def handle_call({:offset_fetch, offset_fetch}, _from, state) do
     {broker, state} = case Proto.ConsumerMetadata.Response.broker_for_consumer_group(state.brokers, state.consumer_metadata) do
-      nil -> consumer_metadata = update_consumer_metadata(state, offset_fetch.consumer_group)
-        state = %{state | consumer_metadata: consumer_metadata, correlation_id: state.correlation_id + 1}
+      nil -> {_, state} = update_consumer_metadata(state, offset_fetch.consumer_group)
         {Proto.ConsumerMetadata.Response.broker_for_consumer_group(state.brokers, state.consumer_metadata), state}
       broker -> {broker, state}
     end
@@ -86,9 +85,8 @@ defmodule KafkaEx.Server do
 
   def handle_call({:offset_commit, offset_commit}, _from, state) do
     {broker, state} = case Proto.ConsumerMetadata.Response.broker_for_consumer_group(state.brokers, state.consumer_metadata) do
-      nil -> consumer_metadata = update_consumer_metadata(state, offset_commit.consumer_group)
-        state = %{state | consumer_metadata: consumer_metadata, correlation_id: state.correlation_id + 1}
-        {Proto.ConsumerMetadata.Response.broker_for_consumer_group(state.brokers, state.consumer_metadata), state}
+      nil -> {_, state} = update_consumer_metadata(state, offset_commit.consumer_group)
+        {Proto.ConsumerMetadata.Response.broker_for_consumer_group(state.brokers, state.consumer_metadata) || hd(state.brokers), state}
       broker -> {broker, state}
     end
 
@@ -99,8 +97,8 @@ defmodule KafkaEx.Server do
   end
 
   def handle_call({:consumer_group_metadata, consumer_group}, _from, state) do
-    consumer_metadata = update_consumer_metadata(state, consumer_group)
-    {:reply, consumer_metadata, %{state | :consumer_metadata => consumer_metadata}}
+    {consumer_metadata, state} = update_consumer_metadata(state, consumer_group)
+    {:reply, consumer_metadata, state}
   end
 
   def handle_call({:metadata, topic}, _from, state) do
@@ -154,10 +152,19 @@ defmodule KafkaEx.Server do
     Enum.each(state.brokers, &KafkaEx.NetworkClient.close_socket/1)
   end
 
-  defp update_consumer_metadata(state, consumer_group) do
+  defp update_consumer_metadata(state, consumer_group), do: update_consumer_metadata(state, consumer_group, 3)
+
+  defp update_consumer_metadata(state, _, 0), do: {%Proto.ConsumerMetadata.Response{}, state}
+
+  defp update_consumer_metadata(state, consumer_group, retry) do
     consumer_group_metadata_request = Proto.ConsumerMetadata.create_request(state.correlation_id, @client_id, consumer_group)
     data = Enum.find_value(state.brokers, fn(broker) -> KafkaEx.NetworkClient.send_sync_request(broker, consumer_group_metadata_request) end)
-    Proto.ConsumerMetadata.parse_response(data)
+    response = Proto.ConsumerMetadata.parse_response(data)
+    case response.error_code do
+      0 -> {response, %{state | consumer_metadata: response, consumer_group: consumer_group, correlation_id: state.correlation_id + 1}}
+      _ -> :timer.sleep(300)
+        update_consumer_metadata(%{state | consumer_group: consumer_group, correlation_id: state.correlation_id + 1}, consumer_group, retry-1)
+    end
   end
 
   defp update_metadata(state) do
