@@ -1,93 +1,30 @@
 defmodule KafkaEx.NetworkClient do
-  def new(client_id) do
-    %{client_id: client_id, correlation_id: 0, hosts: %{}}
+  def create_socket(host, port) do
+    {:ok, socket} = :gen_tcp.connect(format_host(host), port, [:binary, {:packet, 4}])
+    socket
   end
 
-  def shutdown(client) do
-    Enum.each(Map.values(client.hosts), fn(socket) ->
-      if socket, do: :gen_tcp.close(socket)
-    end)
+  def close_socket(socket), do: :gen_tcp.close(socket)
+
+  def send_async_request(broker, data) do
+    socket = broker.socket
+    case :gen_tcp.send(socket, data) do
+      :ok -> :ok
+      error -> error
+    end
   end
 
-  defp increment_correlation_id(client) do
-    %{client | correlation_id: client.correlation_id + 1}
-  end
-
-  def send_request(client, brokers, data, protocol_mod) do
-    request = apply(protocol_mod, :create_request, [client.correlation_id, client.client_id| data])
-    send_created_request(client, brokers, request)
-  end
-
-  defp send_created_request(_client, [], _request) do
-    raise "No brokers specified"
-  end
-
-  defp send_created_request(client, [{host, port}|rest], request) do
-    case send_to_host(client, host, port, request) do
-      {:error, reason} ->
-        case rest do
-          [] -> raise "Error sending request: #{reason}"
-          _  -> send_created_request(client, rest, request)
+  def send_sync_request(broker, data, timeout \\ 100) do
+    socket = broker.socket
+    case :gen_tcp.send(socket, data) do
+      :ok ->
+        receive do
+          {:tcp, ^socket, data} -> data
+          {:tcp_closed, ^socket} -> nil
+        after
+          timeout -> nil
         end
-      client -> increment_correlation_id(client)
-    end
-  end
-
-  def update_from_metadata(client, host_list) do
-    from_metadata = Enum.into(host_list, HashSet.new)
-    current_hosts = Enum.into(Map.keys(client.hosts), HashSet.new)
-    if HashSet.equal?(from_metadata, current_hosts) do
-      client
-    else
-      removing = HashSet.difference(current_hosts, from_metadata)
-      {to_remove, keep} = Map.split(client.hosts, removing)
-
-      Enum.each(to_remove,
-        fn(kv) ->
-          socket = elem(kv, 1)
-          if socket != nil do
-            :gen_tcp.close(socket)
-          end
-        end)
-
-      adding = HashSet.difference(from_metadata, current_hosts)
-      updated = Enum.reduce(adding, keep, fn(host, map) -> Map.put(map, host, nil) end)
-      %{client | hosts: updated}
-    end
-  end
-
-  defp send_to_host(client, host, port, request) when is_list(port) do
-    send_to_host(client, host, to_string(port), request)
-  end
-
-  defp send_to_host(client, host, port, request) when is_binary(port) do
-    send_to_host(client, host, String.to_integer(port), request)
-  end
-
-  defp send_to_host(client, host, port, request) when is_list(host) do
-    send_to_host(client, to_string(host), port, request)
-  end
-
-  defp send_to_host(client, host, port, request) when is_binary(host) and is_integer(port) do
-    case get_socket(client, host, port) do
-      {:error, reason} -> {:error, reason}
-      {client, socket} ->
-        case do_send(socket, request) do
-          :ok -> client
-          error -> error
-        end
-    end
-  end
-
-  defp get_socket(client, host, port) do
-    if Map.has_key?(client.hosts, {host, port}) && client.hosts[{host, port}] do
-      {client, client.hosts[{host, port}]}
-    else
-      case :gen_tcp.connect(format_host(host), port, [:binary, {:packet, 4}]) do
-        {:ok, socket} ->
-          {%{client | hosts: Map.put_new(client.hosts, {host, port}, socket)}, socket}
-        other -> other
-      end
+      _ -> nil
     end
   end
 
@@ -95,22 +32,6 @@ defmodule KafkaEx.NetworkClient do
     case Regex.scan(~r/\d+/, host) do
       match_data = [_, _, _, _] -> match_data |> List.flatten |> Enum.map(&String.to_integer/1) |> List.to_tuple
       _ -> to_char_list(host)
-    end
-  end
-
-  defp do_send(socket, request) do
-    :gen_tcp.send(socket, request)
-  end
-
-  def get_response(client, 0) do
-    {client, nil}
-  end
-
-  def get_response(client, timeout \\ 100) do
-    receive do
-      {:tcp, _, data} -> {client, data}
-    after
-      timeout -> {client, {:error, :timeout}}
     end
   end
 end

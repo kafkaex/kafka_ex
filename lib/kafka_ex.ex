@@ -46,13 +46,12 @@ defmodule KafkaEx do
   ```elixir
   iex> KafkaEx.create_worker(:mt)
   iex> KafkaEx.metadata(topic: "foo", worker_name: :mt)
-  %{brokers: %{1 => {"localhost", 9092}},
-    topics: %{"foo" => %{error_code: 0,
-        partitions: %{0 => %{error_code: 0, isrs: [1], leader: 1, replicas: [1]},
-          1 => %{error_code: 0, isrs: [1], leader: 1, replicas: [1]},
-          2 => %{error_code: 0, isrs: [1], leader: 1, replicas: [1]},
-          3 => %{error_code: 0, isrs: [1], leader: 1, replicas: [1]},
-          4 => %{error_code: 0, isrs: [1], leader: 1, replicas: [1]}}}}}
+  %KafkaEx.Protocol.Metadata.Response{brokers: [%KafkaEx.Protocol.Metadata.Broker{host: "192.168.59.103",
+     node_id: 49162, port: 49162, socket: nil}],
+   topic_metadatas: [%KafkaEx.Protocol.Metadata.TopicMetadata{error_code: 0,
+     partition_metadatas: [%KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: 0,
+       isrs: [49162], leader: 49162, partition_id: 0, replicas: [49162]}],
+     topic: "foo"}]}
   ```
   """
   @spec metadata(Keyword.t) :: map
@@ -74,7 +73,7 @@ defmodule KafkaEx do
 
   ```elixir
   iex> KafkaEx.latest_offset("foo", 0)
-  {:ok, %{"foo" => %{0 => %{error_code: 0, offsets: [16]}}}}
+  [%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offsets: [16], partition: 0}], topic: "foo"}]
   ```
   """
   @spec latest_offset(binary, integer, atom|pid) :: {atom, map}
@@ -87,7 +86,7 @@ defmodule KafkaEx do
 
   ```elixir
   iex> KafkaEx.earliest_offset("foo", 0)
-  {:ok, %{"foo" => %{0 => %{error_code: 0, offsets: [0]}}}}
+  [%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offset: [0], partition: 0}], topic: "foo"}]
   ```
   """
   @spec earliest_offset(binary, integer, atom|pid) :: {atom, map}
@@ -100,7 +99,7 @@ defmodule KafkaEx do
 
   ```elixir
   iex> KafkaEx.offset("foo", 0, {{2015, 3, 29}, {23, 56, 40}}) # Note that the time specified should match/be ahead of time on the server that kafka runs
-  {:ok, %{"foo" => %{0 => %{error_code: 0, offsets: [256]}}}}
+  [%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offset: [256], partition: 0}], topic: "foo"}]
   ```
   """
   @spec offset(binary, number, :calendar.datetime|atom, atom|pid) :: {atom, map}
@@ -125,12 +124,13 @@ defmodule KafkaEx do
 
   ```elixir
   iex> KafkaEx.fetch("foo", 0, 0)
-  {:ok,
-   %{"food" => %{0 => %{error_code: 0, hw_mark_offset: 133,
-         message_set: [%{attributes: 0, crc: 4264455069, key: nil, offset: 0,
-            value: "hey"},
-          %{attributes: 0, crc: 4264455069, key: nil, offset: 1, value: "hey"},
-  ...]}}}}
+  [
+    %KafkaEx.Protocol.Fetch.Response{partitions: [
+      %{error_code: 0, hw_mark_offset: 1, message_set: [
+        %{attributes: 0, crc: 748947812, key: nil, offset: 0, value: "hey foo"}
+      ], partition: 0}
+    ], topic: "foo"}
+  ]
   ```
   """
   @spec fetch(binary, number, number, Keyword.t) :: {atom, map}
@@ -168,7 +168,7 @@ defmodule KafkaEx do
   iex> KafkaEx.produce("bar", 0, "hey")
   :ok
   iex> KafkaEx.produce("foo", 0, "hey", [worker_name: :pr, require_acks: 1])
-  {:ok, %{"foo" => %{0 => %{error_code: 0, offset: 15}}}}
+  [%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: 0, offset: 75, partition: 0}], topic: "foo"}]
   ```
   """
   @spec produce(binary, number, binary, Keyword.t) :: :ok|{:ok, map}

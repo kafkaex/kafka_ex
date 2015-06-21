@@ -22,9 +22,95 @@ defmodule KafkaEx.Protocol.Metadata.Test do
   test "parse_response correctly parses a valid response" do
     response = << 0 :: 32, 1 :: 32, 0 :: 32, 3 :: 16, "foo" :: binary, 9092 :: 32, 1 :: 32, 0 :: 16, 3 :: 16, "bar" :: binary,
       1 :: 32, 0 :: 16, 0 :: 32, 0 :: 32, 0 :: 32, 1 :: 32, 0 :: 32 >>
-    assert %{:brokers => %{0 => {"foo", 9092}},
-        :topics => %{"bar" => %{:error_code => :no_error,
-            :partitions => %{0 => %{:error_code => :no_error, :isrs => [0], :leader => 0,
-                :replicas => []}}}}} = KafkaEx.Protocol.Metadata.parse_response(response)
+    expected_response = %KafkaEx.Protocol.Metadata.Response{
+      brokers: [%KafkaEx.Protocol.Metadata.Broker{host: "foo", node_id: 0, port: 9092}],
+      topic_metadatas: [
+        %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: 0, partition_metadatas: [
+          %KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: 0, isrs: [0], leader: 0, partition_id: 0, replicas: []}
+        ], topic: "bar"}
+      ]
+    }
+
+    assert expected_response == KafkaEx.Protocol.Metadata.parse_response(response)
+  end
+
+  test "Response.broker_for_topic returns correct broker for a topic" do
+    metadata = %KafkaEx.Protocol.Metadata.Response{
+      brokers: [
+        %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", node_id: 9092, port: 9092},
+        %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", node_id: 9093, port: 9093}
+      ],
+      topic_metadatas: [
+        %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: 0, partition_metadatas: [
+          %KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: 0, isrs: [0], leader: 9092, partition_id: 0, replicas: []}
+        ], topic: "bar"}
+      ]
+    }
+
+    brokers = [
+        %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", port: 9092},
+        %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", port: 9091}
+    ]
+    assert KafkaEx.Protocol.Metadata.Response.broker_for_topic(metadata, brokers, "bar", 0) == %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", port: 9092}
+  end
+
+  test "Response.broker_for_topic returns nil when the topic is not found" do
+    metadata = %KafkaEx.Protocol.Metadata.Response{
+      brokers: [
+        %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", node_id: 9092, port: 9092},
+        %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", node_id: 9093, port: 9093}
+      ],
+      topic_metadatas: [
+        %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: 0, partition_metadatas: [
+          %KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: 0, isrs: [0], leader: 9092, partition_id: 0, replicas: []}
+        ], topic: "bar"}
+      ]
+    }
+
+    brokers = [
+        %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", port: 9092},
+        %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", port: 9091}
+    ]
+    assert KafkaEx.Protocol.Metadata.Response.broker_for_topic(metadata, brokers, "foo", 0) == nil
+  end
+
+  test "Response.broker_for_topic returns nil when the partition is not found" do
+    metadata = %KafkaEx.Protocol.Metadata.Response{
+      brokers: [
+        %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", node_id: 9092, port: 9092},
+        %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", node_id: 9093, port: 9093}
+      ],
+      topic_metadatas: [
+        %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: 0, partition_metadatas: [
+          %KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: 0, isrs: [0], leader: 9092, partition_id: 0, replicas: []}
+        ], topic: "bar"}
+      ]
+    }
+
+    brokers = [
+        %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", port: 9092},
+        %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", port: 9091}
+    ]
+    assert KafkaEx.Protocol.Metadata.Response.broker_for_topic(metadata, brokers, "bar", 1) == nil
+  end
+
+  test "Response.broker_for_topic returns nil when a matching broker is not found" do
+    metadata = %KafkaEx.Protocol.Metadata.Response{
+      brokers: [
+        %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", node_id: 9092, port: 9092},
+        %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", node_id: 9093, port: 9093}
+      ],
+      topic_metadatas: [
+        %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: 0, partition_metadatas: [
+          %KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: 0, isrs: [0], leader: 9092, partition_id: 0, replicas: []}
+        ], topic: "bar"}
+      ]
+    }
+
+    brokers = [
+        %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", port: 9093},
+        %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", port: 9091}
+    ]
+    assert KafkaEx.Protocol.Metadata.Response.broker_for_topic(metadata, brokers, "bar", 0) == nil
   end
 end

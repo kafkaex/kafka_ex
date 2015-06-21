@@ -12,6 +12,6 @@ defmodule KafkaEx.Protocol.OffsetFetch.Test do
 
   test "parse_response correctly parses a valid response" do
     response = <<0, 0, 156, 66, 0, 0, 0, 1, 0, 4, 102, 111, 111, 100, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0>>
-    assert KafkaEx.Protocol.OffsetFetch.parse_response(response) == [%KafkaEx.Protocol.OffsetFetch.Response{partitions: [%{metadata: "", offset: 9, partition: 0}], topic: "food"}]
+    assert KafkaEx.Protocol.OffsetFetch.parse_response(response) == [%KafkaEx.Protocol.OffsetFetch.Response{partitions: [%{metadata: "", error_code: 0, offset: 9, partition: 0}], topic: "food"}]
   end
 end

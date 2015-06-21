@@ -53,20 +53,35 @@ For all metadata
 
 ```elixir
 iex> KafkaEx.metadata
-%{brokers: %{1 => {"localhost", 9092}},
-  topics: %{"foo" => %{error_code: 0,
-      partitions: %{0 => %{error_code: 0, isrs: [1], leader: 1, replicas: [1]}}},
-      "bar" => %{error_code: 0,
-      partitions: %{0 => %{error_code: 0, isrs: [1], leader: 1, replicas: [1]}}}}}
+%KafkaEx.Protocol.Metadata.Response{brokers: [%KafkaEx.Protocol.Metadata.Broker{host:
+ "192.168.59.103",
+   node_id: 49162, port: 49162, socket: nil}],
+ topic_metadatas: [%KafkaEx.Protocol.Metadata.TopicMetadata{error_code: 0,
+   partition_metadatas: [%KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: 0,
+     isrs: [49162], leader: 49162, partition_id: 0, replicas: [49162]}],
+   topic: "LRCYFQDVWUFEIUCCTFGP"},
+  %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: 0,
+   partition_metadatas: [%KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: 0,
+     isrs: [49162], leader: 49162, partition_id: 0, replicas: [49162]}],
+   topic: "JSIMKCLQYTWXMSIGESYL"},
+  %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: 0,
+   partition_metadatas: [%KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: 0,
+     isrs: [49162], leader: 49162, partition_id: 0, replicas: [49162]}],
+   topic: "SCFRRXXLDFPOWSPQQMSD"},
+  %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: 0,
+...
 ```
 
 For a specific topic
 
 ```elixir
 iex> KafkaEx.metadata(topic: "foo")
-%{brokers: %{1 => {"localhost", 9092}},
-  topics: %{"foo" => %{error_code: 0,
-      partitions: %{0 => %{error_code: 0, isrs: [1], leader: 1, replicas: [1]}}}}}
+%KafkaEx.Protocol.Metadata.Response{brokers: [%KafkaEx.Protocol.Metadata.Broker{host: "192.168.59.103",
+   node_id: 49162, port: 49162, socket: nil}],
+ topic_metadatas: [%KafkaEx.Protocol.Metadata.TopicMetadata{error_code: 0,
+   partition_metadatas: [%KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: 0,
+     isrs: [49162], leader: 49162, partition_id: 0, replicas: [49162]}],
+   topic: "foo"}]}
 ```
 
 ### Retrieve offset from a particular time
@@ -74,34 +89,37 @@ iex> KafkaEx.metadata(topic: "foo")
 Kafka will get the starting offset of the log segment that is created no later than the given timestamp. Due to this, and since the offset request is served only at segment granularity, the offset fetch request returns less accurate results for larger segment sizes.
 
 ```elixir
-  iex> KafkaEx.offset("foo", 0, {{2015, 3, 29}, {23, 56, 40}}) # Note that the time specified should match/be ahead of time on the server that kafka runs
-  {:ok, %{"foo" => %{0 => %{error_code: 0, offsets: [256]}}}}
+iex> KafkaEx.offset("foo", 0, {{2015, 3, 29}, {23, 56, 40}}) # Note that the time specified should match/be ahead of time on the server that kafka runs
+[%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offset: [256], partition: 0}], topic: "foo"}]
 ```
 
 ### Retrieve the latest offset
 
 ```elixir
 iex> KafkaEx.latest_offset("foo", 0) # where 0 is the partition
-{:ok, %{"foo" => %{0 => %{error_code: 0, offsets: [16]}}}}
+[%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offsets: [16], partition: 0}], topic: "foo"}]
 ```
 
 ### Retrieve the earliest offset
 
 ```elixir
 iex> KafkaEx.earliest_offset("foo", 0) # where 0 is the partition
-{:ok, %{"foo" => %{0 => %{error_code: 0, offsets: [0]}}}}
+[%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offset: [0], partition: 0}], topic: "foo"}]
 ```
 
 ### Fetch kafka logs
 
 ```elixir
 iex> KafkaEx.fetch("foo", 0, 5) # where 0 is the partition and 5 is the offset we want to start fetching from
-{:ok,
- %{"foo" => %{0 => %{error_code: 0, hw_mark_offset: 133,
-       message_set: [%{attributes: 0, crc: 4264455069, key: nil, offset: 5,
-          value: "hey"},
-        %{attributes: 0, crc: 4264455069, key: nil, offset: 6, value: "hey"},
-...]}}}}
+[%KafkaEx.Protocol.Fetch.Response{partitions: [%{error_code: 0,
+     hw_mark_offset: 115,
+     message_set: [%{attributes: 0, crc: 4264455069, key: nil, offset: 5,
+        value: "hey"},
+      %{attributes: 0, crc: 4264455069, key: nil, offset: 6, value: "hey"},
+      %{attributes: 0, crc: 4264455069, key: nil, offset: 7, value: "hey"},
+      %{attributes: 0, crc: 4264455069, key: nil, offset: 8, value: "hey"},
+      %{attributes: 0, crc: 4264455069, key: nil, offset: 9, value: "hey"}
+...], partition: 0}], topic: "foo"}]
 ```
 
 ### Produce kafka logs
@@ -137,6 +155,11 @@ mix test --no-start
 Add the broker config to `config/config.exs` and run:
 ```
 mix test --only integration
+```
+
+#### All tests
+```
+mix test --include integration
 ```
 
 ### Static analysis
