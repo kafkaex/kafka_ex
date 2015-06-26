@@ -7,16 +7,20 @@ defmodule KafkaEx.Server do
   ### GenServer Callbacks
   use GenServer
 
-  def start_link(uris, name \\ __MODULE__) do
-    GenServer.start_link(__MODULE__, uris, [name: name])
+  def start_link(args, name \\ __MODULE__)
+
+  def start_link(args, name) do
+    GenServer.start_link(__MODULE__, args, [name: name])
   end
 
-  def init(uris) do
+  def init(args) do
+    uris = Keyword.get(args, :uris, [])
+    consumer_group = Keyword.get(args, :consumer_group, @consumer_group)
     brokers = Enum.map(uris, fn({host, port}) -> %Proto.Metadata.Broker{host: host, port: port, socket: KafkaEx.NetworkClient.create_socket(host, port)} end)
     {correlation_id, metadata} = metadata(brokers, 0)
     {:ok, _} = :timer.send_interval(30000, :update_metadata)
     {:ok, _} = :timer.send_interval(30000, :update_consumer_metadata)
-    {:ok, %__MODULE__{metadata: metadata, brokers: brokers, correlation_id: correlation_id, consumer_group: @consumer_group}}
+    {:ok, %__MODULE__{metadata: metadata, brokers: brokers, correlation_id: correlation_id, consumer_group: consumer_group}}
   end
 
   def handle_call({:produce, topic, partition, value, key, required_acks, timeout}, _from, state) do

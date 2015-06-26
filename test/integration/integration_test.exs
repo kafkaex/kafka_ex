@@ -10,8 +10,22 @@ defmodule KafkaEx.Integration.Test do
 
   #create_worker
   test "KafkaEx.Supervisor dynamically creates workers" do
-    {:ok, pid} = KafkaEx.create_worker(:bar, uris)
+    {:ok, pid} = KafkaEx.create_worker(:bar, uris: uris)
     assert Process.whereis(:bar) == pid
+  end
+
+  test "create_worker provides a default consumer_group of 'kafka_ex'" do
+    {:ok, pid} = KafkaEx.create_worker(:baz, uris: uris)
+    consumer_group = :sys.get_state(pid).consumer_group
+
+    assert consumer_group == "kafka_ex"
+  end
+
+  test "create_worker takes a consumer_group option and sets that as the consumer_group of the worker" do
+    {:ok, pid} = KafkaEx.create_worker(:joe, [uris: uris, consumer_group: "foo"])
+    consumer_group = :sys.get_state(pid).consumer_group
+
+    assert consumer_group == "foo"
   end
 
   test "KafkaEx.Server generates metadata on start up" do
@@ -23,7 +37,7 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "start_link creates the server and registers it as the module name" do
-    {:ok, pid} = KafkaEx.create_worker(:test_server, uris)
+    {:ok, pid} = KafkaEx.create_worker(:test_server, uris: uris)
     assert pid == Process.whereis(:test_server)
   end
 
@@ -80,8 +94,6 @@ defmodule KafkaEx.Integration.Test do
 
   test "consumer_group_metadata works" do
     random_string = TestHelper.generate_random_string
-    produce_response =  KafkaEx.produce("food", 0, "hey foo", worker_name: KafkaEx.Server, required_acks: 1)
-    KafkaEx.offset_commit(KafkaEx.Server, %Proto.OffsetCommit.Request{topic: "food", consumer_group: random_string})
     pid = Process.whereis(KafkaEx.Server)
     metadata = KafkaEx.consumer_group_metadata(KafkaEx.Server, random_string)
     consumer_group_metadata = :sys.get_state(pid).consumer_metadata
@@ -183,7 +195,7 @@ defmodule KafkaEx.Integration.Test do
   # stream
   test "streams kafka logs" do
     random_string = TestHelper.generate_random_string
-    KafkaEx.create_worker(:stream, uris)
+    KafkaEx.create_worker(:stream, uris: uris)
     KafkaEx.produce(random_string, 0, "hey", worker_name: :stream)
     KafkaEx.produce(random_string, 0, "hi", worker_name: :stream)
     log = KafkaEx.stream(random_string, 0, worker_name: :stream) |> Enum.take(2)
@@ -196,10 +208,10 @@ defmodule KafkaEx.Integration.Test do
 
   test "stop_streaming stops streaming, and stream starts it up again" do
     random_string = TestHelper.generate_random_string
-    KafkaEx.create_worker(:stream2, uris)
+    KafkaEx.create_worker(:stream2, uris: uris)
     stream = KafkaEx.stream(random_string, 0, worker_name: :stream2)
 
-    KafkaEx.create_worker(:producer, uris)
+    KafkaEx.create_worker(:producer, uris: uris)
     KafkaEx.produce(random_string, 0, "one", worker_name: :producer)
     KafkaEx.produce(random_string, 0, "two", worker_name: :producer)
 

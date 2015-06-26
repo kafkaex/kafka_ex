@@ -1,23 +1,7 @@
 defmodule KafkaEx do
   use Application
-
   @type uri() :: [{binary|char_list, number}]
-
-  @doc """
-  create_worker creates KafkaEx workers with broker list supplied in config
-
-  ## Example
-
-  ```elixir
-  iex> KafkaEx.create_worker(:pr) # where :pr is the name of the worker created
-  {:ok, #PID<0.171.0>}
-  ```
-  """
-  @spec create_worker(atom) :: Supervisor.on_start_child
-  def create_worker(name) do
-    uris = Application.get_env(KafkaEx, :brokers)
-    Supervisor.start_child(KafkaEx.Supervisor, [uris, name])
-  end
+  @type worker_init :: [{:uris, uri}, {:consumer_group, binary}]
 
   @doc """
   create_worker creates KafkaEx workers
@@ -25,13 +9,24 @@ defmodule KafkaEx do
   ## Example
 
   ```elixir
-  iex> KafkaEx.create_worker(:pr, [{"localhost", 9092}])
+  iex> KafkaEx.create_worker(:pr) # where :pr is the name of the worker created
   {:ok, #PID<0.171.0>}
+  iex> KafkaEx.create_worker(:pr, uris: [{"localhost", 9092}]) #if no consumer_group is specified "kafka_ex" would be used as the default
+  {:ok, #PID<0.172.0>}
+  iex> KafkaEx.create_worker(:pr, [uris: [{"localhost", 9092}], consumer_group: "foo"])
+  {:ok, #PID<0.173.0>}
   ```
   """
-  @spec create_worker(atom, KafkaEx.uri) :: Supervisor.on_start_child
-  def create_worker(name, uris) do
-    Supervisor.start_child(KafkaEx.Supervisor, [uris, name])
+  @spec create_worker(atom, KafkaEx.worker_init) :: Supervisor.on_start_child
+  def create_worker(name, worker_init \\ [])
+
+  def create_worker(name, worker_init) do
+    worker_init = case worker_init do
+      [] -> [uris: Application.get_env(KafkaEx, :brokers)]
+      _   -> worker_init
+    end
+
+    Supervisor.start_child(KafkaEx.Supervisor, [worker_init, name])
   end
 
   @doc """
@@ -227,9 +222,15 @@ defmodule KafkaEx do
 
 #OTP API
   def start(_type, _args) do
-    {:ok, pid} = KafkaEx.Supervisor.start_link
-    uris       = Application.get_env(KafkaEx, :brokers)
-    case KafkaEx.create_worker(KafkaEx.Server, uris) do
+    {:ok, pid}     = KafkaEx.Supervisor.start_link
+    uris           = Application.get_env(KafkaEx, :brokers)
+    consumer_group = Application.get_env(KafkaEx, :consumer_group)
+    worker_init = case consumer_group do
+      nil            -> [uris: uris]
+      consumer_group -> [uris: uris, consumer_group: consumer_group]
+    end
+
+    case KafkaEx.create_worker(KafkaEx.Server, worker_init) do
       {:error, reason} -> {:error, reason}
       {:ok, _}         -> {:ok, pid}
     end

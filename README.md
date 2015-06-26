@@ -33,12 +33,13 @@ mix deps.get
 In your config/config.exs add the list of kafka brokers as below:
 ```elixir
 config KafkaEx,
-  brokers: [{HOST, PORT}]
+  brokers: [{HOST, PORT}],
+  consumer_group: consumer_group #if no consumer_group is specified "kafka_ex" would be used as the default
 ```
 
 Alternatively from iex:
 ```elixir
-iex> Application.put_env(KafkaEx, :brokers, [{"localhost", 9092}, {"localhost", 9093}])
+iex> Application.put_env(KafkaEx, :brokers, [uris: [{"localhost", 9092}, {"localhost", 9093}], consumer_group: "kafka_ex"])
 :ok
 ```
 
@@ -132,7 +133,7 @@ iex> KafkaEx.produce("foo", 0, "hey") # where "foo" is the topic and "hey" is th
 ### Stream kafka logs
 
 ```elixir
-iex> KafkaEx.create_worker([{"localhost", 9092}], :stream)
+iex> KafkaEx.create_worker(:stream, [uris: [{"localhost", 9092}]])
 {:ok, #PID<0.196.0>}
 iex> KafkaEx.produce("foo", 0, "hey", :stream)
 :ok
