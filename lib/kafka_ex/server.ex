@@ -46,8 +46,8 @@ defmodule KafkaEx.Server do
     {:reply, response, state}
   end
 
-  def handle_call({:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes}, _from, state) do
-    {response, state} = fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, state)
+  def handle_call({:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes, auto_commit}, _from, state) do
+    {response, state} = fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, state, auto_commit)
 
     {:reply, response, state}
   end
@@ -92,17 +92,10 @@ defmodule KafkaEx.Server do
     {:reply, response, state}
   end
 
-  def handle_call({:offset_commit, offset_commit}, _from, state) do
-    {broker, state} = case Proto.ConsumerMetadata.Response.broker_for_consumer_group(state.brokers, state.consumer_metadata) do
-      nil -> {_, state} = update_consumer_metadata(state, offset_commit.consumer_group)
-        {Proto.ConsumerMetadata.Response.broker_for_consumer_group(state.brokers, state.consumer_metadata) || hd(state.brokers), state}
-      broker -> {broker, state}
-    end
+  def handle_call({:offset_commit, offset_commit_request}, _from, state) do
+    {response, state} = offset_commit(state, offset_commit_request)
 
-    offset_commit_request = Proto.OffsetCommit.create_request(state.correlation_id, @client_id, offset_commit)
-    response = KafkaEx.NetworkClient.send_sync_request(broker, offset_commit_request) |> Proto.OffsetCommit.parse_response
-
-    {:reply, response, %{state | correlation_id: state.correlation_id+1}}
+    {:reply, response, state}
   end
 
   def handle_call({:consumer_group_metadata, consumer_group}, _from, state) do
@@ -132,14 +125,19 @@ defmodule KafkaEx.Server do
     {response, state} = fetch(topic, partition, offset, @wait_time, @min_bytes, @max_bytes, state)
     offset = case response do
       :topic_not_found -> offset
-      _ -> offset = response |> hd |> Map.get(:partitions) |> hd |> Map.get(:message_set) |> Enum.reduce(offset, fn(message_set, _) ->
-        GenEvent.notify(state.event_pid, message_set)
-        message_set.offset
-      end)
-      offset + 1
+      _ -> message = response |> hd |> Map.get(:partitions) |> hd
+        Enum.each(message.message_set, fn(message_set) -> GenEvent.notify(state.event_pid, message_set) end)
+        case message.last_offset do
+          nil         -> offset
+          last_offset -> last_offset + 1
+        end
     end
     :timer.sleep(500)
-    send(self, {:start_streaming, topic, partition, offset, handler})
+
+    if state.event_pid do
+      send(self, {:start_streaming, topic, partition, offset, handler})
+    end
+
     {:noreply, state}
   end
 
@@ -177,7 +175,7 @@ defmodule KafkaEx.Server do
     response = Proto.ConsumerMetadata.parse_response(data)
     case response.error_code do
       0 -> {response, %{state | consumer_metadata: response, consumer_group: consumer_group, correlation_id: state.correlation_id + 1}}
-      _ -> :timer.sleep(300)
+      _ -> :timer.sleep(400)
         update_consumer_metadata(%{state | consumer_group: consumer_group, correlation_id: state.correlation_id + 1}, consumer_group, retry-1)
     end
   end
@@ -224,7 +222,9 @@ defmodule KafkaEx.Server do
     end
   end
 
-  defp fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, state) do
+  defp fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, state, auto_commit \\ true)
+
+  defp fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, state, auto_commit) do
     fetch_request = Proto.Fetch.create_request(state.correlation_id, @client_id, topic, partition, offset, wait_time, min_bytes, max_bytes)
     {broker, state} = case Proto.Metadata.Response.broker_for_topic(state.metadata, state.brokers, topic, partition) do
       nil    ->
@@ -232,14 +232,35 @@ defmodule KafkaEx.Server do
         {Proto.Metadata.Response.broker_for_topic(state.metadata, state.brokers, topic, partition), state}
       broker -> {broker, state}
     end
-
-    case broker do
+    {response, state} = case broker do
       nil -> {:topic_not_found, state}
       _ ->
         response = KafkaEx.NetworkClient.send_sync_request(broker, fetch_request) |> Proto.Fetch.parse_response
         state = %{state | correlation_id: state.correlation_id+1}
-        {response, state}
+        case auto_commit do
+          true -> 
+            last_offset = response |> hd |> Map.get(:partitions) |> hd |> Map.get(:last_offset)
+            case last_offset do
+              nil -> {response, state}
+              _ -> {_, state} = offset_commit(state, %Proto.OffsetCommit.Request{topic: topic, offset: last_offset})
+                {response, state}
+            end
+          _    -> {response, state}
+        end
     end
+  end
+
+  defp offset_commit(state, offset_commit_request) do
+    {broker, state} = case Proto.ConsumerMetadata.Response.broker_for_consumer_group(state.brokers, state.consumer_metadata) do
+      nil -> {_, state} = update_consumer_metadata(state, offset_commit_request.consumer_group)
+        {Proto.ConsumerMetadata.Response.broker_for_consumer_group(state.brokers, state.consumer_metadata) || hd(state.brokers), state}
+      broker -> {broker, state}
+    end
+
+    offset_commit_request_payload = Proto.OffsetCommit.create_request(state.correlation_id, @client_id, offset_commit_request)
+    response = KafkaEx.NetworkClient.send_sync_request(broker, offset_commit_request_payload) |> Proto.OffsetCommit.parse_response
+
+    {response, %{state | correlation_id: state.correlation_id+1}}
   end
 
 end

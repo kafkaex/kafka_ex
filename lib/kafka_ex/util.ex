@@ -24,8 +24,12 @@ defmodule KafkaEx.Util do
     end
   end
 
-  def parse_message_set(list, << >>) do
-    {:ok, Enum.reverse(list)}
+  def parse_message_set([], << >>) do
+    {:ok, [], nil}
+  end
+
+  def parse_message_set([last|_] = list, << >>) do
+    {:ok, Enum.reverse(list), last.offset}
   end
 
   def parse_message_set(list, << offset :: 64, msg_size :: 32, msg_data :: size(msg_size)-binary, rest :: binary >>) do
@@ -33,8 +37,12 @@ defmodule KafkaEx.Util do
     parse_message_set([Map.put(message, :offset, offset)|list], rest)
   end
 
-  def parse_message_set(list, _) do
-    {:ok, Enum.reverse(list)}
+  def parse_message_set([], _) do
+    {:ok, [], nil}
+  end
+
+  def parse_message_set([last|_] = list, _) do
+    {:ok, Enum.reverse(list), last.offset}
   end
 
   def parse_message(<< crc :: 32, _magic :: 8, attributes :: 8, rest :: binary>>) do

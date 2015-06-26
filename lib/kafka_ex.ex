@@ -107,18 +107,20 @@ defmodule KafkaEx do
   @max_bytes 1_000_000
 
   @doc """
-  Fetch a set of messages from Kafka from the given topic, partition ID, and offset
+  Fetch a set of messages from Kafka from the given topic and partition ID
 
   Optional arguments(KeywordList)
-  - worker_name: the worker we want to run this metadata request through
-  - wait_time: maximum amount of time in milliseconds to block waiting if insufficient data is available at the time the request is issued.
-  - min_bytes: minimum number of bytes of messages that must be available to give a response. If the client sets this to 0 the server will always respond immediately, however if there is no new data since their last request they will just get back empty message sets. If this is set to 1, the server will respond as soon as at least one partition has at least 1 byte of data or the specified timeout occurs. By setting higher values in combination with the timeout the consumer can tune for throughput and trade a little additional latency for reading only large chunks of data (e.g. setting wait_time to 100 and setting min_bytes 64000 would allow the server to wait up to 100ms to try to accumulate 64k of data before responding).
-  - max_bytes: maximum bytes to include in the message set for this partition. This helps bound the size of the response.
+  - offset: When supplied the fetch would start from this offset, otherwise would start from the last committed offset of the consumer_group the worker belongs to.
+  - worker_name: the worker we want to run this fetch request through. Default is KafkaEx.Server
+  - wait_time: maximum amount of time in milliseconds to block waiting if insufficient data is available at the time the request is issued. Default is 10
+  - min_bytes: minimum number of bytes of messages that must be available to give a response. If the client sets this to 0 the server will always respond immediately, however if there is no new data since their last request they will just get back empty message sets. If this is set to 1, the server will respond as soon as at least one partition has at least 1 byte of data or the specified timeout occurs. By setting higher values in combination with the timeout the consumer can tune for throughput and trade a little additional latency for reading only large chunks of data (e.g. setting wait_time to 100 and setting min_bytes 64000 would allow the server to wait up to 100ms to try to accumulate 64k of data before responding). Default is 1
+  - max_bytes: maximum bytes to include in the message set for this partition. This helps bound the size of the response. Default is 1,000,000
+  - auto_commit: specifies if the last offset should be commited or not. Default is true
 
   ## Example
 
   ```elixir
-  iex> KafkaEx.fetch("foo", 0, 0)
+  iex> KafkaEx.fetch("foo", 0, offset: 0)
   [
     %KafkaEx.Protocol.Fetch.Response{partitions: [
       %{error_code: 0, hw_mark_offset: 1, message_set: [
@@ -128,14 +130,21 @@ defmodule KafkaEx do
   ]
   ```
   """
-  @spec fetch(binary, number, number, Keyword.t) :: {atom, map}
-  def fetch(topic, partition, offset, opts \\ []) do
-    worker_name = Keyword.get(opts, :worker_name, KafkaEx.Server)
-    wait_time   = Keyword.get(opts, :wait_time, @wait_time)
-    min_bytes   = Keyword.get(opts, :min_bytes, @min_bytes)
-    max_bytes   = Keyword.get(opts, :max_bytes, @max_bytes)
+  @spec fetch(binary, number, Keyword.t) :: {atom, map}
+  def fetch(topic, partition, opts \\ []) do
+    worker_name   = Keyword.get(opts, :worker_name, KafkaEx.Server)
+    offset        = Keyword.get(opts, :offset)
+    wait_time     = Keyword.get(opts, :wait_time, @wait_time)
+    min_bytes     = Keyword.get(opts, :min_bytes, @min_bytes)
+    max_bytes     = Keyword.get(opts, :max_bytes, @max_bytes)
+    auto_commit   = Keyword.get(opts, :auto_commit, true)
 
-    GenServer.call(worker_name, {:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes})
+    offset = case offset do
+      nil -> last_offset = offset_fetch(worker_name, %KafkaEx.Protocol.OffsetFetch.Request{topic: topic}) |> hd |> Map.get(:partitions) |> hd |> Map.get(:offset)
+      _   -> offset
+    end
+
+    GenServer.call(worker_name, {:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes, auto_commit})
   end
 
   @spec offset_commit(atom, KafkaEx.Protocol.OffsetCommit.Request.t) :: KafkaEx.Protocol.OffsetCommit.Response.t
