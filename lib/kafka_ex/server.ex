@@ -161,8 +161,10 @@ defmodule KafkaEx.Server do
   end
 
   def terminate(_, state) do
-    GenEvent.stop(state.event_pid)
-    Enum.each(state.brokers, &KafkaEx.NetworkClient.close_socket/1)
+    if state.event_pid do
+      GenEvent.stop(state.event_pid)
+    end
+    Enum.each(state.brokers, fn(broker) -> KafkaEx.NetworkClient.close_socket(broker.socket) end)
   end
 
   defp update_consumer_metadata(state, consumer_group), do: update_consumer_metadata(state, consumer_group, 3)
