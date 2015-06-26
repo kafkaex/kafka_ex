@@ -121,8 +121,8 @@ defmodule KafkaEx.Server do
   @wait_time 10
   @min_bytes 1
   @max_bytes 1_000_000
-  def handle_info({:start_streaming, topic, partition, offset, handler}, state) do
-    {response, state} = fetch(topic, partition, offset, @wait_time, @min_bytes, @max_bytes, state)
+  def handle_info({:start_streaming, topic, partition, offset, handler, auto_commit}, state) do
+    {response, state} = fetch(topic, partition, offset, @wait_time, @min_bytes, @max_bytes, state, auto_commit)
     offset = case response do
       :topic_not_found -> offset
       _ -> message = response |> hd |> Map.get(:partitions) |> hd
@@ -135,7 +135,7 @@ defmodule KafkaEx.Server do
     :timer.sleep(500)
 
     if state.event_pid do
-      send(self, {:start_streaming, topic, partition, offset, handler})
+      send(self, {:start_streaming, topic, partition, offset, handler, auto_commit})
     end
 
     {:noreply, state}

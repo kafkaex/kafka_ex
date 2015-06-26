@@ -28,7 +28,7 @@ defmodule KafkaEx.Protocol.Fetch do
 
   defp parse_partitions(0, rest, partitions), do: {partitions, rest}
 
-  defp parse_partitions(partitions_size, << partition :: 32-signed, error_code :: 16-signed, hw_mark_offset :: 64,
+  defp parse_partitions(partitions_size, << partition :: 32-signed, error_code :: 16-signed, hw_mark_offset :: 64-signed,
   msg_set_size :: 32-signed, msg_set_data :: size(msg_set_size)-binary, rest :: binary >>, partitions) do
     {:ok, message_set, last_offset} = KafkaEx.Util.parse_message_set([], msg_set_data)
     parse_partitions(partitions_size - 1, rest, [%{partition: partition, error_code: error_code, hw_mark_offset: hw_mark_offset, message_set: message_set, last_offset: last_offset} | partitions])

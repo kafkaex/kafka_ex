@@ -141,6 +141,11 @@ defmodule KafkaEx do
 
     offset = case offset do
       nil -> last_offset = offset_fetch(worker_name, %KafkaEx.Protocol.OffsetFetch.Request{topic: topic}) |> hd |> Map.get(:partitions) |> hd |> Map.get(:offset)
+        if last_offset <= 0 do
+          0
+        else
+          last_offset
+        end
       _   -> offset
     end
 
@@ -196,6 +201,7 @@ defmodule KafkaEx do
   - worker_name: the worker we want to run this metadata request through, when none is provided the default worker `KafkaEx.Server` is used
   - offset: offset to begin this fetch from, when none is provided 0 is assumed
   - handler: the handler we want to handle the streaming events, when none is provided the default KafkaExHandler is used
+  - auto_commit: specifies if the last offset should be commited or not. Default is true
 
 
   ## Example
@@ -207,7 +213,7 @@ defmodule KafkaEx do
   :ok
   iex> KafkaEx.produce("foo", 0, "hi", worker_name: :stream)
   :ok
-  iex> KafkaEx.stream("foo", 0) |> iex> Enum.take(2)
+  iex> KafkaEx.stream("foo", 0) |> Enum.take(2)
   [%{attributes: 0, crc: 4264455069, key: nil, offset: 0, value: "hey"},
    %{attributes: 0, crc: 4251893211, key: nil, offset: 1, value: "hi"}]
   ```
@@ -215,11 +221,22 @@ defmodule KafkaEx do
   @spec stream(binary, number, Keyword.t) :: GenEvent.Stream.t
   def stream(topic, partition, opts \\ []) do
     worker_name = Keyword.get(opts, :worker_name, KafkaEx.Server)
-    offset      = Keyword.get(opts, :offset, 0)
+    offset      = Keyword.get(opts, :offset)
     handler     = Keyword.get(opts, :handler, KafkaExHandler)
+    auto_commit = Keyword.get(opts, :auto_commit, true)
+
+    offset = case offset do
+      nil -> last_offset = offset_fetch(worker_name, %KafkaEx.Protocol.OffsetFetch.Request{topic: topic}) |> hd |> Map.get(:partitions) |> hd |> Map.get(:offset)
+        if last_offset <= 0 do
+          0
+        else
+          last_offset
+        end
+      _   -> offset
+    end
 
     stream      = GenServer.call(worker_name, {:create_stream, handler})
-    send(worker_name, {:start_streaming, topic, partition, offset, handler})
+    send(worker_name, {:start_streaming, topic, partition, offset, handler, auto_commit})
     stream
   end
 
