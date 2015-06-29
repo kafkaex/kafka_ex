@@ -1,5 +1,5 @@
 use Mix.Config
-  config KafkaEx,
+  config :kafka_ex,
   brokers: [
-    {"localhost", 9092}
+    {"sf-jrotenb-mac", 9092}
   ]

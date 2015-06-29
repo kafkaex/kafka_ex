@@ -15,7 +15,7 @@ defmodule KafkaEx do
   """
   @spec create_worker(atom) :: Supervisor.on_start_child
   def create_worker(name) do
-    uris = Application.get_env(KafkaEx, :brokers)
+    uris = Application.get_env(:kafka_ex, :brokers)
     Supervisor.start_child(KafkaEx.Supervisor, [uris, name])
   end
 
@@ -228,7 +228,7 @@ defmodule KafkaEx do
 #OTP API
   def start(_type, _args) do
     {:ok, pid} = KafkaEx.Supervisor.start_link
-    uris       = Application.get_env(KafkaEx, :brokers)
+    uris       = Application.get_env(:kafka_ex, :brokers)
     case KafkaEx.create_worker(KafkaEx.Server, uris) do
       {:error, reason} -> {:error, reason}
       {:ok, _}         -> {:ok, pid}
