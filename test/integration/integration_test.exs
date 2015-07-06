@@ -77,6 +77,13 @@ defmodule KafkaEx.Integration.Test do
   end
 
   #metadata
+  test "metadata works" do
+    random_string = TestHelper.generate_random_string
+    Enum.each(1..10, fn _ -> KafkaEx.produce(random_string, 0, "hey foo", worker_name: KafkaEx.Server, required_acks: 1) end)
+
+    refute Enum.empty?(Enum.flat_map(KafkaEx.metadata.topic_metadatas, fn(metadata) -> metadata.partition_metadatas end))
+  end
+
   test "metadata for a non-existing topic creates a new topic" do
     random_string = TestHelper.generate_random_string
     random_topic_metadata = Enum.find(KafkaEx.metadata(topic: random_string).topic_metadatas, &(&1.topic == random_string))
