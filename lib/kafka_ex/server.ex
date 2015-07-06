@@ -191,8 +191,11 @@ defmodule KafkaEx.Server do
     {brokers_to_keep, brokers_to_remove} = Enum.partition(brokers, fn(broker) ->
       Enum.find_value(metadata_brokers, &(broker.host == &1.host && broker.port == &1.port))
     end)
-    Enum.each(brokers_to_remove, &KafkaEx.NetworkClient.close_socket/1)
-    brokers_to_keep
+    case length(brokers_to_keep) do
+      0 -> brokers_to_remove
+      _ -> Enum.each(brokers_to_remove, fn(broker) -> KafkaEx.NetworkClient.close_socket(broker.socket) end)
+        brokers_to_keep
+    end
   end
 
   defp add_new_brokers(brokers, []), do: brokers
