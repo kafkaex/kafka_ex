@@ -10,8 +10,22 @@ defmodule KafkaEx.Integration.Test do
 
   #create_worker
   test "KafkaEx.Supervisor dynamically creates workers" do
-    {:ok, pid} = KafkaEx.create_worker(:bar, uris)
+    {:ok, pid} = KafkaEx.create_worker(:bar, uris: uris)
     assert Process.whereis(:bar) == pid
+  end
+
+  test "create_worker provides a default consumer_group of 'kafka_ex'" do
+    {:ok, pid} = KafkaEx.create_worker(:baz, uris: uris)
+    consumer_group = :sys.get_state(pid).consumer_group
+
+    assert consumer_group == "kafka_ex"
+  end
+
+  test "create_worker takes a consumer_group option and sets that as the consumer_group of the worker" do
+    {:ok, pid} = KafkaEx.create_worker(:joe, [uris: uris, consumer_group: "foo"])
+    consumer_group = :sys.get_state(pid).consumer_group
+
+    assert consumer_group == "foo"
   end
 
   test "KafkaEx.Server generates metadata on start up" do
@@ -23,7 +37,7 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "start_link creates the server and registers it as the module name" do
-    {:ok, pid} = KafkaEx.create_worker(:test_server, uris)
+    {:ok, pid} = KafkaEx.create_worker(:test_server, uris: uris)
     assert pid == Process.whereis(:test_server)
   end
 
@@ -80,8 +94,6 @@ defmodule KafkaEx.Integration.Test do
 
   test "consumer_group_metadata works" do
     random_string = TestHelper.generate_random_string
-    produce_response =  KafkaEx.produce("food", 0, "hey foo", worker_name: KafkaEx.Server, required_acks: 1)
-    KafkaEx.offset_commit(KafkaEx.Server, %Proto.OffsetCommit.Request{topic: "food", consumer_group: random_string})
     pid = Process.whereis(KafkaEx.Server)
     metadata = KafkaEx.consumer_group_metadata(KafkaEx.Server, random_string)
     consumer_group_metadata = :sys.get_state(pid).consumer_metadata
@@ -97,27 +109,67 @@ defmodule KafkaEx.Integration.Test do
     pid = Process.whereis(KafkaEx.Server)
     empty_metadata = %Proto.Metadata.Response{}
     :sys.replace_state(pid, fn(state) -> %{state | :metadata => empty_metadata} end)
-    KafkaEx.fetch("food", 0, 0)
+    KafkaEx.fetch("food", 0, offset: 0)
     metadata = :sys.get_state(pid).metadata
 
     refute metadata == empty_metadata
   end
 
+  test "fetch auto_commits offset by default" do
+    random_string = TestHelper.generate_random_string
+    KafkaEx.create_worker(:fetch_test_worker)
+    Enum.each(1..10, fn _ -> KafkaEx.produce(random_string, 0, "hey foo", worker_name: KafkaEx.Server, required_acks: 1) end)
+    offset = KafkaEx.fetch(random_string, 0, offset: 0, worker: :fetch_test_worker) |> hd |> Map.get(:partitions) |> hd |> Map.get(:message_set) |> Enum.reverse |> hd |> Map.get(:offset)
+
+    offset_fetch_response = KafkaEx.offset_fetch(:fetch_test_worker, %Proto.OffsetFetch.Request{topic: random_string}) |> hd
+    error_code = offset_fetch_response.partitions |> hd |> Map.get(:error_code)
+    offset_fetch_response_offset = offset_fetch_response.partitions |> hd |> Map.get(:offset)
+
+    assert error_code == 0
+    assert offset == offset_fetch_response_offset
+  end
+
+  test "fetch starts consuming from last committed offset" do
+    random_string = TestHelper.generate_random_string
+    KafkaEx.create_worker(:fetch_test_committed_worker)
+    Enum.each(1..10, fn _ -> KafkaEx.produce(random_string, 0, "hey foo", worker_name: KafkaEx.Server, required_acks: 1) end)
+    KafkaEx.offset_commit(:fetch_test_committed_worker, %Proto.OffsetCommit.Request{topic: random_string, offset: 3})
+    logs = KafkaEx.fetch(random_string, 0, worker: :fetch_test_committed_worker) |> hd |> Map.get(:partitions) |> hd |> Map.get(:message_set)
+
+    first_message = logs |> hd
+
+    assert first_message.offset == 3
+    assert length(logs) == 7
+  end
+
+  test "fetch does not commit offset with auto_commit is set to false" do
+    KafkaEx.create_worker(:fetch_no_auto_commit_worker)
+    Enum.each(1..10, fn _ -> KafkaEx.produce("food", 0, "hey foo", worker_name: KafkaEx.Server, required_acks: 1) end)
+    offset = KafkaEx.fetch("food", 0, offset: 0, worker: :fetch_no_auto_commit_worker, auto_commit: false) |> hd |> Map.get(:partitions) |> hd |> Map.get(:message_set) |> Enum.reverse |> hd |> Map.get(:offset)
+
+    offset_fetch_response = KafkaEx.offset_fetch(:fetch_no_auto_commit_worker, %Proto.OffsetFetch.Request{topic: "food"}) |> hd
+    error_code = offset_fetch_response.partitions |> hd |> Map.get(:error_code)
+    offset_fetch_response_offset = offset_fetch_response.partitions |> hd |> Map.get(:offset)
+
+    assert error_code == 0
+    refute offset == offset_fetch_response_offset
+  end
+
   test "fetch does not blow up with incomplete bytes" do
-    KafkaEx.fetch("food", 0, 0, max_bytes: 100)
+    KafkaEx.fetch("food", 0, offset: 0, max_bytes: 100)
   end
 
   test "fetch returns ':topic_not_found' for non-existing topic" do
     random_string = TestHelper.generate_random_string
 
-    assert KafkaEx.fetch(random_string, 0, 0) == :topic_not_found
+    assert KafkaEx.fetch(random_string, 0, offset: 0) == :topic_not_found
   end
 
   test "fetch works" do
     random_string = TestHelper.generate_random_string
     produce_response =  KafkaEx.produce(random_string, 0, "hey foo", worker_name: KafkaEx.Server, required_acks: 1) |> hd
     offset = produce_response.partitions |> hd |> Map.get(:offset)
-    fetch_response = KafkaEx.fetch(random_string, 0, 0) |>  hd
+    fetch_response = KafkaEx.fetch(random_string, 0, offset: 0) |>  hd
     message = fetch_response.partitions |> hd |> Map.get(:message_set) |> hd
 
     assert message.value == "hey foo"
@@ -183,7 +235,7 @@ defmodule KafkaEx.Integration.Test do
   # stream
   test "streams kafka logs" do
     random_string = TestHelper.generate_random_string
-    KafkaEx.create_worker(:stream, uris)
+    KafkaEx.create_worker(:stream, uris: uris)
     KafkaEx.produce(random_string, 0, "hey", worker_name: :stream)
     KafkaEx.produce(random_string, 0, "hi", worker_name: :stream)
     log = KafkaEx.stream(random_string, 0, worker_name: :stream) |> Enum.take(2)
@@ -194,14 +246,58 @@ defmodule KafkaEx.Integration.Test do
     assert second.value == "hi"
   end
 
+  test "stream auto_commits offset by default" do
+    random_string = TestHelper.generate_random_string
+    KafkaEx.create_worker(:stream_auto_commit, uris: uris)
+    KafkaEx.produce(random_string, 0, "hey", required_acks: 1)
+    KafkaEx.produce(random_string, 0, "hi", required_acks: 1)
+    log = KafkaEx.stream(random_string, 0, worker_name: :stream_auto_commit) |> Enum.take(2)
+
+    refute Enum.empty?(log)
+
+    offset_fetch_response = KafkaEx.offset_fetch(:stream_auto_commit, %Proto.OffsetFetch.Request{topic: random_string}) |> hd
+    error_code = offset_fetch_response.partitions |> hd |> Map.get(:error_code)
+    offset = offset_fetch_response.partitions |> hd |> Map.get(:offset)
+
+    assert error_code == 0
+    refute offset == 0
+  end
+
+  test "stream starts consuming from last committed offset" do
+    random_string = TestHelper.generate_random_string
+    KafkaEx.create_worker(:stream_last_committed_offset, uris: uris)
+    Enum.each(1..10, fn _ -> KafkaEx.produce(random_string, 0, "hey foo", required_acks: 1) end)
+    KafkaEx.offset_commit(:stream_last_committed_offset, %Proto.OffsetCommit.Request{topic: random_string, offset: 3})
+    log = KafkaEx.stream(random_string, 0, worker_name: :stream_last_committed_offset) |> Enum.take(2)
+
+    refute Enum.empty?(log)
+
+    first_message = log |> hd
+
+    assert first_message.offset == 3
+  end
+
+  test "stream does not commit offset with auto_commit is set to false" do
+    random_string = TestHelper.generate_random_string
+    KafkaEx.create_worker(:stream_no_auto_commit, uris: uris)
+    Enum.each(1..10, fn _ -> KafkaEx.produce(random_string, 0, "hey foo", required_acks: 1) end)
+    log = KafkaEx.stream(random_string, 0, worker_name: :stream_no_auto_commit, auto_commit: false) |> Enum.take(2)
+
+    offset_fetch_response = KafkaEx.offset_fetch(:stream_no_auto_commit, %Proto.OffsetFetch.Request{topic: random_string}) |> hd
+    error_code = offset_fetch_response.partitions |> hd |> Map.get(:error_code)
+    offset_fetch_response_offset = offset_fetch_response.partitions |> hd |> Map.get(:offset)
+
+    assert 0 >= offset_fetch_response_offset
+  end
+
   test "stop_streaming stops streaming, and stream starts it up again" do
     random_string = TestHelper.generate_random_string
-    KafkaEx.create_worker(:stream2, uris)
+    KafkaEx.create_worker(:stream2, uris: uris)
     stream = KafkaEx.stream(random_string, 0, worker_name: :stream2)
 
-    KafkaEx.create_worker(:producer, uris)
-    KafkaEx.produce(random_string, 0, "one", worker_name: :producer)
-    KafkaEx.produce(random_string, 0, "two", worker_name: :producer)
+    KafkaEx.create_worker(:producer, uris: uris)
+    KafkaEx.produce(random_string, 0, "one", worker_name: :producer, required_acks: 1)
+    KafkaEx.produce(random_string, 0, "two", worker_name: :producer, required_acks: 1)
 
     :timer.sleep(1000)
     log = GenEvent.call(stream.manager, KafkaExHandler, :messages)
@@ -210,15 +306,15 @@ defmodule KafkaEx.Integration.Test do
 
     KafkaEx.stop_streaming(worker_name: :stream2)
     :timer.sleep(1000)
-    KafkaEx.produce(random_string, 0, "three", worker_name: :producer)
-    KafkaEx.produce(random_string, 0, "four", worker_name: :producer)
+    KafkaEx.produce(random_string, 0, "three", worker_name: :producer, required_acks: 1)
+    KafkaEx.produce(random_string, 0, "four", worker_name: :producer, required_acks: 1)
     :timer.sleep(1000)
     stream = KafkaEx.stream(random_string, 0, worker_name: :stream2, offset: last_offset+1)
     log = GenEvent.call(stream.manager, KafkaExHandler, :messages)
     assert length(log) == 0
 
-    KafkaEx.produce(random_string, 0, "five", worker_name: :producer)
-    KafkaEx.produce(random_string, 0, "six", worker_name: :producer)
+    KafkaEx.produce(random_string, 0, "five", worker_name: :producer, required_acks: 1)
+    KafkaEx.produce(random_string, 0, "six", worker_name: :producer, required_acks: 1)
     :timer.sleep(1000)
     log = GenEvent.call(stream.manager, KafkaExHandler, :messages)
     assert length(log) == 4
