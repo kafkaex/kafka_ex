@@ -35,6 +35,8 @@ defmodule KafkaEx.Protocol.Metadata do
     defstruct error_code: 0, partition_id: 0, leader: -1, replicas: [], isrs: []
   end
 
+  def create_request(correlation_id, client_id, ""), do: KafkaEx.Protocol.create_request(:metadata, correlation_id, client_id) <> << 0 :: 32-signed >>
+
   def create_request(correlation_id, client_id, topic) when is_binary(topic), do: create_request(correlation_id, client_id, [topic])
 
   def create_request(correlation_id, client_id, topics) when is_list(topics) do
