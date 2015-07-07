@@ -39,7 +39,7 @@ config KafkaEx,
 
 Alternatively from iex:
 ```elixir
-iex> Application.put_env(KafkaEx, :brokers, [uris: [{"localhost", 9092}, {"localhost", 9093}], consumer_group: "kafka_ex"])
+iex> Application.put_env(:kafka_ex, :brokers, [uris: [{"localhost", 9092}, {"localhost", 9093}], consumer_group: "kafka_ex"])
 :ok
 ```
 

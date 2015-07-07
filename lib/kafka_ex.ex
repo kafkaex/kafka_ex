@@ -22,7 +22,7 @@ defmodule KafkaEx do
 
   def create_worker(name, worker_init) do
     worker_init = case worker_init do
-      [] -> [uris: Application.get_env(KafkaEx, :brokers)]
+      [] -> [uris: Application.get_env(:kafka_ex, :brokers)]
       _   -> worker_init
     end
 
@@ -249,8 +249,8 @@ defmodule KafkaEx do
 #OTP API
   def start(_type, _args) do
     {:ok, pid}     = KafkaEx.Supervisor.start_link
-    uris           = Application.get_env(KafkaEx, :brokers)
-    consumer_group = Application.get_env(KafkaEx, :consumer_group)
+    uris           = Application.get_env(:kafka_ex, :brokers)
+    consumer_group = Application.get_env(:kafka_ex, :consumer_group)
     worker_init = case consumer_group do
       nil            -> [uris: uris]
       consumer_group -> [uris: uris, consumer_group: consumer_group]

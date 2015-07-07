@@ -1,5 +1,5 @@
 use Mix.Config
-  config KafkaEx,
+  config :kafka_ex,
     brokers: [
       {"192.168.59.103", 49154}
     ],
