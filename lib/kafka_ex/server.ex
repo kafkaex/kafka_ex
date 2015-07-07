@@ -225,7 +225,7 @@ defmodule KafkaEx.Server do
     end
   end
 
-  defp fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, state, auto_commit \\ true)
+  defp fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, state, auto_commit)
 
   defp fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, state, auto_commit) do
     fetch_request = Proto.Fetch.create_request(state.correlation_id, @client_id, topic, partition, offset, wait_time, min_bytes, max_bytes)
@@ -235,13 +235,13 @@ defmodule KafkaEx.Server do
         {Proto.Metadata.Response.broker_for_topic(state.metadata, state.brokers, topic, partition), state}
       broker -> {broker, state}
     end
-    {response, state} = case broker do
+    case broker do
       nil -> {:topic_not_found, state}
       _ ->
         response = KafkaEx.NetworkClient.send_sync_request(broker, fetch_request) |> Proto.Fetch.parse_response
         state = %{state | correlation_id: state.correlation_id+1}
         case auto_commit do
-          true -> 
+          true ->
             last_offset = response |> hd |> Map.get(:partitions) |> hd |> Map.get(:last_offset)
             case last_offset do
               nil -> {response, state}

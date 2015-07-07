@@ -224,9 +224,9 @@ defmodule KafkaEx.Integration.Test do
   test "offset_commit commits an offset and offset_fetch retrieves the committed offset" do
     random_string = TestHelper.generate_random_string
     Enum.each(1..10, fn _ -> KafkaEx.produce(random_string, 0, "foo") end)
-    assert KafkaEx.offset_commit(KafkaEx.Server, %Proto.OffsetCommit.Request{topic: random_string, offset: 9}) ==  
+    assert KafkaEx.offset_commit(KafkaEx.Server, %Proto.OffsetCommit.Request{topic: random_string, offset: 9}) ==
       [%Proto.OffsetCommit.Response{partitions: [0], topic: random_string}]
-    assert KafkaEx.offset_fetch(KafkaEx.Server, %Proto.OffsetFetch.Request{topic: random_string}) == 
+    assert KafkaEx.offset_fetch(KafkaEx.Server, %Proto.OffsetFetch.Request{topic: random_string}) ==
       [%Proto.OffsetFetch.Response{partitions: [%{metadata: "", error_code: 0, offset: 9, partition: 0}], topic: random_string}]
   end
 
@@ -288,10 +288,10 @@ defmodule KafkaEx.Integration.Test do
     random_string = TestHelper.generate_random_string
     KafkaEx.create_worker(:stream_no_auto_commit, uris: uris)
     Enum.each(1..10, fn _ -> KafkaEx.produce(random_string, 0, "hey foo", required_acks: 1) end)
-    log = KafkaEx.stream(random_string, 0, worker_name: :stream_no_auto_commit, auto_commit: false) |> Enum.take(2)
+    KafkaEx.stream(random_string, 0, worker_name: :stream_no_auto_commit, auto_commit: false) |> Enum.take(2)
 
     offset_fetch_response = KafkaEx.offset_fetch(:stream_no_auto_commit, %Proto.OffsetFetch.Request{topic: random_string}) |> hd
-    error_code = offset_fetch_response.partitions |> hd |> Map.get(:error_code)
+    offset_fetch_response.partitions |> hd |> Map.get(:error_code)
     offset_fetch_response_offset = offset_fetch_response.partitions |> hd |> Map.get(:offset)
 
     assert 0 >= offset_fetch_response_offset
