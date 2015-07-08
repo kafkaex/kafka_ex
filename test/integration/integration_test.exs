@@ -43,11 +43,11 @@ defmodule KafkaEx.Integration.Test do
 
   #produce
   test "produce without an acq required returns :ok" do
-    assert KafkaEx.produce("food", 0, "hey") == :ok
+    assert KafkaEx.produce(%Proto.Produce.Request{topic: "food", required_acks: 0, messages: [%Proto.Produce.Message{value: "hey"}]}) == :ok
   end
 
   test "produce with ack required returns an ack" do
-    produce_response = KafkaEx.produce("food", 0, "hey", worker_name: KafkaEx.Server, required_acks: 1) |> hd
+    produce_response = KafkaEx.produce(%Proto.Produce.Request{topic: "food", required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) |> hd
     offset = produce_response.partitions |> hd |> Map.get(:offset)
 
     refute offset == nil
@@ -60,7 +60,7 @@ defmodule KafkaEx.Integration.Test do
 
     assert empty_metadata.brokers == []
 
-    KafkaEx.produce("food", 0, "hey")
+    KafkaEx.produce(%Proto.Produce.Request{topic: "food", required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]})
     metadata = :sys.get_state(pid).metadata
 
     refute metadata == empty_metadata
@@ -69,7 +69,7 @@ defmodule KafkaEx.Integration.Test do
 
   test "produce creates log for a non-existing topic" do
     random_string = TestHelper.generate_random_string
-    KafkaEx.produce(random_string, 0, "hey")
+    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]})
     pid = Process.whereis(KafkaEx.Server)
     metadata = :sys.get_state(pid).metadata
 
@@ -79,7 +79,7 @@ defmodule KafkaEx.Integration.Test do
   #metadata
   test "metadata works" do
     random_string = TestHelper.generate_random_string
-    Enum.each(1..10, fn _ -> KafkaEx.produce(random_string, 0, "hey foo", worker_name: KafkaEx.Server, required_acks: 1) end)
+    Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) end)
 
     refute Enum.empty?(Enum.flat_map(KafkaEx.metadata.topic_metadatas, fn(metadata) -> metadata.partition_metadatas end))
   end
@@ -125,7 +125,7 @@ defmodule KafkaEx.Integration.Test do
   test "fetch auto_commits offset by default" do
     random_string = TestHelper.generate_random_string
     KafkaEx.create_worker(:fetch_test_worker)
-    Enum.each(1..10, fn _ -> KafkaEx.produce(random_string, 0, "hey foo", worker_name: KafkaEx.Server, required_acks: 1) end)
+    Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) end)
     offset = KafkaEx.fetch(random_string, 0, offset: 0, worker: :fetch_test_worker) |> hd |> Map.get(:partitions) |> hd |> Map.get(:message_set) |> Enum.reverse |> hd |> Map.get(:offset)
 
     offset_fetch_response = KafkaEx.offset_fetch(:fetch_test_worker, %Proto.OffsetFetch.Request{topic: random_string}) |> hd
@@ -139,7 +139,7 @@ defmodule KafkaEx.Integration.Test do
   test "fetch starts consuming from last committed offset" do
     random_string = TestHelper.generate_random_string
     KafkaEx.create_worker(:fetch_test_committed_worker)
-    Enum.each(1..10, fn _ -> KafkaEx.produce(random_string, 0, "hey foo", worker_name: KafkaEx.Server, required_acks: 1) end)
+    Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) end)
     KafkaEx.offset_commit(:fetch_test_committed_worker, %Proto.OffsetCommit.Request{topic: random_string, offset: 3})
     logs = KafkaEx.fetch(random_string, 0, worker: :fetch_test_committed_worker) |> hd |> Map.get(:partitions) |> hd |> Map.get(:message_set)
 
@@ -151,7 +151,7 @@ defmodule KafkaEx.Integration.Test do
 
   test "fetch does not commit offset with auto_commit is set to false" do
     KafkaEx.create_worker(:fetch_no_auto_commit_worker)
-    Enum.each(1..10, fn _ -> KafkaEx.produce("food", 0, "hey foo", worker_name: KafkaEx.Server, required_acks: 1) end)
+    Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: "food", required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) end)
     offset = KafkaEx.fetch("food", 0, offset: 0, worker: :fetch_no_auto_commit_worker, auto_commit: false) |> hd |> Map.get(:partitions) |> hd |> Map.get(:message_set) |> Enum.reverse |> hd |> Map.get(:offset)
 
     offset_fetch_response = KafkaEx.offset_fetch(:fetch_no_auto_commit_worker, %Proto.OffsetFetch.Request{topic: "food"}) |> hd
@@ -174,7 +174,7 @@ defmodule KafkaEx.Integration.Test do
 
   test "fetch works" do
     random_string = TestHelper.generate_random_string
-    produce_response =  KafkaEx.produce(random_string, 0, "hey foo", worker_name: KafkaEx.Server, required_acks: 1) |> hd
+    produce_response =  KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey foo"}]}) |> hd
     offset = produce_response.partitions |> hd |> Map.get(:offset)
     fetch_response = KafkaEx.fetch(random_string, 0, offset: 0) |>  hd
     message = fetch_response.partitions |> hd |> Map.get(:message_set) |> hd
@@ -196,7 +196,7 @@ defmodule KafkaEx.Integration.Test do
 
   test "offset retrieves most recent offset by time specification" do
     random_string = TestHelper.generate_random_string
-    KafkaEx.produce(random_string, 0, "hey")
+    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]})
     offset_response = KafkaEx.offset(random_string, 0, utc_time) |> hd
     offset = offset_response.partition_offsets |> hd |> Map.get(:offset) |> hd
 
@@ -205,7 +205,7 @@ defmodule KafkaEx.Integration.Test do
 
   test "earliest_offset retrieves offset of 0" do
     random_string = TestHelper.generate_random_string
-    KafkaEx.produce(random_string, 0, "hey")
+    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]})
     offset_response = KafkaEx.earliest_offset(random_string, 0) |> hd
     offset = offset_response.partition_offsets |> hd |> Map.get(:offset) |> hd
 
@@ -214,7 +214,7 @@ defmodule KafkaEx.Integration.Test do
 
   test "latest_offset retrieves offset of 0 for non-existing topic" do
     random_string = TestHelper.generate_random_string
-    produce_offset = KafkaEx.produce(random_string, 0, "hey", required_acks: 1) |> hd |> Map.get(:partitions) |> hd |> Map.get(:offset)
+    produce_offset = KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) |> hd |> Map.get(:partitions) |> hd |> Map.get(:offset)
     offset_response = KafkaEx.latest_offset(random_string, 0) |> hd
     offset = offset_response.partition_offsets |> hd |> Map.get(:offset) |> hd
 
@@ -223,7 +223,7 @@ defmodule KafkaEx.Integration.Test do
 
   test "offset_commit commits an offset and offset_fetch retrieves the committed offset" do
     random_string = TestHelper.generate_random_string
-    Enum.each(1..10, fn _ -> KafkaEx.produce(random_string, 0, "foo") end)
+    Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) end)
     assert KafkaEx.offset_commit(KafkaEx.Server, %Proto.OffsetCommit.Request{topic: random_string, offset: 9}) ==
       [%Proto.OffsetCommit.Response{partitions: [0], topic: random_string}]
     assert KafkaEx.offset_fetch(KafkaEx.Server, %Proto.OffsetFetch.Request{topic: random_string}) ==
@@ -232,7 +232,7 @@ defmodule KafkaEx.Integration.Test do
 
   test "latest_offset retrieves a non-zero offset for a topic published to" do
     random_string = TestHelper.generate_random_string
-    KafkaEx.produce(random_string, 0, "foo")
+    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "foo"}]})
     offset_response = KafkaEx.latest_offset(random_string, 0) |> hd
     offset = offset_response.partition_offsets |> hd |> Map.get(:offset) |> hd
 
@@ -243,8 +243,12 @@ defmodule KafkaEx.Integration.Test do
   test "streams kafka logs" do
     random_string = TestHelper.generate_random_string
     KafkaEx.create_worker(:stream, uris: uris)
-    KafkaEx.produce(random_string, 0, "hey", worker_name: :stream)
-    KafkaEx.produce(random_string, 0, "hi", worker_name: :stream)
+    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [
+        %Proto.Produce.Message{value: "hey"},
+        %Proto.Produce.Message{value: "hi"},
+      ]
+    })
+
     log = KafkaEx.stream(random_string, 0, worker_name: :stream) |> Enum.take(2)
 
     refute Enum.empty?(log)
@@ -256,8 +260,11 @@ defmodule KafkaEx.Integration.Test do
   test "stream auto_commits offset by default" do
     random_string = TestHelper.generate_random_string
     KafkaEx.create_worker(:stream_auto_commit, uris: uris)
-    KafkaEx.produce(random_string, 0, "hey", required_acks: 1)
-    KafkaEx.produce(random_string, 0, "hi", required_acks: 1)
+    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [
+        %Proto.Produce.Message{value: "hey"},
+        %Proto.Produce.Message{value: "hi"},
+      ]
+    })
     log = KafkaEx.stream(random_string, 0, worker_name: :stream_auto_commit) |> Enum.take(2)
 
     refute Enum.empty?(log)
@@ -273,7 +280,7 @@ defmodule KafkaEx.Integration.Test do
   test "stream starts consuming from last committed offset" do
     random_string = TestHelper.generate_random_string
     KafkaEx.create_worker(:stream_last_committed_offset, uris: uris)
-    Enum.each(1..10, fn _ -> KafkaEx.produce(random_string, 0, "hey foo", required_acks: 1) end)
+    Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) end)
     KafkaEx.offset_commit(:stream_last_committed_offset, %Proto.OffsetCommit.Request{topic: random_string, offset: 3})
     log = KafkaEx.stream(random_string, 0, worker_name: :stream_last_committed_offset) |> Enum.take(2)
 
@@ -287,7 +294,7 @@ defmodule KafkaEx.Integration.Test do
   test "stream does not commit offset with auto_commit is set to false" do
     random_string = TestHelper.generate_random_string
     KafkaEx.create_worker(:stream_no_auto_commit, uris: uris)
-    Enum.each(1..10, fn _ -> KafkaEx.produce(random_string, 0, "hey foo", required_acks: 1) end)
+    Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) end)
     KafkaEx.stream(random_string, 0, worker_name: :stream_no_auto_commit, auto_commit: false) |> Enum.take(2)
 
     offset_fetch_response = KafkaEx.offset_fetch(:stream_no_auto_commit, %Proto.OffsetFetch.Request{topic: random_string}) |> hd
@@ -303,8 +310,11 @@ defmodule KafkaEx.Integration.Test do
     stream = KafkaEx.stream(random_string, 0, worker_name: :stream2)
 
     KafkaEx.create_worker(:producer, uris: uris)
-    KafkaEx.produce(random_string, 0, "one", worker_name: :producer, required_acks: 1)
-    KafkaEx.produce(random_string, 0, "two", worker_name: :producer, required_acks: 1)
+    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [
+        %Proto.Produce.Message{value: "one"},
+        %Proto.Produce.Message{value: "two"},
+      ]
+    }, worker_name: :producer)
 
     :timer.sleep(1000)
     log = GenEvent.call(stream.manager, KafkaExHandler, :messages)
@@ -313,15 +323,21 @@ defmodule KafkaEx.Integration.Test do
 
     KafkaEx.stop_streaming(worker_name: :stream2)
     :timer.sleep(1000)
-    KafkaEx.produce(random_string, 0, "three", worker_name: :producer, required_acks: 1)
-    KafkaEx.produce(random_string, 0, "four", worker_name: :producer, required_acks: 1)
+    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [
+        %Proto.Produce.Message{value: "three"},
+        %Proto.Produce.Message{value: "four"},
+      ]
+    }, worker_name: :producer)
     :timer.sleep(1000)
     stream = KafkaEx.stream(random_string, 0, worker_name: :stream2, offset: last_offset+1)
     log = GenEvent.call(stream.manager, KafkaExHandler, :messages)
     assert length(log) == 0
 
-    KafkaEx.produce(random_string, 0, "five", worker_name: :producer, required_acks: 1)
-    KafkaEx.produce(random_string, 0, "six", worker_name: :producer, required_acks: 1)
+    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [
+        %Proto.Produce.Message{value: "five"},
+        %Proto.Produce.Message{value: "six"},
+      ]
+    }, worker_name: :producer)
     :timer.sleep(1000)
     log = GenEvent.call(stream.manager, KafkaExHandler, :messages)
     assert length(log) == 4

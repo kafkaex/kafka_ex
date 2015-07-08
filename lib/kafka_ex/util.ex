@@ -4,26 +4,6 @@ defmodule KafkaEx.Util do
     mega * 1_000_000_000 + seconds * 1_000 + round(micros / 1_000)
   end
 
-  def create_message_set(value, key \\ nil) do
-    message = create_message(value, key)
-    << 0 :: 64, byte_size(message) :: 32 >> <> message
-  end
-
-  def create_message(value, key \\ nil) do
-    sub = << 0 :: 8, 0 :: 8 >> <> bytes(key) <> bytes(value)
-    crc = :erlang.crc32(sub)
-    << crc :: 32 >> <> sub
-  end
-
-  def bytes(nil), do: << -1 :: 32 >>
-
-  def bytes(data) do
-    case byte_size(data) do
-      0 -> << -1 :: 32 >>
-      size -> << size :: 32, data :: binary >>
-    end
-  end
-
   def parse_message_set([], << >>) do
     {:ok, [], nil}
   end
