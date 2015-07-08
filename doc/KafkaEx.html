@@ -25,7 +25,7 @@
     </script>
 
     <section id="content">
-      <div class="breadcrumbs">kafka_ex v0.0.2 &rarr; <a href="overview.html">Overview</a> &rarr; <a href="KafkaEx.html">KafkaEx</a></div>
+      <div class="breadcrumbs">kafka_ex v0.1.0 &rarr; <a href="overview.html">Overview</a> &rarr; <a href="KafkaEx.html">KafkaEx</a></div>
       <h1>
         KafkaEx
         
@@ -53,14 +53,11 @@
         <h2 id="summary">Summary<span class="detail_header_links"><a class="to_top_link" href="#content" title="To the top of the page">&uarr;</a></span></h2>
         <table class="summary">
           <tr>
-  <td class="summary_signature"><a href="#create_worker/1">create_worker(name)</a></td>
-  
-    <td class="summary_synopsis"><p>create_worker creates KafkaEx workers with broker list supplied in config</p>
-</td>
+  <td class="summary_signature"><a href="#consumer_group_metadata/2">consumer_group_metadata(worker_name, consumer_group)</a></td>
   
 </tr>
 <tr>
-  <td class="summary_signature"><a href="#create_worker/2">create_worker(name, uris)</a></td>
+  <td class="summary_signature"><a href="#create_worker/2">create_worker(name, worker_init \\ [])</a></td>
   
     <td class="summary_synopsis"><p>create_worker creates KafkaEx workers</p>
 </td>
@@ -74,9 +71,9 @@
   
 </tr>
 <tr>
-  <td class="summary_signature"><a href="#fetch/4">fetch(topic, partition, offset, opts \\ [])</a></td>
+  <td class="summary_signature"><a href="#fetch/3">fetch(topic, partition, opts \\ [])</a></td>
   
-    <td class="summary_synopsis"><p>Fetch a set of messages from Kafka from the given topic, partition ID, and offset</p>
+    <td class="summary_synopsis"><p>Fetch a set of messages from Kafka from the given topic and partition ID</p>
 </td>
   
 </tr>
@@ -102,6 +99,14 @@
   
 </tr>
 <tr>
+  <td class="summary_signature"><a href="#offset_commit/2">offset_commit(worker_name, offset_commit_request)</a></td>
+  
+</tr>
+<tr>
+  <td class="summary_signature"><a href="#offset_fetch/2">offset_fetch(worker_name, offset_fetch_request)</a></td>
+  
+</tr>
+<tr>
   <td class="summary_signature"><a href="#produce/4">produce(topic, partition, value, opts \\ [])</a></td>
   
     <td class="summary_synopsis"><p>Produces messages to kafka logs</p>
@@ -113,6 +118,10 @@
   
     <td class="summary_synopsis"><p>Callback implementation of <a href="http://www.erlang.org/doc/man/application.html#start-2"><code class="inline">:application.start/2</code></a></p>
 </td>
+  
+</tr>
+<tr>
+  <td class="summary_signature"><a href="#stop_streaming/1">stop_streaming(opts \\ [])</a></td>
   
 </tr>
 <tr>
@@ -137,6 +146,12 @@ The handler is a normal GenEvent handler so you can supply a custom handler, oth
   </p>
   
 </div>
+<div class="type_detail">
+  <p class="typespec" id="t:worker_init/0">
+    <a href="#t:worker_init/0">worker_init</a> :: [uris: <a href="#t:uri/0">uri</a>, consumer_group: binary]
+  </p>
+  
+</div>
 
         </section>
       
@@ -145,11 +160,11 @@ The handler is a normal GenEvent handler so you can supply a custom handler, oth
         <section id="functions_details" class="details_list">
           <h2>Functions</h2>
           <section class="detail">
-  <div class="detail_header" id="create_worker/1">
-    <span class="signature"><strong>create_worker(name)</strong></span>
+  <div class="detail_header" id="consumer_group_metadata/2">
+    <span class="signature"><strong>consumer_group_metadata(worker_name, consumer_group)</strong></span>
     <div class="detail_header_links">
       <span class="detail_type">(function)</span>
-      <a href="#create_worker/1" class="detail_link" title="Link to this function">#</a>
+      <a href="#consumer_group_metadata/2" class="detail_link" title="Link to this function">#</a>
       <a class="to_top_link" href="#content" title="To the top of the page">&uarr;</a>
     </div>
   </div>
@@ -157,22 +172,18 @@ The handler is a normal GenEvent handler so you can supply a custom handler, oth
     <p>Specs:</p>
     <ul class="spec">
       
-        <li>create_worker(atom) :: <a href="http://elixir-lang.org/docs/stable/elixir/Supervisor.html#t:on_start_child/0">Supervisor.on_start_child</a></li>
+        <li>consumer_group_metadata(atom, binary) :: <a href="KafkaEx.Protocol.ConsumerMetadata.Response.html#t:t/0">KafkaEx.Protocol.ConsumerMetadata.Response.t</a></li>
       
     </ul>
   
   <section class="docstring">
-    <p>create_worker creates KafkaEx workers with broker list supplied in config</p>
-<h2>Example</h2>
-<pre><code class="elixir">iex&gt; KafkaEx.create_worker(:pr) # where :pr is the name of the worker created
-{:ok, #PID&lt;0.171.0&gt;}</code></pre>
-
+    
   </section>
   
 </section>
 <section class="detail">
   <div class="detail_header" id="create_worker/2">
-    <span class="signature"><strong>create_worker(name, uris)</strong></span>
+    <span class="signature"><strong>create_worker(name, worker_init \\ [])</strong></span>
     <div class="detail_header_links">
       <span class="detail_type">(function)</span>
       <a href="#create_worker/2" class="detail_link" title="Link to this function">#</a>
@@ -183,15 +194,19 @@ The handler is a normal GenEvent handler so you can supply a custom handler, oth
     <p>Specs:</p>
     <ul class="spec">
       
-        <li>create_worker(atom, <a href="KafkaEx.html#t:uri/0">KafkaEx.uri</a>) :: <a href="http://elixir-lang.org/docs/stable/elixir/Supervisor.html#t:on_start_child/0">Supervisor.on_start_child</a></li>
+        <li>create_worker(atom, <a href="KafkaEx.html#t:worker_init/0">KafkaEx.worker_init</a>) :: <a href="http://elixir-lang.org/docs/stable/elixir/Supervisor.html#t:on_start_child/0">Supervisor.on_start_child</a></li>
       
     </ul>
   
   <section class="docstring">
     <p>create_worker creates KafkaEx workers</p>
 <h2>Example</h2>
-<pre><code class="elixir">iex&gt; KafkaEx.create_worker(:pr, [{&quot;localhost&quot;, 9092}])
-{:ok, #PID&lt;0.171.0&gt;}</code></pre>
+<pre><code class="elixir">iex&gt; KafkaEx.create_worker(:pr) # where :pr is the name of the worker created
+{:ok, #PID&lt;0.171.0&gt;}
+iex&gt; KafkaEx.create_worker(:pr, uris: [{&quot;localhost&quot;, 9092}]) #if no consumer_group is specified &quot;kafka_ex&quot; would be used as the default
+{:ok, #PID&lt;0.172.0&gt;}
+iex&gt; KafkaEx.create_worker(:pr, [uris: [{&quot;localhost&quot;, 9092}], consumer_group: &quot;foo&quot;])
+{:ok, #PID&lt;0.173.0&gt;}</code></pre>
 
   </section>
   
@@ -217,17 +232,17 @@ The handler is a normal GenEvent handler so you can supply a custom handler, oth
     <p>Get the offset of the earliest message still persistent in Kafka</p>
 <h2>Example</h2>
 <pre><code class="elixir">iex&gt; KafkaEx.earliest_offset(&quot;foo&quot;, 0)
-{:ok, %{&quot;foo&quot; =&gt; %{0 =&gt; %{error_code: 0, offsets: [0]}}}}</code></pre>
+[%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offset: [0], partition: 0}], topic: &quot;foo&quot;}]</code></pre>
 
   </section>
   
 </section>
 <section class="detail">
-  <div class="detail_header" id="fetch/4">
-    <span class="signature"><strong>fetch(topic, partition, offset, opts \\ [])</strong></span>
+  <div class="detail_header" id="fetch/3">
+    <span class="signature"><strong>fetch(topic, partition, opts \\ [])</strong></span>
     <div class="detail_header_links">
       <span class="detail_type">(function)</span>
-      <a href="#fetch/4" class="detail_link" title="Link to this function">#</a>
+      <a href="#fetch/3" class="detail_link" title="Link to this function">#</a>
       <a class="to_top_link" href="#content" title="To the top of the page">&uarr;</a>
     </div>
   </div>
@@ -235,31 +250,36 @@ The handler is a normal GenEvent handler so you can supply a custom handler, oth
     <p>Specs:</p>
     <ul class="spec">
       
-        <li>fetch(binary, number, number, <a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) :: {atom, %{}}</li>
+        <li>fetch(binary, number, <a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) :: {atom, %{}}</li>
       
     </ul>
   
   <section class="docstring">
-    <p>Fetch a set of messages from Kafka from the given topic, partition ID, and offset</p>
+    <p>Fetch a set of messages from Kafka from the given topic and partition ID</p>
 <p>Optional arguments(KeywordList)</p>
 <ul>
-<li>worker_name: the worker we want to run this metadata request through
+<li>offset: When supplied the fetch would start from this offset, otherwise would start from the last committed offset of the consumer_group the worker belongs to.
 </li>
-<li>wait_time: maximum amount of time in milliseconds to block waiting if insufficient data is available at the time the request is issued.
+<li>worker_name: the worker we want to run this fetch request through. Default is KafkaEx.Server
 </li>
-<li>min_bytes: minimum number of bytes of messages that must be available to give a response. If the client sets this to 0 the server will always respond immediately, however if there is no new data since their last request they will just get back empty message sets. If this is set to 1, the server will respond as soon as at least one partition has at least 1 byte of data or the specified timeout occurs. By setting higher values in combination with the timeout the consumer can tune for throughput and trade a little additional latency for reading only large chunks of data (e.g. setting wait_time to 100 and setting min_bytes 64000 would allow the server to wait up to 100ms to try to accumulate 64k of data before responding).
+<li>wait_time: maximum amount of time in milliseconds to block waiting if insufficient data is available at the time the request is issued. Default is 10
 </li>
-<li>max_bytes: maximum bytes to include in the message set for this partition. This helps bound the size of the response.
+<li>min_bytes: minimum number of bytes of messages that must be available to give a response. If the client sets this to 0 the server will always respond immediately, however if there is no new data since their last request they will just get back empty message sets. If this is set to 1, the server will respond as soon as at least one partition has at least 1 byte of data or the specified timeout occurs. By setting higher values in combination with the timeout the consumer can tune for throughput and trade a little additional latency for reading only large chunks of data (e.g. setting wait_time to 100 and setting min_bytes 64000 would allow the server to wait up to 100ms to try to accumulate 64k of data before responding). Default is 1
+</li>
+<li>max_bytes: maximum bytes to include in the message set for this partition. This helps bound the size of the response. Default is 1,000,000
+</li>
+<li>auto_commit: specifies if the last offset should be commited or not. Default is true
 </li>
 </ul>
 <h2>Example</h2>
-<pre><code class="elixir">iex&gt; KafkaEx.fetch(&quot;foo&quot;, 0, 0)
-{:ok,
- %{&quot;food&quot; =&gt; %{0 =&gt; %{error_code: 0, hw_mark_offset: 133,
-       message_set: [%{attributes: 0, crc: 4264455069, key: nil, offset: 0,
-          value: &quot;hey&quot;},
-        %{attributes: 0, crc: 4264455069, key: nil, offset: 1, value: &quot;hey&quot;},
-...]}}}}</code></pre>
+<pre><code class="elixir">iex&gt; KafkaEx.fetch(&quot;foo&quot;, 0, offset: 0)
+[
+  %KafkaEx.Protocol.Fetch.Response{partitions: [
+    %{error_code: 0, hw_mark_offset: 1, message_set: [
+      %{attributes: 0, crc: 748947812, key: nil, offset: 0, value: &quot;hey foo&quot;}
+    ], partition: 0}
+  ], topic: &quot;foo&quot;}
+]</code></pre>
 
   </section>
   
@@ -285,7 +305,7 @@ The handler is a normal GenEvent handler so you can supply a custom handler, oth
     <p>Get the offset of the latest message written to Kafka</p>
 <h2>Example</h2>
 <pre><code class="elixir">iex&gt; KafkaEx.latest_offset(&quot;foo&quot;, 0)
-{:ok, %{&quot;foo&quot; =&gt; %{0 =&gt; %{error_code: 0, offsets: [16]}}}}</code></pre>
+[%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offsets: [16], partition: 0}], topic: &quot;foo&quot;}]</code></pre>
 
   </section>
   
@@ -319,13 +339,12 @@ The handler is a normal GenEvent handler so you can supply a custom handler, oth
 <h2>Example</h2>
 <pre><code class="elixir">iex&gt; KafkaEx.create_worker(:mt)
 iex&gt; KafkaEx.metadata(topic: &quot;foo&quot;, worker_name: :mt)
-%{brokers: %{1 =&gt; {&quot;localhost&quot;, 9092}},
-  topics: %{&quot;foo&quot; =&gt; %{error_code: 0,
-      partitions: %{0 =&gt; %{error_code: 0, isrs: [1], leader: 1, replicas: [1]},
-        1 =&gt; %{error_code: 0, isrs: [1], leader: 1, replicas: [1]},
-        2 =&gt; %{error_code: 0, isrs: [1], leader: 1, replicas: [1]},
-        3 =&gt; %{error_code: 0, isrs: [1], leader: 1, replicas: [1]},
-        4 =&gt; %{error_code: 0, isrs: [1], leader: 1, replicas: [1]}}}}}</code></pre>
+%KafkaEx.Protocol.Metadata.Response{brokers: [%KafkaEx.Protocol.Metadata.Broker{host: &quot;192.168.59.103&quot;,
+   node_id: 49162, port: 49162, socket: nil}],
+ topic_metadatas: [%KafkaEx.Protocol.Metadata.TopicMetadata{error_code: 0,
+   partition_metadatas: [%KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: 0,
+     isrs: [49162], leader: 49162, partition_id: 0, replicas: [49162]}],
+   topic: &quot;foo&quot;}]}</code></pre>
 
   </section>
   
@@ -351,8 +370,52 @@ iex&gt; KafkaEx.metadata(topic: &quot;foo&quot;, worker_name: :mt)
     <p>Get the offset of the message sent at the specified date/time</p>
 <h2>Example</h2>
 <pre><code class="elixir">iex&gt; KafkaEx.offset(&quot;foo&quot;, 0, {{2015, 3, 29}, {23, 56, 40}}) # Note that the time specified should match/be ahead of time on the server that kafka runs
-{:ok, %{&quot;foo&quot; =&gt; %{0 =&gt; %{error_code: 0, offsets: [256]}}}}</code></pre>
+[%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offset: [256], partition: 0}], topic: &quot;foo&quot;}]</code></pre>
 
+  </section>
+  
+</section>
+<section class="detail">
+  <div class="detail_header" id="offset_commit/2">
+    <span class="signature"><strong>offset_commit(worker_name, offset_commit_request)</strong></span>
+    <div class="detail_header_links">
+      <span class="detail_type">(function)</span>
+      <a href="#offset_commit/2" class="detail_link" title="Link to this function">#</a>
+      <a class="to_top_link" href="#content" title="To the top of the page">&uarr;</a>
+    </div>
+  </div>
+  
+    <p>Specs:</p>
+    <ul class="spec">
+      
+        <li>offset_commit(atom, <a href="KafkaEx.Protocol.OffsetCommit.Request.html#t:t/0">KafkaEx.Protocol.OffsetCommit.Request.t</a>) :: <a href="KafkaEx.Protocol.OffsetCommit.Response.html#t:t/0">KafkaEx.Protocol.OffsetCommit.Response.t</a></li>
+      
+    </ul>
+  
+  <section class="docstring">
+    
+  </section>
+  
+</section>
+<section class="detail">
+  <div class="detail_header" id="offset_fetch/2">
+    <span class="signature"><strong>offset_fetch(worker_name, offset_fetch_request)</strong></span>
+    <div class="detail_header_links">
+      <span class="detail_type">(function)</span>
+      <a href="#offset_fetch/2" class="detail_link" title="Link to this function">#</a>
+      <a class="to_top_link" href="#content" title="To the top of the page">&uarr;</a>
+    </div>
+  </div>
+  
+    <p>Specs:</p>
+    <ul class="spec">
+      
+        <li>offset_fetch(atom, <a href="KafkaEx.Protocol.OffsetFetch.Request.html#t:t/0">KafkaEx.Protocol.OffsetFetch.Request.t</a>) :: <a href="KafkaEx.Protocol.OffsetFetch.Response.html#t:t/0">KafkaEx.Protocol.OffsetFetch.Response.t</a></li>
+      
+    </ul>
+  
+  <section class="docstring">
+    
   </section>
   
 </section>
@@ -379,7 +442,7 @@ iex&gt; KafkaEx.metadata(topic: &quot;foo&quot;, worker_name: :mt)
 <ul>
 <li>worker_name: the worker we want to run this metadata request through, when none is provided the default worker <a href="KafkaEx.Server.html"><code class="inline">KafkaEx.Server</code></a> is used
 </li>
-<li>key: is used for partition assignment, can be nil, when none is provided it is defaulted to nil 
+<li>key: is used for partition assignment, can be nil, when none is provided it is defaulted to nil
 </li>
 <li>require_acks: indicates how many acknowledgements the servers should receive before responding to the request. If it is 0 the server will not send any response (this is the only case where the server will not reply to a request). If it is 1, the server will wait the data is written to the local log before sending a response. If it is -1 the server will block until the message is committed by all in sync replicas before sending a response. For any number &gt; 1 the server will block waiting for this number of acknowledgements to occur (but the server will never wait for more acknowledgements than there are in-sync replicas), default is 0
 </li>
@@ -390,7 +453,7 @@ iex&gt; KafkaEx.metadata(topic: &quot;foo&quot;, worker_name: :mt)
 <pre><code class="elixir">iex&gt; KafkaEx.produce(&quot;bar&quot;, 0, &quot;hey&quot;)
 :ok
 iex&gt; KafkaEx.produce(&quot;foo&quot;, 0, &quot;hey&quot;, [worker_name: :pr, require_acks: 1])
-{:ok, %{&quot;foo&quot; =&gt; %{0 =&gt; %{error_code: 0, offset: 15}}}}</code></pre>
+[%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: 0, offset: 75, partition: 0}], topic: &quot;foo&quot;}]</code></pre>
 
   </section>
   
@@ -408,6 +471,28 @@ iex&gt; KafkaEx.produce(&quot;foo&quot;, 0, &quot;hey&quot;, [worker_name: :pr, 
   <section class="docstring">
     <p>Callback implementation of <a href="http://www.erlang.org/doc/man/application.html#start-2"><code class="inline">:application.start/2</code></a>.</p>
 
+  </section>
+  
+</section>
+<section class="detail">
+  <div class="detail_header" id="stop_streaming/1">
+    <span class="signature"><strong>stop_streaming(opts \\ [])</strong></span>
+    <div class="detail_header_links">
+      <span class="detail_type">(function)</span>
+      <a href="#stop_streaming/1" class="detail_link" title="Link to this function">#</a>
+      <a class="to_top_link" href="#content" title="To the top of the page">&uarr;</a>
+    </div>
+  </div>
+  
+    <p>Specs:</p>
+    <ul class="spec">
+      
+        <li>stop_streaming(<a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) :: :ok</li>
+      
+    </ul>
+  
+  <section class="docstring">
+    
   </section>
   
 </section>
@@ -441,6 +526,8 @@ The handler is a normal GenEvent handler so you can supply a custom handler, oth
 </li>
 <li>handler: the handler we want to handle the streaming events, when none is provided the default KafkaExHandler is used
 </li>
+<li>auto_commit: specifies if the last offset should be commited or not. Default is true
+</li>
 </ul>
 <h2>Example</h2>
 <pre><code class="elixir">iex&gt; KafkaEx.create_worker(:stream, [{&quot;localhost&quot;, 9092}])
@@ -449,7 +536,7 @@ iex&gt; KafkaEx.produce(&quot;foo&quot;, 0, &quot;hey&quot;, worker_name: :strea
 :ok
 iex&gt; KafkaEx.produce(&quot;foo&quot;, 0, &quot;hi&quot;, worker_name: :stream)
 :ok
-iex&gt; KafkaEx.stream(&quot;foo&quot;, 0) |&gt; iex&gt; Enum.take(2)
+iex&gt; KafkaEx.stream(&quot;foo&quot;, 0) |&gt; Enum.take(2)
 [%{attributes: 0, crc: 4264455069, key: nil, offset: 0, value: &quot;hey&quot;},
  %{attributes: 0, crc: 4251893211, key: nil, offset: 1, value: &quot;hi&quot;}]</code></pre>
 

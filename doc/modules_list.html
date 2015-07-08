@@ -18,7 +18,7 @@
     <section id="content">
       <h1 id="full_list_header">
         
-          kafka_ex v0.0.2
+          kafka_ex v0.1.0
         
       </h1>
 
@@ -48,7 +48,7 @@
   <ul>
     
       <li>
-        <a href="KafkaEx.html#create_worker/1" title="KafkaEx.create_worker/1" class="object_link">create_worker/1</a>
+        <a href="KafkaEx.html#consumer_group_metadata/2" title="KafkaEx.consumer_group_metadata/2" class="object_link">consumer_group_metadata/2</a>
         <span class="node_name">KafkaEx</span>
       </li>
     
@@ -63,7 +63,7 @@
       </li>
     
       <li>
-        <a href="KafkaEx.html#fetch/4" title="KafkaEx.fetch/4" class="object_link">fetch/4</a>
+        <a href="KafkaEx.html#fetch/3" title="KafkaEx.fetch/3" class="object_link">fetch/3</a>
         <span class="node_name">KafkaEx</span>
       </li>
     
@@ -83,12 +83,27 @@
       </li>
     
       <li>
+        <a href="KafkaEx.html#offset_commit/2" title="KafkaEx.offset_commit/2" class="object_link">offset_commit/2</a>
+        <span class="node_name">KafkaEx</span>
+      </li>
+    
+      <li>
+        <a href="KafkaEx.html#offset_fetch/2" title="KafkaEx.offset_fetch/2" class="object_link">offset_fetch/2</a>
+        <span class="node_name">KafkaEx</span>
+      </li>
+    
+      <li>
         <a href="KafkaEx.html#produce/4" title="KafkaEx.produce/4" class="object_link">produce/4</a>
         <span class="node_name">KafkaEx</span>
       </li>
     
       <li>
         <a href="KafkaEx.html#start/2" title="KafkaEx.start/2" class="object_link">start/2</a>
+        <span class="node_name">KafkaEx</span>
+      </li>
+    
+      <li>
+        <a href="KafkaEx.html#stop_streaming/1" title="KafkaEx.stop_streaming/1" class="object_link">stop_streaming/1</a>
         <span class="node_name">KafkaEx</span>
       </li>
     
@@ -103,41 +118,36 @@
   
     <a class="toggle"></a>
   
-  <a href="KafkaEx.Connection.html" title="KafkaEx.Connection" class="object_link">KafkaEx.Connection</a>
-  <span class="node_name">KafkaEx.Connection</span>
+  <a href="KafkaEx.NetworkClient.html" title="KafkaEx.NetworkClient" class="object_link">KafkaEx.NetworkClient</a>
+  <span class="node_name">KafkaEx.NetworkClient</span>
 </li>
 
 <li class="docs">
   <ul>
     
       <li>
-        <a href="KafkaEx.Connection.html#close/1" title="KafkaEx.Connection.close/1" class="object_link">close/1</a>
-        <span class="node_name">KafkaEx.Connection</span>
+        <a href="KafkaEx.NetworkClient.html#close_socket/1" title="KafkaEx.NetworkClient.close_socket/1" class="object_link">close_socket/1</a>
+        <span class="node_name">KafkaEx.NetworkClient</span>
       </li>
     
       <li>
-        <a href="KafkaEx.Connection.html#connect/2" title="KafkaEx.Connection.connect/2" class="object_link">connect/2</a>
-        <span class="node_name">KafkaEx.Connection</span>
+        <a href="KafkaEx.NetworkClient.html#create_socket/2" title="KafkaEx.NetworkClient.create_socket/2" class="object_link">create_socket/2</a>
+        <span class="node_name">KafkaEx.NetworkClient</span>
       </li>
     
       <li>
-        <a href="KafkaEx.Connection.html#connect_brokers/2" title="KafkaEx.Connection.connect_brokers/2" class="object_link">connect_brokers/2</a>
-        <span class="node_name">KafkaEx.Connection</span>
+        <a href="KafkaEx.NetworkClient.html#format_host/1" title="KafkaEx.NetworkClient.format_host/1" class="object_link">format_host/1</a>
+        <span class="node_name">KafkaEx.NetworkClient</span>
       </li>
     
       <li>
-        <a href="KafkaEx.Connection.html#format_host/1" title="KafkaEx.Connection.format_host/1" class="object_link">format_host/1</a>
-        <span class="node_name">KafkaEx.Connection</span>
+        <a href="KafkaEx.NetworkClient.html#send_async_request/2" title="KafkaEx.NetworkClient.send_async_request/2" class="object_link">send_async_request/2</a>
+        <span class="node_name">KafkaEx.NetworkClient</span>
       </li>
     
       <li>
-        <a href="KafkaEx.Connection.html#format_uri/2" title="KafkaEx.Connection.format_uri/2" class="object_link">format_uri/2</a>
-        <span class="node_name">KafkaEx.Connection</span>
-      </li>
-    
-      <li>
-        <a href="KafkaEx.Connection.html#send/2" title="KafkaEx.Connection.send/2" class="object_link">send/2</a>
-        <span class="node_name">KafkaEx.Connection</span>
+        <a href="KafkaEx.NetworkClient.html#send_sync_request/3" title="KafkaEx.NetworkClient.send_sync_request/3" class="object_link">send_sync_request/3</a>
+        <span class="node_name">KafkaEx.NetworkClient</span>
       </li>
     
   </ul>
@@ -169,6 +179,47 @@
   
     <a class="toggle"></a>
   
+  <a href="KafkaEx.Protocol.ConsumerMetadata.html" title="KafkaEx.Protocol.ConsumerMetadata" class="object_link">KafkaEx.Protocol.ConsumerMetadata</a>
+  <span class="node_name">KafkaEx.Protocol.ConsumerMetadata</span>
+</li>
+
+<li class="docs">
+  <ul>
+    
+      <li>
+        <a href="KafkaEx.Protocol.ConsumerMetadata.html#create_request/3" title="KafkaEx.Protocol.ConsumerMetadata.create_request/3" class="object_link">create_request/3</a>
+        <span class="node_name">KafkaEx.Protocol.ConsumerMetadata</span>
+      </li>
+    
+      <li>
+        <a href="KafkaEx.Protocol.ConsumerMetadata.html#parse_response/1" title="KafkaEx.Protocol.ConsumerMetadata.parse_response/1" class="object_link">parse_response/1</a>
+        <span class="node_name">KafkaEx.Protocol.ConsumerMetadata</span>
+      </li>
+    
+  </ul>
+</li>
+<li class="node">
+  
+    <a class="toggle"></a>
+  
+  <a href="KafkaEx.Protocol.ConsumerMetadata.Response.html" title="KafkaEx.Protocol.ConsumerMetadata.Response" class="object_link">KafkaEx.Protocol.ConsumerMetadata.Response</a>
+  <span class="node_name">KafkaEx.Protocol.ConsumerMetadata.Response</span>
+</li>
+
+<li class="docs">
+  <ul>
+    
+      <li>
+        <a href="KafkaEx.Protocol.ConsumerMetadata.Response.html#broker_for_consumer_group/2" title="KafkaEx.Protocol.ConsumerMetadata.Response.broker_for_consumer_group/2" class="object_link">broker_for_consumer_group/2</a>
+        <span class="node_name">KafkaEx.Protocol.ConsumerMetadata.Response</span>
+      </li>
+    
+  </ul>
+</li>
+<li class="node">
+  
+    <a class="toggle"></a>
+  
   <a href="KafkaEx.Protocol.Fetch.html" title="KafkaEx.Protocol.Fetch" class="object_link">KafkaEx.Protocol.Fetch</a>
   <span class="node_name">KafkaEx.Protocol.Fetch</span>
 </li>
@@ -187,6 +238,16 @@
       </li>
     
   </ul>
+</li>
+<li class="node">
+  
+  <a href="KafkaEx.Protocol.Fetch.Request.html" title="KafkaEx.Protocol.Fetch.Request" class="object_link">KafkaEx.Protocol.Fetch.Request</a>
+  <span class="node_name">KafkaEx.Protocol.Fetch.Request</span>
+</li>
+<li class="node">
+  
+  <a href="KafkaEx.Protocol.Fetch.Response.html" title="KafkaEx.Protocol.Fetch.Response" class="object_link">KafkaEx.Protocol.Fetch.Response</a>
+  <span class="node_name">KafkaEx.Protocol.Fetch.Response</span>
 </li>
 <li class="node">
   
@@ -213,6 +274,44 @@
 </li>
 <li class="node">
   
+  <a href="KafkaEx.Protocol.Metadata.Broker.html" title="KafkaEx.Protocol.Metadata.Broker" class="object_link">KafkaEx.Protocol.Metadata.Broker</a>
+  <span class="node_name">KafkaEx.Protocol.Metadata.Broker</span>
+</li>
+<li class="node">
+  
+  <a href="KafkaEx.Protocol.Metadata.PartitionMetadata.html" title="KafkaEx.Protocol.Metadata.PartitionMetadata" class="object_link">KafkaEx.Protocol.Metadata.PartitionMetadata</a>
+  <span class="node_name">KafkaEx.Protocol.Metadata.PartitionMetadata</span>
+</li>
+<li class="node">
+  
+  <a href="KafkaEx.Protocol.Metadata.Request.html" title="KafkaEx.Protocol.Metadata.Request" class="object_link">KafkaEx.Protocol.Metadata.Request</a>
+  <span class="node_name">KafkaEx.Protocol.Metadata.Request</span>
+</li>
+<li class="node">
+  
+    <a class="toggle"></a>
+  
+  <a href="KafkaEx.Protocol.Metadata.Response.html" title="KafkaEx.Protocol.Metadata.Response" class="object_link">KafkaEx.Protocol.Metadata.Response</a>
+  <span class="node_name">KafkaEx.Protocol.Metadata.Response</span>
+</li>
+
+<li class="docs">
+  <ul>
+    
+      <li>
+        <a href="KafkaEx.Protocol.Metadata.Response.html#broker_for_topic/4" title="KafkaEx.Protocol.Metadata.Response.broker_for_topic/4" class="object_link">broker_for_topic/4</a>
+        <span class="node_name">KafkaEx.Protocol.Metadata.Response</span>
+      </li>
+    
+  </ul>
+</li>
+<li class="node">
+  
+  <a href="KafkaEx.Protocol.Metadata.TopicMetadata.html" title="KafkaEx.Protocol.Metadata.TopicMetadata" class="object_link">KafkaEx.Protocol.Metadata.TopicMetadata</a>
+  <span class="node_name">KafkaEx.Protocol.Metadata.TopicMetadata</span>
+</li>
+<li class="node">
+  
     <a class="toggle"></a>
   
   <a href="KafkaEx.Protocol.Offset.html" title="KafkaEx.Protocol.Offset" class="object_link">KafkaEx.Protocol.Offset</a>
@@ -236,6 +335,82 @@
 </li>
 <li class="node">
   
+  <a href="KafkaEx.Protocol.Offset.Request.html" title="KafkaEx.Protocol.Offset.Request" class="object_link">KafkaEx.Protocol.Offset.Request</a>
+  <span class="node_name">KafkaEx.Protocol.Offset.Request</span>
+</li>
+<li class="node">
+  
+  <a href="KafkaEx.Protocol.Offset.Response.html" title="KafkaEx.Protocol.Offset.Response" class="object_link">KafkaEx.Protocol.Offset.Response</a>
+  <span class="node_name">KafkaEx.Protocol.Offset.Response</span>
+</li>
+<li class="node">
+  
+    <a class="toggle"></a>
+  
+  <a href="KafkaEx.Protocol.OffsetCommit.html" title="KafkaEx.Protocol.OffsetCommit" class="object_link">KafkaEx.Protocol.OffsetCommit</a>
+  <span class="node_name">KafkaEx.Protocol.OffsetCommit</span>
+</li>
+
+<li class="docs">
+  <ul>
+    
+      <li>
+        <a href="KafkaEx.Protocol.OffsetCommit.html#create_request/3" title="KafkaEx.Protocol.OffsetCommit.create_request/3" class="object_link">create_request/3</a>
+        <span class="node_name">KafkaEx.Protocol.OffsetCommit</span>
+      </li>
+    
+      <li>
+        <a href="KafkaEx.Protocol.OffsetCommit.html#parse_response/1" title="KafkaEx.Protocol.OffsetCommit.parse_response/1" class="object_link">parse_response/1</a>
+        <span class="node_name">KafkaEx.Protocol.OffsetCommit</span>
+      </li>
+    
+  </ul>
+</li>
+<li class="node">
+  
+  <a href="KafkaEx.Protocol.OffsetCommit.Request.html" title="KafkaEx.Protocol.OffsetCommit.Request" class="object_link">KafkaEx.Protocol.OffsetCommit.Request</a>
+  <span class="node_name">KafkaEx.Protocol.OffsetCommit.Request</span>
+</li>
+<li class="node">
+  
+  <a href="KafkaEx.Protocol.OffsetCommit.Response.html" title="KafkaEx.Protocol.OffsetCommit.Response" class="object_link">KafkaEx.Protocol.OffsetCommit.Response</a>
+  <span class="node_name">KafkaEx.Protocol.OffsetCommit.Response</span>
+</li>
+<li class="node">
+  
+    <a class="toggle"></a>
+  
+  <a href="KafkaEx.Protocol.OffsetFetch.html" title="KafkaEx.Protocol.OffsetFetch" class="object_link">KafkaEx.Protocol.OffsetFetch</a>
+  <span class="node_name">KafkaEx.Protocol.OffsetFetch</span>
+</li>
+
+<li class="docs">
+  <ul>
+    
+      <li>
+        <a href="KafkaEx.Protocol.OffsetFetch.html#create_request/3" title="KafkaEx.Protocol.OffsetFetch.create_request/3" class="object_link">create_request/3</a>
+        <span class="node_name">KafkaEx.Protocol.OffsetFetch</span>
+      </li>
+    
+      <li>
+        <a href="KafkaEx.Protocol.OffsetFetch.html#parse_response/1" title="KafkaEx.Protocol.OffsetFetch.parse_response/1" class="object_link">parse_response/1</a>
+        <span class="node_name">KafkaEx.Protocol.OffsetFetch</span>
+      </li>
+    
+  </ul>
+</li>
+<li class="node">
+  
+  <a href="KafkaEx.Protocol.OffsetFetch.Request.html" title="KafkaEx.Protocol.OffsetFetch.Request" class="object_link">KafkaEx.Protocol.OffsetFetch.Request</a>
+  <span class="node_name">KafkaEx.Protocol.OffsetFetch.Request</span>
+</li>
+<li class="node">
+  
+  <a href="KafkaEx.Protocol.OffsetFetch.Response.html" title="KafkaEx.Protocol.OffsetFetch.Response" class="object_link">KafkaEx.Protocol.OffsetFetch.Response</a>
+  <span class="node_name">KafkaEx.Protocol.OffsetFetch.Response</span>
+</li>
+<li class="node">
+  
     <a class="toggle"></a>
   
   <a href="KafkaEx.Protocol.Produce.html" title="KafkaEx.Protocol.Produce" class="object_link">KafkaEx.Protocol.Produce</a>
@@ -256,6 +431,16 @@
       </li>
     
   </ul>
+</li>
+<li class="node">
+  
+  <a href="KafkaEx.Protocol.Produce.Request.html" title="KafkaEx.Protocol.Produce.Request" class="object_link">KafkaEx.Protocol.Produce.Request</a>
+  <span class="node_name">KafkaEx.Protocol.Produce.Request</span>
+</li>
+<li class="node">
+  
+  <a href="KafkaEx.Protocol.Produce.Response.html" title="KafkaEx.Protocol.Produce.Response" class="object_link">KafkaEx.Protocol.Produce.Response</a>
+  <span class="node_name">KafkaEx.Protocol.Produce.Response</span>
 </li>
 <li class="node">
   
@@ -321,6 +506,11 @@
     
       <li>
         <a href="KafkaEx.Util.html#create_message_set/2" title="KafkaEx.Util.create_message_set/2" class="object_link">create_message_set/2</a>
+        <span class="node_name">KafkaEx.Util</span>
+      </li>
+    
+      <li>
+        <a href="KafkaEx.Util.html#current_timestamp/0" title="KafkaEx.Util.current_timestamp/0" class="object_link">current_timestamp/0</a>
         <span class="node_name">KafkaEx.Util</span>
       </li>
     

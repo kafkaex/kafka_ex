@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>KafkaEx.Server</title>
+    <title>KafkaEx.Protocol.OffsetCommit</title>
     <meta charset="utf-8" />
     <link rel="stylesheet" href="css/style.css" type="text/css" media="screen" charset="utf-8" />
     <link rel="stylesheet" href="css/elixir.css" type="text/css" media="screen" charset="utf-8" />
@@ -25,9 +25,9 @@
     </script>
 
     <section id="content">
-      <div class="breadcrumbs">kafka_ex v0.1.0 &rarr; <a href="overview.html">Overview</a> &rarr; <a href="KafkaEx.html">KafkaEx</a> &rarr; <a href="KafkaEx.Server.html">Server</a></div>
+      <div class="breadcrumbs">kafka_ex v0.1.0 &rarr; <a href="overview.html">Overview</a> &rarr; <a href="KafkaEx.html">KafkaEx</a> &rarr; <a href="KafkaEx.Protocol.html">Protocol</a> &rarr; <a href="KafkaEx.Protocol.OffsetCommit.html">OffsetCommit</a></div>
       <h1>
-        KafkaEx.Server
+        KafkaEx.Protocol.OffsetCommit
         
       </h1>
 
@@ -51,7 +51,11 @@
         <h2 id="summary">Summary<span class="detail_header_links"><a class="to_top_link" href="#content" title="To the top of the page">&uarr;</a></span></h2>
         <table class="summary">
           <tr>
-  <td class="summary_signature"><a href="#start_link/2">start_link(args, name \\ KafkaEx.Server)</a></td>
+  <td class="summary_signature"><a href="#create_request/3">create_request(correlation_id, client_id, offset_commit_request)</a></td>
+  
+</tr>
+<tr>
+  <td class="summary_signature"><a href="#parse_response/1">parse_response(arg1)</a></td>
   
 </tr>
 
@@ -64,14 +68,43 @@
         <section id="functions_details" class="details_list">
           <h2>Functions</h2>
           <section class="detail">
-  <div class="detail_header" id="start_link/2">
-    <span class="signature"><strong>start_link(args, name \\ KafkaEx.Server)</strong></span>
+  <div class="detail_header" id="create_request/3">
+    <span class="signature"><strong>create_request(correlation_id, client_id, offset_commit_request)</strong></span>
     <div class="detail_header_links">
       <span class="detail_type">(function)</span>
-      <a href="#start_link/2" class="detail_link" title="Link to this function">#</a>
+      <a href="#create_request/3" class="detail_link" title="Link to this function">#</a>
       <a class="to_top_link" href="#content" title="To the top of the page">&uarr;</a>
     </div>
   </div>
+  
+    <p>Specs:</p>
+    <ul class="spec">
+      
+        <li>create_request(integer, binary, <a href="KafkaEx.Protocol.OffsetCommit.Request.html#t:t/0">KafkaEx.Protocol.OffsetCommit.Request.t</a>) :: binary</li>
+      
+    </ul>
+  
+  <section class="docstring">
+    
+  </section>
+  
+</section>
+<section class="detail">
+  <div class="detail_header" id="parse_response/1">
+    <span class="signature"><strong>parse_response(arg1)</strong></span>
+    <div class="detail_header_links">
+      <span class="detail_type">(function)</span>
+      <a href="#parse_response/1" class="detail_link" title="Link to this function">#</a>
+      <a class="to_top_link" href="#content" title="To the top of the page">&uarr;</a>
+    </div>
+  </div>
+  
+    <p>Specs:</p>
+    <ul class="spec">
+      
+        <li>parse_response(binary) :: [] | [<a href="KafkaEx.Protocol.OffsetCommit.Response.html#t:t/0">KafkaEx.Protocol.OffsetCommit.Response.t</a>]</li>
+      
+    </ul>
   
   <section class="docstring">
     
