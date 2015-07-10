@@ -176,10 +176,36 @@ defmodule KafkaEx do
   [%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: 0, offset: 75, partition: 0}], topic: "foo"}]
   ```
   """
-  @spec produce(KafkaEx.Protocol.Produce.Request.t, Keyword.t) :: :ok|{:ok, map}
+  @spec produce(KafkaEx.Protocol.Produce.Request.t, Keyword.t) :: :ok|list
   def produce(produce_request, opts \\ []) do
     worker_name   = Keyword.get(opts, :worker_name, KafkaEx.Server)
     GenServer.call(worker_name, {:produce, produce_request})
+  end
+
+  @doc """
+  Produces messages to kafka logs (this is deprecated, use KafkaEx.produce/2 instead)
+  Optional arguments(KeywordList)
+  - worker_name: the worker we want to run this metadata request through, when none is provided the default worker `KafkaEx.Server` is used
+  - key: is used for partition assignment, can be nil, when none is provided it is defaulted to nil
+  - require_acks: indicates how many acknowledgements the servers should receive before responding to the request. If it is 0 the server will not send any response (this is the only case where the server will not reply to a request). If it is 1, the server will wait the data is written to the local log before sending a response. If it is -1 the server will block until the message is committed by all in sync replicas before sending a response. For any number > 1 the server will block waiting for this number of acknowledgements to occur (but the server will never wait for more acknowledgements than there are in-sync replicas), default is 0
+  - timeout: provides a maximum time in milliseconds the server can await the receipt of the number of acknowledgements in RequiredAcks, default is 100 milliseconds
+  ## Example
+  ```elixir
+  iex> KafkaEx.produce("bar", 0, "hey")
+  :ok
+  iex> KafkaEx.produce("foo", 0, "hey", [worker_name: :pr, require_acks: 1])
+  [%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: 0, offset: 75, partition: 0}], topic: "foo"}]
+  ```
+  """
+  @spec produce(binary, number, binary, Keyword.t) :: :ok|list
+  def produce(topic, partition, value, opts \\ []) do
+    worker_name     = Keyword.get(opts, :worker_name, KafkaEx.Server)
+    key             = Keyword.get(opts, :key, "")
+    required_acks   = Keyword.get(opts, :required_acks, 0)
+    timeout         = Keyword.get(opts, :timeout, 100)
+    produce_request = %KafkaEx.Protocol.Produce.Request{topic: topic, partition: partition, required_acks: required_acks, timeout: timeout, messages: [%KafkaEx.Protocol.Produce.Message{key: key, value: value, compression: :none}]}
+
+    produce(produce_request, opts)
   end
 
   @doc """

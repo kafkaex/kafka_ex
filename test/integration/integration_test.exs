@@ -42,6 +42,17 @@ defmodule KafkaEx.Integration.Test do
   end
 
   #produce
+  test "produce/4 without an acq required returns :ok" do
+    assert KafkaEx.produce("food", 0, "hey") == :ok
+  end
+
+  test "produce/4 with ack required returns an ack" do
+    produce_response = KafkaEx.produce("food", 0, "hey", worker_name: KafkaEx.Server, required_acks: 1) |> hd
+    offset = produce_response.partitions |> hd |> Map.get(:offset)
+
+    refute offset == nil
+  end
+
   test "produce without an acq required returns :ok" do
     assert KafkaEx.produce(%Proto.Produce.Request{topic: "food", required_acks: 0, messages: [%Proto.Produce.Message{value: "hey"}]}) == :ok
   end

@@ -46,29 +46,6 @@ defmodule KafkaEx.Server do
     {:reply, response, state}
   end
 
-  def handle_call({:produce, topic, partition, value, key, required_acks, timeout}, _from, state) do
-    correlation_id = state.correlation_id + 1
-    produce_request = Proto.Produce.create_request(correlation_id, @client_id, topic, partition, value, key, required_acks, timeout)
-    {broker, state} = case Proto.Metadata.Response.broker_for_topic(state.metadata, state.brokers, topic, partition) do
-      nil    ->
-        {correlation_id, _} = metadata(state.brokers, state.correlation_id, topic)
-        state = %{update_metadata(state) | correlation_id: correlation_id}
-        {Proto.Metadata.Response.broker_for_topic(state.metadata, state.brokers, topic, partition), state}
-      broker -> {broker, state}
-    end
-
-    response = case broker do
-      nil    -> :leader_not_available
-      broker -> case required_acks do
-        0 ->  KafkaEx.NetworkClient.send_async_request(broker, produce_request)
-        _ -> KafkaEx.NetworkClient.send_sync_request(broker, produce_request) |> Proto.Produce.parse_response
-      end
-    end
-
-    state = %{state | correlation_id: correlation_id+1}
-    {:reply, response, state}
-  end
-
   def handle_call({:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes, auto_commit}, _from, state) do
     {response, state} = fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, state, auto_commit)
 
