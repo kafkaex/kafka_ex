@@ -32,7 +32,7 @@ mix deps.get
 
 In your config/config.exs add the list of kafka brokers as below:
 ```elixir
-config KafkaEx,
+config :kafka_ex,
   brokers: [{HOST, PORT}],
   consumer_group: consumer_group #if no consumer_group is specified "kafka_ex" would be used as the default
 ```
