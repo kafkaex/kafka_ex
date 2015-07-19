@@ -1,24 +1,59 @@
 defmodule KafkaEx.Protocol.Produce do
   defmodule Request do
-    defstruct required_acks: 0, timeout: 0, topic: "", partition: 0, data: ""
-    @type t :: %Request{required_acks: binary, timeout: integer, topic: binary, partition: integer, data: binary}
+    @moduledoc """
+    - require_acks: indicates how many acknowledgements the servers should receive before responding to the request. If it is 0 the server will not send any response (this is the only case where the server will not reply to a request). If it is 1, the server will wait the data is written to the local log before sending a response. If it is -1 the server will block until the message is committed by all in sync replicas before sending a response. For any number > 1 the server will block waiting for this number of acknowledgements to occur (but the server will never wait for more acknowledgements than there are in-sync replicas), default is 0
+    - timeout: provides a maximum time in milliseconds the server can await the receipt of the number of acknowledgements in RequiredAcks, default is 100 milliseconds
+    """
+    defstruct topic: "", partition: 0, required_acks: 0, timeout: 0, messages: []
+    @type t :: %Request{topic: binary, partition: integer, required_acks: binary, timeout: integer, messages: list}
+  end
+
+  defmodule Message do
+    @moduledoc """
+    - key: is used for partition assignment, can be nil, when none is provided it is defaulted to nil
+    - value: is the message to be written to kafka logs.
+    """
+    defstruct key: "", value: "", compression: :none
+    @type t :: %Message{key: binary, value: binary, compression: atom}
   end
 
   defmodule Response do
     defstruct topic: "", partitions: []
-    @type t :: %Response{topic: binary, partitions: list} 
+    @type t :: %Response{topic: binary, partitions: list}
   end
 
-  def create_request(correlation_id, client_id, topic, partition, value, key, required_acks, timeout) do
-    message_set = KafkaEx.Util.create_message_set(value, key)
+  def create_request(correlation_id, client_id, %Request{topic: topic, partition: partition, required_acks: required_acks, timeout: timeout, messages: messages}) do
+    message_set = create_message_set(messages)
     KafkaEx.Protocol.create_request(:produce, correlation_id, client_id) <>
-      << required_acks :: 16-signed, timeout :: 32-signed, 1 :: 32-signed, byte_size(topic) :: 16-signed, topic :: binary, 1 :: 32-signed, partition :: 32-signed, byte_size(message_set) :: 32 >> <>
-      message_set
+      << required_acks :: 16-signed, timeout :: 32-signed, 1 :: 32-signed >> <>
+      << byte_size(topic) :: 16-signed, topic :: binary, 1 :: 32-signed, partition :: 32-signed, byte_size(message_set) :: 32-signed >> <> message_set
   end
 
   def parse_response(<< _correlation_id :: 32-signed, num_topics :: 32-signed, rest :: binary >>), do: parse_topics(num_topics, rest)
 
   def parse_response(unknown), do: unknown
+
+  defp create_message_set([]), do: ""
+  defp create_message_set([%Message{key: key, value: value, compression: compression}|messages]) do
+    message = create_message(value, key, compression)
+    message_set = << 0 :: 64-signed >> <> << byte_size(message) :: 32-signed >> <> message
+    message_set <> create_message_set(messages)
+  end
+
+  defp create_message(value, key, :none) do
+    sub = << 0 :: 8, 0 :: 8 >> <> bytes(key) <> bytes(value)
+    crc = :erlang.crc32(sub)
+    << crc :: 32 >> <> sub
+  end
+
+  defp bytes(nil), do: << 0 :: 32 >>
+
+  defp bytes(data) do
+    case byte_size(data) do
+      0 -> << 0 :: 32 >>
+      size -> << size :: 32, data :: binary >>
+    end
+  end
 
   defp parse_topics(0, _), do: []
 
@@ -32,4 +67,5 @@ defmodule KafkaEx.Protocol.Produce do
   defp parse_partitions(partitions_size, << partition :: 32-signed, error_code :: 16-signed, offset :: 64, rest :: binary >>, partitions) do
     parse_partitions(partitions_size-1, rest, [%{partition: partition, error_code: error_code, offset: offset} | partitions])
   end
+
 end
