@@ -225,8 +225,6 @@ defmodule KafkaEx.Server do
     end
   end
 
-  defp fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, state, auto_commit)
-
   defp fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, state, auto_commit) do
     fetch_request = Proto.Fetch.create_request(state.correlation_id, @client_id, topic, partition, offset, wait_time, min_bytes, max_bytes)
     {broker, state} = case Proto.Metadata.Response.broker_for_topic(state.metadata, state.brokers, topic, partition) do
@@ -235,6 +233,7 @@ defmodule KafkaEx.Server do
         {Proto.Metadata.Response.broker_for_topic(state.metadata, state.brokers, topic, partition), state}
       broker -> {broker, state}
     end
+
     case broker do
       nil -> {:topic_not_found, state}
       _ ->
