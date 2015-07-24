@@ -110,12 +110,12 @@ defmodule KafkaEx do
   Fetch a set of messages from Kafka from the given topic and partition ID
 
   Optional arguments(KeywordList)
-  - offset: When supplied the fetch would start from this offset, otherwise would start from the last committed offset of the consumer_group the worker belongs to.
+  - offset: When supplied the fetch would start from this offset, otherwise would start from the last committed offset of the consumer_group the worker belongs to. For Kafka < 0.8.2 you should explicitly specify this.
   - worker_name: the worker we want to run this fetch request through. Default is KafkaEx.Server
   - wait_time: maximum amount of time in milliseconds to block waiting if insufficient data is available at the time the request is issued. Default is 10
   - min_bytes: minimum number of bytes of messages that must be available to give a response. If the client sets this to 0 the server will always respond immediately, however if there is no new data since their last request they will just get back empty message sets. If this is set to 1, the server will respond as soon as at least one partition has at least 1 byte of data or the specified timeout occurs. By setting higher values in combination with the timeout the consumer can tune for throughput and trade a little additional latency for reading only large chunks of data (e.g. setting wait_time to 100 and setting min_bytes 64000 would allow the server to wait up to 100ms to try to accumulate 64k of data before responding). Default is 1
   - max_bytes: maximum bytes to include in the message set for this partition. This helps bound the size of the response. Default is 1,000,000
-  - auto_commit: specifies if the last offset should be commited or not. Default is true
+  - auto_commit: specifies if the last offset should be commited or not. Default is true. For Kafka < 0.8.2 set this to false.
 
   ## Example
 
@@ -199,7 +199,6 @@ defmodule KafkaEx do
   """
   @spec produce(binary, number, binary, Keyword.t) :: :ok|list
   def produce(topic, partition, value, opts \\ []) do
-    worker_name     = Keyword.get(opts, :worker_name, KafkaEx.Server)
     key             = Keyword.get(opts, :key, "")
     required_acks   = Keyword.get(opts, :required_acks, 0)
     timeout         = Keyword.get(opts, :timeout, 100)
@@ -217,9 +216,9 @@ defmodule KafkaEx do
 
   Optional arguments(KeywordList)
   - worker_name: the worker we want to run this metadata request through, when none is provided the default worker `KafkaEx.Server` is used
-  - offset: offset to begin this fetch from, when none is provided 0 is assumed
+  - offset: When supplied the fetch would start from this offset, otherwise would start from the last committed offset of the consumer_group the worker belongs to. For Kafka < 0.8.2 you should explicitly specify this.
   - handler: the handler we want to handle the streaming events, when none is provided the default KafkaExHandler is used
-  - auto_commit: specifies if the last offset should be commited or not. Default is true
+  - auto_commit: specifies if the last offset should be commited or not. Default is true. For Kafka < 0.8.2 set this to false.
 
 
   ## Example
