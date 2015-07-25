@@ -1,8 +1,10 @@
 defmodule KafkaEx.Server do
   alias KafkaEx.Protocol, as: Proto
-  @client_id "kafka_ex"
-  @consumer_group "kafka_ex"
-  defstruct metadata: %Proto.Metadata.Response{}, brokers: [], event_pid: nil, consumer_metadata: %Proto.ConsumerMetadata.Response{}, correlation_id: 0, consumer_group: @client_id
+  @client_id                      "kafka_ex"
+  @consumer_group                 "kafka_ex"
+  @metadata_update_interval       30_000
+  @consumer_group_update_interval 30_000
+  defstruct metadata: %Proto.Metadata.Response{}, brokers: [], event_pid: nil, consumer_metadata: %Proto.ConsumerMetadata.Response{}, correlation_id: 0, consumer_group: @client_id, metadata_update_interval: @metadata_update_interval, consumer_group_update_interval: @consumer_group_update_interval
 
   ### GenServer Callbacks
   use GenServer
@@ -15,12 +17,19 @@ defmodule KafkaEx.Server do
 
   def init(args) do
     uris = Keyword.get(args, :uris, [])
+    metadata_update_interval = Keyword.get(args, :metadata_update_interval, @metadata_update_interval)
+    consumer_group_update_interval = Keyword.get(args, :consumer_group_update_interval, @consumer_group_update_interval)
     consumer_group = Keyword.get(args, :consumer_group, @consumer_group)
     brokers = Enum.map(uris, fn({host, port}) -> %Proto.Metadata.Broker{host: host, port: port, socket: KafkaEx.NetworkClient.create_socket(host, port)} end)
     {correlation_id, metadata} = metadata(brokers, 0)
-    {:ok, _} = :timer.send_interval(30000, :update_metadata)
-    {:ok, _} = :timer.send_interval(30000, :update_consumer_metadata)
-    {:ok, %__MODULE__{metadata: metadata, brokers: brokers, correlation_id: correlation_id, consumer_group: consumer_group}}
+    state = %__MODULE__{metadata: metadata, brokers: brokers, correlation_id: correlation_id, consumer_group: consumer_group, metadata_update_interval: metadata_update_interval, consumer_group_update_interval: consumer_group_update_interval}
+    {:ok, _} = :timer.send_interval(state.metadata_update_interval, :update_metadata)
+
+    if consumer_group do
+      {:ok, _} = :timer.send_interval(state.consumer_group_update_interval, :update_consumer_metadata)
+    end
+
+    {:ok, state}
   end
 
   def handle_call({:produce, produce_request}, _from, state) do
