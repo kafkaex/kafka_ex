@@ -1,17 +1,22 @@
 defmodule KafkaEx do
   use Application
   @type uri() :: [{binary|char_list, number}]
-  @type worker_init :: [{:uris, uri}, {:consumer_group, binary}]
+  @type worker_init :: [{:uris, uri}, {:consumer_group, binary|false}]
 
   @doc """
   create_worker creates KafkaEx workers
+
+  Optional arguments(KeywordList)
+  - consumer_group: Name of the group of consumers, `false` should be passed for Kafka < 0.8.2, default is "kafka_ex"
+  - metadata_update_interval: How often `kafka_ex` would update the Kafka cluster metadata information in milliseconds, default is 30000
+  - consumer_group_update_interval: How often `kafka_ex` would update the Kafka cluster consumer_groups information in milliseconds, default is 30000
 
   ## Example
 
   ```elixir
   iex> KafkaEx.create_worker(:pr) # where :pr is the name of the worker created
   {:ok, #PID<0.171.0>}
-  iex> KafkaEx.create_worker(:pr, uris: [{"localhost", 9092}]) #if no consumer_group is specified "kafka_ex" would be used as the default
+  iex> KafkaEx.create_worker(:pr, uris: [{"localhost", 9092}])
   {:ok, #PID<0.172.0>}
   iex> KafkaEx.create_worker(:pr, [uris: [{"localhost", 9092}], consumer_group: "foo"])
   {:ok, #PID<0.173.0>}
@@ -140,7 +145,7 @@ defmodule KafkaEx do
     auto_commit   = Keyword.get(opts, :auto_commit, true)
 
     offset = case offset do
-      nil -> last_offset = offset_fetch(worker_name, %KafkaEx.Protocol.OffsetFetch.Request{topic: topic}) |> hd |> Map.get(:partitions) |> hd |> Map.get(:offset)
+      nil -> last_offset = offset_fetch(worker_name, %KafkaEx.Protocol.OffsetFetch.Request{topic: topic}) |> KafkaEx.Protocol.OffsetFetch.Response.last_offset
         if last_offset <= 0 do
           0
         else
@@ -243,7 +248,7 @@ defmodule KafkaEx do
     auto_commit = Keyword.get(opts, :auto_commit, true)
 
     offset = case offset do
-      nil -> last_offset = offset_fetch(worker_name, %KafkaEx.Protocol.OffsetFetch.Request{topic: topic}) |> hd |> Map.get(:partitions) |> hd |> Map.get(:offset)
+      nil -> last_offset = offset_fetch(worker_name, %KafkaEx.Protocol.OffsetFetch.Request{topic: topic}) |> KafkaEx.Protocol.OffsetFetch.Response.last_offset
         if last_offset <= 0 do
           0
         else
@@ -268,7 +273,7 @@ defmodule KafkaEx do
     {:ok, pid}     = KafkaEx.Supervisor.start_link
     uris           = Application.get_env(:kafka_ex, :brokers)
     consumer_group = Application.get_env(:kafka_ex, :consumer_group)
-    worker_init = case consumer_group do
+    worker_init    = case consumer_group do
       nil            -> [uris: uris]
       consumer_group -> [uris: uris, consumer_group: consumer_group]
     end

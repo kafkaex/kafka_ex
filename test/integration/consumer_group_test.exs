@@ -19,6 +19,27 @@ defmodule KafkaEx.ConsumerGroup.Test do
     assert metadata == consumer_group_metadata
   end
 
+  #update_consumer_metadata
+  test "worker updates metadata after specified interval" do
+    {:ok, pid} = KafkaEx.create_worker(:update_consumer_metadata, [uris: uris, consumer_group: "kafka_ex", consumer_group_update_interval: 100])
+    consumer_metadata = %KafkaEx.Protocol.ConsumerMetadata.Response{}
+    :sys.replace_state(pid, fn(state) -> %{state | consumer_metadata: consumer_metadata} end)
+    :timer.sleep(105)
+    new_consumer_metadata = :sys.get_state(pid).consumer_metadata
+
+    refute new_consumer_metadata == consumer_metadata
+  end
+
+  test "worker does not update metadata when consumer_group is false" do
+    {:ok, pid} = KafkaEx.create_worker(:no_consumer_metadata_update, [uris: uris, consumer_group: false, consumer_group_update_interval: 100])
+    consumer_metadata = %KafkaEx.Protocol.ConsumerMetadata.Response{}
+    :sys.replace_state(pid, fn(state) -> %{state | consumer_metadata: consumer_metadata} end)
+    :timer.sleep(105)
+    new_consumer_metadata = :sys.get_state(pid).consumer_metadata
+
+    assert new_consumer_metadata == consumer_metadata
+  end
+
   #fetch
   test "fetch auto_commits offset by default" do
     random_string = generate_random_string

@@ -7,6 +7,21 @@ defmodule KafkaEx.Protocol.OffsetFetch do
   defmodule Response do
     defstruct topic: "", partitions: []
     @type t :: %Response{topic: binary, partitions: list}
+    
+    def last_offset(:topic_not_found) do
+      0
+    end
+
+    def last_offset(offset_fetch_data) do
+      case offset_fetch_data do
+        [] -> 0
+        _  -> partitions = offset_fetch_data |> hd |> Map.get(:partitions, [])
+          case partitions do
+            [] -> 0
+            _  -> partitions |> hd |> Map.get(:offset, 0)
+          end
+      end
+    end
   end
 
   def create_request(correlation_id, client_id, offset_fetch_request) do

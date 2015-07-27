@@ -16,6 +16,34 @@ defmodule KafkaEx.Integration.Test do
     assert Process.whereis(:bar) == pid
   end
 
+  test "create_worker allows custom metadata_update_interval" do
+    {:ok, pid} = KafkaEx.create_worker(:metadata_update_interval_custom, uris: uris, metadata_update_interval: 10)
+    metadata_update_interval = :sys.get_state(pid).metadata_update_interval
+
+    assert metadata_update_interval == 10
+  end
+
+  test "create_worker provides a default metadata_update_interval of '30000'" do
+    {:ok, pid} = KafkaEx.create_worker(:d, uris: uris)
+    metadata_update_interval = :sys.get_state(pid).metadata_update_interval
+
+    assert metadata_update_interval == 30000
+  end
+
+  test "create_worker allows custom consumer_group_update_interval" do
+    {:ok, pid} = KafkaEx.create_worker(:consumer_group_update_interval_custom, uris: uris, consumer_group_update_interval: 10)
+    consumer_group_update_interval = :sys.get_state(pid).consumer_group_update_interval
+
+    assert consumer_group_update_interval == 10
+  end
+
+  test "create_worker provides a default consumer_group_update_interval of '30000'" do
+    {:ok, pid} = KafkaEx.create_worker(:de, uris: uris)
+    consumer_group_update_interval = :sys.get_state(pid).consumer_group_update_interval
+
+    assert consumer_group_update_interval == 30000
+  end
+
   test "create_worker provides a default consumer_group of 'kafka_ex'" do
     {:ok, pid} = KafkaEx.create_worker(:baz, uris: uris)
     consumer_group = :sys.get_state(pid).consumer_group
@@ -29,6 +57,19 @@ defmodule KafkaEx.Integration.Test do
 
     assert consumer_group == "foo"
   end
+
+  #update_metadata
+  test "worker updates metadata after specified interval" do
+    random_string = generate_random_string
+    KafkaEx.create_worker(:update_metadata, [uris: uris, consumer_group: "foo", metadata_update_interval: 100])
+    previous_metadata = KafkaEx.metadata(worker_name: :update_metadata)
+    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 0, messages: [%Proto.Produce.Message{value: "hey"}]})
+    :timer.sleep(105)
+    new_metadata = KafkaEx.metadata(worker_name: :update_metadata)
+
+    refute previous_metadata == new_metadata
+  end
+
 
   test "KafkaEx.Server generates metadata on start up" do
     pid = Process.whereis(KafkaEx.Server)
@@ -68,13 +109,13 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "produce updates metadata" do
-    pid = Process.whereis(KafkaEx.Server)
+    {:ok, pid} = KafkaEx.create_worker(:update_metadata_test)
     empty_metadata = %Proto.Metadata.Response{}
     :sys.replace_state(pid, fn(state) -> %{state | metadata: empty_metadata} end)
 
     assert empty_metadata.brokers == []
 
-    KafkaEx.produce(%Proto.Produce.Request{topic: "food", required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]})
+    KafkaEx.produce(%Proto.Produce.Request{topic: "food", required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}, worker_name: :update_metadata_test)
     metadata = :sys.get_state(pid).metadata
 
     refute metadata == empty_metadata
@@ -115,10 +156,10 @@ defmodule KafkaEx.Integration.Test do
 
   #fetch
   test "fetch updates metadata" do
-    pid = Process.whereis(KafkaEx.Server)
+    {:ok, pid} = KafkaEx.create_worker(:fetch_updates_metadata)
     empty_metadata = %Proto.Metadata.Response{}
     :sys.replace_state(pid, fn(state) -> %{state | :metadata => empty_metadata} end)
-    KafkaEx.fetch("food", 0, offset: 0, auto_commit: false)
+    KafkaEx.fetch("food", 0, offset: 0, auto_commit: false, worker_name: :fetch_updates_metadata)
     metadata = :sys.get_state(pid).metadata
 
     refute metadata == empty_metadata
@@ -147,10 +188,10 @@ defmodule KafkaEx.Integration.Test do
 
   #offset
   test "offset updates metadata" do
-    pid = Process.whereis(KafkaEx.Server)
+    {:ok, pid} = KafkaEx.create_worker(:offset_updates_metadata)
     empty_metadata = %Proto.Metadata.Response{}
     :sys.replace_state(pid, fn(state) -> %{state | :metadata => empty_metadata} end)
-    KafkaEx.offset("food", 0, utc_time)
+    KafkaEx.offset("food", 0, utc_time, :offset_updates_metadata)
     metadata = :sys.get_state(pid).metadata
 
     refute metadata == empty_metadata
@@ -200,9 +241,11 @@ defmodule KafkaEx.Integration.Test do
         %Proto.Produce.Message{value: "hey"},
         %Proto.Produce.Message{value: "hi"},
       ]
-    })
-
-    log = KafkaEx.stream(random_string, 0, worker_name: :stream, offset: 0, auto_commit: false) |> Enum.take(2)
+    }, worker_name: :stream)
+    
+    stream = KafkaEx.stream(random_string, 0, worker_name: :stream, offset: 0, auto_commit: false)
+    :timer.sleep(100)
+    log = GenEvent.call(stream.manager, KafkaExHandler, :messages)
 
     refute Enum.empty?(log)
     [first,second|_] = log
