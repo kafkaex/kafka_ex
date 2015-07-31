@@ -1,7 +1,9 @@
 defmodule KafkaEx.NetworkClient do
   def create_socket(host, port) do
-    {:ok, socket} = :gen_tcp.connect(format_host(host), port, [:binary, {:packet, 4}])
-    socket
+    case :gen_tcp.connect(format_host(host), port, [:binary, {:packet, 4}]) do
+      {:ok, socket} -> socket
+      _             -> nil
+    end
   end
 
   def close_socket(socket), do: :gen_tcp.close(socket)

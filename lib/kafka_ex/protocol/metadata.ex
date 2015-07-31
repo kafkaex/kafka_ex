@@ -16,7 +16,13 @@ defmodule KafkaEx.Protocol.Metadata do
             lead_broker ->
               case Enum.find(metadata.brokers, &(lead_broker.leader == &1.node_id)) do
                 nil -> nil
-                broker -> Enum.find(brokers, &(broker.host == &1.host && broker.port == &1.port))
+                broker -> case Enum.find(brokers, &(broker.host == &1.host && broker.port == &1.port)) do
+                  nil -> nil
+                  broker -> case Port.info(broker.socket) do
+                    nil -> nil
+                    _   -> broker
+                  end
+                end
               end
           end
       end

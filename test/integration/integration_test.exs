@@ -16,6 +16,11 @@ defmodule KafkaEx.Integration.Test do
     assert Process.whereis(:bar) == pid
   end
 
+  test "Creates a worker even when the one of the provided brokers is not available" do
+    {:ok, pid} = KafkaEx.create_worker(:no_broker_worker, uris: uris ++ [{"bad_host", 9000}])
+    assert Process.whereis(:no_broker_worker) == pid
+  end
+
   test "create_worker allows custom metadata_update_interval" do
     {:ok, pid} = KafkaEx.create_worker(:metadata_update_interval_custom, uris: uris, metadata_update_interval: 10)
     metadata_update_interval = :sys.get_state(pid).metadata_update_interval
