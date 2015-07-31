@@ -154,11 +154,21 @@ mix test --no-start
 
 #### Integration tests
 Add the broker config to `config/config.exs` and run:
+##### Kafka >= 0.8.2
+```
+mix test --only consumer_group --only integration
+```
+##### Kafka < 0.8.2
 ```
 mix test --only integration
 ```
 
 #### All tests
+##### Kafka >= 0.8.2
+```
+mix test --include consumer_group --include integration
+```
+##### Kafka < 0.8.2
 ```
 mix test --include integration
 ```
