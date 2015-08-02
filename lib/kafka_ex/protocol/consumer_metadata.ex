@@ -4,7 +4,7 @@ defmodule KafkaEx.Protocol.ConsumerMetadata do
     @type t :: %Response{coordinator_id: integer, coordinator_host: binary, coordinator_port: 0..65535, error_code: integer}
 
     def broker_for_consumer_group(brokers, consumer_group_metadata) do
-      Enum.find(brokers, &(&1.host == consumer_group_metadata.coordinator_host && &1.port == consumer_group_metadata.coordinator_port))
+      Enum.find(brokers, &(&1.host == consumer_group_metadata.coordinator_host && &1.port == consumer_group_metadata.coordinator_port && &1.socket && Port.info(&1.socket)))
     end
   end
 
