@@ -198,7 +198,7 @@ defmodule KafkaEx.Server do
 
   defp remove_stale_brokers(brokers, metadata_brokers) do
     {brokers_to_keep, brokers_to_remove} = Enum.partition(brokers, fn(broker) ->
-      Enum.find_value(metadata_brokers, &(broker.host == &1.host && broker.port == &1.port))
+      Enum.find_value(metadata_brokers, &(broker.host == &1.host && broker.port == &1.port && broker.socket && Port.info(broker.socket)))
     end)
     case length(brokers_to_keep) do
       0 -> brokers_to_remove
