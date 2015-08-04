@@ -97,8 +97,9 @@ defmodule KafkaEx.ConsumerGroup.Test do
         %Proto.Produce.Message{value: "hi"},
       ]
     })
+    stream = KafkaEx.stream(random_string, 0, worker_name: :stream_auto_commit, offset: 0)
     :timer.sleep(500)
-    log = KafkaEx.stream(random_string, 0, worker_name: :stream_auto_commit, offset: 0) |> Enum.take(2)
+    log = GenEvent.call(stream.manager, KafkaExHandler, :messages) |> Enum.take(2)
 
     refute Enum.empty?(log)
 
@@ -115,7 +116,9 @@ defmodule KafkaEx.ConsumerGroup.Test do
     KafkaEx.create_worker(:stream_last_committed_offset, uris: uris)
     Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) end)
     KafkaEx.offset_commit(:stream_last_committed_offset, %Proto.OffsetCommit.Request{topic: random_string, offset: 3})
-    log = KafkaEx.stream(random_string, 0, worker_name: :stream_last_committed_offset) |> Enum.take(2)
+    stream = KafkaEx.stream(random_string, 0, worker_name: :stream_last_committed_offset)
+    :timer.sleep(500)
+    log = GenEvent.call(stream.manager, KafkaExHandler, :messages) |> Enum.take(2)
 
     refute Enum.empty?(log)
 

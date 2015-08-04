@@ -19,8 +19,9 @@ defmodule KafkaEx.Protocol.Metadata do
                 broker -> case Enum.find(brokers, &(broker.host == &1.host && broker.port == &1.port)) do
                   nil -> nil
                   broker -> case Port.info(broker.socket) do
-                    nil -> nil
-                    _   -> broker
+                    nil        -> nil
+                    :undefined -> nil
+                    _          -> broker
                   end
                 end
               end

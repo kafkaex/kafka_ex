@@ -47,7 +47,7 @@ defmodule KafkaEx.Protocol.Offset do
 
   defp parse_offsets(0, rest, offsets), do: {Enum.reverse(offsets), rest}
 
-  defp parse_offsets(offsets_size, << offset :: 64, rest :: binary >>, offsets) do
+  defp parse_offsets(offsets_size, << offset :: 64-signed, rest :: binary >>, offsets) do
     parse_offsets(offsets_size-1, rest, [offset|offsets])
   end
 end
