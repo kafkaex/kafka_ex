@@ -99,7 +99,7 @@ defmodule KafkaEx.Server do
     {response, state} = case broker do
       nil    ->
         Logger.log(:error, "Coordinator for topic #{offset_fetch.topic} is not available")
-        :topic_not_found
+        {:topic_not_found, state}
       _ ->
         response = KafkaEx.NetworkClient.send_sync_request(broker, offset_fetch_request) |> Proto.OffsetFetch.parse_response
         state = %{state | correlation_id: state.correlation_id+1}

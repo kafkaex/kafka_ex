@@ -165,6 +165,7 @@ defmodule KafkaEx.Integration.Test do
     empty_metadata = %Proto.Metadata.Response{}
     :sys.replace_state(pid, fn(state) -> %{state | :metadata => empty_metadata} end)
     KafkaEx.fetch("food", 0, offset: 0, auto_commit: false, worker_name: :fetch_updates_metadata)
+    :timer.sleep(200)
     metadata = :sys.get_state(pid).metadata
 
     refute metadata == empty_metadata
@@ -223,6 +224,7 @@ defmodule KafkaEx.Integration.Test do
   test "latest_offset retrieves offset of 0 for non-existing topic" do
     random_string = generate_random_string
     produce_offset = KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) |> hd |> Map.get(:partitions) |> hd |> Map.get(:offset)
+    :timer.sleep(300)
     offset_response = KafkaEx.latest_offset(random_string, 0) |> hd
     offset = offset_response.partition_offsets |> hd |> Map.get(:offset) |> hd
 

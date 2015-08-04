@@ -72,12 +72,9 @@ defmodule KafkaEx.ConsumerGroup.Test do
     KafkaEx.create_worker(:fetch_no_auto_commit_worker)
     Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: "food", required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) end)
     offset = KafkaEx.fetch("food", 0, offset: 0, worker: :fetch_no_auto_commit_worker, auto_commit: false) |> hd |> Map.get(:partitions) |> hd |> Map.get(:message_set) |> Enum.reverse |> hd |> Map.get(:offset)
-
     offset_fetch_response = KafkaEx.offset_fetch(:fetch_no_auto_commit_worker, %Proto.OffsetFetch.Request{topic: "food"}) |> hd
-    error_code = offset_fetch_response.partitions |> hd |> Map.get(:error_code)
     offset_fetch_response_offset = offset_fetch_response.partitions |> hd |> Map.get(:offset)
 
-    assert error_code == 0
     refute offset == offset_fetch_response_offset
   end
 
@@ -131,7 +128,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
     random_string = generate_random_string
     KafkaEx.create_worker(:stream_no_auto_commit, uris: uris)
     Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) end)
-    KafkaEx.stream(random_string, 0, worker_name: :stream_no_auto_commit, auto_commit: false, offset: 0) |> Enum.take(2)
+    KafkaEx.stream(random_string, 0, worker_name: :stream_no_auto_commit, auto_commit: false, offset: 0)
 
     offset_fetch_response = KafkaEx.offset_fetch(:stream_no_auto_commit, %Proto.OffsetFetch.Request{topic: random_string}) |> hd
     offset_fetch_response.partitions |> hd |> Map.get(:error_code)
