@@ -1,4 +1,6 @@
 defmodule KafkaEx.Util do
+  @snappy_attribute 2
+
   def current_timestamp do
     {mega, seconds, micros} = :os.timestamp
     mega * 1_000_000_000 + seconds * 1_000 + round(micros / 1_000)
@@ -42,6 +44,16 @@ defmodule KafkaEx.Util do
   end
 
   def parse_value(crc, attributes, key, << value_size :: 32, value :: size(value_size)-binary >>) do
-    {:ok, %{:crc => crc, :attributes => attributes, :key => key, :value => value}}
+    {:ok, %{:crc => crc, :attributes => attributes, :key => key, :value => decompress(value, attributes)}}
+  end
+
+  def decompress(<< _snappy_header :: 64, _snappy_version_info :: 64, _size :: 32, value :: binary >>, @snappy_attribute) do
+    {:ok, << _offset :: 64, _size :: 32, message :: binary >>} = :snappy.decompress(value)
+    {:ok, message} = parse_message(message)
+    message.value
+  end
+
+  def decompress(value, _) do
+    value
   end
 end
