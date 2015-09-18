@@ -144,6 +144,10 @@ iex> KafkaEx.stream("foo", 0) |> iex> Enum.take(2)
  %{attributes: 0, crc: 4251893211, key: nil, offset: 1, value: "hi"}]
 ```
 
+### Compression
+
+Reading snappy-compressed logs is supported.  Writing snappy-compressed logs is not yet supported.
+Other compression formats are not yet supported.
 
 ### Test
 
