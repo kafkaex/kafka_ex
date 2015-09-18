@@ -16,20 +16,45 @@ defmodule KafkaEx.Util do
 
   def parse_message_set(list, << offset :: 64, msg_size :: 32, msg_data :: size(msg_size)-binary, rest :: binary >>) do
     {:ok, message} = parse_message(msg_data)
-    parse_message_set([Map.put(message, :offset, offset)|list], rest)
+    parse_message_set(append_messages(set_offset(message, offset),  list), rest)
   end
 
   def parse_message_set([], _) do
     {:ok, [], nil}
   end
 
-  def parse_message_set([last|_] = list, _) do
+ def parse_message_set([last|_] = list, _) do
     {:ok, Enum.reverse(list), last.offset}
   end
 
-  def parse_message(<< crc :: 32, _magic :: 8, attributes :: 8, rest :: binary>>) do
-    parse_key(crc, attributes, rest)
+  def set_offset(messages, offset) when is_list(messages) do
+    messages |> Enum.map(fn(m) -> set_offset(m, offset) end)
   end
+  def set_offset(message, offset) do
+    Map.put(message, :offset, offset)
+  end
+
+  def append_messages([], list) do
+    list
+  end
+  def append_messages([message | messages], list) do
+    append_messages(messages, [message | list])
+  end
+  def append_messages(message, list) do
+    [message | list]
+  end
+
+  def parse_message(<< crc :: 32, _magic :: 8, attributes :: 8, rest :: binary>>) do
+    parse_message_value(crc, attributes, rest)
+  end
+
+  def parse_message_value(_crc, @snappy_attribute, rest) do
+    << -1 :: 32-signed, value_size :: 32, value :: size(value_size)-binary >> = rest
+    decompress_snappy(value)
+  end
+  def parse_message_value(crc, attributes, rest) do
+    parse_key(crc, attributes, rest)
+  end 
 
   def parse_key(crc, attributes, << -1 :: 32-signed, rest :: binary >>) do
     parse_value(crc, attributes, nil, rest)
@@ -44,10 +69,10 @@ defmodule KafkaEx.Util do
   end
 
   def parse_value(crc, attributes, key, << value_size :: 32, value :: size(value_size)-binary >>) do
-    {:ok, %{:crc => crc, :attributes => attributes, :key => key, :value => decompress(value, attributes)}}
+    {:ok, %{:crc => crc, :attributes => attributes, :key => key, :value => value}}
   end
 
-  def decompress(<< _snappy_header :: 64, _snappy_version_info :: 64, _size :: 32, value :: binary >>, @snappy_attribute) do
+  def decompress_snappy(<< _snappy_header :: 64, _snappy_version_info :: 64, _size :: 32, value :: binary >>) do
     {:ok, decompressed} = :snappy.decompress(value)
     parse_decompressed(decompressed, [])
   end
@@ -61,7 +86,7 @@ defmodule KafkaEx.Util do
     parse_decompressed(rest, [Map.put(message, :offset, offset) | msgs])
   end
   def parse_decompressed(<<>>, msgs) do
-    msgs
+    {:ok, Enum.reverse(msgs)}
   end
 
 end
