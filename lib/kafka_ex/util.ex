@@ -48,12 +48,20 @@ defmodule KafkaEx.Util do
   end
 
   def decompress(<< _snappy_header :: 64, _snappy_version_info :: 64, _size :: 32, value :: binary >>, @snappy_attribute) do
-    {:ok, << _offset :: 64, _size :: 32, message :: binary >>} = :snappy.decompress(value)
-    {:ok, message} = parse_message(message)
-    message.value
+    {:ok, decompressed} = :snappy.decompress(value)
+    parse_decompressed(decompressed, [])
   end
-
   def decompress(value, _) do
     value
   end
+
+  def parse_decompressed(<< offset :: 64, size :: 32, rest :: binary >>, msgs) do
+    << message :: size(size)-binary, rest :: binary >> = rest
+    {:ok, message} = parse_message(message)
+    parse_decompressed(rest, [Map.put(message, :offset, offset) | msgs])
+  end
+  def parse_decompressed(<<>>, msgs) do
+    msgs
+  end
+
 end

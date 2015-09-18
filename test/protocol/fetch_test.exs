@@ -103,4 +103,21 @@ defmodule KafkaEx.Protocol.Fetch.Test do
     ]
     assert expected_response == KafkaEx.Protocol.Fetch.parse_response(response)
   end
+
+   test "parse_response correctly parses a valid response with batched snappy-encoded messages" do
+    response = <<0, 0, 0, 14, 0, 0, 0, 1, 0, 17, 115, 110, 97, 112, 112, 121, 95, 98, 97, 116, 99, 104, 95, 116, 101, 115, 116, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 105, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 93, 70, 199, 142, 116, 0, 2, 255, 255, 255, 255, 0, 0, 0, 79, 130, 83, 78, 65, 80, 80, 89, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 59, 84, 0, 0, 25, 1, 16, 30, 204, 101, 110, 2, 5, 15, 76, 4, 107, 101, 121, 49, 0, 0, 0, 12, 98, 97, 116, 99, 104, 32, 116, 101, 115, 116, 32, 1, 16, 1, 1, 32, 1, 0, 0, 0, 30, 6, 246, 100, 60, 1, 13, 5, 42, 0, 50, 58, 42, 0, 0, 50>>
+    value = "test message"
+    message = %{attributes: 2, crc: 3085131568, key: nil, offset: 1,
+               value: value}
+    partition1 = %{error_code: 0,
+                   hw_mark_offset: 2,
+                   last_offset: 1,
+                   partition: 1,
+                   message_set: [message]}
+    expected_response = [
+      %KafkaEx.Protocol.Fetch.Response{partitions: [partition1],
+                                       topic: "snappy_test"}
+    ]
+    assert expected_response == KafkaEx.Protocol.Fetch.parse_response(response)
+  end
 end
