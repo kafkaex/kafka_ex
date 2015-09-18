@@ -23,10 +23,12 @@ defmodule KafkaEx.Util do
     {:ok, [], nil}
   end
 
- def parse_message_set([last|_] = list, _) do
+  def parse_message_set([last|_] = list, _) do
     {:ok, Enum.reverse(list), last.offset}
   end
 
+  # compressed batches give us the offset of the LAST message in the batch
+  # it is up to us to correctly assign the intermediate offsets
   def set_offsets(messages, offset) when is_list(messages) do
     [messages, (0..length(messages)-1) |> Enum.to_list |> Enum.reverse]
     |> List.zip
@@ -36,6 +38,7 @@ defmodule KafkaEx.Util do
     Map.put(message, :offset, offset)
   end
 
+  # handles the single message case and the batch (compression) case
   def append_messages([], list) do
     list
   end
