@@ -240,6 +240,33 @@ defmodule KafkaEx.Integration.Test do
     assert offset != 0
   end
 
+  # compression
+  test "compresses / decompresses using snappy" do
+    random_string = generate_random_string
+
+    message1 = %Proto.Produce.Message{value: "value 1"}
+    message2 = %Proto.Produce.Message{key: "key 2", value: "value 2"}
+    messages = [message1, message2]
+
+    produce_request = %Proto.Produce.Request{
+      topic: random_string,
+      required_acks: 1,
+      compression: :snappy,
+      messages: messages}
+    produce_response =  KafkaEx.produce(produce_request) |> hd
+    offset = produce_response.partitions |> hd |> Map.get(:offset)
+
+    fetch_response = KafkaEx.fetch(random_string, 0, offset: 0, auto_commit: false) |>  hd
+    [got_message1, got_message2] = fetch_response.partitions |> hd |> Map.get(:message_set)
+
+    assert got_message1.key == message1.key
+    assert got_message1.value == message1.value
+    assert got_message1.offset == offset
+    assert got_message2.key == message2.key
+    assert got_message2.value == message2.value
+    assert got_message2.offset == offset + 1
+  end
+
   # stream
   test "streams kafka logs" do
     random_string = generate_random_string
