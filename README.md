@@ -153,7 +153,7 @@ Snappy compression is supported.  Example usage for producing compressed message
     messages = [message1, message2]
 
     produce_request = %Proto.Produce.Request{
-      topic: random_string,
+      topic: "test_topic",
       required_acks: 1,
       compression: :snappy,
       messages: messages}
