@@ -113,7 +113,7 @@ iex> KafkaEx.earliest_offset("foo", 0) # where 0 is the partition
 ### Fetch kafka logs
 
 ```elixir
-iex> KafkaEx.fetch("foo", 0, 5) # where 0 is the partition and 5 is the offset we want to start fetching from
+iex> KafkaEx.fetch("foo", 0, offset: 5) # where 0 is the partition and 5 is the offset we want to start fetching from
 [%KafkaEx.Protocol.Fetch.Response{partitions: [%{error_code: 0,
      hw_mark_offset: 115,
      message_set: [%{attributes: 0, crc: 4264455069, key: nil, offset: 5,
