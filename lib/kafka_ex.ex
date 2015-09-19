@@ -207,7 +207,7 @@ defmodule KafkaEx do
     key             = Keyword.get(opts, :key, "")
     required_acks   = Keyword.get(opts, :required_acks, 0)
     timeout         = Keyword.get(opts, :timeout, 100)
-    produce_request = %KafkaEx.Protocol.Produce.Request{topic: topic, partition: partition, required_acks: required_acks, timeout: timeout, messages: [%KafkaEx.Protocol.Produce.Message{key: key, value: value, compression: :none}]}
+    produce_request = %KafkaEx.Protocol.Produce.Request{topic: topic, partition: partition, required_acks: required_acks, timeout: timeout, compression: :none, messages: [%KafkaEx.Protocol.Produce.Message{key: key, value: value}]}
 
     produce(produce_request, opts)
   end
