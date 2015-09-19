@@ -22,6 +22,8 @@ defmodule KafkaEx.Protocol.Produce do
     @type t :: %Response{topic: binary, partitions: list}
   end
 
+  @snappy_attribute 2
+
   def create_request(correlation_id, client_id, %Request{topic: topic, partition: partition, required_acks: required_acks, timeout: timeout, compression: compression, messages: messages}) do
     message_set = create_message_set(messages, compression)
     KafkaEx.Protocol.create_request(:produce, correlation_id, client_id) <>
@@ -40,13 +42,22 @@ defmodule KafkaEx.Protocol.Produce do
     message_set <> create_message_set(messages, :none)
   end
 
-  defp create_message(value, key) do
-    sub = << 0 :: 8, 0 :: 8 >> <> bytes(key) <> bytes(value)
+  defp create_message_set([], :snappy), do: ""
+  defp create_message_set(messages, :snappy) do
+    message_set = create_message_set(messages, :none)
+    {:ok, compressed_message_set} = :snappy.compress(message_set)
+    message = create_message(compressed_message_set, nil, @snappy_attribute)
+
+    << 0 :: 64-signed >> <> << byte_size(message) :: 32-signed >> <> message 
+  end
+
+  defp create_message(value, key, attributes \\ 0) do
+    sub = << 0 :: 8, attributes :: 8-signed >> <> bytes(key) <> bytes(value)
     crc = :erlang.crc32(sub)
     << crc :: 32 >> <> sub
   end
 
-  defp bytes(nil), do: << 0 :: 32 >>
+  defp bytes(nil), do: << -1 :: 32-signed >>
 
   defp bytes(data) do
     case byte_size(data) do
