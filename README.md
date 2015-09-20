@@ -114,12 +114,12 @@ iex> KafkaEx.earliest_offset("foo", 0) # where 0 is the partition
 iex> KafkaEx.fetch("foo", 0, 5) # where 0 is the partition and 5 is the offset we want to start fetching from
 [%KafkaEx.Protocol.Fetch.Response{partitions: [%{error_code: 0,
      hw_mark_offset: 115,
-     message_set: [%{attributes: 0, crc: 4264455069, key: nil, offset: 5,
-        value: "hey"},
-      %{attributes: 0, crc: 4264455069, key: nil, offset: 6, value: "hey"},
-      %{attributes: 0, crc: 4264455069, key: nil, offset: 7, value: "hey"},
-      %{attributes: 0, crc: 4264455069, key: nil, offset: 8, value: "hey"},
-      %{attributes: 0, crc: 4264455069, key: nil, offset: 9, value: "hey"}
+     message_set: [
+      %KafkaEx.Protocol.Fetch.Message{attributes: 0, crc: 4264455069, key: nil, offset: 5, value: "hey"},
+      %KafkaEx.Protocol.Fetch.Message{attributes: 0, crc: 4264455069, key: nil, offset: 6, value: "hey"},
+      %KafkaEx.Protocol.Fetch.Message{attributes: 0, crc: 4264455069, key: nil, offset: 7, value: "hey"},
+      %KafkaEx.Protocol.Fetch.Message{attributes: 0, crc: 4264455069, key: nil, offset: 8, value: "hey"},
+      %KafkaEx.Protocol.Fetch.Message{attributes: 0, crc: 4264455069, key: nil, offset: 9, value: "hey"}
 ...], partition: 0}], topic: "foo"}]
 ```
 
