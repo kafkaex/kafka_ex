@@ -1,6 +1,4 @@
 defmodule KafkaEx.Protocol.Fetch do
-  @snappy_attribute 2
-
   defmodule Request do
     defstruct replica_id: -1, max_wait_time: 0, min_bytes: 0, topic_name: "", partition: 0, fetch_offset: 0, max_bytes: 0
     @type t :: %Request{replica_id: integer, max_wait_time: integer, topic_name: binary, partition: integer, fetch_offset: integer, max_bytes: integer}
@@ -36,7 +34,7 @@ defmodule KafkaEx.Protocol.Fetch do
   defp parse_partitions(partitions_size, << partition :: 32-signed, error_code :: 16-signed, hw_mark_offset :: 64-signed,
   msg_set_size :: 32-signed, msg_set_data :: size(msg_set_size)-binary, rest :: binary >>, partitions) do
     {:ok, message_set, last_offset} = parse_message_set([], msg_set_data)
-    parse_partitions(partitions_size - 1, rest, [%{partition: partition, error_code: error_code, hw_mark_offset: hw_mark_offset, message_set: message_set, last_offset: last_offset} | partitions])
+    parse_partitions(partitions_size - 1, rest, [%{partition: partition, error_code: error_code, hw_mark_offset: hw_mark_offset, message_set: message_set |> Enum.map(&Map.from_struct/1), last_offset: last_offset} | partitions])
   end
 
   defp parse_message_set([], << >>) do
@@ -47,7 +45,7 @@ defmodule KafkaEx.Protocol.Fetch do
     parse_message_set(append_messages(message,  list), rest)
   end
   defp parse_message_set([last|_] = list, _) do
-    {:ok, Enum.reverse(list) |> Enum.map(&Map.from_struct/1), last.offset}
+    {:ok, Enum.reverse(list), last.offset}
   end
 
   # handles the single message case and the batch (compression) case
@@ -62,16 +60,18 @@ defmodule KafkaEx.Protocol.Fetch do
   end
 
   defp parse_message(message = %Message{}, << crc :: 32, _magic :: 8, attributes :: 8, rest :: binary>>) do
-    parse_message_value(%{message | crc: crc, attributes: attributes}, rest)
+    maybe_decompress(%{message | crc: crc, attributes: attributes}, rest)
   end
 
-  defp parse_message_value(message = %Message{attributes: @snappy_attribute}, rest) do
-    << -1 :: 32-signed, value_size :: 32, value :: size(value_size)-binary >> = rest
-    decompress_snappy(value)
-  end
-  defp parse_message_value(message = %Message{}, rest) do
+  defp maybe_decompress(message = %Message{attributes: 0}, rest) do
     parse_key(message, rest)
   end 
+  defp maybe_decompress(%Message{attributes: attributes}, rest) do
+    << -1 :: 32-signed, value_size :: 32, value :: size(value_size)-binary >> = rest
+    decompressed = KafkaEx.Compression.decompress(attributes, value)
+    {:ok, msg_set, _offset} = parse_message_set([], decompressed)
+    {:ok, msg_set}
+  end
 
   defp parse_key(message = %Message{}, << -1 :: 32-signed, rest :: binary >>) do
     parse_value(%{message | key: nil}, rest)
@@ -85,19 +85,5 @@ defmodule KafkaEx.Protocol.Fetch do
   end
   defp parse_value(message = %Message{}, << value_size :: 32, value :: size(value_size)-binary >>) do
     {:ok, %{message | value: value}}
-  end
-
-  defp decompress_snappy(<< _snappy_header :: 64, _snappy_version_info :: 64, _size :: 32, value :: binary >>) do
-    {:ok, decompressed} = :snappy.decompress(value)
-    parse_decompressed(decompressed, [])
-  end
-
-  defp parse_decompressed(<< offset :: 64, size :: 32, rest :: binary >>, msgs) do
-    << msg_data :: size(size)-binary, rest :: binary >> = rest
-    {:ok, message} = parse_message(%Message{offset: offset}, msg_data)
-    parse_decompressed(rest, [Map.put(message, :offset, offset) | msgs])
-  end
-  defp parse_decompressed(<<>>, msgs) do
-    {:ok, Enum.reverse(msgs)}
   end
 end
