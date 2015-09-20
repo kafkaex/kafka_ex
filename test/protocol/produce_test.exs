@@ -5,8 +5,8 @@ defmodule KafkaEx.Protocol.Produce.Test do
     expected_request = <<0, 0, 0, 0, 0, 0, 0, 1, 0, 3, 102, 111, 111, 0, 1, 0, 0, 0, 10, 0, 0, 0, 1, 0, 4, 102, 111, 111, 100, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 29, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 17, 106, 86, 37, 142, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 104, 101, 121>>
 
     request = KafkaEx.Protocol.Produce.create_request(1, "foo", %KafkaEx.Protocol.Produce.Request{
-      topic: "food", partition: 0, required_acks: 1, timeout: 10, messages: [
-        %KafkaEx.Protocol.Produce.Message{key: "", value: "hey", compression: :none},
+      topic: "food", partition: 0, required_acks: 1, timeout: 10, compression: :none, messages: [
+        %KafkaEx.Protocol.Produce.Message{key: "", value: "hey"},
       ]
     })
 
@@ -17,12 +17,34 @@ defmodule KafkaEx.Protocol.Produce.Test do
     expected_request = <<0, 0, 0, 0, 0, 0, 0, 1, 0, 3, 102, 111, 111, 0, 1, 0, 0, 0, 10, 0, 0, 0, 1, 0, 4, 102, 111, 111, 100, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 88, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 17, 106, 86, 37, 142, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 104, 101, 121, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16, 225, 27, 42, 82, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 104, 105, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 19, 119, 44, 195, 207, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 104, 101, 108, 108, 111>>
 
     request = KafkaEx.Protocol.Produce.create_request(1, "foo", %KafkaEx.Protocol.Produce.Request{
-      topic: "food", partition: 0, required_acks: 1, timeout: 10, messages: [
-        %KafkaEx.Protocol.Produce.Message{key: "", value: "hey", compression: :none},
-        %KafkaEx.Protocol.Produce.Message{key: "", value: "hi", compression: :none},
-        %KafkaEx.Protocol.Produce.Message{key: "", value: "hello", compression: :none},
+      topic: "food", partition: 0, required_acks: 1, timeout: 10, compression: :none, messages: [
+        %KafkaEx.Protocol.Produce.Message{key: "", value: "hey"},
+        %KafkaEx.Protocol.Produce.Message{key: "", value: "hi"},
+        %KafkaEx.Protocol.Produce.Message{key: "", value: "hello"},
       ]
     })
+
+    assert expected_request == request
+  end
+
+  test "create_request correctly encodes messages with snappy" do
+    expected_request = <<0, 0, 0, 0, 0, 0, 0, 1, 0, 23, 99, 111, 109, 112, 114, 101, 115, 115, 105, 111, 110, 95, 99, 108, 105, 101, 110, 116, 95, 116, 101, 115, 116, 0, 1, 0, 0, 0, 10, 0, 0, 0, 1, 0, 16, 99, 111, 109, 112, 114, 101, 115, 115, 101, 100, 95, 116, 111, 112, 105, 99, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 86, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 74, 67, 64, 33, 66, 0, 2, 255, 255, 255, 255, 0, 0, 0, 60, 80, 0, 0, 25, 1, 16, 28, 225, 156, 17, 255, 5, 15, 64, 5, 107, 101, 121, 32, 97, 0, 0, 0, 9, 109, 101, 115, 115, 97, 103, 101, 5, 13, 17, 1, 16, 28, 4, 244, 101, 158, 5, 13, 5, 40, 52, 98, 0, 0, 0, 9, 109, 101, 115, 115, 97, 103, 101, 32, 98>> 
+
+    produce = %KafkaEx.Protocol.Produce.Request{
+      topic: "compressed_topic",
+      partition: 0,
+      required_acks: 1,
+      timeout: 10,
+      compression: :snappy,
+      messages: [
+        %KafkaEx.Protocol.Produce.Message{key: "key a", value: "message a"},
+        %KafkaEx.Protocol.Produce.Message{key: "key b", value: "message b"}
+      ]
+    }
+
+    request = KafkaEx.Protocol.Produce.create_request(1,
+                                                      "compression_client_test",
+                                                      produce)
 
     assert expected_request == request
   end
