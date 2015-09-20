@@ -1,4 +1,6 @@
 defmodule KafkaEx.Protocol.Fetch do
+  @snappy_attribute 2
+
   defmodule Request do
     defstruct replica_id: -1, max_wait_time: 0, min_bytes: 0, topic_name: "", partition: 0, fetch_offset: 0, max_bytes: 0
     @type t :: %Request{replica_id: integer, max_wait_time: integer, topic_name: binary, partition: integer, fetch_offset: integer, max_bytes: integer}
@@ -30,7 +32,95 @@ defmodule KafkaEx.Protocol.Fetch do
 
   defp parse_partitions(partitions_size, << partition :: 32-signed, error_code :: 16-signed, hw_mark_offset :: 64-signed,
   msg_set_size :: 32-signed, msg_set_data :: size(msg_set_size)-binary, rest :: binary >>, partitions) do
-    {:ok, message_set, last_offset} = KafkaEx.Util.parse_message_set([], msg_set_data)
+    {:ok, message_set, last_offset} = parse_message_set([], msg_set_data)
     parse_partitions(partitions_size - 1, rest, [%{partition: partition, error_code: error_code, hw_mark_offset: hw_mark_offset, message_set: message_set, last_offset: last_offset} | partitions])
+  end
+
+  defp parse_message_set([], << >>) do
+    {:ok, [], nil}
+  end
+
+  defp parse_message_set([last|_] = list, << >>) do
+    {:ok, Enum.reverse(list), last.offset}
+  end
+
+  defp parse_message_set(list, << offset :: 64, msg_size :: 32, msg_data :: size(msg_size)-binary, rest :: binary >>) do
+    {:ok, message} = parse_message(msg_data)
+    parse_message_set(append_messages(set_offsets(message, offset),  list), rest)
+  end
+
+  defp parse_message_set([], _) do
+    {:ok, [], nil}
+  end
+
+  defp parse_message_set([last|_] = list, _) do
+    {:ok, Enum.reverse(list), last.offset}
+  end
+
+  # compressed batches give us the offset of the LAST message in the batch
+  # it is up to us to correctly assign the intermediate offsets
+  defp set_offsets(messages, offset) when is_list(messages) do
+    [messages, (0..length(messages)-1) |> Enum.to_list |> Enum.reverse]
+    |> List.zip
+    |> Enum.map(fn({m, o}) -> set_offsets(m, offset - o) end)
+  end
+  defp set_offsets(message, offset) do
+    Map.put(message, :offset, offset)
+  end
+
+  # handles the single message case and the batch (compression) case
+  defp append_messages([], list) do
+    list
+  end
+  defp append_messages([message | messages], list) do
+    append_messages(messages, [message | list])
+  end
+  defp append_messages(message, list) do
+    [message | list]
+  end
+
+  defp parse_message(<< crc :: 32, _magic :: 8, attributes :: 8, rest :: binary>>) do
+    parse_message_value(crc, attributes, rest)
+  end
+
+  defp parse_message_value(_crc, @snappy_attribute, rest) do
+    << -1 :: 32-signed, value_size :: 32, value :: size(value_size)-binary >> = rest
+    decompress_snappy(value)
+  end
+  defp parse_message_value(crc, attributes, rest) do
+    parse_key(crc, attributes, rest)
+  end 
+
+  defp parse_key(crc, attributes, << -1 :: 32-signed, rest :: binary >>) do
+    parse_value(crc, attributes, nil, rest)
+  end
+
+  defp parse_key(crc, attributes, << key_size :: 32, key :: size(key_size)-binary, rest :: binary >>) do
+    parse_value(crc, attributes, key, rest)
+  end
+
+  defp parse_value(crc, attributes, key, << -1 :: 32-signed >>) do
+    {:ok, %{:crc => crc, :attributes => attributes, :key => key, :value => nil}}
+  end
+
+  defp parse_value(crc, attributes, key, << value_size :: 32, value :: size(value_size)-binary >>) do
+    {:ok, %{:crc => crc, :attributes => attributes, :key => key, :value => value}}
+  end
+
+  defp decompress_snappy(<< _snappy_header :: 64, _snappy_version_info :: 64, _size :: 32, value :: binary >>) do
+    {:ok, decompressed} = :snappy.decompress(value)
+    parse_decompressed(decompressed, [])
+  end
+  defp decompress(value, _) do
+    value
+  end
+
+  defp parse_decompressed(<< offset :: 64, size :: 32, rest :: binary >>, msgs) do
+    << message :: size(size)-binary, rest :: binary >> = rest
+    {:ok, message} = parse_message(message)
+    parse_decompressed(rest, [Map.put(message, :offset, offset) | msgs])
+  end
+  defp parse_decompressed(<<>>, msgs) do
+    {:ok, Enum.reverse(msgs)}
   end
 end
