@@ -13,7 +13,7 @@ defmodule KafkaEx.Mixfile do
   def application do
     [
       mod: {KafkaEx, []},
-      applications: [:logger]
+      applications: [:logger, :snappy]
     ]
   end
 
@@ -22,6 +22,12 @@ defmodule KafkaEx.Mixfile do
       {:earmark, "~> 0.1", only: :dev},
       {:dialyze, "~> 0.1.3", only: :dev},
       {:ex_doc, "~> 0.7", only: :dev},
+      # TODO: this is a fork of fdmanana/snappy-erlang-nif
+      # with R18 supported -
+      #    see https://github.com/fdmanana/snappy-erlang-nif/pull/12
+      {:snappy,
+       git: "https://github.com/ricecake/snappy-erlang-nif",
+       tag: "270fa36bee692c97f00c3f18a5fb81c5275b83a3"}
     ]
   end
 
