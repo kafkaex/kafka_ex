@@ -241,7 +241,7 @@ defmodule KafkaEx.Server do
     {correlation_id, %Proto.Metadata.Response{}}
   end
 
-  defp metadata(brokers, correlation_id, topic, retry, error_code) do
+  defp metadata(brokers, correlation_id, topic, retry, _error_code) do
     metadata_request = Proto.Metadata.create_request(correlation_id, @client_id, topic)
     data = Enum.find_value(brokers, fn(broker) -> KafkaEx.NetworkClient.send_sync_request(broker, metadata_request) end)
     response = Proto.Metadata.parse_response(data)
