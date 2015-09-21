@@ -1,60 +1,125 @@
-<!DOCTYPE html>
+    <!DOCTYPE html>
 <html>
   <head>
-    <title>KafkaEx.Protocol.OffsetFetch.Response</title>
-    <meta charset="utf-8" />
-    <link rel="stylesheet" href="css/style.css" type="text/css" media="screen" charset="utf-8" />
-    <link rel="stylesheet" href="css/elixir.css" type="text/css" media="screen" charset="utf-8" />
-    <script type="text/javascript" charset="utf-8">
-      relpath = '';
-      if (relpath != '') relpath += '/';
-    </script>
-
-    <script type="text/javascript" charset="utf-8" src="js/jquery.js"></script>
-    <script type="text/javascript" charset="utf-8" src="js/app.js"></script>
-    <script type="text/javascript" charset="utf-8" src="js/highlight.pack.js"></script>
-    <script type="text/javascript" charset="utf-8">
-      hljs.initHighlightingOnLoad();
-      hljs.configure({languages: []}); //disable autodetect
-    </script>
+    <meta charset="utf-8">
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    
+        <title>KafkaEx.Protocol.OffsetFetch.Response – kafka_ex v0.2.0</title>
+      
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="ExDoc v0.9.0">
+    <link href="http://fonts.googleapis.com/css?family=Lato:400,300,700,900|Merriweather:300italic,300,700,700italic|Inconsolata:400,700" rel="stylesheet" type="text/css">
+    <link rel="stylesheet" href="dist/app.css" />
+    <script src="dist/sidebar_items.js"></script>
   </head>
-
   <body>
-    <script type="text/javascript" charset="utf-8">
-      if (window.top.frames.main) document.body.className = 'frames';
-    </script>
 
-    <section id="content">
-      <div class="breadcrumbs">kafka_ex v0.1.0 &rarr; <a href="overview.html">Overview</a> &rarr; <a href="KafkaEx.html">KafkaEx</a> &rarr; <a href="KafkaEx.Protocol.html">Protocol</a> &rarr; <a href="KafkaEx.Protocol.OffsetFetch.html">OffsetFetch</a> &rarr; <a href="KafkaEx.Protocol.OffsetFetch.Response.html">Response</a></div>
+    
+    <div class="main">
+<button class="sidebar-toggle">
+  <i class="fa fa-bars"></i>
+</button>
+<section class="sidebar">
+  <button class="sidebar-toggle">
+    <i class="fa fa-bars"></i>
+  </button>
+
+  
+    <div class="sidebar-projectDetails sidebar-projectLink">
+      <h1 class="sidebar-projectName">
+        kafka_ex
+      </h1>
+      <h2 class="sidebar-projectVersion">
+        v0.2.0
+      </h2>
+    </div>
+    
+  
+
+  <div class="sidebar-search">
+    <i class="fa fa-search"></i>
+    <input type="text" class="sidebar-searchInput" placeholder="search" autocomplete="off" results="0" />
+  </div>
+
+  <ul class="sidebar-mainNav">
+    
+
+    <li><a href="overview.html">Overview</a></li>
+  </ul>
+
+  <ul class="sidebar-listNav">
+    
+      <li><a id="modules_list" href="#full_list">Modules</a></li>
+    
+
+    
+      <li><a id="exceptions_list" href="#full_list">Exceptions</a></li>
+    
+
+    
+      <li role="presentation" class="disabled">Protocols</li>
+    
+  </ul>
+
+  <ul id="full_list" class="sidebar-fullList"></ul>
+  <div class="sidebar-noResults"></div>
+</section>
+
+<section id="content" class="content">
+  <div class="content-inner">
+
+
       <h1>
         KafkaEx.Protocol.OffsetFetch.Response
         
+        
       </h1>
 
-      <ul class="summary_links">
-        
-        
-          <li><a href="#types_details">Types</a></li>
-        
-        
-        
-        
-      </ul>
-
       
 
       
-
-      
-
-      
-        <section id="types_details" class="details_list">
-          <h2>Types <a class="to_top_link" href="#content" title="To the top of the page">&uarr;</a></h2>
-          <div class="type_detail">
-  <p class="typespec" id="t:t/0">
-    <a href="#t:t/0">t</a> :: %KafkaEx.Protocol.OffsetFetch.Response{topic: binary, partitions: list}
-  </p>
+        <section id="summary_details" class="details-list">
+          <h1 id="summary" class="section-heading">Summary</h1>
+          <div class="summary">
+            <div class="summary-row">
+  <div class="summary-signature"><a href="#last_offset/1">last_offset(offset_fetch_data)</a></div>
   
+</div>
+
+          </div>
+        </section>
+      
+
+      
+        <section id="types_details" class="types details-list">
+          <h1 class="section-heading">Types</h1>
+          <div class="types-list">
+            <div class="type-detail">
+  <pre><code class="elixir" id="t:t/0"><a href="#t:t/0">t</a> :: %KafkaEx.Protocol.OffsetFetch.Response{topic: binary, partitions: list}</code></pre>
+  
+</div>
+
+          </div>
+
+        </section>
+      
+
+      
+        <section id="functions_details" class="details-list">
+          <h1 class="section-heading">Functions</h1>
+          <div class="detail">
+  <div class="detail-header" id="last_offset/1">
+    <a href="#last_offset/1" class="detail-link" title="Link to this function">
+      <i class="fa fa-link"></i>
+    </a>
+    <span class="signature">last_offset(offset_fetch_data)</span>
+      
+  </div>
+  
+  <section class="docstring">
+    
+  </section>
 </div>
 
         </section>
@@ -63,8 +128,20 @@
       
 
       
-
-      
-    </section>
+        <footer class="footer">
+      <p>
+        Designed by
+        <a href="https://twitter.com/dignifiedquire" target="_blank" title="@dignifiedquire">Friedel Ziegelmayer</a>
+        and the
+        <a href="https://github.com/elixir-lang/ex_doc/graphs/contributors" target="_blank">ExDoc team</a>.
+        Built using
+        <a href="https://github.com/elixir-lang/ex_doc" title="ExDoc" rel="help" target="_blank">ExDoc</a> (v0.9.0).
+      </p>
+    </footer>
+  </div>
+</section>
+</div>
+    <script src="dist/app.js"></script>
   </body>
 </html>
+

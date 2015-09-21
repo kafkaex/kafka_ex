@@ -5,7 +5,7 @@
     <meta http-equiv="x-ua-compatible" content="ie=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     
-        <title>KafkaEx.Protocol.Offset.Request – kafka_ex v0.2.0</title>
+        <title>KafkaEx.Protocol.Produce.Message – kafka_ex v0.2.0</title>
       
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="generator" content="ExDoc v0.9.0">
@@ -71,11 +71,21 @@
 
 
       <h1>
-        KafkaEx.Protocol.Offset.Request
+        KafkaEx.Protocol.Produce.Message
         
         
       </h1>
 
+      
+        <section id="moduledoc" class="docstring">
+          <ul>
+<li>key: is used for partition assignment, can be nil, when none is provided it is defaulted to nil
+</li>
+<li>value: is the message to be written to kafka logs.
+</li>
+</ul>
+
+        </section>
       
 
       
@@ -85,7 +95,7 @@
           <h1 class="section-heading">Types</h1>
           <div class="types-list">
             <div class="type-detail">
-  <pre><code class="elixir" id="t:t/0"><a href="#t:t/0">t</a> :: %KafkaEx.Protocol.Offset.Request{replica_id: integer, topic_name: binary, partition: integer, time: integer, max_number_of_offsets: integer}</code></pre>
+  <pre><code class="elixir" id="t:t/0"><a href="#t:t/0">t</a> :: %KafkaEx.Protocol.Produce.Message{key: binary, value: binary}</code></pre>
   
 </div>
 

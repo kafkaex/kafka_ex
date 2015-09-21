@@ -1,232 +1,295 @@
-<!DOCTYPE html>
+    <!DOCTYPE html>
 <html>
   <head>
-    <title>KafkaEx</title>
-    <meta charset="utf-8" />
-    <link rel="stylesheet" href="css/style.css" type="text/css" media="screen" charset="utf-8" />
-    <link rel="stylesheet" href="css/elixir.css" type="text/css" media="screen" charset="utf-8" />
-    <script type="text/javascript" charset="utf-8">
-      relpath = '';
-      if (relpath != '') relpath += '/';
-    </script>
-
-    <script type="text/javascript" charset="utf-8" src="js/jquery.js"></script>
-    <script type="text/javascript" charset="utf-8" src="js/app.js"></script>
-    <script type="text/javascript" charset="utf-8" src="js/highlight.pack.js"></script>
-    <script type="text/javascript" charset="utf-8">
-      hljs.initHighlightingOnLoad();
-      hljs.configure({languages: []}); //disable autodetect
-    </script>
+    <meta charset="utf-8">
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    
+        <title>KafkaEx – kafka_ex v0.2.0</title>
+      
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="ExDoc v0.9.0">
+    <link href="http://fonts.googleapis.com/css?family=Lato:400,300,700,900|Merriweather:300italic,300,700,700italic|Inconsolata:400,700" rel="stylesheet" type="text/css">
+    <link rel="stylesheet" href="dist/app.css" />
+    <script src="dist/sidebar_items.js"></script>
   </head>
-
   <body>
-    <script type="text/javascript" charset="utf-8">
-      if (window.top.frames.main) document.body.className = 'frames';
-    </script>
 
-    <section id="content">
-      <div class="breadcrumbs">kafka_ex v0.1.0 &rarr; <a href="overview.html">Overview</a> &rarr; <a href="KafkaEx.html">KafkaEx</a></div>
+    
+    <div class="main">
+<button class="sidebar-toggle">
+  <i class="fa fa-bars"></i>
+</button>
+<section class="sidebar">
+  <button class="sidebar-toggle">
+    <i class="fa fa-bars"></i>
+  </button>
+
+  
+    <div class="sidebar-projectDetails sidebar-projectLink">
+      <h1 class="sidebar-projectName">
+        kafka_ex
+      </h1>
+      <h2 class="sidebar-projectVersion">
+        v0.2.0
+      </h2>
+    </div>
+    
+  
+
+  <div class="sidebar-search">
+    <i class="fa fa-search"></i>
+    <input type="text" class="sidebar-searchInput" placeholder="search" autocomplete="off" results="0" />
+  </div>
+
+  <ul class="sidebar-mainNav">
+    
+
+    <li><a href="overview.html">Overview</a></li>
+  </ul>
+
+  <ul class="sidebar-listNav">
+    
+      <li><a id="modules_list" href="#full_list">Modules</a></li>
+    
+
+    
+      <li><a id="exceptions_list" href="#full_list">Exceptions</a></li>
+    
+
+    
+      <li role="presentation" class="disabled">Protocols</li>
+    
+  </ul>
+
+  <ul id="full_list" class="sidebar-fullList"></ul>
+  <div class="sidebar-noResults"></div>
+</section>
+
+<section id="content" class="content">
+  <div class="content-inner">
+
+
       <h1>
         KafkaEx
         
+        
       </h1>
 
-      <ul class="summary_links">
-        
-          <li><a href="#summary">Summary</a></li>
-        
-        
-          <li><a href="#types_details">Types</a></li>
-        
-        
-          <li><a href="#functions_details">Functions</a></li>
-        
-        
-        
-      </ul>
-
       
 
       
-
-      
-        <h2 id="summary">Summary<span class="detail_header_links"><a class="to_top_link" href="#content" title="To the top of the page">&uarr;</a></span></h2>
-        <table class="summary">
-          <tr>
-  <td class="summary_signature"><a href="#consumer_group_metadata/2">consumer_group_metadata(worker_name, consumer_group)</a></td>
+        <section id="summary_details" class="details-list">
+          <h1 id="summary" class="section-heading">Summary</h1>
+          <div class="summary">
+            <div class="summary-row">
+  <div class="summary-signature"><a href="#consumer_group_metadata/2">consumer_group_metadata(worker_name, consumer_group)</a></div>
   
-</tr>
-<tr>
-  <td class="summary_signature"><a href="#create_worker/2">create_worker(name, worker_init \\ [])</a></td>
+</div>
+<div class="summary-row">
+  <div class="summary-signature"><a href="#create_worker/2">create_worker(name, worker_init \\ [])</a></div>
   
-    <td class="summary_synopsis"><p>create_worker creates KafkaEx workers</p>
-</td>
+    <div class="summary-synopsis"><p>create_worker creates KafkaEx workers</p>
+</div>
   
-</tr>
-<tr>
-  <td class="summary_signature"><a href="#earliest_offset/3">earliest_offset(topic, partition, name \\ KafkaEx.Server)</a></td>
+</div>
+<div class="summary-row">
+  <div class="summary-signature"><a href="#earliest_offset/3">earliest_offset(topic, partition, name \\ KafkaEx.Server)</a></div>
   
-    <td class="summary_synopsis"><p>Get the offset of the earliest message still persistent in Kafka</p>
-</td>
+    <div class="summary-synopsis"><p>Get the offset of the earliest message still persistent in Kafka</p>
+</div>
   
-</tr>
-<tr>
-  <td class="summary_signature"><a href="#fetch/3">fetch(topic, partition, opts \\ [])</a></td>
+</div>
+<div class="summary-row">
+  <div class="summary-signature"><a href="#fetch/3">fetch(topic, partition, opts \\ [])</a></div>
   
-    <td class="summary_synopsis"><p>Fetch a set of messages from Kafka from the given topic and partition ID</p>
-</td>
+    <div class="summary-synopsis"><p>Fetch a set of messages from Kafka from the given topic and partition ID</p>
+</div>
   
-</tr>
-<tr>
-  <td class="summary_signature"><a href="#latest_offset/3">latest_offset(topic, partition, name \\ KafkaEx.Server)</a></td>
+</div>
+<div class="summary-row">
+  <div class="summary-signature"><a href="#latest_offset/3">latest_offset(topic, partition, name \\ KafkaEx.Server)</a></div>
   
-    <td class="summary_synopsis"><p>Get the offset of the latest message written to Kafka</p>
-</td>
+    <div class="summary-synopsis"><p>Get the offset of the latest message written to Kafka</p>
+</div>
   
-</tr>
-<tr>
-  <td class="summary_signature"><a href="#metadata/1">metadata(opts \\ [])</a></td>
+</div>
+<div class="summary-row">
+  <div class="summary-signature"><a href="#metadata/1">metadata(opts \\ [])</a></div>
   
-    <td class="summary_synopsis"><p>Return metadata for the given topic; returns for all topics if topic is empty string</p>
-</td>
+    <div class="summary-synopsis"><p>Return metadata for the given topic; returns for all topics if topic is empty string</p>
+</div>
   
-</tr>
-<tr>
-  <td class="summary_signature"><a href="#offset/4">offset(topic, partition, time, name \\ KafkaEx.Server)</a></td>
+</div>
+<div class="summary-row">
+  <div class="summary-signature"><a href="#offset/4">offset(topic, partition, time, name \\ KafkaEx.Server)</a></div>
   
-    <td class="summary_synopsis"><p>Get the offset of the message sent at the specified date/time</p>
-</td>
+    <div class="summary-synopsis"><p>Get the offset of the message sent at the specified date/time</p>
+</div>
   
-</tr>
-<tr>
-  <td class="summary_signature"><a href="#offset_commit/2">offset_commit(worker_name, offset_commit_request)</a></td>
+</div>
+<div class="summary-row">
+  <div class="summary-signature"><a href="#offset_commit/2">offset_commit(worker_name, offset_commit_request)</a></div>
   
-</tr>
-<tr>
-  <td class="summary_signature"><a href="#offset_fetch/2">offset_fetch(worker_name, offset_fetch_request)</a></td>
+</div>
+<div class="summary-row">
+  <div class="summary-signature"><a href="#offset_fetch/2">offset_fetch(worker_name, offset_fetch_request)</a></div>
   
-</tr>
-<tr>
-  <td class="summary_signature"><a href="#produce/4">produce(topic, partition, value, opts \\ [])</a></td>
+</div>
+<div class="summary-row">
+  <div class="summary-signature"><a href="#produce/2">produce(produce_request, opts \\ [])</a></div>
   
-    <td class="summary_synopsis"><p>Produces messages to kafka logs</p>
-</td>
+    <div class="summary-synopsis"><p>Produces batch messages to kafka logs</p>
+</div>
   
-</tr>
-<tr>
-  <td class="summary_signature"><a href="#start/2">start(type, args)</a></td>
+</div>
+<div class="summary-row">
+  <div class="summary-signature"><a href="#produce/4">produce(topic, partition, value, opts \\ [])</a></div>
   
-    <td class="summary_synopsis"><p>Callback implementation of <a href="http://www.erlang.org/doc/man/application.html#start-2"><code class="inline">:application.start/2</code></a></p>
-</td>
+    <div class="summary-synopsis"><p>Produces messages to kafka logs (this is deprecated, use KafkaEx.produce/2 instead)
+Optional arguments(KeywordList)</p>
+<ul>
+<li>worker_name: the worker we want to run this metadata request through, when none is provided the default worker <a href="KafkaEx.Server.html"><code class="inline">KafkaEx.Server</code></a> is used
+</li>
+<li>key: is used for partition assignment, can be nil, when none is provided it is defaulted to nil
+</li>
+<li>require_acks: indicates how many acknowledgements the servers should receive before responding to the request. If it is 0 the server will not send any response (this is the only case where the server will not reply to a request). If it is 1, the server will wait the data is written to the local log before sending a response. If it is -1 the server will block until the message is committed by all in sync replicas before sending a response. For any number &gt; 1 the server will block waiting for this number of acknowledgements to occur (but the server will never wait for more acknowledgements than there are in-sync replicas), default is 0
+</li>
+<li>timeout: provides a maximum time in milliseconds the server can await the receipt of the number of acknowledgements in RequiredAcks, default is 100 milliseconds
+</li>
+</ul>
+<h2>Example</h2>
+<pre><code class="elixir">iex&gt; KafkaEx.produce(&quot;bar&quot;, 0, &quot;hey&quot;)
+:ok
+iex&gt; KafkaEx.produce(&quot;foo&quot;, 0, &quot;hey&quot;, [worker_name: :pr, require_acks: 1])
+[%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: 0, offset: 75, partition: 0}], topic: &quot;foo&quot;}]</code></pre>
+</div>
   
-</tr>
-<tr>
-  <td class="summary_signature"><a href="#stop_streaming/1">stop_streaming(opts \\ [])</a></td>
+</div>
+<div class="summary-row">
+  <div class="summary-signature"><a href="#start/2">start(type, args)</a></div>
   
-</tr>
-<tr>
-  <td class="summary_signature"><a href="#stream/3">stream(topic, partition, opts \\ [])</a></td>
+    <div class="summary-synopsis"><p>Callback implementation for <code class="inline">c::application.start/2</code></p>
+</div>
   
-    <td class="summary_synopsis"><p>Returns a stream that consumes fetched messages.
+</div>
+<div class="summary-row">
+  <div class="summary-signature"><a href="#stop_streaming/1">stop_streaming(opts \\ [])</a></div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature"><a href="#stream/3">stream(topic, partition, opts \\ [])</a></div>
+  
+    <div class="summary-synopsis"><p>Returns a stream that consumes fetched messages.
 This puts the specified worker in streaming mode and blocks the worker indefinitely.
 The handler is a normal GenEvent handler so you can supply a custom handler, otherwise a default handler is used</p>
-</td>
+</div>
   
-</tr>
+</div>
 
-        </table>
+          </div>
+        </section>
       
 
       
-        <section id="types_details" class="details_list">
-          <h2>Types <a class="to_top_link" href="#content" title="To the top of the page">&uarr;</a></h2>
-          <div class="type_detail">
-  <p class="typespec" id="t:uri/0">
-    <a href="#t:uri/0">uri</a> :: [{binary | char_list, number}]
-  </p>
+        <section id="types_details" class="types details-list">
+          <h1 class="section-heading">Types</h1>
+          <div class="types-list">
+            <div class="type-detail">
+  <pre><code class="elixir" id="t:uri/0"><a href="#t:uri/0">uri</a> :: [{binary | char_list, number}]</code></pre>
   
 </div>
-<div class="type_detail">
-  <p class="typespec" id="t:worker_init/0">
-    <a href="#t:worker_init/0">worker_init</a> :: [uris: <a href="#t:uri/0">uri</a>, consumer_group: binary]
-  </p>
+<div class="type-detail">
+  <pre><code class="elixir" id="t:worker_init/0"><a href="#t:worker_init/0">worker_init</a> :: [uris: <a href="#t:uri/0">uri</a>, consumer_group: binary | false]</code></pre>
   
 </div>
+
+          </div>
 
         </section>
       
 
       
-        <section id="functions_details" class="details_list">
-          <h2>Functions</h2>
-          <section class="detail">
-  <div class="detail_header" id="consumer_group_metadata/2">
-    <span class="signature"><strong>consumer_group_metadata(worker_name, consumer_group)</strong></span>
-    <div class="detail_header_links">
-      <span class="detail_type">(function)</span>
-      <a href="#consumer_group_metadata/2" class="detail_link" title="Link to this function">#</a>
-      <a class="to_top_link" href="#content" title="To the top of the page">&uarr;</a>
-    </div>
+        <section id="functions_details" class="details-list">
+          <h1 class="section-heading">Functions</h1>
+          <div class="detail">
+  <div class="detail-header" id="consumer_group_metadata/2">
+    <a href="#consumer_group_metadata/2" class="detail-link" title="Link to this function">
+      <i class="fa fa-link"></i>
+    </a>
+    <span class="signature">consumer_group_metadata(worker_name, consumer_group)</span>
+      
   </div>
   
-    <p>Specs:</p>
-    <ul class="spec">
-      
-        <li>consumer_group_metadata(atom, binary) :: <a href="KafkaEx.Protocol.ConsumerMetadata.Response.html#t:t/0">KafkaEx.Protocol.ConsumerMetadata.Response.t</a></li>
-      
-    </ul>
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">consumer_group_metadata(atom, binary) :: <a href="KafkaEx.Protocol.ConsumerMetadata.Response.html#t:t/0">KafkaEx.Protocol.ConsumerMetadata.Response.t</a></code></pre>
+        
+      </div>
+    </div>
   
   <section class="docstring">
     
   </section>
-  
-</section>
-<section class="detail">
-  <div class="detail_header" id="create_worker/2">
-    <span class="signature"><strong>create_worker(name, worker_init \\ [])</strong></span>
-    <div class="detail_header_links">
-      <span class="detail_type">(function)</span>
-      <a href="#create_worker/2" class="detail_link" title="Link to this function">#</a>
-      <a class="to_top_link" href="#content" title="To the top of the page">&uarr;</a>
-    </div>
+</div>
+<div class="detail">
+  <div class="detail-header" id="create_worker/2">
+    <a href="#create_worker/2" class="detail-link" title="Link to this function">
+      <i class="fa fa-link"></i>
+    </a>
+    <span class="signature">create_worker(name, worker_init \\ [])</span>
+      
   </div>
   
-    <p>Specs:</p>
-    <ul class="spec">
-      
-        <li>create_worker(atom, <a href="KafkaEx.html#t:worker_init/0">KafkaEx.worker_init</a>) :: <a href="http://elixir-lang.org/docs/stable/elixir/Supervisor.html#t:on_start_child/0">Supervisor.on_start_child</a></li>
-      
-    </ul>
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">create_worker(atom, <a href="KafkaEx.html#t:worker_init/0">KafkaEx.worker_init</a>) :: <a href="http://elixir-lang.org/docs/stable/elixir/Supervisor.html#t:on_start_child/0">Supervisor.on_start_child</a></code></pre>
+        
+      </div>
+    </div>
   
   <section class="docstring">
     <p>create_worker creates KafkaEx workers</p>
+<p>Optional arguments(KeywordList)</p>
+<ul>
+<li>consumer_group: Name of the group of consumers, <code class="inline">false</code> should be passed for Kafka &lt; 0.8.2, default is “kafka_ex”
+</li>
+<li>metadata_update_interval: How often <code class="inline">kafka_ex</code> would update the Kafka cluster metadata information in milliseconds, default is 30000
+</li>
+<li>consumer_group_update_interval: How often <code class="inline">kafka_ex</code> would update the Kafka cluster consumer_groups information in milliseconds, default is 30000
+</li>
+</ul>
 <h2>Example</h2>
 <pre><code class="elixir">iex&gt; KafkaEx.create_worker(:pr) # where :pr is the name of the worker created
 {:ok, #PID&lt;0.171.0&gt;}
-iex&gt; KafkaEx.create_worker(:pr, uris: [{&quot;localhost&quot;, 9092}]) #if no consumer_group is specified &quot;kafka_ex&quot; would be used as the default
+iex&gt; KafkaEx.create_worker(:pr, uris: [{&quot;localhost&quot;, 9092}])
 {:ok, #PID&lt;0.172.0&gt;}
 iex&gt; KafkaEx.create_worker(:pr, [uris: [{&quot;localhost&quot;, 9092}], consumer_group: &quot;foo&quot;])
 {:ok, #PID&lt;0.173.0&gt;}</code></pre>
 
   </section>
-  
-</section>
-<section class="detail">
-  <div class="detail_header" id="earliest_offset/3">
-    <span class="signature"><strong>earliest_offset(topic, partition, name \\ KafkaEx.Server)</strong></span>
-    <div class="detail_header_links">
-      <span class="detail_type">(function)</span>
-      <a href="#earliest_offset/3" class="detail_link" title="Link to this function">#</a>
-      <a class="to_top_link" href="#content" title="To the top of the page">&uarr;</a>
-    </div>
+</div>
+<div class="detail">
+  <div class="detail-header" id="earliest_offset/3">
+    <a href="#earliest_offset/3" class="detail-link" title="Link to this function">
+      <i class="fa fa-link"></i>
+    </a>
+    <span class="signature">earliest_offset(topic, partition, name \\ KafkaEx.Server)</span>
+      
   </div>
   
-    <p>Specs:</p>
-    <ul class="spec">
-      
-        <li>earliest_offset(binary, integer, atom | pid) :: {atom, %{}}</li>
-      
-    </ul>
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">earliest_offset(binary, integer, atom | pid) :: {atom, map}</code></pre>
+        
+      </div>
+    </div>
   
   <section class="docstring">
     <p>Get the offset of the earliest message still persistent in Kafka</p>
@@ -235,30 +298,30 @@ iex&gt; KafkaEx.create_worker(:pr, [uris: [{&quot;localhost&quot;, 9092}], consu
 [%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offset: [0], partition: 0}], topic: &quot;foo&quot;}]</code></pre>
 
   </section>
-  
-</section>
-<section class="detail">
-  <div class="detail_header" id="fetch/3">
-    <span class="signature"><strong>fetch(topic, partition, opts \\ [])</strong></span>
-    <div class="detail_header_links">
-      <span class="detail_type">(function)</span>
-      <a href="#fetch/3" class="detail_link" title="Link to this function">#</a>
-      <a class="to_top_link" href="#content" title="To the top of the page">&uarr;</a>
-    </div>
+</div>
+<div class="detail">
+  <div class="detail-header" id="fetch/3">
+    <a href="#fetch/3" class="detail-link" title="Link to this function">
+      <i class="fa fa-link"></i>
+    </a>
+    <span class="signature">fetch(topic, partition, opts \\ [])</span>
+      
   </div>
   
-    <p>Specs:</p>
-    <ul class="spec">
-      
-        <li>fetch(binary, number, <a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) :: {atom, %{}}</li>
-      
-    </ul>
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">fetch(binary, number, <a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) :: {atom, map}</code></pre>
+        
+      </div>
+    </div>
   
   <section class="docstring">
     <p>Fetch a set of messages from Kafka from the given topic and partition ID</p>
 <p>Optional arguments(KeywordList)</p>
 <ul>
-<li>offset: When supplied the fetch would start from this offset, otherwise would start from the last committed offset of the consumer_group the worker belongs to.
+<li>offset: When supplied the fetch would start from this offset, otherwise would start from the last committed offset of the consumer_group the worker belongs to. For Kafka &lt; 0.8.2 you should explicitly specify this.
 </li>
 <li>worker_name: the worker we want to run this fetch request through. Default is KafkaEx.Server
 </li>
@@ -268,7 +331,7 @@ iex&gt; KafkaEx.create_worker(:pr, [uris: [{&quot;localhost&quot;, 9092}], consu
 </li>
 <li>max_bytes: maximum bytes to include in the message set for this partition. This helps bound the size of the response. Default is 1,000,000
 </li>
-<li>auto_commit: specifies if the last offset should be commited or not. Default is true
+<li>auto_commit: specifies if the last offset should be commited or not. Default is true. For Kafka &lt; 0.8.2 set this to false.
 </li>
 </ul>
 <h2>Example</h2>
@@ -282,24 +345,24 @@ iex&gt; KafkaEx.create_worker(:pr, [uris: [{&quot;localhost&quot;, 9092}], consu
 ]</code></pre>
 
   </section>
-  
-</section>
-<section class="detail">
-  <div class="detail_header" id="latest_offset/3">
-    <span class="signature"><strong>latest_offset(topic, partition, name \\ KafkaEx.Server)</strong></span>
-    <div class="detail_header_links">
-      <span class="detail_type">(function)</span>
-      <a href="#latest_offset/3" class="detail_link" title="Link to this function">#</a>
-      <a class="to_top_link" href="#content" title="To the top of the page">&uarr;</a>
-    </div>
+</div>
+<div class="detail">
+  <div class="detail-header" id="latest_offset/3">
+    <a href="#latest_offset/3" class="detail-link" title="Link to this function">
+      <i class="fa fa-link"></i>
+    </a>
+    <span class="signature">latest_offset(topic, partition, name \\ KafkaEx.Server)</span>
+      
   </div>
   
-    <p>Specs:</p>
-    <ul class="spec">
-      
-        <li>latest_offset(binary, integer, atom | pid) :: {atom, %{}}</li>
-      
-    </ul>
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">latest_offset(binary, integer, atom | pid) :: {atom, map}</code></pre>
+        
+      </div>
+    </div>
   
   <section class="docstring">
     <p>Get the offset of the latest message written to Kafka</p>
@@ -308,24 +371,24 @@ iex&gt; KafkaEx.create_worker(:pr, [uris: [{&quot;localhost&quot;, 9092}], consu
 [%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offsets: [16], partition: 0}], topic: &quot;foo&quot;}]</code></pre>
 
   </section>
-  
-</section>
-<section class="detail">
-  <div class="detail_header" id="metadata/1">
-    <span class="signature"><strong>metadata(opts \\ [])</strong></span>
-    <div class="detail_header_links">
-      <span class="detail_type">(function)</span>
-      <a href="#metadata/1" class="detail_link" title="Link to this function">#</a>
-      <a class="to_top_link" href="#content" title="To the top of the page">&uarr;</a>
-    </div>
+</div>
+<div class="detail">
+  <div class="detail-header" id="metadata/1">
+    <a href="#metadata/1" class="detail-link" title="Link to this function">
+      <i class="fa fa-link"></i>
+    </a>
+    <span class="signature">metadata(opts \\ [])</span>
+      
   </div>
   
-    <p>Specs:</p>
-    <ul class="spec">
-      
-        <li>metadata(<a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) :: %{}</li>
-      
-    </ul>
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">metadata(<a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) :: map</code></pre>
+        
+      </div>
+    </div>
   
   <section class="docstring">
     <p>Return metadata for the given topic; returns for all topics if topic is empty string</p>
@@ -347,24 +410,24 @@ iex&gt; KafkaEx.metadata(topic: &quot;foo&quot;, worker_name: :mt)
    topic: &quot;foo&quot;}]}</code></pre>
 
   </section>
-  
-</section>
-<section class="detail">
-  <div class="detail_header" id="offset/4">
-    <span class="signature"><strong>offset(topic, partition, time, name \\ KafkaEx.Server)</strong></span>
-    <div class="detail_header_links">
-      <span class="detail_type">(function)</span>
-      <a href="#offset/4" class="detail_link" title="Link to this function">#</a>
-      <a class="to_top_link" href="#content" title="To the top of the page">&uarr;</a>
-    </div>
+</div>
+<div class="detail">
+  <div class="detail-header" id="offset/4">
+    <a href="#offset/4" class="detail-link" title="Link to this function">
+      <i class="fa fa-link"></i>
+    </a>
+    <span class="signature">offset(topic, partition, time, name \\ KafkaEx.Server)</span>
+      
   </div>
   
-    <p>Specs:</p>
-    <ul class="spec">
-      
-        <li>offset(binary, number, :calendar.datetime | atom, atom | pid) :: {atom, %{}}</li>
-      
-    </ul>
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">offset(binary, number, :calendar.datetime | atom, atom | pid) :: {atom, map}</code></pre>
+        
+      </div>
+    </div>
   
   <section class="docstring">
     <p>Get the offset of the message sent at the specified date/time</p>
@@ -373,72 +436,109 @@ iex&gt; KafkaEx.metadata(topic: &quot;foo&quot;, worker_name: :mt)
 [%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offset: [256], partition: 0}], topic: &quot;foo&quot;}]</code></pre>
 
   </section>
-  
-</section>
-<section class="detail">
-  <div class="detail_header" id="offset_commit/2">
-    <span class="signature"><strong>offset_commit(worker_name, offset_commit_request)</strong></span>
-    <div class="detail_header_links">
-      <span class="detail_type">(function)</span>
-      <a href="#offset_commit/2" class="detail_link" title="Link to this function">#</a>
-      <a class="to_top_link" href="#content" title="To the top of the page">&uarr;</a>
-    </div>
+</div>
+<div class="detail">
+  <div class="detail-header" id="offset_commit/2">
+    <a href="#offset_commit/2" class="detail-link" title="Link to this function">
+      <i class="fa fa-link"></i>
+    </a>
+    <span class="signature">offset_commit(worker_name, offset_commit_request)</span>
+      
   </div>
   
-    <p>Specs:</p>
-    <ul class="spec">
-      
-        <li>offset_commit(atom, <a href="KafkaEx.Protocol.OffsetCommit.Request.html#t:t/0">KafkaEx.Protocol.OffsetCommit.Request.t</a>) :: <a href="KafkaEx.Protocol.OffsetCommit.Response.html#t:t/0">KafkaEx.Protocol.OffsetCommit.Response.t</a></li>
-      
-    </ul>
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">offset_commit(atom, <a href="KafkaEx.Protocol.OffsetCommit.Request.html#t:t/0">KafkaEx.Protocol.OffsetCommit.Request.t</a>) :: <a href="KafkaEx.Protocol.OffsetCommit.Response.html#t:t/0">KafkaEx.Protocol.OffsetCommit.Response.t</a></code></pre>
+        
+      </div>
+    </div>
   
   <section class="docstring">
     
   </section>
-  
-</section>
-<section class="detail">
-  <div class="detail_header" id="offset_fetch/2">
-    <span class="signature"><strong>offset_fetch(worker_name, offset_fetch_request)</strong></span>
-    <div class="detail_header_links">
-      <span class="detail_type">(function)</span>
-      <a href="#offset_fetch/2" class="detail_link" title="Link to this function">#</a>
-      <a class="to_top_link" href="#content" title="To the top of the page">&uarr;</a>
-    </div>
+</div>
+<div class="detail">
+  <div class="detail-header" id="offset_fetch/2">
+    <a href="#offset_fetch/2" class="detail-link" title="Link to this function">
+      <i class="fa fa-link"></i>
+    </a>
+    <span class="signature">offset_fetch(worker_name, offset_fetch_request)</span>
+      
   </div>
   
-    <p>Specs:</p>
-    <ul class="spec">
-      
-        <li>offset_fetch(atom, <a href="KafkaEx.Protocol.OffsetFetch.Request.html#t:t/0">KafkaEx.Protocol.OffsetFetch.Request.t</a>) :: <a href="KafkaEx.Protocol.OffsetFetch.Response.html#t:t/0">KafkaEx.Protocol.OffsetFetch.Response.t</a></li>
-      
-    </ul>
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">offset_fetch(atom, <a href="KafkaEx.Protocol.OffsetFetch.Request.html#t:t/0">KafkaEx.Protocol.OffsetFetch.Request.t</a>) :: <a href="KafkaEx.Protocol.OffsetFetch.Response.html#t:t/0">KafkaEx.Protocol.OffsetFetch.Response.t</a></code></pre>
+        
+      </div>
+    </div>
   
   <section class="docstring">
     
   </section>
-  
-</section>
-<section class="detail">
-  <div class="detail_header" id="produce/4">
-    <span class="signature"><strong>produce(topic, partition, value, opts \\ [])</strong></span>
-    <div class="detail_header_links">
-      <span class="detail_type">(function)</span>
-      <a href="#produce/4" class="detail_link" title="Link to this function">#</a>
-      <a class="to_top_link" href="#content" title="To the top of the page">&uarr;</a>
-    </div>
+</div>
+<div class="detail">
+  <div class="detail-header" id="produce/2">
+    <a href="#produce/2" class="detail-link" title="Link to this function">
+      <i class="fa fa-link"></i>
+    </a>
+    <span class="signature">produce(produce_request, opts \\ [])</span>
+      
   </div>
   
-    <p>Specs:</p>
-    <ul class="spec">
-      
-        <li>produce(binary, number, binary, <a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) :: :ok | {:ok, %{}}</li>
-      
-    </ul>
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">produce(<a href="KafkaEx.Protocol.Produce.Request.html#t:t/0">KafkaEx.Protocol.Produce.Request.t</a>, <a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) ::
+  :ok |
+  list</code></pre>
+        
+      </div>
+    </div>
   
   <section class="docstring">
-    <p>Produces messages to kafka logs</p>
+    <p>Produces batch messages to kafka logs</p>
 <p>Optional arguments(KeywordList)</p>
+<ul>
+<li>worker_name: the worker we want to run this metadata request through, when none is provided the default worker <a href="KafkaEx.Server.html"><code class="inline">KafkaEx.Server</code></a> is used
+</li>
+</ul>
+<h2>Example</h2>
+<pre><code class="elixir">iex&gt; KafkaEx.produce(%KafkaEx.Protocol.Produce.Request{topic: &quot;foo&quot;, required_acks: 1, messages: [%KafkaEx.Protocol.Produce.Message{value: &quot;hey&quot;}]})
+:ok
+iex&gt; KafkaEx.produce(%KafkaEx.Protocol.Produce.Request{topic: &quot;foo&quot;, required_acks: 1, messages: [%KafkaEx.Protocol.Produce.Message{value: &quot;hey&quot;}]}, worker_name: :pr)
+[%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: 0, offset: 75, partition: 0}], topic: &quot;foo&quot;}]</code></pre>
+
+  </section>
+</div>
+<div class="detail">
+  <div class="detail-header" id="produce/4">
+    <a href="#produce/4" class="detail-link" title="Link to this function">
+      <i class="fa fa-link"></i>
+    </a>
+    <span class="signature">produce(topic, partition, value, opts \\ [])</span>
+      
+  </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">produce(binary, number, binary, <a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) ::
+  :ok |
+  list</code></pre>
+        
+      </div>
+    </div>
+  
+  <section class="docstring">
+    <p>Produces messages to kafka logs (this is deprecated, use KafkaEx.produce/2 instead)
+Optional arguments(KeywordList)</p>
 <ul>
 <li>worker_name: the worker we want to run this metadata request through, when none is provided the default worker <a href="KafkaEx.Server.html"><code class="inline">KafkaEx.Server</code></a> is used
 </li>
@@ -456,62 +556,60 @@ iex&gt; KafkaEx.produce(&quot;foo&quot;, 0, &quot;hey&quot;, [worker_name: :pr, 
 [%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: 0, offset: 75, partition: 0}], topic: &quot;foo&quot;}]</code></pre>
 
   </section>
-  
-</section>
-<section class="detail">
-  <div class="detail_header" id="start/2">
-    <span class="signature"><strong>start(type, args)</strong></span>
-    <div class="detail_header_links">
-      <span class="detail_type">(function)</span>
-      <a href="#start/2" class="detail_link" title="Link to this function">#</a>
-      <a class="to_top_link" href="#content" title="To the top of the page">&uarr;</a>
-    </div>
+</div>
+<div class="detail">
+  <div class="detail-header" id="start/2">
+    <a href="#start/2" class="detail-link" title="Link to this function">
+      <i class="fa fa-link"></i>
+    </a>
+    <span class="signature">start(type, args)</span>
+      
   </div>
   
   <section class="docstring">
-    <p>Callback implementation of <a href="http://www.erlang.org/doc/man/application.html#start-2"><code class="inline">:application.start/2</code></a>.</p>
+    <p>Callback implementation for <code class="inline">c::application.start/2</code>.</p>
 
   </section>
-  
-</section>
-<section class="detail">
-  <div class="detail_header" id="stop_streaming/1">
-    <span class="signature"><strong>stop_streaming(opts \\ [])</strong></span>
-    <div class="detail_header_links">
-      <span class="detail_type">(function)</span>
-      <a href="#stop_streaming/1" class="detail_link" title="Link to this function">#</a>
-      <a class="to_top_link" href="#content" title="To the top of the page">&uarr;</a>
-    </div>
+</div>
+<div class="detail">
+  <div class="detail-header" id="stop_streaming/1">
+    <a href="#stop_streaming/1" class="detail-link" title="Link to this function">
+      <i class="fa fa-link"></i>
+    </a>
+    <span class="signature">stop_streaming(opts \\ [])</span>
+      
   </div>
   
-    <p>Specs:</p>
-    <ul class="spec">
-      
-        <li>stop_streaming(<a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) :: :ok</li>
-      
-    </ul>
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">stop_streaming(<a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) :: :ok</code></pre>
+        
+      </div>
+    </div>
   
   <section class="docstring">
     
   </section>
-  
-</section>
-<section class="detail">
-  <div class="detail_header" id="stream/3">
-    <span class="signature"><strong>stream(topic, partition, opts \\ [])</strong></span>
-    <div class="detail_header_links">
-      <span class="detail_type">(function)</span>
-      <a href="#stream/3" class="detail_link" title="Link to this function">#</a>
-      <a class="to_top_link" href="#content" title="To the top of the page">&uarr;</a>
-    </div>
+</div>
+<div class="detail">
+  <div class="detail-header" id="stream/3">
+    <a href="#stream/3" class="detail-link" title="Link to this function">
+      <i class="fa fa-link"></i>
+    </a>
+    <span class="signature">stream(topic, partition, opts \\ [])</span>
+      
   </div>
   
-    <p>Specs:</p>
-    <ul class="spec">
-      
-        <li>stream(binary, number, <a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) :: <a href="http://elixir-lang.org/docs/stable/elixir/GenEvent.Stream.html#t:t/0">GenEvent.Stream.t</a></li>
-      
-    </ul>
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">stream(binary, number, <a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) :: <a href="http://elixir-lang.org/docs/stable/elixir/GenEvent.Stream.html#t:t/0">GenEvent.Stream.t</a></code></pre>
+        
+      </div>
+    </div>
   
   <section class="docstring">
     <p>Returns a stream that consumes fetched messages.
@@ -522,11 +620,11 @@ The handler is a normal GenEvent handler so you can supply a custom handler, oth
 <ul>
 <li>worker_name: the worker we want to run this metadata request through, when none is provided the default worker <a href="KafkaEx.Server.html"><code class="inline">KafkaEx.Server</code></a> is used
 </li>
-<li>offset: offset to begin this fetch from, when none is provided 0 is assumed
+<li>offset: When supplied the fetch would start from this offset, otherwise would start from the last committed offset of the consumer_group the worker belongs to. For Kafka &lt; 0.8.2 you should explicitly specify this.
 </li>
 <li>handler: the handler we want to handle the streaming events, when none is provided the default KafkaExHandler is used
 </li>
-<li>auto_commit: specifies if the last offset should be commited or not. Default is true
+<li>auto_commit: specifies if the last offset should be commited or not. Default is true. For Kafka &lt; 0.8.2 set this to false.
 </li>
 </ul>
 <h2>Example</h2>
@@ -541,8 +639,7 @@ iex&gt; KafkaEx.stream(&quot;foo&quot;, 0) |&gt; Enum.take(2)
  %{attributes: 0, crc: 4251893211, key: nil, offset: 1, value: &quot;hi&quot;}]</code></pre>
 
   </section>
-  
-</section>
+</div>
 
         </section>
       
@@ -550,6 +647,20 @@ iex&gt; KafkaEx.stream(&quot;foo&quot;, 0) |&gt; Enum.take(2)
       
 
       
-    </section>
+        <footer class="footer">
+      <p>
+        Designed by
+        <a href="https://twitter.com/dignifiedquire" target="_blank" title="@dignifiedquire">Friedel Ziegelmayer</a>
+        and the
+        <a href="https://github.com/elixir-lang/ex_doc/graphs/contributors" target="_blank">ExDoc team</a>.
+        Built using
+        <a href="https://github.com/elixir-lang/ex_doc" title="ExDoc" rel="help" target="_blank">ExDoc</a> (v0.9.0).
+      </p>
+    </footer>
+  </div>
+</section>
+</div>
+    <script src="dist/app.js"></script>
   </body>
 </html>
+

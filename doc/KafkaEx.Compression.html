@@ -5,7 +5,7 @@
     <meta http-equiv="x-ua-compatible" content="ie=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     
-        <title>KafkaEx.Protocol.OffsetFetch – kafka_ex v0.2.0</title>
+        <title>KafkaEx.Compression – kafka_ex v0.2.0</title>
       
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="generator" content="ExDoc v0.9.0">
@@ -71,11 +71,29 @@
 
 
       <h1>
-        KafkaEx.Protocol.OffsetFetch
+        KafkaEx.Compression
         
         
       </h1>
 
+      
+        <section id="moduledoc" class="docstring">
+          <p>Handles compression/decompression of messages.</p>
+<p>See <a href="https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol#AGuideToTheKafkaProtocol-Compression">https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol#AGuideToTheKafkaProtocol-Compression</a></p>
+<p>To add new compression types:</p>
+<ol>
+<li>Add the appropriate dependency to mix.exs (don’t forget to add it
+to the application list). 
+</li>
+<li>Add the appropriate attribute value and compression_type atom.
+</li>
+<li>Add a decompress function clause.
+</li>
+<li>Add a compress function clause.
+</li>
+</ol>
+
+        </section>
       
 
       
@@ -83,11 +101,20 @@
           <h1 id="summary" class="section-heading">Summary</h1>
           <div class="summary">
             <div class="summary-row">
-  <div class="summary-signature"><a href="#create_request/3">create_request(correlation_id, client_id, offset_fetch_request)</a></div>
+  <div class="summary-signature"><a href="#compress/2">compress(atom, data)</a></div>
+  
+    <div class="summary-synopsis"><p>This function should pattern match on the compression_type atom and
+return the compressed data as well as the corresponding attribute
+value</p>
+</div>
   
 </div>
 <div class="summary-row">
-  <div class="summary-signature"><a href="#parse_response/1">parse_response(arg)</a></div>
+  <div class="summary-signature"><a href="#decompress/2">decompress(int, data)</a></div>
+  
+    <div class="summary-synopsis"><p>This function should pattern match on the attribute value and return
+the decompressed data</p>
+</div>
   
 </div>
 
@@ -96,34 +123,73 @@
       
 
       
+        <section id="types_details" class="types details-list">
+          <h1 class="section-heading">Types</h1>
+          <div class="types-list">
+            <div class="type-detail">
+  <pre><code class="elixir" id="t:attribute_t/0"><a href="#t:attribute_t/0">attribute_t</a> :: integer</code></pre>
+  
+</div>
+<div class="type-detail">
+  <pre><code class="elixir" id="t:compression_type_t/0"><a href="#t:compression_type_t/0">compression_type_t</a> :: :snappy</code></pre>
+  
+</div>
+
+          </div>
+
+        </section>
+      
 
       
         <section id="functions_details" class="details-list">
           <h1 class="section-heading">Functions</h1>
           <div class="detail">
-  <div class="detail-header" id="create_request/3">
-    <a href="#create_request/3" class="detail-link" title="Link to this function">
+  <div class="detail-header" id="compress/2">
+    <a href="#compress/2" class="detail-link" title="Link to this function">
       <i class="fa fa-link"></i>
     </a>
-    <span class="signature">create_request(correlation_id, client_id, offset_fetch_request)</span>
+    <span class="signature">compress(atom, data)</span>
       
   </div>
   
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">compress(<a href="#t:compression_type_t/0">compression_type_t</a>, binary) :: {binary, <a href="#t:attribute_t/0">attribute_t</a>}</code></pre>
+        
+      </div>
+    </div>
+  
   <section class="docstring">
-    
+    <p>This function should pattern match on the compression_type atom and
+return the compressed data as well as the corresponding attribute
+value.</p>
+
   </section>
 </div>
 <div class="detail">
-  <div class="detail-header" id="parse_response/1">
-    <a href="#parse_response/1" class="detail-link" title="Link to this function">
+  <div class="detail-header" id="decompress/2">
+    <a href="#decompress/2" class="detail-link" title="Link to this function">
       <i class="fa fa-link"></i>
     </a>
-    <span class="signature">parse_response(arg)</span>
+    <span class="signature">decompress(int, data)</span>
       
   </div>
   
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">decompress(<a href="#t:attribute_t/0">attribute_t</a>, binary) :: binary</code></pre>
+        
+      </div>
+    </div>
+  
   <section class="docstring">
-    
+    <p>This function should pattern match on the attribute value and return
+the decompressed data.</p>
+
   </section>
 </div>
 
