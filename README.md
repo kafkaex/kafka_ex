@@ -12,7 +12,7 @@ Add KafkaEx to your mix.exs dependencies:
 
 ```elixir
 defp deps do
-  [{:kafka_ex, "~> 0.1.0"}]
+  [{:kafka_ex, "~> 0.2.0"}]
 end
 ```
 
