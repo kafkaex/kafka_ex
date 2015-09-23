@@ -270,7 +270,6 @@ defmodule KafkaEx.Integration.Test do
   # larger messages
   test "publish/fetch handles a 10kb message" do
     topic = "large_message_test"
-    partition = 0
 
     # 10 chars * 1024 repeats ~= 10kb
     message_value = String.duplicate("ABCDEFGHIJ", 1024)
@@ -284,15 +283,14 @@ defmodule KafkaEx.Integration.Test do
     [got_message] = fetch_response.partitions |> hd |> Map.get(:message_set)
 
     assert nil == got_message.key
-    assert message_value = got_message.value
+    assert message_value == got_message.value
   end
 
   test "publish/fetch handles a 10kb message compressed" do
     topic = "large_message_test"
-    partition = 0
 
     # 10 chars * 1024 repeats ~= 10kb
-    message_value = String.duplicate("ABCDEFGHIJ", 1024)
+    message_value = String.duplicate("ABCDEFGHIJ", 100)
     messages = [%Proto.Produce.Message{key: nil, value: message_value}]
     produce_request = %Proto.Produce.Request{topic: topic, compression: :snappy, required_acks: 1, messages: messages}
 
@@ -303,7 +301,7 @@ defmodule KafkaEx.Integration.Test do
     [got_message] = fetch_response.partitions |> hd |> Map.get(:message_set)
 
     assert nil == got_message.key
-    assert message_value = got_message.value
+    assert message_value == got_message.value
   end
 
   # stream
