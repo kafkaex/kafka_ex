@@ -150,16 +150,18 @@ iex> KafkaEx.stream("foo", 0) |> iex> Enum.take(2)
 
 Snappy compression is supported.  Example usage for producing compressed messages:
 
-    message1 = %Proto.Produce.Message{value: "value 1"}
-    message2 = %Proto.Produce.Message{key: "key 2", value: "value 2"}
-    messages = [message1, message2]
+```elixir
+message1 = %KafkaEx.Protocol.Produce.Message{value: "value 1"}
+message2 = %KafkaEx.Protocol.Produce.Message{key: "key 2", value: "value 2"}
+messages = [message1, message2]
 
-    produce_request = %Proto.Produce.Request{
-      topic: "test_topic",
-      required_acks: 1,
-      compression: :snappy,
-      messages: messages}
-    KafkaEx.produce(produce_request)
+produce_request = %KafkaEx.Protocol.Produce.Request{
+  topic: "test_topic",
+  required_acks: 1,
+  compression: :snappy,
+  messages: messages}
+KafkaEx.produce(produce_request)
+```
 
 Compression is handled automatically on the reading end.
 

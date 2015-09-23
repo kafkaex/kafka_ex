@@ -25,10 +25,8 @@ defmodule KafkaEx.Compression do
   """
   @spec decompress(attribute_t, binary) :: binary
   def decompress(@snappy_attribute, data) do
-    << _snappy_header :: 64, _snappy_version_info :: 64,
-    valsize :: 32, value :: size(valsize)-binary >> = data
-    {:ok, decompressed} = :snappy.decompress(value)
-    decompressed
+    << _snappy_header :: 64, _snappy_version_info :: 64, rest :: binary>> = data
+    snappy_decompress_chunk(rest, <<>>)
   end
 
   @doc """
@@ -40,5 +38,15 @@ defmodule KafkaEx.Compression do
   def compress(:snappy, data) do
     {:ok, compressed_data} = :snappy.compress(data)
     {compressed_data, @snappy_attribute}
+  end
+
+  def snappy_decompress_chunk(<<>>, so_far) do
+    so_far
+  end
+  def snappy_decompress_chunk(<< valsize :: 32-unsigned,
+                              value :: size(valsize)-binary,
+                              rest :: binary>>, so_far) do
+    {:ok, decompressed_value} = :snappy.decompress(value)
+    snappy_decompress_chunk(rest, so_far <> decompressed_value)
   end
 end

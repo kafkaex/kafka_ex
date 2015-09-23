@@ -267,6 +267,43 @@ defmodule KafkaEx.Integration.Test do
     assert got_message2.offset == offset + 1
   end
 
+  # larger messages
+  test "publish/fetch handles a 10kb message" do
+    topic = "large_message_test"
+
+    # 10 chars * 1024 repeats ~= 10kb
+    message_value = String.duplicate("ABCDEFGHIJ", 1024)
+    messages = [%Proto.Produce.Message{key: nil, value: message_value}]
+    produce_request = %Proto.Produce.Request{topic: topic, required_acks: 1, messages: messages}
+
+    produce_response = KafkaEx.produce(produce_request) |> hd
+    offset = produce_response.partitions |> hd |> Map.get(:offset)
+
+    fetch_response = KafkaEx.fetch(topic, 0, offset: offset) |> hd
+    [got_message] = fetch_response.partitions |> hd |> Map.get(:message_set)
+
+    assert nil == got_message.key
+    assert message_value == got_message.value
+  end
+
+  test "publish/fetch handles a 10kb message compressed" do
+    topic = "large_message_test"
+
+    # 10 chars * 1024 repeats ~= 10kb
+    message_value = String.duplicate("ABCDEFGHIJ", 100)
+    messages = [%Proto.Produce.Message{key: nil, value: message_value}]
+    produce_request = %Proto.Produce.Request{topic: topic, compression: :snappy, required_acks: 1, messages: messages}
+
+    produce_response = KafkaEx.produce(produce_request) |> hd
+    offset = produce_response.partitions |> hd |> Map.get(:offset)
+
+    fetch_response = KafkaEx.fetch(topic, 0, offset: offset) |> hd
+    [got_message] = fetch_response.partitions |> hd |> Map.get(:message_set)
+
+    assert nil == got_message.key
+    assert message_value == got_message.value
+  end
+
   # stream
   test "streams kafka logs" do
     random_string = generate_random_string
