@@ -13,7 +13,7 @@ defmodule KafkaEx.Protocol.Produce do
     - key: is used for partition assignment, can be nil, when none is provided it is defaulted to nil
     - value: is the message to be written to kafka logs.
     """
-    defstruct key: "", value: ""
+    defstruct key: nil, value: nil
     @type t :: %Message{key: binary, value: binary}
   end
 
