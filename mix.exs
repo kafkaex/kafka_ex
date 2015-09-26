@@ -13,7 +13,7 @@ defmodule KafkaEx.Mixfile do
   def application do
     [
       mod: {KafkaEx, []},
-      applications: [:logger, :snappy]
+      applications: [:logger]
     ]
   end
 
@@ -27,7 +27,8 @@ defmodule KafkaEx.Mixfile do
       #    see https://github.com/fdmanana/snappy-erlang-nif/pull/12
       {:snappy,
        git: "https://github.com/ricecake/snappy-erlang-nif",
-       tag: "270fa36bee692c97f00c3f18a5fb81c5275b83a3"}
+       tag: "270fa36bee692c97f00c3f18a5fb81c5275b83a3",
+       only: [:dev, :test]}
     ]
   end
 
