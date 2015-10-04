@@ -27,22 +27,22 @@ defmodule KafkaEx.NetworkClient do
 
   def send_sync_request(broker, data, timeout \\ 1000) do
     socket = broker.socket
-    case :gen_tcp.send(socket, data) do
+    :ok = :inet.setopts(socket, [:binary, {:packet, 4}, {:active, false}])
+    response = case :gen_tcp.send(socket, data) do
       :ok ->
-        receive do
-          {:tcp, ^socket, data}  -> data
-          {:tcp_closed, ^socket} ->
-            Logger.log(:error, "Sending data to broker #{inspect broker.host}, #{inspect broker.port} failed because connection closed")
-            nil
-        after
-          timeout ->
-            Logger.log(:error, "Timed out sending data to broker #{inspect broker.host}, #{inspect broker.port}")
+        case :gen_tcp.recv(socket, 0, timeout) do
+          {:ok, data} -> data
+          {:error, reason} ->
+            Logger.log(:error, "Sending data to broker #{inspect broker.host}, #{inspect broker.port} failed with #{inspect reason}")
             nil
         end
       {_, reason} ->
         Logger.log(:error, "Sending data to broker #{inspect broker.host}, #{inspect broker.port} failed with #{inspect reason}")
         nil
     end
+
+    :ok = :inet.setopts(socket, [:binary, {:packet, 4}, {:active, true}])
+    response
   end
 
   def format_host(host) do
