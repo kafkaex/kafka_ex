@@ -30,6 +30,15 @@ And run:
 mix deps.get
 ```
 
+*Note* If you wish to use snappy for compression or decompression, you
+ must add
+ [snappy-erlang-nif](https://github.com/fdmanana/snappy-erlang-nif) to
+ your project's mix.exs.  Note the main repository does not support
+ Erlang R18; there is a branch at
+ https://github.com/ricecake/snappy-erlang-nif
+ that supports R18.  That branch is included in KafkaEx's mix.exs for
+ development and testing.
+
 ### Configuration
 
 In your config/config.exs add the list of kafka brokers as below:
