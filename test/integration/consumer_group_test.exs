@@ -42,27 +42,30 @@ defmodule KafkaEx.ConsumerGroup.Test do
 
   #fetch
   test "fetch auto_commits offset by default" do
-    worker = :fetch_test_worker
+    worker_name = :fetch_test_worker
     topic = "kafka_ex_consumer_group_test"
     consumer_group = "auto_commit_consumer_group"
-    KafkaEx.create_worker(worker,
+    KafkaEx.create_worker(worker_name,
                           uris: Application.get_env(:kafka_ex, :brokers),
                           consumer_group: consumer_group)
 
-    offset_before = TestHelper.latest_offset_number(topic, 0, worker)
+    offset_before = TestHelper.latest_offset_number(topic, 0, worker_name)
     Enum.each(1..10, fn _ ->
       msg = %Proto.Produce.Message{value: "hey #{inspect :os.timestamp}"}
       KafkaEx.produce(%Proto.Produce.Request{topic: topic,
                                              partition: 0,
                                              required_acks: 1,
                                              messages: [msg]},
-                      worker_name: worker)
+                      worker_name: worker_name)
     end)
 
-    offset_after = TestHelper.latest_offset_number(topic, 0, worker)
+    offset_after = TestHelper.latest_offset_number(topic, 0, worker_name)
     assert offset_after == offset_before + 10
 
-    [logs] = KafkaEx.fetch(topic, 0, offset: offset_before, worker: worker)
+    [logs] = KafkaEx.fetch(topic,
+                           0,
+                           offset: offset_before,
+                           worker_name: worker_name)
     [partition] = logs.partitions
     message_set = partition.message_set
     assert 10 == length(message_set)
@@ -74,7 +77,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
                                                 partition: 0,
                                                 consumer_group: consumer_group}
 
-    [offset_fetch_response] = KafkaEx.offset_fetch(worker, offset_request)
+    [offset_fetch_response] = KafkaEx.offset_fetch(worker_name, offset_request)
     [partition] = offset_fetch_response.partitions
     error_code = partition.error_code
     offset_fetch_response_offset = partition.offset

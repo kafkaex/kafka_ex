@@ -275,7 +275,12 @@ defmodule KafkaEx.Server do
             last_offset = response |> hd |> Map.get(:partitions) |> hd |> Map.get(:last_offset)
             case last_offset do
               nil -> {response, state}
-              _ -> {_, state} = offset_commit(state, %Proto.OffsetCommit.Request{topic: topic, offset: last_offset})
+              _ ->
+                offset_commit_request = %Proto.OffsetCommit.Request{
+                  topic: topic,
+                  offset: last_offset,
+                  consumer_group: consumer_group(state)}
+                {_, state} = offset_commit(state, offset_commit_request)
                 {response, state}
             end
           _    -> {response, state}
@@ -284,6 +289,7 @@ defmodule KafkaEx.Server do
   end
 
   defp offset_commit(state, offset_commit_request) do
+    IO.puts(inspect offset_commit_request)
     {broker, state} = case Proto.ConsumerMetadata.Response.broker_for_consumer_group(state.brokers, state.consumer_metadata) do
       nil -> {_, state} = update_consumer_metadata(state, offset_commit_request.consumer_group)
         {Proto.ConsumerMetadata.Response.broker_for_consumer_group(state.brokers, state.consumer_metadata) || hd(state.brokers), state}
@@ -292,8 +298,16 @@ defmodule KafkaEx.Server do
 
     offset_commit_request_payload = Proto.OffsetCommit.create_request(state.correlation_id, @client_id, offset_commit_request)
     response = KafkaEx.NetworkClient.send_sync_request(broker, offset_commit_request_payload) |> Proto.OffsetCommit.parse_response
+    IO.puts(inspect response)
 
     {response, %{state | correlation_id: state.correlation_id+1}}
   end
 
+  defp consumer_group(state) do
+    if state.consumer_group == false do
+      "kafka_ex"
+    else
+      state.consumer_group
+    end
+  end
 end
