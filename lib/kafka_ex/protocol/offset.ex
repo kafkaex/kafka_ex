@@ -7,6 +7,21 @@ defmodule KafkaEx.Protocol.Offset do
   defmodule Response do
     defstruct topic: "", partition_offsets: []
     @type t :: %Response{topic: binary, partition_offsets: list}
+
+    @doc """
+    Returns the numeric offset of the first partition in the response,
+    or nil if the topic is not found.
+
+    This is a convenience for the most typical case.
+    """
+    @spec first_partition_offset(atom | t) :: number | nil
+    def first_partition_offset(:topic_not_found) do
+      nil
+    end
+    def first_partition_offset([%Response{partition_offsets: partition_offsets}]) do
+      first_partition = hd(partition_offsets)
+      first_partition.offset |> hd
+    end
   end
 
   def create_request(correlation_id, client_id, topic, partition, time) do

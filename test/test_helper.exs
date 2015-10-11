@@ -16,4 +16,9 @@ defmodule TestHelper do
     {x, {a,b,c}} = :calendar.local_time |> :calendar.local_time_to_universal_time_dst |> hd
     {x, {a,b,c + 60}}
   end
+
+  def latest_offset_number(topic, partition_id, worker \\ KafkaEx.Server) do
+    KafkaEx.latest_offset(topic, partition_id, worker)
+    |> KafkaEx.Protocol.Offset.Response.first_partition_offset
+  end
 end
