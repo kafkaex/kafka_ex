@@ -25,7 +25,9 @@ defmodule TestHelper do
   defp first_partition_offset(:topic_not_found) do
     nil
   end
-  defp first_partition_offset([%Response{partition_offsets: partition_offsets}]) do
+  defp first_partition_offset(response) do
+    [%KafkaEx.Protocol.Offset.Response{partition_offsets: partition_offsets}] =
+      response
     first_partition = hd(partition_offsets)
     first_partition.offset |> hd
   end
