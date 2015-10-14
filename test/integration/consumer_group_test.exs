@@ -42,17 +42,48 @@ defmodule KafkaEx.ConsumerGroup.Test do
 
   #fetch
   test "fetch auto_commits offset by default" do
-    random_string = generate_random_string
-    KafkaEx.create_worker(:fetch_test_worker)
-    Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) end)
-    offset = KafkaEx.fetch(random_string, 0, offset: 0, worker: :fetch_test_worker) |> hd |> Map.get(:partitions) |> hd |> Map.get(:message_set) |> Enum.reverse |> hd |> Map.get(:offset)
+    worker_name = :fetch_test_worker
+    topic = "kafka_ex_consumer_group_test"
+    consumer_group = "auto_commit_consumer_group"
+    KafkaEx.create_worker(worker_name,
+                          uris: Application.get_env(:kafka_ex, :brokers),
+                          consumer_group: consumer_group)
 
-    offset_fetch_response = KafkaEx.offset_fetch(:fetch_test_worker, %Proto.OffsetFetch.Request{topic: random_string}) |> hd
-    error_code = offset_fetch_response.partitions |> hd |> Map.get(:error_code)
-    offset_fetch_response_offset = offset_fetch_response.partitions |> hd |> Map.get(:offset)
+    offset_before = TestHelper.latest_offset_number(topic, 0, worker_name)
+    Enum.each(1..10, fn _ ->
+      msg = %Proto.Produce.Message{value: "hey #{inspect :os.timestamp}"}
+      KafkaEx.produce(%Proto.Produce.Request{topic: topic,
+                                             partition: 0,
+                                             required_acks: 1,
+                                             messages: [msg]},
+                      worker_name: worker_name)
+    end)
+
+    offset_after = TestHelper.latest_offset_number(topic, 0, worker_name)
+    assert offset_after == offset_before + 10
+
+    [logs] = KafkaEx.fetch(topic,
+                           0,
+                           offset: offset_before,
+                           worker_name: worker_name)
+    [partition] = logs.partitions
+    message_set = partition.message_set
+    assert 10 == length(message_set)
+
+    last_message = List.last(message_set)
+    offset_of_last_message = last_message.offset
+
+    offset_request = %Proto.OffsetFetch.Request{topic: topic,
+                                                partition: 0,
+                                                consumer_group: consumer_group}
+
+    [offset_fetch_response] = KafkaEx.offset_fetch(worker_name, offset_request)
+    [partition] = offset_fetch_response.partitions
+    error_code = partition.error_code
+    offset_fetch_response_offset = partition.offset
 
     assert error_code == 0
-    assert offset == offset_fetch_response_offset
+    assert offset_of_last_message == offset_fetch_response_offset
   end
 
   test "fetch starts consuming from last committed offset" do
