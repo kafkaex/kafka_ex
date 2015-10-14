@@ -275,7 +275,12 @@ defmodule KafkaEx.Server do
             last_offset = response |> hd |> Map.get(:partitions) |> hd |> Map.get(:last_offset)
             case last_offset do
               nil -> {response, state}
-              _ -> {_, state} = offset_commit(state, %Proto.OffsetCommit.Request{topic: topic, offset: last_offset})
+              _ ->
+                offset_commit_request = %Proto.OffsetCommit.Request{
+                  topic: topic,
+                  offset: last_offset,
+                  consumer_group: consumer_group(state)}
+                {_, state} = offset_commit(state, offset_commit_request)
                 {response, state}
             end
           _    -> {response, state}
@@ -296,4 +301,11 @@ defmodule KafkaEx.Server do
     {response, %{state | correlation_id: state.correlation_id+1}}
   end
 
+  defp consumer_group(state) do
+    if state.consumer_group == false do
+      @consumer_group
+    else
+      state.consumer_group
+    end
+  end
 end
