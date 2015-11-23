@@ -324,6 +324,12 @@ defmodule KafkaEx.Integration.Test do
     assert second.value == "hi"
   end
 
+  test "doesn't error when re-creating an existing stream" do
+    random_string = generate_random_string
+    KafkaEx.stream(random_string, 0)
+    KafkaEx.stream(random_string, 0)
+  end
+
   test "stop_streaming stops streaming, and stream starts it up again" do
     random_string = generate_random_string
     KafkaEx.create_worker(:stream2, uris: uris)

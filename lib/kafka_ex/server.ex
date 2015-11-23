@@ -127,11 +127,14 @@ defmodule KafkaEx.Server do
   end
 
   def handle_call({:create_stream, handler}, _from, state) do
-    state = unless state.event_pid && Process.alive?(state.event_pid) do
+    if state.event_pid && Process.alive?(state.event_pid) do
+      info = Process.info(self)
+      Logger.log(:warn, "'#{info[:registered_name]}' already streaming handler '#{handler}'")
+    else
       {:ok, event_pid}  = GenEvent.start_link
-      %{state | event_pid: event_pid}
+      state = %{state | event_pid: event_pid}
+      :ok = GenEvent.add_handler(state.event_pid, handler, [])
     end
-    :ok = GenEvent.add_handler(state.event_pid, handler, [])
     {:reply, GenEvent.stream(state.event_pid), state}
   end
 
