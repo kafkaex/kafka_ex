@@ -169,7 +169,7 @@ iex> KafkaEx.produce("foo", 0, "hey", :stream)
 :ok
 iex> KafkaEx.produce("foo", 0, "hi", :stream)
 :ok
-iex> KafkaEx.stream("foo", 0) |> iex> Enum.take(2)
+iex> KafkaEx.stream("foo", 0) |> Enum.take(2)
 [%{attributes: 0, crc: 4264455069, key: nil, offset: 0, value: "hey"},
  %{attributes: 0, crc: 4251893211, key: nil, offset: 1, value: "hi"}]
 ```
