@@ -35,7 +35,7 @@ defmodule KafkaEx.Protocol.Metadata.Test do
   end
 
   test "Response.broker_for_topic returns correct broker for a topic" do
-    fake_socket = Port.open({:spawn, "ls"}, [])
+    fake_socket = Port.open({:spawn, "uname"}, [])
     metadata = %KafkaEx.Protocol.Metadata.Response{
       brokers: [
         %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", node_id: 9092, port: 9092},
@@ -58,7 +58,7 @@ defmodule KafkaEx.Protocol.Metadata.Test do
   end
 
   test "Response.broker_for_topic returns nil when the topic is not found" do
-    fake_socket = Port.open({:spawn, "ls"}, [])
+    fake_socket = Port.open({:spawn, "ls -d"}, [])
     metadata = %KafkaEx.Protocol.Metadata.Response{
       brokers: [
         %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", node_id: 9092, port: 9092},
@@ -78,7 +78,7 @@ defmodule KafkaEx.Protocol.Metadata.Test do
   end
 
   test "Response.broker_for_topic returns nil when the partition is not found" do
-    fake_socket = Port.open({:spawn, "ls"}, [])
+    fake_socket = Port.open({:spawn, "ls -l"}, [])
     metadata = %KafkaEx.Protocol.Metadata.Response{
       brokers: [
         %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", node_id: 9092, port: 9092},
@@ -100,7 +100,7 @@ defmodule KafkaEx.Protocol.Metadata.Test do
   end
 
   test "Response.broker_for_topic returns nil when a brokers socket is closed" do
-    fake_socket = Port.open({:spawn, "ls"}, [])
+    fake_socket = Port.open({:spawn, "id"}, [])
     Port.close(fake_socket)
     metadata = %KafkaEx.Protocol.Metadata.Response{
       brokers: [
@@ -122,7 +122,7 @@ defmodule KafkaEx.Protocol.Metadata.Test do
   end
 
   test "Response.broker_for_topic returns nil when a matching broker is not found" do
-    fake_socket = Port.open({:spawn, "ls"}, [])
+    fake_socket = Port.open({:spawn, "ls -c"}, [])
     metadata = %KafkaEx.Protocol.Metadata.Response{
       brokers: [
         %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", node_id: 9092, port: 9092},

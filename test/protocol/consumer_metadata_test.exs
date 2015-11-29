@@ -14,7 +14,7 @@ defmodule KafkaEx.Protocol.ConsumerMetadata.Test do
   end
 
   test "Response.broker_for_consumer_group returns correct coordinator_broker" do
-    fake_socket = Port.open({:spawn, "ls"}, [])
+    fake_socket = Port.open({:spawn, "ls -a"}, [])
     consumer_group_metadata = %KafkaEx.Protocol.ConsumerMetadata.Response{coordinator_host: "192.168.59.103", coordinator_id: 49162, coordinator_port: 49162, error_code: 0}
 
     brokers = [
@@ -27,7 +27,7 @@ defmodule KafkaEx.Protocol.ConsumerMetadata.Test do
   end
 
   test "Response.broker_for_consumer_group returns 'nil' when the broker's socket is closed" do
-    fake_socket = Port.open({:spawn, "ls"}, [])
+    fake_socket = Port.open({:spawn, "uname -a"}, [])
     Port.close(fake_socket)
     consumer_group_metadata = %KafkaEx.Protocol.ConsumerMetadata.Response{coordinator_host: "192.168.0.103", coordinator_id: 9092, coordinator_port: 9092, error_code: 0}
 
@@ -40,7 +40,7 @@ defmodule KafkaEx.Protocol.ConsumerMetadata.Test do
   end
 
   test "Response.broker_for_consumer_group returns 'nil' when the broker does not exist" do
-    fake_socket = Port.open({:spawn, "ls"}, [])
+    fake_socket = Port.open({:spawn, "ls -1"}, [])
     consumer_group_metadata = %KafkaEx.Protocol.ConsumerMetadata.Response{coordinator_host: "192.168.59.103", coordinator_id: 49162, coordinator_port: 49162, error_code: 0}
 
     brokers = [
