@@ -368,4 +368,33 @@ defmodule KafkaEx.Integration.Test do
     log = GenEvent.call(stream.manager, KafkaExHandler, :messages)
     assert length(log) == 4
   end
+
+  test "streams kafka logs with custom handler and args" do
+    random_string = generate_random_string
+    KafkaEx.create_worker(:stream3, uris: uris)
+    produce_response = KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [
+        %Proto.Produce.Message{value: "hey"},
+        %Proto.Produce.Message{value: "hi"},
+      ]
+    }, worker_name: :stream3) |> hd
+    offset = produce_response.partitions |> hd |> Map.get(:offset)
+    
+    defmodule CustomHandlerSendingMessage do
+      use GenEvent
+
+      def handle_event(message, pid) do
+        send(pid, message)
+        {:ok, pid}
+      end
+    end
+    KafkaEx.stream(random_string, 0, worker_name: :stream3, offset: offset, auto_commit: false, handler: CustomHandlerSendingMessage, handler_arg: self())
+
+    assert_receive %KafkaEx.Protocol.Fetch.Message{key: nil, value: "hey", offset: ^offset, attributes: 0, crc: 4264455069}
+    offset = offset + 1
+    assert_receive %KafkaEx.Protocol.Fetch.Message{key: nil, value: "hi", offset: ^offset, attributes: 0, crc: 4251893211}
+    receive do
+      _ -> assert(false, "Should not have received a third message")
+      after 100 -> assert true
+    end
+  end
 end
