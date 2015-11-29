@@ -176,24 +176,31 @@ iex> KafkaEx.stream("foo", 0) |> Enum.take(2)
 
 ### Compression
 
-Snappy compression is supported.  Example usage for producing compressed messages:
+Snappy and gzip compression is supported.  Example usage for producing compressed messages:
 
 ```elixir
 message1 = %KafkaEx.Protocol.Produce.Message{value: "value 1"}
 message2 = %KafkaEx.Protocol.Produce.Message{key: "key 2", value: "value 2"}
 messages = [message1, message2]
 
+#snappy
 produce_request = %KafkaEx.Protocol.Produce.Request{
   topic: "test_topic",
   required_acks: 1,
   compression: :snappy,
   messages: messages}
 KafkaEx.produce(produce_request)
+
+#gzip
+produce_request = %KafkaEx.Protocol.Produce.Request{
+  topic: "test_topic",
+  required_acks: 1,
+  compression: :gzip,
+  messages: messages}
+KafkaEx.produce(produce_request)
 ```
 
-Compression is handled automatically on the reading end.
-
-Other compression formats are not yet supported.
+Compression is handled automatically on the consuming/fetching end.
 
 ### Test
 
