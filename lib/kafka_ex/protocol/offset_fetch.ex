@@ -7,7 +7,7 @@ defmodule KafkaEx.Protocol.OffsetFetch do
   defmodule Response do
     defstruct topic: "", partitions: []
     @type t :: %Response{topic: binary, partitions: list}
-    
+
     def last_offset(:topic_not_found) do
       0
     end

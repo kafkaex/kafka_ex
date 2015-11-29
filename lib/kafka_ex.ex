@@ -145,7 +145,7 @@ defmodule KafkaEx do
     auto_commit   = Keyword.get(opts, :auto_commit, true)
 
     offset = case offset do
-      nil -> last_offset = offset_fetch(worker_name, %KafkaEx.Protocol.OffsetFetch.Request{topic: topic}) |> KafkaEx.Protocol.OffsetFetch.Response.last_offset
+      nil -> last_offset = offset_fetch(worker_name, %KafkaEx.Protocol.OffsetFetch.Request{topic: topic, partition: partition}) |> KafkaEx.Protocol.OffsetFetch.Response.last_offset
         if last_offset <= 0 do
           0
         else
@@ -248,7 +248,7 @@ defmodule KafkaEx do
     auto_commit = Keyword.get(opts, :auto_commit, true)
 
     offset = case offset do
-      nil -> last_offset = offset_fetch(worker_name, %KafkaEx.Protocol.OffsetFetch.Request{topic: topic}) |> KafkaEx.Protocol.OffsetFetch.Response.last_offset
+      nil -> last_offset = offset_fetch(worker_name, %KafkaEx.Protocol.OffsetFetch.Request{topic: topic, partition: partition}) |> KafkaEx.Protocol.OffsetFetch.Response.last_offset
         if last_offset <= 0 do
           0
         else
