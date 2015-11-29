@@ -369,7 +369,7 @@ defmodule KafkaEx.Integration.Test do
     assert length(log) == 4
   end
 
-  test "streams kafka logs with custom handler and args" do
+  test "streams kafka logs with custom handler and initial state" do
     random_string = generate_random_string
     KafkaEx.create_worker(:stream3, uris: uris)
     produce_response = KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [
@@ -382,12 +382,16 @@ defmodule KafkaEx.Integration.Test do
     defmodule CustomHandlerSendingMessage do
       use GenEvent
 
+      def init(pid) do
+        {:ok, pid}
+      end
+
       def handle_event(message, pid) do
         send(pid, message)
         {:ok, pid}
       end
     end
-    KafkaEx.stream(random_string, 0, worker_name: :stream3, offset: offset, auto_commit: false, handler: CustomHandlerSendingMessage, handler_arg: self())
+    KafkaEx.stream(random_string, 0, worker_name: :stream3, offset: offset, auto_commit: false, handler: CustomHandlerSendingMessage, handler_init: self())
 
     assert_receive %KafkaEx.Protocol.Fetch.Message{key: nil, value: "hey", offset: ^offset, attributes: 0, crc: 4264455069}
     offset = offset + 1
