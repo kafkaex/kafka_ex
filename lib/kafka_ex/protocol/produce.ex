@@ -44,7 +44,7 @@ defmodule KafkaEx.Protocol.Produce do
       KafkaEx.Compression.compress(compression_type, message_set)
     message = create_message(compressed_message_set, nil, attribute)
 
-    << 0 :: 64-signed >> <> << byte_size(message) :: 32-signed >> <> message 
+    << 0 :: 64-signed >> <> << byte_size(message) :: 32-signed >> <> message
   end
 
   defp create_message(value, key, attributes \\ 0) do

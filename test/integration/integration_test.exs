@@ -241,6 +241,32 @@ defmodule KafkaEx.Integration.Test do
   end
 
   # compression
+  test "compresses / decompresses using gzip" do
+    random_string = generate_random_string
+
+    message1 = %Proto.Produce.Message{value: "value 1"}
+    message2 = %Proto.Produce.Message{key: "key 2", value: "value 2"}
+    messages = [message1, message2]
+
+    produce_request = %Proto.Produce.Request{
+      topic: random_string,
+      required_acks: 1,
+      compression: :gzip,
+      messages: messages}
+    produce_response =  KafkaEx.produce(produce_request) |> hd
+    offset = produce_response.partitions |> hd |> Map.get(:offset)
+
+    fetch_response = KafkaEx.fetch(random_string, 0, offset: 0, auto_commit: false) |>  hd
+    [got_message1, got_message2] = fetch_response.partitions |> hd |> Map.get(:message_set)
+
+    assert got_message1.key == message1.key
+    assert got_message1.value == message1.value
+    assert got_message1.offset == offset
+    assert got_message2.key == message2.key
+    assert got_message2.value == message2.value
+    assert got_message2.offset == offset + 1
+  end
+
   test "compresses / decompresses using snappy" do
     random_string = generate_random_string
 
@@ -286,7 +312,25 @@ defmodule KafkaEx.Integration.Test do
     assert message_value == got_message.value
   end
 
-  test "publish/fetch handles a 10kb message compressed" do
+  test "publish/fetch handles a 10kb message gzip compressed" do
+    topic = "large_message_test_gzip"
+
+    # 10 chars * 1024 repeats ~= 10kb
+    message_value = String.duplicate("ABCDEFGHIJ", 100)
+    messages = [%Proto.Produce.Message{key: nil, value: message_value}]
+    produce_request = %Proto.Produce.Request{topic: topic, compression: :gzip, required_acks: 1, messages: messages}
+
+    produce_response = KafkaEx.produce(produce_request) |> hd
+    offset = produce_response.partitions |> hd |> Map.get(:offset)
+
+    fetch_response = KafkaEx.fetch(topic, 0, offset: offset) |> hd
+    [got_message] = fetch_response.partitions |> hd |> Map.get(:message_set)
+
+    assert nil == got_message.key
+    assert message_value == got_message.value
+  end
+
+  test "publish/fetch handles a 10kb message snappy compressed" do
     topic = "large_message_test"
 
     # 10 chars * 1024 repeats ~= 10kb
