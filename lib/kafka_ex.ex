@@ -224,6 +224,7 @@ defmodule KafkaEx do
   - worker_name: the worker we want to run this metadata request through, when none is provided the default worker `KafkaEx.Server` is used
   - offset: When supplied the fetch would start from this offset, otherwise would start from the last committed offset of the consumer_group the worker belongs to. For Kafka < 0.8.2 you should explicitly specify this.
   - handler: the handler we want to handle the streaming events, when none is provided the default KafkaExHandler is used
+  - handler_init: initial state for the handler - leave the default value [] when using the default handler
   - auto_commit: specifies if the last offset should be commited or not. Default is true. For Kafka < 0.8.2 set this to false.
 
 
@@ -243,10 +244,11 @@ defmodule KafkaEx do
   """
   @spec stream(binary, number, Keyword.t) :: GenEvent.Stream.t
   def stream(topic, partition, opts \\ []) do
-    worker_name = Keyword.get(opts, :worker_name, KafkaEx.Server)
-    offset      = Keyword.get(opts, :offset)
-    handler     = Keyword.get(opts, :handler, KafkaExHandler)
-    auto_commit = Keyword.get(opts, :auto_commit, true)
+    worker_name  = Keyword.get(opts, :worker_name, KafkaEx.Server)
+    offset       = Keyword.get(opts, :offset)
+    handler      = Keyword.get(opts, :handler, KafkaExHandler)
+    handler_init = Keyword.get(opts, :handler_init, [])
+    auto_commit  = Keyword.get(opts, :auto_commit, true)
 
     offset = case offset do
       nil -> last_offset = offset_fetch(worker_name, %KafkaEx.Protocol.OffsetFetch.Request{topic: topic, partition: partition}) |> KafkaEx.Protocol.OffsetFetch.Response.last_offset
@@ -258,7 +260,7 @@ defmodule KafkaEx do
       _   -> offset
     end
 
-    stream      = GenServer.call(worker_name, {:create_stream, handler})
+    stream      = GenServer.call(worker_name, {:create_stream, handler, handler_init})
     send(worker_name, {:start_streaming, topic, partition, offset, handler, auto_commit})
     stream
   end
