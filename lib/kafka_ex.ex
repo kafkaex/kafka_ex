@@ -149,7 +149,7 @@ defmodule KafkaEx do
         if last_offset <= 0 do
           0
         else
-          last_offset
+          last_offset + 1
         end
       _   -> offset
     end
@@ -255,7 +255,7 @@ defmodule KafkaEx do
         if last_offset <= 0 do
           0
         else
-          last_offset
+          last_offset + 1
         end
       _   -> offset
     end

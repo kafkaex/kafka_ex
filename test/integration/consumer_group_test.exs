@@ -95,8 +95,8 @@ defmodule KafkaEx.ConsumerGroup.Test do
 
     first_message = logs |> hd
 
-    assert first_message.offset == 3
-    assert length(logs) == 7
+    assert first_message.offset == 4
+    assert length(logs) == 6
   end
 
   test "fetch does not commit offset with auto_commit is set to false" do
@@ -144,7 +144,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
     refute offset == 0
   end
 
-  test "stream starts consuming from last committed offset" do
+  test "stream starts consuming from the next offset" do
     random_string = generate_random_string
     worker_name = :stream_last_committed_offset
     KafkaEx.create_worker(worker_name, uris: uris)
@@ -158,7 +158,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
 
     first_message = log |> hd
 
-    assert first_message.offset == 3
+    assert first_message.offset == 4
   end
 
   test "stream does not commit offset with auto_commit is set to false" do
