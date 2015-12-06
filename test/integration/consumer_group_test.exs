@@ -100,10 +100,12 @@ defmodule KafkaEx.ConsumerGroup.Test do
   end
 
   test "fetch does not commit offset with auto_commit is set to false" do
-    KafkaEx.create_worker(:fetch_no_auto_commit_worker)
-    Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: "food", required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) end)
-    offset = KafkaEx.fetch("food", 0, offset: 0, worker: :fetch_no_auto_commit_worker, auto_commit: false) |> hd |> Map.get(:partitions) |> hd |> Map.get(:message_set) |> Enum.reverse |> hd |> Map.get(:offset)
-    offset_fetch_response = KafkaEx.offset_fetch(:fetch_no_auto_commit_worker, %Proto.OffsetFetch.Request{topic: "food"}) |> hd
+    topic = generate_random_string
+    worker_name = :fetch_no_auto_commit_worker
+    KafkaEx.create_worker(worker_name)
+    Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: topic, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}, worker_name: worker_name) end)
+    offset = KafkaEx.fetch(topic, 0, offset: 0, worker: worker_name, auto_commit: false) |> hd |> Map.get(:partitions) |> hd |> Map.get(:message_set) |> Enum.reverse |> hd |> Map.get(:offset)
+    offset_fetch_response = KafkaEx.offset_fetch(worker_name, %Proto.OffsetFetch.Request{topic: topic}) |> hd
     offset_fetch_response_offset = offset_fetch_response.partitions |> hd |> Map.get(:offset)
 
     refute offset == offset_fetch_response_offset
@@ -144,10 +146,11 @@ defmodule KafkaEx.ConsumerGroup.Test do
 
   test "stream starts consuming from last committed offset" do
     random_string = generate_random_string
-    KafkaEx.create_worker(:stream_last_committed_offset, uris: uris)
-    Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) end)
-    KafkaEx.offset_commit(:stream_last_committed_offset, %Proto.OffsetCommit.Request{topic: random_string, offset: 3})
-    stream = KafkaEx.stream(random_string, 0, worker_name: :stream_last_committed_offset)
+    worker_name = :stream_last_committed_offset
+    KafkaEx.create_worker(worker_name, uris: uris)
+    Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}, worker_name: worker_name) end)
+    KafkaEx.offset_commit(worker_name, %Proto.OffsetCommit.Request{topic: random_string, offset: 3})
+    stream = KafkaEx.stream(random_string, 0, worker_name: worker_name)
     :timer.sleep(500)
     log = GenEvent.call(stream.manager, KafkaExHandler, :messages) |> Enum.take(2)
 
