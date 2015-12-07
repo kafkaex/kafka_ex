@@ -91,7 +91,6 @@ defmodule KafkaEx.Protocol.Fetch.Test do
 
   test "parse_response correctly parses a valid response with a gzip-encoded message" do
     response = <<0, 0, 0, 4, 0, 0, 0, 1, 0, 9, 103, 122, 105, 112, 95, 116, 101, 115, 116, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 74, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 62, 38, 244, 178, 37, 0, 1, 255, 255, 255, 255, 0, 0, 0, 48, 31, 139, 8, 0, 0, 0, 0, 0, 0, 0, 99, 96, 128, 3, 169, 101, 15, 206, 246, 50, 48, 252, 7, 2, 32, 143, 167, 36, 181, 184, 68, 33, 55, 181, 184, 56, 49, 61, 21, 0, 10, 31, 112, 82, 38, 0, 0, 0>>
-    value = "test message"
     message = %Message{attributes: 0, crc: 2799750541, key: nil, offset: 0, value: "test message"}
     partition1 = %{error_code: 0,
                    hw_mark_offset: 1,
