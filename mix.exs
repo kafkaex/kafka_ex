@@ -37,7 +37,7 @@ defmodule KafkaEx.Mixfile do
   end
 
   defp package do
-    [contributors: ["Abejide Ayodele", "Jack Lund"],
+    [maintainers: ["Abejide Ayodele", "Jack Lund"],
      files: ["lib", "mix.exs", "README.md"],
      licenses: ["MIT"],
      links: %{"Github" => "https://github.com/jacklund/kafka_ex"}]
