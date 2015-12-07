@@ -5,7 +5,7 @@
     <meta http-equiv="x-ua-compatible" content="ie=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     
-        <title>KafkaEx.Compression – kafka_ex v0.2.1</title>
+        <title>KafkaEx.Compression – kafka_ex v0.3.0</title>
       
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="generator" content="ExDoc v0.9.0">
@@ -31,7 +31,7 @@
         kafka_ex
       </h1>
       <h2 class="sidebar-projectVersion">
-        v0.2.1
+        v0.3.0
       </h2>
     </div>
     
@@ -83,7 +83,7 @@
 <p>To add new compression types:</p>
 <ol>
 <li>Add the appropriate dependency to mix.exs (don’t forget to add it
-to the application list). 
+to the application list).
 </li>
 <li>Add the appropriate attribute value and compression_type atom.
 </li>
@@ -135,7 +135,7 @@ the decompressed data</p>
   
 </div>
 <div class="type-detail">
-  <pre><code class="elixir" id="t:compression_type_t/0"><a href="#t:compression_type_t/0">compression_type_t</a> :: :snappy</code></pre>
+  <pre><code class="elixir" id="t:compression_type_t/0"><a href="#t:compression_type_t/0">compression_type_t</a> :: :snappy | :gzip</code></pre>
   
 </div>
 
@@ -159,6 +159,8 @@ the decompressed data</p>
     <div class="specs">
       <h4 class="specs-title">Specs</h4>
       <div class="specs-list">
+        
+          <pre><code class="elixir">compress(<a href="#t:compression_type_t/0">compression_type_t</a>, binary) :: {binary, <a href="#t:attribute_t/0">attribute_t</a>}</code></pre>
         
           <pre><code class="elixir">compress(<a href="#t:compression_type_t/0">compression_type_t</a>, binary) :: {binary, <a href="#t:attribute_t/0">attribute_t</a>}</code></pre>
         
