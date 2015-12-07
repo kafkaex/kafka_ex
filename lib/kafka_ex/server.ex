@@ -194,7 +194,7 @@ defmodule KafkaEx.Server do
     {%Proto.ConsumerMetadata.Response{error_code: error_code}, state}
   end
 
-  defp update_consumer_metadata(state, consumer_group, retry, error_code) do
+  defp update_consumer_metadata(state, consumer_group, retry, _error_code) do
     consumer_group_metadata_request = Proto.ConsumerMetadata.create_request(state.correlation_id, @client_id, consumer_group)
     data = Enum.find_value(state.brokers, fn(broker) -> KafkaEx.NetworkClient.send_sync_request(broker, consumer_group_metadata_request) end)
     response = Proto.ConsumerMetadata.parse_response(data)
