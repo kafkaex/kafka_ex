@@ -201,7 +201,7 @@ defmodule KafkaEx.Server do
     case response.error_code do
       0 -> {response, %{state | consumer_metadata: response, consumer_group: consumer_group, correlation_id: state.correlation_id + 1}}
       _ -> :timer.sleep(400)
-        update_consumer_metadata(%{state | consumer_group: consumer_group, correlation_id: state.correlation_id + 1}, consumer_group, retry-1, error_code)
+        update_consumer_metadata(%{state | consumer_group: consumer_group, correlation_id: state.correlation_id + 1}, consumer_group, retry-1, response.error_code)
     end
   end
 
