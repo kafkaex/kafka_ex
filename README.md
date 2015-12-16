@@ -73,10 +73,20 @@ iex> Application.put_env(:kafka_ex, :brokers, [uris: [{"localhost", 9092}, {"loc
 :ok
 ```
 
+You can also override options when creating a worker, see below.
+
 ### Create KafkaEx worker
 ```elixir
 iex> KafkaEx.create_worker(:pr) # where :pr is the process name of the created worker
 {:ok, #PID<0.171.0>}
+```
+
+With custom options:
+```elixir
+iex> uris = [{"localhost", 9092}, {"localhost", 9093}, {"localhost", 9094}]
+[{"localhost", 9092}, {"localhost", 9093}, {"localhost", 9094}]
+iex> KafkaEx.create_worker(:pr, [uris: uris, consumer_group: "kafka_ex", consumer_group_update_interval: 100])
+{:ok, #PID<0.172.0>}
 ```
 
 ### Retrieve kafka metadata
