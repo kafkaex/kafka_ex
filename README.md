@@ -206,7 +206,7 @@ Compression is handled automatically on the consuming/fetching end.
 
 #### Unit tests
 ```
-mix test --no-start
+mix test
 ```
 
 #### Integration tests
