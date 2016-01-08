@@ -1,4 +1,4 @@
 %{"dialyze": {:hex, :dialyze, "0.1.4"},
   "earmark": {:hex, :earmark, "0.1.17"},
   "ex_doc": {:hex, :ex_doc, "0.9.0"},
-  "snappy": {:git, "https://github.com/ricecake/snappy-erlang-nif", "270fa36bee692c97f00c3f18a5fb81c5275b83a3", [tag: "270fa36bee692c97f00c3f18a5fb81c5275b83a3"]}}
+  "snappy": {:git, "https://github.com/fdmanana/snappy-erlang-nif", "76417d16a8d39e04d66114d8f8a3c75df19474f0", []}}
