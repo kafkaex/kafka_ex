@@ -12,4 +12,9 @@ defmodule KafkaEx.NetworkClient.Test do
   test "format_host handles hosts with embedded digits correctly" do
     assert 'host0' == KafkaEx.NetworkClient.format_host("host0")
   end
+
+  test "format_host correct handles hosts embedded with ip address" do
+    assert 'ip.10.4.1.11' == KafkaEx.NetworkClient.format_host("ip.10.4.1.11")
+    assert 'ip-10-4-1-11' == KafkaEx.NetworkClient.format_host("ip-10-4-1-11")
+  end
 end
