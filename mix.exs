@@ -7,7 +7,8 @@ defmodule KafkaEx.Mixfile do
      elixir: "~> 1.0",
      description: description,
      package: package,
-     deps: deps]
+     deps: deps,
+     aliases: [test: "test --no-start"]]
   end
 
   def application do

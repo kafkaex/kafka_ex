@@ -5,6 +5,15 @@ defmodule KafkaEx.ConsumerGroup.Test do
 
   @moduletag :consumer_group
 
+  setup_all do
+    {:ok, _} = ZookeeperDaemon.start_link(port: 8000, cd: "/tmp/kafka/bin")
+    {:ok, _} = KafkaDaemon.start_link(broker_id: 901, port: 9102, zookeeper_port: 8000, cd: "/tmp/kafka/bin")
+    {:ok, _} = KafkaDaemon.start_link(broker_id: 902, port: 9103, zookeeper_port: 8000, cd: "/tmp/kafka/bin")
+    {:ok, _} = KafkaDaemon.start_link(broker_id: 903, port: 9104, zookeeper_port: 8000, cd: "/tmp/kafka/bin")
+    {:ok, _} = KafkaEx.start(nil, [])
+    :ok
+  end
+
   test "consumer_group_metadata works" do
     random_string = generate_random_string
     pid = Process.whereis(KafkaEx.Server)

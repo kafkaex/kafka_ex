@@ -6,5 +6,3 @@ before_script:
   - ./install_kafka.sh
 script:
   - mix test --include integration --include consumer_group; mix test --include integration --include consumer_group
-after_script:
-  - ./cleanup.sh
