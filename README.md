@@ -83,7 +83,7 @@ iex> KafkaEx.create_worker(:pr, [uris: uris, consumer_group: "kafka_ex", consume
 {:ok, #PID<0.172.0>}
 ```
 
-### Create KafkaEx worker
+### Create an unnamed KafkaEx worker
 
 You may find you want to create many workers, say in conjunction with
 a `poolboy` pool. In this scenario you usually won't want to name these worker processes.
