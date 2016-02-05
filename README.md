@@ -94,13 +94,6 @@ iex> KafkaEx.create_worker(:no_name) # indicates to the server process not to na
 {:ok, #PID<0.171.0>}
 ```
 
-To create an unnamed worker directly with the `KafkaEx.Supervisor`:
-```elixir
-iex> worker_init = [] # whatever options you want
-iex> Supervisor.start_child(KafkaEx.Supervisor, [worker_init, :no_name]) # indicates to the server process not to name the process
-{:ok, #PID<0.171.0>}
-```
-
 ### Retrieve kafka metadata
 For all metadata
 
