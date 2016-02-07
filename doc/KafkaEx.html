@@ -5,7 +5,7 @@
     <meta http-equiv="x-ua-compatible" content="ie=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     
-        <title>KafkaEx – kafka_ex v0.3.0</title>
+        <title>KafkaEx – kafka_ex v0.4.0</title>
       
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="generator" content="ExDoc v0.9.0">
@@ -31,7 +31,7 @@
         kafka_ex
       </h1>
       <h2 class="sidebar-projectVersion">
-        v0.3.0
+        v0.4.0
       </h2>
     </div>
     
@@ -202,7 +202,7 @@ The handler is a normal GenEvent handler so you can supply a custom handler, oth
   
 </div>
 <div class="type-detail">
-  <pre><code class="elixir" id="t:worker_init/0"><a href="#t:worker_init/0">worker_init</a> :: [uris: <a href="#t:uri/0">uri</a>, consumer_group: binary | false]</code></pre>
+  <pre><code class="elixir" id="t:worker_init/0"><a href="#t:worker_init/0">worker_init</a> :: [uris: <a href="#t:uri/0">uri</a>, consumer_group: binary | false, sync_timeout: non_neg_integer]</code></pre>
   
 </div>
 
@@ -264,6 +264,8 @@ The handler is a normal GenEvent handler so you can supply a custom handler, oth
 </li>
 <li>consumer_group_update_interval: How often <code class="inline">kafka_ex</code> would update the Kafka cluster consumer_groups information in milliseconds, default is 30000
 </li>
+<li>sync_timeout: Timeout for synchronous requests to kafka in milliseconds, default is 1000
+</li>
 </ul>
 <h2>Example</h2>
 <pre><code class="elixir">iex&gt; KafkaEx.create_worker(:pr) # where :pr is the name of the worker created
@@ -271,6 +273,8 @@ The handler is a normal GenEvent handler so you can supply a custom handler, oth
 iex&gt; KafkaEx.create_worker(:pr, uris: [{&quot;localhost&quot;, 9092}])
 {:ok, #PID&lt;0.172.0&gt;}
 iex&gt; KafkaEx.create_worker(:pr, [uris: [{&quot;localhost&quot;, 9092}], consumer_group: &quot;foo&quot;])
+{:ok, #PID&lt;0.173.0&gt;}
+iex&gt; KafkaEx.create_worker(:pr, [uris: [{&quot;localhost&quot;, 9092}], consumer_group: &quot;foo&quot;, sync_timeout: 2000])
 {:ok, #PID&lt;0.173.0&gt;}</code></pre>
 
   </section>
