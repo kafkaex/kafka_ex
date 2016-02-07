@@ -10,7 +10,7 @@ sed -i.bak 's/@port@/9094/g' server.properties3
 mkdir kafka
 rm -rf /tmp/zookeeper
 rm -rf /tmp/kafka-logs*
-curl "http://mirror.cc.columbia.edu/pub/software/apache/kafka/0.8.2.1/kafka_2.9.1-0.8.2.1.tgz" | tar -zxv -C kafka --strip-components=1
+curl "http://apache.arvixe.com/kafka/0.9.0.0/kafka_2.10-0.9.0.0.tgz" | tar -zxv -C kafka --strip-components=1
 cd kafka
 bin/zookeeper-server-start.sh config/zookeeper.properties > /dev/null &
 echo $! > zookeeper.pid
