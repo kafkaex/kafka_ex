@@ -58,7 +58,8 @@ In your config/config.exs add the list of kafka brokers as below:
 ```elixir
 config :kafka_ex,
   brokers: [{HOST, PORT}],
-  consumer_group: consumer_group #if no consumer_group is specified "kafka_ex" would be used as the default
+  consumer_group: consumer_group, #if no consumer_group is specified "kafka_ex" would be used as the default
+  sync_timeout: 1000 #Timeout used synchronous requests from kafka. Defaults to 1000ms.
 ```
 
 Alternatively from iex:
