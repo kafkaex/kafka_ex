@@ -25,7 +25,7 @@ defmodule KafkaEx.NetworkClient do
     end
   end
 
-  def send_sync_request(broker, data, timeout \\ 1000) do
+  def send_sync_request(broker, data, timeout) do
     socket = broker.socket
     :ok = :inet.setopts(socket, [:binary, {:packet, 4}, {:active, false}])
     response = case :gen_tcp.send(socket, data) do
