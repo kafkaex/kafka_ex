@@ -1,6 +1,6 @@
 # Contributing
 
-- [Fork](https://github.com/jacklund/kafka_ex/fork), then clone the repo: `git clone git@github.com:your-username/kafka_ex.git`
+- [Fork](https://github.com/kafkaex/kafka_ex/fork), then clone the repo: `git clone git@github.com:your-username/kafka_ex.git`
 - Create a feature branch: `git checkout -b feature_branch`
 - Make your changes
 - Make sure the unit tests pass: `mix test --no-start`
