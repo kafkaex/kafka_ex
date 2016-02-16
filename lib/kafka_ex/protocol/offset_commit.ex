@@ -15,8 +15,10 @@ defmodule KafkaEx.Protocol.OffsetCommit do
                      offset_commit_request = %Request{
                        topic: topic,
                        partition: partition,
+                       consumer_group: consumer_group,
                        offset: offset})
   when is_binary(topic) and byte_size(topic) > 0
+  and is_binary(consumer_group) and byte_size(consumer_group) > 0
   and is_integer(partition) and partition >= 0
   and is_integer(offset) and offset >= 0 do
     KafkaEx.Protocol.create_request(:offset_commit, correlation_id, client_id) <> << byte_size(offset_commit_request.consumer_group) :: 16-signed, offset_commit_request.consumer_group :: binary, 1 :: 32-signed, byte_size(topic) :: 16-signed, topic :: binary, 1 :: 32-signed, partition :: 32-signed, offset :: 64, byte_size(offset_commit_request.metadata) :: 16-signed, offset_commit_request.metadata :: binary >>
