@@ -1,11 +1,11 @@
 defmodule KafkaEx.Protocol.OffsetFetch do
   defmodule Request do
-    defstruct consumer_group: "kafka_ex", topic: "", partition: 0
+    defstruct consumer_group: nil, topic: nil, partition: nil
     @type t :: %Request{consumer_group: binary, topic: binary, partition: integer}
   end
 
   defmodule Response do
-    defstruct topic: "", partitions: []
+    defstruct topic: nil, partitions: []
     @type t :: %Response{topic: binary, partitions: list}
 
     def last_offset(:topic_not_found) do
@@ -24,7 +24,13 @@ defmodule KafkaEx.Protocol.OffsetFetch do
     end
   end
 
-  def create_request(correlation_id, client_id, offset_fetch_request) do
+  def create_request(correlation_id,
+                     client_id,
+                     offset_fetch_request = %Request{
+                       topic: topic,
+                       partition: partition})
+  when is_binary(topic) and byte_size(topic) > 0
+  and is_integer(partition) and partition >= 0 do
     KafkaEx.Protocol.create_request(:offset_fetch, correlation_id, client_id) <> << byte_size(offset_fetch_request.consumer_group) :: 16-signed, offset_fetch_request.consumer_group :: binary, 1 :: 32-signed, byte_size(offset_fetch_request.topic) :: 16-signed, offset_fetch_request.topic :: binary, 1 :: 32-signed, offset_fetch_request.partition :: 32 >>
   end
 

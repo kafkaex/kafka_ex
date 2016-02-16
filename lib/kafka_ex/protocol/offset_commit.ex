@@ -1,17 +1,25 @@
 defmodule KafkaEx.Protocol.OffsetCommit do
   defmodule Request do
-    defstruct consumer_group: "kafka_ex", topic: "", partition: 0, offset: 0, metadata: ""
+    defstruct consumer_group: nil, topic: nil, partition: nil, offset: nil, metadata: nil
     @type t :: %Request{consumer_group: binary, topic: binary, partition: integer, offset: integer}
   end
 
   defmodule Response do
-    defstruct partitions: [], topic: ""
+    defstruct partitions: [], topic: nil
     @type t :: %Response{partitions: [] | [integer], topic: binary}
   end
 
   @spec create_request(integer, binary, Request.t) :: binary
-  def create_request(correlation_id, client_id, offset_commit_request) do
-    KafkaEx.Protocol.create_request(:offset_commit, correlation_id, client_id) <> << byte_size(offset_commit_request.consumer_group) :: 16-signed, offset_commit_request.consumer_group :: binary, 1 :: 32-signed, byte_size(offset_commit_request.topic) :: 16-signed, offset_commit_request.topic :: binary, 1 :: 32-signed, offset_commit_request.partition :: 32-signed, offset_commit_request.offset :: 64, byte_size(offset_commit_request.metadata) :: 16-signed, offset_commit_request.metadata :: binary >>
+  def create_request(correlation_id,
+                     client_id,
+                     offset_commit_request = %Request{
+                       topic: topic,
+                       partition: partition,
+                       offset: offset})
+  when is_binary(topic) and byte_size(topic) > 0
+  and is_integer(partition) and partition >= 0
+  and is_integer(offset) and offset >= 0 do
+    KafkaEx.Protocol.create_request(:offset_commit, correlation_id, client_id) <> << byte_size(offset_commit_request.consumer_group) :: 16-signed, offset_commit_request.consumer_group :: binary, 1 :: 32-signed, byte_size(topic) :: 16-signed, topic :: binary, 1 :: 32-signed, partition :: 32-signed, offset :: 64, byte_size(offset_commit_request.metadata) :: 16-signed, offset_commit_request.metadata :: binary >>
   end
 
   @spec parse_response(binary) :: [] | [Response.t]
