@@ -1,6 +1,6 @@
 defmodule KafkaEx.Protocol.ConsumerMetadata do
   defmodule Response do
-    defstruct coordinator_id: 0, coordinator_host: "", coordinator_port: 0, error_code: 0
+    defstruct coordinator_id: nil, coordinator_host: nil, coordinator_port: nil, error_code: 0
     @type t :: %Response{coordinator_id: integer, coordinator_host: binary, coordinator_port: 0..65535, error_code: integer}
 
     def broker_for_consumer_group(brokers, consumer_group_metadata) do
@@ -9,7 +9,10 @@ defmodule KafkaEx.Protocol.ConsumerMetadata do
   end
 
   @spec create_request(integer, binary, binary) :: binary
-  def create_request(correlation_id, client_id, consumer_group \\ "kafka_ex") do
+  def create_request(correlation_id, client_id, consumer_group)
+  when is_integer(correlation_id) and correlation_id >= 0
+  and is_binary(client_id) and byte_size(client_id) > 0
+  and is_binary(consumer_group) and byte_size(consumer_group) > 0 do
     KafkaEx.Protocol.create_request(:consumer_metadata, correlation_id, client_id) <> << byte_size(consumer_group) :: 16-signed, consumer_group :: binary >>
   end
 

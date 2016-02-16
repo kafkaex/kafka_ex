@@ -3,6 +3,8 @@ defmodule KafkaEx do
   @type uri() :: [{binary|char_list, number}]
   @type worker_init :: [{:uris, uri}, {:consumer_group, binary|false}, {:sync_timeout, non_neg_integer}]
 
+  alias KafkaEx.Protocol
+
   @doc """
   create_worker creates KafkaEx workers
 
@@ -161,12 +163,18 @@ defmodule KafkaEx do
   end
 
   @spec offset_commit(atom, KafkaEx.Protocol.OffsetCommit.Request.t) :: KafkaEx.Protocol.OffsetCommit.Response.t
-  def offset_commit(worker_name, offset_commit_request) do
+  def offset_commit(worker_name,
+                    offset_commit_request = %Protocol.OffsetCommit.Request{
+                      consumer_group: consumer_group})
+  when is_binary(consumer_group) and byte_size(consumer_group) > 0 do
     GenServer.call(worker_name, {:offset_commit, offset_commit_request})
   end
 
   @spec offset_fetch(atom, KafkaEx.Protocol.OffsetFetch.Request.t) :: KafkaEx.Protocol.OffsetFetch.Response.t
-  def offset_fetch(worker_name, offset_fetch_request) do
+  def offset_fetch(worker_name,
+                   offset_fetch_request = %Protocol.OffsetFetch.Request{
+                     consumer_group: consumer_group})
+  when is_binary(consumer_group) and byte_size(consumer_group) > 0 do
     GenServer.call(worker_name, {:offset_fetch, offset_fetch_request})
   end
 
@@ -253,15 +261,25 @@ defmodule KafkaEx do
     handler_init = Keyword.get(opts, :handler_init, [])
     auto_commit  = Keyword.get(opts, :auto_commit, true)
 
+    get_consumer_group = fn() -> worker_consumer_group(worker_name) end
+    consumer_group = Keyword.get_lazy(opts, :consumer_group, get_consumer_group)
+
     offset = case offset do
-      nil -> last_offset = offset_fetch(worker_name, %KafkaEx.Protocol.OffsetFetch.Request{topic: topic, partition: partition}) |> KafkaEx.Protocol.OffsetFetch.Response.last_offset
-        if last_offset <= 0 do
-          0
-        else
-          last_offset + 1
-        end
-      _   -> offset
-    end
+               nil ->
+                 request = %Protocol.OffsetFetch.Request{topic: topic,
+                                                         partition: partition,
+                                                         consumer_group: consumer_group}
+
+                 last_offset = offset_fetch(worker_name, request)
+                 |> KafkaEx.Protocol.OffsetFetch.Response.last_offset
+
+                 if last_offset <= 0 do
+                   0
+                 else
+                   last_offset + 1
+                 end
+               _   -> offset
+             end
 
     stream      = GenServer.call(worker_name, {:create_stream, handler, handler_init})
     send(worker_name, {:start_streaming, topic, partition, offset, handler, auto_commit})
@@ -272,6 +290,14 @@ defmodule KafkaEx do
   def stop_streaming(opts \\ []) do
     worker_name = Keyword.get(opts, :worker_name, KafkaEx.Server)
     send(worker_name, :stop_streaming)
+  end
+
+  @doc """
+  Returns the consumer group name for a worker
+  """
+  @spec worker_consumer_group(atom | pid) :: binary | nil
+  def worker_consumer_group(worker) do
+    GenServer.call(worker, :consumer_group)
   end
 
 #OTP API

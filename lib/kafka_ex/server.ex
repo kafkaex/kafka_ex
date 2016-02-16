@@ -3,12 +3,22 @@ defmodule KafkaEx.Server do
 
   alias KafkaEx.Protocol, as: Proto
   @client_id                      "kafka_ex"
-  @consumer_group                 "kafka_ex"
   @metadata_update_interval       30_000
   @consumer_group_update_interval 30_000
   @sync_timeout                   1_000
 
-  defstruct metadata: %Proto.Metadata.Response{}, brokers: [], event_pid: nil, consumer_metadata: %Proto.ConsumerMetadata.Response{}, correlation_id: 0, consumer_group: @client_id, metadata_update_interval: @metadata_update_interval, consumer_group_update_interval: @consumer_group_update_interval, worker_name: __MODULE__, sync_timeout: @sync_timeout
+  defmodule State do
+    defstruct([metadata: %Proto.Metadata.Response{},
+               brokers: [],
+               event_pid: nil,
+               consumer_metadata: %Proto.ConsumerMetadata.Response{},
+               correlation_id: 0,
+               consumer_group: @client_id,
+               metadata_update_interval: @metadata_update_interval,
+               consumer_group_update_interval: @consumer_group_update_interval,
+               worker_name: __MODULE__,
+               sync_timeout: @sync_timeout])
+  end
 
   ### GenServer Callbacks
   use GenServer
@@ -28,14 +38,15 @@ defmodule KafkaEx.Server do
   end
 
   def init([args, name]) do
+    consumer_group = Keyword.get(args, :consumer_group, nil)
+
     uris = Keyword.get(args, :uris, [])
     metadata_update_interval = Keyword.get(args, :metadata_update_interval, @metadata_update_interval)
     consumer_group_update_interval = Keyword.get(args, :consumer_group_update_interval, @consumer_group_update_interval)
-    consumer_group = Keyword.get(args, :consumer_group, @consumer_group)
     brokers = Enum.map(uris, fn({host, port}) -> %Proto.Metadata.Broker{host: host, port: port, socket: KafkaEx.NetworkClient.create_socket(host, port)} end)
     sync_timeout = Keyword.get(args, :sync_timeout, Application.get_env(:kafka_ex, :sync_timeout, @sync_timeout))
     {correlation_id, metadata} = metadata(brokers, 0, sync_timeout)
-    state = %__MODULE__{metadata: metadata, brokers: brokers, correlation_id: correlation_id, consumer_group: consumer_group, metadata_update_interval: metadata_update_interval, consumer_group_update_interval: consumer_group_update_interval, worker_name: name, sync_timeout: sync_timeout}
+    state = %State{metadata: metadata, brokers: brokers, correlation_id: correlation_id, consumer_group: consumer_group, metadata_update_interval: metadata_update_interval, consumer_group_update_interval: consumer_group_update_interval, worker_name: name, sync_timeout: sync_timeout}
     {:ok, _} = :timer.send_interval(state.metadata_update_interval, :update_metadata)
 
     if consumer_group do
@@ -70,13 +81,17 @@ defmodule KafkaEx.Server do
     {:reply, response, state}
   end
 
-  def handle_call({:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes, auto_commit}, _from, state) do
+  def handle_call({:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes, auto_commit},
+                  _from,
+                  state = %State{consumer_group: consumer_group}) do
     {response, state} = fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, state, auto_commit)
 
     {:reply, response, state}
   end
 
-  def handle_call({:offset, topic, partition, time}, _from, state) do
+  def handle_call({:offset, topic, partition, time},
+                  _from,
+                  state = %State{consumer_group: consumer_group}) do
     offset_request = Proto.Offset.create_request(state.correlation_id, @client_id, topic, partition, time)
     {broker, state} = case Proto.Metadata.Response.broker_for_topic(state.metadata, state.brokers, topic, partition) do
       nil    ->
@@ -124,6 +139,10 @@ defmodule KafkaEx.Server do
     {response, state} = offset_commit(state, offset_commit_request)
 
     {:reply, response, state}
+  end
+
+  def handle_call(:consumer_group, _from, state) do
+    {:reply, state.consumer_group, state}
   end
 
   def handle_call({:consumer_group_metadata, consumer_group}, _from, state) do
@@ -269,7 +288,6 @@ defmodule KafkaEx.Server do
   end
 
   defp fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, state, auto_commit) do
-    fetch_request = Proto.Fetch.create_request(state.correlation_id, @client_id, topic, partition, offset, wait_time, min_bytes, max_bytes)
     {broker, state} = case Proto.Metadata.Response.broker_for_topic(state.metadata, state.brokers, topic, partition) do
       nil    ->
         state = update_metadata(state)
@@ -282,6 +300,7 @@ defmodule KafkaEx.Server do
         Logger.log(:error, "Leader for topic #{topic} is not available")
         {:topic_not_found, state}
       _ ->
+        fetch_request = Proto.Fetch.create_request(state.correlation_id, @client_id, topic, partition, offset, wait_time, min_bytes, max_bytes)
         response = KafkaEx.NetworkClient.send_sync_request(broker, fetch_request, state.sync_timeout) |> Proto.Fetch.parse_response
         state = %{state | correlation_id: state.correlation_id+1}
         case auto_commit do
@@ -293,7 +312,9 @@ defmodule KafkaEx.Server do
                 offset_commit_request = %Proto.OffsetCommit.Request{
                   topic: topic,
                   offset: last_offset,
-                  consumer_group: consumer_group(state)}
+                  partition: partition,
+                  metadata: "",  # TODO we do not currently support offset metadata
+                  consumer_group: state.consumer_group}
                 {_, state} = offset_commit(state, offset_commit_request)
                 {response, state}
             end
@@ -313,13 +334,5 @@ defmodule KafkaEx.Server do
     response = KafkaEx.NetworkClient.send_sync_request(broker, offset_commit_request_payload, state.sync_timeout) |> Proto.OffsetCommit.parse_response
 
     {response, %{state | correlation_id: state.correlation_id+1}}
-  end
-
-  defp consumer_group(state) do
-    if state.consumer_group == false do
-      @consumer_group
-    else
-      state.consumer_group
-    end
   end
 end
