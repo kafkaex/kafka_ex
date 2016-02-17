@@ -324,7 +324,7 @@ defmodule KafkaEx.Server do
 
   defp consumer_offset(nil, topic, partition, state) do
     request = %Proto.OffsetFetch.Request{topic: topic,
-                                            partition: partition}
+                                         partition: partition}
 
     {offset_response, state} = consumer_offset_fetch(request, state)
 
