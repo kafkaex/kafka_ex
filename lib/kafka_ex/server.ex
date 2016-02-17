@@ -362,5 +362,5 @@ defmodule KafkaEx.Server do
   end
 
   defp ensure_valid_offset(offset) when offset <= 0, do: 0
-  defp ensure_valid_offset(offset), do: offset
+  defp ensure_valid_offset(offset), do: offset + 1
 end
