@@ -1,6 +1,6 @@
 defmodule KafkaEx.Protocol.Metadata do
   defmodule Request do
-    defstruct topic: ""
+    defstruct topic: nil
     @type t :: %Request{topic: binary}
   end
 
@@ -31,11 +31,11 @@ defmodule KafkaEx.Protocol.Metadata do
   end
 
   defmodule Broker do
-    defstruct node_id: 0, host: "", port: 0, socket: nil
+    defstruct node_id: 0, host: nil, port: 0, socket: nil
   end
 
   defmodule TopicMetadata do
-    defstruct error_code: 0, topic: "", partition_metadatas: []
+    defstruct error_code: 0, topic: nil, partition_metadatas: []
   end
 
   defmodule PartitionMetadata do

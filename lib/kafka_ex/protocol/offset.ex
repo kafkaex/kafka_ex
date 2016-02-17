@@ -1,11 +1,11 @@
 defmodule KafkaEx.Protocol.Offset do
   defmodule Request do
-    defstruct replica_id: -1, topic_name: "", partition: 0, time: -1, max_number_of_offsets: 1
+    defstruct replica_id: -1, topic_name: nil, partition: 0, time: -1, max_number_of_offsets: 1
     @type t :: %Request{replica_id: integer, topic_name: binary, partition: integer, time: integer, max_number_of_offsets: integer}
   end
 
   defmodule Response do
-    defstruct topic: "", partition_offsets: []
+    defstruct topic: nil, partition_offsets: []
     @type t :: %Response{topic: binary, partition_offsets: list}
   end
 
