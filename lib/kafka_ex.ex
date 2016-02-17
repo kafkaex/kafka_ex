@@ -149,16 +149,6 @@ defmodule KafkaEx do
     max_bytes     = Keyword.get(opts, :max_bytes, @max_bytes)
     auto_commit   = Keyword.get(opts, :auto_commit, true)
 
-    offset = case offset do
-      nil -> last_offset = offset_fetch(worker_name, %KafkaEx.Protocol.OffsetFetch.Request{topic: topic, partition: partition}) |> KafkaEx.Protocol.OffsetFetch.Response.last_offset
-        if last_offset <= 0 do
-          0
-        else
-          last_offset + 1
-        end
-      _   -> offset
-    end
-
     GenServer.call(worker_name, {:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes, auto_commit})
   end
 
@@ -172,9 +162,7 @@ defmodule KafkaEx do
 
   @spec offset_fetch(atom, KafkaEx.Protocol.OffsetFetch.Request.t) :: KafkaEx.Protocol.OffsetFetch.Response.t
   def offset_fetch(worker_name,
-                   offset_fetch_request = %Protocol.OffsetFetch.Request{
-                     consumer_group: consumer_group})
-  when is_binary(consumer_group) and byte_size(consumer_group) > 0 do
+                   offset_fetch_request = %Protocol.OffsetFetch.Request{}) do
     GenServer.call(worker_name, {:offset_fetch, offset_fetch_request})
   end
 
@@ -261,27 +249,7 @@ defmodule KafkaEx do
     handler_init = Keyword.get(opts, :handler_init, [])
     auto_commit  = Keyword.get(opts, :auto_commit, true)
 
-    get_consumer_group = fn() -> worker_consumer_group(worker_name) end
-    consumer_group = Keyword.get_lazy(opts, :consumer_group, get_consumer_group)
-
-    offset = case offset do
-               nil ->
-                 request = %Protocol.OffsetFetch.Request{topic: topic,
-                                                         partition: partition,
-                                                         consumer_group: consumer_group}
-
-                 last_offset = offset_fetch(worker_name, request)
-                 |> KafkaEx.Protocol.OffsetFetch.Response.last_offset
-
-                 if last_offset <= 0 do
-                   0
-                 else
-                   last_offset + 1
-                 end
-               _   -> offset
-             end
-
-    stream      = GenServer.call(worker_name, {:create_stream, handler, handler_init})
+    stream = GenServer.call(worker_name, {:create_stream, handler, handler_init})
     send(worker_name, {:start_streaming, topic, partition, offset, handler, auto_commit})
     stream
   end

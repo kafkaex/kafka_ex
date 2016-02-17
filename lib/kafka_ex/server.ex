@@ -13,11 +13,11 @@ defmodule KafkaEx.Server do
                event_pid: nil,
                consumer_metadata: %Proto.ConsumerMetadata.Response{},
                correlation_id: 0,
-               consumer_group: @client_id,
-               metadata_update_interval: @metadata_update_interval,
-               consumer_group_update_interval: @consumer_group_update_interval,
-               worker_name: __MODULE__,
-               sync_timeout: @sync_timeout])
+               consumer_group: nil,
+               metadata_update_interval: nil,
+               consumer_group_update_interval: nil,
+               worker_name: KafkaEx.Server,
+               sync_timeout: nil])
   end
 
   ### GenServer Callbacks
@@ -83,15 +83,13 @@ defmodule KafkaEx.Server do
 
   def handle_call({:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes, auto_commit},
                   _from,
-                  state = %State{consumer_group: consumer_group}) do
+                  state) do
     {response, state} = fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, state, auto_commit)
 
     {:reply, response, state}
   end
 
-  def handle_call({:offset, topic, partition, time},
-                  _from,
-                  state = %State{consumer_group: consumer_group}) do
+  def handle_call({:offset, topic, partition, time}, _from, state) do
     offset_request = Proto.Offset.create_request(state.correlation_id, @client_id, topic, partition, time)
     {broker, state} = case Proto.Metadata.Response.broker_for_topic(state.metadata, state.brokers, topic, partition) do
       nil    ->
@@ -114,24 +112,7 @@ defmodule KafkaEx.Server do
   end
 
   def handle_call({:offset_fetch, offset_fetch}, _from, state) do
-    {broker, state} = case Proto.ConsumerMetadata.Response.broker_for_consumer_group(state.brokers, state.consumer_metadata) do
-      nil -> {_, state} = update_consumer_metadata(state, offset_fetch.consumer_group)
-        {Proto.ConsumerMetadata.Response.broker_for_consumer_group(state.brokers, state.consumer_metadata), state}
-      broker -> {broker, state}
-    end
-
-    offset_fetch_request = Proto.OffsetFetch.create_request(state.correlation_id, @client_id, offset_fetch)
-
-    {response, state} = case broker do
-      nil    ->
-        Logger.log(:error, "Coordinator for topic #{offset_fetch.topic} is not available")
-        {:topic_not_found, state}
-      _ ->
-        response = KafkaEx.NetworkClient.send_sync_request(broker, offset_fetch_request, state.sync_timeout) |> Proto.OffsetFetch.parse_response
-        state = %{state | correlation_id: state.correlation_id+1}
-        {response, state}
-    end
-
+    {response, state} = consumer_offset_fetch(offset_fetch, state)
     {:reply, response, state}
   end
 
@@ -172,6 +153,9 @@ defmodule KafkaEx.Server do
   @min_bytes 1
   @max_bytes 1_000_000
   def handle_info({:start_streaming, topic, partition, offset, handler, auto_commit}, state) do
+    # if passed nil, get the most recent offset for the consumer group
+    {offset, state} = consumer_offset(offset, topic, partition, state)
+
     {response, state} = fetch(topic, partition, offset, @wait_time, @min_bytes, @max_bytes, state, auto_commit)
     offset = case response do
       :topic_not_found -> offset
@@ -288,6 +272,8 @@ defmodule KafkaEx.Server do
   end
 
   defp fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, state, auto_commit) do
+    {offset, state} = consumer_offset(offset, topic, partition, state)
+
     {broker, state} = case Proto.Metadata.Response.broker_for_topic(state.metadata, state.brokers, topic, partition) do
       nil    ->
         state = update_metadata(state)
@@ -335,4 +321,46 @@ defmodule KafkaEx.Server do
 
     {response, %{state | correlation_id: state.correlation_id+1}}
   end
+
+  defp consumer_offset(nil, topic, partition, state) do
+    request = %Proto.OffsetFetch.Request{topic: topic,
+                                            partition: partition}
+
+    {offset_response, state} = consumer_offset_fetch(request, state)
+
+    last_offset = offset_response
+    |> KafkaEx.Protocol.OffsetFetch.Response.last_offset
+    |> ensure_valid_offset
+
+    {last_offset, state}
+  end
+  defp consumer_offset(offset, _topic, _partition, state) do
+    {offset, state}
+  end
+
+  defp consumer_offset_fetch(offset_fetch, state) do
+    consumer_group = offset_fetch.consumer_group || state.consumer_group
+
+    {broker, state} = case Proto.ConsumerMetadata.Response.broker_for_consumer_group(state.brokers, state.consumer_metadata) do
+      nil -> {_, state} = update_consumer_metadata(state, consumer_group)
+        {Proto.ConsumerMetadata.Response.broker_for_consumer_group(state.brokers, state.consumer_metadata), state}
+      broker -> {broker, state}
+    end
+
+    offset_fetch = %{offset_fetch | consumer_group: consumer_group}
+    offset_fetch_request = Proto.OffsetFetch.create_request(state.correlation_id, @client_id, offset_fetch)
+
+    case broker do
+      nil    ->
+        Logger.log(:error, "Coordinator for topic #{offset_fetch.topic} is not available")
+        {:topic_not_found, state}
+      _ ->
+        response = KafkaEx.NetworkClient.send_sync_request(broker, offset_fetch_request, state.sync_timeout) |> Proto.OffsetFetch.parse_response
+        state = %{state | correlation_id: state.correlation_id+1}
+        {response, state}
+    end
+  end
+
+  defp ensure_valid_offset(offset) when offset <= 0, do: 0
+  defp ensure_valid_offset(offset), do: offset
 end
