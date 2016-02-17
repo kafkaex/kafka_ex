@@ -31,10 +31,10 @@ defmodule KafkaEx do
   def create_worker(name, worker_init \\ [])
 
   def create_worker(name, worker_init) do
-    worker_init = case worker_init do
-      [] -> [uris: Application.get_env(:kafka_ex, :brokers)]
-      _   -> worker_init
-    end
+    defaults = [uris: Application.get_env(:kafka_ex, :brokers),
+                consumer_group: Application.get_env(:kafka_ex, :consumer_group)]
+
+    worker_init = Keyword.merge(defaults, worker_init)
 
     Supervisor.start_child(KafkaEx.Supervisor, [worker_init, name])
   end
