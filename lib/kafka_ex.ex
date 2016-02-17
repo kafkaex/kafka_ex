@@ -272,7 +272,7 @@ defmodule KafkaEx do
   def start(_type, _args) do
     {:ok, pid}     = KafkaEx.Supervisor.start_link
     uris           = Application.get_env(:kafka_ex, :brokers)
-    consumer_group = Application.get_env(:kafka_ex, :consumer_group)
+    consumer_group = Application.get_env(:kafka_ex, :consumer_group, "kafka_ex")
     worker_init    = case consumer_group do
       nil            -> [uris: uris]
       consumer_group -> [uris: uris, consumer_group: consumer_group]
