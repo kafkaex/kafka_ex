@@ -49,12 +49,20 @@ defmodule KafkaEx.Integration.Test do
     assert consumer_group_update_interval == 30000
   end
 
-  test "create_worker provides a default consumer_group of 'kafka_ex'" do
+  test "create_worker provides a default consumer_group of false" do
     {:ok, pid} = KafkaEx.create_worker(:baz, uris: uris)
     consumer_group = :sys.get_state(pid).consumer_group
 
-    assert consumer_group == "kafka_ex"
+    assert consumer_group == false
   end
+
+  test "create_worker allows us to provide a consumer group" do
+    {:ok, pid} = KafkaEx.create_worker(:bah, consumer_group: "my_consumer_group")
+    consumer_group = :sys.get_state(pid).consumer_group
+
+    assert consumer_group == "my_consumer_group"
+  end
+
 
   test "create_worker takes a consumer_group option and sets that as the consumer_group of the worker" do
     {:ok, pid} = KafkaEx.create_worker(:joe, [uris: uris, consumer_group: "foo"])

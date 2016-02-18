@@ -7,7 +7,8 @@ defmodule KafkaEx do
   create_worker creates KafkaEx workers
 
   Optional arguments(KeywordList)
-  - consumer_group: Name of the group of consumers, `false` should be passed for Kafka < 0.8.2, default is "kafka_ex"
+  - consumer_group: Name of the group of consumers, `false` should be passed for Kafka < 0.8.2, defaults to `Application.get_env(:kafka_ex, :consumer_group)`
+  - uris: List of brokers in `{"host", port}` form, defaults to `Application.get_env(:kafka_ex, :brokers)`
   - metadata_update_interval: How often `kafka_ex` would update the Kafka cluster metadata information in milliseconds, default is 30000
   - consumer_group_update_interval: How often `kafka_ex` would update the Kafka cluster consumer_groups information in milliseconds, default is 30000
   - sync_timeout: Timeout for synchronous requests to kafka in milliseconds, default is 1000
@@ -29,11 +30,9 @@ defmodule KafkaEx do
   def create_worker(name, worker_init \\ [])
 
   def create_worker(name, worker_init) do
-    worker_init = case worker_init do
-      [] -> [uris: Application.get_env(:kafka_ex, :brokers)]
-      _   -> worker_init
-    end
-
+    defaults = [uris: Application.get_env(:kafka_ex, :brokers),
+                consumer_group: Application.get_env(:kafka_ex, :consumer_group)]
+    worker_init = Keyword.merge(defaults, worker_init)
     Supervisor.start_child(KafkaEx.Supervisor, [worker_init, name])
   end
 
