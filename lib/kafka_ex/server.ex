@@ -304,6 +304,7 @@ defmodule KafkaEx.Server do
                 offset_commit_request = %Proto.OffsetCommit.Request{
                   topic: topic,
                   offset: last_offset,
+                  partition: partition,
                   consumer_group: consumer_group(state)}
                 {_, state} = offset_commit(state, offset_commit_request)
                 {response, state}

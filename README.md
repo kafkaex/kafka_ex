@@ -202,6 +202,7 @@ messages = [message1, message2]
 #snappy
 produce_request = %KafkaEx.Protocol.Produce.Request{
   topic: "test_topic",
+  partition: 0,
   required_acks: 1,
   compression: :snappy,
   messages: messages}
@@ -210,6 +211,7 @@ KafkaEx.produce(produce_request)
 #gzip
 produce_request = %KafkaEx.Protocol.Produce.Request{
   topic: "test_topic",
+  partition: 0,
   required_acks: 1,
   compression: :gzip,
   messages: messages}
