@@ -1,9 +1,4 @@
 defmodule KafkaEx.Protocol.Fetch do
-  defmodule Request do
-    defstruct replica_id: -1, max_wait_time: 0, min_bytes: 0, topic_name: "", partition: 0, fetch_offset: 0, max_bytes: 0
-    @type t :: %Request{replica_id: integer, max_wait_time: integer, topic_name: binary, partition: integer, fetch_offset: integer, max_bytes: integer}
-  end
-
   defmodule Response do
     defstruct topic: "", partitions: []
     @type t :: %Response{topic: binary, partitions: list} 
