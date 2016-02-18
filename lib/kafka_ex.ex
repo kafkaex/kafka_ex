@@ -3,6 +3,8 @@ defmodule KafkaEx do
   @type uri() :: [{binary|char_list, number}]
   @type worker_init :: [{:uris, uri}, {:consumer_group, binary|false}, {:sync_timeout, non_neg_integer}]
 
+  alias KafkaEx.Protocol
+
   @doc """
   create_worker creates KafkaEx workers
 
@@ -29,10 +31,10 @@ defmodule KafkaEx do
   def create_worker(name, worker_init \\ [])
 
   def create_worker(name, worker_init) do
-    worker_init = case worker_init do
-      [] -> [uris: Application.get_env(:kafka_ex, :brokers)]
-      _   -> worker_init
-    end
+    defaults = [uris: Application.get_env(:kafka_ex, :brokers),
+                consumer_group: Application.get_env(:kafka_ex, :consumer_group)]
+
+    worker_init = Keyword.merge(defaults, worker_init)
 
     Supervisor.start_child(KafkaEx.Supervisor, [worker_init, name])
   end
@@ -147,26 +149,20 @@ defmodule KafkaEx do
     max_bytes     = Keyword.get(opts, :max_bytes, @max_bytes)
     auto_commit   = Keyword.get(opts, :auto_commit, true)
 
-    offset = case offset do
-      nil -> last_offset = offset_fetch(worker_name, %KafkaEx.Protocol.OffsetFetch.Request{topic: topic, partition: partition}) |> KafkaEx.Protocol.OffsetFetch.Response.last_offset
-        if last_offset <= 0 do
-          0
-        else
-          last_offset + 1
-        end
-      _   -> offset
-    end
-
     GenServer.call(worker_name, {:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes, auto_commit})
   end
 
   @spec offset_commit(atom, KafkaEx.Protocol.OffsetCommit.Request.t) :: KafkaEx.Protocol.OffsetCommit.Response.t
-  def offset_commit(worker_name, offset_commit_request) do
+  def offset_commit(worker_name,
+                    offset_commit_request = %Protocol.OffsetCommit.Request{
+                      consumer_group: consumer_group})
+  when is_binary(consumer_group) and byte_size(consumer_group) > 0 do
     GenServer.call(worker_name, {:offset_commit, offset_commit_request})
   end
 
   @spec offset_fetch(atom, KafkaEx.Protocol.OffsetFetch.Request.t) :: KafkaEx.Protocol.OffsetFetch.Response.t
-  def offset_fetch(worker_name, offset_fetch_request) do
+  def offset_fetch(worker_name,
+                   offset_fetch_request = %Protocol.OffsetFetch.Request{}) do
     GenServer.call(worker_name, {:offset_fetch, offset_fetch_request})
   end
 
@@ -253,17 +249,7 @@ defmodule KafkaEx do
     handler_init = Keyword.get(opts, :handler_init, [])
     auto_commit  = Keyword.get(opts, :auto_commit, true)
 
-    offset = case offset do
-      nil -> last_offset = offset_fetch(worker_name, %KafkaEx.Protocol.OffsetFetch.Request{topic: topic, partition: partition}) |> KafkaEx.Protocol.OffsetFetch.Response.last_offset
-        if last_offset <= 0 do
-          0
-        else
-          last_offset + 1
-        end
-      _   -> offset
-    end
-
-    stream      = GenServer.call(worker_name, {:create_stream, handler, handler_init})
+    stream = GenServer.call(worker_name, {:create_stream, handler, handler_init})
     send(worker_name, {:start_streaming, topic, partition, offset, handler, auto_commit})
     stream
   end
@@ -274,11 +260,19 @@ defmodule KafkaEx do
     send(worker_name, :stop_streaming)
   end
 
+  @doc """
+  Returns the consumer group name for a worker
+  """
+  @spec worker_consumer_group(atom | pid) :: binary | nil
+  def worker_consumer_group(worker) do
+    GenServer.call(worker, :consumer_group)
+  end
+
 #OTP API
   def start(_type, _args) do
     {:ok, pid}     = KafkaEx.Supervisor.start_link
     uris           = Application.get_env(:kafka_ex, :brokers)
-    consumer_group = Application.get_env(:kafka_ex, :consumer_group)
+    consumer_group = Application.get_env(:kafka_ex, :consumer_group, "kafka_ex")
     worker_init    = case consumer_group do
       nil            -> [uris: uris]
       consumer_group -> [uris: uris, consumer_group: consumer_group]

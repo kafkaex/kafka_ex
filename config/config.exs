@@ -5,4 +5,4 @@ use Mix.Config
       {"localhost", 9093},
       {"localhost", 9094},
     ],
-    consumer_group: false
+    consumer_group: "kafka_ex_dev"
