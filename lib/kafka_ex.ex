@@ -3,7 +3,7 @@ defmodule KafkaEx do
   @type uri() :: [{binary|char_list, number}]
   @type worker_init :: [worker_setting]
   @type worker_setting :: {:uris, uri}  |
-                          {:consumer_group, binary | false} |
+                          {:consumer_group, binary | :no_consumer_group} |
                           {:sync_timeout, non_neg_integer} |
                           {:metadata_update_interval, non_neg_integer} |
                           {:consumer_group_update_interval, non_neg_integer}
@@ -12,11 +12,13 @@ defmodule KafkaEx do
   create_worker creates KafkaEx workers
 
   Optional arguments(KeywordList)
-  - consumer_group: Name of the group of consumers, `false` should be passed for Kafka < 0.8.2, defaults to `Application.get_env(:kafka_ex, :consumer_group)`
+  - consumer_group: Name of the group of consumers, `:no_consumer_group` should be passed for Kafka < 0.8.2, defaults to `Application.get_env(:kafka_ex, :consumer_group)`
   - uris: List of brokers in `{"host", port}` form, defaults to `Application.get_env(:kafka_ex, :brokers)`
   - metadata_update_interval: How often `kafka_ex` would update the Kafka cluster metadata information in milliseconds, default is 30000
   - consumer_group_update_interval: How often `kafka_ex` would update the Kafka cluster consumer_groups information in milliseconds, default is 30000
   - sync_timeout: Timeout for synchronous requests to kafka in milliseconds, default is 1000
+
+  Returns `{:error, error_description}` on invalid arguments
 
   ## Example
 
@@ -29,16 +31,18 @@ defmodule KafkaEx do
   {:ok, #PID<0.173.0>}
   iex> KafkaEx.create_worker(:pr, [uris: [{"localhost", 9092}], consumer_group: "foo", sync_timeout: 2000])
   {:ok, #PID<0.173.0>}
+  iex> KafkaEx.create_worker(:pr, consumer_group: nil)
+  {:error, :invalid_consumer_group}
   ```
   """
   @spec create_worker(atom, KafkaEx.worker_init) :: Supervisor.on_start_child
-  def create_worker(name, worker_init \\ [])
-
-  def create_worker(name, worker_init) do
-    defaults = [uris: Application.get_env(:kafka_ex, :brokers),
-                consumer_group: Application.get_env(:kafka_ex, :consumer_group)]
-    worker_init = Keyword.merge(defaults, worker_init)
-    Supervisor.start_child(KafkaEx.Supervisor, [worker_init, name])
+  def create_worker(name, worker_init \\ []) do
+    case build_worker_options(worker_init) do
+      {:ok, worker_init} ->
+        Supervisor.start_child(KafkaEx.Supervisor, [worker_init, name])
+      {:error, error} ->
+        {:error, error}
+    end
   end
 
   @doc """
@@ -278,17 +282,28 @@ defmodule KafkaEx do
     send(worker_name, :stop_streaming)
   end
 
+  defp build_worker_options(worker_init) do
+    defaults = [uris: Application.get_env(:kafka_ex, :brokers),
+                consumer_group: Application.get_env(:kafka_ex, :consumer_group)]
+    worker_init = Keyword.merge(defaults, worker_init)
+
+    consumer_group = Keyword.get(worker_init, :consumer_group)
+    if valid_consumer_group?(consumer_group) do
+      {:ok, worker_init}
+    else
+      {:error, :invalid_consumer_group}
+    end
+  end
+
+  defp valid_consumer_group?(:no_consumer_group), do: true
+  defp valid_consumer_group?(b) when is_binary(b) and byte_size(b) > 0, do: true
+  defp valid_consumer_group?(_), do: false
+
 #OTP API
   def start(_type, _args) do
     {:ok, pid}     = KafkaEx.Supervisor.start_link
-    uris           = Application.get_env(:kafka_ex, :brokers)
-    consumer_group = Application.get_env(:kafka_ex, :consumer_group)
-    worker_init    = case consumer_group do
-      nil            -> [uris: uris]
-      consumer_group -> [uris: uris, consumer_group: consumer_group]
-    end
 
-    case KafkaEx.create_worker(KafkaEx.Server, worker_init) do
+    case KafkaEx.create_worker(KafkaEx.Server, []) do
       {:error, reason} -> {:error, reason}
       {:ok, _}         -> {:ok, pid}
     end
