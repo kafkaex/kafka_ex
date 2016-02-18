@@ -7,7 +7,18 @@ defmodule KafkaEx.Server do
   @consumer_group_update_interval 30_000
   @sync_timeout                   1_000
 
-  defstruct metadata: %Proto.Metadata.Response{}, brokers: [], event_pid: nil, consumer_metadata: %Proto.ConsumerMetadata.Response{}, correlation_id: 0, consumer_group: @client_id, metadata_update_interval: @metadata_update_interval, consumer_group_update_interval: @consumer_group_update_interval, worker_name: __MODULE__, sync_timeout: @sync_timeout
+  defmodule State do
+    defstruct(metadata: %Proto.Metadata.Response{},
+              brokers: [],
+              event_pid: nil,
+              consumer_metadata: %Proto.ConsumerMetadata.Response{},
+              correlation_id: 0,
+              consumer_group: nil,
+              metadata_update_interval: nil,
+              consumer_group_update_interval: nil,
+              worker_name: KafkaEx.Server,
+              sync_timeout: nil)
+  end
 
   ### GenServer Callbacks
   use GenServer
@@ -34,7 +45,7 @@ defmodule KafkaEx.Server do
     brokers = Enum.map(uris, fn({host, port}) -> %Proto.Metadata.Broker{host: host, port: port, socket: KafkaEx.NetworkClient.create_socket(host, port)} end)
     sync_timeout = Keyword.get(args, :sync_timeout, Application.get_env(:kafka_ex, :sync_timeout, @sync_timeout))
     {correlation_id, metadata} = metadata(brokers, 0, sync_timeout)
-    state = %__MODULE__{metadata: metadata, brokers: brokers, correlation_id: correlation_id, consumer_group: consumer_group, metadata_update_interval: metadata_update_interval, consumer_group_update_interval: consumer_group_update_interval, worker_name: name, sync_timeout: sync_timeout}
+    state = %State{metadata: metadata, brokers: brokers, correlation_id: correlation_id, consumer_group: consumer_group, metadata_update_interval: metadata_update_interval, consumer_group_update_interval: consumer_group_update_interval, worker_name: name, sync_timeout: sync_timeout}
     {:ok, _} = :timer.send_interval(state.metadata_update_interval, :update_metadata)
 
     if consumer_group do
