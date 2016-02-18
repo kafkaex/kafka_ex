@@ -3,7 +3,6 @@ defmodule KafkaEx.Server do
 
   alias KafkaEx.Protocol, as: Proto
   @client_id                      "kafka_ex"
-  @consumer_group                 "kafka_ex"
   @metadata_update_interval       30_000
   @consumer_group_update_interval 30_000
   @sync_timeout                   1_000
@@ -31,7 +30,7 @@ defmodule KafkaEx.Server do
     uris = Keyword.get(args, :uris, [])
     metadata_update_interval = Keyword.get(args, :metadata_update_interval, @metadata_update_interval)
     consumer_group_update_interval = Keyword.get(args, :consumer_group_update_interval, @consumer_group_update_interval)
-    consumer_group = Keyword.get(args, :consumer_group, @consumer_group)
+    consumer_group = Keyword.get(args, :consumer_group)
     brokers = Enum.map(uris, fn({host, port}) -> %Proto.Metadata.Broker{host: host, port: port, socket: KafkaEx.NetworkClient.create_socket(host, port)} end)
     sync_timeout = Keyword.get(args, :sync_timeout, Application.get_env(:kafka_ex, :sync_timeout, @sync_timeout))
     {correlation_id, metadata} = metadata(brokers, 0, sync_timeout)
@@ -317,7 +316,8 @@ defmodule KafkaEx.Server do
 
   defp consumer_group(state) do
     if state.consumer_group == false do
-      @consumer_group
+      # TODO it appears we're relying on this when it shouldn't be set
+      "kafka_ex"
     else
       state.consumer_group
     end
