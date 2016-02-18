@@ -116,6 +116,7 @@ defmodule KafkaEx.Server do
   end
 
   def handle_call({:offset_fetch, offset_fetch}, _from, state) do
+    true = consumer_group?(state)
     {broker, state} = case Proto.ConsumerMetadata.Response.broker_for_consumer_group(state.brokers, state.consumer_metadata) do
       nil -> {_, state} = update_consumer_metadata(state, offset_fetch.consumer_group)
         {Proto.ConsumerMetadata.Response.broker_for_consumer_group(state.brokers, state.consumer_metadata), state}
@@ -144,6 +145,7 @@ defmodule KafkaEx.Server do
   end
 
   def handle_call({:consumer_group_metadata, consumer_group}, _from, state) do
+    true = consumer_group?(state)
     {consumer_metadata, state} = update_consumer_metadata(state, consumer_group)
     {:reply, consumer_metadata, state}
   end
@@ -201,6 +203,7 @@ defmodule KafkaEx.Server do
   end
 
   def handle_info(:update_consumer_metadata, state) do
+    true = consumer_group?(state)
     {:noreply, update_consumer_metadata(state, state.consumer_group) |> elem(1)}
   end
 
