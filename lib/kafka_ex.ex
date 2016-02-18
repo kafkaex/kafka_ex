@@ -1,7 +1,12 @@
 defmodule KafkaEx do
   use Application
   @type uri() :: [{binary|char_list, number}]
-  @type worker_init :: [{:uris, uri}, {:consumer_group, binary|false}, {:sync_timeout, non_neg_integer}]
+  @type worker_init :: [worker_setting]
+  @type worker_setting :: {:uris, uri}  |
+                          {:consumer_group, binary | false} |
+                          {:sync_timeout, non_neg_integer} |
+                          {:metadata_update_interval, non_neg_integer} |
+                          {:consumer_group_update_interval, non_neg_integer}
 
   @doc """
   create_worker creates KafkaEx workers
