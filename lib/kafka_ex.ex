@@ -295,9 +295,13 @@ defmodule KafkaEx do
     end
   end
 
-  defp valid_consumer_group?(:no_consumer_group), do: true
-  defp valid_consumer_group?(b) when is_binary(b) and byte_size(b) > 0, do: true
-  defp valid_consumer_group?(_), do: false
+  @doc """
+  Returns true if the input is a valid consumer group or :no_consumer_group
+  """
+  @spec valid_consumer_group?(any) :: boolean
+  def valid_consumer_group?(:no_consumer_group), do: true
+  def valid_consumer_group?(b) when is_binary(b), do: byte_size(b) > 0
+  def valid_consumer_group?(_), do: false
 
 #OTP API
   def start(_type, _args) do

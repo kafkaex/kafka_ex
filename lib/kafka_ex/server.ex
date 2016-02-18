@@ -41,14 +41,20 @@ defmodule KafkaEx.Server do
     uris = Keyword.get(args, :uris, [])
     metadata_update_interval = Keyword.get(args, :metadata_update_interval, @metadata_update_interval)
     consumer_group_update_interval = Keyword.get(args, :consumer_group_update_interval, @consumer_group_update_interval)
+
+    # this should have already been validated, but it's possible someone could
+    # try to short-circuit the start call
     consumer_group = Keyword.get(args, :consumer_group)
+    true = KafkaEx.valid_consumer_group?(consumer_group)
+
     brokers = Enum.map(uris, fn({host, port}) -> %Proto.Metadata.Broker{host: host, port: port, socket: KafkaEx.NetworkClient.create_socket(host, port)} end)
     sync_timeout = Keyword.get(args, :sync_timeout, Application.get_env(:kafka_ex, :sync_timeout, @sync_timeout))
     {correlation_id, metadata} = metadata(brokers, 0, sync_timeout)
     state = %State{metadata: metadata, brokers: brokers, correlation_id: correlation_id, consumer_group: consumer_group, metadata_update_interval: metadata_update_interval, consumer_group_update_interval: consumer_group_update_interval, worker_name: name, sync_timeout: sync_timeout}
     {:ok, _} = :timer.send_interval(state.metadata_update_interval, :update_metadata)
 
-    if consumer_group do
+    # only start the consumer group update cycle if we are using consumer groups
+    if consumer_group?(state) do
       {:ok, _} = :timer.send_interval(state.consumer_group_update_interval, :update_consumer_metadata)
     end
 
@@ -81,6 +87,7 @@ defmodule KafkaEx.Server do
   end
 
   def handle_call({:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes, auto_commit}, _from, state) do
+    true = consumer_group_if_auto_commit?(auto_commit, state)
     {response, state} = fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, state, auto_commit)
 
     {:reply, response, state}
@@ -163,6 +170,7 @@ defmodule KafkaEx.Server do
   @min_bytes 1
   @max_bytes 1_000_000
   def handle_info({:start_streaming, topic, partition, offset, handler, auto_commit}, state) do
+    true = consumer_group_if_auto_commit?(auto_commit, state)
     {response, state} = fetch(topic, partition, offset, @wait_time, @min_bytes, @max_bytes, state, auto_commit)
     offset = case response do
       :topic_not_found -> offset
@@ -279,6 +287,7 @@ defmodule KafkaEx.Server do
   end
 
   defp fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, state, auto_commit) do
+    true = consumer_group_if_auto_commit?(auto_commit, state)
     fetch_request = Proto.Fetch.create_request(state.correlation_id, @client_id, topic, partition, offset, wait_time, min_bytes, max_bytes)
     {broker, state} = case Proto.Metadata.Response.broker_for_topic(state.metadata, state.brokers, topic, partition) do
       nil    ->
@@ -303,7 +312,7 @@ defmodule KafkaEx.Server do
                 offset_commit_request = %Proto.OffsetCommit.Request{
                   topic: topic,
                   offset: last_offset,
-                  consumer_group: consumer_group(state)}
+                  consumer_group: state.consumer_group}
                 {_, state} = offset_commit(state, offset_commit_request)
                 {response, state}
             end
@@ -325,12 +334,16 @@ defmodule KafkaEx.Server do
     {response, %{state | correlation_id: state.correlation_id+1}}
   end
 
-  defp consumer_group(state) do
-    if state.consumer_group == false do
-      # TODO it appears we're relying on this when it shouldn't be set
-      "kafka_ex"
-    else
-      state.consumer_group
-    end
+  defp consumer_group_if_auto_commit?(true, state) do
+    consumer_group?(state)
   end
+  defp consumer_group_if_auto_commit?(false, _state) do
+    true
+  end
+
+  # note within the genserver state, we've already validated the
+  # consumer group, so it can only be either :no_consumer_group or a
+  # valid binary consumer group name
+  defp consumer_group?(%State{consumer_group: :no_consumer_group}), do: false
+  defp consumer_group?(_), do: true
 end

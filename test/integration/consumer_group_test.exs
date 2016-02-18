@@ -30,8 +30,8 @@ defmodule KafkaEx.ConsumerGroup.Test do
     refute new_consumer_metadata == consumer_metadata
   end
 
-  test "worker does not update metadata when consumer_group is false" do
-    {:ok, pid} = KafkaEx.create_worker(:no_consumer_metadata_update, [uris: uris, consumer_group: false, consumer_group_update_interval: 100])
+  test "worker does not update metadata when consumer_group is disabled" do
+    {:ok, pid} = KafkaEx.create_worker(:no_consumer_metadata_update, [uris: uris, consumer_group: :no_consumer_group, consumer_group_update_interval: 100])
     consumer_metadata = %KafkaEx.Protocol.ConsumerMetadata.Response{}
     :sys.replace_state(pid, fn(state) -> %{state | consumer_metadata: consumer_metadata} end)
     :timer.sleep(105)
