@@ -52,8 +52,15 @@ defmodule KafkaEx.Integration.Test do
   test "create_worker provides a default consumer_group of 'kafka_ex'" do
     {:ok, pid} = KafkaEx.create_worker(:baz, uris: uris)
     consumer_group = :sys.get_state(pid).consumer_group
-
+    
     assert consumer_group == "kafka_ex"
+  end
+
+  test "create_worker allows us to provide a consumer group" do
+    {:ok, pid} = KafkaEx.create_worker(:bah, consumer_group: "my_consumer_group")
+    consumer_group = :sys.get_state(pid).consumer_group
+
+    assert consumer_group == "my_consumer_group"
   end
 
   test "create_worker takes a consumer_group option and sets that as the consumer_group of the worker" do
@@ -61,6 +68,17 @@ defmodule KafkaEx.Integration.Test do
     consumer_group = :sys.get_state(pid).consumer_group
 
     assert consumer_group == "foo"
+  end
+
+  test "create_worker returns an error when an invalid consumer group is provided" do
+    assert {:error, :invalid_consumer_group} == KafkaEx.create_worker(:francine, consumer_group: 0)
+  end
+
+  test "create_worker allows us to disable the consumer group" do
+    {:ok, pid} = KafkaEx.create_worker(:barney, consumer_group: :no_consumer_group)
+    
+    consumer_group = :sys.get_state(pid).consumer_group
+    assert consumer_group == :no_consumer_group
   end
 
   test "create_worker provides a default sync_timeout of 1000" do
@@ -102,7 +120,7 @@ defmodule KafkaEx.Integration.Test do
     random_string = generate_random_string
     KafkaEx.create_worker(:update_metadata, [uris: uris, consumer_group: "foo", metadata_update_interval: 100])
     previous_metadata = KafkaEx.metadata(worker_name: :update_metadata)
-    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 0, messages: [%Proto.Produce.Message{value: "hey"}]})
+    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 0, messages: [%Proto.Produce.Message{value: "hey"}]})
     :timer.sleep(105)
     new_metadata = KafkaEx.metadata(worker_name: :update_metadata)
 
@@ -137,11 +155,11 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "produce without an acq required returns :ok" do
-    assert KafkaEx.produce(%Proto.Produce.Request{topic: "food", required_acks: 0, messages: [%Proto.Produce.Message{value: "hey"}]}) == :ok
+    assert KafkaEx.produce(%Proto.Produce.Request{topic: "food", partition: 0, required_acks: 0, messages: [%Proto.Produce.Message{value: "hey"}]}) == :ok
   end
 
   test "produce with ack required returns an ack" do
-    produce_response = KafkaEx.produce(%Proto.Produce.Request{topic: "food", required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) |> hd
+    produce_response = KafkaEx.produce(%Proto.Produce.Request{topic: "food", partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) |> hd
     offset = produce_response.partitions |> hd |> Map.get(:offset)
 
     refute offset == nil
@@ -154,7 +172,7 @@ defmodule KafkaEx.Integration.Test do
 
     assert empty_metadata.brokers == []
 
-    KafkaEx.produce(%Proto.Produce.Request{topic: "food", required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}, worker_name: :update_metadata_test)
+    KafkaEx.produce(%Proto.Produce.Request{topic: "food", partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}, worker_name: :update_metadata_test)
     metadata = :sys.get_state(pid).metadata
 
     refute metadata == empty_metadata
@@ -163,7 +181,7 @@ defmodule KafkaEx.Integration.Test do
 
   test "produce creates log for a non-existing topic" do
     random_string = generate_random_string
-    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]})
+    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]})
     pid = Process.whereis(KafkaEx.Server)
     metadata = :sys.get_state(pid).metadata
 
@@ -173,7 +191,7 @@ defmodule KafkaEx.Integration.Test do
   #metadata
   test "metadata works" do
     random_string = generate_random_string
-    Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) end)
+    Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) end)
 
     refute Enum.empty?(Enum.flat_map(KafkaEx.metadata.topic_metadatas, fn(metadata) -> metadata.partition_metadatas end))
   end
@@ -217,7 +235,7 @@ defmodule KafkaEx.Integration.Test do
 
   test "fetch works" do
     random_string = generate_random_string
-    produce_response =  KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey foo"}]}) |> hd
+    produce_response =  KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey foo"}]}) |> hd
     offset = produce_response.partitions |> hd |> Map.get(:offset)
     fetch_response = KafkaEx.fetch(random_string, 0, offset: 0, auto_commit: false) |>  hd
     message = fetch_response.partitions |> hd |> Map.get(:message_set) |> hd
@@ -239,7 +257,7 @@ defmodule KafkaEx.Integration.Test do
 
   test "offset retrieves most recent offset by time specification" do
     random_string = generate_random_string
-    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]})
+    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]})
     offset_response = KafkaEx.offset(random_string, 0, utc_time) |> hd
     offset = offset_response.partition_offsets |> hd |> Map.get(:offset) |> hd
 
@@ -248,7 +266,7 @@ defmodule KafkaEx.Integration.Test do
 
   test "earliest_offset retrieves offset of 0" do
     random_string = generate_random_string
-    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]})
+    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]})
     offset_response = KafkaEx.earliest_offset(random_string, 0) |> hd
     offset = offset_response.partition_offsets |> hd |> Map.get(:offset) |> hd
 
@@ -257,7 +275,7 @@ defmodule KafkaEx.Integration.Test do
 
   test "latest_offset retrieves offset of 0 for non-existing topic" do
     random_string = generate_random_string
-    produce_offset = KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) |> hd |> Map.get(:partitions) |> hd |> Map.get(:offset)
+    produce_offset = KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) |> hd |> Map.get(:partitions) |> hd |> Map.get(:offset)
     :timer.sleep(300)
     offset_response = KafkaEx.latest_offset(random_string, 0) |> hd
     offset = offset_response.partition_offsets |> hd |> Map.get(:offset) |> hd
@@ -267,7 +285,7 @@ defmodule KafkaEx.Integration.Test do
 
   test "latest_offset retrieves a non-zero offset for a topic published to" do
     random_string = generate_random_string
-    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "foo"}]})
+    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "foo"}]})
     offset_response = KafkaEx.latest_offset(random_string, 0) |> hd
     offset = offset_response.partition_offsets |> hd |> Map.get(:offset) |> hd
 
@@ -284,6 +302,7 @@ defmodule KafkaEx.Integration.Test do
 
     produce_request = %Proto.Produce.Request{
       topic: random_string,
+      partition: 0,
       required_acks: 1,
       compression: :gzip,
       messages: messages}
@@ -310,6 +329,7 @@ defmodule KafkaEx.Integration.Test do
 
     produce_request = %Proto.Produce.Request{
       topic: random_string,
+      partition: 0,
       required_acks: 1,
       compression: :snappy,
       messages: messages}
@@ -334,7 +354,7 @@ defmodule KafkaEx.Integration.Test do
     # 10 chars * 1024 repeats ~= 10kb
     message_value = String.duplicate("ABCDEFGHIJ", 1024)
     messages = [%Proto.Produce.Message{key: nil, value: message_value}]
-    produce_request = %Proto.Produce.Request{topic: topic, required_acks: 1, messages: messages}
+    produce_request = %Proto.Produce.Request{topic: topic, partition: 0, required_acks: 1, messages: messages}
 
     produce_response = KafkaEx.produce(produce_request) |> hd
     offset = produce_response.partitions |> hd |> Map.get(:offset)
@@ -352,7 +372,7 @@ defmodule KafkaEx.Integration.Test do
     # 10 chars * 1024 repeats ~= 10kb
     message_value = String.duplicate("ABCDEFGHIJ", 100)
     messages = [%Proto.Produce.Message{key: nil, value: message_value}]
-    produce_request = %Proto.Produce.Request{topic: topic, compression: :gzip, required_acks: 1, messages: messages}
+    produce_request = %Proto.Produce.Request{topic: topic, partition: 0, compression: :gzip, required_acks: 1, messages: messages}
 
     produce_response = KafkaEx.produce(produce_request) |> hd
     offset = produce_response.partitions |> hd |> Map.get(:offset)
@@ -370,7 +390,7 @@ defmodule KafkaEx.Integration.Test do
     # 10 chars * 1024 repeats ~= 10kb
     message_value = String.duplicate("ABCDEFGHIJ", 100)
     messages = [%Proto.Produce.Message{key: nil, value: message_value}]
-    produce_request = %Proto.Produce.Request{topic: topic, compression: :snappy, required_acks: 1, messages: messages}
+    produce_request = %Proto.Produce.Request{topic: topic, partition: 0, compression: :snappy, required_acks: 1, messages: messages}
 
     produce_response = KafkaEx.produce(produce_request) |> hd
     offset = produce_response.partitions |> hd |> Map.get(:offset)
@@ -386,7 +406,7 @@ defmodule KafkaEx.Integration.Test do
   test "streams kafka logs" do
     random_string = generate_random_string
     KafkaEx.create_worker(:stream, uris: uris)
-    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [
+    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [
         %Proto.Produce.Message{value: "hey"},
         %Proto.Produce.Message{value: "hi"},
       ]
@@ -414,7 +434,7 @@ defmodule KafkaEx.Integration.Test do
     stream = KafkaEx.stream(random_string, 0, worker_name: :stream2, offset: 0, auto_commit: false)
 
     KafkaEx.create_worker(:producer, uris: uris)
-    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [
+    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [
         %Proto.Produce.Message{value: "one"},
         %Proto.Produce.Message{value: "two"},
       ]
@@ -427,7 +447,7 @@ defmodule KafkaEx.Integration.Test do
 
     KafkaEx.stop_streaming(worker_name: :stream2)
     :timer.sleep(1000)
-    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [
+    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [
         %Proto.Produce.Message{value: "three"},
         %Proto.Produce.Message{value: "four"},
       ]
@@ -437,7 +457,7 @@ defmodule KafkaEx.Integration.Test do
     log = GenEvent.call(stream.manager, KafkaExHandler, :messages)
     assert length(log) == 0
 
-    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [
+    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [
         %Proto.Produce.Message{value: "five"},
         %Proto.Produce.Message{value: "six"},
       ]
@@ -450,7 +470,7 @@ defmodule KafkaEx.Integration.Test do
   test "streams kafka logs with custom handler and initial state" do
     random_string = generate_random_string
     KafkaEx.create_worker(:stream3, uris: uris)
-    produce_response = KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [
+    produce_response = KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [
         %Proto.Produce.Message{value: "hey"},
         %Proto.Produce.Message{value: "hi"},
       ]

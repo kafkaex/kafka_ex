@@ -4,7 +4,7 @@ defmodule KafkaEx.Protocol.OffsetCommit.Test do
   test "create_request creates a valid offset commit message" do
     corr_id = 3
     client_id = "kafka_ex"
-    offset_commit_request = %KafkaEx.Protocol.OffsetCommit.Request{offset: 10, topic: "foo", consumer_group: "bar", metadata: "baz"}
+    offset_commit_request = %KafkaEx.Protocol.OffsetCommit.Request{offset: 10, partition: 0, topic: "foo", consumer_group: "bar", metadata: "baz"}
     good_request = << 8 :: 16, 0 :: 16, corr_id :: 32, byte_size(client_id) :: 16, client_id :: binary, 3 :: 16, "bar", 1 :: 32, 3 :: 16, "foo", 1 :: 32, 0 :: 32, 10 :: 64, 3 :: 16, "baz" >>
     request = KafkaEx.Protocol.OffsetCommit.create_request(corr_id, client_id, offset_commit_request)
     assert request == good_request
