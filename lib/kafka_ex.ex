@@ -186,9 +186,9 @@ defmodule KafkaEx do
   ## Example
 
   ```elixir
-  iex> KafkaEx.produce(%KafkaEx.Protocol.Produce.Request{topic: "foo", required_acks: 1, messages: [%KafkaEx.Protocol.Produce.Message{value: "hey"}]})
+  iex> KafkaEx.produce(%KafkaEx.Protocol.Produce.Request{topic: "foo", partition: 0, required_acks: 1, messages: [%KafkaEx.Protocol.Produce.Message{value: "hey"}]})
   :ok
-  iex> KafkaEx.produce(%KafkaEx.Protocol.Produce.Request{topic: "foo", required_acks: 1, messages: [%KafkaEx.Protocol.Produce.Message{value: "hey"}]}, worker_name: :pr)
+  iex> KafkaEx.produce(%KafkaEx.Protocol.Produce.Request{topic: "foo", partition: 0, required_acks: 1, messages: [%KafkaEx.Protocol.Produce.Message{value: "hey"}]}, worker_name: :pr)
   [%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: 0, offset: 75, partition: 0}], topic: "foo"}]
   ```
   """

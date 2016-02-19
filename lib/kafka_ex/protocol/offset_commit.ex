@@ -1,11 +1,11 @@
 defmodule KafkaEx.Protocol.OffsetCommit do
   defmodule Request do
-    defstruct consumer_group: "kafka_ex", topic: "", partition: 0, offset: 0, metadata: ""
+    defstruct consumer_group: "kafka_ex", topic: nil, partition: nil, offset: nil, metadata: ""
     @type t :: %Request{consumer_group: binary, topic: binary, partition: integer, offset: integer}
   end
 
   defmodule Response do
-    defstruct partitions: [], topic: ""
+    defstruct partitions: [], topic: nil
     @type t :: %Response{partitions: [] | [integer], topic: binary}
   end
 

@@ -1,6 +1,6 @@
 defmodule KafkaEx.Protocol.Metadata do
   defmodule Request do
-    defstruct topic: ""
+    defstruct topic: nil
     @type t :: %Request{topic: binary}
   end
 
@@ -35,11 +35,11 @@ defmodule KafkaEx.Protocol.Metadata do
   end
 
   defmodule TopicMetadata do
-    defstruct error_code: 0, topic: "", partition_metadatas: []
+    defstruct error_code: 0, topic: nil, partition_metadatas: []
   end
 
   defmodule PartitionMetadata do
-    defstruct error_code: 0, partition_id: 0, leader: -1, replicas: [], isrs: []
+    defstruct error_code: 0, partition_id: nil, leader: -1, replicas: [], isrs: []
   end
 
   def create_request(correlation_id, client_id, ""), do: KafkaEx.Protocol.create_request(:metadata, correlation_id, client_id) <> << 0 :: 32-signed >>

@@ -1,11 +1,11 @@
 defmodule KafkaEx.Protocol.OffsetFetch do
   defmodule Request do
-    defstruct consumer_group: "kafka_ex", topic: "", partition: 0
+    defstruct consumer_group: "kafka_ex", topic: nil, partition: nil
     @type t :: %Request{consumer_group: binary, topic: binary, partition: integer}
   end
 
   defmodule Response do
-    defstruct topic: "", partitions: []
+    defstruct topic: nil, partitions: []
     @type t :: %Response{topic: binary, partitions: list}
 
     def last_offset(:topic_not_found) do
