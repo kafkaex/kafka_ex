@@ -307,9 +307,13 @@ defmodule KafkaEx do
   def start(_type, _args) do
     {:ok, pid}     = KafkaEx.Supervisor.start_link
 
-    case KafkaEx.create_worker(KafkaEx.Server, []) do
-      {:error, reason} -> {:error, reason}
-      {:ok, _}         -> {:ok, pid}
+    if Application.get_env(:kafka_ex, :disable_default_worker) == true do
+      {:ok, pid}
+    else
+      case KafkaEx.create_worker(KafkaEx.Server, []) do
+        {:error, reason} -> {:error, reason}
+        {:ok, _}         -> {:ok, pid}
+      end
     end
   end
 end

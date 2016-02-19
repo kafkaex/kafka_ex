@@ -54,19 +54,12 @@ end
 
 ### Configuration
 
-In your config/config.exs add the list of kafka brokers as below:
-```elixir
-config :kafka_ex,
-  brokers: [{HOST, PORT}],
-  consumer_group: consumer_group, #if no consumer_group is specified "kafka_ex" would be used as the default
-  sync_timeout: 1000 #Timeout used synchronous requests from kafka. Defaults to 1000ms.
-```
-
-Alternatively from iex:
-```elixir
-iex> Application.put_env(:kafka_ex, :brokers, [uris: [{"localhost", 9092}, {"localhost", 9093}], consumer_group: "kafka_ex"])
-:ok
-```
+See [config/config.exs](config/config.exs) for a description of
+configuration variables, including the Kafka broker list and default
+consumer group.  See
+http://elixir-lang.org/getting-started/mix-otp/distributed-tasks-and-configuration.html#application-environment-and-configuration
+for general info if you are unfamiliar with OTP application
+environments.
 
 You can also override options when creating a worker, see below.
 
