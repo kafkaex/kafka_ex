@@ -51,7 +51,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
                           uris: Application.get_env(:kafka_ex, :brokers),
                           consumer_group: consumer_group)
 
-    offset_before = TestHelper.latest_offset_number(topic, 0, worker_name) || 0
+    offset_before = TestHelper.latest_offset_number(topic, 0, worker_name)
     Enum.each(1..10, fn _ ->
       msg = %Proto.Produce.Message{value: "hey #{inspect :os.timestamp}"}
       KafkaEx.produce(%Proto.Produce.Request{topic: topic,
