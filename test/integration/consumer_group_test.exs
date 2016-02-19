@@ -30,8 +30,8 @@ defmodule KafkaEx.ConsumerGroup.Test do
     refute new_consumer_metadata == consumer_metadata
   end
 
-  test "worker does not update metadata when consumer_group is false" do
-    {:ok, pid} = KafkaEx.create_worker(:no_consumer_metadata_update, [uris: uris, consumer_group: false, consumer_group_update_interval: 100])
+  test "worker does not update metadata when consumer_group is disabled" do
+    {:ok, pid} = KafkaEx.create_worker(:no_consumer_metadata_update, [uris: uris, consumer_group: :no_consumer_group, consumer_group_update_interval: 100])
     consumer_metadata = %KafkaEx.Protocol.ConsumerMetadata.Response{}
     :sys.replace_state(pid, fn(state) -> %{state | consumer_metadata: consumer_metadata} end)
     :timer.sleep(105)
@@ -124,7 +124,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
   #stream
   test "stream auto_commits offset by default" do
     random_string = generate_random_string
-    KafkaEx.create_worker(:stream_auto_commit, uris: uris)
+    KafkaEx.create_worker(:stream_auto_commit, uris: uris, consumer_group: "kafka_ex")
     KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [
         %Proto.Produce.Message{value: "hey"},
         %Proto.Produce.Message{value: "hi"},
@@ -147,7 +147,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
   test "stream starts consuming from the next offset" do
     random_string = generate_random_string
     worker_name = :stream_last_committed_offset
-    KafkaEx.create_worker(worker_name, uris: uris)
+    KafkaEx.create_worker(worker_name, uris: uris, consumer_group: "kafka_ex")
     Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}, worker_name: worker_name) end)
     KafkaEx.offset_commit(worker_name, %Proto.OffsetCommit.Request{topic: random_string, offset: 3})
     stream = KafkaEx.stream(random_string, 0, worker_name: worker_name)

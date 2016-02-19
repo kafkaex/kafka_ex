@@ -56,11 +56,29 @@ defmodule KafkaEx.Integration.Test do
     assert consumer_group == "kafka_ex"
   end
 
+  test "create_worker allows us to provide a consumer group" do
+    {:ok, pid} = KafkaEx.create_worker(:bah, consumer_group: "my_consumer_group")
+    consumer_group = :sys.get_state(pid).consumer_group
+
+    assert consumer_group == "my_consumer_group"
+  end
+
   test "create_worker takes a consumer_group option and sets that as the consumer_group of the worker" do
     {:ok, pid} = KafkaEx.create_worker(:joe, [uris: uris, consumer_group: "foo"])
     consumer_group = :sys.get_state(pid).consumer_group
 
     assert consumer_group == "foo"
+  end
+
+  test "create_worker returns an error when an invalid consumer group is provided" do
+    assert {:error, :invalid_consumer_group} == KafkaEx.create_worker(:francine, consumer_group: 0)
+  end
+
+  test "create_worker allows us to disable the consumer group" do
+    {:ok, pid} = KafkaEx.create_worker(:barney, consumer_group: :no_consumer_group)
+    
+    consumer_group = :sys.get_state(pid).consumer_group
+    assert consumer_group == :no_consumer_group
   end
 
   test "create_worker provides a default sync_timeout of 1000" do
