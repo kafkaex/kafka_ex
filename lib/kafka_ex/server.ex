@@ -6,6 +6,7 @@ defmodule KafkaEx.Server do
   @metadata_update_interval       30_000
   @consumer_group_update_interval 30_000
   @sync_timeout                   1_000
+  @retry_count 3
 
   defmodule State do
     defstruct(metadata: %Proto.Metadata.Response{},
@@ -219,7 +220,7 @@ defmodule KafkaEx.Server do
     Enum.each(state.brokers, fn(broker) -> KafkaEx.NetworkClient.close_socket(broker.socket) end)
   end
 
-  defp update_consumer_metadata(state), do: update_consumer_metadata(state, 3, 0)
+  defp update_consumer_metadata(state), do: update_consumer_metadata(state, @retry_count, 0)
 
   defp update_consumer_metadata(state = %State{consumer_group: consumer_group}, 0, error_code) do
     Logger.log(:error, "Fetching consumer_group #{consumer_group} metadata failed with error_code #{inspect error_code}")
@@ -268,7 +269,6 @@ defmodule KafkaEx.Server do
     end
   end
 
-  @retry_count 3
   defp metadata(brokers, correlation_id, sync_timeout, topic \\ []), do: metadata(brokers, correlation_id, sync_timeout, topic, @retry_count, 0)
 
   defp metadata(_, correlation_id, _sync_timeout, topic, 0, error_code) do
