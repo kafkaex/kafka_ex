@@ -115,10 +115,6 @@ defmodule KafkaEx.Server do
     {:reply, response, state}
   end
 
-  def handle_call({:offset_fetch, offset_fetch}, _from, state = %State{consumer_group: :no_consumer_group}) do
-    {:reply, :topic_not_found, state}
-  end
-
   def handle_call({:offset_fetch, offset_fetch}, _from, state) do
     true = consumer_group?(state)
     {broker, state} = case Proto.ConsumerMetadata.Response.broker_for_consumer_group(state.brokers, state.consumer_metadata) do
@@ -327,10 +323,6 @@ defmodule KafkaEx.Server do
           _    -> {response, state}
         end
     end
-  end
-
-  defp offset_commit(state = %State{consumer_group: :no_consumer_group}, offset_commit_request) do
-    {nil, state}
   end
 
   defp offset_commit(state, offset_commit_request) do
