@@ -1,6 +1,6 @@
 defmodule KafkaEx.Protocol.OffsetFetch do
   defmodule Request do
-    defstruct consumer_group: "kafka_ex", topic: nil, partition: nil
+    defstruct consumer_group: nil, topic: nil, partition: nil
     @type t :: %Request{consumer_group: binary, topic: binary, partition: integer}
   end
 

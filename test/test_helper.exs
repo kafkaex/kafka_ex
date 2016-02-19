@@ -18,8 +18,10 @@ defmodule TestHelper do
   end
 
   def latest_offset_number(topic, partition_id, worker \\ KafkaEx.Server) do
-    KafkaEx.latest_offset(topic, partition_id, worker)
-    |> first_partition_offset
+    offset = KafkaEx.latest_offset(topic, partition_id, worker)
+      |> first_partition_offset
+
+    offset || 0
   end
 
   defp first_partition_offset(:topic_not_found) do

@@ -124,6 +124,11 @@ defmodule KafkaEx.Server do
       broker -> {broker, state}
     end
 
+    # if the request is for a specific consumer group, use that
+    # otherwise use the worker's consumer group
+    consumer_group = offset_fetch.consumer_group || state.consumer_group
+    offset_fetch = %{offset_fetch | consumer_group: consumer_group}
+
     offset_fetch_request = Proto.OffsetFetch.create_request(state.correlation_id, @client_id, offset_fetch)
 
     {response, state} = case broker do
@@ -331,6 +336,11 @@ defmodule KafkaEx.Server do
         {Proto.ConsumerMetadata.Response.broker_for_consumer_group(state.brokers, state.consumer_metadata) || hd(state.brokers), state}
       broker -> {broker, state}
     end
+
+    # if the request has a specific consumer group, use that
+    # otherwise use the worker's consumer group
+    consumer_group = offset_commit_request.consumer_group || state.consumer_group
+    offset_commit_request = %{offset_commit_request | consumer_group: consumer_group}
 
     offset_commit_request_payload = Proto.OffsetCommit.create_request(state.correlation_id, @client_id, offset_commit_request)
     response = KafkaEx.NetworkClient.send_sync_request(broker, offset_commit_request_payload, state.sync_timeout) |> Proto.OffsetCommit.parse_response
