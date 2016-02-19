@@ -48,7 +48,6 @@ defmodule KafkaEx.Server do
     {correlation_id, metadata} = metadata(brokers, 0, sync_timeout)
     state = %State{metadata: metadata, brokers: brokers, correlation_id: correlation_id, consumer_group: consumer_group, metadata_update_interval: metadata_update_interval, consumer_group_update_interval: consumer_group_update_interval, worker_name: name, sync_timeout: sync_timeout}
     {:ok, _} = :timer.send_interval(state.metadata_update_interval, :update_metadata)
-    Logger.log(:debug, "consumer_group: #{consumer_group}, worker_name: #{name}")
 
     if consumer_group do
       {:ok, _} = :timer.send_interval(state.consumer_group_update_interval, :update_consumer_metadata)
@@ -110,7 +109,7 @@ defmodule KafkaEx.Server do
     {:reply, response, state}
   end
 
-  def handle_call({:offset_fetch, offset_fetch}, _from, state = %State{consumer_group: false}) do
+  def handle_call({:offset_fetch, offset_fetch}, _from, state = %State{consumer_group: :no_consumer_group}) do
     {:reply, :topic_not_found, state}
   end
 
@@ -318,7 +317,7 @@ defmodule KafkaEx.Server do
     end
   end
 
-  defp offset_commit(state = %State{consumer_group: false}, offset_commit_request) do
+  defp offset_commit(state = %State{consumer_group: :no_consumer_group}, offset_commit_request) do
     {nil, state}
   end
 
