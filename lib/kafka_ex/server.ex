@@ -124,6 +124,11 @@ defmodule KafkaEx.Server do
       broker -> {broker, state}
     end
 
+    # if the request is for a specific consumer group, use that
+    # otherwise use the worker's consumer group
+    consumer_group = offset_fetch.consumer_group || state.consumer_group
+    offset_fetch = %{offset_fetch | consumer_group: consumer_group}
+
     offset_fetch_request = Proto.OffsetFetch.create_request(state.correlation_id, @client_id, offset_fetch)
 
     {response, state} = case broker do
