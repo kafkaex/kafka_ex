@@ -7,10 +7,11 @@ defmodule KafkaEx.ConsumerGroup.Test do
 
   test "consumer_group_metadata works" do
     random_string = generate_random_string
-    pid = Process.whereis(KafkaEx.Server)
     KafkaEx.produce(%Proto.Produce.Request{topic: "food", required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]})
     KafkaEx.fetch("food", 0, offset: 0)
-    metadata = KafkaEx.consumer_group_metadata(KafkaEx.Server, random_string)
+    KafkaEx.create_worker(:consumer_group_metadata_worker, consumer_group: random_string, uris: Application.get_env(:kafka_ex, :brokers))
+    pid = Process.whereis(:consumer_group_metadata_worker)
+    metadata = KafkaEx.consumer_group_metadata(:consumer_group_metadata_worker, random_string)
     consumer_group_metadata = :sys.get_state(pid).consumer_metadata
 
     assert metadata != %Proto.ConsumerMetadata.Response{}
@@ -88,10 +89,10 @@ defmodule KafkaEx.ConsumerGroup.Test do
 
   test "fetch starts consuming from last committed offset" do
     random_string = generate_random_string
-    KafkaEx.create_worker(:fetch_test_committed_worker)
+    KafkaEx.create_worker(:fetch_test_committed_worker, consumer_group: "foo", uris: Application.get_env(:kafka_ex, :brokers))
     Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) end)
     KafkaEx.offset_commit(:fetch_test_committed_worker, %Proto.OffsetCommit.Request{topic: random_string, offset: 3})
-    logs = KafkaEx.fetch(random_string, 0, worker: :fetch_test_committed_worker) |> hd |> Map.get(:partitions) |> hd |> Map.get(:message_set)
+    logs = KafkaEx.fetch(random_string, 0, worker_name: :fetch_test_committed_worker) |> hd |> Map.get(:partitions) |> hd |> Map.get(:message_set)
 
     first_message = logs |> hd
 
@@ -111,13 +112,28 @@ defmodule KafkaEx.ConsumerGroup.Test do
     refute offset == offset_fetch_response_offset
   end
 
+  #offset_fetch
+  test "offset_fetch does not override consumer_group" do
+    topic = generate_random_string
+    worker_name = :offset_fetch_consumer_group
+    consumer_group = "bar#{topic}"
+    KafkaEx.create_worker(worker_name, consumer_group: consumer_group, uris: Application.get_env(:kafka_ex, :brokers))
+    Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: topic, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}, worker_name: worker_name) end)
+
+    KafkaEx.offset_fetch(worker_name, %KafkaEx.Protocol.OffsetFetch.Request{topic: topic, partition: 0})
+
+    assert :sys.get_state(:offset_fetch_consumer_group).consumer_group == consumer_group
+  end
+
   #offset_commit
   test "offset_commit commits an offset and offset_fetch retrieves the committed offset" do
     random_string = generate_random_string
+    KafkaEx.create_worker(:offset_commit_worker, consumer_group: "foobar", uris: Application.get_env(:kafka_ex, :brokers))
     Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: random_string, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) end)
-    assert KafkaEx.offset_commit(KafkaEx.Server, %Proto.OffsetCommit.Request{topic: random_string, offset: 9}) ==
+
+    assert KafkaEx.offset_commit(:offset_commit_worker, %Proto.OffsetCommit.Request{topic: random_string, offset: 9}) ==
       [%Proto.OffsetCommit.Response{partitions: [0], topic: random_string}]
-    assert KafkaEx.offset_fetch(KafkaEx.Server, %Proto.OffsetFetch.Request{topic: random_string}) ==
+    assert KafkaEx.offset_fetch(:offset_commit_worker, %Proto.OffsetFetch.Request{topic: random_string}) ==
       [%Proto.OffsetFetch.Response{partitions: [%{metadata: "", error_code: 0, offset: 9, partition: 0}], topic: random_string}]
   end
 
