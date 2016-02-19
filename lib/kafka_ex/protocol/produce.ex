@@ -4,7 +4,7 @@ defmodule KafkaEx.Protocol.Produce do
     - require_acks: indicates how many acknowledgements the servers should receive before responding to the request. If it is 0 the server will not send any response (this is the only case where the server will not reply to a request). If it is 1, the server will wait the data is written to the local log before sending a response. If it is -1 the server will block until the message is committed by all in sync replicas before sending a response. For any number > 1 the server will block waiting for this number of acknowledgements to occur (but the server will never wait for more acknowledgements than there are in-sync replicas), default is 0
     - timeout: provides a maximum time in milliseconds the server can await the receipt of the number of acknowledgements in RequiredAcks, default is 100 milliseconds
     """
-    defstruct topic: "", partition: 0, required_acks: 0, timeout: 0, compression: :none, messages: []
+    defstruct topic: nil, partition: nil, required_acks: 0, timeout: 0, compression: :none, messages: []
     @type t :: %Request{topic: binary, partition: integer, required_acks: binary, timeout: integer, compression: atom, messages: list}
   end
 
@@ -18,7 +18,7 @@ defmodule KafkaEx.Protocol.Produce do
   end
 
   defmodule Response do
-    defstruct topic: "", partitions: []
+    defstruct topic: nil, partitions: []
     @type t :: %Response{topic: binary, partitions: list}
   end
 

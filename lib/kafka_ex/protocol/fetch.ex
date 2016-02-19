@@ -1,6 +1,6 @@
 defmodule KafkaEx.Protocol.Fetch do
   defmodule Response do
-    defstruct topic: "", partitions: []
+    defstruct topic: nil, partitions: []
     @type t :: %Response{topic: binary, partitions: list} 
   end
 
