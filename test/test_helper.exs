@@ -8,6 +8,13 @@ defmodule TestHelper do
     Enum.map(1..string_length, fn _ -> (:random.uniform * 25 + 65) |> round end) |> to_string
   end
 
+  # Wait for the return value of value_getter to pass the predicate condn
+  # If condn does not pass, sleep for dwell msec and try again
+  # If condn does not pass after max_tries attempts, raises an error
+  def wait_for_value(value_getter, condn, dwell \\ 500, max_tries \\ 10) do
+    wait_for_value(value_getter, condn, dwell, max_tries, 0)
+  end
+
   def uris do
     Application.get_env(:kafka_ex, :brokers)
   end
@@ -32,5 +39,18 @@ defmodule TestHelper do
       response
     first_partition = hd(partition_offsets)
     first_partition.offset |> hd
+  end
+
+  defp wait_for_value(value_getter, condn, dwell, max_tries, n) when n >= max_tries do
+    raise "too many tries waiting for condition"
+  end
+  defp wait_for_value(value_getter, condn, dwell, max_tries, n) do
+    value = value_getter.()
+    if condn.(value) do
+      value
+    else
+      :timer.sleep(dwell)
+      wait_for_value(value_getter, condn, dwell, max_tries, n + 1)
+    end
   end
 end

@@ -146,8 +146,10 @@ defmodule KafkaEx.ConsumerGroup.Test do
       ]
     })
     stream = KafkaEx.stream(random_string, 0, worker_name: :stream_auto_commit, offset: 0)
-    :timer.sleep(500)
-    log = GenEvent.call(stream.manager, KafkaExHandler, :messages) |> Enum.take(2)
+    log = TestHelper.wait_for_value(
+      fn() -> GenEvent.call(stream.manager, KafkaExHandler, :messages) |> Enum.take(2) end,
+      fn(log) -> length(log) > 0 end
+    )
 
     refute Enum.empty?(log)
 
