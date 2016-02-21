@@ -9,7 +9,7 @@ defmodule KafkaEx.Protocol.ConsumerMetadata do
   end
 
   @spec create_request(integer, binary, binary) :: binary
-  def create_request(correlation_id, client_id, consumer_group \\ "kafka_ex") do
+  def create_request(correlation_id, client_id, consumer_group) do
     KafkaEx.Protocol.create_request(:consumer_metadata, correlation_id, client_id) <> << byte_size(consumer_group) :: 16-signed, consumer_group :: binary >>
   end
 
