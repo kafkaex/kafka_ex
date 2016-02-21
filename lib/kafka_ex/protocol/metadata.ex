@@ -1,4 +1,6 @@
 defmodule KafkaEx.Protocol.Metadata do
+  require Logger
+
   defmodule Request do
     defstruct topic: nil
     @type t :: %Request{topic: binary}
@@ -60,6 +62,10 @@ defmodule KafkaEx.Protocol.Metadata do
     {brokers, rest} = parse_brokers(brokers_size, rest, [])
     << topic_metadatas_size :: 32-signed, rest :: binary >> = rest
     %Response{brokers: brokers, topic_metadatas: parse_topic_metadatas(topic_metadatas_size, rest)}
+  end
+  def parse_response(other) do
+    Logger.error("Invalid metadata response #{inspect other}")
+    raise "Invalid metadata response #{inspect other}"
   end
 
   defp parse_brokers(0, rest, brokers), do: {brokers, rest}
