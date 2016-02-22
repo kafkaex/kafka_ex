@@ -1,6 +1,4 @@
 defmodule KafkaEx.Protocol.Metadata do
-  require Logger
-
   defmodule Request do
     defstruct topic: nil
     @type t :: %Request{topic: binary}
