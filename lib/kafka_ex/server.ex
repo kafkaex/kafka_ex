@@ -177,23 +177,26 @@ defmodule KafkaEx.Server do
   @wait_time 10
   @min_bytes 1
   @max_bytes 1_000_000
+  def handle_info({:start_streaming, _topic, _partition, _offset, _handler, _auto_commit},
+                  state = %State{event_pid: nil}) do
+    # our streaming could have been canceled with a streaming update in-flight 
+    {:noreply, state}
+  end
   def handle_info({:start_streaming, topic, partition, offset, handler, auto_commit}, state) do
     true = consumer_group_if_auto_commit?(auto_commit, state)
+
     {response, state} = fetch(topic, partition, offset, @wait_time, @min_bytes, @max_bytes, state, auto_commit)
     offset = case response do
-      :topic_not_found -> offset
-      _ -> message = response |> hd |> Map.get(:partitions) |> hd
-        Enum.each(message.message_set, fn(message_set) -> GenEvent.notify(state.event_pid, message_set) end)
-        case message.last_offset do
-          nil         -> offset
-          last_offset -> last_offset + 1
-        end
-    end
-    :timer.sleep(500)
+               :topic_not_found -> offset
+               _ -> message = response |> hd |> Map.get(:partitions) |> hd
+               Enum.each(message.message_set, fn(message_set) -> GenEvent.notify(state.event_pid, message_set) end)
+               case message.last_offset do
+                 nil         -> offset
+                 last_offset -> last_offset + 1
+               end
+             end
 
-    if state.event_pid do
-      send(self, {:start_streaming, topic, partition, offset, handler, auto_commit})
-    end
+    Process.send_after(self, {:start_streaming, topic, partition, offset, handler, auto_commit}, 500)
 
     {:noreply, state}
   end
