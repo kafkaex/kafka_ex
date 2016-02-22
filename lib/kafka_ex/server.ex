@@ -187,13 +187,15 @@ defmodule KafkaEx.Server do
 
     {response, state} = fetch(topic, partition, offset, @wait_time, @min_bytes, @max_bytes, state, auto_commit)
     offset = case response do
-               :topic_not_found -> offset
-               _ -> message = response |> hd |> Map.get(:partitions) |> hd
-               Enum.each(message.message_set, fn(message_set) -> GenEvent.notify(state.event_pid, message_set) end)
-               case message.last_offset do
-                 nil         -> offset
-                 last_offset -> last_offset + 1
-               end
+               :topic_not_found ->
+                 offset
+               _ ->
+                 message = response |> hd |> Map.get(:partitions) |> hd
+                 Enum.each(message.message_set, fn(message_set) -> GenEvent.notify(state.event_pid, message_set) end)
+                 case message.last_offset do
+                   nil         -> offset
+                   last_offset -> last_offset + 1
+                 end
              end
 
     Process.send_after(self, {:start_streaming, topic, partition, offset, handler, auto_commit}, 500)
@@ -290,11 +292,13 @@ defmodule KafkaEx.Server do
       KafkaEx.NetworkClient.send_sync_request(broker, metadata_request, sync_timeout)
     end)
     response = case first_broker_response do
-      nil ->
-        Logger.log(:error, "Unable to fetch metadata from any brokers.  Timeout is #{sync_timeout}.")
-        raise "Unable to fetch metadata from any brokers.  Timeout is #{sync_timeout}."
-      data -> Proto.Metadata.parse_response(data)
-    end
+                 nil ->
+                   Logger.log(:error, "Unable to fetch metadata from any brokers.  Timeout is #{sync_timeout}.")
+                   raise "Unable to fetch metadata from any brokers.  Timeout is #{sync_timeout}."
+                   :no_metadata_available
+                 data ->
+                   Proto.Metadata.parse_response(data)
+               end
 
     case Enum.find(response.topic_metadatas, &(&1.error_code == 5)) do
       nil  -> {correlation_id+1, response}
