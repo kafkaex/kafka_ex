@@ -162,10 +162,18 @@ defmodule KafkaEx.ConsumerGroup.Test do
 
   test "stream starts consuming from the next offset" do
     random_string = generate_random_string
+    consumer_group = "kafka_ex"
     worker_name = :stream_last_committed_offset
-    KafkaEx.create_worker(worker_name, uris: uris, consumer_group: "kafka_ex")
+    KafkaEx.create_worker(worker_name, uris: uris, consumer_group: consumer_group)
     Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}, worker_name: worker_name) end)
     KafkaEx.offset_commit(worker_name, %Proto.OffsetCommit.Request{topic: random_string, partition: 0, offset: 3})
+
+    # make sure the offset commit is actually committed before we
+    # start streaming again
+    :ok = TestHelper.wait_for(fn() ->
+      3 == TestHelper.latest_consumer_offset_number(random_string, 0, consumer_group, worker_name)
+    end)
+    
     stream = KafkaEx.stream(random_string, 0, worker_name: worker_name)
     log = TestHelper.wait_for_any(
       fn() -> GenEvent.call(stream.manager, KafkaExHandler, :messages) |> Enum.take(2) end
