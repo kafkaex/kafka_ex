@@ -182,7 +182,12 @@ defmodule KafkaEx.ConsumerGroup.Test do
     random_string = generate_random_string
     KafkaEx.create_worker(:stream_no_auto_commit, uris: uris)
     Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) end)
-    KafkaEx.stream(random_string, 0, worker_name: :stream_no_auto_commit, auto_commit: false, offset: 0)
+    stream = KafkaEx.stream(random_string, 0, worker_name: :stream_no_auto_commit, auto_commit: false, offset: 0)
+
+    # make sure we consume at least one message before we assert that there is no offset committed
+    _log = TestHelper.wait_for_any(
+      fn() -> GenEvent.call(stream.manager, KafkaExHandler, :messages) |> Enum.take(2) end
+    )
 
     offset_fetch_response = KafkaEx.offset_fetch(:stream_no_auto_commit, %Proto.OffsetFetch.Request{topic: random_string, partition: 0}) |> hd
     offset_fetch_response.partitions |> hd |> Map.get(:error_code)
