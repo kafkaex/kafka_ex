@@ -146,9 +146,8 @@ defmodule KafkaEx.ConsumerGroup.Test do
       ]
     })
     stream = KafkaEx.stream(random_string, 0, worker_name: :stream_auto_commit, offset: 0)
-    log = TestHelper.wait_for_value(
-      fn() -> GenEvent.call(stream.manager, KafkaExHandler, :messages) |> Enum.take(2) end,
-      fn(log) -> length(log) > 0 end
+    log = TestHelper.wait_for_any(
+      fn() -> GenEvent.call(stream.manager, KafkaExHandler, :messages) |> Enum.take(2) end
     )
 
     refute Enum.empty?(log)
@@ -168,10 +167,8 @@ defmodule KafkaEx.ConsumerGroup.Test do
     Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}, worker_name: worker_name) end)
     KafkaEx.offset_commit(worker_name, %Proto.OffsetCommit.Request{topic: random_string, partition: 0, offset: 3})
     stream = KafkaEx.stream(random_string, 0, worker_name: worker_name)
-    :timer.sleep(500)
-    log = TestHelper.wait_for_value(
-      fn() -> GenEvent.call(stream.manager, KafkaExHandler, :messages) |> Enum.take(2) end,
-      fn(log) -> length(log) > 0 end
+    log = TestHelper.wait_for_any(
+      fn() -> GenEvent.call(stream.manager, KafkaExHandler, :messages) |> Enum.take(2) end
     )
 
     refute Enum.empty?(log)

@@ -15,6 +15,24 @@ defmodule TestHelper do
     wait_for_value(value_getter, condn, dwell, max_tries, 0)
   end
 
+  # Wait for condn to return false or nil; passes through to wait_for_value
+  # returns :ok on success
+  def wait_for(condn, dwell \\ 500, max_tries \\ 10) do
+    wait_for_value(fn() -> :ok end, fn(:ok) -> condn.() end, dwell, max_tries)
+  end
+
+  # execute value_getter, which should return a list, and accumulate
+  # the results until the accumulated results are at least min_length long
+  def wait_for_accum(value_getter, min_length, dwell \\ 500, max_tries \\ 10) do
+    wait_for_accum(value_getter, [], min_length, dwell, max_tries)
+  end
+
+  # passthrough to wait_for_accum with 1 as the min_length - i.e.,
+  # wait for any response
+  def wait_for_any(value_getter, dwell \\ 500, max_tries \\ 10) do
+    wait_for_accum(value_getter, 1, dwell, max_tries)
+  end
+
   def uris do
     Application.get_env(:kafka_ex, :brokers)
   end
@@ -52,5 +70,14 @@ defmodule TestHelper do
       :timer.sleep(dwell)
       wait_for_value(value_getter, condn, dwell, max_tries, n + 1)
     end
+  end
+
+  defp wait_for_accum(value_getter, acc, min_length, dwell, max_tries)
+  when length(acc) >= min_length do
+    acc
+  end
+  defp wait_for_accum(value_getter, acc, min_length, dwell, max_tries) do
+    value = wait_for_value(value_getter, fn(v) -> length(v) > 0 end, dwell, max_tries)
+    wait_for_accum(value_getter, acc ++ value, min_length, dwell, max_tries)
   end
 end

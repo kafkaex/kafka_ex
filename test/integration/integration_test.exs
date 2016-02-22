@@ -286,7 +286,9 @@ defmodule KafkaEx.Integration.Test do
   test "latest_offset retrieves a non-zero offset for a topic published to" do
     random_string = generate_random_string
     KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "foo"}]})
-    offset_response = KafkaEx.latest_offset(random_string, 0) |> hd
+    [offset_response] = TestHelper.wait_for_any(
+      fn() -> KafkaEx.latest_offset(random_string, 0) end
+    )
     offset = offset_response.partition_offsets |> hd |> Map.get(:offset) |> hd
 
     assert offset != 0
@@ -413,8 +415,10 @@ defmodule KafkaEx.Integration.Test do
     }, worker_name: :stream)
 
     stream = KafkaEx.stream(random_string, 0, worker_name: :stream, offset: 0, auto_commit: false)
-    :timer.sleep(100)
-    log = GenEvent.call(stream.manager, KafkaExHandler, :messages)
+    log = TestHelper.wait_for_accum(
+      fn() -> GenEvent.call(stream.manager, KafkaExHandler, :messages) end,
+      2
+    )
 
     refute Enum.empty?(log)
     [first,second|_] = log
@@ -440,20 +444,26 @@ defmodule KafkaEx.Integration.Test do
       ]
     }, worker_name: :producer)
 
-    :timer.sleep(1000)
-    log = GenEvent.call(stream.manager, KafkaExHandler, :messages)
-    assert length(log) == 2
+    log = TestHelper.wait_for_accum(
+      fn() -> GenEvent.call(stream.manager, KafkaExHandler, :messages) end,
+      2
+    )
+
     last_offset = hd(Enum.reverse(log)).offset
 
     KafkaEx.stop_streaming(worker_name: :stream2)
-    :timer.sleep(1000)
+    :ok = TestHelper.wait_for(fn() -> !Process.alive?(stream.manager) end)
+
     KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [
         %Proto.Produce.Message{value: "three"},
         %Proto.Produce.Message{value: "four"},
       ]
     }, worker_name: :producer)
-    :timer.sleep(1000)
+
     stream = KafkaEx.stream(random_string, 0, worker_name: :stream2, offset: last_offset+1, auto_commit: false)
+
+    :ok = TestHelper.wait_for(fn() -> Process.alive?(stream.manager) end)
+
     log = GenEvent.call(stream.manager, KafkaExHandler, :messages)
     assert length(log) == 0
 
@@ -462,8 +472,12 @@ defmodule KafkaEx.Integration.Test do
         %Proto.Produce.Message{value: "six"},
       ]
     }, worker_name: :producer)
-    :timer.sleep(1000)
-    log = GenEvent.call(stream.manager, KafkaExHandler, :messages)
+
+    log = TestHelper.wait_for_accum(
+      fn() -> GenEvent.call(stream.manager, KafkaExHandler, :messages) end,
+      4
+    )
+
     assert length(log) == 4
   end
 
