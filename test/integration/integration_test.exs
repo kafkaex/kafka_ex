@@ -198,7 +198,11 @@ defmodule KafkaEx.Integration.Test do
 
   test "metadata for a non-existing topic creates a new topic" do
     random_string = generate_random_string
-    random_topic_metadata = Enum.find(KafkaEx.metadata(topic: random_string).topic_metadatas, &(&1.topic == random_string))
+    metadata = TestHelper.wait_for_value(
+      fn() -> KafkaEx.metadata(topic: random_string) end,
+      fn(metadata) -> metadata != nil && length(metadata.topic_metadatas) > 0 end
+    )
+    random_topic_metadata = Enum.find(metadata.topic_metadatas, &(&1.topic == random_string))
 
     refute random_topic_metadata.partition_metadatas == []
     assert Enum.all?(random_topic_metadata.partition_metadatas, &(&1.error_code == 0))
