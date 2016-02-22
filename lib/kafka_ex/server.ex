@@ -283,8 +283,15 @@ defmodule KafkaEx.Server do
 
   defp metadata(brokers, correlation_id, sync_timeout, topic, retry, _error_code) do
     metadata_request = Proto.Metadata.create_request(correlation_id, @client_id, topic)
-    data = Enum.find_value(brokers, fn(broker) -> KafkaEx.NetworkClient.send_sync_request(broker, metadata_request, sync_timeout) end)
-    response = Proto.Metadata.parse_response(data)
+    first_broker_response = Enum.find_value(brokers, nil, fn(broker) ->
+      KafkaEx.NetworkClient.send_sync_request(broker, metadata_request, sync_timeout)
+    end)
+    response = case first_broker_response do
+      nil ->
+        Logger.log(:error, "Unable to fetch metadata from any brokers.  Timeout is #{sync_timeout}.")
+        raise "Unable to fetch metadata from any brokers.  Timeout is #{sync_timeout}."
+      data -> Proto.Metadata.parse_response(data)
+    end
 
     case Enum.find(response.topic_metadatas, &(&1.error_code == 5)) do
       nil  -> {correlation_id+1, response}
