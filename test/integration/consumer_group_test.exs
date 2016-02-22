@@ -169,7 +169,10 @@ defmodule KafkaEx.ConsumerGroup.Test do
     KafkaEx.offset_commit(worker_name, %Proto.OffsetCommit.Request{topic: random_string, partition: 0, offset: 3})
     stream = KafkaEx.stream(random_string, 0, worker_name: worker_name)
     :timer.sleep(500)
-    log = GenEvent.call(stream.manager, KafkaExHandler, :messages) |> Enum.take(2)
+    log = TestHelper.wait_for_value(
+      fn() -> GenEvent.call(stream.manager, KafkaExHandler, :messages) |> Enum.take(2) end,
+      fn(log) -> length(log) > 0 end
+    )
 
     refute Enum.empty?(log)
 
