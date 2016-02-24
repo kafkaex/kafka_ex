@@ -209,9 +209,9 @@ defmodule KafkaEx do
   ## Example
   ```elixir
   iex> KafkaEx.produce("bar", 0, "hey")
-  [%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: 0, offset: 75, partition: 0}], topic: "foo"}]
+  :ok
   iex> KafkaEx.produce("foo", 0, "hey", [worker_name: :pr, require_acks: 1])
-  [%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: 0, offset: 75, partition: 0}], topic: "foo"}]
+  :ok
   ```
   """
   @spec produce(binary, number, binary, Keyword.t) :: nil | :ok | {:error, :closed} | {:error, :inet.posix} | iodata | :leader_not_available
