@@ -187,12 +187,12 @@ defmodule KafkaEx do
 
   ```elixir
   iex> KafkaEx.produce(%KafkaEx.Protocol.Produce.Request{topic: "foo", partition: 0, required_acks: 1, messages: [%KafkaEx.Protocol.Produce.Message{value: "hey"}]})
-  [%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: 0, offset: 75, partition: 0}], topic: "foo"}]
+  :ok
   iex> KafkaEx.produce(%KafkaEx.Protocol.Produce.Request{topic: "foo", partition: 0, required_acks: 1, messages: [%KafkaEx.Protocol.Produce.Message{value: "hey"}]}, worker_name: :pr)
-  [%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: 0, offset: 75, partition: 0}], topic: "foo"}]
+  :ok
   ```
   """
-  @spec produce(KafkaEx.Protocol.Produce.Request.t, Keyword.t) :: [KafkaEx.Protocol.Produce.Response.t] | :leader_not_available
+  @spec produce(KafkaEx.Protocol.Produce.Request.t, Keyword.t) :: nil | :ok | {:error, :closed} | {:error, :inet.posix} | iodata | :leader_not_available
   def produce(produce_request, opts \\ []) do
     worker_name   = Keyword.get(opts, :worker_name, KafkaEx.Server)
     GenServer.call(worker_name, {:produce, produce_request})
@@ -214,7 +214,7 @@ defmodule KafkaEx do
   [%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: 0, offset: 75, partition: 0}], topic: "foo"}]
   ```
   """
-  @spec produce(binary, number, binary, Keyword.t) :: [KafkaEx.Protocol.Produce.Response.t] | :leader_not_available 
+  @spec produce(binary, number, binary, Keyword.t) :: nil | :ok | {:error, :closed} | {:error, :inet.posix} | iodata | :leader_not_available
   def produce(topic, partition, value, opts \\ []) do
     key             = Keyword.get(opts, :key, "")
     required_acks   = Keyword.get(opts, :required_acks, 0)

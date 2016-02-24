@@ -32,6 +32,7 @@ defmodule KafkaEx.Protocol.Metadata do
 
   defmodule Broker do
     defstruct node_id: 0, host: "", port: 0, socket: nil
+    @type t :: %Broker{node_id: non_neg_integer, host: binary, port: non_neg_integer, socket: nil | :gen_tcp.socket}
   end
 
   defmodule TopicMetadata do
