@@ -65,7 +65,7 @@ defmodule KafkaEx do
      topic: "foo"}]}
   ```
   """
-  @spec metadata(Keyword.t) :: map
+  @spec metadata(Keyword.t) :: KafkaEx.Protocol.Metadata.Response.t
   def metadata(opts \\ []) do
     worker_name  = Keyword.get(opts, :worker_name, KafkaEx.Server)
     topic = Keyword.get(opts, :topic, "")
@@ -87,7 +87,7 @@ defmodule KafkaEx do
   [%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offsets: [16], partition: 0}], topic: "foo"}]
   ```
   """
-  @spec latest_offset(binary, integer, atom|pid) :: {atom, map}
+  @spec latest_offset(binary, integer, atom|pid) :: [KafkaEx.Protocol.Offset.Response.t] | :topic_not_found
   def latest_offset(topic, partition, name \\ KafkaEx.Server), do: offset(topic, partition, :latest, name)
 
   @doc """
@@ -100,7 +100,7 @@ defmodule KafkaEx do
   [%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offset: [0], partition: 0}], topic: "foo"}]
   ```
   """
-  @spec earliest_offset(binary, integer, atom|pid) :: {atom, map}
+  @spec earliest_offset(binary, integer, atom|pid) :: [KafkaEx.Protocol.Offset.Response.t] | :topic_not_found
   def earliest_offset(topic, partition, name \\ KafkaEx.Server), do: offset(topic, partition, :earliest, name)
 
   @doc """
@@ -113,7 +113,7 @@ defmodule KafkaEx do
   [%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offset: [256], partition: 0}], topic: "foo"}]
   ```
   """
-  @spec offset(binary, number, :calendar.datetime|atom, atom|pid) :: {atom, map}
+  @spec offset(binary, number, :calendar.datetime|atom, atom|pid) :: [KafkaEx.Protocol.Offset.Response.t] | :topic_not_found
   def offset(topic, partition, time, name \\ KafkaEx.Server) do
     GenServer.call(name, {:offset, topic, partition, time})
   end
@@ -146,7 +146,7 @@ defmodule KafkaEx do
   ]
   ```
   """
-  @spec fetch(binary, number, Keyword.t) :: {atom, map}
+  @spec fetch(binary, number, Keyword.t) :: [KafkaEx.Protocol.Fetch.Response.t] | :topic_not_found
   def fetch(topic, partition, opts \\ []) do
     worker_name   = Keyword.get(opts, :worker_name, KafkaEx.Server)
     offset        = Keyword.get(opts, :offset)
@@ -173,7 +173,7 @@ defmodule KafkaEx do
     GenServer.call(worker_name, {:offset_commit, offset_commit_request})
   end
 
-  @spec offset_fetch(atom, KafkaEx.Protocol.OffsetFetch.Request.t) :: KafkaEx.Protocol.OffsetFetch.Response.t
+  @spec offset_fetch(atom, KafkaEx.Protocol.OffsetFetch.Request.t) :: [KafkaEx.Protocol.OffsetFetch.Response.t] | :topic_not_found
   def offset_fetch(worker_name, offset_fetch_request) do
     GenServer.call(worker_name, {:offset_fetch, offset_fetch_request})
   end
@@ -187,12 +187,12 @@ defmodule KafkaEx do
 
   ```elixir
   iex> KafkaEx.produce(%KafkaEx.Protocol.Produce.Request{topic: "foo", partition: 0, required_acks: 1, messages: [%KafkaEx.Protocol.Produce.Message{value: "hey"}]})
-  :ok
+  [%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: 0, offset: 75, partition: 0}], topic: "foo"}]
   iex> KafkaEx.produce(%KafkaEx.Protocol.Produce.Request{topic: "foo", partition: 0, required_acks: 1, messages: [%KafkaEx.Protocol.Produce.Message{value: "hey"}]}, worker_name: :pr)
   [%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: 0, offset: 75, partition: 0}], topic: "foo"}]
   ```
   """
-  @spec produce(KafkaEx.Protocol.Produce.Request.t, Keyword.t) :: :ok|list
+  @spec produce(KafkaEx.Protocol.Produce.Request.t, Keyword.t) :: [KafkaEx.Protocol.Produce.Response.t] | :leader_not_available
   def produce(produce_request, opts \\ []) do
     worker_name   = Keyword.get(opts, :worker_name, KafkaEx.Server)
     GenServer.call(worker_name, {:produce, produce_request})
@@ -209,12 +209,12 @@ defmodule KafkaEx do
   ## Example
   ```elixir
   iex> KafkaEx.produce("bar", 0, "hey")
-  :ok
+  [%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: 0, offset: 75, partition: 0}], topic: "foo"}]
   iex> KafkaEx.produce("foo", 0, "hey", [worker_name: :pr, require_acks: 1])
   [%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: 0, offset: 75, partition: 0}], topic: "foo"}]
   ```
   """
-  @spec produce(binary, number, binary, Keyword.t) :: :ok|list
+  @spec produce(binary, number, binary, Keyword.t) :: [KafkaEx.Protocol.Produce.Response.t] | :leader_not_available 
   def produce(topic, partition, value, opts \\ []) do
     key             = Keyword.get(opts, :key, "")
     required_acks   = Keyword.get(opts, :required_acks, 0)
@@ -245,9 +245,7 @@ defmodule KafkaEx do
   iex> KafkaEx.create_worker(:stream, [{"localhost", 9092}])
   {:ok, #PID<0.196.0>}
   iex> KafkaEx.produce("foo", 0, "hey", worker_name: :stream)
-  :ok
   iex> KafkaEx.produce("foo", 0, "hi", worker_name: :stream)
-  :ok
   iex> KafkaEx.stream("foo", 0) |> Enum.take(2)
   [%{attributes: 0, crc: 4264455069, key: nil, offset: 0, value: "hey"},
    %{attributes: 0, crc: 4251893211, key: nil, offset: 1, value: "hi"}]
@@ -276,7 +274,7 @@ defmodule KafkaEx do
     stream
   end
 
-  @spec stop_streaming(Keyword.t) :: :ok
+  @spec stop_streaming(Keyword.t) :: :stop_streaming
   def stop_streaming(opts \\ []) do
     worker_name = Keyword.get(opts, :worker_name, KafkaEx.Server)
     send(worker_name, :stop_streaming)

@@ -20,7 +20,7 @@ defmodule KafkaEx.Protocol.Metadata do
                   nil -> nil
                   broker -> case Port.info(broker.socket) do
                     nil        -> nil
-                    :undefined -> nil
+                    :undefined -> nil      # Note this return value was removed in Elixir 1.1
                     _          -> broker
                   end
                 end
