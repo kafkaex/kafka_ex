@@ -36,6 +36,6 @@ defmodule KafkaEx.Mixfile do
     [maintainers: ["Abejide Ayodele", "Jack Lund"],
      files: ["lib", "mix.exs", "README.md"],
      licenses: ["MIT"],
-     links: %{"Github" => "https://github.com/jacklund/kafka_ex"}]
+     links: %{"Github" => "https://github.com/kafkaex/kafka_ex"}]
   end
 end
