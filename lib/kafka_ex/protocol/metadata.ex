@@ -32,6 +32,10 @@ defmodule KafkaEx.Protocol.Metadata do
 
   defmodule Broker do
     defstruct node_id: 0, host: "", port: 0, socket: nil
+
+    def connected?(broker = %Broker{}) do
+      broker.socket != nil
+    end
   end
 
   defmodule TopicMetadata do
