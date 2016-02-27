@@ -10,7 +10,7 @@ defmodule KafkaEx.Protocol.Metadata do
     def broker_for_topic(metadata, brokers, topic, partition) do
       case Enum.find(metadata.topic_metadatas, &(topic == &1.topic)) do
         nil -> nil
-        topic_metadata -> 
+        topic_metadata ->
           case Enum.find(topic_metadata.partition_metadatas, &(partition == &1.partition_id)) do
             nil -> nil
             lead_broker ->
@@ -20,7 +20,7 @@ defmodule KafkaEx.Protocol.Metadata do
                   nil -> nil
                   broker -> case Port.info(broker.socket) do
                     nil        -> nil
-                    :undefined -> nil
+                    :undefined -> nil      # Note this return value was removed in Elixir 1.1
                     _          -> broker
                   end
                 end
@@ -32,6 +32,11 @@ defmodule KafkaEx.Protocol.Metadata do
 
   defmodule Broker do
     defstruct node_id: 0, host: "", port: 0, socket: nil
+    @type t :: %Broker{node_id: non_neg_integer, host: binary, port: non_neg_integer, socket: nil | :gen_tcp.socket}
+
+    def connected?(broker = %Broker{}) do
+      broker.socket != nil
+    end
   end
 
   defmodule TopicMetadata do

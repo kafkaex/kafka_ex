@@ -44,8 +44,6 @@ defmodule KafkaEx.Compression do
     {:ok, compressed_data} = :snappy.compress(data)
     {compressed_data, @snappy_attribute}
   end
-
-  @spec compress(compression_type_t, binary) :: {binary, attribute_t}
   def compress(:gzip, data) do
     compressed_data = :zlib.gzip(data)
     {compressed_data, @gzip_attribute}

@@ -177,23 +177,28 @@ defmodule KafkaEx.Server do
   @wait_time 10
   @min_bytes 1
   @max_bytes 1_000_000
+  def handle_info({:start_streaming, _topic, _partition, _offset, _handler, _auto_commit},
+                  state = %State{event_pid: nil}) do
+    # our streaming could have been canceled with a streaming update in-flight 
+    {:noreply, state}
+  end
   def handle_info({:start_streaming, topic, partition, offset, handler, auto_commit}, state) do
     true = consumer_group_if_auto_commit?(auto_commit, state)
+
     {response, state} = fetch(topic, partition, offset, @wait_time, @min_bytes, @max_bytes, state, auto_commit)
     offset = case response do
-      :topic_not_found -> offset
-      _ -> message = response |> hd |> Map.get(:partitions) |> hd
-        Enum.each(message.message_set, fn(message_set) -> GenEvent.notify(state.event_pid, message_set) end)
-        case message.last_offset do
-          nil         -> offset
-          last_offset -> last_offset + 1
-        end
-    end
-    :timer.sleep(500)
+               :topic_not_found ->
+                 offset
+               _ ->
+                 message = response |> hd |> Map.get(:partitions) |> hd
+                 Enum.each(message.message_set, fn(message_set) -> GenEvent.notify(state.event_pid, message_set) end)
+                 case message.last_offset do
+                   nil         -> offset
+                   last_offset -> last_offset + 1
+                 end
+             end
 
-    if state.event_pid do
-      send(self, {:start_streaming, topic, partition, offset, handler, auto_commit})
-    end
+    Process.send_after(self, {:start_streaming, topic, partition, offset, handler, auto_commit}, 500)
 
     {:noreply, state}
   end
@@ -234,7 +239,7 @@ defmodule KafkaEx.Server do
 
   defp update_consumer_metadata(state = %State{consumer_group: consumer_group, correlation_id: correlation_id}, retry, _error_code) do
     consumer_group_metadata_request = Proto.ConsumerMetadata.create_request(correlation_id, @client_id, consumer_group)
-    data = Enum.find_value(state.brokers, fn(broker) -> KafkaEx.NetworkClient.send_sync_request(broker, consumer_group_metadata_request, state.sync_timeout) end)
+    data = first_broker_response(consumer_group_metadata_request, state)
     response = Proto.ConsumerMetadata.parse_response(data)
     case response.error_code do
       0 -> {response, %{state | consumer_metadata: response, correlation_id: state.correlation_id + 1}}
@@ -283,8 +288,15 @@ defmodule KafkaEx.Server do
 
   defp metadata(brokers, correlation_id, sync_timeout, topic, retry, _error_code) do
     metadata_request = Proto.Metadata.create_request(correlation_id, @client_id, topic)
-    data = Enum.find_value(brokers, fn(broker) -> KafkaEx.NetworkClient.send_sync_request(broker, metadata_request, sync_timeout) end)
-    response = Proto.Metadata.parse_response(data)
+    data = first_broker_response(metadata_request, brokers, sync_timeout)
+    response = case data do
+                 nil ->
+                   Logger.log(:error, "Unable to fetch metadata from any brokers.  Timeout is #{sync_timeout}.")
+                   raise "Unable to fetch metadata from any brokers.  Timeout is #{sync_timeout}."
+                   :no_metadata_available
+                 data ->
+                   Proto.Metadata.parse_response(data)
+               end
 
     case Enum.find(response.topic_metadatas, &(&1.error_code == 5)) do
       nil  -> {correlation_id+1, response}
@@ -360,4 +372,15 @@ defmodule KafkaEx.Server do
   # valid binary consumer group name
   defp consumer_group?(%State{consumer_group: :no_consumer_group}), do: false
   defp consumer_group?(_), do: true
+
+  defp first_broker_response(request, state) do
+    first_broker_response(request, state.brokers, state.sync_timeout)
+  end
+  defp first_broker_response(request, brokers, sync_timeout) do
+    Enum.find_value(brokers, fn(broker) ->
+      if Proto.Metadata.Broker.connected?(broker) do
+        KafkaEx.NetworkClient.send_sync_request(broker, request, sync_timeout)
+      end
+    end)
+  end
 end

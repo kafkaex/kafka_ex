@@ -20,7 +20,7 @@ defmodule KafkaEx.Mixfile do
   defp deps do
     [
       {:earmark, "~> 0.1", only: :dev},
-      {:dialyze, "~> 0.1.3", only: :dev},
+      {:dialyze, "~> 0.2", only: :dev},
       {:ex_doc, "~> 0.7", only: :dev},
       {:snappy,
        git: "https://github.com/fdmanana/snappy-erlang-nif",
@@ -36,6 +36,6 @@ defmodule KafkaEx.Mixfile do
     [maintainers: ["Abejide Ayodele", "Jack Lund"],
      files: ["lib", "mix.exs", "README.md"],
      licenses: ["MIT"],
-     links: %{"Github" => "https://github.com/jacklund/kafka_ex"}]
+     links: %{"Github" => "https://github.com/kafkaex/kafka_ex"}]
   end
 end
