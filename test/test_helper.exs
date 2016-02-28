@@ -70,7 +70,7 @@ defmodule TestHelper do
     first_partition.offset |> hd
   end
 
-  defp wait_for_value(value_getter, condn, dwell, max_tries, n) when n >= max_tries do
+  defp wait_for_value(_value_getter, _condn, _dwell, max_tries, n) when n >= max_tries do
     raise "too many tries waiting for condition"
   end
   defp wait_for_value(value_getter, condn, dwell, max_tries, n) do
@@ -83,7 +83,7 @@ defmodule TestHelper do
     end
   end
 
-  defp wait_for_accum(value_getter, acc, min_length, dwell, max_tries)
+  defp wait_for_accum(_value_getter, acc, min_length, _dwell, _max_tries)
   when length(acc) >= min_length do
     acc
   end

@@ -150,7 +150,7 @@ defmodule KafkaEx.Server do
     {:reply, response, state}
   end
 
-  def handle_call({:consumer_group_metadata, consumer_group}, _from, state) do
+  def handle_call({:consumer_group_metadata, _consumer_group}, _from, state) do
     true = consumer_group?(state)
     {consumer_metadata, state} = update_consumer_metadata(state)
     {:reply, consumer_metadata, state}

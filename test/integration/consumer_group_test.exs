@@ -7,7 +7,6 @@ defmodule KafkaEx.ConsumerGroup.Test do
 
   test "consumer_group_metadata works" do
     random_string = generate_random_string
-    pid = Process.whereis(KafkaEx.Server)
     KafkaEx.produce(%Proto.Produce.Request{topic: "food", partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]})
     KafkaEx.fetch("food", 0, offset: 0)
     KafkaEx.create_worker(:consumer_group_metadata_worker, consumer_group: random_string, uris: Application.get_env(:kafka_ex, :brokers))
