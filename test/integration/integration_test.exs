@@ -81,11 +81,14 @@ defmodule KafkaEx.Integration.Test do
     assert consumer_group == :no_consumer_group
   end
 
-  test "create_worker provides a default sync_timeout of 1000" do
+  test "create_worker provides a default sync_timeout of 1000 if not set in config" do
+    value_before = Application.get_env(:kafka_ex, :sync_timeout)
+    Application.delete_env(:kafka_ex, :sync_timeout)
     {:ok, pid} = KafkaEx.create_worker(:bif, uris: uris)
     sync_timeout = :sys.get_state(pid).sync_timeout
 
     assert sync_timeout == 1000
+    Application.put_env(:kafka_ex, :sync_timeout, value_before)
   end
 
   test "create_worker takes a sync_timeout option and sets that as the sync_timeout of the worker" do
@@ -96,22 +99,20 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "create_worker uses sync_timeout default from config if set" do
-    Application.put_env(:kafka_ex, :sync_timeout, 3000)
+    value_before = Application.get_env(:kafka_ex, :sync_timeout)
+    Application.put_env(:kafka_ex, :sync_timeout, 4000)
 
     {:ok, pid} = KafkaEx.create_worker(:eve, [uris: uris])
     sync_timeout = :sys.get_state(pid).sync_timeout
 
-    Application.delete_env(:kafka_ex, :sync_timeout)
-    assert sync_timeout == 3000
+    assert sync_timeout == 4000
+    Application.put_env(:kafka_ex, :sync_timeout, value_before)
   end
 
   test "create_worker uses explicit sync_timeout even if set in config" do
-    Application.put_env(:kafka_ex, :sync_timeout, 3000)
-
     {:ok, pid} = KafkaEx.create_worker(:alice, [uris: uris, sync_timeout: 2000])
     sync_timeout = :sys.get_state(pid).sync_timeout
 
-    Application.delete_env(:kafka_ex, :sync_timeout)
     assert sync_timeout == 2000
   end
 
