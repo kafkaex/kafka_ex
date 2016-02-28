@@ -5,7 +5,7 @@
     <meta http-equiv="x-ua-compatible" content="ie=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     
-        <title>KafkaEx – kafka_ex v0.4.0</title>
+        <title>KafkaEx – kafka_ex v0.5.0</title>
       
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="generator" content="ExDoc v0.9.0">
@@ -31,7 +31,7 @@
         kafka_ex
       </h1>
       <h2 class="sidebar-projectVersion">
-        v0.4.0
+        v0.5.0
       </h2>
     </div>
     
@@ -164,7 +164,7 @@ Optional arguments(KeywordList)</p>
 <pre><code class="elixir">iex&gt; KafkaEx.produce(&quot;bar&quot;, 0, &quot;hey&quot;)
 :ok
 iex&gt; KafkaEx.produce(&quot;foo&quot;, 0, &quot;hey&quot;, [worker_name: :pr, require_acks: 1])
-[%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: 0, offset: 75, partition: 0}], topic: &quot;foo&quot;}]</code></pre>
+:ok</code></pre>
 </div>
   
 </div>
@@ -188,6 +188,13 @@ The handler is a normal GenEvent handler so you can supply a custom handler, oth
 </div>
   
 </div>
+<div class="summary-row">
+  <div class="summary-signature"><a href="#valid_consumer_group?/1">valid_consumer_group?(b)</a></div>
+  
+    <div class="summary-synopsis"><p>Returns true if the input is a valid consumer group or :no_consumer_group</p>
+</div>
+  
+</div>
 
           </div>
         </section>
@@ -202,7 +209,16 @@ The handler is a normal GenEvent handler so you can supply a custom handler, oth
   
 </div>
 <div class="type-detail">
-  <pre><code class="elixir" id="t:worker_init/0"><a href="#t:worker_init/0">worker_init</a> :: [uris: <a href="#t:uri/0">uri</a>, consumer_group: binary | false, sync_timeout: non_neg_integer]</code></pre>
+  <pre><code class="elixir" id="t:worker_init/0"><a href="#t:worker_init/0">worker_init</a> :: [<a href="#t:worker_setting/0">worker_setting</a>]</code></pre>
+  
+</div>
+<div class="type-detail">
+  <pre><code class="elixir" id="t:worker_setting/0"><a href="#t:worker_setting/0">worker_setting</a> ::
+  {:uris, <a href="#t:uri/0">uri</a>} |
+  {:consumer_group, binary | :no_consumer_group} |
+  {:sync_timeout, non_neg_integer} |
+  {:metadata_update_interval, non_neg_integer} |
+  {:consumer_group_update_interval, non_neg_integer}</code></pre>
   
 </div>
 
@@ -258,7 +274,9 @@ The handler is a normal GenEvent handler so you can supply a custom handler, oth
     <p>create_worker creates KafkaEx workers</p>
 <p>Optional arguments(KeywordList)</p>
 <ul>
-<li>consumer_group: Name of the group of consumers, <code class="inline">false</code> should be passed for Kafka &lt; 0.8.2, default is “kafka_ex”
+<li>consumer_group: Name of the group of consumers, <code class="inline">:no_consumer_group</code> should be passed for Kafka &lt; 0.8.2, defaults to <code class="inline">Application.get_env(:kafka_ex, :consumer_group)</code>
+</li>
+<li>uris: List of brokers in <code class="inline">{&quot;host&quot;, port}</code> form, defaults to <code class="inline">Application.get_env(:kafka_ex, :brokers)</code>
 </li>
 <li>metadata_update_interval: How often <code class="inline">kafka_ex</code> would update the Kafka cluster metadata information in milliseconds, default is 30000
 </li>
@@ -267,6 +285,7 @@ The handler is a normal GenEvent handler so you can supply a custom handler, oth
 <li>sync_timeout: Timeout for synchronous requests to kafka in milliseconds, default is 1000
 </li>
 </ul>
+<p>Returns <code class="inline">{:error, error_description}</code> on invalid arguments</p>
 <h2>Example</h2>
 <pre><code class="elixir">iex&gt; KafkaEx.create_worker(:pr) # where :pr is the name of the worker created
 {:ok, #PID&lt;0.171.0&gt;}
@@ -275,7 +294,9 @@ iex&gt; KafkaEx.create_worker(:pr, uris: [{&quot;localhost&quot;, 9092}])
 iex&gt; KafkaEx.create_worker(:pr, [uris: [{&quot;localhost&quot;, 9092}], consumer_group: &quot;foo&quot;])
 {:ok, #PID&lt;0.173.0&gt;}
 iex&gt; KafkaEx.create_worker(:pr, [uris: [{&quot;localhost&quot;, 9092}], consumer_group: &quot;foo&quot;, sync_timeout: 2000])
-{:ok, #PID&lt;0.173.0&gt;}</code></pre>
+{:ok, #PID&lt;0.173.0&gt;}
+iex&gt; KafkaEx.create_worker(:pr, consumer_group: nil)
+{:error, :invalid_consumer_group}</code></pre>
 
   </section>
 </div>
@@ -292,7 +313,9 @@ iex&gt; KafkaEx.create_worker(:pr, [uris: [{&quot;localhost&quot;, 9092}], consu
       <h4 class="specs-title">Specs</h4>
       <div class="specs-list">
         
-          <pre><code class="elixir">earliest_offset(binary, integer, atom | pid) :: {atom, map}</code></pre>
+          <pre><code class="elixir">earliest_offset(binary, integer, atom | pid) ::
+  [<a href="KafkaEx.Protocol.Offset.Response.html#t:t/0">KafkaEx.Protocol.Offset.Response.t</a>] |
+  :topic_not_found</code></pre>
         
       </div>
     </div>
@@ -318,7 +341,9 @@ iex&gt; KafkaEx.create_worker(:pr, [uris: [{&quot;localhost&quot;, 9092}], consu
       <h4 class="specs-title">Specs</h4>
       <div class="specs-list">
         
-          <pre><code class="elixir">fetch(binary, number, <a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) :: {atom, map}</code></pre>
+          <pre><code class="elixir">fetch(binary, number, <a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) ::
+  [<a href="KafkaEx.Protocol.Fetch.Response.html#t:t/0">KafkaEx.Protocol.Fetch.Response.t</a>] |
+  :topic_not_found</code></pre>
         
       </div>
     </div>
@@ -365,7 +390,9 @@ iex&gt; KafkaEx.create_worker(:pr, [uris: [{&quot;localhost&quot;, 9092}], consu
       <h4 class="specs-title">Specs</h4>
       <div class="specs-list">
         
-          <pre><code class="elixir">latest_offset(binary, integer, atom | pid) :: {atom, map}</code></pre>
+          <pre><code class="elixir">latest_offset(binary, integer, atom | pid) ::
+  [<a href="KafkaEx.Protocol.Offset.Response.html#t:t/0">KafkaEx.Protocol.Offset.Response.t</a>] |
+  :topic_not_found</code></pre>
         
       </div>
     </div>
@@ -391,7 +418,7 @@ iex&gt; KafkaEx.create_worker(:pr, [uris: [{&quot;localhost&quot;, 9092}], consu
       <h4 class="specs-title">Specs</h4>
       <div class="specs-list">
         
-          <pre><code class="elixir">metadata(<a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) :: map</code></pre>
+          <pre><code class="elixir">metadata(<a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) :: <a href="KafkaEx.Protocol.Metadata.Response.html#t:t/0">KafkaEx.Protocol.Metadata.Response.t</a></code></pre>
         
       </div>
     </div>
@@ -430,7 +457,9 @@ iex&gt; KafkaEx.metadata(topic: &quot;foo&quot;, worker_name: :mt)
       <h4 class="specs-title">Specs</h4>
       <div class="specs-list">
         
-          <pre><code class="elixir">offset(binary, number, :calendar.datetime | atom, atom | pid) :: {atom, map}</code></pre>
+          <pre><code class="elixir">offset(binary, number, :calendar.datetime | atom, atom | pid) ::
+  [<a href="KafkaEx.Protocol.Offset.Response.html#t:t/0">KafkaEx.Protocol.Offset.Response.t</a>] |
+  :topic_not_found</code></pre>
         
       </div>
     </div>
@@ -478,7 +507,9 @@ iex&gt; KafkaEx.metadata(topic: &quot;foo&quot;, worker_name: :mt)
       <h4 class="specs-title">Specs</h4>
       <div class="specs-list">
         
-          <pre><code class="elixir">offset_fetch(atom, <a href="KafkaEx.Protocol.OffsetFetch.Request.html#t:t/0">KafkaEx.Protocol.OffsetFetch.Request.t</a>) :: <a href="KafkaEx.Protocol.OffsetFetch.Response.html#t:t/0">KafkaEx.Protocol.OffsetFetch.Response.t</a></code></pre>
+          <pre><code class="elixir">offset_fetch(atom, <a href="KafkaEx.Protocol.OffsetFetch.Request.html#t:t/0">KafkaEx.Protocol.OffsetFetch.Request.t</a>) ::
+  [<a href="KafkaEx.Protocol.OffsetFetch.Response.html#t:t/0">KafkaEx.Protocol.OffsetFetch.Response.t</a>] |
+  :topic_not_found</code></pre>
         
       </div>
     </div>
@@ -501,8 +532,12 @@ iex&gt; KafkaEx.metadata(topic: &quot;foo&quot;, worker_name: :mt)
       <div class="specs-list">
         
           <pre><code class="elixir">produce(<a href="KafkaEx.Protocol.Produce.Request.html#t:t/0">KafkaEx.Protocol.Produce.Request.t</a>, <a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) ::
+  nil |
   :ok |
-  list</code></pre>
+  {:error, :closed} |
+  {:error, :inet.posix} |
+  iodata |
+  :leader_not_available</code></pre>
         
       </div>
     </div>
@@ -515,10 +550,10 @@ iex&gt; KafkaEx.metadata(topic: &quot;foo&quot;, worker_name: :mt)
 </li>
 </ul>
 <h2>Example</h2>
-<pre><code class="elixir">iex&gt; KafkaEx.produce(%KafkaEx.Protocol.Produce.Request{topic: &quot;foo&quot;, required_acks: 1, messages: [%KafkaEx.Protocol.Produce.Message{value: &quot;hey&quot;}]})
+<pre><code class="elixir">iex&gt; KafkaEx.produce(%KafkaEx.Protocol.Produce.Request{topic: &quot;foo&quot;, partition: 0, required_acks: 1, messages: [%KafkaEx.Protocol.Produce.Message{value: &quot;hey&quot;}]})
 :ok
-iex&gt; KafkaEx.produce(%KafkaEx.Protocol.Produce.Request{topic: &quot;foo&quot;, required_acks: 1, messages: [%KafkaEx.Protocol.Produce.Message{value: &quot;hey&quot;}]}, worker_name: :pr)
-[%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: 0, offset: 75, partition: 0}], topic: &quot;foo&quot;}]</code></pre>
+iex&gt; KafkaEx.produce(%KafkaEx.Protocol.Produce.Request{topic: &quot;foo&quot;, partition: 0, required_acks: 1, messages: [%KafkaEx.Protocol.Produce.Message{value: &quot;hey&quot;}]}, worker_name: :pr)
+:ok</code></pre>
 
   </section>
 </div>
@@ -536,8 +571,12 @@ iex&gt; KafkaEx.produce(%KafkaEx.Protocol.Produce.Request{topic: &quot;foo&quot;
       <div class="specs-list">
         
           <pre><code class="elixir">produce(binary, number, binary, <a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) ::
+  nil |
   :ok |
-  list</code></pre>
+  {:error, :closed} |
+  {:error, :inet.posix} |
+  iodata |
+  :leader_not_available</code></pre>
         
       </div>
     </div>
@@ -561,7 +600,7 @@ Optional arguments(KeywordList)</p>
 <pre><code class="elixir">iex&gt; KafkaEx.produce(&quot;bar&quot;, 0, &quot;hey&quot;)
 :ok
 iex&gt; KafkaEx.produce(&quot;foo&quot;, 0, &quot;hey&quot;, [worker_name: :pr, require_acks: 1])
-[%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: 0, offset: 75, partition: 0}], topic: &quot;foo&quot;}]</code></pre>
+:ok</code></pre>
 
   </section>
 </div>
@@ -592,7 +631,7 @@ iex&gt; KafkaEx.produce(&quot;foo&quot;, 0, &quot;hey&quot;, [worker_name: :pr, 
       <h4 class="specs-title">Specs</h4>
       <div class="specs-list">
         
-          <pre><code class="elixir">stop_streaming(<a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) :: :ok</code></pre>
+          <pre><code class="elixir">stop_streaming(<a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) :: :stop_streaming</code></pre>
         
       </div>
     </div>
@@ -641,12 +680,33 @@ The handler is a normal GenEvent handler so you can supply a custom handler, oth
 <pre><code class="elixir">iex&gt; KafkaEx.create_worker(:stream, [{&quot;localhost&quot;, 9092}])
 {:ok, #PID&lt;0.196.0&gt;}
 iex&gt; KafkaEx.produce(&quot;foo&quot;, 0, &quot;hey&quot;, worker_name: :stream)
-:ok
 iex&gt; KafkaEx.produce(&quot;foo&quot;, 0, &quot;hi&quot;, worker_name: :stream)
-:ok
 iex&gt; KafkaEx.stream(&quot;foo&quot;, 0) |&gt; Enum.take(2)
 [%{attributes: 0, crc: 4264455069, key: nil, offset: 0, value: &quot;hey&quot;},
  %{attributes: 0, crc: 4251893211, key: nil, offset: 1, value: &quot;hi&quot;}]</code></pre>
+
+  </section>
+</div>
+<div class="detail">
+  <div class="detail-header" id="valid_consumer_group?/1">
+    <a href="#valid_consumer_group?/1" class="detail-link" title="Link to this function">
+      <i class="fa fa-link"></i>
+    </a>
+    <span class="signature">valid_consumer_group?(b)</span>
+      
+  </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">valid_consumer_group?(any) :: boolean</code></pre>
+        
+      </div>
+    </div>
+  
+  <section class="docstring">
+    <p>Returns true if the input is a valid consumer group or :no_consumer_group</p>
 
   </section>
 </div>

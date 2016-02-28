@@ -5,7 +5,7 @@
     <meta http-equiv="x-ua-compatible" content="ie=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     
-        <title>KafkaEx.NetworkClient – kafka_ex v0.4.0</title>
+        <title>KafkaEx.NetworkClient – kafka_ex v0.5.0</title>
       
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="generator" content="ExDoc v0.9.0">
@@ -31,7 +31,7 @@
         kafka_ex
       </h1>
       <h2 class="sidebar-projectVersion">
-        v0.4.0
+        v0.5.0
       </h2>
     </div>
     
@@ -121,6 +121,15 @@
       
   </div>
   
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">close_socket(nil | :gen_tcp.socket) :: :ok</code></pre>
+        
+      </div>
+    </div>
+  
   <section class="docstring">
     
   </section>
@@ -133,6 +142,17 @@
     <span class="signature">create_socket(host, port)</span>
       
   </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">create_socket(binary, non_neg_integer) ::
+  nil |
+  :gen_tcp.socket</code></pre>
+        
+      </div>
+    </div>
   
   <section class="docstring">
     
@@ -147,6 +167,15 @@
       
   </div>
   
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">format_host(binary) :: char_list | :inet.ip_address</code></pre>
+        
+      </div>
+    </div>
+  
   <section class="docstring">
     
   </section>
@@ -160,6 +189,17 @@
       
   </div>
   
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">send_async_request(<a href="KafkaEx.Protocol.Metadata.Broker.html#t:t/0">KafkaEx.Protocol.Metadata.Broker.t</a>, iodata) ::
+  :ok |
+  {:error, :closed | :inet.posix}</code></pre>
+        
+      </div>
+    </div>
+  
   <section class="docstring">
     
   </section>
@@ -172,6 +212,17 @@
     <span class="signature">send_sync_request(broker, data, timeout)</span>
       
   </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">send_sync_request(<a href="KafkaEx.Protocol.Metadata.Broker.html#t:t/0">KafkaEx.Protocol.Metadata.Broker.t</a>, iodata, timeout) ::
+  nil |
+  iodata</code></pre>
+        
+      </div>
+    </div>
   
   <section class="docstring">
     
