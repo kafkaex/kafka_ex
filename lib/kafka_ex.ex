@@ -46,7 +46,7 @@ defmodule KafkaEx do
   end
 
   @doc """
-  Returns the consumer group name for the given worker.
+  Returns the name of the consumer group for the given worker.
 
   Worker may be an atom or pid.  The default worker is used by default.
   """
