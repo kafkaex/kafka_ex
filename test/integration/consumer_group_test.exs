@@ -5,6 +5,15 @@ defmodule KafkaEx.ConsumerGroup.Test do
 
   @moduletag :consumer_group
 
+  test "asking the worker for the name of its consumer group" do
+    consumer_group = "this_is_my_consumer_group"
+    worker_name = :consumer_group_reader_test
+    {:ok, _pid} = KafkaEx.create_worker(worker_name,
+                                        consumer_group: consumer_group)
+    
+    assert consumer_group == KafkaEx.consumer_group(worker_name)
+  end
+
   test "consumer_group_metadata works" do
     random_string = generate_random_string
     KafkaEx.produce(%Proto.Produce.Request{topic: "food", partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]})

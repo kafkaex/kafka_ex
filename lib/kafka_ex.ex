@@ -46,6 +46,16 @@ defmodule KafkaEx do
   end
 
   @doc """
+  Returns the consumer group name for the given worker.
+
+  Worker may be an atom or pid.  The default worker is used by default.
+  """
+  @spec consumer_group(atom | pid) :: binary | :no_consumer_group
+  def consumer_group(worker \\ KafkaEx.Server) do
+    GenServer.call(worker, :consumer_group)
+  end
+
+  @doc """
   Return metadata for the given topic; returns for all topics if topic is empty string
 
   Optional arguments(KeywordList)

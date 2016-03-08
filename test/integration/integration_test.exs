@@ -10,6 +10,11 @@ defmodule KafkaEx.Integration.Test do
     assert is_pid(pid)
   end
 
+  test "fetching the consumer group from the default worker" do
+    assert Application.get_env(:kafka_ex, :consumer_group) ==
+      KafkaEx.consumer_group()
+  end
+
   #create_worker
   test "KafkaEx.Supervisor dynamically creates workers" do
     {:ok, pid} = KafkaEx.create_worker(:bar, uris: uris)
