@@ -62,6 +62,10 @@ defmodule KafkaEx.Server do
     {:ok, state}
   end
 
+  def handle_call(:consumer_group, _from, state) do
+    {:reply, state.consumer_group, state}
+  end
+
   def handle_call({:produce, produce_request}, _from, state) do
     correlation_id = state.correlation_id + 1
     produce_request_data = Proto.Produce.create_request(correlation_id, @client_id, produce_request)
