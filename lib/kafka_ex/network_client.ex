@@ -5,10 +5,10 @@ defmodule KafkaEx.NetworkClient do
   def create_socket(host, port) do
     case :gen_tcp.connect(format_host(host), port, [:binary, {:packet, 4}]) do
       {:ok, socket} ->
-        Logger.log(:debug, "Succesfully connected to #{inspect(host)} on port #{inspect port}")
+        Logger.log(:debug, "Succesfully connected to broker #{inspect(host)}:#{inspect port}")
         socket
       _             ->
-        Logger.log(:error, "Could not connect to broker #{inspect(host)} on port #{inspect port}")
+        Logger.log(:error, "Could not connect to broker #{inspect(host)}:#{inspect port}")
         nil
     end
   end
@@ -23,7 +23,7 @@ defmodule KafkaEx.NetworkClient do
     case :gen_tcp.send(socket, data) do
       :ok -> :ok
       {_, reason} ->
-        Logger.log(:error, "Sending data to broker #{inspect broker.host} on port #{inspect broker.port} failed with #{inspect reason}")
+        Logger.log(:error, "Asynchronously sending data to broker #{inspect broker.host}:#{inspect broker.port} failed with #{inspect reason}")
         reason
     end
   end
@@ -37,11 +37,11 @@ defmodule KafkaEx.NetworkClient do
         case :gen_tcp.recv(socket, 0, timeout) do
           {:ok, data} -> data
           {:error, reason} ->
-            Logger.log(:error, "Sending data to broker #{inspect broker.host}, #{inspect broker.port} failed with #{inspect reason}")
+            Logger.log(:error, "Receiving data from broker #{inspect broker.host}:#{inspect broker.port} failed with #{inspect reason}")
             nil
         end
       {_, reason} ->
-        Logger.log(:error, "Sending data to broker #{inspect broker.host}, #{inspect broker.port} failed with #{inspect reason}")
+        Logger.log(:error, "Sending data to broker #{inspect broker.host}:#{inspect broker.port} failed with #{inspect reason}")
         nil
     end
 
