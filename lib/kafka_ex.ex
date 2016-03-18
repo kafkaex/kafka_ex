@@ -313,7 +313,9 @@ defmodule KafkaEx do
 
 #OTP API
   def start(_type, _args) do
-    {:ok, pid}     = KafkaEx.Supervisor.start_link
+    default_supervision_strategy = [strategy: :simple_one_for_one, max_restarts: 10, max_seconds: 60]
+    supervision_strategy = Application.get_env(:kafka_ex, :supervision_strategy, default_supervision_strategy)
+    {:ok, pid}     = KafkaEx.Supervisor.start_link(supervision_strategy)
 
     if Application.get_env(:kafka_ex, :disable_default_worker) == true do
       {:ok, pid}

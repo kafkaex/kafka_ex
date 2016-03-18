@@ -17,4 +17,13 @@ config :kafka_ex,
   # i.e., if you want to start your own set of named workers
   disable_default_worker: false,
   # Timeout value, in msec, for synchronous operations (e.g., network calls)
-  sync_timeout: 3000
+  sync_timeout: 3000,
+  # Supervision Strategy
+  # Modify this if you want to configure the strategy the supervisor will use
+  # to restart the workers.
+  # if you need help configuring the supervision strategy see:
+  # http://elixir-lang.org/docs/stable/elixir/Supervisor.Spec.html#supervise/2
+  # The default supervision strategy is as configured below:
+  supervision_strategy: [
+    strategy: :simple_one_for_one, max_restarts: 10, max_seconds: 60
+  ]
