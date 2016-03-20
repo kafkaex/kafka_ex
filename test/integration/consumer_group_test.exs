@@ -25,7 +25,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
 
     assert metadata != %Proto.ConsumerMetadata.Response{}
     assert metadata.coordinator_host != nil
-    assert metadata.error_code == 0
+    assert metadata.error_code == :no_error
     assert metadata == consumer_group_metadata
   end
 
@@ -92,7 +92,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
     error_code = partition.error_code
     offset_fetch_response_offset = partition.offset
 
-    assert error_code == 0
+    assert error_code == :no_error
     assert offset_of_last_message == offset_fetch_response_offset
   end
 
@@ -141,7 +141,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
     assert KafkaEx.offset_commit(KafkaEx.Server, %Proto.OffsetCommit.Request{topic: random_string, offset: 9, partition: 0}) ==
       [%Proto.OffsetCommit.Response{partitions: [0], topic: random_string}]
     assert KafkaEx.offset_fetch(KafkaEx.Server, %Proto.OffsetFetch.Request{topic: random_string, partition: 0}) ==
-      [%Proto.OffsetFetch.Response{partitions: [%{metadata: "", error_code: 0, offset: 9, partition: 0}], topic: random_string}]
+      [%Proto.OffsetFetch.Response{partitions: [%{metadata: "", error_code: :no_error, offset: 9, partition: 0}], topic: random_string}]
   end
 
   #stream
@@ -164,7 +164,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
     error_code = offset_fetch_response.partitions |> hd |> Map.get(:error_code)
     offset = offset_fetch_response.partitions |> hd |> Map.get(:offset)
 
-    assert error_code == 0
+    assert error_code == :no_error
     refute offset == 0
   end
 

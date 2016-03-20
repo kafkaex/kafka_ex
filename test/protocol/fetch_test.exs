@@ -10,7 +10,7 @@ defmodule KafkaEx.Protocol.Fetch.Test do
 
   test "parse_response correctly parses a valid response with a key and a value" do
     response = << 0 :: 32, 1 :: 32, 3 :: 16, "bar" :: binary, 1 :: 32, 0 :: 32, 0 :: 16, 10 :: 64, 32 :: 32, 1 :: 64, 20 :: 32, 0 :: 32, 0 :: 8, 0 :: 8, 3 :: 32, "foo" :: binary, 3 :: 32, "bar" :: binary >>
-    expected_response = [%KafkaEx.Protocol.Fetch.Response{partitions: [%{error_code: 0, hw_mark_offset: 10, last_offset: 1, message_set: [%Message{attributes: 0, crc: 0, key: "foo", offset: 1, value: "bar"}], partition: 0}], topic: "bar"}]
+    expected_response = [%KafkaEx.Protocol.Fetch.Response{partitions: [%{error_code: :no_error, hw_mark_offset: 10, last_offset: 1, message_set: [%Message{attributes: 0, crc: 0, key: "foo", offset: 1, value: "bar"}], partition: 0}], topic: "bar"}]
     assert expected_response == KafkaEx.Protocol.Fetch.parse_response(response)
   end
 
@@ -18,7 +18,7 @@ defmodule KafkaEx.Protocol.Fetch.Test do
     response = <<0, 0, 0, 1, 0, 0, 0, 1, 0, 4, 102, 111, 111, 100, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 56, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 17, 254, 46, 107, 157, 0, 0, 255, 255, 255, 255, 0, 0, 0, 3, 104, 101, 121, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 17, 254, 46, 107, 157, 0, 0, 255, 255, 255, 255, 0, 0, 0, 3, 104, 101, 121, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 17, 254, 46, 107, 157, 0, 0, 255, 255, 255, 255, 0, 0, 0, 3, 104, 101, 121, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 17, 254>>
     expected_response = [
       %KafkaEx.Protocol.Fetch.Response{partitions: [
-          %{error_code: 0, hw_mark_offset: 56, last_offset: 2, message_set: [
+          %{error_code: :no_error, hw_mark_offset: 56, last_offset: 2, message_set: [
                  %Message{attributes: 0, crc: 4264455069, key: nil, offset: 0, value: "hey"},
                  %Message{attributes: 0, crc: 4264455069, key: nil, offset: 1, value: "hey"},
                  %Message{attributes: 0, crc: 4264455069, key: nil, offset: 2, value: "hey"}
@@ -31,14 +31,14 @@ defmodule KafkaEx.Protocol.Fetch.Test do
   test "parse_response correctly parses a valid response with a nil key and a value" do
     response = << 0 :: 32, 1 :: 32, 3 :: 16, "bar" :: binary, 1 :: 32, 0 :: 32, 0 :: 16, 10 :: 64, 29 :: 32, 1 :: 64, 17 :: 32, 0 :: 32, 0 :: 8, 0 :: 8,
       -1 :: 32, 3 :: 32, "bar" :: binary >>
-    expected_response = [%KafkaEx.Protocol.Fetch.Response{partitions: [%{error_code: 0, hw_mark_offset: 10, last_offset: 1, message_set: [%Message{attributes: 0, crc: 0, key: nil, offset: 1, value: "bar"}], partition: 0}], topic: "bar"}]
+    expected_response = [%KafkaEx.Protocol.Fetch.Response{partitions: [%{error_code: :no_error, hw_mark_offset: 10, last_offset: 1, message_set: [%Message{attributes: 0, crc: 0, key: nil, offset: 1, value: "bar"}], partition: 0}], topic: "bar"}]
     assert expected_response == KafkaEx.Protocol.Fetch.parse_response(response)
   end
 
   test "parse_response correctly parses a valid response with a key and a nil value" do
     response = << 0 :: 32, 1 :: 32, 3 :: 16, "bar" :: binary, 1 :: 32, 0 :: 32, 0 :: 16, 10 :: 64, 29 :: 32, 1 :: 64, 17 :: 32, 0 :: 32, 0 :: 8, 0 :: 8,
       3 :: 32, "foo" :: binary, -1 :: 32 >>
-    expected_response = [%KafkaEx.Protocol.Fetch.Response{partitions: [%{error_code: 0, hw_mark_offset: 10, last_offset: 1, message_set: [%Message{attributes: 0, crc: 0, key: "foo", offset: 1, value: nil}], partition: 0}], topic: "bar"}]
+    expected_response = [%KafkaEx.Protocol.Fetch.Response{partitions: [%{error_code: :no_error, hw_mark_offset: 10, last_offset: 1, message_set: [%Message{attributes: 0, crc: 0, key: "foo", offset: 1, value: nil}], partition: 0}], topic: "bar"}]
     assert expected_response == KafkaEx.Protocol.Fetch.parse_response(response)
   end
 
@@ -47,7 +47,7 @@ defmodule KafkaEx.Protocol.Fetch.Test do
       -1 :: 32, 3 :: 32, "bar" :: binary, 2 :: 64, 17 :: 32, 0 :: 32, 0 :: 8, 0 :: 8, -1 :: 32, 3 :: 32, "baz" :: binary >>
    expected_response = [
      %KafkaEx.Protocol.Fetch.Response{partitions: [
-         %{error_code: 0, hw_mark_offset: 10, last_offset: 2, message_set: [
+         %{error_code: :no_error, hw_mark_offset: 10, last_offset: 2, message_set: [
              %Message{attributes: 0, crc: 0, key: nil, offset: 1, value: "bar"},
              %Message{attributes: 0, crc: 0, key: nil, offset: 2, value: "baz"}
            ], partition: 0}
@@ -61,8 +61,8 @@ defmodule KafkaEx.Protocol.Fetch.Test do
       -1 :: 32, 3 :: 32, "bar" :: binary, 1 :: 32, 0 :: 16, 10 :: 64, 29 :: 32, 1 :: 64, 17 :: 32, 0 :: 32, 0 :: 8, 0 :: 8, -1 :: 32, 3 :: 32, "baz" :: binary >>
     expected_response = [
       %KafkaEx.Protocol.Fetch.Response{partitions: [
-          %{error_code: 0, hw_mark_offset: 10, last_offset: 1, message_set: [%Message{attributes: 0, crc: 0, key: nil, offset: 1, value: "baz"}], partition: 1},
-          %{error_code: 0, hw_mark_offset: 10, last_offset: 1, message_set: [%Message{attributes: 0, crc: 0, key: nil, offset: 1, value: "bar"}], partition: 0}
+          %{error_code: :no_error, hw_mark_offset: 10, last_offset: 1, message_set: [%Message{attributes: 0, crc: 0, key: nil, offset: 1, value: "baz"}], partition: 1},
+          %{error_code: :no_error, hw_mark_offset: 10, last_offset: 1, message_set: [%Message{attributes: 0, crc: 0, key: nil, offset: 1, value: "bar"}], partition: 0}
         ], topic: "bar"}
     ]
 
@@ -76,12 +76,12 @@ defmodule KafkaEx.Protocol.Fetch.Test do
     expected_response = [
       %KafkaEx.Protocol.Fetch.Response{partitions:
         [
-          %{error_code: 0, hw_mark_offset: 10, last_offset: 1, message_set: [%Message{attributes: 0, crc: 0, key: nil, offset: 1, value: "foo"}], partition: 0}
+          %{error_code: :no_error, hw_mark_offset: 10, last_offset: 1, message_set: [%Message{attributes: 0, crc: 0, key: nil, offset: 1, value: "foo"}], partition: 0}
         ],
       topic: "bar"},
       %KafkaEx.Protocol.Fetch.Response{partitions:
         [
-          %{error_code: 0, hw_mark_offset: 10, last_offset: 1, message_set: [%Message{attributes: 0, crc: 0, key: nil, offset: 1, value: "bar"}], partition: 0}
+          %{error_code: :no_error, hw_mark_offset: 10, last_offset: 1, message_set: [%Message{attributes: 0, crc: 0, key: nil, offset: 1, value: "bar"}], partition: 0}
         ],
       topic: "baz"}
     ]
@@ -92,7 +92,7 @@ defmodule KafkaEx.Protocol.Fetch.Test do
   test "parse_response correctly parses a valid response with a gzip-encoded message" do
     response = <<0, 0, 0, 4, 0, 0, 0, 1, 0, 9, 103, 122, 105, 112, 95, 116, 101, 115, 116, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 74, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 62, 38, 244, 178, 37, 0, 1, 255, 255, 255, 255, 0, 0, 0, 48, 31, 139, 8, 0, 0, 0, 0, 0, 0, 0, 99, 96, 128, 3, 169, 101, 15, 206, 246, 50, 48, 252, 7, 2, 32, 143, 167, 36, 181, 184, 68, 33, 55, 181, 184, 56, 49, 61, 21, 0, 10, 31, 112, 82, 38, 0, 0, 0>>
     message = %Message{attributes: 0, crc: 2799750541, key: nil, offset: 0, value: "test message"}
-    partition1 = %{error_code: 0,
+    partition1 = %{error_code: :no_error,
                    hw_mark_offset: 1,
                    last_offset: 0,
                    partition: 0,
@@ -110,7 +110,7 @@ defmodule KafkaEx.Protocol.Fetch.Test do
     message2 = %Message{attributes: 0, crc: 2000011297, key: nil, offset: 1, value: "batch test 2"}
     message3 = %Message{attributes: 0, crc: 3429199362, key: "key1", offset: 2, value: "batch test 1"}
     message4 = %Message{attributes: 0, crc: 116810812, key: "key2", offset: 3, value: "batch test 2"}
-    partition1 = %{error_code: 0,
+    partition1 = %{error_code: :no_error,
                    hw_mark_offset: 4,
                    last_offset: 3,
                    partition: 0,
@@ -126,7 +126,7 @@ defmodule KafkaEx.Protocol.Fetch.Test do
     value = "test message"
     message = %Message{attributes: 0, crc: 2799750541, key: nil, offset: 1,
                        value: value}
-    partition1 = %{error_code: 0,
+    partition1 = %{error_code: :no_error,
                    hw_mark_offset: 2,
                    last_offset: 1,
                    partition: 1,
@@ -144,7 +144,7 @@ defmodule KafkaEx.Protocol.Fetch.Test do
                         value: "batch test 1"}
     message2 = %Message{attributes: 0, crc: 116810812, key: "key2", offset: 1,
                         value: "batch test 2"}
-    partition1 = %{error_code: 0,
+    partition1 = %{error_code: :no_error,
                    hw_mark_offset: 2,
                    last_offset: 1,
                    partition: 0,

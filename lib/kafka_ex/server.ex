@@ -246,7 +246,7 @@ defmodule KafkaEx.Server do
     data = first_broker_response(consumer_group_metadata_request, state)
     response = Proto.ConsumerMetadata.parse_response(data)
     case response.error_code do
-      0 -> {response, %{state | consumer_metadata: response, correlation_id: state.correlation_id + 1}}
+      :no_error -> {response, %{state | consumer_metadata: response, correlation_id: state.correlation_id + 1}}
       _ -> :timer.sleep(400)
         update_consumer_metadata(%{state | correlation_id: state.correlation_id + 1}, retry-1, response.error_code)
     end
@@ -302,7 +302,7 @@ defmodule KafkaEx.Server do
                    Proto.Metadata.parse_response(data)
                end
 
-    case Enum.find(response.topic_metadatas, &(&1.error_code == 5)) do
+               case Enum.find(response.topic_metadatas, &(&1.error_code == :leader_not_available)) do
       nil  -> {correlation_id+1, response}
       topic_metadata ->
         :timer.sleep(300)

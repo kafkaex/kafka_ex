@@ -1,4 +1,6 @@
 defmodule KafkaEx.Protocol.Metadata do
+  alias KafkaEx.Protocol
+
   defmodule Request do
     defstruct topic: nil
     @type t :: %Request{topic: binary}
@@ -76,7 +78,7 @@ defmodule KafkaEx.Protocol.Metadata do
 
   defp parse_topic_metadatas(topic_metadatas_size, << error_code :: 16-signed, topic_len :: 16-signed, topic :: size(topic_len)-binary, partition_metadatas_size :: 32-signed, rest :: binary >>) do
     {partition_metadatas, rest} = parse_partition_metadatas(partition_metadatas_size, [], rest)
-    [%TopicMetadata{error_code: error_code, topic: topic, partition_metadatas: partition_metadatas} | parse_topic_metadatas(topic_metadatas_size-1, rest)]
+    [%TopicMetadata{error_code: Protocol.error(error_code), topic: topic, partition_metadatas: partition_metadatas} | parse_topic_metadatas(topic_metadatas_size-1, rest)]
   end
 
   defp parse_partition_metadatas(0, partition_metadatas, rest), do: {partition_metadatas, rest}
@@ -84,7 +86,7 @@ defmodule KafkaEx.Protocol.Metadata do
   defp parse_partition_metadatas(partition_metadatas_size, partition_metadatas, << error_code :: 16-signed, partition_id :: 32-signed, leader :: 32-signed, rest :: binary >>) do
     {replicas, rest} =  parse_replicas(rest)
     {isrs, rest} =  parse_isrs(rest)
-    parse_partition_metadatas(partition_metadatas_size-1, [%PartitionMetadata{error_code: error_code, partition_id: partition_id, leader: leader, replicas: replicas, isrs: isrs} | partition_metadatas], rest)
+    parse_partition_metadatas(partition_metadatas_size-1, [%PartitionMetadata{error_code: Protocol.error(error_code), partition_id: partition_id, leader: leader, replicas: replicas, isrs: isrs} | partition_metadatas], rest)
   end
 
   defp parse_replicas(<< num_replicas :: 32-signed, rest :: binary >>) do
