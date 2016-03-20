@@ -17,4 +17,8 @@ config :kafka_ex,
   # i.e., if you want to start your own set of named workers
   disable_default_worker: false,
   # Timeout value, in msec, for synchronous operations (e.g., network calls)
-  sync_timeout: 3000
+  sync_timeout: 3000,
+  # Supervision max_restarts - the maximum amount of restarts allowed in a time frame
+  max_restarts: 10,
+  # Supervision max_seconds -  the time frame in which :max_restarts applies
+  max_seconds: 60
