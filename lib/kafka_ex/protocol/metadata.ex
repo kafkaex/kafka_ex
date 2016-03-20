@@ -1,5 +1,6 @@
 defmodule KafkaEx.Protocol.Metadata do
   alias KafkaEx.Protocol
+  import KafkaEx.Protocol.Common
 
   defmodule Request do
     defstruct topic: nil
@@ -54,12 +55,6 @@ defmodule KafkaEx.Protocol.Metadata do
 
   def create_request(correlation_id, client_id, topics) when is_list(topics) do
     KafkaEx.Protocol.create_request(:metadata, correlation_id, client_id) <> << length(topics) :: 32-signed, topic_data(topics) :: binary >>
-  end
-
-  defp topic_data([]), do: ""
-
-  defp topic_data([topic|topics]) do
-    << byte_size(topic) :: 16-signed, topic :: binary >> <> topic_data(topics)
   end
 
   def parse_response(<< _correlation_id :: 32-signed, brokers_size :: 32-signed, rest :: binary >>) do
