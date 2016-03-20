@@ -19,9 +19,8 @@ defmodule KafkaEx.Protocol.Metadata do
                 broker -> case Enum.find(brokers, &(broker.host == &1.host && broker.port == &1.port)) do
                   nil -> nil
                   broker -> case Port.info(broker.socket) do
-                    nil        -> nil
-                    :undefined -> nil      # Note this return value was removed in Elixir 1.1
-                    _          -> broker
+                              port_info when is_list(port_info) -> broker
+                              _ -> nil
                   end
                 end
               end
