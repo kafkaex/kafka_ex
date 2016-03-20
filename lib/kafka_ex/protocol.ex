@@ -39,7 +39,7 @@ defmodule KafkaEx.Protocol do
   end
 
   defp api_key(:join_group) do
-    11
+    @join_group_request
   end
 
   def create_request(type, correlation_id, client_id) do
