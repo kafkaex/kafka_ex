@@ -81,6 +81,7 @@ defmodule KafkaEx.Protocol do
     31 => :cluster_authorization_failed
   }
 
+  @spec error(integer) :: atom | integer
   def error(err_no) do
     case err_no do
       -1 -> :unknown_error

@@ -6,11 +6,11 @@ defmodule KafkaEx.Protocol.JoinGroup do
   @metadata_version 0
 
   defmodule Response do
-    defstruct error_code: 0, generation_id: 0, leader: "", members: []
-    @type t :: %Response{error_code: integer, generation_id: integer, leader: binary, members: list}
+    defstruct error_code: nil, generation_id: 0, leader: nil, members: []
+    @type t :: %Response{error_code: atom | integer, generation_id: integer, leader: binary, members: [binary]}
   end
 
-  @spec create_request(integer, binary, binary, binary, list, integer) :: binary
+  @spec create_request(integer, binary, binary, binary, [binary], integer) :: binary
   def create_request(correlation_id, client_id, member_id, group_name, topics, session_timeout) do
     KafkaEx.Protocol.create_request(:join_group, correlation_id, client_id) <>
       << byte_size(group_name) :: 16-signed, group_name :: binary,
