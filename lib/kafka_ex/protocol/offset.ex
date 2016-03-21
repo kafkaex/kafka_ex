@@ -1,4 +1,6 @@
 defmodule KafkaEx.Protocol.Offset do
+  alias KafkaEx.Protocol
+
   defmodule Request do
     defstruct replica_id: -1, topic_name: nil, partition: nil, time: -1, max_number_of_offsets: 1
     @type t :: %Request{replica_id: integer, topic_name: binary, partition: integer, time: integer, max_number_of_offsets: integer}
@@ -40,7 +42,7 @@ defmodule KafkaEx.Protocol.Offset do
 
   defp parse_partitions(partitions_size, << partition :: 32-signed, error_code :: 16-signed, offsets_size :: 32-signed, rest :: binary >>, partitions) do
     {offsets, rest} = parse_offsets(offsets_size, rest)
-    parse_partitions(partitions_size-1, rest, [%{partition: partition, error_code: error_code, offset: offsets} | partitions])
+    parse_partitions(partitions_size-1, rest, [%{partition: partition, error_code: Protocol.error(error_code), offset: offsets} | partitions])
   end
 
   defp parse_offsets(offsets_size, rest, offsets \\ [])

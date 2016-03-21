@@ -25,8 +25,8 @@ defmodule KafkaEx.Protocol.Metadata.Test do
     expected_response = %KafkaEx.Protocol.Metadata.Response{
       brokers: [%KafkaEx.Protocol.Metadata.Broker{host: "foo", node_id: 0, port: 9092}],
       topic_metadatas: [
-        %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: 0, partition_metadatas: [
-          %KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: 0, isrs: [0], leader: 0, partition_id: 0, replicas: []}
+        %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: :no_error, partition_metadatas: [
+          %KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: :no_error, isrs: [0], leader: 0, partition_id: 0, replicas: []}
         ], topic: "bar"}
       ]
     }
@@ -42,8 +42,8 @@ defmodule KafkaEx.Protocol.Metadata.Test do
         %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", node_id: 9093, port: 9093}
       ],
       topic_metadatas: [
-        %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: 0, partition_metadatas: [
-          %KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: 0, isrs: [0], leader: 9092, partition_id: 0, replicas: []}
+        %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: :no_error, partition_metadatas: [
+          %KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: :no_error, isrs: [0], leader: 9092, partition_id: 0, replicas: []}
         ], topic: "bar"}
       ]
     }
@@ -65,8 +65,8 @@ defmodule KafkaEx.Protocol.Metadata.Test do
         %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", node_id: 9093, port: 9093}
       ],
       topic_metadatas: [
-        %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: 0, partition_metadatas: [
-          %KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: 0, isrs: [0], leader: 9092, partition_id: 0, replicas: []}
+        %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: :no_error, partition_metadatas: [
+          %KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: :no_error, isrs: [0], leader: 9092, partition_id: 0, replicas: []}
         ], topic: "bar"}
       ]
     }
@@ -85,8 +85,8 @@ defmodule KafkaEx.Protocol.Metadata.Test do
         %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", node_id: 9093, port: 9093}
       ],
       topic_metadatas: [
-        %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: 0, partition_metadatas: [
-          %KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: 0, isrs: [0], leader: 9092, partition_id: 0, replicas: []}
+        %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: :no_error, partition_metadatas: [
+          %KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: :no_error, isrs: [0], leader: 9092, partition_id: 0, replicas: []}
         ], topic: "bar"}
       ]
     }
@@ -108,8 +108,8 @@ defmodule KafkaEx.Protocol.Metadata.Test do
         %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", node_id: 9093, port: 9093}
       ],
       topic_metadatas: [
-        %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: 0, partition_metadatas: [
-          %KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: 0, isrs: [0], leader: 9092, partition_id: 0, replicas: []}
+        %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: :no_error, partition_metadatas: [
+          %KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: :no_error, isrs: [0], leader: 9092, partition_id: 0, replicas: []}
         ], topic: "bar"}
       ]
     }
@@ -129,8 +129,8 @@ defmodule KafkaEx.Protocol.Metadata.Test do
         %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", node_id: 9093, port: 9093}
       ],
       topic_metadatas: [
-        %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: 0, partition_metadatas: [
-          %KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: 0, isrs: [0], leader: 9092, partition_id: 0, replicas: []}
+        %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: :no_error, partition_metadatas: [
+          %KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: :no_error, isrs: [0], leader: 9092, partition_id: 0, replicas: []}
         ], topic: "bar"}
       ]
     }

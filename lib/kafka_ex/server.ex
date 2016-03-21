@@ -122,11 +122,7 @@ defmodule KafkaEx.Server do
 
   def handle_call({:offset_fetch, offset_fetch}, _from, state) do
     true = consumer_group?(state)
-    {broker, state} = case Proto.ConsumerMetadata.Response.broker_for_consumer_group(state.brokers, state.consumer_metadata) do
-      nil -> {_, state} = update_consumer_metadata(state)
-        {Proto.ConsumerMetadata.Response.broker_for_consumer_group(state.brokers, state.consumer_metadata), state}
-      broker -> {broker, state}
-    end
+    {broker, state} = broker_for_consumer_group_with_update(state)
 
     # if the request is for a specific consumer group, use that
     # otherwise use the worker's consumer group
@@ -164,6 +160,14 @@ defmodule KafkaEx.Server do
     {correlation_id, metadata} = metadata(state.brokers, state.correlation_id, state.sync_timeout, topic)
     state = %{state | metadata: metadata, correlation_id: correlation_id}
     {:reply, metadata, state}
+  end
+
+  def handle_call({:join_group, topics, session_timeout}, _from, state) do
+    true = consumer_group?(state)
+    {broker, state} = broker_for_consumer_group_with_update(state)
+    request = Proto.JoinGroup.create_request(state.correlation_id, @client_id, "", state.consumer_group, topics, session_timeout)
+    response = KafkaEx.NetworkClient.send_sync_request(broker, request, state.sync_timeout) |> Proto.JoinGroup.parse_response
+    {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
   end
 
   def handle_call({:create_stream, handler, handler_init}, _from, state) do
@@ -246,7 +250,7 @@ defmodule KafkaEx.Server do
     data = first_broker_response(consumer_group_metadata_request, state)
     response = Proto.ConsumerMetadata.parse_response(data)
     case response.error_code do
-      0 -> {response, %{state | consumer_metadata: response, correlation_id: state.correlation_id + 1}}
+      :no_error -> {response, %{state | consumer_metadata: response, correlation_id: state.correlation_id + 1}}
       _ -> :timer.sleep(400)
         update_consumer_metadata(%{state | correlation_id: state.correlation_id + 1}, retry-1, response.error_code)
     end
@@ -302,7 +306,7 @@ defmodule KafkaEx.Server do
                    Proto.Metadata.parse_response(data)
                end
 
-    case Enum.find(response.topic_metadatas, &(&1.error_code == 5)) do
+               case Enum.find(response.topic_metadatas, &(&1.error_code == :leader_not_available)) do
       nil  -> {correlation_id+1, response}
       topic_metadata ->
         :timer.sleep(300)
@@ -347,11 +351,7 @@ defmodule KafkaEx.Server do
   end
 
   defp offset_commit(state, offset_commit_request) do
-    {broker, state} = case Proto.ConsumerMetadata.Response.broker_for_consumer_group(state.brokers, state.consumer_metadata) do
-      nil -> {_, state} = update_consumer_metadata(state)
-        {Proto.ConsumerMetadata.Response.broker_for_consumer_group(state.brokers, state.consumer_metadata) || hd(state.brokers), state}
-      broker -> {broker, state}
-    end
+    {broker, state} = broker_for_consumer_group_with_update(state, true)
 
     # if the request has a specific consumer group, use that
     # otherwise use the worker's consumer group
@@ -376,6 +376,24 @@ defmodule KafkaEx.Server do
   # valid binary consumer group name
   defp consumer_group?(%State{consumer_group: :no_consumer_group}), do: false
   defp consumer_group?(_), do: true
+
+  defp broker_for_consumer_group(state) do
+    Proto.ConsumerMetadata.Response.broker_for_consumer_group(state.brokers, state.consumer_metadata)
+  end
+
+  # refactored from two versions, one that used the first broker as valid answer, hence
+  # the optional extra flag to do that. Wraps broker_for_consumer_group with an update
+  # call if no broker was found.
+  defp broker_for_consumer_group_with_update(state, use_first_as_default \\ false) do
+    case broker_for_consumer_group(state) do
+      nil ->
+        {_, state} = update_consumer_metadata(state)
+        default_broker = if use_first_as_default, do: hd(state.brokers), else: nil
+        {broker_for_consumer_group(state) || default_broker, state}
+      broker ->
+        {broker, state}
+    end
+  end
 
   defp first_broker_response(request, state) do
     first_broker_response(request, state.brokers, state.sync_timeout)

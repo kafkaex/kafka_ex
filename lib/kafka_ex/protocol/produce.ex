@@ -1,4 +1,6 @@
 defmodule KafkaEx.Protocol.Produce do
+  alias KafkaEx.Protocol
+
   defmodule Request do
     @moduledoc """
     - require_acks: indicates how many acknowledgements the servers should receive before responding to the request. If it is 0 the server will not send any response (this is the only case where the server will not reply to a request). If it is 1, the server will wait the data is written to the local log before sending a response. If it is -1 the server will block until the message is committed by all in sync replicas before sending a response. For any number > 1 the server will block waiting for this number of acknowledgements to occur (but the server will never wait for more acknowledgements than there are in-sync replicas), default is 0
@@ -69,7 +71,7 @@ defmodule KafkaEx.Protocol.Produce do
 
   defp parse_partitions(0, rest, partitions), do: {partitions, rest}
   defp parse_partitions(partitions_size, << partition :: 32-signed, error_code :: 16-signed, offset :: 64, rest :: binary >>, partitions) do
-    parse_partitions(partitions_size-1, rest, [%{partition: partition, error_code: error_code, offset: offset} | partitions])
+    parse_partitions(partitions_size-1, rest, [%{partition: partition, error_code: Protocol.error(error_code), offset: offset} | partitions])
   end
 
 end

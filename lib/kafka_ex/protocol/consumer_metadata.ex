@@ -1,4 +1,6 @@
 defmodule KafkaEx.Protocol.ConsumerMetadata do
+  alias KafkaEx.Protocol
+
   defmodule Response do
     defstruct coordinator_id: 0, coordinator_host: "", coordinator_port: 0, error_code: 0
     @type t :: %Response{coordinator_id: integer, coordinator_host: binary, coordinator_port: 0..65535, error_code: integer}
@@ -15,6 +17,6 @@ defmodule KafkaEx.Protocol.ConsumerMetadata do
 
   @spec parse_response(binary) :: Response.t
   def parse_response(<< _corr_id :: 32-signed, error_code :: 16-signed, coord_id :: 32-signed, coord_host_size :: 16-signed, coord_host :: size(coord_host_size)-binary, coord_port :: 32-signed, _ :: binary >>) do
-    %Response{coordinator_id: coord_id, coordinator_host: coord_host, coordinator_port: coord_port, error_code: error_code}
+    %Response{coordinator_id: coord_id, coordinator_host: coord_host, coordinator_port: coord_port, error_code: Protocol.error(error_code)}
   end
 end

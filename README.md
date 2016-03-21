@@ -96,19 +96,19 @@ iex> KafkaEx.metadata
 %KafkaEx.Protocol.Metadata.Response{brokers: [%KafkaEx.Protocol.Metadata.Broker{host:
  "192.168.59.103",
    node_id: 49162, port: 49162, socket: nil}],
- topic_metadatas: [%KafkaEx.Protocol.Metadata.TopicMetadata{error_code: 0,
-   partition_metadatas: [%KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: 0,
+ topic_metadatas: [%KafkaEx.Protocol.Metadata.TopicMetadata{error_code: :no_error,
+   partition_metadatas: [%KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: :no_error,
      isrs: [49162], leader: 49162, partition_id: 0, replicas: [49162]}],
    topic: "LRCYFQDVWUFEIUCCTFGP"},
-  %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: 0,
-   partition_metadatas: [%KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: 0,
+  %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: :no_error,
+   partition_metadatas: [%KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: :no_error,
      isrs: [49162], leader: 49162, partition_id: 0, replicas: [49162]}],
    topic: "JSIMKCLQYTWXMSIGESYL"},
-  %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: 0,
-   partition_metadatas: [%KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: 0,
+  %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: :no_error,
+   partition_metadatas: [%KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: :no_error,
      isrs: [49162], leader: 49162, partition_id: 0, replicas: [49162]}],
    topic: "SCFRRXXLDFPOWSPQQMSD"},
-  %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: 0,
+  %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: :no_error,
 ...
 ```
 
@@ -118,8 +118,8 @@ For a specific topic
 iex> KafkaEx.metadata(topic: "foo")
 %KafkaEx.Protocol.Metadata.Response{brokers: [%KafkaEx.Protocol.Metadata.Broker{host: "192.168.59.103",
    node_id: 49162, port: 49162, socket: nil}],
- topic_metadatas: [%KafkaEx.Protocol.Metadata.TopicMetadata{error_code: 0,
-   partition_metadatas: [%KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: 0,
+ topic_metadatas: [%KafkaEx.Protocol.Metadata.TopicMetadata{error_code: :no_error,
+   partition_metadatas: [%KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: :no_error,
      isrs: [49162], leader: 49162, partition_id: 0, replicas: [49162]}],
    topic: "foo"}]}
 ```
@@ -130,28 +130,28 @@ Kafka will get the starting offset of the log segment that is created no later t
 
 ```elixir
 iex> KafkaEx.offset("foo", 0, {{2015, 3, 29}, {23, 56, 40}}) # Note that the time specified should match/be ahead of time on the server that kafka runs
-[%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offset: [256], partition: 0}], topic: "foo"}]
+[%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: :no_error, offset: [256], partition: 0}], topic: "foo"}]
 ```
 
 ### Retrieve the latest offset
 
 ```elixir
 iex> KafkaEx.latest_offset("foo", 0) # where 0 is the partition
-[%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offsets: [16], partition: 0}], topic: "foo"}]
+[%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: :no_error, offsets: [16], partition: 0}], topic: "foo"}]
 ```
 
 ### Retrieve the earliest offset
 
 ```elixir
 iex> KafkaEx.earliest_offset("foo", 0) # where 0 is the partition
-[%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offset: [0], partition: 0}], topic: "foo"}]
+[%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: :no_error, offset: [0], partition: 0}], topic: "foo"}]
 ```
 
 ### Fetch kafka logs
 
 ```elixir
 iex> KafkaEx.fetch("foo", 0, offset: 5) # where 0 is the partition and 5 is the offset we want to start fetching from
-[%KafkaEx.Protocol.Fetch.Response{partitions: [%{error_code: 0,
+[%KafkaEx.Protocol.Fetch.Response{partitions: [%{error_code: :no_error,
      hw_mark_offset: 115,
      message_set: [
       %KafkaEx.Protocol.Fetch.Message{attributes: 0, crc: 4264455069, key: nil, offset: 5, value: "hey"},

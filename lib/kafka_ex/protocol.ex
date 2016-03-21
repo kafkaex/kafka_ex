@@ -6,6 +6,7 @@ defmodule KafkaEx.Protocol do
   @offset_commit_request     8
   @offset_fetch_request      9
   @consumer_metadata_request 10
+  @join_group_request        11
 
   @api_version  0
 
@@ -37,6 +38,10 @@ defmodule KafkaEx.Protocol do
     @consumer_metadata_request
   end
 
+  defp api_key(:join_group) do
+    @join_group_request
+  end
+
   def create_request(type, correlation_id, client_id) do
     << api_key(type) :: 16, @api_version :: 16, correlation_id :: 32,
        byte_size(client_id) :: 16, client_id :: binary >>
@@ -58,9 +63,25 @@ defmodule KafkaEx.Protocol do
     12 => :offset_metadata_too_large,
     14 => :offset_loads_in_progress,
     15 => :consumer_coordinator_not_available,
-    16 => :not_coordinator_for_consumer
+    16 => :not_coordinator_for_consumer,
+    17 => :invalid_topic,
+    18 => :record_list_too_large,
+    19 => :not_enough_replicas,
+    20 => :not_enough_replicas_after_append,
+    21 => :invalid_required_acks,
+    22 => :illegal_generation,
+    23 => :inconsistent_group_protocol,
+    24 => :invalid_group_id,
+    25 => :unknown_member_id,
+    26 => :invalid_session_timeout,
+    27 => :rebalance_in_progress,
+    28 => :invalid_commit_offset,
+    29 => :topic_authorization_failed,
+    30 => :group_authorization_failed,
+    31 => :cluster_authorization_failed
   }
 
+  @spec error(integer) :: atom | integer
   def error(err_no) do
     case err_no do
       -1 -> :unknown_error

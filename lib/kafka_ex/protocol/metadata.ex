@@ -1,4 +1,7 @@
 defmodule KafkaEx.Protocol.Metadata do
+  alias KafkaEx.Protocol
+  import KafkaEx.Protocol.Common
+
   defmodule Request do
     defstruct topic: nil
     @type t :: %Request{topic: binary}
@@ -19,9 +22,8 @@ defmodule KafkaEx.Protocol.Metadata do
                 broker -> case Enum.find(brokers, &(broker.host == &1.host && broker.port == &1.port)) do
                   nil -> nil
                   broker -> case Port.info(broker.socket) do
-                    nil        -> nil
-                    :undefined -> nil      # Note this return value was removed in Elixir 1.1
-                    _          -> broker
+                              port_info when is_list(port_info) -> broker
+                              _ -> nil
                   end
                 end
               end
@@ -55,12 +57,6 @@ defmodule KafkaEx.Protocol.Metadata do
     KafkaEx.Protocol.create_request(:metadata, correlation_id, client_id) <> << length(topics) :: 32-signed, topic_data(topics) :: binary >>
   end
 
-  defp topic_data([]), do: ""
-
-  defp topic_data([topic|topics]) do
-    << byte_size(topic) :: 16-signed, topic :: binary >> <> topic_data(topics)
-  end
-
   def parse_response(<< _correlation_id :: 32-signed, brokers_size :: 32-signed, rest :: binary >>) do
     {brokers, rest} = parse_brokers(brokers_size, rest, [])
     << topic_metadatas_size :: 32-signed, rest :: binary >> = rest
@@ -77,7 +73,7 @@ defmodule KafkaEx.Protocol.Metadata do
 
   defp parse_topic_metadatas(topic_metadatas_size, << error_code :: 16-signed, topic_len :: 16-signed, topic :: size(topic_len)-binary, partition_metadatas_size :: 32-signed, rest :: binary >>) do
     {partition_metadatas, rest} = parse_partition_metadatas(partition_metadatas_size, [], rest)
-    [%TopicMetadata{error_code: error_code, topic: topic, partition_metadatas: partition_metadatas} | parse_topic_metadatas(topic_metadatas_size-1, rest)]
+    [%TopicMetadata{error_code: Protocol.error(error_code), topic: topic, partition_metadatas: partition_metadatas} | parse_topic_metadatas(topic_metadatas_size-1, rest)]
   end
 
   defp parse_partition_metadatas(0, partition_metadatas, rest), do: {partition_metadatas, rest}
@@ -85,7 +81,7 @@ defmodule KafkaEx.Protocol.Metadata do
   defp parse_partition_metadatas(partition_metadatas_size, partition_metadatas, << error_code :: 16-signed, partition_id :: 32-signed, leader :: 32-signed, rest :: binary >>) do
     {replicas, rest} =  parse_replicas(rest)
     {isrs, rest} =  parse_isrs(rest)
-    parse_partition_metadatas(partition_metadatas_size-1, [%PartitionMetadata{error_code: error_code, partition_id: partition_id, leader: leader, replicas: replicas, isrs: isrs} | partition_metadatas], rest)
+    parse_partition_metadatas(partition_metadatas_size-1, [%PartitionMetadata{error_code: Protocol.error(error_code), partition_id: partition_id, leader: leader, replicas: replicas, isrs: isrs} | partition_metadatas], rest)
   end
 
   defp parse_replicas(<< num_replicas :: 32-signed, rest :: binary >>) do

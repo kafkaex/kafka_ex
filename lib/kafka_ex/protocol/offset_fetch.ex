@@ -1,4 +1,6 @@
 defmodule KafkaEx.Protocol.OffsetFetch do
+  alias KafkaEx.Protocol
+
   defmodule Request do
     defstruct consumer_group: nil, topic: nil, partition: nil
     @type t :: %Request{consumer_group: binary, topic: binary, partition: integer}
@@ -42,6 +44,6 @@ defmodule KafkaEx.Protocol.OffsetFetch do
   defp parse_partitions(0, rest, partitions), do: {partitions, rest}
 
   defp parse_partitions(partitions_size, << partition :: 32-signed, offset :: 64-signed, metadata_size :: 16-signed, metadata :: size(metadata_size)-binary, error_code :: 16-signed, rest :: binary >>, partitions) do
-    parse_partitions(partitions_size - 1, rest, [%{partition: partition, offset: offset, metadata: metadata, error_code: error_code} | partitions])
+    parse_partitions(partitions_size - 1, rest, [%{partition: partition, offset: offset, metadata: metadata, error_code: Protocol.error(error_code)} | partitions])
   end
 end

@@ -211,14 +211,14 @@ defmodule KafkaEx.Integration.Test do
     random_topic_metadata = Enum.find(metadata.topic_metadatas, &(&1.topic == random_string))
 
     refute random_topic_metadata.partition_metadatas == []
-    assert Enum.all?(random_topic_metadata.partition_metadatas, &(&1.error_code == 0))
+    assert Enum.all?(random_topic_metadata.partition_metadatas, &(&1.error_code == :no_error))
 
     pid = Process.whereis(KafkaEx.Server)
     metadata = :sys.get_state(pid).metadata
     random_topic_metadata = Enum.find(metadata.topic_metadatas, &(&1.topic == random_string))
 
     refute random_topic_metadata.partition_metadatas == []
-    assert Enum.all?(random_topic_metadata.partition_metadatas, &(&1.error_code == 0))
+    assert Enum.all?(random_topic_metadata.partition_metadatas, &(&1.error_code == :no_error))
   end
 
   #fetch
