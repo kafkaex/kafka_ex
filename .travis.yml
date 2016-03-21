@@ -9,10 +9,9 @@ elixir:
 matrix:
   exclude:
     - elixir: 1.0.4
-    - otp_release: 18.2.1
-  exclude:
+      otp_release: 18.2.1
     - elixir: 1.2.3
-    - otp_release: 17.5
+      otp_release: 17.5
 sudo: false
 before_script:
   - ./install_kafka.sh
