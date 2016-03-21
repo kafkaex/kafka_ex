@@ -211,4 +211,14 @@ defmodule KafkaEx.ConsumerGroup.Test do
 
     assert 0 >= offset_fetch_response_offset
   end
+
+  test "can join a consumer group" do
+    random_group = generate_random_string
+    KafkaEx.create_worker(:join_group, [uris: uris, consumer_group: random_group])
+
+    # No wrapper in kafka_ex yet as long as the 0.9 functionality is in progress
+    answer = GenServer.call(:join_group, {:join_group, ["foo", "bar"], 6000})
+    assert answer.error_code == :no_error
+    assert answer.generation_id == 1
+  end
 end

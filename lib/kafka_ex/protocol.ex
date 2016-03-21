@@ -6,6 +6,7 @@ defmodule KafkaEx.Protocol do
   @offset_commit_request     8
   @offset_fetch_request      9
   @consumer_metadata_request 10
+  @join_group_request        11
 
   @api_version  0
 
@@ -35,6 +36,10 @@ defmodule KafkaEx.Protocol do
 
   defp api_key(:consumer_metadata) do
     @consumer_metadata_request
+  end
+
+  defp api_key(:join_group) do
+    @join_group_request
   end
 
   def create_request(type, correlation_id, client_id) do
@@ -76,6 +81,7 @@ defmodule KafkaEx.Protocol do
     31 => :cluster_authorization_failed
   }
 
+  @spec error(integer) :: atom | integer
   def error(err_no) do
     case err_no do
       -1 -> :unknown_error
