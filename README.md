@@ -248,4 +248,15 @@ mix dialyze --unmatched-returns --error-handling --race-conditions --underspecs
 ```
 
 ### Contributing
-Please see [CONTRIBUTING.md](CONTRIBUTING.md)
+
+If you find a bug or would like to contribute, please open an
+[issue](https://github.com/kafkaex/kafka_ex/issues) or submit a pull
+request.  Please refer to [CONTRIBUTING.md](CONTRIBUTING.md) for our
+contribution process.
+
+KafkaEx has a Slack channel: #kafkaex on
+[elixir-lang.slack.com](http://elixir-lang.slack.com). You can request
+an invite via [http://bit.ly/slackelixir](http://bit.ly/slackelixir).
+The Slack channel is appropriate for quick questions or general design
+discussions.  The Slack discussion is archived at
+[http://slack.elixirhq.com/kafkaex](http://slack.elixirhq.com/kafkaex).
