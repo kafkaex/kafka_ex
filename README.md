@@ -2,10 +2,10 @@ KafkaEx
 ========
 
 [![Build Status](https://travis-ci.org/kafkaex/kafka_ex.svg?branch=master)](https://travis-ci.org/kafkaex/kafka_ex)
-[![Hex.pm version](https://img.shields.io/hexpm/v/kafkaex.svg?style=flat-square)](https://hex.pm/packages/kafkaex)
-[![Hex.pm downloads](https://img.shields.io/hexpm/dt/kafkaex.svg?style=flat-square)](https://hex.pm/packages/kafkaex)
-[![License](https://img.shields.io/hexpm/l/kafkaex.svg?style=flat-square)](https://hex.pm/packages/kafkaex)
-[![API Docs](https://img.shields.io/badge/api-docs-yellow.svg?style=flat)](http://hexdocs.pm/kafkaex/)
+[![Hex.pm version](https://img.shields.io/hexpm/v/kafka_ex.svg?style=flat-square)](https://hex.pm/packages/kafka_ex)
+[![Hex.pm downloads](https://img.shields.io/hexpm/dt/kafka_ex.svg?style=flat-square)](https://hex.pm/packages/kafka_ex)
+[![License](https://img.shields.io/hexpm/l/kafka_ex.svg?style=flat-square)](https://hex.pm/packages/kafka_ex)
+[![API Docs](https://img.shields.io/badge/api-docs-yellow.svg?style=flat)](http://hexdocs.pm/kafka_ex/)
 
 [Apache Kafka](http://kafka.apache.org/) (>= 0.8.0) client for Elixir/Erlang.
 
