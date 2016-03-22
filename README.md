@@ -2,6 +2,10 @@ KafkaEx
 ========
 
 [![Build Status](https://travis-ci.org/kafkaex/kafka_ex.svg?branch=master)](https://travis-ci.org/kafkaex/kafka_ex)
+[![Hex.pm version](https://img.shields.io/hexpm/v/kafkaex.svg?style=flat-square)](https://hex.pm/packages/kafkaex)
+[![Hex.pm downloads](https://img.shields.io/hexpm/dt/kafkaex.svg?style=flat-square)](https://hex.pm/packages/kafkaex)
+[![License](https://img.shields.io/hexpm/l/kafkaex.svg?style=flat-square)](https://hex.pm/packages/kafkaex)
+[![API Docs](https://img.shields.io/badge/api-docs-yellow.svg?style=flat)](http://hexdocs.pm/kafkaex/)
 
 [Apache Kafka](http://kafka.apache.org/) (>= 0.8.0) client for Elixir/Erlang.
 
@@ -248,6 +252,9 @@ mix dialyze --unmatched-returns --error-handling --race-conditions --underspecs
 ```
 
 ### Contributing
+
+All contributions are managed through the
+[kafkaex github repo](https://github.com/kafkaex/kafka_ex).
 
 If you find a bug or would like to contribute, please open an
 [issue](https://github.com/kafkaex/kafka_ex/issues) or submit a pull
