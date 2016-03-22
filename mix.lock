@@ -1,4 +1,6 @@
-%{"dialyze": {:hex, :dialyze, "0.2.1"},
+%{"bunt": {:hex, :bunt, "0.1.5"},
+  "credo": {:hex, :credo, "0.3.8"},
+  "dialyze": {:hex, :dialyze, "0.2.1"},
   "earmark": {:hex, :earmark, "0.1.17"},
   "ex_doc": {:hex, :ex_doc, "0.9.0"},
   "snappy": {:git, "https://github.com/fdmanana/snappy-erlang-nif", "76417d16a8d39e04d66114d8f8a3c75df19474f0", []}}
