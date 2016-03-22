@@ -1,7 +1,7 @@
 KafkaEx
 ========
 
-![Build Status](https://travis-ci.org/kafkaex/kafka_ex.svg?branch=master)
+[![Build Status](https://travis-ci.org/kafkaex/kafka_ex.svg?branch=master)](https://travis-ci.org/kafkaex/kafka_ex)
 
 [Apache Kafka](http://kafka.apache.org/) (>= 0.8.0) client for Elixir/Erlang.
 
