@@ -1,6 +1,6 @@
 #!/bin/bash
 source $(dirname $0)/kafka_base_dir.sh
-BUILD_DIR=$(pwd)/_build/kafka
+BUILD_DIR=${PROJECT_ROOT}/_build/kafka
 
 mkdir -p $BUILD_DIR
 
@@ -8,7 +8,7 @@ for i in 1 2 3
 do
   port=$(expr 9092 + ${i} - 1)
   target=$BUILD_DIR/server.properties${i}
-  cp server.properties ${target}
+  cp ${PROJECT_ROOT}/server.properties ${target}
   sed -i.bak "s/@broker_id@/${i}/g" ${target}
   sed -i.bak "s/@port@/${port}/g" ${target}
 done

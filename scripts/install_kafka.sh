@@ -2,7 +2,7 @@
 source $(dirname $0)/kafka_base_dir.sh
 if [ -d ${base}/bin ]
 then
-  echo "Reusing Travis cached installation of Kafka in ${base}"
+  echo "Detected Kafka install at ${base}"
 else
   echo "Installing Kafka to ${base}"
   mkdir -p ${base}
