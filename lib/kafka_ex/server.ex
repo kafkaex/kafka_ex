@@ -170,6 +170,15 @@ defmodule KafkaEx.Server do
     {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
   end
 
+  def handle_call({:sync_group, group_name, generation_id, member_id, assignments}, _from, state) do
+    true = consumer_group?(state)
+    {broker, state} = broker_for_consumer_group_with_update(state)
+    request = Proto.SyncGroup.create_request(state.correlation_id, @client_id, group_name, generation_id, member_id, assignments)
+    response = KafkaEx.NetworkClient.send_sync_request(broker, request, state.sync_timeout)
+      |> Proto.SyncGroup.parse_response
+    {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
+  end
+
   def handle_call({:create_stream, handler, handler_init}, _from, state) do
     if state.event_pid && Process.alive?(state.event_pid) do
       info = Process.info(self)
@@ -187,7 +196,7 @@ defmodule KafkaEx.Server do
   @max_bytes 1_000_000
   def handle_info({:start_streaming, _topic, _partition, _offset, _handler, _auto_commit},
                   state = %State{event_pid: nil}) do
-    # our streaming could have been canceled with a streaming update in-flight 
+    # our streaming could have been canceled with a streaming update in-flight
     {:noreply, state}
   end
   def handle_info({:start_streaming, topic, partition, offset, handler, auto_commit}, state) do
