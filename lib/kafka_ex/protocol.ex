@@ -7,6 +7,7 @@ defmodule KafkaEx.Protocol do
   @offset_fetch_request      9
   @consumer_metadata_request 10
   @join_group_request        11
+  @heartbeat_request         12
   @sync_group_request        14
 
   @api_version  0
@@ -41,6 +42,10 @@ defmodule KafkaEx.Protocol do
 
   defp api_key(:join_group) do
     @join_group_request
+  end
+
+  defp api_key(:heartbeat) do
+    @heartbeat_request
   end
 
   defp api_key(:sync_group) do

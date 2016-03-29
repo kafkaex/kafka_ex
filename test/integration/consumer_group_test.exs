@@ -244,4 +244,23 @@ defmodule KafkaEx.ConsumerGroup.Test do
     assert answer.assignments == Enum.reverse(my_assignments)
   end
 
+  test "can heartbeat" do
+    # See sync test. Removing repetition in the next iteration
+    random_group = generate_random_string
+    KafkaEx.create_worker(:heartbeat, [uris: uris, consumer_group: random_group])
+    answer = GenServer.call(:heartbeat, {:join_group, ["foo", "bar"], 6000})
+    assert answer.error_code == :no_error
+
+    member_id = answer.member_id
+    generation_id = answer.generation_id
+    my_assignments = [{"foo", [1]}, {"bar", [2]}]
+    assignments = [{member_id, my_assignments}]
+
+    answer = GenServer.call(:heartbeat, {:sync_group, random_group, generation_id, member_id, assignments})
+    assert answer.error_code == :no_error
+
+    answer = GenServer.call(:heartbeat, {:heartbeat, random_group, generation_id, member_id})
+    assert answer.error_code == :no_error
+
+  end
 end
