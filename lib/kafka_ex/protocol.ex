@@ -7,6 +7,7 @@ defmodule KafkaEx.Protocol do
   @offset_fetch_request      9
   @consumer_metadata_request 10
   @join_group_request        11
+  @sync_group_request        14
 
   @api_version  0
 
@@ -40,6 +41,10 @@ defmodule KafkaEx.Protocol do
 
   defp api_key(:join_group) do
     @join_group_request
+  end
+
+  defp api_key(:sync_group) do
+    @sync_group_request
   end
 
   def create_request(type, correlation_id, client_id) do
