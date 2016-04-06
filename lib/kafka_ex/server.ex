@@ -179,6 +179,15 @@ defmodule KafkaEx.Server do
     {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
   end
 
+  def handle_call({:heartbeat, group_name, generation_id, member_id}, _from, state) do
+    true = consumer_group?(state)
+    {broker, state} = broker_for_consumer_group_with_update(state)
+    request = Proto.Heartbeat.create_request(state.correlation_id, @client_id, member_id, group_name, generation_id)
+    response = KafkaEx.NetworkClient.send_sync_request(broker, request, state.sync_timeout)
+      |> Proto.Heartbeat.parse_response
+    {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
+  end
+
   def handle_call({:create_stream, handler, handler_init}, _from, state) do
     if state.event_pid && Process.alive?(state.event_pid) do
       info = Process.info(self)
