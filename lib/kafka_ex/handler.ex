@@ -1,4 +1,11 @@
-defmodule KafkaExHandler do
+defmodule KafkaEx.Handler do
+  @moduledoc """
+  Default GenEvent handler for KafkaEx.stream
+
+  Recieved message sets are accumulated in the GenEvent state and can
+  be retrieved and flushed via the `:messages` call.
+  """
+
   use GenEvent
 
   def handle_event(message_set, message_sets) do

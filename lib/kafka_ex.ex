@@ -244,7 +244,7 @@ defmodule KafkaEx do
   Optional arguments(KeywordList)
   - worker_name: the worker we want to run this metadata request through, when none is provided the default worker `KafkaEx.Server` is used
   - offset: When supplied the fetch would start from this offset, otherwise would start from the last committed offset of the consumer_group the worker belongs to. For Kafka < 0.8.2 you should explicitly specify this.
-  - handler: the handler we want to handle the streaming events, when none is provided the default KafkaExHandler is used
+  - handler: the handler we want to handle the streaming events, when none is provided the default KafkaEx.Handler is used
   - handler_init: initial state for the handler - leave the default value [] when using the default handler
   - auto_commit: specifies if the last offset should be commited or not. Default is true. For Kafka < 0.8.2 set this to false.
 
@@ -265,7 +265,7 @@ defmodule KafkaEx do
   def stream(topic, partition, opts \\ []) do
     worker_name  = Keyword.get(opts, :worker_name, KafkaEx.Server)
     offset       = Keyword.get(opts, :offset)
-    handler      = Keyword.get(opts, :handler, KafkaExHandler)
+    handler      = Keyword.get(opts, :handler, KafkaEx.Handler)
     handler_init = Keyword.get(opts, :handler_init, [])
     auto_commit  = Keyword.get(opts, :auto_commit, true)
 
