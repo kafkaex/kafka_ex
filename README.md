@@ -153,6 +153,8 @@ iex> KafkaEx.earliest_offset("foo", 0) # where 0 is the partition
 
 ### Fetch kafka logs
 
+**NOTE** You must set `auto_commit: false` when using Kafka < 0.8.2 or when using `:no_consumer_group`.
+
 ```elixir
 iex> KafkaEx.fetch("foo", 0, offset: 5) # where 0 is the partition and 5 is the offset we want to start fetching from
 [%KafkaEx.Protocol.Fetch.Response{partitions: [%{error_code: :no_error,
@@ -174,6 +176,8 @@ iex> KafkaEx.produce("foo", 0, "hey") # where "foo" is the topic and "hey" is th
 ```
 
 ### Stream kafka logs
+
+**NOTE** You must set `auto_commit: false` when using Kafka < 0.8.2 or when using `:no_consumer_group`.
 
 ```elixir
 iex> KafkaEx.create_worker(:stream, [uris: [{"localhost", 9092}]])

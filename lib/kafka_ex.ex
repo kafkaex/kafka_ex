@@ -141,7 +141,7 @@ defmodule KafkaEx do
   - wait_time: maximum amount of time in milliseconds to block waiting if insufficient data is available at the time the request is issued. Default is 10
   - min_bytes: minimum number of bytes of messages that must be available to give a response. If the client sets this to 0 the server will always respond immediately, however if there is no new data since their last request they will just get back empty message sets. If this is set to 1, the server will respond as soon as at least one partition has at least 1 byte of data or the specified timeout occurs. By setting higher values in combination with the timeout the consumer can tune for throughput and trade a little additional latency for reading only large chunks of data (e.g. setting wait_time to 100 and setting min_bytes 64000 would allow the server to wait up to 100ms to try to accumulate 64k of data before responding). Default is 1
   - max_bytes: maximum bytes to include in the message set for this partition. This helps bound the size of the response. Default is 1,000,000
-  - auto_commit: specifies if the last offset should be commited or not. Default is true. For Kafka < 0.8.2 set this to false.
+  - auto_commit: specifies if the last offset should be commited or not. Default is true. You must set this to false when using Kafka < 0.8.2 or `:no_consumer_group`.
 
   ## Example
 
@@ -246,7 +246,7 @@ defmodule KafkaEx do
   - offset: When supplied the fetch would start from this offset, otherwise would start from the last committed offset of the consumer_group the worker belongs to. For Kafka < 0.8.2 you should explicitly specify this.
   - handler: the handler we want to handle the streaming events, when none is provided the default KafkaExHandler is used
   - handler_init: initial state for the handler - leave the default value [] when using the default handler
-  - auto_commit: specifies if the last offset should be commited or not. Default is true. For Kafka < 0.8.2 set this to false.
+  - auto_commit: specifies if the last offset should be commited or not. Default is true.  You must set this to false when using Kafka < 0.8.2 or `:no_consumer_group`.
 
 
   ## Example
