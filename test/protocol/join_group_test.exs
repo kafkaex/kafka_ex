@@ -23,12 +23,13 @@ defmodule  KafkaEx.Protocol.JoinGroup.Test do
         0 :: 16, # ErrorCode
         123 :: 32, # GenerationId
         8 :: 16, "consumer" :: binary, # GroupProtocol
-        10 :: 16, "member_one" :: binary, # LeaderId
+        10 :: 16, "member_xxx" :: binary, # LeaderId
         10 :: 16, "member_one" :: binary, # MemberId
         2 :: 32, 10 :: 16, "member_one", 10 :: 16, "member_two" # Members array
       >>
     expected_response = %KafkaEx.Protocol.JoinGroup.Response{error_code: :no_error,
-      generation_id: 123, leader: "member_one", members: ["member_two", "member_one"]}
+      generation_id: 123, leader_id: "member_xxx",
+      member_id: "member_one", members: ["member_two", "member_one"]}
     assert KafkaEx.Protocol.JoinGroup.parse_response(response) == expected_response
   end
 end

@@ -1,7 +1,11 @@
 KafkaEx
 ========
 
-![Build Status](https://travis-ci.org/kafkaex/kafka_ex.svg?branch=master)
+[![Build Status](https://travis-ci.org/kafkaex/kafka_ex.svg?branch=master)](https://travis-ci.org/kafkaex/kafka_ex)
+[![Hex.pm version](https://img.shields.io/hexpm/v/kafka_ex.svg?style=flat-square)](https://hex.pm/packages/kafka_ex)
+[![Hex.pm downloads](https://img.shields.io/hexpm/dt/kafka_ex.svg?style=flat-square)](https://hex.pm/packages/kafka_ex)
+[![License](https://img.shields.io/hexpm/l/kafka_ex.svg?style=flat-square)](https://hex.pm/packages/kafka_ex)
+[![API Docs](https://img.shields.io/badge/api-docs-yellow.svg?style=flat)](http://hexdocs.pm/kafka_ex/)
 
 [Apache Kafka](http://kafka.apache.org/) (>= 0.8.0) client for Elixir/Erlang.
 
@@ -248,4 +252,18 @@ mix dialyze --unmatched-returns --error-handling --race-conditions --underspecs
 ```
 
 ### Contributing
-Please see [CONTRIBUTING.md](CONTRIBUTING.md)
+
+All contributions are managed through the
+[kafkaex github repo](https://github.com/kafkaex/kafka_ex).
+
+If you find a bug or would like to contribute, please open an
+[issue](https://github.com/kafkaex/kafka_ex/issues) or submit a pull
+request.  Please refer to [CONTRIBUTING.md](CONTRIBUTING.md) for our
+contribution process.
+
+KafkaEx has a Slack channel: #kafkaex on
+[elixir-lang.slack.com](http://elixir-lang.slack.com). You can request
+an invite via [http://bit.ly/slackelixir](http://bit.ly/slackelixir).
+The Slack channel is appropriate for quick questions or general design
+discussions.  The Slack discussion is archived at
+[http://slack.elixirhq.com/kafkaex](http://slack.elixirhq.com/kafkaex).

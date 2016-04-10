@@ -13,9 +13,12 @@ matrix:
     - elixir: 1.2.3
       otp_release: 17.5
 sudo: false
+cache:
+  directories:
+    - ~/kafka
+before_install:
+  - scripts/install_kafka.sh
 before_script:
-  - ./install_kafka.sh
+  - scripts/start_kafka.sh
 script:
   - mix test --include integration --include consumer_group; mix test --include integration --include consumer_group
-after_script:
-  - ./cleanup.sh

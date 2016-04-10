@@ -10,7 +10,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
     worker_name = :consumer_group_reader_test
     {:ok, _pid} = KafkaEx.create_worker(worker_name,
                                         consumer_group: consumer_group)
-    
+
     assert consumer_group == KafkaEx.consumer_group(worker_name)
   end
 
@@ -181,7 +181,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
     :ok = TestHelper.wait_for(fn() ->
       3 == TestHelper.latest_consumer_offset_number(random_string, 0, consumer_group, worker_name)
     end)
-    
+
     stream = KafkaEx.stream(random_string, 0, worker_name: worker_name)
     log = TestHelper.wait_for_any(
       fn() -> GenEvent.call(stream.manager, KafkaExHandler, :messages) |> Enum.take(2) end
@@ -220,5 +220,47 @@ defmodule KafkaEx.ConsumerGroup.Test do
     answer = GenServer.call(:join_group, {:join_group, ["foo", "bar"], 6000})
     assert answer.error_code == :no_error
     assert answer.generation_id == 1
+    # We should be the leader
+    assert answer.member_id == answer.leader_id
   end
+
+  test "can send a simple leader sync for a consumer group" do
+    # A lot of repetition with the previous test. Leaving it in now, waiting for
+    # how this pans out eventually as we add more and more 0.9 consumer group code
+    random_group = generate_random_string
+    KafkaEx.create_worker(:sync_group, [uris: uris, consumer_group: random_group])
+    answer = GenServer.call(:sync_group, {:join_group, ["foo", "bar"], 6000})
+    assert answer.error_code == :no_error
+
+    member_id = answer.member_id
+    generation_id = answer.generation_id
+    my_assignments = [{"foo", [1]}, {"bar", [2]}]
+    assignments = [{member_id, my_assignments}]
+
+    answer = GenServer.call(:sync_group, {:sync_group, random_group, generation_id, member_id, assignments})
+    assert answer.error_code == :no_error
+    # Parsing happens to return the assignments reversed, which is fine as there's no
+    # ordering. Just reverse what we expect to match
+    assert answer.assignments == Enum.reverse(my_assignments)
+  end
+
+  test "can heartbeat" do
+    # See sync test. Removing repetition in the next iteration
+    random_group = generate_random_string
+    KafkaEx.create_worker(:heartbeat, [uris: uris, consumer_group: random_group])
+    answer = GenServer.call(:heartbeat, {:join_group, ["foo", "bar"], 6000})
+    assert answer.error_code == :no_error
+
+    member_id = answer.member_id
+    generation_id = answer.generation_id
+    my_assignments = [{"foo", [1]}, {"bar", [2]}]
+    assignments = [{member_id, my_assignments}]
+
+    answer = GenServer.call(:heartbeat, {:sync_group, random_group, generation_id, member_id, assignments})
+    assert answer.error_code == :no_error
+
+    answer = GenServer.call(:heartbeat, {:heartbeat, random_group, generation_id, member_id})
+    assert answer.error_code == :no_error
+  end
+
 end
