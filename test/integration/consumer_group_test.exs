@@ -155,7 +155,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
     })
     stream = KafkaEx.stream(random_string, 0, worker_name: :stream_auto_commit, offset: 0)
     log = TestHelper.wait_for_any(
-      fn() -> GenEvent.call(stream.manager, KafkaExHandler, :messages) |> Enum.take(2) end
+      fn() -> GenEvent.call(stream.manager, KafkaEx.Handler, :messages) |> Enum.take(2) end
     )
 
     refute Enum.empty?(log)
@@ -184,7 +184,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
 
     stream = KafkaEx.stream(random_string, 0, worker_name: worker_name)
     log = TestHelper.wait_for_any(
-      fn() -> GenEvent.call(stream.manager, KafkaExHandler, :messages) |> Enum.take(2) end
+      fn() -> GenEvent.call(stream.manager, KafkaEx.Handler, :messages) |> Enum.take(2) end
     )
 
     refute Enum.empty?(log)
@@ -202,7 +202,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
 
     # make sure we consume at least one message before we assert that there is no offset committed
     _log = TestHelper.wait_for_any(
-      fn() -> GenEvent.call(stream.manager, KafkaExHandler, :messages) |> Enum.take(2) end
+      fn() -> GenEvent.call(stream.manager, KafkaEx.Handler, :messages) |> Enum.take(2) end
     )
 
     offset_fetch_response = KafkaEx.offset_fetch(:stream_no_auto_commit, %Proto.OffsetFetch.Request{topic: random_string, partition: 0}) |> hd

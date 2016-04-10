@@ -426,7 +426,7 @@ defmodule KafkaEx.Integration.Test do
 
     stream = KafkaEx.stream(random_string, 0, worker_name: :stream, offset: 0, auto_commit: false)
     log = TestHelper.wait_for_accum(
-      fn() -> GenEvent.call(stream.manager, KafkaExHandler, :messages) end,
+      fn() -> GenEvent.call(stream.manager, KafkaEx.Handler, :messages) end,
       2
     )
 
@@ -455,7 +455,7 @@ defmodule KafkaEx.Integration.Test do
     }, worker_name: :producer)
 
     log = TestHelper.wait_for_accum(
-      fn() -> GenEvent.call(stream.manager, KafkaExHandler, :messages) end,
+      fn() -> GenEvent.call(stream.manager, KafkaEx.Handler, :messages) end,
       2
     )
 
@@ -474,7 +474,7 @@ defmodule KafkaEx.Integration.Test do
 
     :ok = TestHelper.wait_for(fn() -> Process.alive?(stream.manager) end)
 
-    log = GenEvent.call(stream.manager, KafkaExHandler, :messages)
+    log = GenEvent.call(stream.manager, KafkaEx.Handler, :messages)
     assert length(log) == 0
 
     KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [
@@ -484,7 +484,7 @@ defmodule KafkaEx.Integration.Test do
     }, worker_name: :producer)
 
     log = TestHelper.wait_for_accum(
-      fn() -> GenEvent.call(stream.manager, KafkaExHandler, :messages) end,
+      fn() -> GenEvent.call(stream.manager, KafkaEx.Handler, :messages) end,
       4
     )
 
