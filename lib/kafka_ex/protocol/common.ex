@@ -10,7 +10,7 @@ defmodule KafkaEx.Protocol.Common do
   def topic_data([]), do: ""
 
   def topic_data([topic|topics]) do
-    << byte_size(topic) :: 16-signed, topic :: binary >> <> topic_data(topics)
+    << byte_size(topic) :: 16 - signed, topic :: binary >> <> topic_data(topics)
   end
 
 end
