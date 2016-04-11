@@ -27,17 +27,17 @@ defmodule KafkaEx.Protocol.Produce do
   def create_request(correlation_id, client_id, %Request{topic: topic, partition: partition, required_acks: required_acks, timeout: timeout, compression: compression, messages: messages}) do
     message_set = create_message_set(messages, compression)
     KafkaEx.Protocol.create_request(:produce, correlation_id, client_id) <>
-      << required_acks :: 16 - signed, timeout :: 32 - signed, 1 :: 32 - signed >> <>
-      << byte_size(topic) :: 16 - signed, topic :: binary, 1 :: 32 - signed, partition :: 32 - signed, byte_size(message_set) :: 32 - signed >> <> message_set
+      << required_acks :: 16-signed, timeout :: 32-signed, 1 :: 32-signed >> <>
+      << byte_size(topic) :: 16-signed, topic :: binary, 1 :: 32-signed, partition :: 32-signed, byte_size(message_set) :: 32-signed >> <> message_set
   end
 
-  def parse_response(<< _correlation_id :: 32 - signed, num_topics :: 32 - signed, rest :: binary >>), do: parse_topics(num_topics, rest)
+  def parse_response(<< _correlation_id :: 32-signed, num_topics :: 32-signed, rest :: binary >>), do: parse_topics(num_topics, rest)
   def parse_response(unknown), do: unknown
 
   defp create_message_set([], _compression_type), do: ""
   defp create_message_set([%Message{key: key, value: value}|messages], :none) do
     message = create_message(value, key)
-    message_set = << 0 :: 64 - signed >> <> << byte_size(message) :: 32 - signed >> <> message
+    message_set = << 0 :: 64-signed >> <> << byte_size(message) :: 32-signed >> <> message
     message_set <> create_message_set(messages, :none)
   end
   defp create_message_set(messages, compression_type) do
@@ -46,16 +46,16 @@ defmodule KafkaEx.Protocol.Produce do
       KafkaEx.Compression.compress(compression_type, message_set)
     message = create_message(compressed_message_set, nil, attribute)
 
-    << 0 :: 64 - signed >> <> << byte_size(message) :: 32 - signed >> <> message
+    << 0 :: 64-signed >> <> << byte_size(message) :: 32-signed >> <> message
   end
 
   defp create_message(value, key, attributes \\ 0) do
-    sub = << 0 :: 8, attributes :: 8 - signed >> <> bytes(key) <> bytes(value)
+    sub = << 0 :: 8, attributes :: 8-signed >> <> bytes(key) <> bytes(value)
     crc = :erlang.crc32(sub)
     << crc :: 32 >> <> sub
   end
 
-  defp bytes(nil), do: << -1 :: 32 - signed >>
+  defp bytes(nil), do: << -1 :: 32-signed >>
   defp bytes(data) do
     case byte_size(data) do
       0 -> << 0 :: 32 >>
@@ -64,13 +64,13 @@ defmodule KafkaEx.Protocol.Produce do
   end
 
   defp parse_topics(0, _), do: []
-  defp parse_topics(topics_size, << topic_size :: 16 - signed, topic :: size(topic_size) - binary, partitions_size :: 32 - signed, rest :: binary >>) do
+  defp parse_topics(topics_size, << topic_size :: 16-signed, topic :: size(topic_size)-binary, partitions_size :: 32-signed, rest :: binary >>) do
     {partitions, topics_data} = parse_partitions(partitions_size, rest, [])
     [%Response{topic: topic, partitions: partitions} | parse_topics(topics_size - 1, topics_data)]
   end
 
   defp parse_partitions(0, rest, partitions), do: {partitions, rest}
-  defp parse_partitions(partitions_size, << partition :: 32 - signed, error_code :: 16 - signed, offset :: 64, rest :: binary >>, partitions) do
+  defp parse_partitions(partitions_size, << partition :: 32-signed, error_code :: 16-signed, offset :: 64, rest :: binary >>, partitions) do
     parse_partitions(partitions_size - 1, rest, [%{partition: partition, error_code: Protocol.error(error_code), offset: offset} | partitions])
   end
 

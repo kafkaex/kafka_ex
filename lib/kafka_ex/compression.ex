@@ -52,8 +52,8 @@ defmodule KafkaEx.Compression do
   def snappy_decompress_chunk(<<>>, so_far) do
     so_far
   end
-  def snappy_decompress_chunk(<< valsize :: 32 - unsigned,
-                              value :: size(valsize) - binary,
+  def snappy_decompress_chunk(<< valsize :: 32-unsigned,
+                              value :: size(valsize)-binary,
                               rest :: binary>>, so_far) do
     {:ok, decompressed_value} = :snappy.decompress(value)
     snappy_decompress_chunk(rest, so_far <> decompressed_value)
