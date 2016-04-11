@@ -50,7 +50,7 @@ defmodule KafkaEx.Server do
 
     brokers = Enum.map(uris, fn({host, port}) -> %Proto.Metadata.Broker{host: host, port: port, socket: KafkaEx.NetworkClient.create_socket(host, port)} end)
     sync_timeout = Keyword.get(args, :sync_timeout, Application.get_env(:kafka_ex, :sync_timeout, @sync_timeout))
-    {correlation_id, metadata} = metadata(brokers, 0, sync_timeout)
+    {correlation_id, metadata} = retrieve_metadata(brokers, 0, sync_timeout)
     state = %State{metadata: metadata, brokers: brokers, correlation_id: correlation_id, consumer_group: consumer_group, metadata_update_interval: metadata_update_interval, consumer_group_update_interval: consumer_group_update_interval, worker_name: name, sync_timeout: sync_timeout}
     {:ok, _} = :timer.send_interval(state.metadata_update_interval, :update_metadata)
 
@@ -71,7 +71,7 @@ defmodule KafkaEx.Server do
     produce_request_data = Proto.Produce.create_request(correlation_id, @client_id, produce_request)
     {broker, state} = case Proto.Metadata.Response.broker_for_topic(state.metadata, state.brokers, produce_request.topic, produce_request.partition) do
       nil    ->
-        {correlation_id, _} = metadata(state.brokers, state.correlation_id, state.sync_timeout, produce_request.topic)
+        {correlation_id, _} = retrieve_metadata(state.brokers, state.correlation_id, state.sync_timeout, produce_request.topic)
         state = %{update_metadata(state) | correlation_id: correlation_id}
         {Proto.Metadata.Response.broker_for_topic(state.metadata, state.brokers, produce_request.topic, produce_request.partition), state}
       broker -> {broker, state}
@@ -157,7 +157,7 @@ defmodule KafkaEx.Server do
   end
 
   def handle_call({:metadata, topic}, _from, state) do
-    {correlation_id, metadata} = metadata(state.brokers, state.correlation_id, state.sync_timeout, topic)
+    {correlation_id, metadata} = retrieve_metadata(state.brokers, state.correlation_id, state.sync_timeout, topic)
     state = %{state | metadata: metadata, correlation_id: correlation_id}
     {:reply, metadata, state}
   end
@@ -275,7 +275,7 @@ defmodule KafkaEx.Server do
   end
 
   defp update_metadata(state) do
-    {correlation_id, metadata} = metadata(state.brokers, state.correlation_id, state.sync_timeout)
+    {correlation_id, metadata} = retrieve_metadata(state.brokers, state.correlation_id, state.sync_timeout)
     metadata_brokers = metadata.brokers
     brokers = remove_stale_brokers(state.brokers, metadata_brokers) |> add_new_brokers(metadata_brokers)
     %{state | metadata: metadata, brokers: brokers, correlation_id: correlation_id + 1}
@@ -305,14 +305,14 @@ defmodule KafkaEx.Server do
     end
   end
 
-  defp metadata(brokers, correlation_id, sync_timeout, topic \\ []), do: metadata(brokers, correlation_id, sync_timeout, topic, @retry_count, 0)
+  defp retrieve_metadata(brokers, correlation_id, sync_timeout, topic \\ []), do: retrieve_metadata(brokers, correlation_id, sync_timeout, topic, @retry_count, 0)
 
-  defp metadata(_, correlation_id, _sync_timeout, topic, 0, error_code) do
+  defp retrieve_metadata(_, correlation_id, _sync_timeout, topic, 0, error_code) do
     Logger.log(:error, "Metadata request for topic #{inspect topic} failed with error_code #{inspect error_code}")
     {correlation_id, %Proto.Metadata.Response{}}
   end
 
-  defp metadata(brokers, correlation_id, sync_timeout, topic, retry, _error_code) do
+  defp retrieve_metadata(brokers, correlation_id, sync_timeout, topic, retry, _error_code) do
     metadata_request = Proto.Metadata.create_request(correlation_id, @client_id, topic)
     data = first_broker_response(metadata_request, brokers, sync_timeout)
     response = case data do
@@ -328,7 +328,7 @@ defmodule KafkaEx.Server do
       nil  -> {correlation_id + 1, response}
       topic_metadata ->
         :timer.sleep(300)
-        metadata(brokers, correlation_id + 1, sync_timeout, topic, retry - 1, topic_metadata.error_code)
+        retrieve_metadata(brokers, correlation_id + 1, sync_timeout, topic, retry - 1, topic_metadata.error_code)
     end
   end
 

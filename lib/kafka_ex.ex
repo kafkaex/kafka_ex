@@ -83,8 +83,8 @@ defmodule KafkaEx do
   end
 
   @spec consumer_group_metadata(atom, binary) :: KafkaEx.Protocol.ConsumerMetadata.Response.t
-  def consumer_group_metadata(worker_name, consumer_group) do
-    GenServer.call(worker_name, {:consumer_group_metadata, consumer_group})
+  def consumer_group_metadata(worker_name, supplied_consumer_group) do
+    GenServer.call(worker_name, {:consumer_group_metadata, supplied_consumer_group})
   end
 
   @doc """
@@ -158,24 +158,19 @@ defmodule KafkaEx do
   """
   @spec fetch(binary, number, Keyword.t) :: [KafkaEx.Protocol.Fetch.Response.t] | :topic_not_found
   def fetch(topic, partition, opts \\ []) do
-    worker_name   = Keyword.get(opts, :worker_name, KafkaEx.Server)
-    offset        = Keyword.get(opts, :offset)
-    wait_time     = Keyword.get(opts, :wait_time, @wait_time)
-    min_bytes     = Keyword.get(opts, :min_bytes, @min_bytes)
-    max_bytes     = Keyword.get(opts, :max_bytes, @max_bytes)
-    auto_commit   = Keyword.get(opts, :auto_commit, true)
+    worker_name       = Keyword.get(opts, :worker_name, KafkaEx.Server)
+    supplied_offset   = Keyword.get(opts, :offset)
+    wait_time         = Keyword.get(opts, :wait_time, @wait_time)
+    min_bytes         = Keyword.get(opts, :min_bytes, @min_bytes)
+    max_bytes         = Keyword.get(opts, :max_bytes, @max_bytes)
+    auto_commit       = Keyword.get(opts, :auto_commit, true)
 
-    offset = case offset do
-      nil -> last_offset = offset_fetch(worker_name, %KafkaEx.Protocol.OffsetFetch.Request{topic: topic, partition: partition}) |> KafkaEx.Protocol.OffsetFetch.Response.last_offset
-        if last_offset <= 0 do
-          0
-        else
-          last_offset + 1
-        end
-      _   -> offset
-    end
+    retrieved_offset = current_offset(supplied_offset, partition, topic, worker_name)
 
-    GenServer.call(worker_name, {:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes, auto_commit})
+    GenServer.call(worker_name, {
+      :fetch, topic, partition, retrieved_offset,
+      wait_time, min_bytes, max_bytes, auto_commit
+    })
   end
 
   @spec offset_commit(atom, KafkaEx.Protocol.OffsetCommit.Request.t) :: KafkaEx.Protocol.OffsetCommit.Response.t
@@ -263,25 +258,19 @@ defmodule KafkaEx do
   """
   @spec stream(binary, number, Keyword.t) :: GenEvent.Stream.t
   def stream(topic, partition, opts \\ []) do
-    worker_name  = Keyword.get(opts, :worker_name, KafkaEx.Server)
-    offset       = Keyword.get(opts, :offset)
-    handler      = Keyword.get(opts, :handler, KafkaEx.Handler)
-    handler_init = Keyword.get(opts, :handler_init, [])
-    auto_commit  = Keyword.get(opts, :auto_commit, true)
+    worker_name     = Keyword.get(opts, :worker_name, KafkaEx.Server)
+    supplied_offset = Keyword.get(opts, :offset)
+    handler         = Keyword.get(opts, :handler, KafkaEx.Handler)
+    handler_init    = Keyword.get(opts, :handler_init, [])
+    auto_commit     = Keyword.get(opts, :auto_commit, true)
 
-    offset = case offset do
-      nil -> last_offset = offset_fetch(worker_name, %KafkaEx.Protocol.OffsetFetch.Request{topic: topic, partition: partition}) |> KafkaEx.Protocol.OffsetFetch.Response.last_offset
-        if last_offset <= 0 do
-          0
-        else
-          last_offset + 1
-        end
-      _   -> offset
-    end
+    event_stream      = GenServer.call(worker_name, {:create_stream, handler, handler_init})
+    retrieved_offset = current_offset(supplied_offset, partition, topic, worker_name)
 
-    stream      = GenServer.call(worker_name, {:create_stream, handler, handler_init})
-    send(worker_name, {:start_streaming, topic, partition, offset, handler, auto_commit})
-    stream
+    send(worker_name, {
+      :start_streaming, topic, partition, retrieved_offset, handler, auto_commit
+    })
+    event_stream
   end
 
   @spec stop_streaming(Keyword.t) :: :stop_streaming
@@ -295,12 +284,30 @@ defmodule KafkaEx do
                 consumer_group: Application.get_env(:kafka_ex, :consumer_group)]
     worker_init = Keyword.merge(defaults, worker_init)
 
-    consumer_group = Keyword.get(worker_init, :consumer_group)
-    if valid_consumer_group?(consumer_group) do
+    supplied_consumer_group = Keyword.get(worker_init, :consumer_group)
+    if valid_consumer_group?(supplied_consumer_group) do
       {:ok, worker_init}
     else
       {:error, :invalid_consumer_group}
     end
+  end
+
+  defp current_offset(supplied_offset, partition, topic, worker_name) do
+    case supplied_offset do
+      nil -> last_offset =
+        offset_fetch(
+          worker_name,
+          %KafkaEx.Protocol.OffsetFetch.Request{topic: topic, partition: partition}
+        ) |>
+        KafkaEx.Protocol.OffsetFetch.Response.last_offset
+        if last_offset <= 0 do
+          0
+        else
+          last_offset + 1
+        end
+      _   -> supplied_offset
+    end
+
   end
 
   @doc """
