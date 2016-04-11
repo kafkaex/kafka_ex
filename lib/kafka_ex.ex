@@ -294,12 +294,14 @@ defmodule KafkaEx do
 
   defp current_offset(supplied_offset, partition, topic, worker_name) do
     case supplied_offset do
-      nil -> last_offset =
-        offset_fetch(
+      nil -> 
+        offset_fetch_data = offset_fetch(
           worker_name,
           %KafkaEx.Protocol.OffsetFetch.Request{topic: topic, partition: partition}
-        ) |>
-        KafkaEx.Protocol.OffsetFetch.Response.last_offset
+        )
+        last_offset = offset_fetch_data |>
+          KafkaEx.Protocol.OffsetFetch.Response.last_offset
+
         if last_offset <= 0 do
           0
         else
