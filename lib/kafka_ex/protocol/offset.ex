@@ -42,7 +42,7 @@ defmodule KafkaEx.Protocol.Offset do
 
   defp parse_partitions(partitions_size, << partition :: 32-signed, error_code :: 16-signed, offsets_size :: 32-signed, rest :: binary >>, partitions) do
     {offsets, rest} = parse_offsets(offsets_size, rest)
-    parse_partitions(partitions_size-1, rest, [%{partition: partition, error_code: Protocol.error(error_code), offset: offsets} | partitions])
+    parse_partitions(partitions_size - 1, rest, [%{partition: partition, error_code: Protocol.error(error_code), offset: offsets} | partitions])
   end
 
   defp parse_offsets(offsets_size, rest, offsets \\ [])
@@ -50,6 +50,6 @@ defmodule KafkaEx.Protocol.Offset do
   defp parse_offsets(0, rest, offsets), do: {Enum.reverse(offsets), rest}
 
   defp parse_offsets(offsets_size, << offset :: 64-signed, rest :: binary >>, offsets) do
-    parse_offsets(offsets_size-1, rest, [offset|offsets])
+    parse_offsets(offsets_size - 1, rest, [offset|offsets])
   end
 end

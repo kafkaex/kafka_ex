@@ -66,14 +66,14 @@ defmodule KafkaEx.Protocol.Metadata do
   defp parse_brokers(0, rest, brokers), do: {brokers, rest}
 
   defp parse_brokers(brokers_size, << node_id :: 32-signed, host_len :: 16-signed, host :: size(host_len)-binary, port :: 32-signed, rest :: binary >>, brokers) do
-    parse_brokers(brokers_size-1, rest, [%Broker{node_id: node_id, host: host, port: port} | brokers])
+    parse_brokers(brokers_size - 1, rest, [%Broker{node_id: node_id, host: host, port: port} | brokers])
   end
 
   defp parse_topic_metadatas(0, _), do: []
 
   defp parse_topic_metadatas(topic_metadatas_size, << error_code :: 16-signed, topic_len :: 16-signed, topic :: size(topic_len)-binary, partition_metadatas_size :: 32-signed, rest :: binary >>) do
     {partition_metadatas, rest} = parse_partition_metadatas(partition_metadatas_size, [], rest)
-    [%TopicMetadata{error_code: Protocol.error(error_code), topic: topic, partition_metadatas: partition_metadatas} | parse_topic_metadatas(topic_metadatas_size-1, rest)]
+    [%TopicMetadata{error_code: Protocol.error(error_code), topic: topic, partition_metadatas: partition_metadatas} | parse_topic_metadatas(topic_metadatas_size - 1, rest)]
   end
 
   defp parse_partition_metadatas(0, partition_metadatas, rest), do: {partition_metadatas, rest}
@@ -81,7 +81,7 @@ defmodule KafkaEx.Protocol.Metadata do
   defp parse_partition_metadatas(partition_metadatas_size, partition_metadatas, << error_code :: 16-signed, partition_id :: 32-signed, leader :: 32-signed, rest :: binary >>) do
     {replicas, rest} =  parse_replicas(rest)
     {isrs, rest} =  parse_isrs(rest)
-    parse_partition_metadatas(partition_metadatas_size-1, [%PartitionMetadata{error_code: Protocol.error(error_code), partition_id: partition_id, leader: leader, replicas: replicas, isrs: isrs} | partition_metadatas], rest)
+    parse_partition_metadatas(partition_metadatas_size - 1, [%PartitionMetadata{error_code: Protocol.error(error_code), partition_id: partition_id, leader: leader, replicas: replicas, isrs: isrs} | partition_metadatas], rest)
   end
 
   defp parse_replicas(<< num_replicas :: 32-signed, rest :: binary >>) do
@@ -99,6 +99,6 @@ defmodule KafkaEx.Protocol.Metadata do
   end
 
   defp parse_int32_array(array, num, << value :: 32-signed, rest :: binary >>) do
-    parse_int32_array([value|array], num-1, rest)
+    parse_int32_array([value|array], num - 1, rest)
   end
 end

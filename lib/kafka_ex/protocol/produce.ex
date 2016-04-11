@@ -71,7 +71,7 @@ defmodule KafkaEx.Protocol.Produce do
 
   defp parse_partitions(0, rest, partitions), do: {partitions, rest}
   defp parse_partitions(partitions_size, << partition :: 32-signed, error_code :: 16-signed, offset :: 64, rest :: binary >>, partitions) do
-    parse_partitions(partitions_size-1, rest, [%{partition: partition, error_code: Protocol.error(error_code), offset: offset} | partitions])
+    parse_partitions(partitions_size - 1, rest, [%{partition: partition, error_code: Protocol.error(error_code), offset: offset} | partitions])
   end
 
 end

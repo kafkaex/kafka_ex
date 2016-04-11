@@ -10,7 +10,7 @@ defmodule KafkaEx.Protocol.SyncGroup do
 
   defmodule Response do
     defstruct error_code: nil, assignments: []
-    @type t :: %Response{error_code: atom | integer, assignments: [Assignment.t] }
+    @type t :: %Response{error_code: atom | integer, assignments: [Assignment.t]}
   end
 
   @spec create_request(integer, binary, binary, integer, binary, [{binary, [Assignment.t]}]) :: binary
