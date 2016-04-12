@@ -112,8 +112,9 @@ defmodule KafkaEx.Server do
         Logger.log(:error, "Leader for topic #{topic} is not available")
         {:topic_not_found, state}
       _ ->
-        data = KafkaEx.NetworkClient.send_sync_request(broker, offset_request, state.sync_timeout)
-        response = data |> Proto.Offset.parse_response
+        response = broker
+         |> KafkaEx.NetworkClient.send_sync_request(offset_request, state.sync_timeout)
+         |> Proto.Offset.parse_response
         state = %{state | correlation_id: state.correlation_id + 1}
         {response, state}
     end
@@ -137,8 +138,9 @@ defmodule KafkaEx.Server do
         Logger.log(:error, "Coordinator for topic #{offset_fetch.topic} is not available")
         {:topic_not_found, state}
       _ ->
-        data = KafkaEx.NetworkClient.send_sync_request(broker, offset_fetch_request, state.sync_timeout)
-        response = data |> Proto.OffsetFetch.parse_response
+        response = broker
+          |> KafkaEx.NetworkClient.send_sync_request(offset_fetch_request, state.sync_timeout)
+          |> Proto.OffsetFetch.parse_response
         state = %{state | correlation_id: state.correlation_id + 1}
         {response, state}
     end
@@ -168,8 +170,9 @@ defmodule KafkaEx.Server do
     true = consumer_group?(state)
     {broker, state} = broker_for_consumer_group_with_update(state)
     request = Proto.JoinGroup.create_request(state.correlation_id, @client_id, "", state.consumer_group, topics, session_timeout)
-    data = KafkaEx.NetworkClient.send_sync_request(broker, request, state.sync_timeout)
-    response = data |> Proto.JoinGroup.parse_response
+    response = broker
+      |> KafkaEx.NetworkClient.send_sync_request(request, state.sync_timeout)
+      |> Proto.JoinGroup.parse_response
     {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
   end
 
@@ -177,8 +180,9 @@ defmodule KafkaEx.Server do
     true = consumer_group?(state)
     {broker, state} = broker_for_consumer_group_with_update(state)
     request = Proto.SyncGroup.create_request(state.correlation_id, @client_id, group_name, generation_id, member_id, assignments)
-    data = KafkaEx.NetworkClient.send_sync_request(broker, request, state.sync_timeout)
-    response = data |> Proto.SyncGroup.parse_response
+    response = broker
+      |> KafkaEx.NetworkClient.send_sync_request(request, state.sync_timeout)
+      |> Proto.SyncGroup.parse_response
     {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
   end
 
@@ -186,8 +190,9 @@ defmodule KafkaEx.Server do
     true = consumer_group?(state)
     {broker, state} = broker_for_consumer_group_with_update(state)
     request = Proto.Heartbeat.create_request(state.correlation_id, @client_id, member_id, group_name, generation_id)
-    data = KafkaEx.NetworkClient.send_sync_request(broker, request, state.sync_timeout)
-    response = data |> Proto.Heartbeat.parse_response
+    response = broker
+      |> KafkaEx.NetworkClient.send_sync_request(request, state.sync_timeout)
+      |> Proto.Heartbeat.parse_response
     {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
   end
 
@@ -268,9 +273,11 @@ defmodule KafkaEx.Server do
   end
 
   defp update_consumer_metadata(state = %State{consumer_group: consumer_group, correlation_id: correlation_id}, retry, _error_code) do
-    consumer_group_metadata_request = Proto.ConsumerMetadata.create_request(correlation_id, @client_id, consumer_group)
-    data = first_broker_response(consumer_group_metadata_request, state)
-    response = Proto.ConsumerMetadata.parse_response(data)
+    response = correlation_id
+      |> Proto.ConsumerMetadata.create_request(@client_id, consumer_group)
+      |> first_broker_response(state)
+      |> Proto.ConsumerMetadata.parse_response
+
     case response.error_code do
       :no_error -> {response, %{state | consumer_metadata: response, correlation_id: state.correlation_id + 1}}
       _ -> :timer.sleep(400)
@@ -281,8 +288,9 @@ defmodule KafkaEx.Server do
   defp update_metadata(state) do
     {correlation_id, metadata} = retrieve_metadata(state.brokers, state.correlation_id, state.sync_timeout)
     metadata_brokers = metadata.brokers
-    active_brokers = remove_stale_brokers(state.brokers, metadata_brokers)
-    brokers = active_brokers |> add_new_brokers(metadata_brokers)
+    brokers = state.brokers
+      |> remove_stale_brokers(metadata_brokers)
+      |> add_new_brokers(metadata_brokers)
     %{state | metadata: metadata, brokers: brokers, correlation_id: correlation_id + 1}
   end
 
@@ -352,8 +360,9 @@ defmodule KafkaEx.Server do
         Logger.log(:error, "Leader for topic #{topic} is not available")
         {:topic_not_found, state}
       _ ->
-        data = KafkaEx.NetworkClient.send_sync_request(broker, fetch_request, state.sync_timeout)
-        response = data |> Proto.Fetch.parse_response
+        response = broker
+          |> KafkaEx.NetworkClient.send_sync_request(fetch_request, state.sync_timeout)
+          |> Proto.Fetch.parse_response
         state = %{state | correlation_id: state.correlation_id + 1}
         case auto_commit do
           true ->
@@ -383,8 +392,9 @@ defmodule KafkaEx.Server do
     offset_commit_request = %{offset_commit_request | consumer_group: consumer_group}
 
     offset_commit_request_payload = Proto.OffsetCommit.create_request(state.correlation_id, @client_id, offset_commit_request)
-    data = KafkaEx.NetworkClient.send_sync_request(broker, offset_commit_request_payload, state.sync_timeout)
-    response = data |> Proto.OffsetCommit.parse_response
+    response = broker
+      |> KafkaEx.NetworkClient.send_sync_request(offset_commit_request_payload, state.sync_timeout)
+      |> Proto.OffsetCommit.parse_response
 
     {response, %{state | correlation_id: state.correlation_id + 1}}
   end
