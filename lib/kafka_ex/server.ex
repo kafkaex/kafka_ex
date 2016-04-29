@@ -1,28 +1,11 @@
 defmodule KafkaEx.Server do
-  require Logger
+  use KafkaEx.ServerBase
 
-  alias KafkaEx.Protocol, as: Proto
-  @client_id                      "kafka_ex"
   @metadata_update_interval       30_000
   @consumer_group_update_interval 30_000
   @sync_timeout                   1_000
-  @retry_count 3
-
-  defmodule State do
-    defstruct(metadata: %Proto.Metadata.Response{},
-              brokers: [],
-              event_pid: nil,
-              consumer_metadata: %Proto.ConsumerMetadata.Response{},
-              correlation_id: 0,
-              consumer_group: nil,
-              metadata_update_interval: nil,
-              consumer_group_update_interval: nil,
-              worker_name: KafkaEx.Server,
-              sync_timeout: nil)
-  end
 
   ### GenServer Callbacks
-  use GenServer
 
   def start_link(args, name \\ __MODULE__)
 
@@ -68,7 +51,7 @@ defmodule KafkaEx.Server do
 
   def handle_call({:produce, produce_request}, _from, state) do
     correlation_id = state.correlation_id + 1
-    produce_request_data = Proto.Produce.create_request(correlation_id, @client_id, produce_request)
+    produce_request_data = Proto.Produce.create_request(correlation_id, client_id, produce_request)
     {broker, state} = case Proto.Metadata.Response.broker_for_topic(state.metadata, state.brokers, produce_request.topic, produce_request.partition) do
       nil    ->
         {correlation_id, _} = retrieve_metadata(state.brokers, state.correlation_id, state.sync_timeout, produce_request.topic)
@@ -99,7 +82,7 @@ defmodule KafkaEx.Server do
   end
 
   def handle_call({:offset, topic, partition, time}, _from, state) do
-    offset_request = Proto.Offset.create_request(state.correlation_id, @client_id, topic, partition, time)
+    offset_request = Proto.Offset.create_request(state.correlation_id, client_id, topic, partition, time)
     {broker, state} = case Proto.Metadata.Response.broker_for_topic(state.metadata, state.brokers, topic, partition) do
       nil    ->
         state = update_metadata(state)
@@ -131,7 +114,7 @@ defmodule KafkaEx.Server do
     consumer_group = offset_fetch.consumer_group || state.consumer_group
     offset_fetch = %{offset_fetch | consumer_group: consumer_group}
 
-    offset_fetch_request = Proto.OffsetFetch.create_request(state.correlation_id, @client_id, offset_fetch)
+    offset_fetch_request = Proto.OffsetFetch.create_request(state.correlation_id, client_id, offset_fetch)
 
     {response, state} = case broker do
       nil    ->
@@ -169,7 +152,7 @@ defmodule KafkaEx.Server do
   def handle_call({:join_group, topics, session_timeout}, _from, state) do
     true = consumer_group?(state)
     {broker, state} = broker_for_consumer_group_with_update(state)
-    request = Proto.JoinGroup.create_request(state.correlation_id, @client_id, "", state.consumer_group, topics, session_timeout)
+    request = Proto.JoinGroup.create_request(state.correlation_id, client_id, "", state.consumer_group, topics, session_timeout)
     response = broker
       |> KafkaEx.NetworkClient.send_sync_request(request, state.sync_timeout)
       |> Proto.JoinGroup.parse_response
@@ -179,7 +162,7 @@ defmodule KafkaEx.Server do
   def handle_call({:sync_group, group_name, generation_id, member_id, assignments}, _from, state) do
     true = consumer_group?(state)
     {broker, state} = broker_for_consumer_group_with_update(state)
-    request = Proto.SyncGroup.create_request(state.correlation_id, @client_id, group_name, generation_id, member_id, assignments)
+    request = Proto.SyncGroup.create_request(state.correlation_id, client_id, group_name, generation_id, member_id, assignments)
     response = broker
       |> KafkaEx.NetworkClient.send_sync_request(request, state.sync_timeout)
       |> Proto.SyncGroup.parse_response
@@ -189,7 +172,7 @@ defmodule KafkaEx.Server do
   def handle_call({:heartbeat, group_name, generation_id, member_id}, _from, state) do
     true = consumer_group?(state)
     {broker, state} = broker_for_consumer_group_with_update(state)
-    request = Proto.Heartbeat.create_request(state.correlation_id, @client_id, member_id, group_name, generation_id)
+    request = Proto.Heartbeat.create_request(state.correlation_id, client_id, member_id, group_name, generation_id)
     response = broker
       |> KafkaEx.NetworkClient.send_sync_request(request, state.sync_timeout)
       |> Proto.Heartbeat.parse_response
@@ -265,7 +248,7 @@ defmodule KafkaEx.Server do
     Enum.each(state.brokers, fn(broker) -> KafkaEx.NetworkClient.close_socket(broker.socket) end)
   end
 
-  defp update_consumer_metadata(state), do: update_consumer_metadata(state, @retry_count, 0)
+  defp update_consumer_metadata(state), do: update_consumer_metadata(state, retry_count, 0)
 
   defp update_consumer_metadata(state = %State{consumer_group: consumer_group}, 0, error_code) do
     Logger.log(:error, "Fetching consumer_group #{consumer_group} metadata failed with error_code #{inspect error_code}")
@@ -274,7 +257,7 @@ defmodule KafkaEx.Server do
 
   defp update_consumer_metadata(state = %State{consumer_group: consumer_group, correlation_id: correlation_id}, retry, _error_code) do
     response = correlation_id
-      |> Proto.ConsumerMetadata.create_request(@client_id, consumer_group)
+      |> Proto.ConsumerMetadata.create_request(client_id, consumer_group)
       |> first_broker_response(state)
       |> Proto.ConsumerMetadata.parse_response
 
@@ -285,69 +268,9 @@ defmodule KafkaEx.Server do
     end
   end
 
-  defp update_metadata(state) do
-    {correlation_id, metadata} = retrieve_metadata(state.brokers, state.correlation_id, state.sync_timeout)
-    metadata_brokers = metadata.brokers
-    brokers = state.brokers
-      |> remove_stale_brokers(metadata_brokers)
-      |> add_new_brokers(metadata_brokers)
-    %{state | metadata: metadata, brokers: brokers, correlation_id: correlation_id + 1}
-  end
-
-  defp remove_stale_brokers(brokers, metadata_brokers) do
-    {brokers_to_keep, brokers_to_remove} = Enum.partition(brokers, fn(broker) ->
-      Enum.find_value(metadata_brokers, &(broker.host == &1.host && broker.port == &1.port && broker.socket && Port.info(broker.socket)))
-    end)
-    case length(brokers_to_keep) do
-      0 -> brokers_to_remove
-      _ -> Enum.each(brokers_to_remove, fn(broker) ->
-        Logger.log(:info, "Closing connection to broker #{inspect broker.host} on port #{inspect broker.port}")
-        KafkaEx.NetworkClient.close_socket(broker.socket)
-      end)
-        brokers_to_keep
-    end
-  end
-
-  defp add_new_brokers(brokers, []), do: brokers
-
-  defp add_new_brokers(brokers, [metadata_broker|metadata_brokers]) do
-    case Enum.find(brokers, &(metadata_broker.host == &1.host && metadata_broker.port == &1.port)) do
-      nil -> Logger.log(:info, "Establishing connection to broker #{inspect metadata_broker.host} on port #{inspect metadata_broker.port}")
-        add_new_brokers([%{metadata_broker | socket: KafkaEx.NetworkClient.create_socket(metadata_broker.host, metadata_broker.port)} | brokers], metadata_brokers)
-      _ -> add_new_brokers(brokers, metadata_brokers)
-    end
-  end
-
-  defp retrieve_metadata(brokers, correlation_id, sync_timeout, topic \\ []), do: retrieve_metadata(brokers, correlation_id, sync_timeout, topic, @retry_count, 0)
-
-  defp retrieve_metadata(_, correlation_id, _sync_timeout, topic, 0, error_code) do
-    Logger.log(:error, "Metadata request for topic #{inspect topic} failed with error_code #{inspect error_code}")
-    {correlation_id, %Proto.Metadata.Response{}}
-  end
-
-  defp retrieve_metadata(brokers, correlation_id, sync_timeout, topic, retry, _error_code) do
-    metadata_request = Proto.Metadata.create_request(correlation_id, @client_id, topic)
-    data = first_broker_response(metadata_request, brokers, sync_timeout)
-    response = case data do
-                 nil ->
-                   Logger.log(:error, "Unable to fetch metadata from any brokers.  Timeout is #{sync_timeout}.")
-                   raise "Unable to fetch metadata from any brokers.  Timeout is #{sync_timeout}."
-                   :no_metadata_available
-                 data ->
-                   Proto.Metadata.parse_response(data)
-               end
-
-               case Enum.find(response.topic_metadatas, &(&1.error_code == :leader_not_available)) do
-      nil  -> {correlation_id + 1, response}
-      topic_metadata ->
-        :timer.sleep(300)
-        retrieve_metadata(brokers, correlation_id + 1, sync_timeout, topic, retry - 1, topic_metadata.error_code)
-    end
-  end
-
   defp fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, state, auto_commit) do
     true = consumer_group_if_auto_commit?(auto_commit, state)
-    fetch_request = Proto.Fetch.create_request(state.correlation_id, @client_id, topic, partition, offset, wait_time, min_bytes, max_bytes)
+    fetch_request = Proto.Fetch.create_request(state.correlation_id, client_id, topic, partition, offset, wait_time, min_bytes, max_bytes)
     {broker, state} = case Proto.Metadata.Response.broker_for_topic(state.metadata, state.brokers, topic, partition) do
       nil    ->
         state = update_metadata(state)
@@ -391,26 +314,13 @@ defmodule KafkaEx.Server do
     consumer_group = offset_commit_request.consumer_group || state.consumer_group
     offset_commit_request = %{offset_commit_request | consumer_group: consumer_group}
 
-    offset_commit_request_payload = Proto.OffsetCommit.create_request(state.correlation_id, @client_id, offset_commit_request)
+    offset_commit_request_payload = Proto.OffsetCommit.create_request(state.correlation_id, client_id, offset_commit_request)
     response = broker
       |> KafkaEx.NetworkClient.send_sync_request(offset_commit_request_payload, state.sync_timeout)
       |> Proto.OffsetCommit.parse_response
 
     {response, %{state | correlation_id: state.correlation_id + 1}}
   end
-
-  defp consumer_group_if_auto_commit?(true, state) do
-    consumer_group?(state)
-  end
-  defp consumer_group_if_auto_commit?(false, _state) do
-    true
-  end
-
-  # note within the genserver state, we've already validated the
-  # consumer group, so it can only be either :no_consumer_group or a
-  # valid binary consumer group name
-  defp consumer_group?(%State{consumer_group: :no_consumer_group}), do: false
-  defp consumer_group?(_), do: true
 
   defp broker_for_consumer_group(state) do
     Proto.ConsumerMetadata.Response.broker_for_consumer_group(state.brokers, state.consumer_metadata)
@@ -428,6 +338,19 @@ defmodule KafkaEx.Server do
       broker ->
         {broker, state}
     end
+  end
+
+  # note within the genserver state, we've already validated the
+  # consumer group, so it can only be either :no_consumer_group or a
+  # valid binary consumer group name
+  def consumer_group?(%State{consumer_group: :no_consumer_group}), do: false
+  def consumer_group?(_), do: true
+
+  def consumer_group_if_auto_commit?(true, state) do
+    consumer_group?(state)
+  end
+  def consumer_group_if_auto_commit?(false, _state) do
+    true
   end
 
   defp first_broker_response(request, state) do
