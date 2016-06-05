@@ -1,6 +1,4 @@
 defmodule KafkaEx.Protocol.SyncGroup do
-  import KafkaEx.Protocol.Common
-
   @member_assignment_version 0
 
   defmodule Assignment do

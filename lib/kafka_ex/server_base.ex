@@ -46,6 +46,25 @@ defmodule KafkaEx.ServerBase do
       Logger.log(:error, "Metadata request for topic #{inspect topic} failed with error_code #{inspect error_code}")
       {correlation_id, %Proto.Metadata.Response{}}
     end
+    def retrieve_metadata(brokers, correlation_id, sync_timeout, topic, retry, _error_code) do
+      metadata_request = Proto.Metadata.create_request(correlation_id, @client_id, topic)
+      data = first_broker_response(metadata_request, brokers, sync_timeout)
+      response = case data do
+                   nil ->
+                     Logger.log(:error, "Unable to fetch metadata from any brokers.  Timeout is #{sync_timeout}.")
+                     raise "Unable to fetch metadata from any brokers.  Timeout is #{sync_timeout}."
+                     :no_metadata_available
+                   data ->
+                     Proto.Metadata.parse_response(data)
+                 end
+
+                 case Enum.find(response.topic_metadatas, &(&1.error_code == :leader_not_available)) do
+        nil  -> {correlation_id + 1, response}
+        topic_metadata ->
+          :timer.sleep(300)
+          retrieve_metadata(brokers, correlation_id + 1, sync_timeout, topic, retry - 1, topic_metadata.error_code)
+      end
+    end
 
     defp remove_stale_brokers(brokers, metadata_brokers) do
       {brokers_to_keep, brokers_to_remove} = Enum.partition(brokers, fn(broker) ->
@@ -70,29 +89,6 @@ defmodule KafkaEx.ServerBase do
       end
     end
 
-    def retrieve_metadata(brokers, correlation_id, sync_timeout, topic, retry, _error_code) do
-      metadata_request = Proto.Metadata.create_request(correlation_id, @client_id, topic)
-      data = first_broker_response(metadata_request, brokers, sync_timeout)
-      response = case data do
-                   nil ->
-                     Logger.log(:error, "Unable to fetch metadata from any brokers.  Timeout is #{sync_timeout}.")
-                     raise "Unable to fetch metadata from any brokers.  Timeout is #{sync_timeout}."
-                     :no_metadata_available
-                   data ->
-                     Proto.Metadata.parse_response(data)
-                 end
-
-                 case Enum.find(response.topic_metadatas, &(&1.error_code == :leader_not_available)) do
-        nil  -> {correlation_id + 1, response}
-        topic_metadata ->
-          :timer.sleep(300)
-          retrieve_metadata(brokers, correlation_id + 1, sync_timeout, topic, retry - 1, topic_metadata.error_code)
-      end
-    end
-
-    defp first_broker_response(request, state) do
-      first_broker_response(request, state.brokers, state.sync_timeout)
-    end
     defp first_broker_response(request, brokers, sync_timeout) do
       Enum.find_value(brokers, fn(broker) ->
         if Proto.Metadata.Broker.connected?(broker) do
