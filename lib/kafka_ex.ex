@@ -317,11 +317,15 @@ defmodule KafkaEx do
   def valid_consumer_group?(b) when is_binary(b), do: byte_size(b) > 0
   def valid_consumer_group?(_), do: false
 
+  defp server("0.8.0"), do: KafkaEx.Server0P8P0
+  defp server(_), do: KafkaEx.Server
+
 #OTP API
   def start(_type, _args) do
     max_restarts = Application.get_env(:kafka_ex, :max_restarts, 10)
     max_seconds = Application.get_env(:kafka_ex, :max_seconds, 60)
-    {:ok, pid}     = KafkaEx.Supervisor.start_link(max_restarts, max_seconds)
+    server = Application.get_env(:kafka_ex, :kafka_version, :default) |> server
+    {:ok, pid}     = KafkaEx.Supervisor.start_link(server, max_restarts, max_seconds)
 
     if Application.get_env(:kafka_ex, :disable_default_worker) == true do
       {:ok, pid}
