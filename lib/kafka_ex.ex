@@ -320,13 +320,17 @@ defmodule KafkaEx do
   defp server_impl("0.8.0"), do: KafkaEx.Server0P8P0
   defp server_impl(_), do: KafkaEx.Server
 
+  @doc false
+  def server do
+    :kafka_ex
+      |> Application.get_env(:kafka_version, :default)
+      |> server_impl
+  end
+
 #OTP API
   def start(_type, _args) do
     max_restarts = Application.get_env(:kafka_ex, :max_restarts, 10)
     max_seconds = Application.get_env(:kafka_ex, :max_seconds, 60)
-    server = :kafka_ex
-      |> Application.get_env(:kafka_version, :default)
-      |> server_impl
     {:ok, pid}     = KafkaEx.Supervisor.start_link(server, max_restarts, max_seconds)
 
     if Application.get_env(:kafka_ex, :disable_default_worker) == true do

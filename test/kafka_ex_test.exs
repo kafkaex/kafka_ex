@@ -19,7 +19,7 @@ defmodule KafkaExTest do
     # we should have the default worker back again
     pid = Process.whereis(KafkaEx.Server)
     assert is_pid(pid)
-    assert [{:undefined, pid, :worker, [KafkaEx.Server]}] ==
+    assert [{:undefined, pid, :worker, [KafkaEx.server]}] ==
       Supervisor.which_children(KafkaEx.Supervisor)
   end
 end
