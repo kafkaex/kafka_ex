@@ -153,7 +153,7 @@ iex> KafkaEx.earliest_offset("foo", 0) # where 0 is the partition
 
 ### Fetch kafka logs
 
-**NOTE** You must set `auto_commit: false` when using Kafka < 0.8.2 or when using `:no_consumer_group`.
+**NOTE** You must pass `auto_commit: false` in the options for `fetch/3` when using Kafka < 0.8.2 or when using `:no_consumer_group`.
 
 ```elixir
 iex> KafkaEx.fetch("foo", 0, offset: 5) # where 0 is the partition and 5 is the offset we want to start fetching from
@@ -177,18 +177,24 @@ iex> KafkaEx.produce("foo", 0, "hey") # where "foo" is the topic and "hey" is th
 
 ### Stream kafka logs
 
-**NOTE** You must set `auto_commit: false` when using Kafka < 0.8.2 or when using `:no_consumer_group`.
+**NOTE** You must pass `auto_commit: false` in the options for `stream/3` when using Kafka < 0.8.2 or when using `:no_consumer_group`.
 
 ```elixir
 iex> KafkaEx.create_worker(:stream, [uris: [{"localhost", 9092}]])
 {:ok, #PID<0.196.0>}
-iex> KafkaEx.produce("foo", 0, "hey", :stream)
+iex> KafkaEx.produce("foo", 0, "hey", worker_name: :stream)
 :ok
-iex> KafkaEx.produce("foo", 0, "hi", :stream)
+iex> KafkaEx.produce("foo", 0, "hi", worker_name: :stream)
 :ok
-iex> KafkaEx.stream("foo", 0) |> Enum.take(2)
+iex> KafkaEx.stream("foo", 0, offset: 0) |> Enum.take(2)
 [%{attributes: 0, crc: 4264455069, key: nil, offset: 0, value: "hey"},
  %{attributes: 0, crc: 4251893211, key: nil, offset: 1, value: "hi"}]
+```
+
+As mentioned, for Kafka < 0.8.2 the `stream/3` requires `autocommit: false`
+
+```elixir
+iex> KafkaEx.stream("foo", 0, offset: 0, auto_commit: false) |> Enum.take(2)
 ```
 
 ### Compression
