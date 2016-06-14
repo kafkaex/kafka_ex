@@ -1,10 +1,14 @@
 defmodule KafkaEx.DefaultServer do
   use KafkaEx.Server
-  alias KafkaEx.Protocol.{
-    ConsumerMetadata, Fetch, Heartbeat, JoinGroup, 
-    Metadata, OffsetFetch, OffsetCommit,
-    Produce, SyncGroup
-  }
+  alias KafkaEx.Protocol.ConsumerMetadata
+  alias KafkaEx.Protocol.Fetch
+  alias KafkaEx.Protocol.Heartbeat
+  alias KafkaEx.Protocol.JoinGroup
+  alias KafkaEx.Protocol.Metadata
+  alias KafkaEx.Protocol.OffsetFetch
+  alias KafkaEx.Protocol.OffsetCommit
+  alias KafkaEx.Protocol.Produce
+  alias KafkaEx.Protocol.SyncGroup
   alias KafkaEx.Server.State
 
   @consumer_group_update_interval 30_000

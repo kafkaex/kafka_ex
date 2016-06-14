@@ -1,5 +1,9 @@
 defmodule KafkaEx.Server do
-  alias KafkaEx.Protocol.{Produce, OffsetFetch, OffsetCommit, Metadata, ConsumerMetadata}
+  alias KafkaEx.Protocol.Produce
+  alias KafkaEx.Protocol.OffsetFetch
+  alias KafkaEx.Protocol.OffsetCommit
+  alias KafkaEx.Protocol.Metadata
+  alias KafkaEx.Protocol.ConsumerMetadata
 
   defmodule State do
     defstruct(metadata: %Metadata.Response{},

@@ -1,6 +1,8 @@
 defmodule KafkaEx.Server0P8P0 do
   use KafkaEx.Server
-  alias KafkaEx.Protocol.{Fetch, Metadata, Produce}
+  alias KafkaEx.Protocol.Fetch
+  alias KafkaEx.Protocol.Metadata
+  alias KafkaEx.Protocol.Produce
   alias KafkaEx.Server.State
 
   def kafka_server_init([args]) do
