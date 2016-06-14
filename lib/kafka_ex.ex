@@ -39,7 +39,7 @@ defmodule KafkaEx do
   def create_worker(name, worker_init \\ []) do
     case build_worker_options(worker_init) do
       {:ok, worker_init} ->
-        Supervisor.start_child(KafkaEx.Supervisor, [worker_init, name])
+        Supervisor.start_child(KafkaEx.Supervisor, [server, worker_init, name])
       {:error, error} ->
         {:error, error}
     end
@@ -51,7 +51,7 @@ defmodule KafkaEx do
   Worker may be an atom or pid.  The default worker is used by default.
   """
   @spec consumer_group(atom | pid) :: binary | :no_consumer_group
-  def consumer_group(worker \\ KafkaEx.Server) do
+  def consumer_group(worker \\ KafkaEx.server) do
     GenServer.call(worker, :consumer_group)
   end
 
@@ -59,7 +59,7 @@ defmodule KafkaEx do
   Return metadata for the given topic; returns for all topics if topic is empty string
 
   Optional arguments(KeywordList)
-  - worker_name: the worker we want to run this metadata request through, when none is provided the default worker `KafkaEx.Server` is used
+  - worker_name: the worker we want to run this metadata request through, when none is provided the default worker `KafkaEx.server` is used
   - topic: name of the topic for which metadata is requested, when none is provided all metadata is retrieved
 
   ## Example
@@ -77,7 +77,7 @@ defmodule KafkaEx do
   """
   @spec metadata(Keyword.t) :: KafkaEx.Protocol.Metadata.Response.t
   def metadata(opts \\ []) do
-    worker_name  = Keyword.get(opts, :worker_name, KafkaEx.Server)
+    worker_name  = Keyword.get(opts, :worker_name, KafkaEx.server)
     topic = Keyword.get(opts, :topic, "")
     GenServer.call(worker_name, {:metadata, topic})
   end
@@ -98,7 +98,7 @@ defmodule KafkaEx do
   ```
   """
   @spec latest_offset(binary, integer, atom|pid) :: [KafkaEx.Protocol.Offset.Response.t] | :topic_not_found
-  def latest_offset(topic, partition, name \\ KafkaEx.Server), do: offset(topic, partition, :latest, name)
+  def latest_offset(topic, partition, name \\ KafkaEx.server), do: offset(topic, partition, :latest, name)
 
   @doc """
   Get the offset of the earliest message still persistent in Kafka
@@ -111,7 +111,7 @@ defmodule KafkaEx do
   ```
   """
   @spec earliest_offset(binary, integer, atom|pid) :: [KafkaEx.Protocol.Offset.Response.t] | :topic_not_found
-  def earliest_offset(topic, partition, name \\ KafkaEx.Server), do: offset(topic, partition, :earliest, name)
+  def earliest_offset(topic, partition, name \\ KafkaEx.server), do: offset(topic, partition, :earliest, name)
 
   @doc """
   Get the offset of the message sent at the specified date/time
@@ -124,7 +124,7 @@ defmodule KafkaEx do
   ```
   """
   @spec offset(binary, number, :calendar.datetime|atom, atom|pid) :: [KafkaEx.Protocol.Offset.Response.t] | :topic_not_found
-  def offset(topic, partition, time, name \\ KafkaEx.Server) do
+  def offset(topic, partition, time, name \\ KafkaEx.server) do
     GenServer.call(name, {:offset, topic, partition, time})
   end
 
@@ -137,7 +137,7 @@ defmodule KafkaEx do
 
   Optional arguments(KeywordList)
   - offset: When supplied the fetch would start from this offset, otherwise would start from the last committed offset of the consumer_group the worker belongs to. For Kafka < 0.8.2 you should explicitly specify this.
-  - worker_name: the worker we want to run this fetch request through. Default is KafkaEx.Server
+  - worker_name: the worker we want to run this fetch request through. Default is KafkaEx.server
   - wait_time: maximum amount of time in milliseconds to block waiting if insufficient data is available at the time the request is issued. Default is 10
   - min_bytes: minimum number of bytes of messages that must be available to give a response. If the client sets this to 0 the server will always respond immediately, however if there is no new data since their last request they will just get back empty message sets. If this is set to 1, the server will respond as soon as at least one partition has at least 1 byte of data or the specified timeout occurs. By setting higher values in combination with the timeout the consumer can tune for throughput and trade a little additional latency for reading only large chunks of data (e.g. setting wait_time to 100 and setting min_bytes 64000 would allow the server to wait up to 100ms to try to accumulate 64k of data before responding). Default is 1
   - max_bytes: maximum bytes to include in the message set for this partition. This helps bound the size of the response. Default is 1,000,000
@@ -158,7 +158,7 @@ defmodule KafkaEx do
   """
   @spec fetch(binary, number, Keyword.t) :: [KafkaEx.Protocol.Fetch.Response.t] | :topic_not_found
   def fetch(topic, partition, opts \\ []) do
-    worker_name       = Keyword.get(opts, :worker_name, KafkaEx.Server)
+    worker_name       = Keyword.get(opts, :worker_name, KafkaEx.server)
     supplied_offset   = Keyword.get(opts, :offset)
     wait_time         = Keyword.get(opts, :wait_time, @wait_time)
     min_bytes         = Keyword.get(opts, :min_bytes, @min_bytes)
@@ -187,7 +187,7 @@ defmodule KafkaEx do
   Produces batch messages to kafka logs
 
   Optional arguments(KeywordList)
-  - worker_name: the worker we want to run this metadata request through, when none is provided the default worker `KafkaEx.Server` is used
+  - worker_name: the worker we want to run this metadata request through, when none is provided the default worker `KafkaEx.server` is used
   ## Example
 
   ```elixir
@@ -199,14 +199,14 @@ defmodule KafkaEx do
   """
   @spec produce(KafkaEx.Protocol.Produce.Request.t, Keyword.t) :: nil | :ok | {:error, :closed} | {:error, :inet.posix} | iodata | :leader_not_available
   def produce(produce_request, opts \\ []) do
-    worker_name   = Keyword.get(opts, :worker_name, KafkaEx.Server)
+    worker_name   = Keyword.get(opts, :worker_name, KafkaEx.server)
     GenServer.call(worker_name, {:produce, produce_request})
   end
 
   @doc """
   Produces messages to kafka logs (this is deprecated, use KafkaEx.produce/2 instead)
   Optional arguments(KeywordList)
-  - worker_name: the worker we want to run this metadata request through, when none is provided the default worker `KafkaEx.Server` is used
+  - worker_name: the worker we want to run this metadata request through, when none is provided the default worker `KafkaEx.server` is used
   - key: is used for partition assignment, can be nil, when none is provided it is defaulted to nil
   - require_acks: indicates how many acknowledgements the servers should receive before responding to the request. If it is 0 the server will not send any response (this is the only case where the server will not reply to a request). If it is 1, the server will wait the data is written to the local log before sending a response. If it is -1 the server will block until the message is committed by all in sync replicas before sending a response. For any number > 1 the server will block waiting for this number of acknowledgements to occur (but the server will never wait for more acknowledgements than there are in-sync replicas), default is 0
   - timeout: provides a maximum time in milliseconds the server can await the receipt of the number of acknowledgements in RequiredAcks, default is 100 milliseconds
@@ -237,7 +237,7 @@ defmodule KafkaEx do
   This function should be used with care as the queue is unbounded and can cause OOM.
 
   Optional arguments(KeywordList)
-  - worker_name: the worker we want to run this metadata request through, when none is provided the default worker `KafkaEx.Server` is used
+  - worker_name: the worker we want to run this metadata request through, when none is provided the default worker `KafkaEx.server` is used
   - offset: When supplied the fetch would start from this offset, otherwise would start from the last committed offset of the consumer_group the worker belongs to. For Kafka < 0.8.2 you should explicitly specify this.
   - handler: the handler we want to handle the streaming events, when none is provided the default KafkaEx.Handler is used
   - handler_init: initial state for the handler - leave the default value [] when using the default handler
@@ -258,7 +258,7 @@ defmodule KafkaEx do
   """
   @spec stream(binary, number, Keyword.t) :: GenEvent.Stream.t
   def stream(topic, partition, opts \\ []) do
-    worker_name     = Keyword.get(opts, :worker_name, KafkaEx.Server)
+    worker_name     = Keyword.get(opts, :worker_name, KafkaEx.server)
     supplied_offset = Keyword.get(opts, :offset)
     handler         = Keyword.get(opts, :handler, KafkaEx.Handler)
     handler_init    = Keyword.get(opts, :handler_init, [])
@@ -275,13 +275,14 @@ defmodule KafkaEx do
 
   @spec stop_streaming(Keyword.t) :: :stop_streaming
   def stop_streaming(opts \\ []) do
-    worker_name = Keyword.get(opts, :worker_name, KafkaEx.Server)
+    worker_name = Keyword.get(opts, :worker_name, KafkaEx.server)
     send(worker_name, :stop_streaming)
   end
 
   defp build_worker_options(worker_init) do
     defaults = [uris: Application.get_env(:kafka_ex, :brokers),
                 consumer_group: Application.get_env(:kafka_ex, :consumer_group)]
+
     worker_init = Keyword.merge(defaults, worker_init)
 
     supplied_consumer_group = Keyword.get(worker_init, :consumer_group)
@@ -318,7 +319,7 @@ defmodule KafkaEx do
   def valid_consumer_group?(_), do: false
 
   defp server_impl("0.8.0"), do: KafkaEx.Server0P8P0
-  defp server_impl(_), do: KafkaEx.Server
+  defp server_impl(_), do: KafkaEx.DefaultServer
 
   @doc false
   def server do
@@ -336,7 +337,7 @@ defmodule KafkaEx do
     if Application.get_env(:kafka_ex, :disable_default_worker) == true do
       {:ok, pid}
     else
-      case KafkaEx.create_worker(KafkaEx.Server, []) do
+      case KafkaEx.create_worker(server, []) do
         {:error, reason} -> {:error, reason}
         {:ok, _}         -> {:ok, pid}
       end

@@ -22,7 +22,7 @@ defmodule KafkaEx.Mixfile do
       {:earmark, "~> 0.1", only: :dev},
       {:dialyze, "~> 0.2", only: :dev},
       {:ex_doc, "~> 0.7", only: :dev},
-      {:credo, "~> 0.3", only: :dev},
+      {:credo, "~> 0.4.3", only: :dev},
       {:snappy,
        git: "https://github.com/fdmanana/snappy-erlang-nif",
        only: [:dev, :test]}
