@@ -74,7 +74,7 @@ defmodule KafkaEx.ServerBase do
         0 -> brokers_to_remove
         _ -> Enum.each(brokers_to_remove, fn(broker) ->
           Logger.log(:info, "Closing connection to broker #{inspect broker.host} on port #{inspect broker.port}")
-          KafkaEx.NetworkClient.close_socket(broker.socket)
+          KafkaEx.Network.Client.close(broker)
         end)
           brokers_to_keep
       end
@@ -84,7 +84,7 @@ defmodule KafkaEx.ServerBase do
     defp add_new_brokers(brokers, [metadata_broker|metadata_brokers]) do
       case Enum.find(brokers, &(metadata_broker.host == &1.host && metadata_broker.port == &1.port)) do
         nil -> Logger.log(:info, "Establishing connection to broker #{inspect metadata_broker.host} on port #{inspect metadata_broker.port}")
-          add_new_brokers([%{metadata_broker | socket: KafkaEx.NetworkClient.create_socket(metadata_broker.host, metadata_broker.port)} | brokers], metadata_brokers)
+          add_new_brokers([%{metadata_broker | socket: KafkaEx.Network.Client.connect(metadata_broker.host, metadata_broker.port)} | brokers], metadata_brokers)
         _ -> add_new_brokers(brokers, metadata_brokers)
       end
     end
@@ -92,7 +92,7 @@ defmodule KafkaEx.ServerBase do
     defp first_broker_response(request, brokers, sync_timeout) do
       Enum.find_value(brokers, fn(broker) ->
         if Proto.Metadata.Broker.connected?(broker) do
-          KafkaEx.NetworkClient.send_sync_request(broker, request, sync_timeout)
+          KafkaEx.Network.Client.send_sync_request(broker, request, sync_timeout)
         end
       end)
     end

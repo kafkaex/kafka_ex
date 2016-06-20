@@ -23,7 +23,7 @@ defmodule KafkaEx.Server0P8P0 do
   def init([args, name]) do
     uris = Keyword.get(args, :uris, [])
     metadata_update_interval = Keyword.get(args, :metadata_update_interval, @metadata_update_interval)
-    brokers = Enum.map(uris, fn({host, port}) -> %Proto.Metadata.Broker{host: host, port: port, socket: KafkaEx.NetworkClient.create_socket(host, port)} end)
+    brokers = Enum.map(uris, fn({host, port}) -> %Proto.Metadata.Broker{host: host, port: port, socket: KafkaEx.Network.Client.connect(host, port)} end)
     sync_timeout = Keyword.get(args, :sync_timeout, Application.get_env(:kafka_ex, :sync_timeout, @sync_timeout))
     {correlation_id, metadata} = retrieve_metadata(brokers, 0, sync_timeout)
     state = %State{metadata: metadata, brokers: brokers, correlation_id: correlation_id, metadata_update_interval: metadata_update_interval, worker_name: name, sync_timeout: sync_timeout}
@@ -48,8 +48,8 @@ defmodule KafkaEx.Server0P8P0 do
         Logger.log(:error, "Leader for topic #{produce_request.topic} is not available")
         :leader_not_available
       broker -> case produce_request.required_acks do
-        0 ->  KafkaEx.NetworkClient.send_async_request(broker, produce_request_data)
-        _ -> KafkaEx.NetworkClient.send_sync_request(broker, produce_request_data, state.sync_timeout) |> Proto.Produce.parse_response
+        0 -> KafkaEx.Network.Client.send_async_request(broker, produce_request_data)
+        _ -> KafkaEx.Network.Client.send_sync_request(broker, produce_request_data, state.sync_timeout) |> Proto.Produce.parse_response
       end
     end
 
@@ -78,7 +78,7 @@ defmodule KafkaEx.Server0P8P0 do
         {:topic_not_found, state}
       _ ->
         response = broker
-         |> KafkaEx.NetworkClient.send_sync_request(offset_request, state.sync_timeout)
+         |> KafkaEx.Network.Client.send_sync_request(offset_request, state.sync_timeout)
          |> Proto.Offset.parse_response
         state = %{state | correlation_id: state.correlation_id + 1}
         {response, state}
@@ -159,7 +159,7 @@ defmodule KafkaEx.Server0P8P0 do
     if state.event_pid do
       GenEvent.stop(state.event_pid)
     end
-    Enum.each(state.brokers, fn(broker) -> KafkaEx.NetworkClient.close_socket(broker.socket) end)
+    Enum.each(state.brokers, fn(broker) -> KafkaEx.Network.Client.close(broker) end)
   end
 
   defp fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, state, _auto_commit) do
@@ -177,7 +177,7 @@ defmodule KafkaEx.Server0P8P0 do
         {:topic_not_found, state}
       _ ->
         response = broker
-          |> KafkaEx.NetworkClient.send_sync_request(fetch_request, state.sync_timeout)
+          |> KafkaEx.Network.Client.send_sync_request(fetch_request, state.sync_timeout)
           |> Proto.Fetch.parse_response
         state = %{state | correlation_id: state.correlation_id + 1}
         {response, state}
