@@ -23,14 +23,14 @@ defmodule KafkaEx.Integration.Test do
 
   test "create_worker allows custom metadata_update_interval" do
     {:ok, pid} = KafkaEx.create_worker(:metadata_update_interval_custom, uris: uris, metadata_update_interval: 10)
-    metadata_update_interval = :sys.get_state(pid).metadata_update_interval
+    metadata_update_interval = :sys.get_state(pid).callback_state.metadata_update_interval
 
     assert metadata_update_interval == 10
   end
 
   test "create_worker provides a default metadata_update_interval of '30000'" do
     {:ok, pid} = KafkaEx.create_worker(:d, uris: uris)
-    metadata_update_interval = :sys.get_state(pid).metadata_update_interval
+    metadata_update_interval = :sys.get_state(pid).callback_state.metadata_update_interval
 
     assert metadata_update_interval == 30000
   end
@@ -39,7 +39,7 @@ defmodule KafkaEx.Integration.Test do
     value_before = Application.get_env(:kafka_ex, :sync_timeout)
     Application.delete_env(:kafka_ex, :sync_timeout)
     {:ok, pid} = KafkaEx.create_worker(:bif, uris: uris)
-    sync_timeout = :sys.get_state(pid).sync_timeout
+    sync_timeout = :sys.get_state(pid).callback_state.sync_timeout
 
     assert sync_timeout == 1000
     Application.put_env(:kafka_ex, :sync_timeout, value_before)
@@ -47,7 +47,7 @@ defmodule KafkaEx.Integration.Test do
 
   test "create_worker takes a sync_timeout option and sets that as the sync_timeout of the worker" do
     {:ok, pid} = KafkaEx.create_worker(:babar, [uris: uris, sync_timeout: 2000])
-    sync_timeout = :sys.get_state(pid).sync_timeout
+    sync_timeout = :sys.get_state(pid).callback_state.sync_timeout
 
     assert sync_timeout == 2000
   end
@@ -57,7 +57,7 @@ defmodule KafkaEx.Integration.Test do
     Application.put_env(:kafka_ex, :sync_timeout, 4000)
 
     {:ok, pid} = KafkaEx.create_worker(:eve, [uris: uris])
-    sync_timeout = :sys.get_state(pid).sync_timeout
+    sync_timeout = :sys.get_state(pid).callback_state.sync_timeout
 
     assert sync_timeout == 4000
     Application.put_env(:kafka_ex, :sync_timeout, value_before)
@@ -65,7 +65,7 @@ defmodule KafkaEx.Integration.Test do
 
   test "create_worker uses explicit sync_timeout even if set in config" do
     {:ok, pid} = KafkaEx.create_worker(:alice, [uris: uris, sync_timeout: 2000])
-    sync_timeout = :sys.get_state(pid).sync_timeout
+    sync_timeout = :sys.get_state(pid).callback_state.sync_timeout
 
     assert sync_timeout == 2000
   end
@@ -86,7 +86,7 @@ defmodule KafkaEx.Integration.Test do
   test "KafkaEx.server generates metadata on start up" do
     pid = Process.whereis(KafkaEx.server)
     KafkaEx.produce("food", 0, "hey", worker_name: KafkaEx.server, required_acks: 1)
-    metadata = :sys.get_state(pid).metadata
+    metadata = :sys.get_state(pid).callback_state.metadata
 
     refute metadata == %Proto.Metadata.Response{}
     refute metadata.brokers == []
@@ -123,12 +123,16 @@ defmodule KafkaEx.Integration.Test do
   test "produce updates metadata" do
     {:ok, pid} = KafkaEx.create_worker(:update_metadata_test)
     empty_metadata = %Proto.Metadata.Response{}
-    :sys.replace_state(pid, fn(state) -> %{state | metadata: empty_metadata} end)
+    :sys.replace_state(pid, fn(state) ->
+      callback_state = state.callback_state
+      new_callback_state = %{callback_state | :metadata => empty_metadata}
+      %{state | :callback_state => new_callback_state}
+    end)
 
     assert empty_metadata.brokers == []
 
     KafkaEx.produce(%Proto.Produce.Request{topic: "food", partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}, worker_name: :update_metadata_test)
-    metadata = :sys.get_state(pid).metadata
+    metadata = :sys.get_state(pid).callback_state.metadata
 
     refute metadata == empty_metadata
     refute metadata.brokers == []
@@ -138,7 +142,7 @@ defmodule KafkaEx.Integration.Test do
     random_string = generate_random_string
     KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]})
     pid = Process.whereis(KafkaEx.server)
-    metadata = :sys.get_state(pid).metadata
+    metadata = :sys.get_state(pid).callback_state.metadata
 
     assert Enum.find_value(metadata.topic_metadatas, &(&1.topic == random_string))
   end
@@ -163,7 +167,7 @@ defmodule KafkaEx.Integration.Test do
     assert Enum.all?(random_topic_metadata.partition_metadatas, &(&1.error_code == :no_error))
 
     pid = Process.whereis(KafkaEx.server)
-    metadata = :sys.get_state(pid).metadata
+    metadata = :sys.get_state(pid).callback_state.metadata
     random_topic_metadata = Enum.find(metadata.topic_metadatas, &(&1.topic == random_string))
 
     refute random_topic_metadata.partition_metadatas == []
@@ -174,10 +178,14 @@ defmodule KafkaEx.Integration.Test do
   test "fetch updates metadata" do
     {:ok, pid} = KafkaEx.create_worker(:fetch_updates_metadata)
     empty_metadata = %Proto.Metadata.Response{}
-    :sys.replace_state(pid, fn(state) -> %{state | :metadata => empty_metadata} end)
+    :sys.replace_state(pid, fn(state) ->
+      callback_state = state.callback_state
+      new_callback_state = %{callback_state | :metadata => empty_metadata}
+      %{state | :callback_state => new_callback_state}
+    end)
     KafkaEx.fetch("food", 0, offset: 0, auto_commit: false, worker_name: :fetch_updates_metadata)
     :timer.sleep(200)
-    metadata = :sys.get_state(pid).metadata
+    metadata = :sys.get_state(pid).callback_state.metadata
 
     refute metadata == empty_metadata
   end
@@ -207,9 +215,13 @@ defmodule KafkaEx.Integration.Test do
   test "offset updates metadata" do
     {:ok, pid} = KafkaEx.create_worker(:offset_updates_metadata)
     empty_metadata = %Proto.Metadata.Response{}
-    :sys.replace_state(pid, fn(state) -> %{state | :metadata => empty_metadata} end)
+    :sys.replace_state(pid, fn(state) ->
+      callback_state = state.callback_state
+      new_callback_state = %{callback_state | :metadata => empty_metadata}
+      %{state | :callback_state => new_callback_state}
+    end)
     KafkaEx.offset("food", 0, utc_time, :offset_updates_metadata)
-    metadata = :sys.get_state(pid).metadata
+    metadata = :sys.get_state(pid).callback_state.metadata
 
     refute metadata == empty_metadata
   end

@@ -16,42 +16,42 @@ defmodule KafkaEx.ConsumerGroup.Test do
 
   test "create_worker allows us to disable the consumer group" do
     {:ok, pid} = KafkaEx.create_worker(:barney, consumer_group: :no_consumer_group)
-    
-    consumer_group = :sys.get_state(pid).consumer_group
+
+    consumer_group = :sys.get_state(pid).callback_state.consumer_group
     assert consumer_group == :no_consumer_group
   end
 
   test "create_worker allows us to provide a consumer group" do
     {:ok, pid} = KafkaEx.create_worker(:bah, consumer_group: "my_consumer_group")
-    consumer_group = :sys.get_state(pid).consumer_group
+    consumer_group = :sys.get_state(pid).callback_state.consumer_group
 
     assert consumer_group == "my_consumer_group"
   end
 
   test "create_worker allows custom consumer_group_update_interval" do
     {:ok, pid} = KafkaEx.create_worker(:consumer_group_update_interval_custom, uris: uris, consumer_group_update_interval: 10)
-    consumer_group_update_interval = :sys.get_state(pid).consumer_group_update_interval
+    consumer_group_update_interval = :sys.get_state(pid).callback_state.consumer_group_update_interval
 
     assert consumer_group_update_interval == 10
   end
 
   test "create_worker provides a default consumer_group_update_interval of '30000'" do
     {:ok, pid} = KafkaEx.create_worker(:de, uris: uris)
-    consumer_group_update_interval = :sys.get_state(pid).consumer_group_update_interval
+    consumer_group_update_interval = :sys.get_state(pid).callback_state.consumer_group_update_interval
 
     assert consumer_group_update_interval == 30000
   end
 
   test "create_worker provides a default consumer_group of 'kafka_ex'" do
     {:ok, pid} = KafkaEx.create_worker(:baz, uris: uris)
-    consumer_group = :sys.get_state(pid).consumer_group
-    
+    consumer_group = :sys.get_state(pid).callback_state.consumer_group
+
     assert consumer_group == "kafka_ex"
   end
 
   test "create_worker takes a consumer_group option and sets that as the consumer_group of the worker" do
     {:ok, pid} = KafkaEx.create_worker(:joe, [uris: uris, consumer_group: "foo"])
-    consumer_group = :sys.get_state(pid).consumer_group
+    consumer_group = :sys.get_state(pid).callback_state.consumer_group
 
     assert consumer_group == "foo"
   end
@@ -72,7 +72,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
     KafkaEx.create_worker(:consumer_group_metadata_worker, consumer_group: random_string, uris: Application.get_env(:kafka_ex, :brokers))
     pid = Process.whereis(:consumer_group_metadata_worker)
     metadata = KafkaEx.consumer_group_metadata(:consumer_group_metadata_worker, random_string)
-    consumer_group_metadata = :sys.get_state(pid).consumer_metadata
+    consumer_group_metadata = :sys.get_state(pid).callback_state.consumer_metadata
 
     assert metadata != %Proto.ConsumerMetadata.Response{}
     assert metadata.coordinator_host != nil
@@ -84,9 +84,13 @@ defmodule KafkaEx.ConsumerGroup.Test do
   test "worker updates metadata after specified interval" do
     {:ok, pid} = KafkaEx.create_worker(:update_consumer_metadata, [uris: uris, consumer_group: "kafka_ex", consumer_group_update_interval: 100])
     consumer_metadata = %KafkaEx.Protocol.ConsumerMetadata.Response{}
-    :sys.replace_state(pid, fn(state) -> %{state | consumer_metadata: consumer_metadata} end)
+    :sys.replace_state(pid, fn(state) ->
+      callback_state = state.callback_state
+      new_callback_state = %{callback_state | :consumer_metadata => consumer_metadata}
+      %{state | :callback_state => new_callback_state}
+    end)
     :timer.sleep(105)
-    new_consumer_metadata = :sys.get_state(pid).consumer_metadata
+    new_consumer_metadata = :sys.get_state(pid).callback_state.consumer_metadata
 
     refute new_consumer_metadata == consumer_metadata
   end
@@ -94,9 +98,13 @@ defmodule KafkaEx.ConsumerGroup.Test do
   test "worker does not update metadata when consumer_group is disabled" do
     {:ok, pid} = KafkaEx.create_worker(:no_consumer_metadata_update, [uris: uris, consumer_group: :no_consumer_group, consumer_group_update_interval: 100])
     consumer_metadata = %KafkaEx.Protocol.ConsumerMetadata.Response{}
-    :sys.replace_state(pid, fn(state) -> %{state | consumer_metadata: consumer_metadata} end)
+    :sys.replace_state(pid, fn(state) ->
+      callback_state = state.callback_state
+      new_callback_state = %{callback_state | :consumer_metadata => consumer_metadata}
+      %{state | :callback_state => new_callback_state}
+    end)
     :timer.sleep(105)
-    new_consumer_metadata = :sys.get_state(pid).consumer_metadata
+    new_consumer_metadata = :sys.get_state(pid).callback_state.consumer_metadata
 
     assert new_consumer_metadata == consumer_metadata
   end
@@ -182,7 +190,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
 
     KafkaEx.offset_fetch(worker_name, %KafkaEx.Protocol.OffsetFetch.Request{topic: topic, partition: 0})
 
-    assert :sys.get_state(:offset_fetch_consumer_group).consumer_group == consumer_group
+    assert :sys.get_state(:offset_fetch_consumer_group).callback_state.consumer_group == consumer_group
   end
 
   #offset_commit

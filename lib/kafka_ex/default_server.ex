@@ -75,7 +75,7 @@ defmodule KafkaEx.DefaultServer do
         :leader_not_available
       broker -> case produce_request.required_acks do
         0 ->  KafkaEx.NetworkClient.send_async_request(broker, produce_request_data)
-        _ -> KafkaEx.NetworkClient.send_sync_request(broker, produce_request_data, state.sync_timeout) |> Produce.parse_response
+        _ -> KafkaEx.NetworkClient.send_sync_request(broker, produce_request_data, new_state.sync_timeout) |> Produce.parse_response
       end
     end
 
@@ -171,6 +171,10 @@ defmodule KafkaEx.DefaultServer do
     {:reply, GenEvent.stream(updated_state.event_pid), updated_state}
   end
 
+  def kafka_server_start_streaming(_topic, _partition, _offset, _handler, _auto_commit, state = %State{event_pid: nil}) do
+    # our streaming could have been canceled with a streaming update in-flight
+    {:noreply, state}
+  end
   def kafka_server_start_streaming(topic, partition, offset, handler, auto_commit, state) do
     true = consumer_group_if_auto_commit?(auto_commit, state)
 
