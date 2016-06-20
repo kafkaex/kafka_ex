@@ -5,6 +5,8 @@ defmodule KafkaEx.ConsumerGroup.Test do
 
   @moduletag :consumer_group
 
+  @moduletag :capture_log
+
   test "fetching the consumer group from the default worker" do
     assert Application.get_env(:kafka_ex, :consumer_group) ==
       KafkaEx.consumer_group()
