@@ -1,5 +1,6 @@
 defmodule KafkaEx.ConsumerGroup.Test do
   alias KafkaEx.Protocol, as: Proto
+  alias KafkaEx.Config
   use ExUnit.Case
   import TestHelper
 
@@ -197,9 +198,9 @@ defmodule KafkaEx.ConsumerGroup.Test do
   test "offset_commit commits an offset and offset_fetch retrieves the committed offset" do
     random_string = generate_random_string
     Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) end)
-    assert KafkaEx.offset_commit(KafkaEx.server, %Proto.OffsetCommit.Request{topic: random_string, offset: 9, partition: 0}) ==
+    assert KafkaEx.offset_commit(Config.default_worker, %Proto.OffsetCommit.Request{topic: random_string, offset: 9, partition: 0}) ==
       [%Proto.OffsetCommit.Response{partitions: [0], topic: random_string}]
-    assert KafkaEx.offset_fetch(KafkaEx.server, %Proto.OffsetFetch.Request{topic: random_string, partition: 0}) ==
+    assert KafkaEx.offset_fetch(Config.default_worker, %Proto.OffsetFetch.Request{topic: random_string, partition: 0}) ==
       [%Proto.OffsetFetch.Response{partitions: [%{metadata: "", error_code: :no_error, offset: 9, partition: 0}], topic: random_string}]
   end
 

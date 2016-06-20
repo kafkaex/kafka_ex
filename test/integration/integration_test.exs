@@ -1,12 +1,13 @@
 defmodule KafkaEx.Integration.Test do
   alias KafkaEx.Protocol, as: Proto
+  alias KafkaEx.Config
   use ExUnit.Case
   import TestHelper
 
   @moduletag :integration
 
-  test "KafkaEx.server starts on Application start up" do
-    pid = Process.whereis(KafkaEx.server)
+  test "default worker starts on Application start up" do
+    pid = Process.whereis(Config.default_worker)
     assert is_pid(pid)
   end
 
@@ -83,9 +84,9 @@ defmodule KafkaEx.Integration.Test do
   end
 
 
-  test "KafkaEx.server generates metadata on start up" do
-    pid = Process.whereis(KafkaEx.server)
-    KafkaEx.produce("food", 0, "hey", worker_name: KafkaEx.server, required_acks: 1)
+  test "default worker generates metadata on start up" do
+    pid = Process.whereis(Config.default_worker)
+    KafkaEx.produce("food", 0, "hey", worker_name: Config.default_worker, required_acks: 1)
     metadata = :sys.get_state(pid).callback_state.metadata
 
     refute metadata == %Proto.Metadata.Response{}
@@ -103,7 +104,7 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "produce/4 with ack required returns an ack" do
-    produce_response = KafkaEx.produce("food", 0, "hey", worker_name: KafkaEx.server, required_acks: 1) |> hd
+    produce_response = KafkaEx.produce("food", 0, "hey", worker_name: Config.default_worker, required_acks: 1) |> hd
     offset = produce_response.partitions |> hd |> Map.get(:offset)
 
     refute offset == nil
@@ -141,7 +142,7 @@ defmodule KafkaEx.Integration.Test do
   test "produce creates log for a non-existing topic" do
     random_string = generate_random_string
     KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]})
-    pid = Process.whereis(KafkaEx.server)
+    pid = Process.whereis(Config.default_worker)
     metadata = :sys.get_state(pid).callback_state.metadata
 
     assert Enum.find_value(metadata.topic_metadatas, &(&1.topic == random_string))
@@ -166,7 +167,7 @@ defmodule KafkaEx.Integration.Test do
     refute random_topic_metadata.partition_metadatas == []
     assert Enum.all?(random_topic_metadata.partition_metadatas, &(&1.error_code == :no_error))
 
-    pid = Process.whereis(KafkaEx.server)
+    pid = Process.whereis(Config.default_worker)
     metadata = :sys.get_state(pid).callback_state.metadata
     random_topic_metadata = Enum.find(metadata.topic_metadatas, &(&1.topic == random_string))
 
