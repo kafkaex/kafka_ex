@@ -76,9 +76,12 @@ defmodule KafkaEx.Server do
 
   def handle_call({:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes, auto_commit}, _from, state) do
     true = consumer_group_if_auto_commit?(auto_commit, state)
-    {response, state} = fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, state, auto_commit)
-
-    {:reply, response, state}
+    try do
+      {response, state} = fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, state, auto_commit)
+      {:reply, response, state}
+    rescue e in [KafkaEx.Network.Error] ->
+      {:reply, {:error, e, System.stacktrace}, state}
+    end
   end
 
   def handle_call({:offset, topic, partition, time}, _from, state) do
