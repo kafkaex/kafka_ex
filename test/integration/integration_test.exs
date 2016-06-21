@@ -5,6 +5,8 @@ defmodule KafkaEx.Integration.Test do
 
   @moduletag :integration
 
+  @moduletag :capture_log
+
   test "KafkaEx.Server starts on Application start up" do
     pid = Process.whereis(KafkaEx.Server)
     assert is_pid(pid)

@@ -167,10 +167,15 @@ defmodule KafkaEx do
 
     retrieved_offset = current_offset(supplied_offset, partition, topic, worker_name)
 
-    GenServer.call(worker_name, {
+    case GenServer.call(worker_name, {
       :fetch, topic, partition, retrieved_offset,
       wait_time, min_bytes, max_bytes, auto_commit
-    })
+    }) do
+      {:error, ex, stacktrace} ->
+        reraise(ex, stacktrace)
+      result ->
+        result
+    end
   end
 
   @spec offset_commit(atom, KafkaEx.Protocol.OffsetCommit.Request.t) :: KafkaEx.Protocol.OffsetCommit.Response.t
