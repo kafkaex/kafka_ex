@@ -22,3 +22,8 @@ config :kafka_ex,
   max_restarts: 10,
   # Supervision max_seconds -  the time frame in which :max_restarts applies
   max_seconds: 60
+
+env_config = Path.expand("#{Mix.env}.exs", __DIR__)
+if File.exists?(env_config) do
+  import_config(env_config)
+end
