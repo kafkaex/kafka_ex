@@ -1,7 +1,8 @@
-defmodule KafkaExTest do
+defmodule KafkaEx.Integration.Async.Test do
   use ExUnit.Case, async: false
 
-  @tag :integration
+  @moduletag :integration
+
   test "Setting disable_default_worker to true removes the KafkaEx.Server worker" do
     # stop the application, disable the default worker, restart the application
     :ok = Application.stop(:kafka_ex)
