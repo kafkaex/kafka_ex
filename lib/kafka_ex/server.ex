@@ -38,7 +38,7 @@ defmodule KafkaEx.Server do
     {:ok, _} = :timer.send_interval(state.metadata_update_interval, :update_metadata)
 
     # only start the consumer group update cycle if we are using consumer groups
-    if consumer_group?(state) do
+    _ = if consumer_group?(state) do
       {:ok, _} = :timer.send_interval(state.consumer_group_update_interval, :update_consumer_metadata)
     end
 
@@ -62,7 +62,7 @@ defmodule KafkaEx.Server do
 
     response = case broker do
       nil    ->
-        Logger.log(:error, "Leader for topic #{produce_request.topic} is not available")
+        :ok = Logger.log(:error, "Leader for topic #{produce_request.topic} is not available")
         :leader_not_available
       broker -> case produce_request.required_acks do
         0 ->  KafkaEx.NetworkClient.send_async_request(broker, produce_request_data)
@@ -92,7 +92,7 @@ defmodule KafkaEx.Server do
 
     {response, state} = case broker do
       nil ->
-        Logger.log(:error, "Leader for topic #{topic} is not available")
+        :ok = Logger.log(:error, "Leader for topic #{topic} is not available")
         {:topic_not_found, state}
       _ ->
         response = broker
@@ -118,7 +118,7 @@ defmodule KafkaEx.Server do
 
     {response, state} = case broker do
       nil    ->
-        Logger.log(:error, "Coordinator for topic #{offset_fetch.topic} is not available")
+        :ok = Logger.log(:error, "Coordinator for topic #{offset_fetch.topic} is not available")
         {:topic_not_found, state}
       _ ->
         response = broker
@@ -182,7 +182,7 @@ defmodule KafkaEx.Server do
   def handle_call({:create_stream, handler, handler_init}, _from, state) do
     if state.event_pid && Process.alive?(state.event_pid) do
       info = Process.info(self)
-      Logger.log(:warn, "'#{info[:registered_name]}' already streaming handler '#{handler}'")
+      :ok = Logger.log(:warn, "'#{info[:registered_name]}' already streaming handler '#{handler}'")
     else
       {:ok, event_pid}  = GenEvent.start_link
       state = %{state | event_pid: event_pid}
@@ -221,7 +221,7 @@ defmodule KafkaEx.Server do
   end
 
   def handle_info(:stop_streaming, state) do
-    Logger.log(:debug, "Stopped worker #{inspect state.worker_name} from streaming")
+    :ok = Logger.log(:debug, "Stopped worker #{inspect state.worker_name} from streaming")
     GenEvent.stop(state.event_pid)
     {:noreply, %{state | event_pid: nil}}
   end
@@ -241,7 +241,7 @@ defmodule KafkaEx.Server do
   end
 
   def terminate(_, state) do
-    Logger.log(:debug, "Shutting down worker #{inspect state.worker_name}")
+    :ok = Logger.log(:debug, "Shutting down worker #{inspect state.worker_name}")
     if state.event_pid do
       GenEvent.stop(state.event_pid)
     end
@@ -251,7 +251,7 @@ defmodule KafkaEx.Server do
   defp update_consumer_metadata(state), do: update_consumer_metadata(state, retry_count, 0)
 
   defp update_consumer_metadata(state = %State{consumer_group: consumer_group}, 0, error_code) do
-    Logger.log(:error, "Fetching consumer_group #{consumer_group} metadata failed with error_code #{inspect error_code}")
+    :ok = Logger.log(:error, "Fetching consumer_group #{consumer_group} metadata failed with error_code #{inspect error_code}")
     {%Proto.ConsumerMetadata.Response{error_code: error_code}, state}
   end
 
@@ -280,7 +280,7 @@ defmodule KafkaEx.Server do
 
     case broker do
       nil ->
-        Logger.log(:error, "Leader for topic #{topic} is not available")
+        :ok = Logger.log(:error, "Leader for topic #{topic} is not available")
         {:topic_not_found, state}
       _ ->
         response = broker

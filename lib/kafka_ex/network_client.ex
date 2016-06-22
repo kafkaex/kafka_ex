@@ -1,14 +1,14 @@
 defmodule KafkaEx.NetworkClient do
   require Logger
 
-  @spec create_socket(binary, non_neg_integer) :: nil | :gen_tcp.socket
+  @spec create_socket(binary, pos_integer) :: nil | port()
   def create_socket(host, port) do
     case :gen_tcp.connect(format_host(host), port, [:binary, {:packet, 4}]) do
       {:ok, socket} ->
-        Logger.log(:debug, "Succesfully connected to broker #{inspect(host)}:#{inspect port}")
+        :ok = Logger.log(:debug, "Succesfully connected to broker #{inspect(host)}:#{inspect port}")
         socket
       _             ->
-        Logger.log(:error, "Could not connect to broker #{inspect(host)}:#{inspect port}")
+        :ok = Logger.log(:error, "Could not connect to broker #{inspect(host)}:#{inspect port}")
         nil
     end
   end
@@ -23,7 +23,7 @@ defmodule KafkaEx.NetworkClient do
     case :gen_tcp.send(socket, data) do
       :ok -> :ok
       {_, reason} ->
-        Logger.log(:error, "Asynchronously sending data to broker #{inspect broker.host}:#{inspect broker.port} failed with #{inspect reason}")
+        :ok = Logger.log(:error, "Asynchronously sending data to broker #{inspect broker.host}:#{inspect broker.port} failed with #{inspect reason}")
         reason
     end
   end
@@ -37,11 +37,11 @@ defmodule KafkaEx.NetworkClient do
         case :gen_tcp.recv(socket, 0, timeout) do
           {:ok, data} -> data
           {:error, reason} ->
-            Logger.log(:error, "Receiving data from broker #{inspect broker.host}:#{inspect broker.port} failed with #{inspect reason}")
+            :ok = Logger.log(:error, "Receiving data from broker #{inspect broker.host}:#{inspect broker.port} failed with #{inspect reason}")
             nil
         end
       {_, reason} ->
-        Logger.log(:error, "Sending data to broker #{inspect broker.host}:#{inspect broker.port} failed with #{inspect reason}")
+        :ok = Logger.log(:error, "Sending data to broker #{inspect broker.host}:#{inspect broker.port} failed with #{inspect reason}")
         nil
     end
 

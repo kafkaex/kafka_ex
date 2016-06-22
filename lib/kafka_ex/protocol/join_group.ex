@@ -11,7 +11,7 @@ defmodule KafkaEx.Protocol.JoinGroup do
                          leader_id: binary, member_id: binary, members: [binary]}
   end
 
-  @spec create_request(integer, binary, binary, binary, [binary], integer) :: binary
+  @spec create_request(integer, binary, binary, binary, [binary], integer) :: <<_::64, _::_ *8>>
   def create_request(correlation_id, client_id, member_id, group_name, topics, session_timeout) do
     KafkaEx.Protocol.create_request(:join_group, correlation_id, client_id) <>
       << byte_size(group_name) :: 16-signed, group_name :: binary,
@@ -26,7 +26,7 @@ defmodule KafkaEx.Protocol.JoinGroup do
          >>
   end
 
-  @spec parse_response(binary) :: Response.t
+  @spec parse_response(<<_::64, _::_ *8>>) :: Response.t
   def parse_response(<< _correlation_id :: 32-signed, error_code :: 16-signed, generation_id :: 32-signed,
                        protocol_len :: 16-signed, _protocol :: size(protocol_len)-binary,
                        leader_len :: 16-signed, leader :: size(leader_len)-binary,

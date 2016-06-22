@@ -45,7 +45,7 @@ defmodule KafkaEx.Server0P8P0 do
 
     response = case broker do
       nil    ->
-        Logger.log(:error, "Leader for topic #{produce_request.topic} is not available")
+        :ok = Logger.log(:error, "Leader for topic #{produce_request.topic} is not available")
         :leader_not_available
       broker -> case produce_request.required_acks do
         0 ->  KafkaEx.NetworkClient.send_async_request(broker, produce_request_data)
@@ -74,7 +74,7 @@ defmodule KafkaEx.Server0P8P0 do
 
     {response, state} = case broker do
       nil ->
-        Logger.log(:error, "Leader for topic #{topic} is not available")
+        :ok = Logger.log(:error, "Leader for topic #{topic} is not available")
         {:topic_not_found, state}
       _ ->
         response = broker
@@ -96,7 +96,7 @@ defmodule KafkaEx.Server0P8P0 do
   def handle_call({:create_stream, handler, handler_init}, _from, state) do
     if state.event_pid && Process.alive?(state.event_pid) do
       info = Process.info(self)
-      Logger.log(:warn, "'#{info[:registered_name]}' already streaming handler '#{handler}'")
+      :ok = Logger.log(:warn, "'#{info[:registered_name]}' already streaming handler '#{handler}'")
     else
       {:ok, event_pid}  = GenEvent.start_link
       state = %{state | event_pid: event_pid}
@@ -141,7 +141,7 @@ defmodule KafkaEx.Server0P8P0 do
   end
 
   def handle_info(:stop_streaming, state) do
-    Logger.log(:debug, "Stopped worker #{inspect state.worker_name} from streaming")
+    :ok = Logger.log(:debug, "Stopped worker #{inspect state.worker_name} from streaming")
     GenEvent.stop(state.event_pid)
     {:noreply, %{state | event_pid: nil}}
   end
@@ -155,7 +155,7 @@ defmodule KafkaEx.Server0P8P0 do
   end
 
   def terminate(_, state) do
-    Logger.log(:debug, "Shutting down worker #{inspect state.worker_name}")
+    :ok = Logger.log(:debug, "Shutting down worker #{inspect state.worker_name}")
     if state.event_pid do
       GenEvent.stop(state.event_pid)
     end
@@ -173,7 +173,7 @@ defmodule KafkaEx.Server0P8P0 do
 
     case broker do
       nil ->
-        Logger.log(:error, "Leader for topic #{topic} is not available")
+        :ok = Logger.log(:error, "Leader for topic #{topic} is not available")
         {:topic_not_found, state}
       _ ->
         response = broker
