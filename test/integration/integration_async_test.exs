@@ -1,5 +1,6 @@
 defmodule KafkaEx.Integration.Async.Test do
   use ExUnit.Case, async: false
+  alias KafkaEx.Config
 
   @moduletag :integration
 
@@ -11,7 +12,7 @@ defmodule KafkaEx.Integration.Async.Test do
 
     # the supervisor should now have no children and the default worker should not be registered
     assert [] == Supervisor.which_children(KafkaEx.Supervisor)
-    assert nil == Process.whereis(KafkaEx.Server)
+    assert nil == Process.whereis(Config.default_worker)
 
     # revert the change, restart the application
     :ok = Application.stop(:kafka_ex)
@@ -19,9 +20,9 @@ defmodule KafkaEx.Integration.Async.Test do
     {:ok, _} = Application.ensure_all_started(:kafka_ex)
 
     # we should have the default worker back again
-    pid = Process.whereis(KafkaEx.Server)
+    pid = Process.whereis(Config.default_worker)
     assert is_pid(pid)
-    assert [{:undefined, pid, :worker, [KafkaEx.server]}] ==
+    assert [{:undefined, pid, :worker, [Config.server_impl]}] ==
       Supervisor.which_children(KafkaEx.Supervisor)
   end
 end
