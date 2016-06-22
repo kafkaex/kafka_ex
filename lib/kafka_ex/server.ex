@@ -10,6 +10,7 @@ defmodule KafkaEx.Server do
     server_impl: nil,
     brokers: [],
     event_pid: nil,
+    stream_timer: nil,
     consumer_metadata: %ConsumerMetadata.Response{},
     correlation_id: 0,
     consumer_group: nil,
@@ -216,6 +217,11 @@ defmodule KafkaEx.Server do
 
       def handle_info(:stop_streaming, %{callback_state: callback_state, callback_module: server_impl} = state) do
         {:noreply, callback_state} = server_impl.kafka_server_stop_streaming(callback_state)
+        callback_state = case callback_state.stream_timer do
+          nil -> callback_state
+          ref -> Process.cancel_timer(ref)
+          %{callback_state | stream_timer: nil}
+        end
         {:noreply, %{callback_state: callback_state, callback_module: server_impl}}
       end
 

@@ -191,9 +191,9 @@ defmodule KafkaEx.DefaultServer do
                  end
              end
 
-    Process.send_after(self, {:start_streaming, topic, partition, offset, handler, auto_commit}, 500)
+    ref = Process.send_after(self, {:start_streaming, topic, partition, offset, handler, auto_commit}, 500)
 
-    {:noreply, state}
+    {:noreply, %{state | stream_timer: ref}}
   end
 
   def kafka_server_update_consumer_metadata(state) do

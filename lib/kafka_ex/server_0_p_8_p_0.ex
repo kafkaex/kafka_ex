@@ -85,9 +85,9 @@ defmodule KafkaEx.Server0P8P0 do
                  end
              end
 
-    Process.send_after(self, {:start_streaming, topic, partition, offset, handler, auto_commit}, 500)
+    ref = Process.send_after(self, {:start_streaming, topic, partition, offset, handler, auto_commit}, 500)
 
-    {:noreply, state}
+    {:noreply, %{state | stream_timer: ref}}
   end
 
   defp fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, state, _auto_commit) do
