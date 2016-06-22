@@ -22,7 +22,7 @@ defmodule KafkaEx.Protocol.SyncGroup do
     >>
   end
 
-  @spec parse_response(binary) :: Response.t
+  @spec parse_response(<<_::64, _::_ *8>>) :: Response.t
   def parse_response(<< _correlation_id :: 32-signed, error_code :: 16-signed,
                         _member_assignment_len :: 32-signed,
                         @member_assignment_version :: 16-signed,

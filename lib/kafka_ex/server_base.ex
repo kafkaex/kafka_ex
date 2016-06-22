@@ -43,7 +43,7 @@ defmodule KafkaEx.ServerBase do
 
     def retrieve_metadata(brokers, correlation_id, sync_timeout, topic \\ []), do: retrieve_metadata(brokers, correlation_id, sync_timeout, topic, @retry_count, 0)
     def retrieve_metadata(_, correlation_id, _sync_timeout, topic, 0, error_code) do
-      Logger.log(:error, "Metadata request for topic #{inspect topic} failed with error_code #{inspect error_code}")
+      :ok = Logger.log(:error, "Metadata request for topic #{inspect topic} failed with error_code #{inspect error_code}")
       {correlation_id, %Proto.Metadata.Response{}}
     end
     def retrieve_metadata(brokers, correlation_id, sync_timeout, topic, retry, _error_code) do
@@ -51,7 +51,7 @@ defmodule KafkaEx.ServerBase do
       data = first_broker_response(metadata_request, brokers, sync_timeout)
       response = case data do
                    nil ->
-                     Logger.log(:error, "Unable to fetch metadata from any brokers.  Timeout is #{sync_timeout}.")
+                     :ok = Logger.log(:error, "Unable to fetch metadata from any brokers.  Timeout is #{sync_timeout}.")
                      raise "Unable to fetch metadata from any brokers.  Timeout is #{sync_timeout}."
                      :no_metadata_available
                    data ->
@@ -73,7 +73,7 @@ defmodule KafkaEx.ServerBase do
       case length(brokers_to_keep) do
         0 -> brokers_to_remove
         _ -> Enum.each(brokers_to_remove, fn(broker) ->
-          Logger.log(:info, "Closing connection to broker #{inspect broker.host} on port #{inspect broker.port}")
+          :ok = Logger.log(:info, "Closing connection to broker #{inspect broker.host} on port #{inspect broker.port}")
           KafkaEx.NetworkClient.close_socket(broker.socket)
         end)
           brokers_to_keep
@@ -83,7 +83,7 @@ defmodule KafkaEx.ServerBase do
     defp add_new_brokers(brokers, []), do: brokers
     defp add_new_brokers(brokers, [metadata_broker|metadata_brokers]) do
       case Enum.find(brokers, &(metadata_broker.host == &1.host && metadata_broker.port == &1.port)) do
-        nil -> Logger.log(:info, "Establishing connection to broker #{inspect metadata_broker.host} on port #{inspect metadata_broker.port}")
+        nil -> :ok = Logger.log(:info, "Establishing connection to broker #{inspect metadata_broker.host} on port #{inspect metadata_broker.port}")
           add_new_brokers([%{metadata_broker | socket: KafkaEx.NetworkClient.create_socket(metadata_broker.host, metadata_broker.port)} | brokers], metadata_brokers)
         _ -> add_new_brokers(brokers, metadata_brokers)
       end

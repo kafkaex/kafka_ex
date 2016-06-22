@@ -16,7 +16,7 @@ defmodule KafkaEx.Protocol.OffsetCommit do
     Protocol.create_request(:offset_commit, correlation_id, client_id) <> << byte_size(offset_commit_request.consumer_group) :: 16-signed, offset_commit_request.consumer_group :: binary, 1 :: 32-signed, byte_size(offset_commit_request.topic) :: 16-signed, offset_commit_request.topic :: binary, 1 :: 32-signed, offset_commit_request.partition :: 32-signed, offset_commit_request.offset :: 64, byte_size(offset_commit_request.metadata) :: 16-signed, offset_commit_request.metadata :: binary >>
   end
 
-  @spec parse_response(binary) :: [] | [Response.t]
+  @spec parse_response(<<_::64, _::_ *8>>) :: [] | [Response.t]
   def parse_response(<< _correlation_id :: 32-signed, topics_count :: 32-signed, topics_data :: binary >>) do
     parse_topics(topics_count, topics_data)
   end
