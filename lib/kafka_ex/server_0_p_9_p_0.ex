@@ -7,7 +7,6 @@ defmodule KafkaEx.Server0P9P0 do
   alias KafkaEx.Protocol.Metadata
   alias KafkaEx.Protocol.OffsetFetch
   alias KafkaEx.Protocol.OffsetCommit
-  alias KafkaEx.Protocol.Produce
   alias KafkaEx.Protocol.SyncGroup
   alias KafkaEx.Server.State
 
@@ -52,35 +51,6 @@ defmodule KafkaEx.Server0P9P0 do
 
   def kafka_server_consumer_group(state) do
     {:reply, state.consumer_group, state}
-  end
-
-  def kafka_server_produce(produce_request, state) do
-    correlation_id = state.correlation_id + 1
-    produce_request_data = Produce.create_request(correlation_id, @client_id, produce_request)
-    {broker, new_state, corr_id} = case Metadata.Response.broker_for_topic(state.metadata, state.brokers, produce_request.topic, produce_request.partition) do
-      nil    ->
-        {retrieved_corr_id, _} = retrieve_metadata(state.brokers, state.correlation_id, state.sync_timeout, produce_request.topic)
-        updated_state = %{update_metadata(state) | correlation_id: retrieved_corr_id}
-        {
-          Metadata.Response.broker_for_topic(updated_state.metadata, updated_state.brokers, produce_request.topic, produce_request.partition),
-          updated_state,
-          retrieved_corr_id
-        }
-      broker -> {broker, state, correlation_id}
-    end
-
-    response = case broker do
-      nil    ->
-        Logger.log(:error, "Leader for topic #{produce_request.topic} is not available")
-        :leader_not_available
-      broker -> case produce_request.required_acks do
-        0 ->  KafkaEx.NetworkClient.send_async_request(broker, produce_request_data)
-        _ -> KafkaEx.NetworkClient.send_sync_request(broker, produce_request_data, new_state.sync_timeout) |> Produce.parse_response
-      end
-    end
-
-    new_state1 = %{new_state | correlation_id: corr_id + 1}
-    {:reply, response, new_state1}
   end
 
   def kafka_server_fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, auto_commit, state) do
