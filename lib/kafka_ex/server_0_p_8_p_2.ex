@@ -82,7 +82,7 @@ defmodule KafkaEx.Server0P8P2 do
     {:reply, response, state}
   end
 
-  def kafka_server_offset_commit( offset_commit_request, state) do
+  def kafka_server_offset_commit(offset_commit_request, state) do
     {response, state} = offset_commit(state, offset_commit_request)
 
     {:reply, response, state}
@@ -125,7 +125,7 @@ defmodule KafkaEx.Server0P8P2 do
     {:noreply, state}
   end
 
-  def kafka_server_join_group( _, _, _state), do: raise "Join Group is not supported in 0.8.0 version of kafka"
+  def kafka_server_join_group(_, _, _state), do: raise "Join Group is not supported in 0.8.0 version of kafka"
   def kafka_server_sync_group(_, _, _, _, _state), do: raise "Sync Group is not supported in 0.8.0 version of kafka"
   def kafka_server_heartbeat(_, _, _, _state), do: raise "Heartbeat is not supported in 0.8.0 version of kafka"
   defp update_consumer_metadata(state), do: update_consumer_metadata(state, @retry_count, 0)

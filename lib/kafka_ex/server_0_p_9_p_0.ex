@@ -85,7 +85,7 @@ defmodule KafkaEx.Server0P9P0 do
     {:reply, response, state}
   end
 
-  def kafka_server_offset_commit( offset_commit_request, state) do
+  def kafka_server_offset_commit(offset_commit_request, state) do
     {response, state} = offset_commit(state, offset_commit_request)
 
     {:reply, response, state}

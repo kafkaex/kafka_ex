@@ -36,11 +36,11 @@ defmodule KafkaEx.Server0P8P0 do
     {:reply, response, state}
   end
 
-  def kafka_server_offset_fetch( _, _state), do: raise "Offset Fetch is not supported in 0.8.0 version of kafka"
-  def kafka_server_offset_commit( _, _state), do: raise "Offset Commit is not supported in 0.8.0 version of kafka"
-  def kafka_server_consumer_group( _state), do: raise "Consumer Group is not supported in 0.8.0 version of kafka"
+  def kafka_server_offset_fetch(_, _state), do: raise "Offset Fetch is not supported in 0.8.0 version of kafka"
+  def kafka_server_offset_commit(_, _state), do: raise "Offset Commit is not supported in 0.8.0 version of kafka"
+  def kafka_server_consumer_group(_state), do: raise "Consumer Group is not supported in 0.8.0 version of kafka"
   def kafka_server_consumer_group_metadata(_state), do: raise "Consumer Group Metadata is not supported in 0.8.0 version of kafka"
-  def kafka_server_join_group( _, _, _state), do: raise "Join Group is not supported in 0.8.0 version of kafka"
+  def kafka_server_join_group(_, _, _state), do: raise "Join Group is not supported in 0.8.0 version of kafka"
   def kafka_server_sync_group(_, _, _, _, _state), do: raise "Sync Group is not supported in 0.8.0 version of kafka"
   def kafka_server_heartbeat(_, _, _, _state), do: raise "Heartbeat is not supported in 0.8.0 version of kafka"
   def kafka_server_update_consumer_metadata(_state), do: raise "Consumer Group Metadata is not supported in 0.8.0 version of kafka"
