@@ -1,6 +1,6 @@
 ExUnit.start()
 
-ExUnit.configure exclude: [integration: true, consumer_group: true, server_o_p_9_p_0: true]
+ExUnit.configure exclude: [integration: true, consumer_group: true, server_0_p_9_p_0: true]
 
 defmodule TestHelper do
   def generate_random_string(string_length \\ 20) do
