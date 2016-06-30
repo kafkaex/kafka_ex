@@ -157,20 +157,6 @@ defmodule KafkaEx.DefaultServer do
     {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
   end
 
-  def kafka_server_create_stream(handler, handler_init, state) do
-    updated_state = if state.event_pid && Process.alive?(state.event_pid) do
-      info = Process.info(self)
-      Logger.log(:warn, "'#{info[:registered_name]}' already streaming handler '#{handler}'")
-      state
-    else
-      {:ok, event_pid}  = GenEvent.start_link
-      new_state = %{state | event_pid: event_pid}
-      :ok = GenEvent.add_handler(new_state.event_pid, handler, handler_init)
-      new_state
-    end
-    {:reply, GenEvent.stream(updated_state.event_pid), updated_state}
-  end
-
   def kafka_server_start_streaming(_topic, _partition, _offset, _handler, _auto_commit, state = %State{event_pid: nil}) do
     # our streaming could have been canceled with a streaming update in-flight
     {:noreply, state}

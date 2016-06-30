@@ -311,8 +311,7 @@ defmodule KafkaEx.Server do
 
       def kafka_server_create_stream(handler, handler_init, state) do
         new_state = if state.event_pid && Process.alive?(state.event_pid) do
-          info = Process.info(self)
-          Logger.log(:warn, "'#{info[:registered_name]}' already streaming handler '#{handler}'")
+          Logger.log(:warn, "'#{state.worker_name}' already streaming handler '#{handler}'")
           state
         else
           {:ok, event_pid}  = GenEvent.start_link
