@@ -1,4 +1,4 @@
-defmodule KafkaEx.DefaultServer do
+defmodule KafkaEx.Server0P9P0 do
   use KafkaEx.Server
   alias KafkaEx.Protocol.ConsumerMetadata
   alias KafkaEx.Protocol.Fetch

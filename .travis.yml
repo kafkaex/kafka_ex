@@ -33,4 +33,4 @@ before_install:
 before_script:
   - scripts/start_kafka.sh
 script:
-  - mix test --include integration --include consumer_group; mix test --include integration --include consumer_group
+  - mix test --include integration --include consumer_group --include server_0_p_9_p_0; mix test --include integration --include consumer_group --include server_0_p_9_p_0

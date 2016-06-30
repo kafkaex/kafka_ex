@@ -12,6 +12,7 @@ defmodule KafkaEx.Config do
   end
 
   defp server("0.8.0"), do: KafkaEx.Server0P8P0
-  defp server(_), do: KafkaEx.DefaultServer
+  defp server("0.8.2"), do: KafkaEx.Server0P8P2
+  defp server(_), do: KafkaEx.Server0P9P0
 
 end

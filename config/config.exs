@@ -21,7 +21,8 @@ config :kafka_ex,
   # Supervision max_restarts - the maximum amount of restarts allowed in a time frame
   max_restarts: 10,
   # Supervision max_seconds -  the time frame in which :max_restarts applies
-  max_seconds: 60
+  max_seconds: 60,
+  kafka_version: "0.9.0"
 
 env_config = Path.expand("#{Mix.env}.exs", __DIR__)
 if File.exists?(env_config) do
