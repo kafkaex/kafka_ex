@@ -264,8 +264,6 @@ defmodule KafkaEx.Server do
           broker -> {broker, state, correlation_id}
         end
 
-        Logger.info state
-
         response = case broker do
           nil    ->
             Logger.log(:error, "Leader for topic #{produce_request.topic} is not available")
