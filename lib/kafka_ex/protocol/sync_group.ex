@@ -1,12 +1,17 @@
 defmodule KafkaEx.Protocol.SyncGroup do
+  @moduledoc """
+  Implementation of the Kafka SyncGroup request and response APIs
+  """
   @member_assignment_version 0
 
   defmodule Assignment do
+    @moduledoc false
     defstruct topic: nil, partitions: []
     @type t :: %Assignment{topic: binary, partitions: [integer]}
   end
 
   defmodule Response do
+    @moduledoc false
     defstruct error_code: nil, assignments: []
     @type t :: %Response{error_code: atom | integer, assignments: [Assignment.t]}
   end

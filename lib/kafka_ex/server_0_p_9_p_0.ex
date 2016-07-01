@@ -1,4 +1,7 @@
 defmodule KafkaEx.Server0P9P0 do
+  @moduledoc """
+  Implements kafkaEx.Server behaviors for kafka 0.9.0 API.
+  """
   use KafkaEx.Server
   alias KafkaEx.Protocol.ConsumerMetadata
   alias KafkaEx.Protocol.Fetch

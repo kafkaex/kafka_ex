@@ -1,12 +1,18 @@
 defmodule KafkaEx.Protocol.OffsetCommit do
   alias KafkaEx.Protocol
 
+  @moduledoc """
+  Implementation of the Kafka OffsetCommit request and response APIs
+  """
+
   defmodule Request do
+    @moduledoc false
     defstruct consumer_group: nil, topic: nil, partition: nil, offset: nil, metadata: ""
     @type t :: %Request{consumer_group: binary, topic: binary, partition: integer, offset: integer}
   end
 
   defmodule Response do
+    @moduledoc false
     defstruct partitions: [], topic: nil
     @type t :: %Response{partitions: [] | [integer], topic: binary}
   end

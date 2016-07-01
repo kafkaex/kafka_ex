@@ -1,4 +1,8 @@
 defmodule KafkaEx.Server do
+  @moduledoc """
+  Defines the KafkaEx.Server behavior that all Kafka API servers must implement, this module also provides some common callback functions that are injected into the servers that `use` it.
+  """
+
   alias KafkaEx.Protocol.Produce
   alias KafkaEx.Protocol.OffsetFetch
   alias KafkaEx.Protocol.OffsetCommit
@@ -6,6 +10,8 @@ defmodule KafkaEx.Server do
   alias KafkaEx.Protocol.ConsumerMetadata
 
   defmodule State do
+    @moduledoc false
+
     defstruct(metadata: %Metadata.Response{},
     server_impl: nil,
     brokers: [],

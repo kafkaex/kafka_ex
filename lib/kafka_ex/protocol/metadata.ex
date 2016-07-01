@@ -2,12 +2,17 @@ defmodule KafkaEx.Protocol.Metadata do
   alias KafkaEx.Protocol
   import KafkaEx.Protocol.Common
 
+  @moduledoc """
+  Implementation of the Kafka Hearbeat request and response APIs
+  """
   defmodule Request do
+    @moduledoc false
     defstruct topic: nil
     @type t :: %Request{topic: binary}
   end
 
   defmodule Response do
+    @moduledoc false
     defstruct brokers: [], topic_metadatas: []
 
     def broker_for_topic(metadata, brokers, topic, partition) do
@@ -33,6 +38,7 @@ defmodule KafkaEx.Protocol.Metadata do
   end
 
   defmodule Broker do
+    @moduledoc false
     defstruct node_id: 0, host: "", port: 0, socket: nil
     @type t :: %Broker{node_id: non_neg_integer, host: binary, port: non_neg_integer, socket: nil | :gen_tcp.socket}
 
@@ -42,10 +48,12 @@ defmodule KafkaEx.Protocol.Metadata do
   end
 
   defmodule TopicMetadata do
+    @moduledoc false
     defstruct error_code: 0, topic: nil, partition_metadatas: []
   end
 
   defmodule PartitionMetadata do
+    @moduledoc false
     defstruct error_code: 0, partition_id: nil, leader: -1, replicas: [], isrs: []
   end
 

@@ -1,6 +1,10 @@
 defmodule KafkaEx.Protocol.Heartbeat do
+  @moduledoc """
+  Implementation of the Kafka Hearbeat request and response APIs
+  """
 
   defmodule Response do
+    @moduledoc false
     # We could just return the error code instead of having the struct, but this
     # keeps the code normalized
     defstruct error_code: nil

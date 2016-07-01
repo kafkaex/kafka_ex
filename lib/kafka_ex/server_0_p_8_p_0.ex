@@ -1,4 +1,7 @@
 defmodule KafkaEx.Server0P8P0 do
+  @moduledoc """
+  Implements kafkaEx.Server behaviors for kafka >= 0.8.0 < 0.8.2 API.
+  """
   use KafkaEx.Server
   alias KafkaEx.Protocol.Fetch
   alias KafkaEx.Protocol.Metadata

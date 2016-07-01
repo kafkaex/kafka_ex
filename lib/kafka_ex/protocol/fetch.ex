@@ -1,12 +1,18 @@
 defmodule KafkaEx.Protocol.Fetch do
   alias KafkaEx.Protocol
 
+  @moduledoc """
+  Implementation of the Kafka Fetch request and response APIs
+  """
+
   defmodule Response do
+    @moduledoc false
     defstruct topic: nil, partitions: []
-    @type t :: %Response{topic: binary, partitions: list} 
+    @type t :: %Response{topic: binary, partitions: list}
   end
 
   defmodule Message do
+    @moduledoc false
     defstruct attributes: 0, crc: nil, offset: nil, key: nil, value: nil
     @type t :: %Message{attributes: integer, crc: integer, offset: integer, key: binary, value: binary}
   end
@@ -62,7 +68,7 @@ defmodule KafkaEx.Protocol.Fetch do
 
   defp maybe_decompress(message = %Message{attributes: 0}, rest) do
     parse_key(message, rest)
-  end 
+  end
   defp maybe_decompress(%Message{attributes: attributes}, rest) do
     << -1 :: 32-signed, value_size :: 32, value :: size(value_size)-binary >> = rest
     decompressed = KafkaEx.Compression.decompress(attributes, value)

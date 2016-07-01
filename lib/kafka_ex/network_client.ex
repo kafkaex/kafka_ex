@@ -1,6 +1,7 @@
 defmodule KafkaEx.NetworkClient do
   require Logger
 
+  @moduledoc false
   @spec create_socket(binary, non_neg_integer) :: nil | :gen_tcp.socket
   def create_socket(host, port) do
     case :gen_tcp.connect(format_host(host), port, [:binary, {:packet, 4}]) do

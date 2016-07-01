@@ -1,11 +1,15 @@
 defmodule KafkaEx.Protocol.JoinGroup do
   import KafkaEx.Protocol.Common
 
+  @moduledoc """
+  Implementation of the Kafka JoinGroup request and response APIs
+  """
   @protocol_type "consumer"
   @strategy_name "assign"
   @metadata_version 0
 
   defmodule Response do
+    @moduledoc false
     defstruct error_code: nil, generation_id: 0, leader_id: nil, member_id: nil, members: []
     @type t :: %Response{error_code: atom | integer, generation_id: integer,
                          leader_id: binary, member_id: binary, members: [binary]}

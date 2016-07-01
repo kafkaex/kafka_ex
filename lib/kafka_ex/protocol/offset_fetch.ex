@@ -1,12 +1,18 @@
 defmodule KafkaEx.Protocol.OffsetFetch do
   alias KafkaEx.Protocol
 
+  @moduledoc """
+  Implementation of the Kafka OffsetFetch request and response APIs
+  """
+
   defmodule Request do
+    @moduledoc false
     defstruct consumer_group: nil, topic: nil, partition: nil
     @type t :: %Request{consumer_group: binary, topic: binary, partition: integer}
   end
 
   defmodule Response do
+    @moduledoc false
     defstruct topic: nil, partitions: []
     @type t :: %Response{topic: binary, partitions: list}
 

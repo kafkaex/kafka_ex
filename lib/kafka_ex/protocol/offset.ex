@@ -1,12 +1,18 @@
 defmodule KafkaEx.Protocol.Offset do
   alias KafkaEx.Protocol
 
+  @moduledoc """
+  Implementation of the Kafka Offset request and response APIs
+  """
+
   defmodule Request do
+    @moduledoc false
     defstruct replica_id: -1, topic_name: nil, partition: nil, time: -1, max_number_of_offsets: 1
     @type t :: %Request{replica_id: integer, topic_name: binary, partition: integer, time: integer, max_number_of_offsets: integer}
   end
 
   defmodule Response do
+    @moduledoc false
     defstruct topic: nil, partition_offsets: []
     @type t :: %Response{topic: binary, partition_offsets: list}
   end

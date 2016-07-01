@@ -1,5 +1,6 @@
 defmodule KafkaEx.Supervisor do
   use Supervisor
+  @moduledoc false
 
   def start_link(server, max_restarts, max_seconds) do
     {:ok, pid} = Supervisor.start_link(__MODULE__, [server, max_restarts, max_seconds], [name: __MODULE__])
