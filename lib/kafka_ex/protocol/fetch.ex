@@ -1,5 +1,6 @@
 defmodule KafkaEx.Protocol.Fetch do
   alias KafkaEx.Protocol
+  import KafkaEx.Protocol.Common
 
   @moduledoc """
   Implementation of the Kafka Fetch request and response APIs
@@ -24,17 +25,11 @@ defmodule KafkaEx.Protocol.Fetch do
   end
 
   def parse_response(<< _correlation_id :: 32-signed, topics_size :: 32-signed, rest :: binary>>) do
-    parse_topics(topics_size, rest)
+    parse_topics(topics_size, rest, __MODULE__)
   end
 
-  defp parse_topics(0, _), do: []
-  defp parse_topics(topics_size, << topic_size :: 16-signed, topic :: size(topic_size)-binary, partitions_size :: 32-signed, rest :: binary >>) do
-    {partitions, topics_data} = parse_partitions(partitions_size, rest, [])
-    [%Response{topic: topic, partitions: partitions} | parse_topics(topics_size - 1, topics_data)]
-  end
-
-  defp parse_partitions(0, rest, partitions), do: {partitions, rest}
-  defp parse_partitions(partitions_size, << partition :: 32-signed, error_code :: 16-signed, hw_mark_offset :: 64-signed,
+  def parse_partitions(0, rest, partitions), do: {partitions, rest}
+  def parse_partitions(partitions_size, << partition :: 32-signed, error_code :: 16-signed, hw_mark_offset :: 64-signed,
   msg_set_size :: 32-signed, msg_set_data :: size(msg_set_size)-binary, rest :: binary >>, partitions) do
     {:ok, message_set, last_offset} = parse_message_set([], msg_set_data)
     parse_partitions(partitions_size - 1, rest, [%{partition: partition, error_code: Protocol.error(error_code), hw_mark_offset: hw_mark_offset, message_set: message_set, last_offset: last_offset} | partitions])

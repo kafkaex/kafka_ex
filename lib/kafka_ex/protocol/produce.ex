@@ -1,5 +1,6 @@
 defmodule KafkaEx.Protocol.Produce do
   alias KafkaEx.Protocol
+  import KafkaEx.Protocol.Common
 
   @moduledoc """
   Implementation of the Kafka Produce request and response APIs
@@ -36,7 +37,7 @@ defmodule KafkaEx.Protocol.Produce do
       << byte_size(topic) :: 16-signed, topic :: binary, 1 :: 32-signed, partition :: 32-signed, byte_size(message_set) :: 32-signed >> <> message_set
   end
 
-  def parse_response(<< _correlation_id :: 32-signed, num_topics :: 32-signed, rest :: binary >>), do: parse_topics(num_topics, rest)
+  def parse_response(<< _correlation_id :: 32-signed, num_topics :: 32-signed, rest :: binary >>), do: parse_topics(num_topics, rest, __MODULE__)
   def parse_response(unknown), do: unknown
 
   defp create_message_set([], _compression_type), do: ""
@@ -68,14 +69,8 @@ defmodule KafkaEx.Protocol.Produce do
     end
   end
 
-  defp parse_topics(0, _), do: []
-  defp parse_topics(topics_size, << topic_size :: 16-signed, topic :: size(topic_size)-binary, partitions_size :: 32-signed, rest :: binary >>) do
-    {partitions, topics_data} = parse_partitions(partitions_size, rest, [])
-    [%Response{topic: topic, partitions: partitions} | parse_topics(topics_size - 1, topics_data)]
-  end
-
-  defp parse_partitions(0, rest, partitions), do: {partitions, rest}
-  defp parse_partitions(partitions_size, << partition :: 32-signed, error_code :: 16-signed, offset :: 64, rest :: binary >>, partitions) do
+  def parse_partitions(0, rest, partitions), do: {partitions, rest}
+  def parse_partitions(partitions_size, << partition :: 32-signed, error_code :: 16-signed, offset :: 64, rest :: binary >>, partitions) do
     parse_partitions(partitions_size - 1, rest, [%{partition: partition, error_code: Protocol.error(error_code), offset: offset} | partitions])
   end
 
