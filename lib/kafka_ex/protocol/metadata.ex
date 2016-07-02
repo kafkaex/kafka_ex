@@ -18,21 +18,31 @@ defmodule KafkaEx.Protocol.Metadata do
     def broker_for_topic(metadata, brokers, topic, partition) do
       case Enum.find(metadata.topic_metadatas, &(topic == &1.topic)) do
         nil -> nil
-        topic_metadata ->
-          case Enum.find(topic_metadata.partition_metadatas, &(partition == &1.partition_id)) do
-            nil -> nil
-            lead_broker ->
-              case Enum.find(metadata.brokers, &(lead_broker.leader == &1.node_id)) do
-                nil -> nil
-                broker -> case Enum.find(brokers, &(broker.host == &1.host && broker.port == &1.port)) do
-                  nil -> nil
-                  broker -> case Port.info(broker.socket) do
-                              port_info when is_list(port_info) -> broker
-                              _ -> nil
-                  end
-                end
-              end
-          end
+        topic_metadata -> find_lead_broker(metadata.brokers, topic_metadata, brokers, partition)
+      end
+    end
+
+    defp find_lead_broker(metadata_brokers, topic_metadata, brokers, partition) do
+      case Enum.find(topic_metadata.partition_metadatas, &(partition == &1.partition_id)) do
+        nil -> nil
+        lead_broker -> find_broker(lead_broker, metadata_brokers, brokers)
+      end
+    end
+
+    defp find_broker(lead_broker, metadata_brokers, brokers) do
+      case Enum.find(metadata_brokers, &(lead_broker.leader == &1.node_id)) do
+        nil -> nil
+        broker -> case Enum.find(brokers, &(broker.host == &1.host && broker.port == &1.port)) do
+          nil -> nil
+          broker -> broker_with_open_socket(broker)
+        end
+      end
+    end
+
+    defp broker_with_open_socket(broker) do
+      case Port.info(broker.socket) do
+        port_info when is_list(port_info) -> broker
+        _ -> nil
       end
     end
   end
