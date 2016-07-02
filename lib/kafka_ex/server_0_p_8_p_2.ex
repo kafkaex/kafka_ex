@@ -171,21 +171,17 @@ defmodule KafkaEx.Server0P8P2 do
           |> KafkaEx.NetworkClient.send_sync_request(fetch_request, state.sync_timeout)
           |> Fetch.parse_response
         state = %{state | correlation_id: state.correlation_id + 1}
-        case auto_commit do
-          true ->
-            last_offset = response |> hd |> Map.get(:partitions) |> hd |> Map.get(:last_offset)
-            case last_offset do
-              nil -> {response, state}
-              _ ->
-                offset_commit_request = %OffsetCommit.Request{
-                  topic: topic,
-                  offset: last_offset,
-                  partition: partition,
-                  consumer_group: state.consumer_group}
-                {_, state} = offset_commit(state, offset_commit_request)
-                {response, state}
-            end
-          _    -> {response, state}
+        last_offset = response |> hd |> Map.get(:partitions) |> hd |> Map.get(:last_offset)
+        if last_offset != nil && auto_commit do
+          offset_commit_request = %OffsetCommit.Request{
+            topic: topic,
+            offset: last_offset,
+            partition: partition,
+            consumer_group: state.consumer_group}
+          {_, state} = offset_commit(state, offset_commit_request)
+          {response, state}
+        else
+          {response, state}
         end
     end
   end

@@ -181,15 +181,19 @@ defmodule KafkaEx.Server0P9P0 do
     end
   end
 
-  defp fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, auto_commit, state) do
-    true = consumer_group_if_auto_commit?(auto_commit, state)
-    fetch_request = Fetch.create_request(state.correlation_id, @client_id, topic, partition, offset, wait_time, min_bytes, max_bytes)
-    {broker, state} = case Metadata.Response.broker_for_topic(state.metadata, state.brokers, topic, partition) do
+  defp updated_broker_for_topic(state, partition, topic) do
+    case Metadata.Response.broker_for_topic(state.metadata, state.brokers, topic, partition) do
       nil    ->
         updated_state = update_metadata(state)
         {Metadata.Response.broker_for_topic(updated_state.metadata, updated_state.brokers, topic, partition), updated_state}
       broker -> {broker, state}
     end
+  end
+
+  defp fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, auto_commit, state) do
+    true = consumer_group_if_auto_commit?(auto_commit, state)
+    fetch_request = Fetch.create_request(state.correlation_id, @client_id, topic, partition, offset, wait_time, min_bytes, max_bytes)
+    {broker, state} = updated_broker_for_topic(state, partition, topic)
 
     case broker do
       nil ->
@@ -200,21 +204,17 @@ defmodule KafkaEx.Server0P9P0 do
           |> KafkaEx.NetworkClient.send_sync_request(fetch_request, state.sync_timeout)
           |> Fetch.parse_response
         state = %{state | correlation_id: state.correlation_id + 1}
-        case auto_commit do
-          true ->
-            last_offset = response |> hd |> Map.get(:partitions) |> hd |> Map.get(:last_offset)
-            case last_offset do
-              nil -> {response, state}
-              _ ->
-                offset_commit_request = %OffsetCommit.Request{
-                  topic: topic,
-                  offset: last_offset,
-                  partition: partition,
-                  consumer_group: state.consumer_group}
-                {_, state} = offset_commit(state, offset_commit_request)
-                {response, state}
-            end
-          _    -> {response, state}
+        last_offset = response |> hd |> Map.get(:partitions) |> hd |> Map.get(:last_offset)
+        if last_offset != nil && auto_commit do
+          offset_commit_request = %OffsetCommit.Request{
+            topic: topic,
+            offset: last_offset,
+            partition: partition,
+            consumer_group: state.consumer_group}
+          {_, state} = offset_commit(state, offset_commit_request)
+          {response, state}
+        else
+          {response, state}
         end
     end
   end
