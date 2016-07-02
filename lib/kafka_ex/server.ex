@@ -276,7 +276,9 @@ defmodule KafkaEx.Server do
             :leader_not_available
           broker -> case produce_request.required_acks do
             0 ->  KafkaEx.NetworkClient.send_async_request(broker, produce_request_data)
-            _ -> KafkaEx.NetworkClient.send_sync_request(broker, produce_request_data, state.sync_timeout) |> Produce.parse_response
+            _ -> broker
+            |> KafkaEx.NetworkClient.send_sync_request(produce_request_data, state.sync_timeout)
+            |> Produce.parse_response
           end
         end
         state = %{state | correlation_id: corr_id + 1}
