@@ -5,7 +5,7 @@
     <meta http-equiv="x-ua-compatible" content="ie=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="generator" content="ExDoc v0.12.0">
-    <title>KafkaEx.Protocol.Produce – kafka_ex v0.5.0</title>
+    <title>KafkaEx.Protocol.SyncGroup – kafka_ex v0.5.0</title>
     <link rel="stylesheet" href="dist/app-88251e7c81.css" />
     
     <script src="dist/sidebar_items.js"></script>
@@ -59,14 +59,14 @@
 
       <h1>
         <small class="visible-xs">kafka_ex v0.5.0</small>
-        KafkaEx.Protocol.Produce
+        KafkaEx.Protocol.SyncGroup
         
         
       </h1>
 
       
         <section id="moduledoc" class="docstring">
-          <p>Implementation of the Kafka Produce request and response APIs</p>
+          <p>Implementation of the Kafka SyncGroup request and response APIs</p>
 
         </section>
       
@@ -88,19 +88,13 @@
     </h2>
     <div class="summary-row">
   <div class="summary-signature">
-    <a href="#create_request/3">create_request(correlation_id, client_id, request)</a>
+    <a href="#create_request/6">create_request(correlation_id, client_id, group_name, generation_id, member_id, assignments)</a>
   </div>
   
 </div>
 <div class="summary-row">
   <div class="summary-signature">
-    <a href="#parse_partitions/3">parse_partitions(partitions_size, rest, partitions)</a>
-  </div>
-  
-</div>
-<div class="summary-row">
-  <div class="summary-signature">
-    <a href="#parse_response/1">parse_response(unknown)</a>
+    <a href="#parse_response/1">parse_response(arg)</a>
   </div>
   
 </div>
@@ -125,29 +119,24 @@
             </a>
             Functions
           </h1>
-          <div class="detail" id="create_request/3">
+          <div class="detail" id="create_request/6">
   <div class="detail-header">
-    <a href="#create_request/3" class="detail-link" title="Link to this function">
+    <a href="#create_request/6" class="detail-link" title="Link to this function">
       <i class="icon-link"></i>
     </a>
-    <span class="signature">create_request(correlation_id, client_id, request)</span>
+    <span class="signature">create_request(correlation_id, client_id, group_name, generation_id, member_id, assignments)</span>
     
     
   </div>
   
-  <section class="docstring">
-    
-  </section>
-</div>
-<div class="detail" id="parse_partitions/3">
-  <div class="detail-header">
-    <a href="#parse_partitions/3" class="detail-link" title="Link to this function">
-      <i class="icon-link"></i>
-    </a>
-    <span class="signature">parse_partitions(partitions_size, rest, partitions)</span>
-    
-    
-  </div>
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">create_request(integer, binary, binary, integer, binary, [{binary, [KafkaEx.Protocol.SyncGroup.Assignment.t]}]) :: binary</code></pre>
+        
+      </div>
+    </div>
   
   <section class="docstring">
     
@@ -158,10 +147,19 @@
     <a href="#parse_response/1" class="detail-link" title="Link to this function">
       <i class="icon-link"></i>
     </a>
-    <span class="signature">parse_response(unknown)</span>
+    <span class="signature">parse_response(arg)</span>
     
     
   </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">parse_response(binary) :: KafkaEx.Protocol.SyncGroup.Response.t</code></pre>
+        
+      </div>
+    </div>
   
   <section class="docstring">
     

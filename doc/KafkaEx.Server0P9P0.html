@@ -1,0 +1,745 @@
+    <!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="ExDoc v0.12.0">
+    <title>KafkaEx.Server0P9P0 – kafka_ex v0.5.0</title>
+    <link rel="stylesheet" href="dist/app-88251e7c81.css" />
+    
+    <script src="dist/sidebar_items.js"></script>
+  </head>
+  <body data-type="modules">
+
+    <div class="main">
+<button class="sidebar-toggle">
+  <i class="icon-menu"></i>
+</button>
+<section class="sidebar">
+
+  
+  <a href="KafkaEx.html" class="sidebar-projectLink">
+    <div class="sidebar-projectDetails">
+      <h1 class="sidebar-projectName">
+        kafka_ex
+      </h1>
+      <h2 class="sidebar-projectVersion">
+        v0.5.0
+      </h2>
+    </div>
+    
+  </a>
+
+  <div class="sidebar-search">
+    <i class="icon-search"></i>
+    <input type="text" class="sidebar-searchInput" placeholder="search" autocomplete="off" />
+  </div>
+
+  <ul class="sidebar-listNav">
+    <li><a id="extras-list" href="#full-list">Pages</a></li>
+
+    
+      <li><a id="modules-list" href="#full-list">Modules</a></li>
+    
+
+    
+
+    
+  </ul>
+
+  <ul id="full-list" class="sidebar-fullList"></ul>
+  <div class="sidebar-noResults"></div>
+</section>
+
+<section class="content">
+  <div class="content-outer">
+    <div id="content" class="content-inner">
+
+
+      <h1>
+        <small class="visible-xs">kafka_ex v0.5.0</small>
+        KafkaEx.Server0P9P0
+        
+        
+      </h1>
+
+      
+        <section id="moduledoc" class="docstring">
+          <p>Implements kafkaEx.Server behaviors for kafka 0.9.0 API.</p>
+
+        </section>
+      
+
+      
+        <section id="summary" class="details-list">
+          <h1 class="section-heading">
+            <a class="hover-link" href="#summary">
+              <i class="icon-link"></i>
+            </a>
+            Summary
+          </h1>
+          
+
+          
+  <div class="summary-functions summary">
+    <h2>
+      <a href="#functions">Functions</a>
+    </h2>
+    <div class="summary-row">
+  <div class="summary-signature">
+    <a href="#consumer_group?/1">consumer_group?(arg1)</a>
+  </div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#consumer_group_if_auto_commit?/2">consumer_group_if_auto_commit?(bool, state)</a>
+  </div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#handle_call/3">handle_call(arg1, from, state)</a>
+  </div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#handle_info/2">handle_info(arg1, state)</a>
+  </div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#init/1">init(list)</a>
+  </div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#kafka_server_consumer_group/1">kafka_server_consumer_group(state)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_consumer_group/1"><code class="inline">KafkaEx.Server.kafka_server_consumer_group/1</code></a></p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#kafka_server_consumer_group_metadata/1">kafka_server_consumer_group_metadata(state)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_consumer_group_metadata/1"><code class="inline">KafkaEx.Server.kafka_server_consumer_group_metadata/1</code></a></p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#kafka_server_create_stream/3">kafka_server_create_stream(handler, handler_init, state)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_create_stream/3"><code class="inline">KafkaEx.Server.kafka_server_create_stream/3</code></a></p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#kafka_server_fetch/8">kafka_server_fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, auto_commit, state)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_fetch/8"><code class="inline">KafkaEx.Server.kafka_server_fetch/8</code></a></p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#kafka_server_heartbeat/4">kafka_server_heartbeat(group_name, generation_id, member_id, state)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_heartbeat/4"><code class="inline">KafkaEx.Server.kafka_server_heartbeat/4</code></a></p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#kafka_server_init/1">kafka_server_init(list)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_init/1"><code class="inline">KafkaEx.Server.kafka_server_init/1</code></a></p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#kafka_server_join_group/3">kafka_server_join_group(topics, session_timeout, state)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_join_group/3"><code class="inline">KafkaEx.Server.kafka_server_join_group/3</code></a></p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#kafka_server_metadata/2">kafka_server_metadata(topic, state)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_metadata/2"><code class="inline">KafkaEx.Server.kafka_server_metadata/2</code></a></p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#kafka_server_offset/4">kafka_server_offset(topic, partition, time, state)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_offset/4"><code class="inline">KafkaEx.Server.kafka_server_offset/4</code></a></p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#kafka_server_offset_commit/2">kafka_server_offset_commit(offset_commit_request, state)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_offset_commit/2"><code class="inline">KafkaEx.Server.kafka_server_offset_commit/2</code></a></p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#kafka_server_offset_fetch/2">kafka_server_offset_fetch(offset_fetch, state)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_offset_fetch/2"><code class="inline">KafkaEx.Server.kafka_server_offset_fetch/2</code></a></p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#kafka_server_produce/2">kafka_server_produce(produce_request, state)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_produce/2"><code class="inline">KafkaEx.Server.kafka_server_produce/2</code></a></p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#kafka_server_start_streaming/6">kafka_server_start_streaming(topic, partition, offset, handler, auto_commit, state)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_start_streaming/6"><code class="inline">KafkaEx.Server.kafka_server_start_streaming/6</code></a></p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#kafka_server_stop_streaming/1">kafka_server_stop_streaming(state)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_stop_streaming/1"><code class="inline">KafkaEx.Server.kafka_server_stop_streaming/1</code></a></p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#kafka_server_sync_group/5">kafka_server_sync_group(group_name, generation_id, member_id, assignments, state)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_sync_group/5"><code class="inline">KafkaEx.Server.kafka_server_sync_group/5</code></a></p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#kafka_server_update_consumer_metadata/1">kafka_server_update_consumer_metadata(state)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_update_consumer_metadata/1"><code class="inline">KafkaEx.Server.kafka_server_update_consumer_metadata/1</code></a></p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#kafka_server_update_metadata/1">kafka_server_update_metadata(state)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_update_metadata/1"><code class="inline">KafkaEx.Server.kafka_server_update_metadata/1</code></a></p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#retrieve_metadata/4">retrieve_metadata(brokers, correlation_id, sync_timeout, topic \\ [])</a>
+  </div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#retrieve_metadata/6">retrieve_metadata(brokers, correlation_id, sync_timeout, topic, retry, error_code)</a>
+  </div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#start_link/3">start_link(server_impl, args, name \\ __MODULE__)</a>
+  </div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#terminate/2">terminate(, state)</a>
+  </div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#update_metadata/1">update_metadata(state)</a>
+  </div>
+  
+</div>
+
+  </div>
+
+
+          
+
+          
+
+        </section>
+      
+
+      
+
+      
+        <section id="functions" class="details-list">
+          <h1 class="section-heading">
+            <a class="hover-link" href="#functions">
+              <i class="icon-link"></i>
+            </a>
+            Functions
+          </h1>
+          <div class="detail" id="consumer_group?/1">
+  <div class="detail-header">
+    <a href="#consumer_group?/1" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">consumer_group?(arg1)</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    
+  </section>
+</div>
+<div class="detail" id="consumer_group_if_auto_commit?/2">
+  <div class="detail-header">
+    <a href="#consumer_group_if_auto_commit?/2" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">consumer_group_if_auto_commit?(bool, state)</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    
+  </section>
+</div>
+<div class="detail" id="handle_call/3">
+  <div class="detail-header">
+    <a href="#handle_call/3" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">handle_call(arg1, from, state)</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    
+  </section>
+</div>
+<div class="detail" id="handle_info/2">
+  <div class="detail-header">
+    <a href="#handle_info/2" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">handle_info(arg1, state)</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    
+  </section>
+</div>
+<div class="detail" id="init/1">
+  <div class="detail-header">
+    <a href="#init/1" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">init(list)</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    
+  </section>
+</div>
+<div class="detail" id="kafka_server_consumer_group/1">
+  <div class="detail-header">
+    <a href="#kafka_server_consumer_group/1" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">kafka_server_consumer_group(state)</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    <p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_consumer_group/1"><code class="inline">KafkaEx.Server.kafka_server_consumer_group/1</code></a>.</p>
+
+  </section>
+</div>
+<div class="detail" id="kafka_server_consumer_group_metadata/1">
+  <div class="detail-header">
+    <a href="#kafka_server_consumer_group_metadata/1" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">kafka_server_consumer_group_metadata(state)</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    <p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_consumer_group_metadata/1"><code class="inline">KafkaEx.Server.kafka_server_consumer_group_metadata/1</code></a>.</p>
+
+  </section>
+</div>
+<div class="detail" id="kafka_server_create_stream/3">
+  <div class="detail-header">
+    <a href="#kafka_server_create_stream/3" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">kafka_server_create_stream(handler, handler_init, state)</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    <p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_create_stream/3"><code class="inline">KafkaEx.Server.kafka_server_create_stream/3</code></a>.</p>
+
+  </section>
+</div>
+<div class="detail" id="kafka_server_fetch/8">
+  <div class="detail-header">
+    <a href="#kafka_server_fetch/8" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">kafka_server_fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, auto_commit, state)</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    <p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_fetch/8"><code class="inline">KafkaEx.Server.kafka_server_fetch/8</code></a>.</p>
+
+  </section>
+</div>
+<div class="detail" id="kafka_server_heartbeat/4">
+  <div class="detail-header">
+    <a href="#kafka_server_heartbeat/4" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">kafka_server_heartbeat(group_name, generation_id, member_id, state)</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    <p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_heartbeat/4"><code class="inline">KafkaEx.Server.kafka_server_heartbeat/4</code></a>.</p>
+
+  </section>
+</div>
+<div class="detail" id="kafka_server_init/1">
+  <div class="detail-header">
+    <a href="#kafka_server_init/1" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">kafka_server_init(list)</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    <p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_init/1"><code class="inline">KafkaEx.Server.kafka_server_init/1</code></a>.</p>
+
+  </section>
+</div>
+<div class="detail" id="kafka_server_join_group/3">
+  <div class="detail-header">
+    <a href="#kafka_server_join_group/3" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">kafka_server_join_group(topics, session_timeout, state)</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    <p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_join_group/3"><code class="inline">KafkaEx.Server.kafka_server_join_group/3</code></a>.</p>
+
+  </section>
+</div>
+<div class="detail" id="kafka_server_metadata/2">
+  <div class="detail-header">
+    <a href="#kafka_server_metadata/2" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">kafka_server_metadata(topic, state)</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    <p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_metadata/2"><code class="inline">KafkaEx.Server.kafka_server_metadata/2</code></a>.</p>
+
+  </section>
+</div>
+<div class="detail" id="kafka_server_offset/4">
+  <div class="detail-header">
+    <a href="#kafka_server_offset/4" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">kafka_server_offset(topic, partition, time, state)</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    <p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_offset/4"><code class="inline">KafkaEx.Server.kafka_server_offset/4</code></a>.</p>
+
+  </section>
+</div>
+<div class="detail" id="kafka_server_offset_commit/2">
+  <div class="detail-header">
+    <a href="#kafka_server_offset_commit/2" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">kafka_server_offset_commit(offset_commit_request, state)</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    <p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_offset_commit/2"><code class="inline">KafkaEx.Server.kafka_server_offset_commit/2</code></a>.</p>
+
+  </section>
+</div>
+<div class="detail" id="kafka_server_offset_fetch/2">
+  <div class="detail-header">
+    <a href="#kafka_server_offset_fetch/2" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">kafka_server_offset_fetch(offset_fetch, state)</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    <p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_offset_fetch/2"><code class="inline">KafkaEx.Server.kafka_server_offset_fetch/2</code></a>.</p>
+
+  </section>
+</div>
+<div class="detail" id="kafka_server_produce/2">
+  <div class="detail-header">
+    <a href="#kafka_server_produce/2" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">kafka_server_produce(produce_request, state)</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    <p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_produce/2"><code class="inline">KafkaEx.Server.kafka_server_produce/2</code></a>.</p>
+
+  </section>
+</div>
+<div class="detail" id="kafka_server_start_streaming/6">
+  <div class="detail-header">
+    <a href="#kafka_server_start_streaming/6" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">kafka_server_start_streaming(topic, partition, offset, handler, auto_commit, state)</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    <p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_start_streaming/6"><code class="inline">KafkaEx.Server.kafka_server_start_streaming/6</code></a>.</p>
+
+  </section>
+</div>
+<div class="detail" id="kafka_server_stop_streaming/1">
+  <div class="detail-header">
+    <a href="#kafka_server_stop_streaming/1" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">kafka_server_stop_streaming(state)</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    <p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_stop_streaming/1"><code class="inline">KafkaEx.Server.kafka_server_stop_streaming/1</code></a>.</p>
+
+  </section>
+</div>
+<div class="detail" id="kafka_server_sync_group/5">
+  <div class="detail-header">
+    <a href="#kafka_server_sync_group/5" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">kafka_server_sync_group(group_name, generation_id, member_id, assignments, state)</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    <p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_sync_group/5"><code class="inline">KafkaEx.Server.kafka_server_sync_group/5</code></a>.</p>
+
+  </section>
+</div>
+<div class="detail" id="kafka_server_update_consumer_metadata/1">
+  <div class="detail-header">
+    <a href="#kafka_server_update_consumer_metadata/1" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">kafka_server_update_consumer_metadata(state)</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    <p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_update_consumer_metadata/1"><code class="inline">KafkaEx.Server.kafka_server_update_consumer_metadata/1</code></a>.</p>
+
+  </section>
+</div>
+<div class="detail" id="kafka_server_update_metadata/1">
+  <div class="detail-header">
+    <a href="#kafka_server_update_metadata/1" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">kafka_server_update_metadata(state)</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    <p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_update_metadata/1"><code class="inline">KafkaEx.Server.kafka_server_update_metadata/1</code></a>.</p>
+
+  </section>
+</div>
+<div class="detail" id="retrieve_metadata/4">
+  <div class="detail-header">
+    <a href="#retrieve_metadata/4" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">retrieve_metadata(brokers, correlation_id, sync_timeout, topic \\ [])</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    
+  </section>
+</div>
+<div class="detail" id="retrieve_metadata/6">
+  <div class="detail-header">
+    <a href="#retrieve_metadata/6" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">retrieve_metadata(brokers, correlation_id, sync_timeout, topic, retry, error_code)</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    
+  </section>
+</div>
+<div class="detail" id="start_link/3">
+  <div class="detail-header">
+    <a href="#start_link/3" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">start_link(server_impl, args, name \\ __MODULE__)</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    
+  </section>
+</div>
+<div class="detail" id="terminate/2">
+  <div class="detail-header">
+    <a href="#terminate/2" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">terminate(, state)</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    
+  </section>
+</div>
+<div class="detail" id="update_metadata/1">
+  <div class="detail-header">
+    <a href="#update_metadata/1" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">update_metadata(state)</span>
+    
+    
+  </div>
+  
+  <section class="docstring">
+    
+  </section>
+</div>
+
+        </section>
+      
+
+      
+
+      
+          <footer class="footer">
+        <p>
+          <span class="line">
+            Built using
+            <a href="https://github.com/elixir-lang/ex_doc" title="ExDoc" rel="help" target="_blank">ExDoc</a> (v0.12.0),
+          </span>
+          <span class="line">
+            designed by
+            <a href="https://twitter.com/dignifiedquire" target="_blank" title="@dignifiedquire">Friedel Ziegelmayer</a>.
+            </span>
+        </p>
+        <button class="night-mode-toggle" />
+      </footer>
+    </div>
+  </div>
+</section>
+</div>
+  <script src="dist/app-21f1a20b9e.js"></script>
+  </body>
+</html>
+

@@ -5,7 +5,7 @@
     <meta http-equiv="x-ua-compatible" content="ie=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="generator" content="ExDoc v0.12.0">
-    <title>KafkaEx.Protocol.Produce – kafka_ex v0.5.0</title>
+    <title>KafkaEx.Protocol.Common – kafka_ex v0.5.0</title>
     <link rel="stylesheet" href="dist/app-88251e7c81.css" />
     
     <script src="dist/sidebar_items.js"></script>
@@ -59,14 +59,15 @@
 
       <h1>
         <small class="visible-xs">kafka_ex v0.5.0</small>
-        KafkaEx.Protocol.Produce
+        KafkaEx.Protocol.Common
         
         
       </h1>
 
       
         <section id="moduledoc" class="docstring">
-          <p>Implementation of the Kafka Produce request and response APIs</p>
+          <p>A collection of common request generation and response parsing functions for the
+Kafka wire protocol.</p>
 
         </section>
       
@@ -88,20 +89,17 @@
     </h2>
     <div class="summary-row">
   <div class="summary-signature">
-    <a href="#create_request/3">create_request(correlation_id, client_id, request)</a>
+    <a href="#parse_topics/3">parse_topics(topics_size, arg2, mod)</a>
   </div>
   
 </div>
 <div class="summary-row">
   <div class="summary-signature">
-    <a href="#parse_partitions/3">parse_partitions(partitions_size, rest, partitions)</a>
+    <a href="#topic_data/1">topic_data(list)</a>
   </div>
   
+    <div class="summary-synopsis"><p>Generate the wire representation for a list of topics</p>
 </div>
-<div class="summary-row">
-  <div class="summary-signature">
-    <a href="#parse_response/1">parse_response(unknown)</a>
-  </div>
   
 </div>
 
@@ -125,12 +123,12 @@
             </a>
             Functions
           </h1>
-          <div class="detail" id="create_request/3">
+          <div class="detail" id="parse_topics/3">
   <div class="detail-header">
-    <a href="#create_request/3" class="detail-link" title="Link to this function">
+    <a href="#parse_topics/3" class="detail-link" title="Link to this function">
       <i class="icon-link"></i>
     </a>
-    <span class="signature">create_request(correlation_id, client_id, request)</span>
+    <span class="signature">parse_topics(topics_size, arg2, mod)</span>
     
     
   </div>
@@ -139,32 +137,19 @@
     
   </section>
 </div>
-<div class="detail" id="parse_partitions/3">
+<div class="detail" id="topic_data/1">
   <div class="detail-header">
-    <a href="#parse_partitions/3" class="detail-link" title="Link to this function">
+    <a href="#topic_data/1" class="detail-link" title="Link to this function">
       <i class="icon-link"></i>
     </a>
-    <span class="signature">parse_partitions(partitions_size, rest, partitions)</span>
+    <span class="signature">topic_data(list)</span>
     
     
   </div>
   
   <section class="docstring">
-    
-  </section>
-</div>
-<div class="detail" id="parse_response/1">
-  <div class="detail-header">
-    <a href="#parse_response/1" class="detail-link" title="Link to this function">
-      <i class="icon-link"></i>
-    </a>
-    <span class="signature">parse_response(unknown)</span>
-    
-    
-  </div>
-  
-  <section class="docstring">
-    
+    <p>Generate the wire representation for a list of topics.</p>
+
   </section>
 </div>
 
