@@ -1,5 +1,6 @@
 defmodule KafkaEx.Protocol.Fetch do
   alias KafkaEx.Protocol
+  alias KafkaEx.Compression
   import KafkaEx.Protocol.Common
 
   @moduledoc """
@@ -66,7 +67,7 @@ defmodule KafkaEx.Protocol.Fetch do
   end
   defp maybe_decompress(%Message{attributes: attributes}, rest) do
     << -1 :: 32-signed, value_size :: 32, value :: size(value_size)-binary >> = rest
-    decompressed = KafkaEx.Compression.decompress(attributes, value)
+    decompressed = Compression.decompress(attributes, value)
     {:ok, msg_set, _offset} = parse_message_set([], decompressed)
     {:ok, msg_set}
   end

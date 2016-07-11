@@ -4,8 +4,10 @@ defmodule KafkaEx.Server0P8P0 do
   """
   use KafkaEx.Server
   alias KafkaEx.Protocol.Fetch
-  alias KafkaEx.Protocol.Metadata
+  alias KafkaEx.Protocol.Metadata.Broker
+  alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
   alias KafkaEx.Server.State
+  alias KafkaEx.NetworkClient
 
   def kafka_server_init([args]) do
     kafka_server_init([args, self])
@@ -14,7 +16,7 @@ defmodule KafkaEx.Server0P8P0 do
   def kafka_server_init([args, name]) do
     uris = Keyword.get(args, :uris, [])
     metadata_update_interval = Keyword.get(args, :metadata_update_interval, @metadata_update_interval)
-    brokers = Enum.map(uris, fn({host, port}) -> %Metadata.Broker{host: host, port: port, socket: KafkaEx.NetworkClient.create_socket(host, port)} end)
+    brokers = Enum.map(uris, fn({host, port}) -> %Broker{host: host, port: port, socket: NetworkClient.create_socket(host, port)} end)
     sync_timeout = Keyword.get(args, :sync_timeout, Application.get_env(:kafka_ex, :sync_timeout, @sync_timeout))
     {correlation_id, metadata} = retrieve_metadata(brokers, 0, sync_timeout)
     state = %State{metadata: metadata, brokers: brokers, correlation_id: correlation_id, metadata_update_interval: metadata_update_interval, worker_name: name, sync_timeout: sync_timeout}
@@ -69,10 +71,10 @@ defmodule KafkaEx.Server0P8P0 do
 
   defp fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, state, _auto_commit) do
     fetch_request = Fetch.create_request(state.correlation_id, @client_id, topic, partition, offset, wait_time, min_bytes, max_bytes)
-    {broker, state} = case Metadata.Response.broker_for_topic(state.metadata, state.brokers, topic, partition) do
+    {broker, state} = case MetadataResponse.broker_for_topic(state.metadata, state.brokers, topic, partition) do
       nil    ->
         updated_state = update_metadata(state)
-        {Metadata.Response.broker_for_topic(state.metadata, state.brokers, topic, partition), updated_state}
+        {MetadataResponse.broker_for_topic(state.metadata, state.brokers, topic, partition), updated_state}
       broker -> {broker, state}
     end
 
@@ -82,7 +84,7 @@ defmodule KafkaEx.Server0P8P0 do
         {:topic_not_found, state}
       _ ->
         response = broker
-          |> KafkaEx.NetworkClient.send_sync_request(fetch_request, state.sync_timeout)
+          |> NetworkClient.send_sync_request(fetch_request, state.sync_timeout)
           |> Fetch.parse_response
         {response, %{state | correlation_id: state.correlation_id + 1}}
     end

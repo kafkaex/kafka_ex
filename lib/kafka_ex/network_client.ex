@@ -1,5 +1,6 @@
 defmodule KafkaEx.NetworkClient do
   require Logger
+  alias KafkaEx.Protocol.Metadata.Broker
 
   @moduledoc false
   @spec create_socket(binary, non_neg_integer) :: nil | :gen_tcp.socket
@@ -18,7 +19,7 @@ defmodule KafkaEx.NetworkClient do
   def close_socket(nil), do: :ok
   def close_socket(socket), do: :gen_tcp.close(socket)
 
-  @spec send_async_request(KafkaEx.Protocol.Metadata.Broker.t, iodata) :: :ok | {:error, :closed | :inet.posix}
+  @spec send_async_request(Broker.t, iodata) :: :ok | {:error, :closed | :inet.posix}
   def send_async_request(broker, data) do
     socket = broker.socket
     case :gen_tcp.send(socket, data) do
@@ -29,7 +30,7 @@ defmodule KafkaEx.NetworkClient do
     end
   end
 
-  @spec send_sync_request(KafkaEx.Protocol.Metadata.Broker.t, iodata, timeout) :: nil | iodata
+  @spec send_sync_request(Broker.t, iodata, timeout) :: nil | iodata
   def send_sync_request(%{:socket => socket} = broker, data, timeout) do
     :ok = :inet.setopts(socket, [:binary, {:packet, 4}, {:active, false}])
     response = case :gen_tcp.send(socket, data) do

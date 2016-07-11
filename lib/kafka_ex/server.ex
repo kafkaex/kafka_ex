@@ -3,11 +3,14 @@ defmodule KafkaEx.Server do
   Defines the KafkaEx.Server behavior that all Kafka API servers must implement, this module also provides some common callback functions that are injected into the servers that `use` it.
   """
 
-  alias KafkaEx.Protocol.Produce
-  alias KafkaEx.Protocol.OffsetFetch
-  alias KafkaEx.Protocol.OffsetCommit
-  alias KafkaEx.Protocol.Metadata
   alias KafkaEx.Protocol.ConsumerMetadata
+  alias KafkaEx.Protocol.Metadata
+  alias KafkaEx.Protocol.Metadata.Broker
+  alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
+  alias KafkaEx.Protocol.OffsetCommit.Request, as: OffsetCommitRequest
+  alias KafkaEx.Protocol.OffsetFetch.Request, as: OffsetFetchRequest
+  alias KafkaEx.Protocol.Produce
+  alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
 
   defmodule State do
     @moduledoc false
@@ -31,7 +34,7 @@ defmodule KafkaEx.Server do
     {:ok, state, timeout | :hibernate} |
     :ignore |
     {:stop, reason :: any} when state: any
-  @callback kafka_server_produce(request :: Produce.Request.t, state :: State.t) ::
+  @callback kafka_server_produce(request :: ProduceRequest.t, state :: State.t) ::
     {:reply, reply, new_state} |
     {:reply, reply, new_state, timeout | :hibernate} |
     {:noreply, new_state} |
@@ -59,14 +62,14 @@ defmodule KafkaEx.Server do
     {:noreply, new_state, timeout | :hibernate} |
     {:stop, reason, reply, new_state} |
     {:stop, reason, new_state} when reply: term, new_state: term, reason: term
-  @callback kafka_server_offset_fetch(request :: OffsetFetch.Request.t, state :: State.t) ::
+  @callback kafka_server_offset_fetch(request :: OffsetFetchRequest.t, state :: State.t) ::
     {:reply, reply, new_state} |
     {:reply, reply, new_state, timeout | :hibernate} |
     {:noreply, new_state} |
     {:noreply, new_state, timeout | :hibernate} |
     {:stop, reason, reply, new_state} |
     {:stop, reason, new_state} when reply: term, new_state: term, reason: term
-  @callback kafka_server_offset_commit(request :: OffsetCommit.Request.t, state :: State.t) ::
+  @callback kafka_server_offset_commit(request :: OffsetCommitRequest.t, state :: State.t) ::
     {:reply, reply, new_state} |
     {:reply, reply, new_state, timeout | :hibernate} |
     {:noreply, new_state} |
@@ -137,6 +140,8 @@ defmodule KafkaEx.Server do
     quote location: :keep do
       @behaviour KafkaEx.Server
       require Logger
+      alias KafkaEx.NetworkClient
+      alias KafkaEx.Protocol.Offset
 
       @client_id "kafka_ex"
       @retry_count 3
@@ -251,19 +256,19 @@ defmodule KafkaEx.Server do
         if callback_state.event_pid do
           GenEvent.stop(callback_state.event_pid)
         end
-        Enum.each(callback_state.brokers, fn(broker) -> KafkaEx.NetworkClient.close_socket(broker.socket) end)
+        Enum.each(callback_state.brokers, fn(broker) -> NetworkClient.close_socket(broker.socket) end)
       end
 
       # KakfaEx.Server behavior default implementations
       def kafka_server_produce(produce_request, state) do
         correlation_id = state.correlation_id + 1
         produce_request_data = Produce.create_request(correlation_id, @client_id, produce_request)
-        {broker, state, corr_id} = case Metadata.Response.broker_for_topic(state.metadata, state.brokers, produce_request.topic, produce_request.partition) do
+        {broker, state, corr_id} = case MetadataResponse.broker_for_topic(state.metadata, state.brokers, produce_request.topic, produce_request.partition) do
           nil    ->
             {retrieved_corr_id, _} = retrieve_metadata(state.brokers, state.correlation_id, state.sync_timeout, produce_request.topic)
             state = %{update_metadata(state) | correlation_id: retrieved_corr_id}
             {
-              Metadata.Response.broker_for_topic(state.metadata, state.brokers, produce_request.topic, produce_request.partition),
+              MetadataResponse.broker_for_topic(state.metadata, state.brokers, produce_request.topic, produce_request.partition),
               state,
               retrieved_corr_id
             }
@@ -275,9 +280,9 @@ defmodule KafkaEx.Server do
             Logger.log(:error, "Leader for topic #{produce_request.topic} is not available")
             :leader_not_available
           broker -> case produce_request.required_acks do
-            0 ->  KafkaEx.NetworkClient.send_async_request(broker, produce_request_data)
+            0 ->  NetworkClient.send_async_request(broker, produce_request_data)
             _ -> broker
-            |> KafkaEx.NetworkClient.send_sync_request(produce_request_data, state.sync_timeout)
+            |> NetworkClient.send_sync_request(produce_request_data, state.sync_timeout)
             |> Produce.parse_response
           end
         end
@@ -286,11 +291,11 @@ defmodule KafkaEx.Server do
       end
 
       def kafka_server_offset(topic, partition, time, state) do
-        offset_request = KafkaEx.Protocol.Offset.create_request(state.correlation_id, @client_id, topic, partition, time)
-        {broker, state} = case Metadata.Response.broker_for_topic(state.metadata, state.brokers, topic, partition) do
+        offset_request = Offset.create_request(state.correlation_id, @client_id, topic, partition, time)
+        {broker, state} = case MetadataResponse.broker_for_topic(state.metadata, state.brokers, topic, partition) do
           nil    ->
             state = update_metadata(state)
-            {Metadata.Response.broker_for_topic(state.metadata, state.brokers, topic, partition), state}
+            {MetadataResponse.broker_for_topic(state.metadata, state.brokers, topic, partition), state}
           broker -> {broker, state}
         end
 
@@ -300,8 +305,8 @@ defmodule KafkaEx.Server do
             {:topic_not_found, state}
           _ ->
             response = broker
-             |> KafkaEx.NetworkClient.send_sync_request(offset_request, state.sync_timeout)
-             |> KafkaEx.Protocol.Offset.parse_response
+             |> NetworkClient.send_sync_request(offset_request, state.sync_timeout)
+             |> Offset.parse_response
             state = %{state | correlation_id: state.correlation_id + 1}
             {response, state}
         end
@@ -386,7 +391,7 @@ defmodule KafkaEx.Server do
           0 -> brokers_to_remove
           _ -> Enum.each(brokers_to_remove, fn(broker) ->
             Logger.log(:info, "Closing connection to broker #{inspect broker.host} on port #{inspect broker.port}")
-            KafkaEx.NetworkClient.close_socket(broker.socket)
+            NetworkClient.close_socket(broker.socket)
           end)
             brokers_to_keep
         end
@@ -396,15 +401,15 @@ defmodule KafkaEx.Server do
       defp add_new_brokers(brokers, [metadata_broker|metadata_brokers]) do
         case Enum.find(brokers, &(metadata_broker.host == &1.host && metadata_broker.port == &1.port)) do
           nil -> Logger.log(:info, "Establishing connection to broker #{inspect metadata_broker.host} on port #{inspect metadata_broker.port}")
-            add_new_brokers([%{metadata_broker | socket: KafkaEx.NetworkClient.create_socket(metadata_broker.host, metadata_broker.port)} | brokers], metadata_brokers)
+            add_new_brokers([%{metadata_broker | socket: NetworkClient.create_socket(metadata_broker.host, metadata_broker.port)} | brokers], metadata_brokers)
           _ -> add_new_brokers(brokers, metadata_brokers)
         end
       end
 
       defp first_broker_response(request, brokers, sync_timeout) do
         Enum.find_value(brokers, fn(broker) ->
-          if Metadata.Broker.connected?(broker) do
-            KafkaEx.NetworkClient.send_sync_request(broker, request, sync_timeout)
+          if Broker.connected?(broker) do
+            NetworkClient.send_sync_request(broker, request, sync_timeout)
           end
         end)
       end

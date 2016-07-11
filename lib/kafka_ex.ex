@@ -3,6 +3,16 @@ defmodule KafkaEx do
 
   use Application
   alias KafkaEx.Config
+  alias KafkaEx.Protocol.ConsumerMetadata, as: ConsumerMetadataResponse
+  alias KafkaEx.Protocol.Fetch.Response, as: FetchResponse
+  alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
+  alias KafkaEx.Protocol.Offset.Response, as: OffsetResponse
+  alias KafkaEx.Protocol.OffsetCommit.Response, as: OffsetCommitResponse
+  alias KafkaEx.Protocol.OffsetFetch.Response, as: OffsetFetchResponse
+  alias KafkaEx.Protocol.OffsetFetch.Request, as: OffsetFetchRequest
+  alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
+  alias KafkaEx.Protocol.Produce.Message
+
   @type uri() :: [{binary|char_list, number}]
   @type worker_init :: [worker_setting]
   @type worker_setting :: {:uris, uri}  |
@@ -78,14 +88,14 @@ defmodule KafkaEx do
      topic: "foo"}]}
   ```
   """
-  @spec metadata(Keyword.t) :: KafkaEx.Protocol.Metadata.Response.t
+  @spec metadata(Keyword.t) :: MetadataResponse.t
   def metadata(opts \\ []) do
     worker_name  = Keyword.get(opts, :worker_name, Config.default_worker)
     topic = Keyword.get(opts, :topic, "")
     GenServer.call(worker_name, {:metadata, topic})
   end
 
-  @spec consumer_group_metadata(atom, binary) :: KafkaEx.Protocol.ConsumerMetadata.Response.t
+  @spec consumer_group_metadata(atom, binary) :: ConsumerMetadataResponse.t
   def consumer_group_metadata(worker_name, supplied_consumer_group) do
     GenServer.call(worker_name, {:consumer_group_metadata, supplied_consumer_group})
   end
@@ -100,7 +110,7 @@ defmodule KafkaEx do
   [%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offsets: [16], partition: 0}], topic: "foo"}]
   ```
   """
-  @spec latest_offset(binary, integer, atom|pid) :: [KafkaEx.Protocol.Offset.Response.t] | :topic_not_found
+  @spec latest_offset(binary, integer, atom|pid) :: [OffsetResponse.t] | :topic_not_found
   def latest_offset(topic, partition, name \\ Config.default_worker), do: offset(topic, partition, :latest, name)
 
   @doc """
@@ -113,7 +123,7 @@ defmodule KafkaEx do
   [%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offset: [0], partition: 0}], topic: "foo"}]
   ```
   """
-  @spec earliest_offset(binary, integer, atom|pid) :: [KafkaEx.Protocol.Offset.Response.t] | :topic_not_found
+  @spec earliest_offset(binary, integer, atom|pid) :: [OffsetResponse.t] | :topic_not_found
   def earliest_offset(topic, partition, name \\ Config.default_worker), do: offset(topic, partition, :earliest, name)
 
   @doc """
@@ -126,7 +136,7 @@ defmodule KafkaEx do
   [%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offset: [256], partition: 0}], topic: "foo"}]
   ```
   """
-  @spec offset(binary, number, :calendar.datetime|atom, atom|pid) :: [KafkaEx.Protocol.Offset.Response.t] | :topic_not_found
+  @spec offset(binary, number, :calendar.datetime|atom, atom|pid) :: [OffsetResponse.t] | :topic_not_found
   def offset(topic, partition, time, name \\ Config.default_worker) do
     GenServer.call(name, {:offset, topic, partition, time})
   end
@@ -159,7 +169,7 @@ defmodule KafkaEx do
   ]
   ```
   """
-  @spec fetch(binary, number, Keyword.t) :: [KafkaEx.Protocol.Fetch.Response.t] | :topic_not_found
+  @spec fetch(binary, number, Keyword.t) :: [FetchResponse.t] | :topic_not_found
   def fetch(topic, partition, opts \\ []) do
     worker_name       = Keyword.get(opts, :worker_name, Config.default_worker)
     supplied_offset   = Keyword.get(opts, :offset)
@@ -176,12 +186,12 @@ defmodule KafkaEx do
     })
   end
 
-  @spec offset_commit(atom, KafkaEx.Protocol.OffsetCommit.Request.t) :: KafkaEx.Protocol.OffsetCommit.Response.t
+  @spec offset_commit(atom, OffsetCommitRequest.t) :: OffsetCommitResponse.t
   def offset_commit(worker_name, offset_commit_request) do
     GenServer.call(worker_name, {:offset_commit, offset_commit_request})
   end
 
-  @spec offset_fetch(atom, KafkaEx.Protocol.OffsetFetch.Request.t) :: [KafkaEx.Protocol.OffsetFetch.Response.t] | :topic_not_found
+  @spec offset_fetch(atom, OffsetFetchRequest.t) :: [OffsetFetchResponse.t] | :topic_not_found
   def offset_fetch(worker_name, offset_fetch_request) do
   GenServer.call(worker_name, {:offset_fetch, offset_fetch_request})
 end
@@ -200,7 +210,7 @@ Optional arguments(KeywordList)
   :ok
   ```
   """
-  @spec produce(KafkaEx.Protocol.Produce.Request.t, Keyword.t) :: nil | :ok | {:error, :closed} | {:error, :inet.posix} | iodata | :leader_not_available
+  @spec produce(ProduceRequest.t, Keyword.t) :: nil | :ok | {:error, :closed} | {:error, :inet.posix} | iodata | :leader_not_available
   def produce(produce_request, opts \\ []) do
     worker_name   = Keyword.get(opts, :worker_name, Config.default_worker)
     GenServer.call(worker_name, {:produce, produce_request})
@@ -227,7 +237,7 @@ Optional arguments(KeywordList)
     key             = Keyword.get(opts, :key, "")
     required_acks   = Keyword.get(opts, :required_acks, 0)
     timeout         = Keyword.get(opts, :timeout, 100)
-    produce_request = %KafkaEx.Protocol.Produce.Request{topic: topic, partition: partition, required_acks: required_acks, timeout: timeout, compression: :none, messages: [%KafkaEx.Protocol.Produce.Message{key: key, value: value}]}
+    produce_request = %ProduceRequest{topic: topic, partition: partition, required_acks: required_acks, timeout: timeout, compression: :none, messages: [%Message{key: key, value: value}]}
 
     produce(produce_request, opts)
   end
@@ -300,8 +310,8 @@ Optional arguments(KeywordList)
     case supplied_offset do
       nil ->
         last_offset  = worker_name
-          |> offset_fetch(%KafkaEx.Protocol.OffsetFetch.Request{topic: topic, partition: partition})
-          |> KafkaEx.Protocol.OffsetFetch.Response.last_offset
+          |> offset_fetch(%OffsetFetchRequest{topic: topic, partition: partition})
+          |> OffsetFetchResponse.last_offset
 
         if last_offset <= 0 do
           0

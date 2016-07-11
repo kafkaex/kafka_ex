@@ -4,14 +4,17 @@ defmodule KafkaEx.Server0P9P0 do
   """
   use KafkaEx.Server
   alias KafkaEx.Protocol.ConsumerMetadata
+  alias KafkaEx.Protocol.ConsumerMetadata.Response, as: ConsumerMetadataResponse
   alias KafkaEx.Protocol.Fetch
   alias KafkaEx.Protocol.Heartbeat
   alias KafkaEx.Protocol.JoinGroup
-  alias KafkaEx.Protocol.Metadata
+  alias KafkaEx.Protocol.Metadata.Broker
+  alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
   alias KafkaEx.Protocol.OffsetFetch
   alias KafkaEx.Protocol.OffsetCommit
   alias KafkaEx.Protocol.SyncGroup
   alias KafkaEx.Server.State
+  alias KafkaEx.NetworkClient
 
   @consumer_group_update_interval 30_000
 
@@ -38,7 +41,7 @@ defmodule KafkaEx.Server0P9P0 do
     consumer_group = Keyword.get(args, :consumer_group)
     true = KafkaEx.valid_consumer_group?(consumer_group)
 
-    brokers = Enum.map(uris, fn({host, port}) -> %Metadata.Broker{host: host, port: port, socket: KafkaEx.NetworkClient.create_socket(host, port)} end)
+    brokers = Enum.map(uris, fn({host, port}) -> %Broker{host: host, port: port, socket: NetworkClient.create_socket(host, port)} end)
     sync_timeout = Keyword.get(args, :sync_timeout, Application.get_env(:kafka_ex, :sync_timeout, @sync_timeout))
     {correlation_id, metadata} = retrieve_metadata(brokers, 0, sync_timeout)
     state = %State{metadata: metadata, brokers: brokers, correlation_id: correlation_id, consumer_group: consumer_group, metadata_update_interval: metadata_update_interval, consumer_group_update_interval: consumer_group_update_interval, worker_name: name, sync_timeout: sync_timeout}
@@ -80,7 +83,7 @@ defmodule KafkaEx.Server0P9P0 do
         {:topic_not_found, state}
       _ ->
         response = broker
-          |> KafkaEx.NetworkClient.send_sync_request(offset_fetch_request, state.sync_timeout)
+          |> NetworkClient.send_sync_request(offset_fetch_request, state.sync_timeout)
           |> OffsetFetch.parse_response
         {response, %{state | correlation_id: state.correlation_id + 1}}
     end
@@ -105,7 +108,7 @@ defmodule KafkaEx.Server0P9P0 do
     {broker, state} = broker_for_consumer_group_with_update(state)
     request = JoinGroup.create_request(state.correlation_id, @client_id, "", state.consumer_group, topics, session_timeout)
     response = broker
-      |> KafkaEx.NetworkClient.send_sync_request(request, state.sync_timeout)
+      |> NetworkClient.send_sync_request(request, state.sync_timeout)
       |> JoinGroup.parse_response
     {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
   end
@@ -115,7 +118,7 @@ defmodule KafkaEx.Server0P9P0 do
     {broker, state} = broker_for_consumer_group_with_update(state)
     request = SyncGroup.create_request(state.correlation_id, @client_id, group_name, generation_id, member_id, assignments)
     response = broker
-      |> KafkaEx.NetworkClient.send_sync_request(request, state.sync_timeout)
+      |> NetworkClient.send_sync_request(request, state.sync_timeout)
       |> SyncGroup.parse_response
     {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
   end
@@ -125,7 +128,7 @@ defmodule KafkaEx.Server0P9P0 do
     {broker, state} = broker_for_consumer_group_with_update(state)
     request = Heartbeat.create_request(state.correlation_id, @client_id, member_id, group_name, generation_id)
     response = broker
-      |> KafkaEx.NetworkClient.send_sync_request(request, state.sync_timeout)
+      |> NetworkClient.send_sync_request(request, state.sync_timeout)
       |> Heartbeat.parse_response
     {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
   end
@@ -165,7 +168,7 @@ defmodule KafkaEx.Server0P9P0 do
 
   defp update_consumer_metadata(state = %State{consumer_group: consumer_group}, 0, error_code) do
     Logger.log(:error, "Fetching consumer_group #{consumer_group} metadata failed with error_code #{inspect error_code}")
-    {%ConsumerMetadata.Response{error_code: error_code}, state}
+    {%ConsumerMetadataResponse{error_code: error_code}, state}
   end
 
   defp update_consumer_metadata(state = %State{consumer_group: consumer_group, correlation_id: correlation_id}, retry, _error_code) do
@@ -182,10 +185,10 @@ defmodule KafkaEx.Server0P9P0 do
   end
 
   defp updated_broker_for_topic(state, partition, topic) do
-    case Metadata.Response.broker_for_topic(state.metadata, state.brokers, topic, partition) do
+    case MetadataResponse.broker_for_topic(state.metadata, state.brokers, topic, partition) do
       nil    ->
         updated_state = update_metadata(state)
-        {Metadata.Response.broker_for_topic(updated_state.metadata, updated_state.brokers, topic, partition), updated_state}
+        {MetadataResponse.broker_for_topic(updated_state.metadata, updated_state.brokers, topic, partition), updated_state}
       broker -> {broker, state}
     end
   end
@@ -201,7 +204,7 @@ defmodule KafkaEx.Server0P9P0 do
         {:topic_not_found, state}
       _ ->
         response = broker
-          |> KafkaEx.NetworkClient.send_sync_request(fetch_request, state.sync_timeout)
+          |> NetworkClient.send_sync_request(fetch_request, state.sync_timeout)
           |> Fetch.parse_response
         state = %{state | correlation_id: state.correlation_id + 1}
         last_offset = response |> hd |> Map.get(:partitions) |> hd |> Map.get(:last_offset)
@@ -229,14 +232,14 @@ defmodule KafkaEx.Server0P9P0 do
 
     offset_commit_request_payload = OffsetCommit.create_request(state.correlation_id, @client_id, offset_commit_request)
     response = broker
-      |> KafkaEx.NetworkClient.send_sync_request(offset_commit_request_payload, state.sync_timeout)
+      |> NetworkClient.send_sync_request(offset_commit_request_payload, state.sync_timeout)
       |> OffsetCommit.parse_response
 
     {response, %{state | correlation_id: state.correlation_id + 1}}
   end
 
   defp broker_for_consumer_group(state) do
-    ConsumerMetadata.Response.broker_for_consumer_group(state.brokers, state.consumer_metadata)
+    ConsumerMetadataResponse.broker_for_consumer_group(state.brokers, state.consumer_metadata)
   end
 
   # refactored from two versions, one that used the first broker as valid answer, hence

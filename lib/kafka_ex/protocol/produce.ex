@@ -1,5 +1,6 @@
 defmodule KafkaEx.Protocol.Produce do
   alias KafkaEx.Protocol
+  alias KafkaEx.Compression
   import KafkaEx.Protocol.Common
 
   @moduledoc """
@@ -49,7 +50,7 @@ defmodule KafkaEx.Protocol.Produce do
   defp create_message_set(messages, compression_type) do
     message_set = create_message_set(messages, :none)
     {compressed_message_set, attribute} =
-      KafkaEx.Compression.compress(compression_type, message_set)
+      Compression.compress(compression_type, message_set)
     message = create_message(compressed_message_set, nil, attribute)
 
     << 0 :: 64-signed >> <> << byte_size(message) :: 32-signed >> <> message
