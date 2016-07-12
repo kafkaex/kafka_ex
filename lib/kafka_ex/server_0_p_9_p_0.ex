@@ -8,6 +8,7 @@ defmodule KafkaEx.Server0P9P0 do
   alias KafkaEx.Protocol.Fetch
   alias KafkaEx.Protocol.Heartbeat
   alias KafkaEx.Protocol.JoinGroup
+  alias KafkaEx.Protocol.JoinGroup.Request, as: JoinGroupRequest
   alias KafkaEx.Protocol.Metadata.Broker
   alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
   alias KafkaEx.Protocol.OffsetFetch
@@ -106,7 +107,14 @@ defmodule KafkaEx.Server0P9P0 do
   def kafka_server_join_group(topics, session_timeout, state) do
     true = consumer_group?(state)
     {broker, state} = broker_for_consumer_group_with_update(state)
-    request = JoinGroup.create_request(state.correlation_id, @client_id, "", state.consumer_group, topics, session_timeout)
+    request = JoinGroup.create_request(
+      %JoinGroupRequest{
+        correlation_id: state.correlation_id,
+        client_id: @client_id, member_id: "",
+        group_name: state.consumer_group,
+        topics: topics, session_timeout: session_timeout
+      }
+    )
     response = broker
       |> NetworkClient.send_sync_request(request, state.sync_timeout)
       |> JoinGroup.parse_response

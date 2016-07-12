@@ -8,6 +8,22 @@ defmodule KafkaEx.Protocol.JoinGroup do
   @strategy_name "assign"
   @metadata_version 0
 
+  defmodule Request do
+    @moduledoc false
+    defstruct correlation_id: nil,
+      client_id: nil, member_id: nil,
+      group_name: nil, topics: nil,
+      session_timeout: nil
+    @type t :: %Request{
+      correlation_id: integer,
+      client_id: binary,
+      member_id: binary,
+      group_name: binary,
+      topics: [binary],
+      session_timeout: integer,
+    }
+  end
+
   defmodule Response do
     @moduledoc false
     defstruct error_code: nil, generation_id: 0, leader_id: nil, member_id: nil, members: []
@@ -15,17 +31,19 @@ defmodule KafkaEx.Protocol.JoinGroup do
                          leader_id: binary, member_id: binary, members: [binary]}
   end
 
-  @spec create_request(integer, binary, binary, binary, [binary], integer) :: binary
-  def create_request(correlation_id, client_id, member_id, group_name, topics, session_timeout) do
-    KafkaEx.Protocol.create_request(:join_group, correlation_id, client_id) <>
-      << byte_size(group_name) :: 16-signed, group_name :: binary,
-         session_timeout :: 32-signed,
-         byte_size(member_id) :: 16-signed, member_id :: binary,
+  @spec create_request(Request.t) :: binary
+  def create_request(join_group_req) do
+    KafkaEx.Protocol.create_request(
+      :join_group, join_group_req.correlation_id, join_group_req.client_id
+    ) <>
+      << byte_size(join_group_req.group_name) :: 16-signed, join_group_req.group_name :: binary,
+         join_group_req.session_timeout :: 32-signed,
+         byte_size(join_group_req.member_id) :: 16-signed, join_group_req.member_id :: binary,
          byte_size(@protocol_type) :: 16-signed, @protocol_type :: binary,
          1 :: 32-signed, # We always have just one GroupProtocl
          byte_size(@strategy_name) :: 16-signed, @strategy_name :: binary,
          @metadata_version :: 16-signed,
-         length(topics) :: 32-signed, topic_data(topics) :: binary,
+         length(join_group_req.topics) :: 32-signed, topic_data(join_group_req.topics) :: binary,
          0 :: 32-signed
          >>
   end
