@@ -281,9 +281,14 @@ defmodule KafkaEx.Server do
             :leader_not_available
           broker -> case produce_request.required_acks do
             0 ->  NetworkClient.send_async_request(broker, produce_request_data)
-            _ -> broker
-            |> NetworkClient.send_sync_request(produce_request_data, state.sync_timeout)
-            |> Produce.parse_response
+            _ ->
+              response = broker
+               |> NetworkClient.send_sync_request(produce_request_data, state.sync_timeout)
+               |> Produce.parse_response
+              case response do
+                [%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: :no_error, offset: offset, partition: _}], topic: topic}] when offset != nil ->
+                  {:ok, offset}
+              end
           end
         end
         state = %{state | correlation_id: corr_id + 1}

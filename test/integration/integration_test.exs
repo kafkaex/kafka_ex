@@ -104,8 +104,7 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "produce/4 with ack required returns an ack" do
-    produce_response = KafkaEx.produce("food", 0, "hey", worker_name: Config.default_worker, required_acks: 1) |> hd
-    offset = produce_response.partitions |> hd |> Map.get(:offset)
+    {:ok, offset} = KafkaEx.produce("food", 0, "hey", worker_name: Config.default_worker, required_acks: 1)
 
     refute offset == nil
   end
@@ -115,8 +114,7 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "produce with ack required returns an ack" do
-    produce_response = KafkaEx.produce(%Proto.Produce.Request{topic: "food", partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) |> hd
-    offset = produce_response.partitions |> hd |> Map.get(:offset)
+    {:ok, offset} = KafkaEx.produce(%Proto.Produce.Request{topic: "food", partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]})
 
     refute offset == nil
   end
@@ -203,8 +201,7 @@ defmodule KafkaEx.Integration.Test do
 
   test "fetch works" do
     random_string = generate_random_string
-    produce_response =  KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey foo"}]}) |> hd
-    offset = produce_response.partitions |> hd |> Map.get(:offset)
+    {:ok, offset} =  KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey foo"}]})
     fetch_response = KafkaEx.fetch(random_string, 0, offset: 0, auto_commit: false) |>  hd
     message = fetch_response.partitions |> hd |> Map.get(:message_set) |> hd
 
@@ -247,7 +244,7 @@ defmodule KafkaEx.Integration.Test do
 
   test "latest_offset retrieves offset of 0 for non-existing topic" do
     random_string = generate_random_string
-    produce_offset = KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) |> hd |> Map.get(:partitions) |> hd |> Map.get(:offset)
+    {:ok, produce_offset} = KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]})
     :timer.sleep(300)
     offset_response = KafkaEx.latest_offset(random_string, 0) |> hd
     offset = offset_response.partition_offsets |> hd |> Map.get(:offset) |> hd
@@ -280,8 +277,7 @@ defmodule KafkaEx.Integration.Test do
       required_acks: 1,
       compression: :gzip,
       messages: messages}
-    produce_response =  KafkaEx.produce(produce_request) |> hd
-    offset = produce_response.partitions |> hd |> Map.get(:offset)
+    {:ok, offset} =  KafkaEx.produce(produce_request)
 
     fetch_response = KafkaEx.fetch(random_string, 0, offset: 0, auto_commit: false) |>  hd
     [got_message1, got_message2] = fetch_response.partitions |> hd |> Map.get(:message_set)
@@ -307,8 +303,7 @@ defmodule KafkaEx.Integration.Test do
       required_acks: 1,
       compression: :snappy,
       messages: messages}
-    produce_response =  KafkaEx.produce(produce_request) |> hd
-    offset = produce_response.partitions |> hd |> Map.get(:offset)
+    {:ok, offset} =  KafkaEx.produce(produce_request)
 
     fetch_response = KafkaEx.fetch(random_string, 0, offset: 0, auto_commit: false) |>  hd
     [got_message1, got_message2] = fetch_response.partitions |> hd |> Map.get(:message_set)
@@ -330,8 +325,7 @@ defmodule KafkaEx.Integration.Test do
     messages = [%Proto.Produce.Message{key: nil, value: message_value}]
     produce_request = %Proto.Produce.Request{topic: topic, partition: 0, required_acks: 1, messages: messages}
 
-    produce_response = KafkaEx.produce(produce_request) |> hd
-    offset = produce_response.partitions |> hd |> Map.get(:offset)
+    {:ok, offset} = KafkaEx.produce(produce_request)
 
     fetch_response = KafkaEx.fetch(topic, 0, offset: offset) |> hd
     [got_message] = fetch_response.partitions |> hd |> Map.get(:message_set)
@@ -348,8 +342,7 @@ defmodule KafkaEx.Integration.Test do
     messages = [%Proto.Produce.Message{key: nil, value: message_value}]
     produce_request = %Proto.Produce.Request{topic: topic, partition: 0, compression: :gzip, required_acks: 1, messages: messages}
 
-    produce_response = KafkaEx.produce(produce_request) |> hd
-    offset = produce_response.partitions |> hd |> Map.get(:offset)
+    {:ok, offset} = KafkaEx.produce(produce_request)
 
     fetch_response = KafkaEx.fetch(topic, 0, offset: offset) |> hd
     [got_message] = fetch_response.partitions |> hd |> Map.get(:message_set)
@@ -366,8 +359,7 @@ defmodule KafkaEx.Integration.Test do
     messages = [%Proto.Produce.Message{key: nil, value: message_value}]
     produce_request = %Proto.Produce.Request{topic: topic, partition: 0, compression: :snappy, required_acks: 1, messages: messages}
 
-    produce_response = KafkaEx.produce(produce_request) |> hd
-    offset = produce_response.partitions |> hd |> Map.get(:offset)
+    {:ok, offset} = KafkaEx.produce(produce_request)
 
     fetch_response = KafkaEx.fetch(topic, 0, offset: offset) |> hd
     [got_message] = fetch_response.partitions |> hd |> Map.get(:message_set)
@@ -456,12 +448,11 @@ defmodule KafkaEx.Integration.Test do
   test "streams kafka logs with custom handler and initial state" do
     random_string = generate_random_string
     KafkaEx.create_worker(:stream3, uris: uris)
-    produce_response = KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [
+    {:ok, offset} = KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [
         %Proto.Produce.Message{value: "hey"},
         %Proto.Produce.Message{value: "hi"},
       ]
-    }, worker_name: :stream3) |> hd
-    offset = produce_response.partitions |> hd |> Map.get(:offset)
+    }, worker_name: :stream3)
 
     defmodule CustomHandlerSendingMessage do
       use GenEvent
