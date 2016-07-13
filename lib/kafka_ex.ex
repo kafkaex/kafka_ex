@@ -210,7 +210,7 @@ Optional arguments(KeywordList)
   {:ok, 9773}
   ```
   """
-  @spec produce(ProduceRequest.t, Keyword.t) :: nil | :ok | {:ok, integer} | {:error, :closed} | {:error, :inet.posix} | iodata | :leader_not_available
+  @spec produce(ProduceRequest.t, Keyword.t) :: nil | :ok | {:ok, integer} | {:error, :closed} | {:error, :inet.posix} | {:error, any} | iodata | :leader_not_available
   def produce(produce_request, opts \\ []) do
     worker_name   = Keyword.get(opts, :worker_name, Config.default_worker)
     GenServer.call(worker_name, {:produce, produce_request})
@@ -232,7 +232,7 @@ Optional arguments(KeywordList)
   {:ok, 9771}
   ```
   """
-  @spec produce(binary, number, binary, Keyword.t) :: nil | :ok | {:ok, integer} | {:error, :closed} | {:error, :inet.posix} | iodata | :leader_not_available
+  @spec produce(binary, number, binary, Keyword.t) :: nil | :ok | {:ok, integer} | {:error, :closed} | {:error, :inet.posix} | {:error, any} | iodata | :leader_not_available
   def produce(topic, partition, value, opts \\ []) do
     key             = Keyword.get(opts, :key, "")
     required_acks   = Keyword.get(opts, :required_acks, 0)

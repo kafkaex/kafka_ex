@@ -288,6 +288,8 @@ defmodule KafkaEx.Server do
               case response do
                 [%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: :no_error, offset: offset, partition: _}], topic: topic}] when offset != nil ->
                   {:ok, offset}
+                _ ->
+                  {:error, response}
               end
           end
         end
