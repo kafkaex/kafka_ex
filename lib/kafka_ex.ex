@@ -210,12 +210,12 @@ Optional arguments(KeywordList)
 
   ```elixir
   iex> KafkaEx.produce(%KafkaEx.Protocol.Produce.Request{topic: "foo", partition: 0, required_acks: 1, messages: [%KafkaEx.Protocol.Produce.Message{value: "hey"}]})
-  :ok
+  {:ok, 9772}
   iex> KafkaEx.produce(%KafkaEx.Protocol.Produce.Request{topic: "foo", partition: 0, required_acks: 1, messages: [%KafkaEx.Protocol.Produce.Message{value: "hey"}]}, worker_name: :pr)
-  :ok
+  {:ok, 9773}
   ```
   """
-  @spec produce(ProduceRequest.t, Keyword.t) :: nil | :ok | {:error, :closed} | {:error, :inet.posix} | iodata | :leader_not_available
+  @spec produce(ProduceRequest.t, Keyword.t) :: nil | :ok | {:ok, integer} | {:error, :closed} | {:error, :inet.posix} | {:error, any} | iodata | :leader_not_available
   def produce(produce_request, opts \\ []) do
     worker_name   = Keyword.get(opts, :worker_name, Config.default_worker)
     GenServer.call(worker_name, {:produce, produce_request})
@@ -226,18 +226,18 @@ Optional arguments(KeywordList)
   Optional arguments(KeywordList)
   - worker_name: the worker we want to run this metadata request through, when none is provided the default worker `:kafka_ex` is used
   - key: is used for partition assignment, can be nil, when none is provided it is defaulted to nil
-  - require_acks: indicates how many acknowledgements the servers should receive before responding to the request. If it is 0 the server will not send any response (this is the only case where the server will not reply to a request). If it is 1, the server will wait the data is written to the local log before sending a response. If it is -1 the server will block until the message is committed by all in sync replicas before sending a response. For any number > 1 the server will block waiting for this number of acknowledgements to occur (but the server will never wait for more acknowledgements than there are in-sync replicas), default is 0
+  - required_acks: indicates how many acknowledgements the servers should receive before responding to the request. If it is 0 the server will not send any response (this is the only case where the server will not reply to a request). If it is 1, the server will wait the data is written to the local log before sending a response. If it is -1 the server will block until the message is committed by all in sync replicas before sending a response. For any number > 1 the server will block waiting for this number of acknowledgements to occur (but the server will never wait for more acknowledgements than there are in-sync replicas), default is 0
   - timeout: provides a maximum time in milliseconds the server can await the receipt of the number of acknowledgements in RequiredAcks, default is 100 milliseconds
   - compression: specifies the compression type (:none, :snappy, :gzip)
   ## Example
   ```elixir
   iex> KafkaEx.produce("bar", 0, "hey")
   :ok
-  iex> KafkaEx.produce("foo", 0, "hey", [worker_name: :pr, require_acks: 1])
-  :ok
+  iex> KafkaEx.produce("foo", 0, "hey", [worker_name: :pr, required_acks: 1])
+  {:ok, 9771}
   ```
   """
-  @spec produce(binary, number, binary, Keyword.t) :: nil | :ok | {:error, :closed} | {:error, :inet.posix} | iodata | :leader_not_available
+  @spec produce(binary, number, binary, Keyword.t) :: nil | :ok | {:ok, integer} | {:error, :closed} | {:error, :inet.posix} | {:error, any} | iodata | :leader_not_available
   def produce(topic, partition, value, opts \\ []) do
     key             = Keyword.get(opts, :key, "")
     required_acks   = Keyword.get(opts, :required_acks, 0)
