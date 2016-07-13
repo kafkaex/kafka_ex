@@ -4,7 +4,17 @@ defmodule KafkaEx.Protocol.Fetch.Test do
 
   test "create_request creates a valid fetch request" do
     good_request = << 1 :: 16, 0 :: 16, 1 :: 32, 3 :: 16, "foo" :: binary, -1 :: 32, 10 :: 32, 1 :: 32, 1 :: 32, 3 :: 16, "bar" :: binary, 1 :: 32, 0 :: 32, 1 :: 64, 10000 :: 32 >>
-    request = KafkaEx.Protocol.Fetch.create_request(1, "foo", "bar", 0, 1, 10, 1, 10000)
+    fetch_request = %KafkaEx.Protocol.Fetch.Request{
+      correlation_id: 1,
+      client_id: "foo",
+      topic: "bar",
+      partition: 0,
+      offset: 1,
+      wait_time: 10,
+      min_bytes: 1,
+      max_bytes: 10_000,
+    }
+    request = KafkaEx.Protocol.Fetch.create_request(fetch_request)
     assert request == good_request
   end
 

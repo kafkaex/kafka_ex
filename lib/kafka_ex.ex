@@ -5,6 +5,7 @@ defmodule KafkaEx do
   alias KafkaEx.Config
   alias KafkaEx.Protocol.ConsumerMetadata, as: ConsumerMetadataResponse
   alias KafkaEx.Protocol.Fetch.Response, as: FetchResponse
+  alias KafkaEx.Protocol.Fetch.Request, as: FetchRequest
   alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
   alias KafkaEx.Protocol.Offset.Response, as: OffsetResponse
   alias KafkaEx.Protocol.OffsetCommit.Response, as: OffsetCommitResponse
@@ -180,9 +181,13 @@ defmodule KafkaEx do
 
     retrieved_offset = current_offset(supplied_offset, partition, topic, worker_name)
 
-    GenServer.call(worker_name, {
-      :fetch, topic, partition, retrieved_offset,
-      wait_time, min_bytes, max_bytes, auto_commit
+    GenServer.call(worker_name, {:fetch,
+      %FetchRequest{
+        auto_commit: auto_commit,
+        topic: topic, partition: partition,
+        offset: retrieved_offset, wait_time: wait_time,
+        min_bytes: min_bytes, max_bytes: max_bytes
+      }
     })
   end
 
@@ -276,12 +281,21 @@ Optional arguments(KeywordList)
     handler         = Keyword.get(opts, :handler, KafkaEx.Handler)
     handler_init    = Keyword.get(opts, :handler_init, [])
     auto_commit     = Keyword.get(opts, :auto_commit, true)
+    wait_time         = Keyword.get(opts, :wait_time, @wait_time)
+    min_bytes         = Keyword.get(opts, :min_bytes, @min_bytes)
+    max_bytes         = Keyword.get(opts, :max_bytes, @max_bytes)
 
     event_stream      = GenServer.call(worker_name, {:create_stream, handler, handler_init})
     retrieved_offset = current_offset(supplied_offset, partition, topic, worker_name)
 
     send(worker_name, {
-      :start_streaming, topic, partition, retrieved_offset, handler, auto_commit
+      :start_streaming,
+      %FetchRequest{
+        auto_commit: auto_commit,
+        topic: topic, partition: partition,
+        offset: retrieved_offset, wait_time: wait_time,
+        min_bytes: min_bytes, max_bytes: max_bytes
+      }
     })
     event_stream
   end

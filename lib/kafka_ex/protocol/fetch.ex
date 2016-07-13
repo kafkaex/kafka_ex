@@ -7,6 +7,20 @@ defmodule KafkaEx.Protocol.Fetch do
   Implementation of the Kafka Fetch request and response APIs
   """
 
+  defmodule Request do
+    @moduledoc false
+    defstruct correlation_id: nil,
+      client_id: nil, topic: nil, partition: nil,
+      offset: nil, wait_time: nil, min_bytes: nil,
+      max_bytes: nil, auto_commit: nil
+    @type t :: %Request{
+      correlation_id: integer, client_id: binary,
+      topic: binary, partition: integer,
+      offset: integer, wait_time: integer,
+      min_bytes: integer, max_bytes: integer
+    }
+  end
+
   defmodule Response do
     @moduledoc false
     defstruct topic: nil, partitions: []
@@ -19,10 +33,17 @@ defmodule KafkaEx.Protocol.Fetch do
     @type t :: %Message{attributes: integer, crc: integer, offset: integer, key: binary, value: binary}
   end
 
-  def create_request(correlation_id, client_id, topic, partition, offset, wait_time, min_bytes, max_bytes) do
-    KafkaEx.Protocol.create_request(:fetch, correlation_id, client_id) <>
-      << -1 :: 32-signed, wait_time :: 32-signed, min_bytes :: 32-signed, 1 :: 32-signed, byte_size(topic) :: 16-signed, topic :: binary,
-         1 :: 32-signed, partition :: 32-signed, offset :: 64, max_bytes :: 32 >>
+  @spec create_request(Request.t) :: binary
+  def create_request(fetch_request) do
+    KafkaEx.Protocol.create_request(
+      :fetch, fetch_request.correlation_id, fetch_request.client_id
+    ) <>
+    <<
+      -1 :: 32-signed, fetch_request.wait_time :: 32-signed, fetch_request.min_bytes :: 32-signed,
+      1 :: 32-signed, byte_size(fetch_request.topic) :: 16-signed, fetch_request.topic :: binary,
+      1 :: 32-signed, fetch_request.partition :: 32-signed, fetch_request.offset :: 64,
+      fetch_request.max_bytes :: 32
+    >>
   end
 
   def parse_response(<< _correlation_id :: 32-signed, topics_size :: 32-signed, rest :: binary>>) do

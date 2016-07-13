@@ -6,6 +6,7 @@ defmodule KafkaEx.Server0P9P0 do
   alias KafkaEx.Protocol.ConsumerMetadata
   alias KafkaEx.Protocol.ConsumerMetadata.Response, as: ConsumerMetadataResponse
   alias KafkaEx.Protocol.Fetch
+  alias KafkaEx.Protocol.Fetch.Request, as: FetchRequest
   alias KafkaEx.Protocol.Heartbeat
   alias KafkaEx.Protocol.JoinGroup
   alias KafkaEx.Protocol.JoinGroup.Request, as: JoinGroupRequest
@@ -60,9 +61,9 @@ defmodule KafkaEx.Server0P9P0 do
     {:reply, state.consumer_group, state}
   end
 
-  def kafka_server_fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, auto_commit, state) do
-    true = consumer_group_if_auto_commit?(auto_commit, state)
-    {response, state} = fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, auto_commit, state)
+  def kafka_server_fetch(fetch_request, state) do
+    true = consumer_group_if_auto_commit?(fetch_request.auto_commit, state)
+    {response, state} = fetch(fetch_request, state)
 
     {:reply, response, state}
   end
@@ -141,27 +142,29 @@ defmodule KafkaEx.Server0P9P0 do
     {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
   end
 
-  def kafka_server_start_streaming(_topic, _partition, _offset, _handler, _auto_commit, state = %State{event_pid: nil}) do
+  def kafka_server_start_streaming(_, state = %State{event_pid: nil}) do
     # our streaming could have been canceled with a streaming update in-flight
     {:noreply, state}
   end
-  def kafka_server_start_streaming(topic, partition, offset, handler, auto_commit, state) do
-    true = consumer_group_if_auto_commit?(auto_commit, state)
+  def kafka_server_start_streaming(fetch_request, state) do
+    true = consumer_group_if_auto_commit?(fetch_request.auto_commit, state)
 
-    {response, state} = fetch(topic, partition, offset, @wait_time, @min_bytes, @max_bytes, auto_commit, state)
+    {response, state} = fetch(fetch_request, state)
     offset = case response do
                :topic_not_found ->
-                 offset
+                 fetch_request.offset
                _ ->
                  message = response |> hd |> Map.get(:partitions) |> hd
                  Enum.each(message.message_set, fn(message_set) -> GenEvent.notify(state.event_pid, message_set) end)
                  case message.last_offset do
-                   nil         -> offset
+                   nil         -> fetch_request.offset
                    last_offset -> last_offset + 1
                  end
              end
 
-    ref = Process.send_after(self, {:start_streaming, topic, partition, offset, handler, auto_commit}, 500)
+    ref = Process.send_after(
+      self, {:start_streaming, %{fetch_request | offset: offset}}, 500
+    )
 
     {:noreply, %{state | stream_timer: ref}}
   end
@@ -201,26 +204,30 @@ defmodule KafkaEx.Server0P9P0 do
     end
   end
 
-  defp fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, auto_commit, state) do
-    true = consumer_group_if_auto_commit?(auto_commit, state)
-    fetch_request = Fetch.create_request(state.correlation_id, @client_id, topic, partition, offset, wait_time, min_bytes, max_bytes)
-    {broker, state} = updated_broker_for_topic(state, partition, topic)
+  defp fetch(fetch_request, state) do
+    true = consumer_group_if_auto_commit?(fetch_request.auto_commit, state)
+    fetch_data = Fetch.create_request(%FetchRequest{
+      fetch_request |
+      client_id: @client_id,
+      correlation_id: state.correlation_id,
+    })
+    {broker, state} = updated_broker_for_topic(state, fetch_request.partition, fetch_request.topic)
 
     case broker do
       nil ->
-        Logger.log(:error, "Leader for topic #{topic} is not available")
+        Logger.log(:error, "Leader for topic #{fetch_request.topic} is not available")
         {:topic_not_found, state}
       _ ->
         response = broker
-          |> NetworkClient.send_sync_request(fetch_request, state.sync_timeout)
+          |> NetworkClient.send_sync_request(fetch_data, state.sync_timeout)
           |> Fetch.parse_response
         state = %{state | correlation_id: state.correlation_id + 1}
         last_offset = response |> hd |> Map.get(:partitions) |> hd |> Map.get(:last_offset)
-        if last_offset != nil && auto_commit do
+        if last_offset != nil && fetch_request.auto_commit do
           offset_commit_request = %OffsetCommit.Request{
-            topic: topic,
+            topic: fetch_request.topic,
             offset: last_offset,
-            partition: partition,
+            partition: fetch_request.partition,
             consumer_group: state.consumer_group}
           {_, state} = offset_commit(state, offset_commit_request)
           {response, state}

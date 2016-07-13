@@ -48,7 +48,7 @@ defmodule KafkaEx.Server do
     {:noreply, new_state, timeout | :hibernate} |
     {:stop, reason, reply, new_state} |
     {:stop, reason, new_state} when reply: term, new_state: term, reason: term
-  @callback kafka_server_fetch(topic :: binary, parition :: integer, offset :: integer, wait_time :: integer, min_bytes :: integer, max_bytes :: integer, auto_commit :: boolean,  state :: State.t) ::
+  @callback kafka_server_fetch(fetch_request :: FetchRequest.t, state :: State.t) ::
     {:reply, reply, new_state} |
     {:reply, reply, new_state, timeout | :hibernate} |
     {:noreply, new_state} |
@@ -118,7 +118,7 @@ defmodule KafkaEx.Server do
     {:noreply, new_state, timeout | :hibernate} |
     {:stop, reason, reply, new_state} |
     {:stop, reason, new_state} when reply: term, new_state: term, reason: term
-  @callback kafka_server_start_streaming(topic :: binary, partition :: integer, offset :: integer, handler :: term, auto_commit :: boolean, state :: State.t) ::
+  @callback kafka_server_start_streaming(fetch_request :: FetchRequest.t, state :: State.t) ::
     {:noreply, new_state} |
     {:noreply, new_state, timeout | :hibernate} |
     {:stop, reason :: term, new_state} when new_state: term
@@ -171,8 +171,8 @@ defmodule KafkaEx.Server do
         {:reply, response, %{callback_state: callback_state, callback_module: server_impl}}
       end
 
-      def handle_call({:fetch, topic, partition, offset, wait_time, min_bytes, max_bytes, auto_commit}, _from, %{callback_state: callback_state, callback_module: server_impl} = state) do
-        {:reply, response, callback_state} = server_impl.kafka_server_fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, auto_commit, callback_state)
+      def handle_call({:fetch, fetch_request}, _from, %{callback_state: callback_state, callback_module: server_impl} = state) do
+        {:reply, response, callback_state} = server_impl.kafka_server_fetch(fetch_request, callback_state)
         {:reply, response, %{callback_state: callback_state, callback_module: server_impl}}
       end
 
@@ -221,8 +221,8 @@ defmodule KafkaEx.Server do
         {:reply, response, %{callback_state: callback_state, callback_module: server_impl}}
       end
 
-      def handle_info({:start_streaming, topic, partition, offset, handler, auto_commit}, %{callback_state: callback_state, callback_module: server_impl} = state) do
-        {:noreply, callback_state} = server_impl.kafka_server_start_streaming(topic, partition, offset, handler, auto_commit, callback_state)
+      def handle_info({:start_streaming, fetch_request}, %{callback_state: callback_state, callback_module: server_impl} = state) do
+        {:noreply, callback_state} = server_impl.kafka_server_start_streaming(fetch_request, callback_state)
         {:noreply, %{callback_state: callback_state, callback_module: server_impl}}
       end
 
