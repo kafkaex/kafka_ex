@@ -13,7 +13,7 @@ defmodule KafkaEx.Protocol.Produce do
     - timeout: provides a maximum time in milliseconds the server can await the receipt of the number of acknowledgements in RequiredAcks, default is 100 milliseconds
     """
     defstruct topic: nil, partition: nil, required_acks: 0, timeout: 0, compression: :none, messages: []
-    @type t :: %Request{topic: binary, partition: integer, required_acks: binary, timeout: integer, compression: atom, messages: list}
+    @type t :: %Request{topic: binary, partition: integer, required_acks: integer, timeout: integer, compression: atom, messages: list}
   end
 
   defmodule Message do
