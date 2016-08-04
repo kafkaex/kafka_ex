@@ -16,7 +16,6 @@ defmodule KafkaEx.Server do
     @moduledoc false
 
     defstruct(metadata: %Metadata.Response{},
-    server_impl: nil,
     brokers: [],
     event_pid: nil,
     stream_timer: nil,
@@ -151,112 +150,95 @@ defmodule KafkaEx.Server do
       @metadata_update_interval       30_000
       @sync_timeout                   1_000
 
-      def init([server_impl, args]) do
-        {:ok, state} = server_impl.kafka_server_init([args])
-        {:ok, %{callback_state: state, callback_module: server_impl}}
+      def init([args]) do
+        kafka_server_init([args])
       end
 
-      def init([server_impl, args, name]) do
-        {:ok, state} = server_impl.kafka_server_init([args, name])
-        {:ok, %{callback_state: state, callback_module: server_impl}}
+      def init([args, name]) do
+        kafka_server_init([args, name])
       end
 
-      def handle_call(:consumer_group, _from, %{callback_state: callback_state, callback_module: server_impl} = state) do
-        {:reply, response, callback_state} = server_impl.kafka_server_consumer_group(callback_state)
-        {:reply, response, %{callback_state: callback_state, callback_module: server_impl}}
+      def handle_call(:consumer_group, _from, state) do
+        kafka_server_consumer_group(state)
       end
 
-      def handle_call({:produce, produce_request}, _from, %{callback_state: callback_state, callback_module: server_impl} = state) do
-        {:reply, response, callback_state} = server_impl.kafka_server_produce(produce_request, callback_state)
-        {:reply, response, %{callback_state: callback_state, callback_module: server_impl}}
+      def handle_call({:produce, produce_request}, _from, state) do
+        kafka_server_produce(produce_request, state)
       end
 
-      def handle_call({:fetch, fetch_request}, _from, %{callback_state: callback_state, callback_module: server_impl} = state) do
-        {:reply, response, callback_state} = server_impl.kafka_server_fetch(fetch_request, callback_state)
-        {:reply, response, %{callback_state: callback_state, callback_module: server_impl}}
+      def handle_call({:fetch, fetch_request}, _from, state) do
+        kafka_server_fetch(fetch_request, state)
       end
 
-      def handle_call({:offset, topic, partition, time}, _from, %{callback_state: callback_state, callback_module: server_impl} = state) do
-        {:reply, response, callback_state} = server_impl.kafka_server_offset(topic, partition, time, callback_state)
-        {:reply, response, %{callback_state: callback_state, callback_module: server_impl}}
+      def handle_call({:offset, topic, partition, time}, _from, state) do
+        kafka_server_offset(topic, partition, time, state)
       end
 
-      def handle_call({:offset_fetch, offset_fetch}, _from, %{callback_state: callback_state, callback_module: server_impl} = state) do
-        {:reply, response, callback_state} = server_impl.kafka_server_offset_fetch(offset_fetch, callback_state)
-        {:reply, response, %{callback_state: callback_state, callback_module: server_impl}}
+      def handle_call({:offset_fetch, offset_fetch}, _from, state) do
+        kafka_server_offset_fetch(offset_fetch, state)
       end
 
-      def handle_call({:offset_commit, offset_commit_request}, _from, %{callback_state: callback_state, callback_module: server_impl} = state) do
-        {:reply, response, callback_state} = server_impl.kafka_server_offset_commit(offset_commit_request, callback_state)
-        {:reply, response, %{callback_state: callback_state, callback_module: server_impl}}
+      def handle_call({:offset_commit, offset_commit_request}, _from, state) do
+        kafka_server_offset_commit(offset_commit_request, state)
       end
 
-      def handle_call({:consumer_group_metadata, _consumer_group}, _from, %{callback_state: callback_state, callback_module: server_impl} = state) do
-        {:reply, response, callback_state} = server_impl.kafka_server_consumer_group_metadata(callback_state)
-        {:reply, response, %{callback_state: callback_state, callback_module: server_impl}}
+      def handle_call({:consumer_group_metadata, _consumer_group}, _from, state) do
+        kafka_server_consumer_group_metadata(state)
       end
 
-      def handle_call({:metadata, topic}, _from, %{callback_state: callback_state, callback_module: server_impl} = state) do
-        {:reply, response, callback_state} = server_impl.kafka_server_metadata(topic, callback_state)
-        {:reply, response, %{callback_state: callback_state, callback_module: server_impl}}
+      def handle_call({:metadata, topic}, _from, state) do
+        kafka_server_metadata(topic, state)
       end
 
-      def handle_call({:join_group, topics, session_timeout}, _from, %{callback_state: callback_state, callback_module: server_impl} = state) do
-        {:reply, response, callback_state} = server_impl.kafka_server_join_group(topics, session_timeout,callback_state)
-        {:reply, response, %{callback_state: callback_state, callback_module: server_impl}}
+      def handle_call({:join_group, topics, session_timeout}, _from, state) do
+        kafka_server_join_group(topics, session_timeout,state)
       end
 
-      def handle_call({:sync_group, group_name, generation_id, member_id, assignments}, _from, %{callback_state: callback_state, callback_module: server_impl} = state) do
-        {:reply, response, callback_state} = server_impl.kafka_server_sync_group(group_name, generation_id, member_id, assignments, callback_state)
-        {:reply, response, %{callback_state: callback_state, callback_module: server_impl}}
+      def handle_call({:sync_group, group_name, generation_id, member_id, assignments}, _from, state) do
+        kafka_server_sync_group(group_name, generation_id, member_id, assignments, state)
       end
 
-      def handle_call({:heartbeat, group_name, generation_id, member_id}, _from, %{callback_state: callback_state, callback_module: server_impl} = state) do
-        {:reply, response, callback_state} = server_impl.kafka_server_heartbeat(group_name, generation_id, member_id, callback_state)
-        {:reply, response, %{callback_state: callback_state, callback_module: server_impl}}
+      def handle_call({:heartbeat, group_name, generation_id, member_id}, _from, state) do
+        kafka_server_heartbeat(group_name, generation_id, member_id, state)
       end
 
-      def handle_call({:create_stream, handler, handler_init}, _from, %{callback_state: callback_state, callback_module: server_impl} = state) do
-        {:reply, response, callback_state} = server_impl.kafka_server_create_stream(handler, handler_init, callback_state)
-        {:reply, response, %{callback_state: callback_state, callback_module: server_impl}}
+      def handle_call({:create_stream, handler, handler_init}, _from, state) do
+        kafka_server_create_stream(handler, handler_init, state)
       end
 
-      def handle_info({:start_streaming, fetch_request}, %{callback_state: callback_state, callback_module: server_impl} = state) do
-        {:noreply, callback_state} = server_impl.kafka_server_start_streaming(fetch_request, callback_state)
-        {:noreply, %{callback_state: callback_state, callback_module: server_impl}}
+      def handle_info({:start_streaming, fetch_request}, state) do
+        kafka_server_start_streaming(fetch_request, state)
       end
 
-      def handle_info(:stop_streaming, %{callback_state: callback_state, callback_module: server_impl} = state) do
-        {:noreply, callback_state} = server_impl.kafka_server_stop_streaming(callback_state)
-        callback_state = case callback_state.stream_timer do
-          nil -> callback_state
+      def handle_info(:stop_streaming, state) do
+        {:noreply, state} = kafka_server_stop_streaming(state)
+        state = case state.stream_timer do
+          nil -> state
           ref -> Process.cancel_timer(ref)
-          %{callback_state | stream_timer: nil}
+          %{state | stream_timer: nil}
         end
-        {:noreply, %{callback_state: callback_state, callback_module: server_impl}}
+        {:noreply, state}
       end
 
-      def handle_info(:update_metadata, %{callback_state: callback_state, callback_module: server_impl} = state) do
-        {:noreply, callback_state} = server_impl.kafka_server_update_metadata(callback_state)
-        {:noreply, %{callback_state: callback_state, callback_module: server_impl}}
+      def handle_info(:update_metadata, state) do
+        kafka_server_update_metadata(state)
       end
 
-      def handle_info(:update_consumer_metadata, %{callback_state: callback_state, callback_module: server_impl} = state) do
-        {:noreply, callback_state} = server_impl.kafka_server_update_consumer_metadata(callback_state)
-        {:noreply, %{callback_state: callback_state, callback_module: server_impl}}
+      def handle_info(:update_consumer_metadata, state) do
+        kafka_server_update_consumer_metadata(state)
       end
 
-      def handle_info(_, %{callback_state: callback_state, callback_module: server_impl} = state) do
+      def handle_info(_, state) do
         {:noreply, state}
       end
 
 
-      def terminate(_, %{callback_state: callback_state, callback_module: server_impl} = state) do
-        Logger.log(:debug, "Shutting down worker #{inspect callback_state.worker_name}")
-        if callback_state.event_pid do
-          GenEvent.stop(callback_state.event_pid)
+      def terminate(_, state) do
+        Logger.log(:debug, "Shutting down worker #{inspect state.worker_name}")
+        if state.event_pid do
+          GenEvent.stop(state.event_pid)
         end
-        Enum.each(callback_state.brokers, fn(broker) -> NetworkClient.close_socket(broker.socket) end)
+        Enum.each(state.brokers, fn(broker) -> NetworkClient.close_socket(broker.socket) end)
       end
 
       # KakfaEx.Server behavior default implementations
