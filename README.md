@@ -92,6 +92,22 @@ iex> KafkaEx.create_worker(:no_name) # indicates to the server process not to na
 {:ok, #PID<0.171.0>}
 ```
 
+### Using KafkaEx with a pooling library
+
+Note that KafkaEx has a supervisor to manage its workers. If you are using Poolboy or a similar
+library, you will want to manually create a worker so that it is not supervised by `KafkaEx.Supervisor`.
+To do this, you will need to call:
+
+```elixir
+GenServer.start_link(KafkaEx.Server,
+  [
+    [uris: Application.get_env(:kafka_ex, :brokers),
+     consumer_group: Application.get_env(:kafka_ex, :consumer_group)],
+    :no_name
+  ]
+)
+```
+
 ### Retrieve kafka metadata
 For all metadata
 
