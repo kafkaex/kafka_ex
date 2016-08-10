@@ -53,7 +53,7 @@ defmodule KafkaEx do
   def create_worker(name, worker_init \\ []) do
     case build_worker_options(worker_init) do
       {:ok, worker_init} ->
-        Supervisor.start_child(KafkaEx.Supervisor, [Config.server_impl, worker_init, name])
+        Supervisor.start_child(KafkaEx.Supervisor, [worker_init, name])
       {:error, error} ->
         {:error, error}
     end
