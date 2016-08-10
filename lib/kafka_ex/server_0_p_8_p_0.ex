@@ -77,7 +77,6 @@ defmodule KafkaEx.Server0P8P0 do
   end
 
   defp fetch(fetch_request, state) do
-    fetch_request = Fetch.create_request(fetch_request)
     fetch_data = Fetch.create_request(%FetchRequest{
       fetch_request |
       client_id: @client_id,
