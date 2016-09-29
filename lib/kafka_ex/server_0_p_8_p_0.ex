@@ -21,6 +21,8 @@ defmodule KafkaEx.Server0P8P0 do
     sync_timeout = Keyword.get(args, :sync_timeout, Application.get_env(:kafka_ex, :sync_timeout, @sync_timeout))
     {correlation_id, metadata} = retrieve_metadata(brokers, 0, sync_timeout)
     state = %State{metadata: metadata, brokers: brokers, correlation_id: correlation_id, metadata_update_interval: metadata_update_interval, worker_name: name, sync_timeout: sync_timeout}
+    # Get the initial "real" broker list and start a regular refresh cycle.
+    state = update_metadata(state)
     {:ok, _} = :timer.send_interval(state.metadata_update_interval, :update_metadata)
 
     {:ok, state}
