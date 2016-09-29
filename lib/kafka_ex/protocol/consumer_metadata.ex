@@ -16,7 +16,7 @@ defmodule KafkaEx.Protocol.ConsumerMetadata do
     }
 
     def broker_for_consumer_group(brokers, consumer_group_metadata) do
-      Enum.find(brokers, &(&1.host == consumer_group_metadata.coordinator_host && &1.port == consumer_group_metadata.coordinator_port && &1.socket && is_list(Port.info(&1.socket))))
+      Enum.find(brokers, &(&1.node_id == consumer_group_metadata.coordinator_id && &1.socket && is_list(Port.info(&1.socket))))
     end
   end
 
