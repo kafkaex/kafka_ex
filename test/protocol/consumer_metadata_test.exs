@@ -15,14 +15,15 @@ defmodule KafkaEx.Protocol.ConsumerMetadata.Test do
 
   test "Response.broker_for_consumer_group returns correct coordinator_broker" do
     fake_socket = Port.open({:spawn, "cat"}, [])
-    consumer_group_metadata = %KafkaEx.Protocol.ConsumerMetadata.Response{coordinator_host: "192.168.59.103", coordinator_id: 49162, coordinator_port: 49162, error_code: :no_error}
+    # Note that just the coordinator_id is used here for comparison
+    consumer_group_metadata = %KafkaEx.Protocol.ConsumerMetadata.Response{coordinator_host: "127.0.0.1", coordinator_id: 49162, coordinator_port: 8123, error_code: :no_error}
 
     brokers = [
-        %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", port: 9092, socket: fake_socket},
-        %KafkaEx.Protocol.Metadata.Broker{host: "192.168.59.103", port: 49162, socket: fake_socket}
+        %KafkaEx.Protocol.Metadata.Broker{host: "192.168.0.1", port: 9092, node_id: 42, socket: fake_socket},
+        %KafkaEx.Protocol.Metadata.Broker{host: "192.168.59.103", port: 49162, node_id: 49162, socket: fake_socket}
     ]
 
-    assert KafkaEx.Protocol.ConsumerMetadata.Response.broker_for_consumer_group(brokers, consumer_group_metadata) == %KafkaEx.Protocol.Metadata.Broker{host: "192.168.59.103", port: 49162, socket: fake_socket}
+    assert KafkaEx.Protocol.ConsumerMetadata.Response.broker_for_consumer_group(brokers, consumer_group_metadata) == %KafkaEx.Protocol.Metadata.Broker{host: "192.168.59.103", port: 49162, node_id: 49162, socket: fake_socket}
     Port.close(fake_socket)
   end
 

@@ -374,12 +374,12 @@ defmodule KafkaEx.Server do
 
       defp remove_stale_brokers(brokers, metadata_brokers) do
         {brokers_to_keep, brokers_to_remove} = Enum.partition(brokers, fn(broker) ->
-          Enum.find_value(metadata_brokers, &(broker.host == &1.host && broker.port == &1.port && broker.socket && Port.info(broker.socket)))
+          Enum.find_value(metadata_brokers, &(broker.node_id == -1 || (broker.node_id == &1.node_id) && broker.socket && Port.info(broker.socket)))
         end)
         case length(brokers_to_keep) do
           0 -> brokers_to_remove
           _ -> Enum.each(brokers_to_remove, fn(broker) ->
-            Logger.log(:info, "Closing connection to broker #{inspect broker.host} on port #{inspect broker.port}")
+            Logger.log(:info, "Closing connection to broker #{broker.node_id}: #{inspect broker.host} on port #{inspect broker.port}")
             NetworkClient.close_socket(broker.socket)
           end)
             brokers_to_keep
@@ -388,8 +388,8 @@ defmodule KafkaEx.Server do
 
       defp add_new_brokers(brokers, []), do: brokers
       defp add_new_brokers(brokers, [metadata_broker|metadata_brokers]) do
-        case Enum.find(brokers, &(metadata_broker.host == &1.host && metadata_broker.port == &1.port)) do
-          nil -> Logger.log(:info, "Establishing connection to broker #{inspect metadata_broker.host} on port #{inspect metadata_broker.port}")
+        case Enum.find(brokers, &(metadata_broker.node_id == &1.node_id)) do
+          nil -> Logger.log(:info, "Establishing connection to broker #{metadata_broker.node_id}: #{inspect metadata_broker.host} on port #{inspect metadata_broker.port}")
             add_new_brokers([%{metadata_broker | socket: NetworkClient.create_socket(metadata_broker.host, metadata_broker.port)} | brokers], metadata_brokers)
           _ -> add_new_brokers(brokers, metadata_brokers)
         end
