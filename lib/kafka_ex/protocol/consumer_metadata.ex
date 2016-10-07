@@ -1,5 +1,6 @@
 defmodule KafkaEx.Protocol.ConsumerMetadata do
   alias KafkaEx.Protocol
+  alias KafkaEx.Socket
 
   @moduledoc """
   Implementation of the Kafka ConsumerMetadata request and response APIs
@@ -16,7 +17,7 @@ defmodule KafkaEx.Protocol.ConsumerMetadata do
     }
 
     def broker_for_consumer_group(brokers, consumer_group_metadata) do
-      Enum.find(brokers, &(&1.node_id == consumer_group_metadata.coordinator_id && &1.socket && is_list(Port.info(&1.socket))))
+      Enum.find(brokers, &(&1.node_id == consumer_group_metadata.coordinator_id && &1.socket && is_list(Socket.info(&1.socket))))
     end
   end
 

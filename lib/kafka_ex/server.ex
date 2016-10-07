@@ -11,6 +11,7 @@ defmodule KafkaEx.Server do
   alias KafkaEx.Protocol.OffsetFetch.Request, as: OffsetFetchRequest
   alias KafkaEx.Protocol.Produce
   alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
+  alias KafkaEx.Socket
 
   defmodule State do
     @moduledoc false
@@ -374,7 +375,7 @@ defmodule KafkaEx.Server do
 
       defp remove_stale_brokers(brokers, metadata_brokers) do
         {brokers_to_keep, brokers_to_remove} = Enum.partition(brokers, fn(broker) ->
-          Enum.find_value(metadata_brokers, &(broker.node_id == -1 || (broker.node_id == &1.node_id) && broker.socket && Port.info(broker.socket)))
+          Enum.find_value(metadata_brokers, &(broker.node_id == -1 || (broker.node_id == &1.node_id) && broker.socket && Socket.info(broker.socket)))
         end)
         case length(brokers_to_keep) do
           0 -> brokers_to_remove
