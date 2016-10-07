@@ -6,7 +6,7 @@ defmodule KafkaEx.NetworkClient do
   @moduledoc false
   @spec create_socket(binary, non_neg_integer) :: nil | Socket.t
   def create_socket(host, port) do
-    case Socket.create(format_host(host), port, [:binary, {:packet, 4}]) do
+    case Socket.create(format_host(host), port, default_socket_options) do
       {:ok, socket} ->
         Logger.log(:debug, "Succesfully connected to broker #{inspect(host)}:#{inspect port}")
         socket
@@ -56,6 +56,17 @@ defmodule KafkaEx.NetworkClient do
     case Regex.scan(~r/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/, host) do
       [match_data] = [[_, _, _, _, _]] -> match_data |> tl |> List.flatten |> Enum.map(&String.to_integer/1) |> List.to_tuple
       _ -> to_char_list(host)
+    end
+  end
+
+  defp default_socket_options do
+    default_options = [:binary, {:packet, 4}]
+    is_ssl = Application.get_env(:kafka_ex, :enable_ssl, false)
+    ssl_options = Application.get_env(:kafka_ex, :ssl_options, [])
+    if is_ssl do
+      default_options ++ ssl_options ++ [:ssl]
+    else
+      default_options
     end
   end
 end
