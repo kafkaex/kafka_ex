@@ -16,11 +16,16 @@ defmodule KafkaEx do
 
   @type uri() :: [{binary|char_list, number}]
   @type worker_init :: [worker_setting]
+  @type ssl_options :: [{:ssl_ca_cert_file, binary} |
+                        {:ssl_cert_file, binary} |
+                        {:ssl_cert_key_file, binary} |
+                        {:password, binary}]
   @type worker_setting :: {:uris, uri}  |
                           {:consumer_group, binary | :no_consumer_group} |
                           {:sync_timeout, non_neg_integer} |
                           {:metadata_update_interval, non_neg_integer} |
-                          {:consumer_group_update_interval, non_neg_integer}
+                          {:consumer_group_update_interval, non_neg_integer} |
+                          {:ssl_options, ssl_options}
 
   @doc """
   create_worker creates KafkaEx workers
@@ -31,6 +36,7 @@ defmodule KafkaEx do
   - metadata_update_interval: How often `kafka_ex` would update the Kafka cluster metadata information in milliseconds, default is 30000
   - consumer_group_update_interval: How often `kafka_ex` would update the Kafka cluster consumer_groups information in milliseconds, default is 30000
   - sync_timeout: Timeout for synchronous requests to kafka in milliseconds, default is 1000
+  - ssl_options: Certificates used by SSL connection, default is []
 
   Returns `{:error, error_description}` on invalid arguments
 
@@ -308,7 +314,8 @@ Optional arguments(KeywordList)
 
   defp build_worker_options(worker_init) do
     defaults = [uris: Application.get_env(:kafka_ex, :brokers),
-                consumer_group: Application.get_env(:kafka_ex, :consumer_group)]
+                consumer_group: Application.get_env(:kafka_ex, :consumer_group),
+                ssl_options: Application.get_env(:kafka_ex, :ssl_options)]
 
     worker_init = Keyword.merge(defaults, worker_init)
 
