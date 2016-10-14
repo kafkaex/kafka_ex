@@ -6,5 +6,5 @@ then
 else
   echo "Installing Kafka to ${base}"
   mkdir -p ${base}
-  curl http://apache.mirrors.tds.net/kafka/0.9.0.1/kafka_2.11-0.9.0.1.tgz | tar -zxv -C ${base} --strip-components=1
+  curl http://apache.mirrors.tds.net/kafka/0.10.0.1/kafka_2.11-0.10.0.1.tgz | tar -zxv -C ${base} --strip-components=1
 fi
