@@ -1,4 +1,5 @@
 defmodule KafkaEx.Protocol.Metadata do
+  alias KafkaEx.Socket
   alias KafkaEx.Protocol
   import KafkaEx.Protocol.Common
 
@@ -40,7 +41,7 @@ defmodule KafkaEx.Protocol.Metadata do
     end
 
     defp broker_with_open_socket(broker) do
-      case Port.info(broker.socket) do
+      case Socket.info(broker.socket) do
         port_info when is_list(port_info) -> broker
         _ -> nil
       end
@@ -50,7 +51,7 @@ defmodule KafkaEx.Protocol.Metadata do
   defmodule Broker do
     @moduledoc false
     defstruct node_id: -1, host: "", port: 0, socket: nil
-    @type t :: %Broker{node_id: non_neg_integer, host: binary, port: non_neg_integer, socket: nil | :gen_tcp.socket}
+    @type t :: %Broker{node_id: non_neg_integer, host: binary, port: non_neg_integer, socket: nil | Socket.t}
 
     def connected?(broker = %Broker{}) do
       broker.socket != nil

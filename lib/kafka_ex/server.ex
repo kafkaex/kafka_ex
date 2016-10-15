@@ -11,6 +11,7 @@ defmodule KafkaEx.Server do
   alias KafkaEx.Protocol.OffsetFetch.Request, as: OffsetFetchRequest
   alias KafkaEx.Protocol.Produce
   alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
+  alias KafkaEx.Socket
 
   defmodule State do
     @moduledoc false
@@ -25,7 +26,8 @@ defmodule KafkaEx.Server do
     metadata_update_interval: nil,
     consumer_group_update_interval: nil,
     worker_name: KafkaEx.Server,
-    sync_timeout: nil)
+    sync_timeout: nil,
+    ssl_options: [])
   end
 
   @callback kafka_server_init(args :: [term]) ::
@@ -149,6 +151,7 @@ defmodule KafkaEx.Server do
       @max_bytes 1_000_000
       @metadata_update_interval       30_000
       @sync_timeout                   1_000
+      @ssl_options []
 
       def init([args]) do
         kafka_server_init([args])
@@ -337,7 +340,7 @@ defmodule KafkaEx.Server do
         metadata_brokers = metadata.brokers
         brokers = state.brokers
           |> remove_stale_brokers(metadata_brokers)
-          |> add_new_brokers(metadata_brokers)
+          |> add_new_brokers(metadata_brokers, state.ssl_options)
         %{state | metadata: metadata, brokers: brokers, correlation_id: correlation_id + 1}
       end
 
@@ -374,7 +377,7 @@ defmodule KafkaEx.Server do
 
       defp remove_stale_brokers(brokers, metadata_brokers) do
         {brokers_to_keep, brokers_to_remove} = Enum.partition(brokers, fn(broker) ->
-          Enum.find_value(metadata_brokers, &(broker.node_id == -1 || (broker.node_id == &1.node_id) && broker.socket && Port.info(broker.socket)))
+          Enum.find_value(metadata_brokers, &(broker.node_id == -1 || (broker.node_id == &1.node_id) && broker.socket && Socket.info(broker.socket)))
         end)
         case length(brokers_to_keep) do
           0 -> brokers_to_remove
@@ -386,12 +389,12 @@ defmodule KafkaEx.Server do
         end
       end
 
-      defp add_new_brokers(brokers, []), do: brokers
-      defp add_new_brokers(brokers, [metadata_broker|metadata_brokers]) do
+      defp add_new_brokers(brokers, [], _), do: brokers
+      defp add_new_brokers(brokers, [metadata_broker|metadata_brokers], ssl_options) do
         case Enum.find(brokers, &(metadata_broker.node_id == &1.node_id)) do
           nil -> Logger.log(:info, "Establishing connection to broker #{metadata_broker.node_id}: #{inspect metadata_broker.host} on port #{inspect metadata_broker.port}")
-            add_new_brokers([%{metadata_broker | socket: NetworkClient.create_socket(metadata_broker.host, metadata_broker.port)} | brokers], metadata_brokers)
-          _ -> add_new_brokers(brokers, metadata_brokers)
+            add_new_brokers([%{metadata_broker | socket: NetworkClient.create_socket(metadata_broker.host, metadata_broker.port, ssl_options)} | brokers], metadata_brokers, ssl_options)
+          _ -> add_new_brokers(brokers, metadata_brokers, ssl_options)
         end
       end
 
