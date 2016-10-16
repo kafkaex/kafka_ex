@@ -9,11 +9,8 @@ elixir:
   - 1.2.4
   - 1.2.3
   - 1.1.1
-  - 1.0.4
 matrix:
   exclude:
-    - elixir: 1.0.4
-      otp_release: 18.2.1
     - elixir: 1.2.3
       otp_release: 17.5
     - elixir: 1.2.4
