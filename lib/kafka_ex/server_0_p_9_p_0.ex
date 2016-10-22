@@ -37,7 +37,7 @@ defmodule KafkaEx.Server0P9P0 do
     uris = Keyword.get(args, :uris, [])
     metadata_update_interval = Keyword.get(args, :metadata_update_interval, @metadata_update_interval)
     consumer_group_update_interval = Keyword.get(args, :consumer_group_update_interval, @consumer_group_update_interval)
-    ssl_options = Keyword.get(args, :ssl_options, @ssl_options)
+    ssl_options = Keyword.get(args, :ssl_options, [])
 
     # this should have already been validated, but it's possible someone could
     # try to short-circuit the start call
