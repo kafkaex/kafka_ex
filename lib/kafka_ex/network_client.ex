@@ -10,8 +10,8 @@ defmodule KafkaEx.NetworkClient do
       {:ok, socket} ->
         Logger.log(:debug, "Succesfully connected to broker #{inspect(host)}:#{inspect port}")
         socket
-      _             ->
-        Logger.log(:error, "Could not connect to broker #{inspect(host)}:#{inspect port}")
+      err           ->
+        Logger.log(:error, "Could not connect to broker #{inspect(host)}:#{inspect port} because of error #{inspect err}")
         nil
     end
   end
