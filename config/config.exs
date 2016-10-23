@@ -22,16 +22,11 @@ config :kafka_ex,
   max_restarts: 10,
   # Supervision max_seconds -  the time frame in which :max_restarts applies
   max_seconds: 60,
-  # Options used to configure the certs for SSL connection
-  #
-  #    Example:
-  #        [
-  #          {:cacertfile, "cacert.pem"},
-  #          {:certfile, "cert.pem"},
-  #          {:keyfile, "cert_key.pem"},
-  #          {:password, "pass123"}
-  #        ]
-  ssl_options: [],
+  ssl_options: [
+    cacertfile: System.cwd <> "/ssl/ca-cert",
+    certfile: System.cwd <> "/ssl/cert.pem",
+    keyfile: System.cwd <> "/ssl/key.pem",
+  ],
   kafka_version: "0.9.0"
 
 env_config = Path.expand("#{Mix.env}.exs", __DIR__)
