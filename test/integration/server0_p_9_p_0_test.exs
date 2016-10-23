@@ -1,6 +1,4 @@
 defmodule KafkaEx.Server0P9P0.Test do
-  alias KafkaEx.Protocol, as: Proto
-  alias KafkaEx.Config
   use ExUnit.Case
   import TestHelper
 

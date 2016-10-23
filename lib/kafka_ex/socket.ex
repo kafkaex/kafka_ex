@@ -16,7 +16,7 @@ defmodule KafkaEx.Socket do
   For more information about the available options, see `:ssl.connect/3` for ssl
   or `:gen_tcp.connect/3` for non ssl.
   """
-  @spec create(string, non_neg_integer, [] | [...]) :: {:ok, KafkaEx.Socket.t} | {:error, any}
+  @spec create(:inet.ip_address, non_neg_integer, [] | [...]) :: {:ok, KafkaEx.Socket.t} | {:error, any}
   def create(host, port, socket_options \\ []) do
     is_ssl = Enum.any?(socket_options, &(&1 == :ssl))
     options = List.delete(socket_options, :ssl)
