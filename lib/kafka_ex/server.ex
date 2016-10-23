@@ -27,7 +27,8 @@ defmodule KafkaEx.Server do
     consumer_group_update_interval: nil,
     worker_name: KafkaEx.Server,
     sync_timeout: nil,
-    ssl_options: [])
+    ssl_options: [],
+    use_ssl: false)
   end
 
   @callback kafka_server_init(args :: [term]) ::
@@ -340,7 +341,7 @@ defmodule KafkaEx.Server do
         metadata_brokers = metadata.brokers
         brokers = state.brokers
           |> remove_stale_brokers(metadata_brokers)
-          |> add_new_brokers(metadata_brokers, state.ssl_options)
+          |> add_new_brokers(metadata_brokers, state.ssl_options, state.use_ssl)
         %{state | metadata: metadata, brokers: brokers, correlation_id: correlation_id + 1}
       end
 
@@ -389,12 +390,12 @@ defmodule KafkaEx.Server do
         end
       end
 
-      defp add_new_brokers(brokers, [], _), do: brokers
-      defp add_new_brokers(brokers, [metadata_broker|metadata_brokers], ssl_options) do
+      defp add_new_brokers(brokers, [], _, _), do: brokers
+      defp add_new_brokers(brokers, [metadata_broker|metadata_brokers], ssl_options, use_ssl) do
         case Enum.find(brokers, &(metadata_broker.node_id == &1.node_id)) do
           nil -> Logger.log(:info, "Establishing connection to broker #{metadata_broker.node_id}: #{inspect metadata_broker.host} on port #{inspect metadata_broker.port}")
-            add_new_brokers([%{metadata_broker | socket: NetworkClient.create_socket(metadata_broker.host, metadata_broker.port, ssl_options)} | brokers], metadata_brokers, ssl_options)
-          _ -> add_new_brokers(brokers, metadata_brokers, ssl_options)
+            add_new_brokers([%{metadata_broker | socket: NetworkClient.create_socket(metadata_broker.host, metadata_broker.port, ssl_options, use_ssl)} | brokers], metadata_brokers, ssl_options, use_ssl)
+          _ -> add_new_brokers(brokers, metadata_brokers, ssl_options, use_ssl)
         end
       end
 

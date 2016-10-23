@@ -36,7 +36,8 @@ defmodule KafkaEx do
   - metadata_update_interval: How often `kafka_ex` would update the Kafka cluster metadata information in milliseconds, default is 30000
   - consumer_group_update_interval: How often `kafka_ex` would update the Kafka cluster consumer_groups information in milliseconds, default is 30000
   - sync_timeout: Timeout for synchronous requests to kafka in milliseconds, default is 1000
-  - ssl_options: Certificates used by SSL connection, default is []
+  - use_ssl: Boolean flag specifying if ssl should be used for the connection by the worker to kafka, default is false
+  - ssl_options: see SSL OPTION DESCRIPTIONS - CLIENT SIDE at http://erlang.org/doc/man/ssl.html, default is []
 
   Returns `{:error, error_description}` on invalid arguments
 
@@ -313,9 +314,12 @@ Optional arguments(KeywordList)
   end
 
   defp build_worker_options(worker_init) do
-    defaults = [uris: Application.get_env(:kafka_ex, :brokers),
-                consumer_group: Application.get_env(:kafka_ex, :consumer_group),
-                ssl_options: Application.get_env(:kafka_ex, :ssl_options)]
+    defaults = [
+      uris: Application.get_env(:kafka_ex, :brokers),
+      consumer_group: Application.get_env(:kafka_ex, :consumer_group),
+      use_ssl: Application.get_env(:kafka_ex, :use_ssl, false),
+      ssl_options: Application.get_env(:kafka_ex, :ssl_options, []),
+    ]
 
     worker_init = Keyword.merge(defaults, worker_init)
 

@@ -9,18 +9,12 @@ defmodule KafkaEx.Socket do
   @doc """
   Creates a socket.
 
-  To create a ssl socket the atom `:ssl` must be included in `socket_options` list
-  otherwise a non ssl socket will be created.
-  Any other ssl option as certificates or keys also must be included in `socket_options`.
-
   For more information about the available options, see `:ssl.connect/3` for ssl
   or `:gen_tcp.connect/3` for non ssl.
   """
   @spec create(:inet.ip_address, non_neg_integer, [] | [...]) :: {:ok, KafkaEx.Socket.t} | {:error, any}
-  def create(host, port, socket_options \\ []) do
-    is_ssl = Enum.any?(socket_options, &(&1 == :ssl))
-    options = List.delete(socket_options, :ssl)
-    case create_socket(host, port, is_ssl, options) do
+  def create(host, port, socket_options \\ [], is_ssl \\ false) do
+    case create_socket(host, port, is_ssl, socket_options) do
       {:ok, socket} -> {:ok, %KafkaEx.Socket{socket: socket, ssl: is_ssl}}
       {:error, reason} -> {:error, reason}
     end

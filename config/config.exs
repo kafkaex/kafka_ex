@@ -22,6 +22,10 @@ config :kafka_ex,
   max_restarts: 10,
   # Supervision max_seconds -  the time frame in which :max_restarts applies
   max_seconds: 60,
+  # This is the flag that enables use of ssl
+  use_ssl: true,
+  # see SSL OPTION DESCRIPTIONS - CLIENT SIDE at http://erlang.org/doc/man/ssl.html
+  # for supported options
   ssl_options: [
     cacertfile: System.cwd <> "/ssl/ca-cert",
     certfile: System.cwd <> "/ssl/cert.pem",
