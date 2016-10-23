@@ -5,8 +5,10 @@
     <meta http-equiv="x-ua-compatible" content="ie=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="generator" content="ExDoc v0.12.0">
-    <title>KafkaEx.Server0P8P2 – kafka_ex v0.5.0</title>
+    <title>KafkaEx.Server0P8P2 – kafka_ex v0.6.0</title>
     <link rel="stylesheet" href="dist/app-88251e7c81.css" />
+    
+      <link rel="canonical" href="https://hexdocs.pm/kafka_ex/KafkaEx.Server0P8P2.html" />
     
     <script src="dist/sidebar_items.js"></script>
   </head>
@@ -25,7 +27,7 @@
         kafka_ex
       </h1>
       <h2 class="sidebar-projectVersion">
-        v0.5.0
+        v0.6.0
       </h2>
     </div>
     
@@ -58,7 +60,7 @@
 
 
       <h1>
-        <small class="visible-xs">kafka_ex v0.5.0</small>
+        <small class="visible-xs">kafka_ex v0.6.0</small>
         KafkaEx.Server0P8P2
         
         
@@ -145,10 +147,10 @@
 </div>
 <div class="summary-row">
   <div class="summary-signature">
-    <a href="#kafka_server_fetch/8">kafka_server_fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, auto_commit, state)</a>
+    <a href="#kafka_server_fetch/2">kafka_server_fetch(fetch_request, state)</a>
   </div>
   
-    <div class="summary-synopsis"><p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_fetch/8"><code class="inline">KafkaEx.Server.kafka_server_fetch/8</code></a></p>
+    <div class="summary-synopsis"><p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_fetch/2"><code class="inline">KafkaEx.Server.kafka_server_fetch/2</code></a></p>
 </div>
   
 </div>
@@ -226,10 +228,10 @@
 </div>
 <div class="summary-row">
   <div class="summary-signature">
-    <a href="#kafka_server_start_streaming/6">kafka_server_start_streaming(topic, partition, offset, handler, auto_commit, state)</a>
+    <a href="#kafka_server_start_streaming/2">kafka_server_start_streaming(fetch_request, state)</a>
   </div>
   
-    <div class="summary-synopsis"><p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_start_streaming/6"><code class="inline">KafkaEx.Server.kafka_server_start_streaming/6</code></a></p>
+    <div class="summary-synopsis"><p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_start_streaming/2"><code class="inline">KafkaEx.Server.kafka_server_start_streaming/2</code></a></p>
 </div>
   
 </div>
@@ -283,7 +285,7 @@
 </div>
 <div class="summary-row">
   <div class="summary-signature">
-    <a href="#start_link/3">start_link(server_impl, args, name \\ __MODULE__)</a>
+    <a href="#start_link/2">start_link(args, name \\ __MODULE__)</a>
   </div>
   
 </div>
@@ -435,18 +437,18 @@
 
   </section>
 </div>
-<div class="detail" id="kafka_server_fetch/8">
+<div class="detail" id="kafka_server_fetch/2">
   <div class="detail-header">
-    <a href="#kafka_server_fetch/8" class="detail-link" title="Link to this function">
+    <a href="#kafka_server_fetch/2" class="detail-link" title="Link to this function">
       <i class="icon-link"></i>
     </a>
-    <span class="signature">kafka_server_fetch(topic, partition, offset, wait_time, min_bytes, max_bytes, auto_commit, state)</span>
+    <span class="signature">kafka_server_fetch(fetch_request, state)</span>
     
     
   </div>
   
   <section class="docstring">
-    <p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_fetch/8"><code class="inline">KafkaEx.Server.kafka_server_fetch/8</code></a>.</p>
+    <p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_fetch/2"><code class="inline">KafkaEx.Server.kafka_server_fetch/2</code></a>.</p>
 
   </section>
 </div>
@@ -570,18 +572,18 @@
 
   </section>
 </div>
-<div class="detail" id="kafka_server_start_streaming/6">
+<div class="detail" id="kafka_server_start_streaming/2">
   <div class="detail-header">
-    <a href="#kafka_server_start_streaming/6" class="detail-link" title="Link to this function">
+    <a href="#kafka_server_start_streaming/2" class="detail-link" title="Link to this function">
       <i class="icon-link"></i>
     </a>
-    <span class="signature">kafka_server_start_streaming(topic, partition, offset, handler, auto_commit, state)</span>
+    <span class="signature">kafka_server_start_streaming(fetch_request, state)</span>
     
     
   </div>
   
   <section class="docstring">
-    <p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_start_streaming/6"><code class="inline">KafkaEx.Server.kafka_server_start_streaming/6</code></a>.</p>
+    <p>Callback implementation for <a href="KafkaEx.Server.html#c:kafka_server_start_streaming/2"><code class="inline">KafkaEx.Server.kafka_server_start_streaming/2</code></a>.</p>
 
   </section>
 </div>
@@ -673,12 +675,12 @@
     
   </section>
 </div>
-<div class="detail" id="start_link/3">
+<div class="detail" id="start_link/2">
   <div class="detail-header">
-    <a href="#start_link/3" class="detail-link" title="Link to this function">
+    <a href="#start_link/2" class="detail-link" title="Link to this function">
       <i class="icon-link"></i>
     </a>
-    <span class="signature">start_link(server_impl, args, name \\ __MODULE__)</span>
+    <span class="signature">start_link(args, name \\ __MODULE__)</span>
     
     
   </div>

@@ -5,8 +5,10 @@
     <meta http-equiv="x-ua-compatible" content="ie=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="generator" content="ExDoc v0.12.0">
-    <title>KafkaEx.Server – kafka_ex v0.5.0</title>
+    <title>KafkaEx.Server – kafka_ex v0.6.0</title>
     <link rel="stylesheet" href="dist/app-88251e7c81.css" />
+    
+      <link rel="canonical" href="https://hexdocs.pm/kafka_ex/KafkaEx.Server.html" />
     
     <script src="dist/sidebar_items.js"></script>
   </head>
@@ -25,7 +27,7 @@
         kafka_ex
       </h1>
       <h2 class="sidebar-projectVersion">
-        v0.5.0
+        v0.6.0
       </h2>
     </div>
     
@@ -58,7 +60,7 @@
 
 
       <h1>
-        <small class="visible-xs">kafka_ex v0.5.0</small>
+        <small class="visible-xs">kafka_ex v0.6.0</small>
         KafkaEx.Server
         
           <small>behaviour</small>
@@ -112,7 +114,7 @@
 </div>
 <div class="summary-row">
   <div class="summary-signature">
-    <a href="#c:kafka_server_fetch/8">kafka_server_fetch(topic, parition, offset, wait_time, min_bytes, max_bytes, auto_commit, state)</a>
+    <a href="#c:kafka_server_fetch/2">kafka_server_fetch(fetch_request, state)</a>
   </div>
   
 </div>
@@ -166,7 +168,7 @@
 </div>
 <div class="summary-row">
   <div class="summary-signature">
-    <a href="#c:kafka_server_start_streaming/6">kafka_server_start_streaming(topic, partition, offset, handler, auto_commit, state)</a>
+    <a href="#c:kafka_server_start_streaming/2">kafka_server_start_streaming(fetch_request, state)</a>
   </div>
   
 </div>
@@ -302,12 +304,12 @@
     
   </section>
 </div>
-<div class="detail" id="c:kafka_server_fetch/8">
+<div class="detail" id="c:kafka_server_fetch/2">
   <div class="detail-header">
-    <a href="#c:kafka_server_fetch/8" class="detail-link" title="Link to this callback">
+    <a href="#c:kafka_server_fetch/2" class="detail-link" title="Link to this callback">
       <i class="icon-link"></i>
     </a>
-    <span class="signature">kafka_server_fetch(topic, parition, offset, wait_time, min_bytes, max_bytes, auto_commit, state)</span>
+    <span class="signature">kafka_server_fetch(fetch_request, state)</span>
     
     
   </div>
@@ -316,7 +318,7 @@
       <h4 class="specs-title">Specs</h4>
       <div class="specs-list">
         
-          <pre><code class="elixir">kafka_server_fetch(topic :: binary, parition :: integer, offset :: integer, wait_time :: integer, min_bytes :: integer, max_bytes :: integer, auto_commit :: boolean, state :: KafkaEx.Server.State.t) ::
+          <pre><code class="elixir">kafka_server_fetch(fetch_request :: FetchRequest.t, state :: KafkaEx.Server.State.t) ::
   {:reply, reply, new_state} |
   {:reply, reply, new_state, timeout | :hibernate} |
   {:noreply, new_state} |
@@ -561,12 +563,12 @@
     
   </section>
 </div>
-<div class="detail" id="c:kafka_server_start_streaming/6">
+<div class="detail" id="c:kafka_server_start_streaming/2">
   <div class="detail-header">
-    <a href="#c:kafka_server_start_streaming/6" class="detail-link" title="Link to this callback">
+    <a href="#c:kafka_server_start_streaming/2" class="detail-link" title="Link to this callback">
       <i class="icon-link"></i>
     </a>
-    <span class="signature">kafka_server_start_streaming(topic, partition, offset, handler, auto_commit, state)</span>
+    <span class="signature">kafka_server_start_streaming(fetch_request, state)</span>
     
     
   </div>
@@ -575,7 +577,7 @@
       <h4 class="specs-title">Specs</h4>
       <div class="specs-list">
         
-          <pre><code class="elixir">kafka_server_start_streaming(topic :: binary, partition :: integer, offset :: integer, handler :: term, auto_commit :: boolean, state :: KafkaEx.Server.State.t) ::
+          <pre><code class="elixir">kafka_server_start_streaming(fetch_request :: FetchRequest.t, state :: KafkaEx.Server.State.t) ::
   {:noreply, new_state} |
   {:noreply, new_state, timeout | :hibernate} |
   {:stop, reason :: term, new_state} when new_state: term</code></pre>

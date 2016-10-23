@@ -5,8 +5,10 @@
     <meta http-equiv="x-ua-compatible" content="ie=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="generator" content="ExDoc v0.12.0">
-    <title>KafkaEx.Protocol.JoinGroup – kafka_ex v0.5.0</title>
+    <title>KafkaEx.Protocol.JoinGroup – kafka_ex v0.6.0</title>
     <link rel="stylesheet" href="dist/app-88251e7c81.css" />
+    
+      <link rel="canonical" href="https://hexdocs.pm/kafka_ex/KafkaEx.Protocol.JoinGroup.html" />
     
     <script src="dist/sidebar_items.js"></script>
   </head>
@@ -25,7 +27,7 @@
         kafka_ex
       </h1>
       <h2 class="sidebar-projectVersion">
-        v0.5.0
+        v0.6.0
       </h2>
     </div>
     
@@ -58,7 +60,7 @@
 
 
       <h1>
-        <small class="visible-xs">kafka_ex v0.5.0</small>
+        <small class="visible-xs">kafka_ex v0.6.0</small>
         KafkaEx.Protocol.JoinGroup
         
         
@@ -88,7 +90,7 @@
     </h2>
     <div class="summary-row">
   <div class="summary-signature">
-    <a href="#create_request/6">create_request(correlation_id, client_id, member_id, group_name, topics, session_timeout)</a>
+    <a href="#create_request/1">create_request(join_group_req)</a>
   </div>
   
 </div>
@@ -119,12 +121,12 @@
             </a>
             Functions
           </h1>
-          <div class="detail" id="create_request/6">
+          <div class="detail" id="create_request/1">
   <div class="detail-header">
-    <a href="#create_request/6" class="detail-link" title="Link to this function">
+    <a href="#create_request/1" class="detail-link" title="Link to this function">
       <i class="icon-link"></i>
     </a>
-    <span class="signature">create_request(correlation_id, client_id, member_id, group_name, topics, session_timeout)</span>
+    <span class="signature">create_request(join_group_req)</span>
     
     
   </div>
@@ -133,7 +135,7 @@
       <h4 class="specs-title">Specs</h4>
       <div class="specs-list">
         
-          <pre><code class="elixir">create_request(integer, binary, binary, binary, [binary], integer) :: binary</code></pre>
+          <pre><code class="elixir">create_request(KafkaEx.Protocol.JoinGroup.Request.t) :: binary</code></pre>
         
       </div>
     </div>

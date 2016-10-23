@@ -5,8 +5,10 @@
     <meta http-equiv="x-ua-compatible" content="ie=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="generator" content="ExDoc v0.12.0">
-    <title>KafkaEx.Protocol.Fetch – kafka_ex v0.5.0</title>
+    <title>KafkaEx.Protocol.Fetch – kafka_ex v0.6.0</title>
     <link rel="stylesheet" href="dist/app-88251e7c81.css" />
+    
+      <link rel="canonical" href="https://hexdocs.pm/kafka_ex/KafkaEx.Protocol.Fetch.html" />
     
     <script src="dist/sidebar_items.js"></script>
   </head>
@@ -25,7 +27,7 @@
         kafka_ex
       </h1>
       <h2 class="sidebar-projectVersion">
-        v0.5.0
+        v0.6.0
       </h2>
     </div>
     
@@ -58,7 +60,7 @@
 
 
       <h1>
-        <small class="visible-xs">kafka_ex v0.5.0</small>
+        <small class="visible-xs">kafka_ex v0.6.0</small>
         KafkaEx.Protocol.Fetch
         
         
@@ -88,7 +90,7 @@
     </h2>
     <div class="summary-row">
   <div class="summary-signature">
-    <a href="#create_request/8">create_request(correlation_id, client_id, topic, partition, offset, wait_time, min_bytes, max_bytes)</a>
+    <a href="#create_request/1">create_request(fetch_request)</a>
   </div>
   
 </div>
@@ -125,15 +127,24 @@
             </a>
             Functions
           </h1>
-          <div class="detail" id="create_request/8">
+          <div class="detail" id="create_request/1">
   <div class="detail-header">
-    <a href="#create_request/8" class="detail-link" title="Link to this function">
+    <a href="#create_request/1" class="detail-link" title="Link to this function">
       <i class="icon-link"></i>
     </a>
-    <span class="signature">create_request(correlation_id, client_id, topic, partition, offset, wait_time, min_bytes, max_bytes)</span>
+    <span class="signature">create_request(fetch_request)</span>
     
     
   </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">create_request(KafkaEx.Protocol.Fetch.Request.t) :: binary</code></pre>
+        
+      </div>
+    </div>
   
   <section class="docstring">
     

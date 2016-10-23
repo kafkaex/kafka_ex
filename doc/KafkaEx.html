@@ -5,8 +5,10 @@
     <meta http-equiv="x-ua-compatible" content="ie=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="generator" content="ExDoc v0.12.0">
-    <title>KafkaEx – kafka_ex v0.5.0</title>
+    <title>KafkaEx – kafka_ex v0.6.0</title>
     <link rel="stylesheet" href="dist/app-88251e7c81.css" />
+    
+      <link rel="canonical" href="https://hexdocs.pm/kafka_ex/KafkaEx.html" />
     
     <script src="dist/sidebar_items.js"></script>
   </head>
@@ -25,7 +27,7 @@
         kafka_ex
       </h1>
       <h2 class="sidebar-projectVersion">
-        v0.5.0
+        v0.6.0
       </h2>
     </div>
     
@@ -58,7 +60,7 @@
 
 
       <h1>
-        <small class="visible-xs">kafka_ex v0.5.0</small>
+        <small class="visible-xs">kafka_ex v0.6.0</small>
         KafkaEx
         
         
@@ -120,6 +122,17 @@ a <code class="inline">poolboy</code> pool. In this scenario you usually won’t
 <p>To create an unnamed worked with <code class="inline">create_worker</code>:</p>
 <pre><code class="elixir">iex&gt; KafkaEx.create_worker(:no_name) # indicates to the server process not to name the process
 {:ok, #PID&lt;0.171.0&gt;}</code></pre>
+<h3>Using KafkaEx with a pooling library</h3>
+<p>Note that KafkaEx has a supervisor to manage its workers. If you are using Poolboy or a similar
+library, you will want to manually create a worker so that it is not supervised by <code class="inline">KafkaEx.Supervisor</code>.
+To do this, you will need to call:</p>
+<pre><code class="elixir">GenServer.start_link(KafkaEx.Server,
+  [
+    [uris: Application.get_env(:kafka_ex, :brokers),
+     consumer_group: Application.get_env(:kafka_ex, :consumer_group)],
+    :no_name
+  ]
+)</code></pre>
 <h3>Retrieve kafka metadata</h3>
 <p>For all metadata</p>
 <pre><code class="elixir">iex&gt; KafkaEx.metadata
@@ -258,6 +271,12 @@ discussions.  The Slack discussion is archived at
     </h2>
     <div class="summary-row">
   <div class="summary-signature">
+    <a href="#t:ssl_options/0">ssl_options()</a>
+  </div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
     <a href="#t:uri/0">uri()</a>
   </div>
   
@@ -385,7 +404,7 @@ Optional arguments(KeywordList)</p>
 </li>
 <li>key: is used for partition assignment, can be nil, when none is provided it is defaulted to nil
 </li>
-<li>require_acks: indicates how many acknowledgements the servers should receive before responding to the request. If it is 0 the server will not send any response (this is the only case where the server will not reply to a request). If it is 1, the server will wait the data is written to the local log before sending a response. If it is -1 the server will block until the message is committed by all in sync replicas before sending a response. For any number &gt; 1 the server will block waiting for this number of acknowledgements to occur (but the server will never wait for more acknowledgements than there are in-sync replicas), default is 0
+<li>required_acks: indicates how many acknowledgements the servers should receive before responding to the request. If it is 0 the server will not send any response (this is the only case where the server will not reply to a request). If it is 1, the server will wait the data is written to the local log before sending a response. If it is -1 the server will block until the message is committed by all in sync replicas before sending a response. For any number &gt; 1 the server will block waiting for this number of acknowledgements to occur (but the server will never wait for more acknowledgements than there are in-sync replicas), default is 0
 </li>
 <li>timeout: provides a maximum time in milliseconds the server can await the receipt of the number of acknowledgements in RequiredAcks, default is 100 milliseconds
 </li>
@@ -395,8 +414,8 @@ Optional arguments(KeywordList)</p>
 <h2>Example</h2>
 <pre><code class="elixir">iex&gt; KafkaEx.produce(&quot;bar&quot;, 0, &quot;hey&quot;)
 :ok
-iex&gt; KafkaEx.produce(&quot;foo&quot;, 0, &quot;hey&quot;, [worker_name: :pr, require_acks: 1])
-:ok</code></pre>
+iex&gt; KafkaEx.produce(&quot;foo&quot;, 0, &quot;hey&quot;, [worker_name: :pr, required_acks: 1])
+{:ok, 9771}</code></pre>
 </div>
   
 </div>
@@ -405,7 +424,7 @@ iex&gt; KafkaEx.produce(&quot;foo&quot;, 0, &quot;hey&quot;, [worker_name: :pr, 
     <a href="#start/2">start(type, args)</a>
   </div>
   
-    <div class="summary-synopsis"><p>Callback implementation for <code class="inline">c::application.start/2</code></p>
+    <div class="summary-synopsis"><p>Callback implementation for <code class="inline">c:Application.start/2</code></p>
 </div>
   
 </div>
@@ -455,8 +474,12 @@ The handler is a normal GenEvent handler so you can supply a custom handler, oth
             Types
           </h1>
           <div class="types-list">
-            <div id="t:uri/0" class="type-detail">
-  <pre><code class="elixir"><a href="#t:uri/0">uri</a> :: [{binary | char_list, number}]</code></pre>
+            <div id="t:ssl_options/0" class="type-detail">
+  <pre><code class="elixir"><a href="#t:ssl_options/0">ssl_options</a> :: [ssl_ca_cert_file: binary, ssl_cert_file: binary, ssl_cert_key_file: binary, password: binary]</code></pre>
+  
+</div>
+<div id="t:uri/0" class="type-detail">
+  <pre><code class="elixir"><a href="#t:uri/0">uri</a> :: [{binary | charlist, number}]</code></pre>
   
 </div>
 <div id="t:worker_init/0" class="type-detail">
@@ -469,7 +492,8 @@ The handler is a normal GenEvent handler so you can supply a custom handler, oth
   {:consumer_group, binary | :no_consumer_group} |
   {:sync_timeout, non_neg_integer} |
   {:metadata_update_interval, non_neg_integer} |
-  {:consumer_group_update_interval, non_neg_integer}</code></pre>
+  {:consumer_group_update_interval, non_neg_integer} |
+  {:ssl_options, <a href="#t:ssl_options/0">ssl_options</a>}</code></pre>
   
 </div>
 
@@ -526,7 +550,7 @@ The handler is a normal GenEvent handler so you can supply a custom handler, oth
       <h4 class="specs-title">Specs</h4>
       <div class="specs-list">
         
-          <pre><code class="elixir">consumer_group_metadata(atom, binary) :: KafkaEx.Protocol.ConsumerMetadata.Response.t</code></pre>
+          <pre><code class="elixir">consumer_group_metadata(atom, binary) :: <a href="KafkaEx.Protocol.ConsumerMetadata.html#t:t/0">KafkaEx.Protocol.ConsumerMetadata.t</a></code></pre>
         
       </div>
     </div>
@@ -567,6 +591,10 @@ The handler is a normal GenEvent handler so you can supply a custom handler, oth
 <li>consumer_group_update_interval: How often <code class="inline">kafka_ex</code> would update the Kafka cluster consumer_groups information in milliseconds, default is 30000
 </li>
 <li>sync_timeout: Timeout for synchronous requests to kafka in milliseconds, default is 1000
+</li>
+<li>use_ssl: Boolean flag specifying if ssl should be used for the connection by the worker to kafka, default is false
+</li>
+<li>ssl_options: see SSL OPTION DESCRIPTIONS - CLIENT SIDE at <a href="http://erlang.org/doc/man/ssl.html">http://erlang.org/doc/man/ssl.html</a>, default is []
 </li>
 </ul>
 <p>Returns <code class="inline">{:error, error_description}</code> on invalid arguments</p>
@@ -775,7 +803,7 @@ iex&gt; KafkaEx.metadata(topic: &quot;foo&quot;, worker_name: :mt)
       <h4 class="specs-title">Specs</h4>
       <div class="specs-list">
         
-          <pre><code class="elixir">offset_commit(atom, KafkaEx.Protocol.OffsetCommit.Request.t) :: KafkaEx.Protocol.OffsetCommit.Response.t</code></pre>
+          <pre><code class="elixir">offset_commit(atom, OffsetCommitRequest.t) :: KafkaEx.Protocol.OffsetCommit.Response.t</code></pre>
         
       </div>
     </div>
@@ -826,8 +854,10 @@ iex&gt; KafkaEx.metadata(topic: &quot;foo&quot;, worker_name: :mt)
           <pre><code class="elixir">produce(<a href="KafkaEx.Protocol.Produce.Request.html#t:t/0">KafkaEx.Protocol.Produce.Request.t</a>, <a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) ::
   nil |
   :ok |
+  {:ok, integer} |
   {:error, :closed} |
   {:error, :inet.posix} |
+  {:error, any} |
   iodata |
   :leader_not_available</code></pre>
         
@@ -843,9 +873,9 @@ iex&gt; KafkaEx.metadata(topic: &quot;foo&quot;, worker_name: :mt)
 </ul>
 <h2>Example</h2>
 <pre><code class="elixir">iex&gt; KafkaEx.produce(%KafkaEx.Protocol.Produce.Request{topic: &quot;foo&quot;, partition: 0, required_acks: 1, messages: [%KafkaEx.Protocol.Produce.Message{value: &quot;hey&quot;}]})
-:ok
+{:ok, 9772}
 iex&gt; KafkaEx.produce(%KafkaEx.Protocol.Produce.Request{topic: &quot;foo&quot;, partition: 0, required_acks: 1, messages: [%KafkaEx.Protocol.Produce.Message{value: &quot;hey&quot;}]}, worker_name: :pr)
-:ok</code></pre>
+{:ok, 9773}</code></pre>
 
   </section>
 </div>
@@ -866,8 +896,10 @@ iex&gt; KafkaEx.produce(%KafkaEx.Protocol.Produce.Request{topic: &quot;foo&quot;
           <pre><code class="elixir">produce(binary, number, binary, <a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) ::
   nil |
   :ok |
+  {:ok, integer} |
   {:error, :closed} |
   {:error, :inet.posix} |
+  {:error, any} |
   iodata |
   :leader_not_available</code></pre>
         
@@ -882,7 +914,7 @@ Optional arguments(KeywordList)</p>
 </li>
 <li>key: is used for partition assignment, can be nil, when none is provided it is defaulted to nil
 </li>
-<li>require_acks: indicates how many acknowledgements the servers should receive before responding to the request. If it is 0 the server will not send any response (this is the only case where the server will not reply to a request). If it is 1, the server will wait the data is written to the local log before sending a response. If it is -1 the server will block until the message is committed by all in sync replicas before sending a response. For any number &gt; 1 the server will block waiting for this number of acknowledgements to occur (but the server will never wait for more acknowledgements than there are in-sync replicas), default is 0
+<li>required_acks: indicates how many acknowledgements the servers should receive before responding to the request. If it is 0 the server will not send any response (this is the only case where the server will not reply to a request). If it is 1, the server will wait the data is written to the local log before sending a response. If it is -1 the server will block until the message is committed by all in sync replicas before sending a response. For any number &gt; 1 the server will block waiting for this number of acknowledgements to occur (but the server will never wait for more acknowledgements than there are in-sync replicas), default is 0
 </li>
 <li>timeout: provides a maximum time in milliseconds the server can await the receipt of the number of acknowledgements in RequiredAcks, default is 100 milliseconds
 </li>
@@ -892,8 +924,8 @@ Optional arguments(KeywordList)</p>
 <h2>Example</h2>
 <pre><code class="elixir">iex&gt; KafkaEx.produce(&quot;bar&quot;, 0, &quot;hey&quot;)
 :ok
-iex&gt; KafkaEx.produce(&quot;foo&quot;, 0, &quot;hey&quot;, [worker_name: :pr, require_acks: 1])
-:ok</code></pre>
+iex&gt; KafkaEx.produce(&quot;foo&quot;, 0, &quot;hey&quot;, [worker_name: :pr, required_acks: 1])
+{:ok, 9771}</code></pre>
 
   </section>
 </div>
@@ -908,7 +940,7 @@ iex&gt; KafkaEx.produce(&quot;foo&quot;, 0, &quot;hey&quot;, [worker_name: :pr, 
   </div>
   
   <section class="docstring">
-    <p>Callback implementation for <code class="inline">c::application.start/2</code>.</p>
+    <p>Callback implementation for <code class="inline">c:Application.start/2</code>.</p>
 
   </section>
 </div>
