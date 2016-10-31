@@ -16,7 +16,7 @@ Add KafkaEx to your mix.exs dependencies:
 
 ```elixir
 defp deps do
-  [{:kafka_ex, "~> 0.5.0"}]
+  [{:kafka_ex, "~> 0.6.0"}]
 end
 ```
 
@@ -50,7 +50,7 @@ end
 ```elixir
 defp deps do
   [applications: [
-   {:kafka_ex, "0.5.0"},
+   {:kafka_ex, "0.6.0"},
    {:snappy, git: "https://github.com/fdmanana/snappy-erlang-nif"}
   ]]
 end
