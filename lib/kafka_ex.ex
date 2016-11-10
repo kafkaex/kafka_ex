@@ -339,7 +339,8 @@ Optional arguments(KeywordList)
           |> OffsetFetchResponse.last_offset
 
         if last_offset <= 0 do
-          0
+          earliest_offset(topic, partition, worker_name)
+          |> OffsetResponse.extract_offset
         else
           last_offset + 1
         end
