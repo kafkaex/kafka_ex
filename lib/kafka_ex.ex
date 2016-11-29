@@ -338,7 +338,7 @@ Optional arguments(KeywordList)
           |> offset_fetch(%OffsetFetchRequest{topic: topic, partition: partition})
           |> OffsetFetchResponse.last_offset
 
-        if last_offset <= 0 do
+        if last_offset < 0 do
           earliest_offset(topic, partition, worker_name)
           |> OffsetResponse.extract_offset
         else
