@@ -2,7 +2,7 @@ defmodule KafkaEx.Handler do
   @moduledoc """
   Default GenEvent handler for KafkaEx.stream
 
-  Recieved message sets are accumulated in the GenEvent state and can
+  Received message sets are accumulated in the GenEvent state and can
   be retrieved and flushed via the `:messages` call.
   """
 
