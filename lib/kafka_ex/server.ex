@@ -393,7 +393,7 @@ defmodule KafkaEx.Server do
       defp add_new_brokers(brokers, [], _, _), do: brokers
       defp add_new_brokers(brokers, [metadata_broker|metadata_brokers], ssl_options, use_ssl) do
         case Enum.find(brokers, &(metadata_broker.node_id == &1.node_id)) do
-          nil -> Logger.log(:info, "Establishing connection to broker #{metadata_broker.node_id}: #{inspect metadata_broker.host} on port #{inspect metadata_broker.port}")
+          nil -> Logger.log(:debug, "Establishing connection to broker #{metadata_broker.node_id}: #{inspect metadata_broker.host} on port #{inspect metadata_broker.port}")
             add_new_brokers([%{metadata_broker | socket: NetworkClient.create_socket(metadata_broker.host, metadata_broker.port, ssl_options, use_ssl)} | brokers], metadata_brokers, ssl_options, use_ssl)
           _ -> add_new_brokers(brokers, metadata_brokers, ssl_options, use_ssl)
         end
