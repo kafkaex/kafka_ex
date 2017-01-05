@@ -11,6 +11,7 @@ defmodule  KafkaEx.Protocol.JoinGroup.Test do
          8 :: 16, "consumer" :: binary, # ProtocolType
          1 :: 32, # GroupProtocols array size
          6 :: 16, "assign" :: binary, # Basic strategy, "roundrobin" has some restrictions
+        32 :: 32, # length of metadata
          0 :: 16, # v0
          2 :: 32, 9 :: 16, "topic_one" :: binary, 9 :: 16, "topic_two" :: binary, # Topics array
          0 :: 32 >> # UserData

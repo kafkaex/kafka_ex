@@ -33,6 +33,12 @@ defmodule KafkaEx.Protocol.JoinGroup do
 
   @spec create_request(Request.t) :: binary
   def create_request(join_group_req) do
+    metadata =
+      << @metadata_version :: 16-signed,
+         length(join_group_req.topics) :: 32-signed, topic_data(join_group_req.topics) :: binary,
+         0 :: 32-signed
+         >>
+
     KafkaEx.Protocol.create_request(
       :join_group, join_group_req.correlation_id, join_group_req.client_id
     ) <>
@@ -42,9 +48,7 @@ defmodule KafkaEx.Protocol.JoinGroup do
          byte_size(@protocol_type) :: 16-signed, @protocol_type :: binary,
          1 :: 32-signed, # We always have just one GroupProtocl
          byte_size(@strategy_name) :: 16-signed, @strategy_name :: binary,
-         @metadata_version :: 16-signed,
-         length(join_group_req.topics) :: 32-signed, topic_data(join_group_req.topics) :: binary,
-         0 :: 32-signed
+         byte_size(metadata) :: 32-signed, metadata :: binary
          >>
   end
 
