@@ -11,6 +11,7 @@ defmodule  KafkaEx.Protocol.JoinGroup.Test do
          8 :: 16, "consumer" :: binary, # ProtocolType
          1 :: 32, # GroupProtocols array size
          6 :: 16, "assign" :: binary, # Basic strategy, "roundrobin" has some restrictions
+        32 :: 32, # length of metadata
          0 :: 16, # v0
          2 :: 32, 9 :: 16, "topic_one" :: binary, 9 :: 16, "topic_two" :: binary, # Topics array
          0 :: 32 >> # UserData
@@ -35,7 +36,9 @@ defmodule  KafkaEx.Protocol.JoinGroup.Test do
         8 :: 16, "consumer" :: binary, # GroupProtocol
         10 :: 16, "member_xxx" :: binary, # LeaderId
         10 :: 16, "member_one" :: binary, # MemberId
-        2 :: 32, 10 :: 16, "member_one", 10 :: 16, "member_two" # Members array
+        2 :: 32, # Members array
+        10 :: 16, "member_one", 12 :: 32, "metadata_one",
+        10 :: 16, "member_two", 12 :: 32, "metadata_two"
       >>
     expected_response = %JoinGroup.Response{error_code: :no_error,
       generation_id: 123, leader_id: "member_xxx",
