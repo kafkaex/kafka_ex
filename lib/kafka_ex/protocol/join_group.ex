@@ -63,8 +63,10 @@ defmodule KafkaEx.Protocol.JoinGroup do
               leader_id: leader, member_id: member_id, members: members}
   end
 
-  defp parse_members(0, _rest, members), do: members
-  defp parse_members(size, << member_len :: 16-signed, member :: size(member_len)-binary, rest :: binary >>, members) do
+  defp parse_members(0, <<>>, members), do: members
+  defp parse_members(size, << member_len :: 16-signed, member :: size(member_len)-binary,
+                              meta_len :: 32-signed, _metadata :: size(meta_len)-binary,
+                              rest :: binary >>, members) do
     parse_members(size - 1, rest, [member|members])
   end
 end
