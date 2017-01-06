@@ -383,7 +383,7 @@ defmodule KafkaEx.Server do
         case length(brokers_to_keep) do
           0 -> brokers_to_remove
           _ -> Enum.each(brokers_to_remove, fn(broker) ->
-            Logger.log(:info, "Closing connection to broker #{broker.node_id}: #{inspect broker.host} on port #{inspect broker.port}")
+            Logger.log(:debug, "Closing connection to broker #{broker.node_id}: #{inspect broker.host} on port #{inspect broker.port}")
             NetworkClient.close_socket(broker.socket)
           end)
             brokers_to_keep
