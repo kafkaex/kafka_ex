@@ -2,8 +2,20 @@ defmodule KafkaEx.Protocol.SyncGroup.Test do
   use ExUnit.Case, async: true
 
   test "create_request creates a valid sync group request" do
-    first_assignments = << 0 :: 16, 1 :: 32, 6 :: 16, "topic1", 3 :: 32, 1 :: 32, 3 :: 32, 5 :: 32 >>
-    second_assignments = << 0 :: 16, 1 :: 32, 6 :: 16, "topic1", 3 :: 32, 2 :: 32, 4 :: 32, 6 :: 32 >>
+    first_assignments = <<
+         0 :: 16, # Version
+         1 :: 32, # PartitionAssignment array size
+         6 :: 16, "topic1", # Topic
+         3 :: 32, 1 :: 32, 3 :: 32, 5 :: 32, # Partition array
+         0 :: 32, # UserData
+      >>
+    second_assignments = <<
+         0 :: 16, # Version
+         1 :: 32, # PartitionAssignment array size
+         6 :: 16, "topic1",
+         3 :: 32, 2 :: 32, 4 :: 32, 6 :: 32, # Partition array
+         0 :: 32, # UserData
+      >>
     good_request = <<
         14 :: 16, 0 :: 16, 42 :: 32, 9 :: 16, "client_id" :: binary, # Preamble
          5 :: 16, "group" :: binary, # GroupId
@@ -13,8 +25,9 @@ defmodule KafkaEx.Protocol.SyncGroup.Test do
         10 :: 16, "member_one" :: binary, # First member ID
         byte_size(first_assignments) :: 32, first_assignments :: binary,
         10 :: 16, "member_two" :: binary, # Second member ID
-        byte_size(second_assignments) :: 32, second_assignments :: binary,
-         0 :: 32 >> # UserData
+        byte_size(second_assignments) :: 32, second_assignments :: binary
+      >>
+
     request = KafkaEx.Protocol.SyncGroup.create_request(42, "client_id", "group", 1, "member_one",
       [{"member_one", [{"topic1", [1, 3, 5]}]}, {"member_two", [{"topic1", [2, 4, 6]}]}])
     assert request == good_request

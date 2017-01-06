@@ -22,8 +22,7 @@ defmodule KafkaEx.Protocol.SyncGroup do
     << byte_size(group_name) :: 16-signed, group_name :: binary,
        generation_id :: 32-signed,
        byte_size(member_id) :: 16-signed, member_id :: binary,
-       length(assignments) :: 32-signed, group_assignment_data(assignments, "") :: binary,
-       0 :: 32-signed
+       length(assignments) :: 32-signed, group_assignment_data(assignments, "") :: binary
     >>
   end
 
@@ -45,7 +44,9 @@ defmodule KafkaEx.Protocol.SyncGroup do
     assignment_bytes_for_member = <<
        @member_assignment_version :: 16-signed,
        length(member_assignment) :: 32-signed,
-       topic_assignment_data(member_assignment, "") :: binary >>
+       topic_assignment_data(member_assignment, "") :: binary,
+       0 :: 32-signed # UserData
+       >>
     << byte_size(member_id) :: 16-signed, member_id :: binary,
        byte_size(assignment_bytes_for_member) :: 32-signed,
        assignment_bytes_for_member :: binary >>
