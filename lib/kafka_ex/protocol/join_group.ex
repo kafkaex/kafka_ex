@@ -5,7 +5,7 @@ defmodule KafkaEx.Protocol.JoinGroup do
   Implementation of the Kafka JoinGroup request and response APIs
   """
   @protocol_type "consumer"
-  @strategy_name "assign"
+  @strategy_name "range"
   @metadata_version 0
 
   defmodule Request do
@@ -40,12 +40,11 @@ defmodule KafkaEx.Protocol.JoinGroup do
          join_group_req.session_timeout :: 32-signed,
          byte_size(join_group_req.member_id) :: 16-signed, join_group_req.member_id :: binary,
          byte_size(@protocol_type) :: 16-signed, @protocol_type :: binary,
-         1 :: 32-signed, # We always have just one GroupProtocl
+         1 :: 32-signed, # We always have just one GroupProtocol
          byte_size(@strategy_name) :: 16-signed, @strategy_name :: binary,
-         @metadata_version :: 16-signed,
-         length(join_group_req.topics) :: 32-signed, topic_data(join_group_req.topics) :: binary,
-         0 :: 32-signed
+         protocol_metadata(join_group_req.topics) :: binary
          >>
+
   end
 
   @spec parse_response(binary) :: Response.t
@@ -57,6 +56,14 @@ defmodule KafkaEx.Protocol.JoinGroup do
     members = parse_members(members_size, rest, [])
     %Response{error_code: KafkaEx.Protocol.error(error_code), generation_id: generation_id,
               leader_id: leader, member_id: member_id, members: members}
+  end
+
+  defp protocol_metadata(topics) do
+    protocol_metadata_bytes = << @metadata_version :: 16-signed,
+    length(topics) :: 32-signed, topic_data(topics) :: binary,
+    0 :: 32-signed # 0 bytes of user data
+    >>
+    << byte_size(protocol_metadata_bytes) :: 32-signed >> <> protocol_metadata_bytes
   end
 
   defp parse_members(0, _rest, members), do: members
