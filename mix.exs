@@ -5,6 +5,14 @@ defmodule KafkaEx.Mixfile do
     [app: :kafka_ex,
      version: "0.6.1",
      elixir: "~> 1.0",
+     dialyzer: [
+       plt_add_deps: :transitive,
+       flags: [
+         "-Werror_handling",
+         "-Wrace_conditions",
+         "-Wunderspecs"
+       ]
+     ],
      description: description,
      package: package,
      deps: deps,
@@ -14,14 +22,14 @@ defmodule KafkaEx.Mixfile do
   def application do
     [
       mod: {KafkaEx, []},
-      applications: [:logger]
+      applications: [:logger, :ssl]
     ]
   end
 
   defp deps do
     [
       {:earmark, "~> 0.2.1", only: :dev},
-      {:dialyze, "~> 0.2", only: :dev},
+      {:dialyxir, "~> 0.4.3", only: :dev},
       {:ex_doc, "~> 0.12.0", only: :dev},
       {:credo, "~> 0.4.5", only: :dev},
       {:snappy,
