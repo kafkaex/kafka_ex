@@ -274,7 +274,7 @@ mix test --include integration
 ### Static analysis
 
 ```
-mix dialyze --unmatched-returns --error-handling --race-conditions --underspecs
+mix dialyzer
 ```
 
 ### Contributing
