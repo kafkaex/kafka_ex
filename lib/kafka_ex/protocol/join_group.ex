@@ -31,11 +31,6 @@ defmodule KafkaEx.Protocol.JoinGroup do
                          leader_id: binary, member_id: binary, members: [binary]}
   end
 
-  # these complain of binary a underspec that can't be fixed for elixir < 1.3
-  @dialyzer [
-    {:nowarn_function, parse_response: 1}
-  ]
-
   @spec create_request(Request.t) :: binary
   def create_request(join_group_req) do
     metadata =

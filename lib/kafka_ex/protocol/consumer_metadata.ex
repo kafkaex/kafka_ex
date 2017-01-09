@@ -21,11 +21,6 @@ defmodule KafkaEx.Protocol.ConsumerMetadata do
     end
   end
 
-  # these complain of binary a underspec that can't be fixed for elixir < 1.3
-  @dialyzer [
-    {:nowarn_function, create_request: 3}
-  ]
-
   @spec create_request(integer, binary, binary) :: binary
   def create_request(correlation_id, client_id, consumer_group) do
     KafkaEx.Protocol.create_request(:consumer_metadata, correlation_id, client_id) <> << byte_size(consumer_group) :: 16-signed, consumer_group :: binary >>

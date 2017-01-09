@@ -11,12 +11,6 @@ defmodule KafkaEx.Protocol.Heartbeat do
     @type t :: %Response{error_code: atom | integer}
   end
 
-  # these complain of binary a underspec that can't be fixed for elixir < 1.3
-  @dialyzer [
-    {:nowarn_function, create_request: 5},
-    {:nowarn_function, parse_response: 1}
-  ]
-
   @spec create_request(integer, binary, binary, binary, integer) :: binary
   def create_request(correlation_id, client_id, member_id, group_id, generation_id) do
     KafkaEx.Protocol.create_request(:heartbeat, correlation_id, client_id) <>

@@ -10,7 +10,6 @@ defmodule KafkaEx.Mixfile do
        flags: [
          "-Werror_handling",
          "-Wrace_conditions",
-         "-Wunderspecs"
        ]
      ],
      description: description,
