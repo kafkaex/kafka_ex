@@ -24,14 +24,16 @@ defmodule KafkaEx.Protocol.JoinGroup do
     }
   end
 
-  @type response_binary :: <<_::64, _::_*8>>
-
   defmodule Response do
     @moduledoc false
     defstruct error_code: nil, generation_id: 0, leader_id: nil, member_id: nil, members: []
     @type t :: %Response{error_code: atom | integer, generation_id: integer,
                          leader_id: binary, member_id: binary, members: [binary]}
   end
+
+  # these complain of binary a underspec that can't be fixed for elixir < 1.3
+  @dialyzer [
+    {:nowarn_function, parse_response: 1}
 
   @spec create_request(Request.t) :: binary
   def create_request(join_group_req) do
@@ -54,7 +56,7 @@ defmodule KafkaEx.Protocol.JoinGroup do
          >>
   end
 
-  @spec parse_response(response_binary) :: Response.t
+  @spec parse_response(binary) :: Response.t
   def parse_response(<< _correlation_id :: 32-signed, error_code :: 16-signed, generation_id :: 32-signed,
                        protocol_len :: 16-signed, _protocol :: size(protocol_len)-binary,
                        leader_len :: 16-signed, leader :: size(leader_len)-binary,
