@@ -21,7 +21,7 @@ defmodule KafkaEx.Protocol.ConsumerMetadata do
     end
   end
 
-  @type request_binary :: <<_::16, _::_ * 8>>
+  @type request_binary :: binary
 
   @spec create_request(integer, binary, binary) :: request_binary
   def create_request(correlation_id, client_id, consumer_group) do

@@ -11,8 +11,8 @@ defmodule KafkaEx.Protocol.Heartbeat do
     @type t :: %Response{error_code: atom | integer}
   end
 
-  @type request_binary :: <<_::64, _::_ * 8>>
-  @type response_binary :: <<_::48>>
+  @type request_binary :: binary
+  @type response_binary :: binary
 
   @spec create_request(integer, binary, binary, binary, integer) :: request_binary
   def create_request(correlation_id, client_id, member_id, group_id, generation_id) do
