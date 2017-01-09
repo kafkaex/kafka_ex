@@ -9,6 +9,7 @@ defmodule KafkaEx.Server do
   alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
   alias KafkaEx.Protocol.OffsetCommit.Request, as: OffsetCommitRequest
   alias KafkaEx.Protocol.OffsetFetch.Request, as: OffsetFetchRequest
+  alias KafkaEx.Protocol.Fetch.Request, as: FetchRequest
   alias KafkaEx.Protocol.Produce
   alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
   alias KafkaEx.Socket
@@ -16,19 +17,36 @@ defmodule KafkaEx.Server do
   defmodule State do
     @moduledoc false
 
-    defstruct(metadata: %Metadata.Response{},
-    brokers: [],
-    event_pid: nil,
-    stream_timer: nil,
-    consumer_metadata: %ConsumerMetadata.Response{},
-    correlation_id: 0,
-    consumer_group: nil,
-    metadata_update_interval: nil,
-    consumer_group_update_interval: nil,
-    worker_name: KafkaEx.Server,
-    sync_timeout: nil,
-    ssl_options: [],
-    use_ssl: false)
+    defstruct(
+      metadata: %Metadata.Response{},
+      brokers: [],
+      event_pid: nil,
+      stream_timer: nil,
+      consumer_metadata: %ConsumerMetadata.Response{},
+      correlation_id: 0,
+      consumer_group: nil,
+      metadata_update_interval: nil,
+      consumer_group_update_interval: nil,
+      worker_name: KafkaEx.Server,
+      sync_timeout: nil,
+      ssl_options: [],
+      use_ssl: false
+    )
+
+      @type t :: %State{
+        metadata: Metadata.Response.t,
+        brokers: [Broker.t],
+        event_pid: nil | pid,
+        stream_timer: reference,
+        consumer_metadata: ConsumerMetadata.Response.t,
+        correlation_id: integer,
+        metadata_update_interval: nil | integer,
+        consumer_group_update_interval: nil | integer,
+        worker_name: atom,
+        sync_timeout: nil | integer,
+        ssl_options: KafkaEx.ssl_options,
+        use_ssl: boolean
+      }
   end
 
   @callback kafka_server_init(args :: [term]) ::
@@ -57,7 +75,7 @@ defmodule KafkaEx.Server do
     {:noreply, new_state, timeout | :hibernate} |
     {:stop, reason, reply, new_state} |
     {:stop, reason, new_state} when reply: term, new_state: term, reason: term
-  @callback kafka_server_offset(topic :: binary, parition :: integer, time :: integer | :latest | :earliest, state :: State.t) ::
+  @callback kafka_server_offset(topic :: binary, parition :: integer, time :: :calendar.datetime | :latest | :earliest, state :: State.t) ::
     {:reply, reply, new_state} |
     {:reply, reply, new_state, timeout | :hibernate} |
     {:noreply, new_state} |
@@ -106,7 +124,7 @@ defmodule KafkaEx.Server do
     {:noreply, new_state, timeout | :hibernate} |
     {:stop, reason, reply, new_state} |
     {:stop, reason, new_state} when reply: term, new_state: term, reason: term
-  @callback kafka_server_heartbeat(group_name :: binary, generation_id :: integer, member_id :: integer, state :: State.t) ::
+  @callback kafka_server_heartbeat(group_name :: binary, generation_id :: integer, member_id :: binary, state :: State.t) ::
     {:reply, reply, new_state} |
     {:reply, reply, new_state, timeout | :hibernate} |
     {:noreply, new_state} |

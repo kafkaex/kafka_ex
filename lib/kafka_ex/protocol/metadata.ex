@@ -14,7 +14,13 @@ defmodule KafkaEx.Protocol.Metadata do
 
   defmodule Response do
     @moduledoc false
+    alias KafkaEx.Protocol.Metadata.Broker
+    alias KafkaEx.Protocol.Metadata.TopicMetadata
     defstruct brokers: [], topic_metadatas: []
+    @type t :: %Response{
+      brokers: [Broker.t],
+      topic_metadatas: [TopicMetadata.t]
+    }
 
     def broker_for_topic(metadata, brokers, topic, partition) do
       case Enum.find(metadata.topic_metadatas, &(topic == &1.topic)) do
@@ -60,12 +66,25 @@ defmodule KafkaEx.Protocol.Metadata do
 
   defmodule TopicMetadata do
     @moduledoc false
+    alias KafkaEx.Protocol.Metadata.PartitionMetadata
     defstruct error_code: 0, topic: nil, partition_metadatas: []
+    @type t :: %TopicMetadata{
+      error_code: integer,
+      topic: nil | binary,
+      partition_metadatas: [PartitionMetadata.t]
+    }
   end
 
   defmodule PartitionMetadata do
     @moduledoc false
     defstruct error_code: 0, partition_id: nil, leader: -1, replicas: [], isrs: []
+    @type t :: %PartitionMetadata{
+      error_code: integer,
+      partition_id: nil | integer,
+      leader: integer,
+      replicas: [integer],
+      isrs: [integer]
+    }
   end
 
   def create_request(correlation_id, client_id, ""), do: KafkaEx.Protocol.create_request(:metadata, correlation_id, client_id) <> << 0 :: 32-signed >>

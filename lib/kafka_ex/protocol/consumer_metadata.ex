@@ -13,7 +13,7 @@ defmodule KafkaEx.Protocol.ConsumerMetadata do
       coordinator_id: integer,
       coordinator_host: binary,
       coordinator_port: 0..65_535,
-      error_code: integer
+      error_code: atom
     }
 
     def broker_for_consumer_group(brokers, consumer_group_metadata) do

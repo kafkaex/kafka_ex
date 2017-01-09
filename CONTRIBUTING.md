@@ -12,7 +12,6 @@
 
 Thanks!
 
-*Dialyzer note*  This repo currently produces several dialyzer warnings.  We
-are working on cleaning those up.  In the meantime, try to make sure that your
-contribution does not _add_ any dialyzer warnings.  You can check this by
-comparing the results of `mix dialyzer` on master and your branch.
+*Dialyzer note* You need Elixir 1.3.2+ to run `mix dialyzer`.  You may get some
+false positives on Erlang 18.  `mix dialyzer` is known to return clean on
+Elixir 1.3.4 with Erlang 19.2.

@@ -3,6 +3,13 @@ defmodule KafkaEx.Server0P8P2 do
   Implements kafkaEx.Server behaviors for kafka >= 0.8.2 < 0.9.0 API.
   """
 
+  # these functions aren't implemented for 0.8.2
+  @dialyzer [
+    {:nowarn_function, kafka_server_heartbeat: 4},
+    {:nowarn_function, kafka_server_sync_group: 5},
+    {:nowarn_function, kafka_server_join_group: 3}
+  ]
+
   use KafkaEx.Server
   alias KafkaEx.Protocol.ConsumerMetadata
   alias KafkaEx.Protocol.ConsumerMetadata.Response, as: ConsumerMetadataResponse
