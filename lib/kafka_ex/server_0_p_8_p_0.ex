@@ -2,6 +2,19 @@ defmodule KafkaEx.Server0P8P0 do
   @moduledoc """
   Implements kafkaEx.Server behaviors for kafka >= 0.8.0 < 0.8.2 API.
   """
+
+  # these functions aren't implemented for 0.8.0
+  @dialyzer [
+    {:nowarn_function, kafka_server_heartbeat: 4},
+    {:nowarn_function, kafka_server_sync_group: 5},
+    {:nowarn_function, kafka_server_join_group: 3},
+    {:nowarn_function, kafka_server_update_consumer_metadata: 1},
+    {:nowarn_function, kafka_server_consumer_group_metadata: 1},
+    {:nowarn_function, kafka_server_consumer_group: 1},
+    {:nowarn_function, kafka_server_offset_commit: 2},
+    {:nowarn_function, kafka_server_offset_fetch: 2}
+  ]
+
   use KafkaEx.Server
   alias KafkaEx.Protocol.Fetch
   alias KafkaEx.Protocol.Fetch.Request, as: FetchRequest
