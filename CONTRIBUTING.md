@@ -12,4 +12,6 @@
 
 Thanks!
 
-*Dialyzer note* You need Elixir 1.3.2+ to run `mix dialyzer`.
+*Dialyzer note* You need Elixir 1.3.2+ to run `mix dialyzer`.  You may get some
+false positives on Erlang 18.  `mix dialyzer` is known to return clean on
+Elixir 1.3.4 with Erlang 19.2.
