@@ -30,7 +30,7 @@ defmodule KafkaEx.Server0P9P0 do
   end
 
   def kafka_server_init([args]) do
-    kafka_server_init([args, self])
+    kafka_server_init([args, self()])
   end
 
   def kafka_server_init([args, name]) do
@@ -167,7 +167,7 @@ defmodule KafkaEx.Server0P9P0 do
              end
 
     ref = Process.send_after(
-      self, {:start_streaming, %{fetch_request | offset: offset}}, 500
+      self(), {:start_streaming, %{fetch_request | offset: offset}}, 500
     )
 
     {:noreply, %{state | stream_timer: ref}}
