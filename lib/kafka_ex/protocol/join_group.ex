@@ -24,6 +24,8 @@ defmodule KafkaEx.Protocol.JoinGroup do
     }
   end
 
+  @type response_binary :: <<_::64, _::_*8>>
+
   defmodule Response do
     @moduledoc false
     defstruct error_code: nil, generation_id: 0, leader_id: nil, member_id: nil, members: []
@@ -52,7 +54,7 @@ defmodule KafkaEx.Protocol.JoinGroup do
          >>
   end
 
-  @spec parse_response(<<_::64, _::_*8>>) :: Response.t
+  @spec parse_response(response_binary) :: Response.t
   def parse_response(<< _correlation_id :: 32-signed, error_code :: 16-signed, generation_id :: 32-signed,
                        protocol_len :: 16-signed, _protocol :: size(protocol_len)-binary,
                        leader_len :: 16-signed, leader :: size(leader_len)-binary,

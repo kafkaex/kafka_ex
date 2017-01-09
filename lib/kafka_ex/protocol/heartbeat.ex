@@ -12,6 +12,7 @@ defmodule KafkaEx.Protocol.Heartbeat do
   end
 
   @type request_binary :: <<_::64, _::_ * 8>>
+  @type response_binary :: <<_::48>>
 
   @spec create_request(integer, binary, binary, binary, integer) :: request_binary
   def create_request(correlation_id, client_id, member_id, group_id, generation_id) do
@@ -21,7 +22,7 @@ defmodule KafkaEx.Protocol.Heartbeat do
          byte_size(member_id) :: 16-signed, member_id :: binary >>
   end
 
-  @spec parse_response(<<_::48>>) :: Response.t
+  @spec parse_response(response_binary) :: Response.t
   def parse_response(<< _correlation_id :: 32-signed, error_code :: 16-signed >>) do
     %Response{error_code: KafkaEx.Protocol.error(error_code)}
   end
