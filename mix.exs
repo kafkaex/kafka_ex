@@ -12,9 +12,9 @@ defmodule KafkaEx.Mixfile do
          "-Wrace_conditions",
        ]
      ],
-     description: description,
-     package: package,
-     deps: deps,
+     description: description(),
+     package: package(),
+     deps: deps(),
      docs: [main: "KafkaEx"]]
   end
 
