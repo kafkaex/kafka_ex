@@ -3,11 +3,12 @@ defmodule KafkaEx do
 
   use Application
   alias KafkaEx.Config
-  alias KafkaEx.Protocol.ConsumerMetadata, as: ConsumerMetadataResponse
+  alias KafkaEx.Protocol.ConsumerMetadata.Response, as: ConsumerMetadataResponse
   alias KafkaEx.Protocol.Fetch.Response, as: FetchResponse
   alias KafkaEx.Protocol.Fetch.Request, as: FetchRequest
   alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
   alias KafkaEx.Protocol.Offset.Response, as: OffsetResponse
+  alias KafkaEx.Protocol.OffsetCommit.Request, as: OffsetCommitRequest
   alias KafkaEx.Protocol.OffsetCommit.Response, as: OffsetCommitResponse
   alias KafkaEx.Protocol.OffsetFetch.Response, as: OffsetFetchResponse
   alias KafkaEx.Protocol.OffsetFetch.Request, as: OffsetFetchRequest
