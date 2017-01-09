@@ -145,7 +145,7 @@ defmodule KafkaEx do
   [%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offset: [256], partition: 0}], topic: "foo"}]
   ```
   """
-  @spec offset(binary, number, :calendar.datetime|atom, atom|pid) :: [OffsetResponse.t] | :topic_not_found
+  @spec offset(binary, number, :calendar.datetime | :earliest | :latest, atom|pid) :: [OffsetResponse.t] | :topic_not_found
   def offset(topic, partition, time, name \\ Config.default_worker) do
     GenServer.call(name, {:offset, topic, partition, time})
   end
@@ -282,7 +282,7 @@ Optional arguments(KeywordList)
    %{attributes: 0, crc: 4251893211, key: nil, offset: 1, value: "hi"}]
   ```
   """
-  @spec stream(binary, number, Keyword.t) :: GenEvent.Stream.t
+  @spec stream(binary, integer, Keyword.t) :: GenEvent.Stream.t
   def stream(topic, partition, opts \\ []) do
     worker_name     = Keyword.get(opts, :worker_name, Config.default_worker)
     supplied_offset = Keyword.get(opts, :offset)

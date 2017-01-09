@@ -13,7 +13,7 @@ defmodule KafkaEx.Protocol.ConsumerMetadata do
       coordinator_id: integer,
       coordinator_host: binary,
       coordinator_port: 0..65_535,
-      error_code: integer
+      error_code: atom
     }
 
     def broker_for_consumer_group(brokers, consumer_group_metadata) do
@@ -21,7 +21,9 @@ defmodule KafkaEx.Protocol.ConsumerMetadata do
     end
   end
 
-  @spec create_request(integer, binary, binary) :: binary
+  @type request_binary :: <<_::16, _::_ * 8>>
+
+  @spec create_request(integer, binary, binary) :: request_binary
   def create_request(correlation_id, client_id, consumer_group) do
     KafkaEx.Protocol.create_request(:consumer_metadata, correlation_id, client_id) <> << byte_size(consumer_group) :: 16-signed, consumer_group :: binary >>
   end
