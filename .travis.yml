@@ -13,7 +13,7 @@ matrix:
       otp_release: 19.2
   include:
     - elixir: 1.1.1
-      otp_release: 17.5.6
+      otp_release: 17.5
       env: COVERALLS=false
 sudo: required
 env:
