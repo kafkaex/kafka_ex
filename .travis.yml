@@ -27,4 +27,5 @@ before_install:
 before_script:
   - scripts/start_kafka.sh
 script:
-  - mix deps.compile; mix test --include integration --include consumer_group --include server_0_p_9_p_0; mix coveralls.travis --include integration --include consumer_group --include server_0_p_9_p_0
+  - MIX_ENV=test mix deps.compile
+  - mix test --include integration --include consumer_group --include server_0_p_9_p_0; MIX_ENV=test mix coveralls.travis --include integration --include consumer_group --include server_0_p_9_p_0
