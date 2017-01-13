@@ -5,8 +5,8 @@ defmodule KafkaEx.Server0P9P0.Test do
   @moduletag :server_0_p_9_p_0
 
   test "can join a consumer group" do
-    random_group = generate_random_string
-    KafkaEx.create_worker(:join_group, [uris: uris, consumer_group: random_group])
+    random_group = generate_random_string()
+    KafkaEx.create_worker(:join_group, [uris: uris(), consumer_group: random_group])
 
     # No wrapper in kafka_ex yet as long as the 0.9 functionality is in progress
     answer = GenServer.call(:join_group, {:join_group, ["foo", "bar"], 6000})
@@ -19,8 +19,8 @@ defmodule KafkaEx.Server0P9P0.Test do
   test "can send a simple leader sync for a consumer group" do
     # A lot of repetition with the previous test. Leaving it in now, waiting for
     # how this pans out eventually as we add more and more 0.9 consumer group code
-    random_group = generate_random_string
-    KafkaEx.create_worker(:sync_group, [uris: uris, consumer_group: random_group])
+    random_group = generate_random_string()
+    KafkaEx.create_worker(:sync_group, [uris: uris(), consumer_group: random_group])
     answer = GenServer.call(:sync_group, {:join_group, ["foo", "bar"], 6000})
     assert answer.error_code == :no_error
 
@@ -38,8 +38,8 @@ defmodule KafkaEx.Server0P9P0.Test do
 
   test "can heartbeat" do
     # See sync test. Removing repetition in the next iteration
-    random_group = generate_random_string
-    KafkaEx.create_worker(:heartbeat, [uris: uris, consumer_group: random_group])
+    random_group = generate_random_string()
+    KafkaEx.create_worker(:heartbeat, [uris: uris(), consumer_group: random_group])
     answer = GenServer.call(:heartbeat, {:join_group, ["foo", "bar"], 6000})
     assert answer.error_code == :no_error
 

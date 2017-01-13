@@ -13,24 +13,24 @@ defmodule KafkaEx.Integration.Test do
 
   #create_worker
   test "KafkaEx.Supervisor dynamically creates workers" do
-    {:ok, pid} = KafkaEx.create_worker(:bar, uris: uris)
+    {:ok, pid} = KafkaEx.create_worker(:bar, uris: uris())
     assert Process.whereis(:bar) == pid
   end
 
   test "Creates a worker even when the one of the provided brokers is not available" do
-    {:ok, pid} = KafkaEx.create_worker(:no_broker_worker, uris: uris ++ [{"bad_host", 9000}])
+    {:ok, pid} = KafkaEx.create_worker(:no_broker_worker, uris: uris() ++ [{"bad_host", 9000}])
     assert Process.whereis(:no_broker_worker) == pid
   end
 
   test "create_worker allows custom metadata_update_interval" do
-    {:ok, pid} = KafkaEx.create_worker(:metadata_update_interval_custom, uris: uris, metadata_update_interval: 10)
+    {:ok, pid} = KafkaEx.create_worker(:metadata_update_interval_custom, uris: uris(), metadata_update_interval: 10)
     metadata_update_interval = :sys.get_state(pid).metadata_update_interval
 
     assert metadata_update_interval == 10
   end
 
   test "create_worker provides a default metadata_update_interval of '30000'" do
-    {:ok, pid} = KafkaEx.create_worker(:d, uris: uris)
+    {:ok, pid} = KafkaEx.create_worker(:d, uris: uris())
     metadata_update_interval = :sys.get_state(pid).metadata_update_interval
 
     assert metadata_update_interval == 30000
@@ -39,7 +39,7 @@ defmodule KafkaEx.Integration.Test do
   test "create_worker provides a default sync_timeout of 1000 if not set in config" do
     value_before = Application.get_env(:kafka_ex, :sync_timeout)
     Application.delete_env(:kafka_ex, :sync_timeout)
-    {:ok, pid} = KafkaEx.create_worker(:bif, uris: uris)
+    {:ok, pid} = KafkaEx.create_worker(:bif, uris: uris())
     sync_timeout = :sys.get_state(pid).sync_timeout
 
     assert sync_timeout == 1000
@@ -47,7 +47,7 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "create_worker takes a sync_timeout option and sets that as the sync_timeout of the worker" do
-    {:ok, pid} = KafkaEx.create_worker(:babar, [uris: uris, sync_timeout: 2000])
+    {:ok, pid} = KafkaEx.create_worker(:babar, [uris: uris(), sync_timeout: 2000])
     sync_timeout = :sys.get_state(pid).sync_timeout
 
     assert sync_timeout == 2000
@@ -57,7 +57,7 @@ defmodule KafkaEx.Integration.Test do
     value_before = Application.get_env(:kafka_ex, :sync_timeout)
     Application.put_env(:kafka_ex, :sync_timeout, 4000)
 
-    {:ok, pid} = KafkaEx.create_worker(:eve, [uris: uris])
+    {:ok, pid} = KafkaEx.create_worker(:eve, [uris: uris()])
     sync_timeout = :sys.get_state(pid).sync_timeout
 
     assert sync_timeout == 4000
@@ -65,7 +65,7 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "create_worker uses explicit sync_timeout even if set in config" do
-    {:ok, pid} = KafkaEx.create_worker(:alice, [uris: uris, sync_timeout: 2000])
+    {:ok, pid} = KafkaEx.create_worker(:alice, [uris: uris(), sync_timeout: 2000])
     sync_timeout = :sys.get_state(pid).sync_timeout
 
     assert sync_timeout == 2000
@@ -73,8 +73,8 @@ defmodule KafkaEx.Integration.Test do
 
   #update_metadata
   test "worker updates metadata after specified interval" do
-    random_string = generate_random_string
-    KafkaEx.create_worker(:update_metadata, [uris: uris, consumer_group: "foo", metadata_update_interval: 100])
+    random_string = generate_random_string()
+    KafkaEx.create_worker(:update_metadata, [uris: uris(), consumer_group: "foo", metadata_update_interval: 100])
     previous_metadata = KafkaEx.metadata(worker_name: :update_metadata)
     KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 0, messages: [%Proto.Produce.Message{value: "hey"}]})
     :timer.sleep(105)
@@ -94,7 +94,7 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "start_link creates the server and registers it as the module name" do
-    {:ok, pid} = KafkaEx.create_worker(:test_server, uris: uris)
+    {:ok, pid} = KafkaEx.create_worker(:test_server, uris: uris())
     assert pid == Process.whereis(:test_server)
   end
 
@@ -136,7 +136,7 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "produce creates log for a non-existing topic" do
-    random_string = generate_random_string
+    random_string = generate_random_string()
     KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]})
     pid = Process.whereis(Config.default_worker)
     metadata = :sys.get_state(pid).metadata
@@ -146,14 +146,14 @@ defmodule KafkaEx.Integration.Test do
 
   #metadata
   test "metadata works" do
-    random_string = generate_random_string
+    random_string = generate_random_string()
     Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) end)
 
     refute Enum.empty?(Enum.flat_map(KafkaEx.metadata.topic_metadatas, fn(metadata) -> metadata.partition_metadatas end))
   end
 
   test "metadata for a non-existing topic creates a new topic" do
-    random_string = generate_random_string
+    random_string = generate_random_string()
     metadata = TestHelper.wait_for_value(
       fn() -> KafkaEx.metadata(topic: random_string) end,
       fn(metadata) -> metadata != nil && length(metadata.topic_metadatas) > 0 end
@@ -190,13 +190,13 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "fetch returns ':topic_not_found' for non-existing topic" do
-    random_string = generate_random_string
+    random_string = generate_random_string()
 
     assert KafkaEx.fetch(random_string, 0, offset: 0) == :topic_not_found
   end
 
   test "fetch works" do
-    random_string = generate_random_string
+    random_string = generate_random_string()
     {:ok, offset} =  KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey foo"}]})
     fetch_response = KafkaEx.fetch(random_string, 0, offset: 0, auto_commit: false) |>  hd
     message = fetch_response.partitions |> hd |> Map.get(:message_set) |> hd
@@ -212,23 +212,23 @@ defmodule KafkaEx.Integration.Test do
     :sys.replace_state(pid, fn(state) ->
       %{state | :metadata => empty_metadata}
     end)
-    KafkaEx.offset("food", 0, utc_time, :offset_updates_metadata)
+    KafkaEx.offset("food", 0, utc_time(), :offset_updates_metadata)
     metadata = :sys.get_state(pid).metadata
 
     refute metadata == empty_metadata
   end
 
   test "offset retrieves most recent offset by time specification" do
-    random_string = generate_random_string
+    random_string = generate_random_string()
     KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]})
-    offset_response = KafkaEx.offset(random_string, 0, utc_time) |> hd
+    offset_response = KafkaEx.offset(random_string, 0, utc_time()) |> hd
     offset = offset_response.partition_offsets |> hd |> Map.get(:offset) |> hd
 
     assert offset != 0
   end
 
   test "earliest_offset retrieves offset of 0" do
-    random_string = generate_random_string
+    random_string = generate_random_string()
     KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]})
     offset_response = KafkaEx.earliest_offset(random_string, 0) |> hd
     offset = offset_response.partition_offsets |> hd |> Map.get(:offset) |> hd
@@ -237,7 +237,7 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "latest_offset retrieves offset of 0 for non-existing topic" do
-    random_string = generate_random_string
+    random_string = generate_random_string()
     {:ok, produce_offset} = KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]})
     :timer.sleep(300)
     offset_response = KafkaEx.latest_offset(random_string, 0) |> hd
@@ -247,7 +247,7 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "latest_offset retrieves a non-zero offset for a topic published to" do
-    random_string = generate_random_string
+    random_string = generate_random_string()
     KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "foo"}]})
     [offset_response] = TestHelper.wait_for_any(
       fn() -> KafkaEx.latest_offset(random_string, 0) end
@@ -259,7 +259,7 @@ defmodule KafkaEx.Integration.Test do
 
   # compression
   test "compresses / decompresses using gzip" do
-    random_string = generate_random_string
+    random_string = generate_random_string()
 
     message1 = %Proto.Produce.Message{value: "value 1"}
     message2 = %Proto.Produce.Message{key: "key 2", value: "value 2"}
@@ -285,7 +285,7 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "compresses / decompresses using snappy" do
-    random_string = generate_random_string
+    random_string = generate_random_string()
 
     message1 = %Proto.Produce.Message{value: "value 1"}
     message2 = %Proto.Produce.Message{key: "key 2", value: "value 2"}
@@ -364,8 +364,8 @@ defmodule KafkaEx.Integration.Test do
 
   # stream
   test "streams kafka logs" do
-    random_string = generate_random_string
-    KafkaEx.create_worker(:stream, uris: uris)
+    random_string = generate_random_string()
+    KafkaEx.create_worker(:stream, uris: uris())
     KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [
         %Proto.Produce.Message{value: "hey"},
         %Proto.Produce.Message{value: "hi"},
@@ -385,17 +385,17 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "doesn't error when re-creating an existing stream" do
-    random_string = generate_random_string
+    random_string = generate_random_string()
     KafkaEx.stream(random_string, 0, offset: 0)
     KafkaEx.stream(random_string, 0, offset: 0)
   end
 
   test "stop_streaming stops streaming, and stream starts it up again" do
-    random_string = generate_random_string
-    KafkaEx.create_worker(:stream2, uris: uris)
+    random_string = generate_random_string()
+    KafkaEx.create_worker(:stream2, uris: uris())
     stream = KafkaEx.stream(random_string, 0, worker_name: :stream2, offset: 0, auto_commit: false)
 
-    KafkaEx.create_worker(:producer, uris: uris)
+    KafkaEx.create_worker(:producer, uris: uris())
     KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [
         %Proto.Produce.Message{value: "one"},
         %Proto.Produce.Message{value: "two"},
@@ -440,8 +440,8 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "streams kafka logs with custom handler and initial state" do
-    random_string = generate_random_string
-    KafkaEx.create_worker(:stream3, uris: uris)
+    random_string = generate_random_string()
+    KafkaEx.create_worker(:stream3, uris: uris())
     {:ok, offset} = KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [
         %Proto.Produce.Message{value: "hey"},
         %Proto.Produce.Message{value: "hi"},
