@@ -1,6 +1,5 @@
 language: elixir
 otp_release:
-  - 17.5
   - 18.3
   - 19.2
 elixir:
@@ -12,13 +11,18 @@ matrix:
   exclude:
     - elixir: 1.1.1
       otp_release: 19.2
-    - elixir: 1.2.6
-      otp_release: 17.5.6.9
-    - elixir: 1.3.4
-      otp_release: 17.5.6.9
     - elixir: 1.4.0
-      otp_release: 17.5.6.9
+      otp_release: 19.2
+      env: COVERALLS=false
+  include:
+    - elixir: 1.1.1
+      otp_release: 17.5
+    - elixir: 1.4.0
+      otp_release: 19.2
+      env: COVERALLS=true
 sudo: required
+env:
+  - COVERALLS=false
 cache:
   directories:
     - ~/kafka
@@ -27,4 +31,5 @@ before_install:
 before_script:
   - scripts/start_kafka.sh
 script:
-  - mix test --include integration --include consumer_group --include server_0_p_9_p_0; mix test --include integration --include consumer_group --include server_0_p_9_p_0
+  - MIX_ENV=test mix deps.compile
+  - ./scripts/ci_tests.sh
