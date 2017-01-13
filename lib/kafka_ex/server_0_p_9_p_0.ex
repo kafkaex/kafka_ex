@@ -25,11 +25,13 @@ defmodule KafkaEx.Server0P9P0 do
     GenServer.start_link(__MODULE__, [args, name], [name: name])
   end
 
+  # The functions below are all defined in KafkaEx.Server0P8P2 and their
+  # implementation is exactly same across both versions of kafka.
+
   defdelegate kafka_server_consumer_group(state), to: Server0P8P2
   defdelegate kafka_server_fetch(fetch_request, state), to: Server0P8P2
   defdelegate kafka_server_offset_fetch(offset_fetch, state), to: Server0P8P2
   defdelegate kafka_server_offset_commit(offset_commit_request, state), to: Server0P8P2
-
   defdelegate kafka_server_consumer_group_metadata(state), to: Server0P8P2
   defdelegate kafka_server_start_streaming(fetch_request, state), to: Server0P8P2
   defdelegate kafka_server_update_consumer_metadata(state), to: Server0P8P2
