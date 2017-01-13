@@ -11,6 +11,9 @@ matrix:
   exclude:
     - elixir: 1.1.1
       otp_release: 19.2
+    - elixir: 1.4.0
+      otp_release: 19.2
+      env: COVERALLS=false
   include:
     - elixir: 1.1.1
       otp_release: 17.5
