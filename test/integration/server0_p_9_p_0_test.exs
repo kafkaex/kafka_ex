@@ -36,6 +36,20 @@ defmodule KafkaEx.Server0P9P0.Test do
     assert answer.assignments == Enum.reverse(my_assignments)
   end
 
+  test "can leave a consumer group" do
+    # A lot of repetition with the previous tests. Leaving it in now, waiting for
+    # how this pans out eventually as we add more and more 0.9 consumer group code
+    random_group = generate_random_string()
+    KafkaEx.create_worker(:leave_group, [uris: uris(), consumer_group: random_group])
+    answer = GenServer.call(:leave_group, {:join_group, ["foo", "bar"], 6000})
+    assert answer.error_code == :no_error
+
+    member_id = answer.member_id
+
+    answer = GenServer.call(:leave_group, {:leave_group, random_group, member_id})
+    assert answer.error_code == :no_error
+  end
+
   test "can heartbeat" do
     # See sync test. Removing repetition in the next iteration
     random_group = generate_random_string()

@@ -8,6 +8,7 @@ defmodule KafkaEx.Server0P9P0 do
   alias KafkaEx.Protocol.Heartbeat
   alias KafkaEx.Protocol.JoinGroup
   alias KafkaEx.Protocol.JoinGroup.Request, as: JoinGroupRequest
+  alias KafkaEx.Protocol.LeaveGroup
   alias KafkaEx.Protocol.Metadata.Broker
   alias KafkaEx.Protocol.SyncGroup
   alias KafkaEx.Server.State
@@ -92,6 +93,16 @@ defmodule KafkaEx.Server0P9P0 do
     response = broker
       |> NetworkClient.send_sync_request(request, state.sync_timeout)
       |> SyncGroup.parse_response
+    {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
+  end
+
+  def kafka_server_leave_group(group_name, member_id, state) do
+    true = consumer_group?(state)
+    {broker, state} = broker_for_consumer_group_with_update(state)
+    request = LeaveGroup.create_request(state.correlation_id, @client_id, group_name, member_id)
+    response = broker
+      |> NetworkClient.send_sync_request(request, state.sync_timeout)
+      |> LeaveGroup.parse_response
     {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
   end
 

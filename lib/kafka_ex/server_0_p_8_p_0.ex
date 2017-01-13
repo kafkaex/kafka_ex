@@ -8,6 +8,7 @@ defmodule KafkaEx.Server0P8P0 do
     {:nowarn_function, kafka_server_heartbeat: 4},
     {:nowarn_function, kafka_server_sync_group: 5},
     {:nowarn_function, kafka_server_join_group: 3},
+    {:nowarn_function, kafka_server_leave_group: 3},
     {:nowarn_function, kafka_server_update_consumer_metadata: 1},
     {:nowarn_function, kafka_server_consumer_group_metadata: 1},
     {:nowarn_function, kafka_server_consumer_group: 1},
@@ -63,6 +64,7 @@ defmodule KafkaEx.Server0P8P0 do
   def kafka_server_consumer_group_metadata(_state), do: raise "Consumer Group Metadata is not supported in 0.8.0 version of kafka"
   def kafka_server_join_group(_, _, _state), do: raise "Join Group is not supported in 0.8.0 version of kafka"
   def kafka_server_sync_group(_, _, _, _, _state), do: raise "Sync Group is not supported in 0.8.0 version of kafka"
+  def kafka_server_leave_group(_, _, _state), do: raise "Leave Group is not supported in 0.8.0 version of Kafka"
   def kafka_server_heartbeat(_, _, _, _state), do: raise "Heartbeat is not supported in 0.8.0 version of kafka"
   def kafka_server_update_consumer_metadata(_state), do: raise "Consumer Group Metadata is not supported in 0.8.0 version of kafka"
 
