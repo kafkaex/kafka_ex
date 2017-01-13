@@ -30,28 +30,28 @@ defmodule KafkaEx.ConsumerGroup.Test do
   end
 
   test "create_worker allows custom consumer_group_update_interval" do
-    {:ok, pid} = KafkaEx.create_worker(:consumer_group_update_interval_custom, uris: uris, consumer_group_update_interval: 10)
+    {:ok, pid} = KafkaEx.create_worker(:consumer_group_update_interval_custom, uris: uris(), consumer_group_update_interval: 10)
     consumer_group_update_interval = :sys.get_state(pid).consumer_group_update_interval
 
     assert consumer_group_update_interval == 10
   end
 
   test "create_worker provides a default consumer_group_update_interval of '30000'" do
-    {:ok, pid} = KafkaEx.create_worker(:de, uris: uris)
+    {:ok, pid} = KafkaEx.create_worker(:de, uris: uris())
     consumer_group_update_interval = :sys.get_state(pid).consumer_group_update_interval
 
     assert consumer_group_update_interval == 30000
   end
 
   test "create_worker provides a default consumer_group of 'kafka_ex'" do
-    {:ok, pid} = KafkaEx.create_worker(:baz, uris: uris)
+    {:ok, pid} = KafkaEx.create_worker(:baz, uris: uris())
     consumer_group = :sys.get_state(pid).consumer_group
 
     assert consumer_group == "kafka_ex"
   end
 
   test "create_worker takes a consumer_group option and sets that as the consumer_group of the worker" do
-    {:ok, pid} = KafkaEx.create_worker(:joe, [uris: uris, consumer_group: "foo"])
+    {:ok, pid} = KafkaEx.create_worker(:joe, [uris: uris(), consumer_group: "foo"])
     consumer_group = :sys.get_state(pid).consumer_group
 
     assert consumer_group == "foo"
@@ -67,7 +67,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
   end
 
   test "consumer_group_metadata works" do
-    random_string = generate_random_string
+    random_string = generate_random_string()
     KafkaEx.produce(%Proto.Produce.Request{topic: "food", partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]})
     KafkaEx.fetch("food", 0, offset: 0)
     KafkaEx.create_worker(:consumer_group_metadata_worker, consumer_group: random_string, uris: Application.get_env(:kafka_ex, :brokers))
@@ -83,7 +83,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
 
   #update_consumer_metadata
   test "worker updates metadata after specified interval" do
-    {:ok, pid} = KafkaEx.create_worker(:update_consumer_metadata, [uris: uris, consumer_group: "kafka_ex", consumer_group_update_interval: 100])
+    {:ok, pid} = KafkaEx.create_worker(:update_consumer_metadata, [uris: uris(), consumer_group: "kafka_ex", consumer_group_update_interval: 100])
     consumer_metadata = %KafkaEx.Protocol.ConsumerMetadata.Response{}
     :sys.replace_state(pid, fn(state) ->
       %{state | :consumer_metadata => consumer_metadata}
@@ -95,7 +95,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
   end
 
   test "worker does not update metadata when consumer_group is disabled" do
-    {:ok, pid} = KafkaEx.create_worker(:no_consumer_metadata_update, [uris: uris, consumer_group: :no_consumer_group, consumer_group_update_interval: 100])
+    {:ok, pid} = KafkaEx.create_worker(:no_consumer_metadata_update, [uris: uris(), consumer_group: :no_consumer_group, consumer_group_update_interval: 100])
     consumer_metadata = %KafkaEx.Protocol.ConsumerMetadata.Response{}
     :sys.replace_state(pid, fn(state) ->
       %{state | :consumer_metadata => consumer_metadata}
@@ -153,7 +153,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
   end
 
   test "fetch starts consuming from last committed offset" do
-    random_string = generate_random_string
+    random_string = generate_random_string()
     KafkaEx.create_worker(:fetch_test_committed_worker)
     Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) end)
     KafkaEx.offset_commit(:fetch_test_committed_worker, %Proto.OffsetCommit.Request{topic: random_string, offset: 3, partition: 0})
@@ -166,7 +166,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
   end
 
   test "fetch does not commit offset with auto_commit is set to false" do
-    topic = generate_random_string
+    topic = generate_random_string()
     worker_name = :fetch_no_auto_commit_worker
     KafkaEx.create_worker(worker_name)
     Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: topic, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}, worker_name: worker_name) end)
@@ -179,7 +179,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
 
   #offset_fetch
   test "offset_fetch does not override consumer_group" do
-    topic = generate_random_string
+    topic = generate_random_string()
     worker_name = :offset_fetch_consumer_group
     consumer_group = "bar#{topic}"
     KafkaEx.create_worker(worker_name, consumer_group: consumer_group, uris: Application.get_env(:kafka_ex, :brokers))
@@ -192,7 +192,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
 
   #offset_commit
   test "offset_commit commits an offset and offset_fetch retrieves the committed offset" do
-    random_string = generate_random_string
+    random_string = generate_random_string()
     Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) end)
     assert KafkaEx.offset_commit(Config.default_worker, %Proto.OffsetCommit.Request{topic: random_string, offset: 9, partition: 0}) ==
       [%Proto.OffsetCommit.Response{partitions: [0], topic: random_string}]
@@ -202,8 +202,8 @@ defmodule KafkaEx.ConsumerGroup.Test do
 
   #stream
   test "stream auto_commits offset by default" do
-    random_string = generate_random_string
-    KafkaEx.create_worker(:stream_auto_commit, uris: uris, consumer_group: "kafka_ex")
+    random_string = generate_random_string()
+    KafkaEx.create_worker(:stream_auto_commit, uris: uris(), consumer_group: "kafka_ex")
     KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [
         %Proto.Produce.Message{value: "hey"},
         %Proto.Produce.Message{value: "hi"},
@@ -225,10 +225,10 @@ defmodule KafkaEx.ConsumerGroup.Test do
   end
 
   test "stream starts consuming from the next offset" do
-    random_string = generate_random_string
+    random_string = generate_random_string()
     consumer_group = "kafka_ex"
     worker_name = :stream_last_committed_offset
-    KafkaEx.create_worker(worker_name, uris: uris, consumer_group: consumer_group)
+    KafkaEx.create_worker(worker_name, uris: uris(), consumer_group: consumer_group)
     Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}, worker_name: worker_name) end)
     KafkaEx.offset_commit(worker_name, %Proto.OffsetCommit.Request{topic: random_string, partition: 0, offset: 3})
 
@@ -251,8 +251,8 @@ defmodule KafkaEx.ConsumerGroup.Test do
   end
 
   test "stream does not commit offset with auto_commit is set to false" do
-    random_string = generate_random_string
-    KafkaEx.create_worker(:stream_no_auto_commit, uris: uris)
+    random_string = generate_random_string()
+    KafkaEx.create_worker(:stream_no_auto_commit, uris: uris())
     Enum.each(1..10, fn _ -> KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [%Proto.Produce.Message{value: "hey"}]}) end)
     stream = KafkaEx.stream(random_string, 0, worker_name: :stream_no_auto_commit, auto_commit: false, offset: 0)
 
