@@ -124,6 +124,13 @@ defmodule KafkaEx.Server do
     {:noreply, new_state, timeout | :hibernate} |
     {:stop, reason, reply, new_state} |
     {:stop, reason, new_state} when reply: term, new_state: term, reason: term
+  @callback kafka_server_leave_group(group_name :: binary, member_id :: binary, state :: State.t) ::
+    {:reply, reply, new_state} |
+    {:reply, reply, new_state, timeout | :hibernate} |
+    {:noreply, new_state} |
+    {:noreply, new_state, timeout | :hibernate} |
+    {:stop, reason, reply, new_state} |
+    {:stop, reason, new_state} when reply: term, new_state: term, reason: term
   @callback kafka_server_heartbeat(group_name :: binary, generation_id :: integer, member_id :: binary, state :: State.t) ::
     {:reply, reply, new_state} |
     {:reply, reply, new_state, timeout | :hibernate} |
@@ -218,6 +225,10 @@ defmodule KafkaEx.Server do
 
       def handle_call({:sync_group, group_name, generation_id, member_id, assignments}, _from, state) do
         kafka_server_sync_group(group_name, generation_id, member_id, assignments, state)
+      end
+
+      def handle_call({:leave_group, group_name, member_id}, _from, state) do
+        kafka_server_leave_group(group_name, member_id, state)
       end
 
       def handle_call({:heartbeat, group_name, generation_id, member_id}, _from, state) do
