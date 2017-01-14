@@ -36,6 +36,12 @@ defmodule KafkaEx.ConfigTest do
     ssl_options = Application.get_env(:kafka_ex, :ssl_options)
 
     key = :cacertfile
+
+    # the option may be omitted - it is up to :ssl to determine if this is ok
+    without_key = Keyword.delete(ssl_options, key)
+    Application.put_env(:kafka_ex, :ssl_options, without_key)
+    assert without_key == Config.ssl_options()
+
     with_invalid_file = Keyword.put(ssl_options, key, "./should_not_exist")
     Application.put_env(:kafka_ex, :ssl_options, with_invalid_file)
     assert_raise(ArgumentError, ~r/could not/, &Config.ssl_options/0)
@@ -46,6 +52,12 @@ defmodule KafkaEx.ConfigTest do
     ssl_options = Application.get_env(:kafka_ex, :ssl_options)
 
     key = :certfile
+
+    # the option may be omitted - it is up to :ssl to determine if this is ok
+    without_key = Keyword.delete(ssl_options, key)
+    Application.put_env(:kafka_ex, :ssl_options, without_key)
+    assert without_key == Config.ssl_options()
+
     with_invalid_file = Keyword.put(ssl_options, key, "./should_not_exist")
     Application.put_env(:kafka_ex, :ssl_options, with_invalid_file)
     assert_raise(ArgumentError, ~r/could not/, &Config.ssl_options/0)
@@ -56,6 +68,12 @@ defmodule KafkaEx.ConfigTest do
     ssl_options = Application.get_env(:kafka_ex, :ssl_options)
 
     key = :keyfile
+
+    # the option may be omitted - it is up to :ssl to determine if this is ok
+    without_key = Keyword.delete(ssl_options, key)
+    Application.put_env(:kafka_ex, :ssl_options, without_key)
+    assert without_key == Config.ssl_options()
+
     with_invalid_file = Keyword.put(ssl_options, key, "./should_not_exist")
     Application.put_env(:kafka_ex, :ssl_options, with_invalid_file)
     assert_raise(ArgumentError, ~r/could not/, &Config.ssl_options/0)
