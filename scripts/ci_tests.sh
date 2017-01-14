@@ -4,6 +4,8 @@
 
 set -ev
 
+export KAFKA_HOST=$(ifconfig | ./scripts/active_ifaces.sh | head -n 1 | cut -d ':' -f1)
+
 # first test run - tends to work the kinks out of the kafka brokers
 #    (we should strive to remove this but it is necessary for now)
 mix test --include integration --include consumer_group --include server_0_p_9_p_0 || true
