@@ -4,6 +4,8 @@
 
 set -ev
 
+echo $(ifconfig)
+
 iface=$(ifconfig | ./scripts/active_ifaces.sh | head -n 1 | cut -d ':' -f1)
 echo Detected active network interface ${iface}
 
