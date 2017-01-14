@@ -1,17 +1,11 @@
 use Mix.Config
 
-defmodule ConfigHelper do
-  def kafka_host do
-    System.get_env("KAFKA_HOST") || "localhost"
-  end
-end
-
 config :kafka_ex,
   # a list of brokers to connect to in {"HOST", port} format
   brokers: [
-    {ConfigHelper.kafka_host(), 9092},
-    {ConfigHelper.kafka_host(), 9093},
-    {ConfigHelper.kafka_host(), 9094},
+    {"localhost", 9092},
+    {"localhost", 9093},
+    {"localhost", 9094},
   ],
   # the default consumer group for worker processes, must be a binary (string)
   #    NOTE if you are on Kafka < 0.8.2 or if you want to disable the use of

@@ -4,8 +4,6 @@
 
 set -ev
 
-export KAFKA_HOST=$(ifconfig eth0 | grep 'inet ' | awk '{print $2}' | cut -d':' -f2)
-
 # first test run - tends to work the kinks out of the kafka brokers
 #    (we should strive to remove this but it is necessary for now)
 mix test --include integration --include consumer_group --include server_0_p_9_p_0 || true
