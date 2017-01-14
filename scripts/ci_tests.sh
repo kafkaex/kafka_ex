@@ -4,7 +4,7 @@
 
 set -ev
 
-export KAFKA_HOST=$(ifconfig eth0 | grep 'inet ' | awk '{print $2}')
+export KAFKA_HOST=$(ifconfig eth0 | grep 'inet ' | awk '{print $2}' | cut -d':' -f2)
 
 # first test run - tends to work the kinks out of the kafka brokers
 #    (we should strive to remove this but it is necessary for now)
