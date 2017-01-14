@@ -3,7 +3,6 @@ defmodule KafkaEx.Server0P9P0 do
   Implements kafkaEx.Server behaviors for kafka 0.9.0 API.
   """
   use KafkaEx.Server
-  alias KafkaEx.Config
   alias KafkaEx.Protocol.ConsumerMetadata
   alias KafkaEx.Protocol.ConsumerMetadata.Response, as: ConsumerMetadataResponse
   alias KafkaEx.Protocol.Heartbeat
@@ -51,8 +50,8 @@ defmodule KafkaEx.Server0P9P0 do
     consumer_group = Keyword.get(args, :consumer_group)
     true = KafkaEx.valid_consumer_group?(consumer_group)
 
-    use_ssl = Config.use_ssl()
-    ssl_options = Config.ssl_options()
+    use_ssl = Keyword.get(args, :use_ssl, false)
+    ssl_options = Keyword.get(args, :ssl_options, [])
 
     brokers = Enum.map(uris, fn({host, port}) -> %Broker{host: host, port: port, socket: NetworkClient.create_socket(host, port, ssl_options, use_ssl)} end)
     sync_timeout = Keyword.get(args, :sync_timeout, Application.get_env(:kafka_ex, :sync_timeout, @sync_timeout))

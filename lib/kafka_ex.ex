@@ -17,9 +17,9 @@ defmodule KafkaEx do
 
   @type uri() :: [{binary|char_list, number}]
   @type worker_init :: [worker_setting]
-  @type ssl_options :: [{:ssl_ca_cert_file, binary} |
-                        {:ssl_cert_file, binary} |
-                        {:ssl_cert_key_file, binary} |
+  @type ssl_options :: [{:cacertfile, binary} |
+                        {:certfile, binary} |
+                        {:keyfile, binary} |
                         {:password, binary}]
   @type worker_setting :: {:uris, uri}  |
                           {:consumer_group, binary | :no_consumer_group} |
@@ -318,8 +318,8 @@ Optional arguments(KeywordList)
     defaults = [
       uris: Application.get_env(:kafka_ex, :brokers),
       consumer_group: Application.get_env(:kafka_ex, :consumer_group),
-      use_ssl: Application.get_env(:kafka_ex, :use_ssl, false),
-      ssl_options: Application.get_env(:kafka_ex, :ssl_options, []),
+      use_ssl: Config.use_ssl(),
+      ssl_options: Config.ssl_options(),
     ]
 
     worker_init = Keyword.merge(defaults, worker_init)
