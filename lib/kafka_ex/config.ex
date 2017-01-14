@@ -49,7 +49,7 @@ defmodule KafkaEx.Config do
     verify_ssl_file(options, key, Keyword.get(options, key))
   end
 
-  defp verify_ssl_file(options, key, nil) do
+  defp verify_ssl_file(options, _key, nil) do
     # cert file not present - it will be up to :ssl to determine if this is ok
     # given the other settings
     options

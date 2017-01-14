@@ -4,7 +4,6 @@ ExUnit.configure exclude: [integration: true, consumer_group: true, server_0_p_9
 
 defmodule TestHelper do
   def generate_random_string(string_length \\ 20) do
-    :rand.seed(:os.timestamp)
     Enum.map(1..string_length, fn _ -> (:rand.uniform * 25 + 65) |> round end) |> to_string
   end
 
