@@ -31,5 +31,5 @@ cache:
 before_script:
   - ./scripts/docker_up.sh
 script:
-  - MIX_ENV=test mix deps.compile
+  - KAFKA_HOST=$(ifconfig eth0 | grep 'inet ' |awk '{print $2}') MIX_ENV=test mix deps.compile
   - ./scripts/ci_tests.sh
