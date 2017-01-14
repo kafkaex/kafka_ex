@@ -21,15 +21,15 @@ matrix:
       otp_release: 19.2
       env: COVERALLS=true
 sudo: required
+services:
+  - docker
 env:
   - COVERALLS=false
 cache:
   directories:
     - ~/kafka
-before_install:
-  - scripts/install_kafka.sh
 before_script:
-  - scripts/start_kafka.sh
+  - ./scripts/docker_up.sh
 script:
   - MIX_ENV=test mix deps.compile
   - ./scripts/ci_tests.sh
