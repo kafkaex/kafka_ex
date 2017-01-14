@@ -20,6 +20,7 @@ matrix:
     - elixir: 1.4.0
       otp_release: 19.2
       env: COVERALLS=true
+dist: trusty
 sudo: required
 services:
   - docker
