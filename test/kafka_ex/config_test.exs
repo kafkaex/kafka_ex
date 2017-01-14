@@ -31,46 +31,31 @@ defmodule KafkaEx.ConfigTest do
     assert [] == Config.ssl_options()
   end
 
-  test "ssl_options raises an error if cacertfile is missing or invalid" do
+  test "ssl_options raises an error if cacertfile is invalid" do
     Application.put_env(:kafka_ex, :use_ssl, true)
     ssl_options = Application.get_env(:kafka_ex, :ssl_options)
 
     key = :cacertfile
-    without_file = Keyword.delete(ssl_options, key)
-
-    Application.put_env(:kafka_ex, :ssl_options, without_file)
-    assert_raise(ArgumentError, ~r/not set/, &Config.ssl_options/0)
-
     with_invalid_file = Keyword.put(ssl_options, key, "./should_not_exist")
     Application.put_env(:kafka_ex, :ssl_options, with_invalid_file)
     assert_raise(ArgumentError, ~r/could not/, &Config.ssl_options/0)
   end
 
-  test "ssl_options raises an error if certfile is missing or invalid" do
+  test "ssl_options raises an error if certfile is invalid" do
     Application.put_env(:kafka_ex, :use_ssl, true)
     ssl_options = Application.get_env(:kafka_ex, :ssl_options)
 
     key = :certfile
-    without_file = Keyword.delete(ssl_options, key)
-
-    Application.put_env(:kafka_ex, :ssl_options, without_file)
-    assert_raise(ArgumentError, ~r/not set/, &Config.ssl_options/0)
-
     with_invalid_file = Keyword.put(ssl_options, key, "./should_not_exist")
     Application.put_env(:kafka_ex, :ssl_options, with_invalid_file)
     assert_raise(ArgumentError, ~r/could not/, &Config.ssl_options/0)
   end
 
-  test "ssl_options raises an error if keyfile is missing or invalid" do
+  test "ssl_options raises an error if keyfile is invalid" do
     Application.put_env(:kafka_ex, :use_ssl, true)
     ssl_options = Application.get_env(:kafka_ex, :ssl_options)
 
     key = :keyfile
-    without_file = Keyword.delete(ssl_options, key)
-
-    Application.put_env(:kafka_ex, :ssl_options, without_file)
-    assert_raise(ArgumentError, ~r/not set/, &Config.ssl_options/0)
-
     with_invalid_file = Keyword.put(ssl_options, key, "./should_not_exist")
     Application.put_env(:kafka_ex, :ssl_options, with_invalid_file)
     assert_raise(ArgumentError, ~r/could not/, &Config.ssl_options/0)

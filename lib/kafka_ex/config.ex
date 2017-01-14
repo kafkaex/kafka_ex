@@ -50,11 +50,9 @@ defmodule KafkaEx.Config do
   end
 
   defp verify_ssl_file(options, key, nil) do
-    # cert file not specified
-    raise(
-      ArgumentError,
-      message: "SSL option #{inspect key} was not set in #{inspect options}"
-    )
+    # cert file not present - it will be up to :ssl to determine if this is ok
+    # given the other settings
+    options
   end
   defp verify_ssl_file(options, key, path) do
     # make sure the file is readable to us

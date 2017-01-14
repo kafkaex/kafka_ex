@@ -4,8 +4,8 @@ ExUnit.configure exclude: [integration: true, consumer_group: true, server_0_p_9
 
 defmodule TestHelper do
   def generate_random_string(string_length \\ 20) do
-    :random.seed(:os.timestamp)
-    Enum.map(1..string_length, fn _ -> (:random.uniform * 25 + 65) |> round end) |> to_string
+    :rand.seed(:os.timestamp)
+    Enum.map(1..string_length, fn _ -> (:rand.uniform * 25 + 65) |> round end) |> to_string
   end
 
   # Wait for the return value of value_getter to pass the predicate condn
