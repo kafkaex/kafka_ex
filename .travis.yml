@@ -30,7 +30,7 @@ cache:
   directories:
     - ~/kafka
 before_script:
-  - ./scripts/ci_setup.sh
+  - ./ci/ci_setup.sh
 script:
   - MIX_ENV=test mix deps.compile
-  - ./scripts/ci_tests.sh
+  - ./ci/ci_tests.sh
