@@ -14,6 +14,7 @@ defmodule KafkaEx.Socket do
   """
   @spec create(:inet.ip_address, non_neg_integer, [] | [...]) :: {:ok, KafkaEx.Socket.t} | {:error, any}
   def create(host, port, socket_options \\ [], is_ssl \\ false) do
+    IO.puts("SOCKET #{inspect host} #{inspect port} #{inspect is_ssl} #{inspect socket_options}")
     case create_socket(host, port, is_ssl, socket_options) do
       {:ok, socket} -> {:ok, %KafkaEx.Socket{socket: socket, ssl: is_ssl}}
       {:error, reason} -> {:error, reason}

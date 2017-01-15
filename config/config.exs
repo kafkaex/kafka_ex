@@ -3,9 +3,9 @@ use Mix.Config
 config :kafka_ex,
   # a list of brokers to connect to in {"HOST", port} format
   brokers: [
-    {"localhost", 9092},
-    {"localhost", 9093},
-    {"localhost", 9094},
+    {"10.0.1.8", 9092},
+    {"10.0.1.8", 9093},
+    {"10.0.1.8", 9094},
   ],
   # the default consumer group for worker processes, must be a binary (string)
   #    NOTE if you are on Kafka < 0.8.2 or if you want to disable the use of
@@ -23,7 +23,7 @@ config :kafka_ex,
   # Supervision max_seconds -  the time frame in which :max_restarts applies
   max_seconds: 60,
   # This is the flag that enables use of ssl
-  use_ssl: false,
+  use_ssl: true,
   # see SSL OPTION DESCRIPTIONS - CLIENT SIDE at http://erlang.org/doc/man/ssl.html
   # for supported options
   ssl_options: [
