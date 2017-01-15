@@ -4,6 +4,10 @@
 # https://github.com/wurstmeister/kafka-docker/blob/master/start-kafka.sh
 # to not override settings that conflict with ssl
 
+set -ev
+
+cp ${KAFKA_HOME}/config/server.properties.in ${KAFKA_HOME}/config/server.properties
+
 if [[ -z "$KAFKA_LOG_DIRS" ]]; then
     export KAFKA_LOG_DIRS="/kafka/kafka-logs-$HOSTNAME"
 fi
@@ -48,6 +52,7 @@ term_handler() {
 
 # Capture kill requests to stop properly
 trap "term_handler" SIGHUP SIGINT SIGTERM
+export EXTRA_ARGS=-Djavax.net.debug=all
 $KAFKA_HOME/bin/kafka-server-start.sh $KAFKA_HOME/config/server.properties &
 KAFKA_PID=$!
 
