@@ -26,11 +26,12 @@ services:
   - docker
 env:
   - COVERALLS=false
+  - IP_IFACE=eth0
 cache:
   directories:
     - ~/kafka
 before_script:
-  - ./ci/ci_setup.sh
+  - ./scripts/docker_up.sh
 script:
   - MIX_ENV=test mix deps.compile
   - ./ci/ci_tests.sh

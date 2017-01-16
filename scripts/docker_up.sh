@@ -2,15 +2,20 @@
 
 # launches the dockerized kafka cluster
 
-set -ev
+set -e
 
 # Kafka needs to know our ip address so that it can advertise valid
 # connnection details
-iface=$(ifconfig | ./scripts/active_ifaces.sh | head -n 1 | cut -d ':' -f1)
-export DOCKER_IP=$(ifconfig ${iface} | grep 'inet ' | awk '{print $2}' | cut -d ':' -f2)
+if [ -z ${IP_IFACE} ]
+then
+  echo Detecting active network interface
+	IP_IFACE=$(ifconfig | ./scripts/active_ifaces.sh | head -n 1 | cut -d ':' -f1)
+fi
+
+export DOCKER_IP=$(ifconfig ${IP_IFACE} | grep 'inet ' | awk '{print $2}' | cut -d ':' -f2)
 
 # for debugging purposes
-echo Detected active network interface ${iface} with ip ${DOCKER_IP}
+echo Detected active network interface ${IP_IFACE} with ip ${DOCKER_IP}
 
 for i in 1 2 3
 do

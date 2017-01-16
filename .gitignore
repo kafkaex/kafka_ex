@@ -5,3 +5,6 @@ erl_crash.dump
 config/config.exs
 .idea
 *.iml
+kafka1
+kafka2
+kafka3
