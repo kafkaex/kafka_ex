@@ -31,7 +31,7 @@ do
   fi
 done
 
-sed -r -i "s/INFO, /DEBUG, /g" $KAFKA_HOME/config/log4j.properties
+# sed -r -i "s/INFO, /DEBUG, /g" $KAFKA_HOME/config/log4j.properties
 
 advertised_port=$(docker port `hostname` $KAFKA_PORT | sed -r "s/.*:(.*)/\1/g")
 # echo "advertised.listeners=SSL://${DOCKER_IP}:${advertised_port}" >> $KAFKA_HOME/config/server.properties

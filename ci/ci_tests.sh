@@ -5,7 +5,7 @@
 set -ev
 
 docker-compose ps
-docker-compose logs kafka1
+docker-compose logs kafka2
 
 # first test run - tends to work the kinks out of the kafka brokers
 #    (we should strive to remove this but it is necessary for now)
