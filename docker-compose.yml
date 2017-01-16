@@ -3,7 +3,7 @@ services:
   zookeeper:
     image: wurstmeister/zookeeper:3.4.6
     ports:
-      - "2181"
+      - "2181:2181"
   kafka1:
     image: wurstmeister/kafka:0.9.0.1
     ports:
@@ -11,7 +11,6 @@ services:
     environment:
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       DOCKER_IP: "${DOCKER_IP}"
-      KAFKA_JMX_OPTS: "-Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.authenticate=false  -Dcom.sun.management.jmxremote.ssl=false -Djavax.net.debug=all"
     depends_on:
       - zookeeper
     volumes:

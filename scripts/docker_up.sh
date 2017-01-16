@@ -21,7 +21,7 @@ do
   sed -i.bak "s/@broker_id@/${i}/g" ${target}
   sed -i.bak "s/@port@/${port}/g" ${target}
   sed -i.bak "s|@pwd@||g" ${target}
-  sed -i.bak "s/localhost:2181/zookeeper:2181/" ${target}
+  sed -i.bak "s/localhost:2181/0.0.0.0:2181/" ${target}
 done
 
 docker-compose up -d
