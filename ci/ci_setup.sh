@@ -13,7 +13,7 @@ echo Detected active network interface ${iface} with ip ${DOCKER_IP}
 
 for i in 1 2 3
 do
-  port=9092
+  port=$(expr 9092 + ${i} - 1)
   mkdir -p kafka${i}
   target=kafka${i}/server.properties.in
   cp ./server.properties ${target}
