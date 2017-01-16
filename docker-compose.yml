@@ -16,34 +16,34 @@ services:
       - zookeeper
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./kafka1/server.properties:/opt/kafka_2.11-0.9.0.1/config/server.properties.in
+      - ./kafka1/server.properties.in:/opt/kafka_2.11-0.9.0.1/config/server.properties.in
       - ./start-kafka.sh:/usr/bin/start-kafka.sh
       - ./ssl:/ssl
-#  kafka2:
-#    image: wurstmeister/kafka:0.9.0.1
-#    ports:
-#      - "9093:9092"
-#    environment:
-#      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-#      DOCKER_IP: "${DOCKER_IP}"
-#    depends_on:
-#      - zookeeper
-#    volumes:
-#      - /var/run/docker.sock:/var/run/docker.sock
-#      - ./kafka2/server.properties:/opt/kafka_2.11-0.9.0.1/config/server.properties
-#      - ./start-kafka.sh:/usr/bin/start-kafka.sh
-#      - ./ssl:/ssl
-#  kafka3:
-#    image: wurstmeister/kafka:0.9.0.1
-#    ports:
-#      - "9094:9092"
-#    environment:
-#      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-#      DOCKER_IP: "${DOCKER_IP}"
-#    depends_on:
-#      - zookeeper
-#    volumes:
-#      - /var/run/docker.sock:/var/run/docker.sock
-#      - ./kafka3/server.properties:/opt/kafka_2.11-0.9.0.1/config/server.properties
-#      - ./start-kafka.sh:/usr/bin/start-kafka.sh
-#      - ./ssl:/ssl
+  kafka2:
+    image: wurstmeister/kafka:0.9.0.1
+    ports:
+      - "9093:9092"
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      DOCKER_IP: "${DOCKER_IP}"
+    depends_on:
+      - zookeeper
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./kafka2/server.properties.in:/opt/kafka_2.11-0.9.0.1/config/server.properties.in
+      - ./start-kafka.sh:/usr/bin/start-kafka.sh
+      - ./ssl:/ssl
+  kafka3:
+    image: wurstmeister/kafka:0.9.0.1
+    ports:
+      - "9094:9092"
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      DOCKER_IP: "${DOCKER_IP}"
+    depends_on:
+      - zookeeper
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./kafka3/server.properties.in:/opt/kafka_2.11-0.9.0.1/config/server.properties.in
+      - ./start-kafka.sh:/usr/bin/start-kafka.sh
+      - ./ssl:/ssl

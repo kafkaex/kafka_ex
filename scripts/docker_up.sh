@@ -16,7 +16,7 @@ for i in 1 2 3
 do
   port=9092
   mkdir -p kafka${i}
-  target=kafka${i}/server.properties
+  target=kafka${i}/server.properties.in
   cp ./server.properties ${target}
   sed -i.bak "s/@broker_id@/${i}/g" ${target}
   sed -i.bak "s/@port@/${port}/g" ${target}
