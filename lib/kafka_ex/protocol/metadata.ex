@@ -3,6 +3,8 @@ defmodule KafkaEx.Protocol.Metadata do
   alias KafkaEx.Protocol
   import KafkaEx.Protocol.Common
 
+  require Logger
+
   @moduledoc """
   Implementation of the Kafka Hearbeat request and response APIs
   """
