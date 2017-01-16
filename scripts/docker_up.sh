@@ -22,6 +22,8 @@ do
   sed -i.bak "s/@port@/${port}/g" ${target}
   sed -i.bak "s|@pwd@||g" ${target}
   sed -i.bak "s/localhost:2181/0.0.0.0:2181/" ${target}
+  echo "listeners=SSL://kafka${i}:${port}" >> ${target}
+  echo "advertised.listeners=SSL://0.0.0.0:${port}" >> ${target}
 done
 
 docker-compose up -d

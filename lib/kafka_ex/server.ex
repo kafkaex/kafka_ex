@@ -382,6 +382,7 @@ defmodule KafkaEx.Server do
       def retrieve_metadata(brokers, correlation_id, sync_timeout, topic, retry, _error_code) do
         metadata_request = Metadata.create_request(correlation_id, @client_id, topic)
         data = first_broker_response(metadata_request, brokers, sync_timeout)
+        IO.inspect(data)
         response = case data do
                      nil ->
                        Logger.log(:error, "Unable to fetch metadata from any brokers.  Timeout is #{sync_timeout}.")
@@ -391,7 +392,8 @@ defmodule KafkaEx.Server do
                        Metadata.parse_response(data)
                    end
 
-                   case Enum.find(response.topic_metadatas, &(&1.error_code == :leader_not_available)) do
+        Logger.debug("GOT METADATA #{inspect response}")
+        case Enum.find(response.topic_metadatas, &(&1.error_code == :leader_not_available)) do
           nil  -> {correlation_id + 1, response}
           topic_metadata ->
             :timer.sleep(300)
@@ -429,7 +431,9 @@ defmodule KafkaEx.Server do
       end
 
       defp first_broker_response(request, brokers, sync_timeout) do
+        Logger.debug("BROKERS: #{inspect brokers}")
         Enum.find_value(brokers, fn(broker) ->
+          Logger.debug("TRYING BROKER #{inspect broker} CONNECTED? #{inspect Broker.connected?(broker)}")
           if Broker.connected?(broker) do
             NetworkClient.send_sync_request(broker, request, sync_timeout)
           end
