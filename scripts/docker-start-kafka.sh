@@ -1,8 +1,9 @@
 #!/bin/bash
 
-# specialized from
+# this script is used when the docker kafka container starts
+# this version is specialized from
 # https://github.com/wurstmeister/kafka-docker/blob/master/start-kafka.sh
-# to not override settings that conflict with ssl
+# to work with our setup (esp. with ssl)
 
 set -ev
 
