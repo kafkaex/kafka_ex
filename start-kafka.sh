@@ -17,7 +17,10 @@ if [[ -n "$KAFKA_HEAP_OPTS" ]]; then
     unset KAFKA_HEAP_OPTS
 fi
 
-
+# any env vars starting with KAFKA will be set in server.properties
+#   e.g., KAFKA_LOG_DIRS =>log.dirs
+# if the var is already in server.properties, it will be replaced
+# if it is not already in server.properties, it will be added to the end
 for VAR in `env`
 do
   if [[ $VAR =~ ^KAFKA_ && ! $VAR =~ ^KAFKA_HOME ]]; then
@@ -30,11 +33,6 @@ do
     fi
   fi
 done
-
-# sed -r -i "s/INFO, /DEBUG, /g" $KAFKA_HOME/config/log4j.properties
-
-advertised_port=$(docker port `hostname` $KAFKA_PORT | sed -r "s/.*:(.*)/\1/g")
-# echo "advertised.listeners=SSL://${DOCKER_IP}:${advertised_port}" >> $KAFKA_HOME/config/server.properties
 
 KAFKA_PID=0
 
@@ -52,7 +50,6 @@ term_handler() {
 
 # Capture kill requests to stop properly
 trap "term_handler" SIGHUP SIGINT SIGTERM
-export EXTRA_ARGS=-Djavax.net.debug=all
 $KAFKA_HOME/bin/kafka-server-start.sh $KAFKA_HOME/config/server.properties &
 KAFKA_PID=$!
 
