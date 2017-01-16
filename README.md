@@ -272,6 +272,19 @@ mix test --include consumer_group --include integration
 mix test --include integration
 ```
 
+### Testing with Docker
+
+Assuming you have Docker 1.12 or later installed, you can use the included
+ scripts to launch a Kafka 0.9 cluster for testing.
+
+```
+./scripts/docker_up.sh
+mix test --include integration --include consumer_group --include server_0_p_9_p_0
+```
+
+If `docker_up.sh` has trouble finding the correct network interface, you can
+manually specify one by running, e.g., `IP_IFACE=eth0 ./scripts/docker_up.sh`.
+
 ### Static analysis
 
 ```

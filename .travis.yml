@@ -20,16 +20,14 @@ matrix:
     - elixir: 1.4.0
       otp_release: 19.2
       env: COVERALLS=true
+dist: trusty
 sudo: required
+services:
+  - docker
 env:
   - COVERALLS=false
-cache:
-  directories:
-    - ~/kafka
-before_install:
-  - scripts/install_kafka.sh
 before_script:
-  - scripts/start_kafka.sh
+  - IP_IFACE=eth0 ./scripts/docker_up.sh
 script:
   - MIX_ENV=test mix deps.compile
   - ./scripts/ci_tests.sh
