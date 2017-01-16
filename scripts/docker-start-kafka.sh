@@ -9,32 +9,6 @@ set -ev
 
 cp ${KAFKA_HOME}/config/server.properties.in ${KAFKA_HOME}/config/server.properties
 
-if [[ -z "$KAFKA_LOG_DIRS" ]]; then
-    export KAFKA_LOG_DIRS="/kafka/kafka-logs-$HOSTNAME"
-fi
-
-if [[ -n "$KAFKA_HEAP_OPTS" ]]; then
-    sed -r -i "s/(export KAFKA_HEAP_OPTS)=\"(.*)\"/\1=\"$KAFKA_HEAP_OPTS\"/g" $KAFKA_HOME/bin/kafka-server-start.sh
-    unset KAFKA_HEAP_OPTS
-fi
-
-# any env vars starting with KAFKA will be set in server.properties
-#   e.g., KAFKA_LOG_DIRS =>log.dirs
-# if the var is already in server.properties, it will be replaced
-# if it is not already in server.properties, it will be added to the end
-for VAR in `env`
-do
-  if [[ $VAR =~ ^KAFKA_ && ! $VAR =~ ^KAFKA_HOME ]]; then
-    kafka_name=`echo "$VAR" | sed -r "s/KAFKA_(.*)=.*/\1/g" | tr '[:upper:]' '[:lower:]' | tr _ .`
-    env_var=`echo "$VAR" | sed -r "s/(.*)=.*/\1/g"`
-    if egrep -q "(^|^#)$kafka_name=" $KAFKA_HOME/config/server.properties; then
-        sed -r -i "s@(^|^#)($kafka_name)=(.*)@\2=${!env_var}@g" $KAFKA_HOME/config/server.properties #note that no config values may contain an '@' char
-    else
-        echo "$kafka_name=${!env_var}" >> $KAFKA_HOME/config/server.properties
-    fi
-  fi
-done
-
 KAFKA_PID=0
 
 # see https://medium.com/@gchudnov/trapping-signals-in-docker-containers-7a57fdda7d86#.bh35ir4u5

@@ -391,7 +391,7 @@ defmodule KafkaEx.Server do
                        Metadata.parse_response(data)
                    end
 
-        case Enum.find(response.topic_metadatas, &(&1.error_code == :leader_not_available)) do
+                   case Enum.find(response.topic_metadatas, &(&1.error_code == :leader_not_available)) do
           nil  -> {correlation_id + 1, response}
           topic_metadata ->
             :timer.sleep(300)
