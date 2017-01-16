@@ -3,8 +3,6 @@ defmodule KafkaEx.Protocol.Metadata do
   alias KafkaEx.Protocol
   import KafkaEx.Protocol.Common
 
-  require Logger
-
   @moduledoc """
   Implementation of the Kafka Hearbeat request and response APIs
   """
@@ -25,7 +23,6 @@ defmodule KafkaEx.Protocol.Metadata do
     }
 
     def broker_for_topic(metadata, brokers, topic, partition) do
-      Logger.debug("Looking for leader for topic #{inspect topic}: #{inspect metadata.topic_metadatas} | #{inspect brokers}")
       case Enum.find(metadata.topic_metadatas, &(topic == &1.topic)) do
         nil -> nil
         topic_metadata -> find_lead_broker(metadata.brokers, topic_metadata, brokers, partition)

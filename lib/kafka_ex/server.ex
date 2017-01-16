@@ -391,7 +391,6 @@ defmodule KafkaEx.Server do
                        Metadata.parse_response(data)
                    end
 
-        Logger.debug("GOT METADATA #{inspect response}")
         case Enum.find(response.topic_metadatas, &(&1.error_code == :leader_not_available)) do
           nil  -> {correlation_id + 1, response}
           topic_metadata ->
@@ -430,9 +429,7 @@ defmodule KafkaEx.Server do
       end
 
       defp first_broker_response(request, brokers, sync_timeout) do
-        Logger.debug("BROKERS: #{inspect brokers}")
         Enum.find_value(brokers, fn(broker) ->
-          Logger.debug("TRYING BROKER #{inspect broker} CONNECTED? #{inspect Broker.connected?(broker)}")
           if Broker.connected?(broker) do
             NetworkClient.send_sync_request(broker, request, sync_timeout)
           end
