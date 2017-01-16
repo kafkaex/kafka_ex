@@ -4,8 +4,8 @@ config :kafka_ex,
   # a list of brokers to connect to in {"HOST", port} format
   brokers: [
     {"0.0.0.0", 9092},
-    #{"0.0.0.0", 9093},
-    #{"0.0.0.0", 9094},
+    {"0.0.0.0", 9093},
+    {"0.0.0.0", 9094},
   ],
   # the default consumer group for worker processes, must be a binary (string)
   #    NOTE if you are on Kafka < 0.8.2 or if you want to disable the use of
