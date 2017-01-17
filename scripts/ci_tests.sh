@@ -1,6 +1,10 @@
 #!/bin/bash
 
 # Runs the test suite for the travis build
+#
+# If COVERALLS is true, then we report test coverage to coveralls.
+#
+# This script could be used for local testing as long as COVERALLS is not set.
 
 set -ev
 
