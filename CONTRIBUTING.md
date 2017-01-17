@@ -3,6 +3,7 @@
 - [Fork](https://github.com/kafkaex/kafka_ex/fork), then clone the repo: `git clone git@github.com:your-username/kafka_ex.git`
 - Create a feature branch: `git checkout -b feature_branch`
 - Make your changes
+- Make sure the tests all pass.  See the "Testing" section of the README.
 - Make sure the unit tests pass: `mix test --no-start`
 - Make sure the integration tests pass: `mix test --only integration`
 - Make sure the consumer group tests pass: `mix test --only consumer_group`

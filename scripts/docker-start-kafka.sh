@@ -1,9 +1,14 @@
 #!/bin/bash
 
-# this script is used when the docker kafka container starts
-# this version is specialized from
+# This script is used when the docker kafka container starts
+#
+# This version is specialized from
 # https://github.com/wurstmeister/kafka-docker/blob/master/start-kafka.sh
 # to work with our setup (esp. with ssl)
+#
+# Note that we mainly manage the server.properties file during `docker_up.sh`;
+# the wurstmeister/kafka behavior of translating KAFKA_* env vars to settings
+# is removed from this script.
 
 set -ev
 
