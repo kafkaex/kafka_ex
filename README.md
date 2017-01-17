@@ -10,7 +10,7 @@ KafkaEx
 
 [Apache Kafka](http://kafka.apache.org/) (>= 0.8.0) client for Elixir/Erlang.
 
-# Usage
+## Usage
 
 Add KafkaEx to your mix.exs dependencies:
 
@@ -56,7 +56,7 @@ defp deps do
 end
 ```
 
-## Configuration
+### Configuration
 
 See [config/config.exs](config/config.exs) for a description of
 configuration variables, including the Kafka broker list and default
@@ -67,7 +67,7 @@ environments.
 
 You can also override options when creating a worker, see below.
 
-## Create KafkaEx worker
+### Create KafkaEx worker
 ```elixir
 iex> KafkaEx.create_worker(:pr) # where :pr is the process name of the created worker
 {:ok, #PID<0.171.0>}
@@ -81,7 +81,7 @@ iex> KafkaEx.create_worker(:pr, [uris: uris, consumer_group: "kafka_ex", consume
 {:ok, #PID<0.172.0>}
 ```
 
-## Create an unnamed KafkaEx worker
+### Create an unnamed KafkaEx worker
 
 You may find you want to create many workers, say in conjunction with
 a `poolboy` pool. In this scenario you usually won't want to name these worker processes.
@@ -92,7 +92,7 @@ iex> KafkaEx.create_worker(:no_name) # indicates to the server process not to na
 {:ok, #PID<0.171.0>}
 ```
 
-## Using KafkaEx with a pooling library
+### Using KafkaEx with a pooling library
 
 Note that KafkaEx has a supervisor to manage its workers. If you are using Poolboy or a similar
 library, you will want to manually create a worker so that it is not supervised by `KafkaEx.Supervisor`.
@@ -108,7 +108,7 @@ GenServer.start_link(KafkaEx.Server,
 )
 ```
 
-## Retrieve kafka metadata
+### Retrieve kafka metadata
 For all metadata
 
 ```elixir
@@ -144,7 +144,7 @@ iex> KafkaEx.metadata(topic: "foo")
    topic: "foo"}]}
 ```
 
-## Retrieve offset from a particular time
+### Retrieve offset from a particular time
 
 Kafka will get the starting offset of the log segment that is created no later than the given timestamp. Due to this, and since the offset request is served only at segment granularity, the offset fetch request returns less accurate results for larger segment sizes.
 
@@ -153,21 +153,21 @@ iex> KafkaEx.offset("foo", 0, {{2015, 3, 29}, {23, 56, 40}}) # Note that the tim
 [%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: :no_error, offset: [256], partition: 0}], topic: "foo"}]
 ```
 
-## Retrieve the latest offset
+### Retrieve the latest offset
 
 ```elixir
 iex> KafkaEx.latest_offset("foo", 0) # where 0 is the partition
 [%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: :no_error, offsets: [16], partition: 0}], topic: "foo"}]
 ```
 
-## Retrieve the earliest offset
+### Retrieve the earliest offset
 
 ```elixir
 iex> KafkaEx.earliest_offset("foo", 0) # where 0 is the partition
 [%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: :no_error, offset: [0], partition: 0}], topic: "foo"}]
 ```
 
-## Fetch kafka logs
+### Fetch kafka logs
 
 **NOTE** You must pass `auto_commit: false` in the options for `fetch/3` when using Kafka < 0.8.2 or when using `:no_consumer_group`.
 
@@ -184,14 +184,14 @@ iex> KafkaEx.fetch("foo", 0, offset: 5) # where 0 is the partition and 5 is the 
 ...], partition: 0}], topic: "foo"}]
 ```
 
-## Produce kafka logs
+### Produce kafka logs
 
 ```elixir
 iex> KafkaEx.produce("foo", 0, "hey") # where "foo" is the topic and "hey" is the message
 :ok
 ```
 
-## Stream kafka logs
+### Stream kafka logs
 
 **NOTE** You must pass `auto_commit: false` in the options for `stream/3` when using Kafka < 0.8.2 or when using `:no_consumer_group`.
 
@@ -213,7 +213,7 @@ As mentioned, for Kafka < 0.8.2 the `stream/3` requires `autocommit: false`
 iex> KafkaEx.stream("foo", 0, offset: 0, auto_commit: false) |> Enum.take(2)
 ```
 
-## Compression
+### Compression
 
 Snappy and gzip compression is supported.  Example usage for producing compressed messages:
 
@@ -243,7 +243,7 @@ KafkaEx.produce(produce_request)
 
 Compression is handled automatically on the consuming/fetching end.
 
-# Testing
+## Testing
 
 It is strongly recommended to test using the Dockerized test cluster described
 below.  This is required for contributions to KafkaEx.
@@ -251,7 +251,7 @@ below.  This is required for contributions to KafkaEx.
 **NOTE** You may have to run the test suite twice to get tests to pass.  Due to
 asynchronous issues, the test suite sometimes fails on the first try.
 
-## Dockerized Test Cluster
+### Dockerized Test Cluster
 
 Testing KafkaEx requires a local SSL-enabled Kafka cluster with 3 nodes: one
 node listening on each port 9092, 9093, and 9093.  The easiest way to do this
@@ -278,12 +278,12 @@ IP_IFACE=eth0 ./scripts/docker_up.sh
 
 The test cluster runs Kafka 0.9.2.
 
-## Running the KafkaEx Tests
+### Running the KafkaEx Tests
 
 The KafkaEx tests are split up using tags to handle testing multiple scenarios
 and Kafka versions.
 
-### Unit tests
+#### Unit tests
 
 These tests do not require a Kafka cluster to be running.
 
@@ -291,14 +291,14 @@ These tests do not require a Kafka cluster to be running.
 mix test --no-start
 ```
 
-### Integration tests
+#### Integration tests
 
 If you are not using the Docker test cluster, you may need to modify
 `config/config.exs` for your set up.
 
 The full test suite requires Kafka 0.9+.
 
-#### Kafka >= 0.9.0
+##### Kafka >= 0.9.0
 
 The 0.9 client includes functionality that cannot be tested with older
 clusters.
@@ -307,7 +307,7 @@ clusters.
 mix test --include integration --include consumer_group --include server_0_p_9_p_0
 ```
 
-#### Kafka >= 0.8.2 and < 0.9.0
+##### Kafka >= 0.8.2 and < 0.9.0
 
 Kafka 0.8.2 introduced the consumer group API.
 
@@ -315,7 +315,7 @@ Kafka 0.8.2 introduced the consumer group API.
 mix test --include consumer_group --include integration
 ```
 
-#### Kafka < 0.8.2
+##### Kafka < 0.8.2
 
 If your test cluster is older, the consumer group tests must be omitted.
 
@@ -323,7 +323,7 @@ If your test cluster is older, the consumer group tests must be omitted.
 mix test --include integration
 ```
 
-## Static analysis
+### Static analysis
 
 This requires Elixir 1.3.2+.
 
@@ -331,7 +331,7 @@ This requires Elixir 1.3.2+.
 mix dialyzer
 ```
 
-# Contributing
+## Contributing
 
 All contributions are managed through the
 [kafkaex github repo](https://github.com/kafkaex/kafka_ex).
