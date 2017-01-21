@@ -31,6 +31,8 @@ config :kafka_ex,
     certfile: System.cwd <> "/ssl/cert.pem",
     keyfile: System.cwd <> "/ssl/key.pem",
   ],
+  # set this to the version of the kafka broker that you are using
+  # include only major.minor.patch versions.  must be at least 0.8.0 
   kafka_version: "0.9.0"
 
 env_config = Path.expand("#{Mix.env}.exs", __DIR__)

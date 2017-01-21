@@ -8,3 +8,4 @@ config/config.exs
 kafka1
 kafka2
 kafka3
+doc
