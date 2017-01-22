@@ -1,19 +1,30 @@
 defmodule KafkaEx.Config do
-  @moduledoc false
+  @moduledoc """
+  Configuring KafkaEx
+
+  ```
+  """ <> File.read!(Path.expand("../../config/config.exs", __DIR__)) <> """
+  ```
+  """
 
   require Logger
 
+  @doc false
   def use_ssl, do: Application.get_env(:kafka_ex, :use_ssl)
+
   # use this function to get the ssl options - it verifies the options and
   #   either emits warnings or raises errors as appropriate on misconfiguration
+  @doc false
   def ssl_options do
     ssl_options(use_ssl(), Application.get_env(:kafka_ex, :ssl_options))
   end
 
+  @doc false
   def default_worker do
     :kafka_ex
   end
 
+  @doc false
   def server_impl do
     :kafka_ex
       |> Application.get_env(:kafka_version, :default)

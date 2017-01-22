@@ -18,7 +18,10 @@ defmodule KafkaEx.Mixfile do
       description: description(),
       package: package(),
       deps: deps(),
-      docs: [main: "KafkaEx"]
+      docs: [
+        main: "README",
+        extras: ["README.md"]
+      ]
     ]
   end
 

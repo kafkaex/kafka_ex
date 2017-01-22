@@ -8,72 +8,98 @@ KafkaEx
 [![License](https://img.shields.io/hexpm/l/kafka_ex.svg?style=flat-square)](https://hex.pm/packages/kafka_ex)
 [![API Docs](https://img.shields.io/badge/api-docs-yellow.svg?style=flat)](http://hexdocs.pm/kafka_ex/)
 
-[Apache Kafka](http://kafka.apache.org/) (>= 0.8.0) client for Elixir/Erlang.
+KafkaEx is an Elixir client for [Apache Kafka](http://kafka.apache.org/) with
+support for Kafka versions 0.8.0 and newer.
 
-## Usage
+See [http://hexdocs.pm/kafka_ex/](http://hexdocs.pm/kafka_ex/) for
+documentation,
+ [https://github.com/kafkaex/kafka_ex/](https://github.com/kafkaex/kafka_ex/)
+ for code.
 
-Add KafkaEx to your mix.exs dependencies:
+KakfaEx supports the following Kafka features:
+
+* Broker and Topic Metadata
+* Produce Messages
+* Fetch Messages
+* Message Compression with Snappy and gzip
+* Offset Management (fetch / commit / autocommit)
+
+See [Kafka Protocol Documentation](http://kafka.apache.org/protocol.html) and
+ [A Guide to the Kafka Protocol](https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol)
+for details of these features.
+
+KafkaEx **does support** consumer groups for message consumption.  This feature
+was added in Kafka 0.8.2.  This translates to providing a consumer group
+name when committing offsets.  It is up to the client to assign partitions to
+workers in this mode of operation.
+
+KafkaEx currently provides **limited support** for the [Kafka ConsumerGroup
+API](https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol#AGuideToTheKafkaProtocol-GroupMembershipAPI)
+that was added in Kafka 0.9.0.  Most of the protocol requests are implemented
+in KafkaEx, but we do not yet support automatic joining and management of
+consumer group memebership (e.g., automatically assigning partitions to
+clients).  We are actively working on an implementation for automatic consumer
+group management.
+
+## Using KafkaEx in an Elixir project
+
+The standard approach for adding dependencies to an Elixir application applies:
+add KafkaEx to the deps and applications lists in your project's mix.exs file.
+You may also optionally add
+[snappy-erlang-nif](https://github.com/fdmanana/snappy-erlang-nif) (required 
+only if you want to use snappy compression).
 
 ```elixir
-defp deps do
-  [{:kafka_ex, "~> 0.6.1"}]
+# mix.exs
+defmodule MyApp.Mixfile do
+  # ...
+
+  def application do
+    [
+      mod: {MyApp, []},
+      applications: [
+        # add to existing apps - :logger, etc..
+        :kafka_ex,
+        :snappy # if using snappy compression
+      ]
+    ]
+  end
+ 
+  defp deps do
+    [
+      # add to your existing deps
+      {:kafka_ex, "~> 0.6.1"},
+      # if using snappy compression
+      {:snappy, git: "https://github.com/fdmanana/snappy-erlang-nif"}
+    ]
+  end
 end
 ```
 
-Add KafkaEx to your mix.exs applications:
+Then run `mix deps.get` to fetch dependencies.
 
-```elixir
-def application do
-  [applications: [:kafka_ex]]
-end
-```
+## Configuration
 
-And run:
-
-```
-mix deps.get
-```
-
-*Note* If you wish to use snappy for compression or decompression, you
- must add
- [snappy-erlang-nif](https://github.com/fdmanana/snappy-erlang-nif) to
- your project's mix.exs. Also add snappy your application list, e.g:
-
-```elixir
-def application do
-  [applications: [:kafka_ex, :snappy]]
-end
-```
-
- and to your deps list, e.g:
-
-```elixir
-defp deps do
-  [applications: [
-   {:kafka_ex, "0.6.1"},
-   {:snappy, git: "https://github.com/fdmanana/snappy-erlang-nif"}
-  ]]
-end
-```
-
-### Configuration
-
-See [config/config.exs](config/config.exs) for a description of
-configuration variables, including the Kafka broker list and default
-consumer group.  See
-http://elixir-lang.org/getting-started/mix-otp/distributed-tasks-and-configuration.html#application-environment-and-configuration
-for general info if you are unfamiliar with OTP application
-environments.
-
+See [config/config.exs](https://github.com/kafkaex/kafka_ex/blob/master/config/config.exs)
+or [KafkaEx.Config](https://hexdocs.pm/kafka_ex/KafkaEx.Config.html)
+for a description of configuration variables, including the Kafka broker list
+ and default consumer group.
+ 
 You can also override options when creating a worker, see below.
 
-### Create KafkaEx worker
+## Usaga Examples
+
+### Create a KafkaEx Worker
+
+KafkaEx worker processes manage the state of the connection to the Kafka broker.
+
 ```elixir
 iex> KafkaEx.create_worker(:pr) # where :pr is the process name of the created worker
 {:ok, #PID<0.171.0>}
 ```
 
 With custom options:
+
 ```elixir
 iex> uris = [{"localhost", 9092}, {"localhost", 9093}, {"localhost", 9094}]
 [{"localhost", 9092}, {"localhost", 9093}, {"localhost", 9094}]
@@ -92,7 +118,7 @@ iex> KafkaEx.create_worker(:no_name) # indicates to the server process not to na
 {:ok, #PID<0.171.0>}
 ```
 
-### Using KafkaEx with a pooling library
+### Use KafkaEx with a pooling library
 
 Note that KafkaEx has a supervisor to manage its workers. If you are using Poolboy or a similar
 library, you will want to manually create a worker so that it is not supervised by `KafkaEx.Supervisor`.
