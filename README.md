@@ -87,7 +87,7 @@ for a description of configuration variables, including the Kafka broker list
  
 You can also override options when creating a worker, see below.
 
-## Usaga Examples
+## Usage Examples
 
 ### Create a KafkaEx Worker
 
