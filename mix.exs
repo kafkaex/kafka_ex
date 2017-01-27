@@ -4,7 +4,7 @@ defmodule KafkaEx.Mixfile do
   def project do
     [
       app: :kafka_ex,
-      version: "0.6.2",
+      version: "0.6.3",
       elixir: "~> 1.0",
       dialyzer: [
         plt_add_deps: :transitive,
@@ -51,7 +51,7 @@ defmodule KafkaEx.Mixfile do
 
   defp package do
     [maintainers: ["Abejide Ayodele", "Dan Swain", "Jack Lund"],
-     files: ["lib", "mix.exs", "README.md"],
+     files: ["lib", "config/config.exs", "mix.exs", "README.md"],
      licenses: ["MIT"],
      links: %{"Github" => "https://github.com/kafkaex/kafka_ex"}]
   end
