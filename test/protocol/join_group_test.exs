@@ -15,10 +15,8 @@ defmodule  KafkaEx.Protocol.JoinGroup.Test do
          0 :: 16, # v0
          2 :: 32, 9 :: 16, "topic_one" :: binary, 9 :: 16, "topic_two" :: binary, # Topics array
          0 :: 32 >> # UserData
-    request = JoinGroup.create_request(
+    request = JoinGroup.create_request(42, "client_id",
       %JoinGroup.Request{
-        correlation_id: 42,
-        client_id: "client_id",
         member_id: "member_id",
         group_name: "group",
         topics: ["topic_one", "topic_two"],
