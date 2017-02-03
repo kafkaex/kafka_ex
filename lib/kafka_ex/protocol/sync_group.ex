@@ -4,6 +4,18 @@ defmodule KafkaEx.Protocol.SyncGroup do
   """
   @member_assignment_version 0
 
+  defmodule Request do
+    @moduledoc false
+    defstruct member_id: nil, group_name: nil, generation_id: nil, assignments: []
+
+    @type t :: %Request{
+      member_id: binary,
+      group_name: binary,
+      generation_id: integer,
+      assignments: [{member :: binary, [{topic :: binary, partitions :: [integer]}]}],
+    }
+  end
+
   defmodule Assignment do
     @moduledoc false
     defstruct topic: nil, partitions: []
@@ -16,23 +28,21 @@ defmodule KafkaEx.Protocol.SyncGroup do
     @type t :: %Response{error_code: atom | integer, assignments: [Assignment.t]}
   end
 
-  @spec create_request(integer, binary, binary, integer, binary, [{binary, [Assignment.t]}]) :: binary
-  def create_request(correlation_id, client_id, group_name, generation_id, member_id, assignments) do
+  @spec create_request(integer, binary, Request.t) :: binary
+  def create_request(correlation_id, client_id, %Request{} = request) do
     KafkaEx.Protocol.create_request(:sync_group, correlation_id, client_id) <>
-    << byte_size(group_name) :: 16-signed, group_name :: binary,
-       generation_id :: 32-signed,
-       byte_size(member_id) :: 16-signed, member_id :: binary,
-       length(assignments) :: 32-signed, group_assignment_data(assignments, "") :: binary
+    << byte_size(request.group_name) :: 16-signed, request.group_name :: binary,
+       request.generation_id :: 32-signed,
+       byte_size(request.member_id) :: 16-signed, request.member_id :: binary,
+       length(request.assignments) :: 32-signed, group_assignment_data(request.assignments, "") :: binary
     >>
   end
 
   @spec parse_response(binary) :: Response.t
   def parse_response(<< _correlation_id :: 32-signed, error_code :: 16-signed,
-                        _member_assignment_len :: 32-signed,
-                        @member_assignment_version :: 16-signed,
-                        assignments_size :: 32-signed, rest :: binary >>) do
-    assignments = parse_assignments(assignments_size, rest, [])
-    %Response{error_code: KafkaEx.Protocol.error(error_code), assignments: assignments}
+                        member_assignment_len :: 32-signed,
+                        member_assignment :: size(member_assignment_len)-binary >>) do
+    %Response{error_code: KafkaEx.Protocol.error(error_code), assignments: parse_member_assignment(member_assignment)}
   end
 
   # Helper functions to create assignment data structure
@@ -64,6 +74,11 @@ defmodule KafkaEx.Protocol.SyncGroup do
   defp partition_id_data([h|t], acc), do: partition_id_data(t, acc <> << h :: 32-signed >>)
 
   # Helper functions to parse assignments
+
+  defp parse_member_assignment(<<>>), do: []
+  defp parse_member_assignment(<< @member_assignment_version :: 16-signed, assignments_size :: 32-signed, rest :: binary >>) do
+    parse_assignments(assignments_size, rest, [])
+  end
 
   defp parse_assignments(0, _rest, assignments), do: assignments
   defp parse_assignments(size, << topic_len :: 16-signed, topic :: size(topic_len)-binary,

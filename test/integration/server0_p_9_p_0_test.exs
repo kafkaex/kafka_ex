@@ -2,14 +2,25 @@ defmodule KafkaEx.Server0P9P0.Test do
   use ExUnit.Case
   import TestHelper
 
+  alias KafkaEx.Protocol.Heartbeat.Request, as: HeartbeatRequest
+  alias KafkaEx.Protocol.JoinGroup.Request, as: JoinGroupRequest
+  alias KafkaEx.Protocol.LeaveGroup.Request, as: LeaveGroupRequest
+  alias KafkaEx.Protocol.SyncGroup.Request, as: SyncGroupRequest
+
   @moduletag :server_0_p_9_p_0
 
   test "can join a consumer group" do
     random_group = generate_random_string()
     KafkaEx.create_worker(:join_group, [uris: uris(), consumer_group: random_group])
 
-    # No wrapper in kafka_ex yet as long as the 0.9 functionality is in progress
-    answer = GenServer.call(:join_group, {:join_group, ["foo", "bar"], 6000})
+    request = %JoinGroupRequest{
+      group_name: random_group,
+      member_id: "",
+      topics: ["foo", "bar"],
+      session_timeout: 6000,
+    }
+
+    answer = KafkaEx.join_group(request, worker_name: :join_group)
     assert answer.error_code == :no_error
     assert answer.generation_id == 1
     # We should be the leader
@@ -21,7 +32,15 @@ defmodule KafkaEx.Server0P9P0.Test do
     # how this pans out eventually as we add more and more 0.9 consumer group code
     random_group = generate_random_string()
     KafkaEx.create_worker(:sync_group, [uris: uris(), consumer_group: random_group])
-    answer = GenServer.call(:sync_group, {:join_group, ["foo", "bar"], 6000})
+
+    request = %JoinGroupRequest{
+      group_name: random_group,
+      member_id: "",
+      topics: ["foo", "bar"],
+      session_timeout: 6000,
+    }
+
+    answer = KafkaEx.join_group(request, worker_name: :sync_group)
     assert answer.error_code == :no_error
 
     member_id = answer.member_id
@@ -29,7 +48,14 @@ defmodule KafkaEx.Server0P9P0.Test do
     my_assignments = [{"foo", [1]}, {"bar", [2]}]
     assignments = [{member_id, my_assignments}]
 
-    answer = GenServer.call(:sync_group, {:sync_group, random_group, generation_id, member_id, assignments})
+    request = %SyncGroupRequest{
+      group_name: random_group,
+      member_id: member_id,
+      generation_id: generation_id,
+      assignments: assignments,
+    }
+
+    answer = KafkaEx.sync_group(request, worker_name: :sync_group)
     assert answer.error_code == :no_error
     # Parsing happens to return the assignments reversed, which is fine as there's no
     # ordering. Just reverse what we expect to match
@@ -41,12 +67,25 @@ defmodule KafkaEx.Server0P9P0.Test do
     # how this pans out eventually as we add more and more 0.9 consumer group code
     random_group = generate_random_string()
     KafkaEx.create_worker(:leave_group, [uris: uris(), consumer_group: random_group])
-    answer = GenServer.call(:leave_group, {:join_group, ["foo", "bar"], 6000})
+
+    request = %JoinGroupRequest{
+      group_name: random_group,
+      member_id: "",
+      topics: ["foo", "bar"],
+      session_timeout: 6000,
+    }
+
+    answer = KafkaEx.join_group(request, worker_name: :leave_group)
     assert answer.error_code == :no_error
 
     member_id = answer.member_id
 
-    answer = GenServer.call(:leave_group, {:leave_group, random_group, member_id})
+    request = %LeaveGroupRequest{
+      group_name: random_group,
+      member_id: member_id,
+    }
+
+    answer = KafkaEx.leave_group(request, worker_name: :leave_group)
     assert answer.error_code == :no_error
   end
 
@@ -54,7 +93,15 @@ defmodule KafkaEx.Server0P9P0.Test do
     # See sync test. Removing repetition in the next iteration
     random_group = generate_random_string()
     KafkaEx.create_worker(:heartbeat, [uris: uris(), consumer_group: random_group])
-    answer = GenServer.call(:heartbeat, {:join_group, ["foo", "bar"], 6000})
+
+    request = %JoinGroupRequest{
+      group_name: random_group,
+      member_id: "",
+      topics: ["foo", "bar"],
+      session_timeout: 6000,
+    }
+
+    answer = KafkaEx.join_group(request, worker_name: :heartbeat)
     assert answer.error_code == :no_error
 
     member_id = answer.member_id
@@ -62,10 +109,23 @@ defmodule KafkaEx.Server0P9P0.Test do
     my_assignments = [{"foo", [1]}, {"bar", [2]}]
     assignments = [{member_id, my_assignments}]
 
-    answer = GenServer.call(:heartbeat, {:sync_group, random_group, generation_id, member_id, assignments})
+    request = %SyncGroupRequest{
+      group_name: random_group,
+      member_id: member_id,
+      generation_id: generation_id,
+      assignments: assignments,
+    }
+
+    answer = KafkaEx.sync_group(request, worker_name: :heartbeat)
     assert answer.error_code == :no_error
 
-    answer = GenServer.call(:heartbeat, {:heartbeat, random_group, generation_id, member_id})
+    request = %HeartbeatRequest{
+      group_name: random_group,
+      member_id: member_id,
+      generation_id: generation_id,
+    }
+
+    answer = KafkaEx.heartbeat(request, worker_name: :heartbeat)
     assert answer.error_code == :no_error
   end
 end

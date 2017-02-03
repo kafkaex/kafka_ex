@@ -6,6 +6,12 @@ defmodule KafkaEx do
   alias KafkaEx.Protocol.ConsumerMetadata.Response, as: ConsumerMetadataResponse
   alias KafkaEx.Protocol.Fetch.Response, as: FetchResponse
   alias KafkaEx.Protocol.Fetch.Request, as: FetchRequest
+  alias KafkaEx.Protocol.Heartbeat.Request, as: HeartbeatRequest
+  alias KafkaEx.Protocol.Heartbeat.Response, as: HeartbeatResponse
+  alias KafkaEx.Protocol.JoinGroup.Request, as: JoinGroupRequest
+  alias KafkaEx.Protocol.JoinGroup.Response, as: JoinGroupResponse
+  alias KafkaEx.Protocol.LeaveGroup.Request, as: LeaveGroupRequest
+  alias KafkaEx.Protocol.LeaveGroup.Response, as: LeaveGroupResponse
   alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
   alias KafkaEx.Protocol.Offset.Response, as: OffsetResponse
   alias KafkaEx.Protocol.OffsetCommit.Request, as: OffsetCommitRequest
@@ -14,6 +20,8 @@ defmodule KafkaEx do
   alias KafkaEx.Protocol.OffsetFetch.Request, as: OffsetFetchRequest
   alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
   alias KafkaEx.Protocol.Produce.Message
+  alias KafkaEx.Protocol.SyncGroup.Request, as: SyncGroupRequest
+  alias KafkaEx.Protocol.SyncGroup.Response, as: SyncGroupResponse
   alias KafkaEx.Server
 
   @type uri() :: [{binary|char_list, number}]
@@ -72,6 +80,46 @@ defmodule KafkaEx do
   @spec consumer_group(atom | pid) :: binary | :no_consumer_group
   def consumer_group(worker \\ Config.default_worker) do
     Server.call(worker, :consumer_group)
+  end
+
+  @doc """
+  Sends a request to join a consumer group.
+  """
+  @spec join_group(JoinGroupRequest.t, Keyword.t) :: JoinGroupResponse.t
+  def join_group(request, opts \\ []) do
+    worker_name = Keyword.get(opts, :worker_name, Config.default_worker)
+    timeout = Keyword.get(opts, :timeout)
+    Server.call(worker_name, {:join_group, request, timeout}, opts)
+  end
+
+  @doc """
+  Sends a request to synchronize with a consumer group.
+  """
+  @spec sync_group(SyncGroupRequest.t, Keyword.t) :: SyncGroupResponse.t
+  def sync_group(request, opts \\ []) do
+    worker_name = Keyword.get(opts, :worker_name, Config.default_worker)
+    timeout = Keyword.get(opts, :timeout)
+    Server.call(worker_name, {:sync_group, request, timeout}, opts)
+  end
+
+  @doc """
+  Sends a request to leave a consumer group.
+  """
+  @spec leave_group(LeaveGroupRequest.t, Keyword.t) :: LeaveGroupResponse.t
+  def leave_group(request, opts \\ []) do
+    worker_name = Keyword.get(opts, :worker_name, Config.default_worker)
+    timeout = Keyword.get(opts, :timeout)
+    Server.call(worker_name, {:leave_group, request, timeout}, opts)
+  end
+
+  @doc """
+  Sends a heartbeat to maintain membership in a consumer group.
+  """
+  @spec heartbeat(HeartbeatRequest.t, Keyword.t) :: HeartbeatResponse.t
+  def heartbeat(request, opts \\ []) do
+    worker_name = Keyword.get(opts, :worker_name, Config.default_worker)
+    timeout = Keyword.get(opts, :timeout)
+    Server.call(worker_name, {:heartbeat, request, timeout}, opts)
   end
 
   @doc """
@@ -196,7 +244,7 @@ defmodule KafkaEx do
     }, opts)
   end
 
-  @spec offset_commit(atom, OffsetCommitRequest.t) :: OffsetCommitResponse.t
+  @spec offset_commit(atom, OffsetCommitRequest.t) :: [OffsetCommitResponse.t]
   def offset_commit(worker_name, offset_commit_request) do
     Server.call(worker_name, {:offset_commit, offset_commit_request})
   end
