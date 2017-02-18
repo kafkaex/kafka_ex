@@ -15,6 +15,7 @@ defmodule KafkaEx do
   alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
   alias KafkaEx.Protocol.Produce.Message
   alias KafkaEx.Server
+  alias KafkaEx.Stream
 
   @type uri() :: [{binary|char_list, number}]
   @type worker_init :: [worker_setting]
@@ -253,7 +254,7 @@ Optional arguments(KeywordList)
   end
 
   @doc """
-  Returns a stream that consumes fetched messages.
+  Returns a stream that consumes fetched messages, the stream will halt once the max_bytes number of messages is reached, if you want to halt the stream early supply a small max_bytes, for the inverse supply a large max_bytes and if you don't want the stream to halt, you should recursively call the stream function.
   Optional arguments(KeywordList)
   - worker_name: the worker we want to run this metadata request through, when none is provided the default worker `:kafka_ex` is used
   - offset: When supplied the fetch would start from this offset, otherwise would start from the last committed offset of the consumer_group the worker belongs to. For Kafka < 0.8.2 you should explicitly specify this.
@@ -291,7 +292,7 @@ Optional arguments(KeywordList)
       min_bytes: min_bytes, max_bytes: max_bytes
     }
 
-    %KafkaEx.Stream{worker_name: worker_name, fetch_request: fetch_request, consumer_group: consumer_group}
+    %Stream{worker_name: worker_name, fetch_request: fetch_request, consumer_group: consumer_group}
   end
 
   defp build_worker_options(worker_init) do

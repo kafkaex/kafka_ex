@@ -22,11 +22,16 @@ defmodule KafkaEx.Stream do
         response = data.worker_name
         |> GenServer.call({:fetch, %{data.fetch_request| offset: offset}})
         |> hd |> Map.get(:partitions) |> hd
-        last_offset = response |> Map.get(:last_offset)
-        {response.message_set, last_offset}
+        if response.error_code == :no_error &&
+           response.last_offset != nil && response.last_offset != offset do
+          {response.message_set, response.last_offset}
+        else
+          {:halt, offset}
+        end
       end
       Stream.resource(fn -> data.fetch_request.offset end, next_fun, &(&1)).(acc, fun)
     end
+
     def count(_stream) do
       {:error, __MODULE__}
     end
