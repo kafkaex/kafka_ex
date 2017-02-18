@@ -254,15 +254,11 @@ Optional arguments(KeywordList)
 
   @doc """
   Returns a stream that consumes fetched messages.
-  This puts the specified worker in streaming mode and blocks the worker indefinitely.
-  The handler is a normal GenEvent handler so you can supply a custom handler, otherwise a default handler is used.
-
-  This function should be used with care as the queue is unbounded and can cause OOM.
-
   Optional arguments(KeywordList)
   - worker_name: the worker we want to run this metadata request through, when none is provided the default worker `:kafka_ex` is used
   - offset: When supplied the fetch would start from this offset, otherwise would start from the last committed offset of the consumer_group the worker belongs to. For Kafka < 0.8.2 you should explicitly specify this.
   - auto_commit: specifies if the last offset should be commited or not. Default is true.  You must set this to false when using Kafka < 0.8.2 or `:no_consumer_group`.
+  - consumer_group: Name of the group of consumers, `:no_consumer_group` should be passed for Kafka < 0.8.2, defaults to `Application.get_env(:kafka_ex, :consumer_group)`
 
 
   ## Example
