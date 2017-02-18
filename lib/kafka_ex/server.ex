@@ -21,7 +21,6 @@ defmodule KafkaEx.Server do
       metadata: %Metadata.Response{},
       brokers: [],
       event_pid: nil,
-      stream_timer: nil,
       consumer_metadata: %ConsumerMetadata.Response{},
       correlation_id: 0,
       consumer_group: nil,
@@ -36,7 +35,6 @@ defmodule KafkaEx.Server do
         metadata: Metadata.Response.t,
         brokers: [Broker.t],
         event_pid: nil | pid,
-        stream_timer: reference,
         consumer_metadata: ConsumerMetadata.Response.t,
         correlation_id: integer,
         metadata_update_interval: nil | integer,
@@ -136,21 +134,6 @@ defmodule KafkaEx.Server do
     {:noreply, new_state, timeout | :hibernate} |
     {:stop, reason, reply, new_state} |
     {:stop, reason, new_state} when reply: term, new_state: term, reason: term
-  @callback kafka_server_create_stream(handler :: term, handler_init :: term, state :: State.t) ::
-    {:reply, reply, new_state} |
-    {:reply, reply, new_state, timeout | :hibernate} |
-    {:noreply, new_state} |
-    {:noreply, new_state, timeout | :hibernate} |
-    {:stop, reason, reply, new_state} |
-    {:stop, reason, new_state} when reply: term, new_state: term, reason: term
-  @callback kafka_server_start_streaming(fetch_request :: FetchRequest.t, state :: State.t) ::
-    {:noreply, new_state} |
-    {:noreply, new_state, timeout | :hibernate} |
-    {:stop, reason :: term, new_state} when new_state: term
-  @callback kafka_server_stop_streaming(state :: State.t) ::
-    {:noreply, new_state} |
-    {:noreply, new_state, timeout | :hibernate} |
-    {:stop, reason :: term, new_state} when new_state: term
   @callback kafka_server_update_metadata(state :: State.t) ::
     {:noreply, new_state} |
     {:noreply, new_state, timeout | :hibernate} |
@@ -253,24 +236,6 @@ defmodule KafkaEx.Server do
         kafka_server_heartbeat(group_name, generation_id, member_id, state)
       end
 
-      def handle_call({:create_stream, handler, handler_init}, _from, state) do
-        kafka_server_create_stream(handler, handler_init, state)
-      end
-
-      def handle_info({:start_streaming, fetch_request}, state) do
-        kafka_server_start_streaming(fetch_request, state)
-      end
-
-      def handle_info(:stop_streaming, state) do
-        {:noreply, state} = kafka_server_stop_streaming(state)
-        state = case state.stream_timer do
-          nil -> state
-          ref -> Process.cancel_timer(ref)
-          %{state | stream_timer: nil}
-        end
-        {:noreply, state}
-      end
-
       def handle_info(:update_metadata, state) do
         kafka_server_update_metadata(state)
       end
@@ -360,25 +325,6 @@ defmodule KafkaEx.Server do
         {:reply, metadata, updated_state}
       end
 
-      def kafka_server_create_stream(handler, handler_init, state) do
-        new_state = if state.event_pid && Process.alive?(state.event_pid) do
-          Logger.log(:warn, "'#{state.worker_name}' already streaming handler '#{handler}'")
-          state
-        else
-          {:ok, event_pid}  = GenEvent.start_link
-          updated_state = %{state | event_pid: event_pid}
-          :ok = GenEvent.add_handler(updated_state.event_pid, handler, handler_init)
-          updated_state
-        end
-        {:reply, GenEvent.stream(new_state.event_pid), new_state}
-      end
-
-      def kafka_server_stop_streaming(state) do
-        Logger.log(:debug, "Stopped worker #{inspect state.worker_name} from streaming")
-        GenEvent.stop(state.event_pid)
-        {:noreply, %{state | event_pid: nil}}
-      end
-
       def kafka_server_update_metadata(state) do
         {:noreply, update_metadata(state)}
       end
@@ -419,8 +365,7 @@ defmodule KafkaEx.Server do
 
       defoverridable [
         kafka_server_produce: 2, kafka_server_offset: 4,
-        kafka_server_metadata: 2, kafka_server_create_stream: 3,
-        kafka_server_stop_streaming: 1, kafka_server_update_metadata: 1,
+        kafka_server_metadata: 2, kafka_server_update_metadata: 1,
       ]
 
       defp remove_stale_brokers(brokers, metadata_brokers) do
