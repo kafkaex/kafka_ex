@@ -25,7 +25,7 @@ defmodule KafkaEx.Stream do
         last_offset = response |> Map.get(:last_offset)
         {response.message_set, last_offset}
       end
-      Stream.resource(&(data.fetch_request.offset), next_fun, &(&1)).(acc, fun)
+      Stream.resource(fn -> data.fetch_request.offset end, next_fun, &(&1)).(acc, fun)
     end
     def count(_stream) do
       {:error, __MODULE__}
