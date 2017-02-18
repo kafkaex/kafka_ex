@@ -339,7 +339,7 @@ defmodule KafkaEx.Integration.Test do
 
     stream = KafkaEx.stream(random_string, 0, worker_name: :stream, offset: 0, auto_commit: false)
     log = TestHelper.wait_for_accum(
-      fn() -> GenEvent.call(stream.manager, KafkaEx.Handler, :messages) end,
+      fn() -> stream |> Enum.take(2) end,
       2
     )
 
@@ -353,86 +353,5 @@ defmodule KafkaEx.Integration.Test do
     random_string = generate_random_string()
     KafkaEx.stream(random_string, 0, offset: 0)
     KafkaEx.stream(random_string, 0, offset: 0)
-  end
-
-  test "stop_streaming stops streaming, and stream starts it up again" do
-    random_string = generate_random_string()
-    KafkaEx.create_worker(:stream2, uris: uris())
-    stream = KafkaEx.stream(random_string, 0, worker_name: :stream2, offset: 0, auto_commit: false)
-
-    KafkaEx.create_worker(:producer, uris: uris())
-    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [
-        %Proto.Produce.Message{value: "one"},
-        %Proto.Produce.Message{value: "two"},
-      ]
-    }, worker_name: :producer)
-
-    log = TestHelper.wait_for_accum(
-      fn() -> GenEvent.call(stream.manager, KafkaEx.Handler, :messages) end,
-      2
-    )
-
-    last_offset = hd(Enum.reverse(log)).offset
-
-    KafkaEx.stop_streaming(worker_name: :stream2)
-    :ok = TestHelper.wait_for(fn() -> !Process.alive?(stream.manager) end)
-
-    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [
-        %Proto.Produce.Message{value: "three"},
-        %Proto.Produce.Message{value: "four"},
-      ]
-    }, worker_name: :producer)
-
-    stream = KafkaEx.stream(random_string, 0, worker_name: :stream2, offset: last_offset+1, auto_commit: false)
-
-    :ok = TestHelper.wait_for(fn() -> Process.alive?(stream.manager) end)
-
-    log = GenEvent.call(stream.manager, KafkaEx.Handler, :messages)
-    assert length(log) == 0
-
-    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [
-        %Proto.Produce.Message{value: "five"},
-        %Proto.Produce.Message{value: "six"},
-      ]
-    }, worker_name: :producer)
-
-    log = TestHelper.wait_for_accum(
-      fn() -> GenEvent.call(stream.manager, KafkaEx.Handler, :messages) end,
-      4
-    )
-
-    assert length(log) == 4
-  end
-
-  test "streams kafka logs with custom handler and initial state" do
-    random_string = generate_random_string()
-    KafkaEx.create_worker(:stream3, uris: uris())
-    {:ok, offset} = KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [
-        %Proto.Produce.Message{value: "hey"},
-        %Proto.Produce.Message{value: "hi"},
-      ]
-    }, worker_name: :stream3)
-
-    defmodule CustomHandlerSendingMessage do
-      use GenEvent
-
-      def init(pid) do
-        {:ok, pid}
-      end
-
-      def handle_event(message, pid) do
-        send(pid, message)
-        {:ok, pid}
-      end
-    end
-    KafkaEx.stream(random_string, 0, worker_name: :stream3, offset: offset, auto_commit: false, handler: CustomHandlerSendingMessage, handler_init: self())
-
-    assert_receive %KafkaEx.Protocol.Fetch.Message{key: nil, value: "hey", offset: ^offset, attributes: 0, crc: 4264455069}
-    offset = offset + 1
-    assert_receive %KafkaEx.Protocol.Fetch.Message{key: nil, value: "hi", offset: ^offset, attributes: 0, crc: 4251893211}
-    receive do
-      _ -> assert(false, "Should not have received a third message")
-      after 100 -> :ok
-    end
   end
 end

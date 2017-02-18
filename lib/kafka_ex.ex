@@ -262,8 +262,6 @@ Optional arguments(KeywordList)
   Optional arguments(KeywordList)
   - worker_name: the worker we want to run this metadata request through, when none is provided the default worker `:kafka_ex` is used
   - offset: When supplied the fetch would start from this offset, otherwise would start from the last committed offset of the consumer_group the worker belongs to. For Kafka < 0.8.2 you should explicitly specify this.
-  - handler: the handler we want to handle the streaming events, when none is provided the default KafkaEx.Handler is used
-  - handler_init: initial state for the handler - leave the default value [] when using the default handler
   - auto_commit: specifies if the last offset should be commited or not. Default is true.  You must set this to false when using Kafka < 0.8.2 or `:no_consumer_group`.
 
 
@@ -283,32 +281,21 @@ Optional arguments(KeywordList)
   def stream(topic, partition, opts \\ []) do
     worker_name     = Keyword.get(opts, :worker_name, Config.default_worker)
     supplied_offset = Keyword.get(opts, :offset)
-    handler         = Keyword.get(opts, :handler, KafkaEx.Handler)
-    handler_init    = Keyword.get(opts, :handler_init, [])
     auto_commit     = Keyword.get(opts, :auto_commit, true)
     wait_time         = Keyword.get(opts, :wait_time, @wait_time)
     min_bytes         = Keyword.get(opts, :min_bytes, @min_bytes)
     max_bytes         = Keyword.get(opts, :max_bytes, @max_bytes)
-
-    event_stream      = Server.call(worker_name, {:create_stream, handler, handler_init})
+    consumer_group    = Keyword.get(opts, :consumer_group)
     retrieved_offset = current_offset(supplied_offset, partition, topic, worker_name)
 
-    send(worker_name, {
-      :start_streaming,
-      %FetchRequest{
-        auto_commit: auto_commit,
-        topic: topic, partition: partition,
-        offset: retrieved_offset, wait_time: wait_time,
-        min_bytes: min_bytes, max_bytes: max_bytes
-      }
-    })
-    event_stream
-  end
+    fetch_request =  %FetchRequest{
+      auto_commit: auto_commit,
+      topic: topic, partition: partition,
+      offset: retrieved_offset, wait_time: wait_time,
+      min_bytes: min_bytes, max_bytes: max_bytes
+    }
 
-  @spec stop_streaming(Keyword.t) :: :stop_streaming
-  def stop_streaming(opts \\ []) do
-    worker_name = Keyword.get(opts, :worker_name, Config.default_worker)
-    send(worker_name, :stop_streaming)
+    %KafkaEx.Stream{worker_name: worker_name, fetch_request: fetch_request, consumer_group: consumer_group}
   end
 
   defp build_worker_options(worker_init) do
