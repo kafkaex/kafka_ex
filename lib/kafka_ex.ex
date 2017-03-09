@@ -376,7 +376,9 @@ Optional arguments(KeywordList)
 
   @default_call_timeout 5000 # default genserver timeout
 
-  defp dispatch_call(server, term, opts \\ []) when is_list(opts) do
+  defp dispatch_call(server, term, opts \\ [])
+
+  defp dispatch_call(server, term, opts) when is_list(opts) do
     dispatch_call(server, term, opts[:timeout])
   end
 
