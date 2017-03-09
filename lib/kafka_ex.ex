@@ -101,7 +101,7 @@ defmodule KafkaEx do
   def metadata(opts \\ []) do
     worker_name  = Keyword.get(opts, :worker_name, Config.default_worker)
     topic = Keyword.get(opts, :topic, "")
-    dispatch_call(worker_name, {:metadata, topic})
+    dispatch_call(worker_name, {:metadata, topic}, opts)
   end
 
   @spec consumer_group_metadata(atom, binary) :: ConsumerMetadataResponse.t
@@ -196,7 +196,7 @@ defmodule KafkaEx do
         offset: retrieved_offset, wait_time: wait_time,
         min_bytes: min_bytes, max_bytes: max_bytes
       }
-    })
+    }, opts)
   end
 
   @spec offset_commit(atom, OffsetCommitRequest.t) :: OffsetCommitResponse.t
@@ -226,7 +226,7 @@ Optional arguments(KeywordList)
   @spec produce(ProduceRequest.t, Keyword.t) :: nil | :ok | {:ok, integer} | {:error, :closed} | {:error, :inet.posix} | {:error, any} | iodata | :leader_not_available
   def produce(produce_request, opts \\ []) do
     worker_name   = Keyword.get(opts, :worker_name, Config.default_worker)
-    dispatch_call(worker_name, {:produce, produce_request})
+    dispatch_call(worker_name, {:produce, produce_request}, opts)
   end
 
   @doc """
@@ -385,7 +385,7 @@ Optional arguments(KeywordList)
     # GenServer.call timeout, use the larger value unless explicitly set
     # using opts[:timeout].
     timeout = max(@default_call_timeout, Application.get_env(:kafka_ex, :sync_timeout, @default_call_timeout))
-    dispatch_call(server, term, call_timeout)
+    dispatch_call(server, term, timeout)
   end
 
   defp dispatch_call(server, term, timeout) when is_integer(timeout) do
