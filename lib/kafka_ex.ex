@@ -14,6 +14,7 @@ defmodule KafkaEx do
   alias KafkaEx.Protocol.OffsetFetch.Request, as: OffsetFetchRequest
   alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
   alias KafkaEx.Protocol.Produce.Message
+  alias KafkaEx.Server
 
   @type uri() :: [{binary|char_list, number}]
   @type worker_init :: [worker_setting]
@@ -74,7 +75,7 @@ defmodule KafkaEx do
   """
   @spec consumer_group(atom | pid) :: binary | :no_consumer_group
   def consumer_group(worker \\ Config.default_worker) do
-    dispatch_call(worker, :consumer_group)
+    Server.call(worker, :consumer_group)
   end
 
   @doc """
@@ -101,12 +102,12 @@ defmodule KafkaEx do
   def metadata(opts \\ []) do
     worker_name  = Keyword.get(opts, :worker_name, Config.default_worker)
     topic = Keyword.get(opts, :topic, "")
-    dispatch_call(worker_name, {:metadata, topic}, opts)
+    Server.call(worker_name, {:metadata, topic}, opts)
   end
 
   @spec consumer_group_metadata(atom, binary) :: ConsumerMetadataResponse.t
   def consumer_group_metadata(worker_name, supplied_consumer_group) do
-    dispatch_call(worker_name, {:consumer_group_metadata, supplied_consumer_group})
+    Server.call(worker_name, {:consumer_group_metadata, supplied_consumer_group})
   end
 
   @doc """
@@ -147,7 +148,7 @@ defmodule KafkaEx do
   """
   @spec offset(binary, number, :calendar.datetime | :earliest | :latest, atom|pid) :: [OffsetResponse.t] | :topic_not_found
   def offset(topic, partition, time, name \\ Config.default_worker) do
-    dispatch_call(name, {:offset, topic, partition, time})
+    Server.call(name, {:offset, topic, partition, time})
   end
 
   @wait_time 10
@@ -189,7 +190,7 @@ defmodule KafkaEx do
 
     retrieved_offset = current_offset(supplied_offset, partition, topic, worker_name)
 
-    dispatch_call(worker_name, {:fetch,
+    Server.call(worker_name, {:fetch,
       %FetchRequest{
         auto_commit: auto_commit,
         topic: topic, partition: partition,
@@ -201,12 +202,12 @@ defmodule KafkaEx do
 
   @spec offset_commit(atom, OffsetCommitRequest.t) :: OffsetCommitResponse.t
   def offset_commit(worker_name, offset_commit_request) do
-    dispatch_call(worker_name, {:offset_commit, offset_commit_request})
+    Server.call(worker_name, {:offset_commit, offset_commit_request})
   end
 
   @spec offset_fetch(atom, OffsetFetchRequest.t) :: [OffsetFetchResponse.t] | :topic_not_found
   def offset_fetch(worker_name, offset_fetch_request) do
-  dispatch_call(worker_name, {:offset_fetch, offset_fetch_request})
+  Server.call(worker_name, {:offset_fetch, offset_fetch_request})
 end
 
 @doc """
@@ -226,7 +227,7 @@ Optional arguments(KeywordList)
   @spec produce(ProduceRequest.t, Keyword.t) :: nil | :ok | {:ok, integer} | {:error, :closed} | {:error, :inet.posix} | {:error, any} | iodata | :leader_not_available
   def produce(produce_request, opts \\ []) do
     worker_name   = Keyword.get(opts, :worker_name, Config.default_worker)
-    dispatch_call(worker_name, {:produce, produce_request}, opts)
+    Server.call(worker_name, {:produce, produce_request}, opts)
   end
 
   @doc """
@@ -293,7 +294,7 @@ Optional arguments(KeywordList)
     min_bytes         = Keyword.get(opts, :min_bytes, @min_bytes)
     max_bytes         = Keyword.get(opts, :max_bytes, @max_bytes)
 
-    event_stream      = dispatch_call(worker_name, {:create_stream, handler, handler_init})
+    event_stream      = Server.call(worker_name, {:create_stream, handler, handler_init})
     retrieved_offset = current_offset(supplied_offset, partition, topic, worker_name)
 
     send(worker_name, {
@@ -372,25 +373,5 @@ Optional arguments(KeywordList)
         {:ok, _}         -> {:ok, pid}
       end
     end
-  end
-
-  @default_call_timeout 5000 # default genserver timeout
-
-  defp dispatch_call(server, term, opts \\ [])
-
-  defp dispatch_call(server, term, opts) when is_list(opts) do
-    dispatch_call(server, term, opts[:timeout])
-  end
-
-  defp dispatch_call(server, term, nil) do
-    # If using the configured sync_timeout that is less than the default
-    # GenServer.call timeout, use the larger value unless explicitly set
-    # using opts[:timeout].
-    timeout = max(@default_call_timeout, Application.get_env(:kafka_ex, :sync_timeout, @default_call_timeout))
-    dispatch_call(server, term, timeout)
-  end
-
-  defp dispatch_call(server, term, timeout) when is_integer(timeout) do
-    GenServer.call(server, term, timeout)
   end
 end

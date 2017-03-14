@@ -162,6 +162,26 @@ defmodule KafkaEx.Server do
     {:noreply, new_state, timeout | :hibernate} |
     {:stop, reason :: term, new_state} when new_state: term
 
+  @call_timeout 5_000 # Default from GenServer
+
+  @doc false
+  @spec call(server, term, number | opts :: Keyword.t) :: term
+  def call(server, request, opts \\ [])
+  def call(server, request, opts) when is_list(opts) do
+    call(server, term, opts[:timeout])
+  end
+
+  def call(server, term, nil) do
+    # If using the configured sync_timeout that is less than the default
+    # GenServer.call timeout, use the larger value unless explicitly set
+    # using opts[:timeout].
+    timeout = max(@default_call_timeout, Application.get_env(:kafka_ex, :sync_timeout, @default_call_timeout))
+    call(server, term, timeout)
+  end
+
+  defp call(server, term, timeout) when is_integer(timeout) do
+    GenServer.call(server, term, timeout)
+  end
 
   defmacro __using__(_) do
     quote location: :keep do
