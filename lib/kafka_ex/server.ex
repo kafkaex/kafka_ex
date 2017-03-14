@@ -28,7 +28,6 @@ defmodule KafkaEx.Server do
       metadata_update_interval: nil,
       consumer_group_update_interval: nil,
       worker_name: KafkaEx.Server,
-      sync_timeout: nil,
       ssl_options: [],
       use_ssl: false
     )
@@ -43,7 +42,6 @@ defmodule KafkaEx.Server do
         metadata_update_interval: nil | integer,
         consumer_group_update_interval: nil | integer,
         worker_name: atom,
-        sync_timeout: nil | integer,
         ssl_options: KafkaEx.ssl_options,
         use_ssl: boolean
       }
@@ -162,25 +160,25 @@ defmodule KafkaEx.Server do
     {:noreply, new_state, timeout | :hibernate} |
     {:stop, reason :: term, new_state} when new_state: term
 
-  @call_timeout 5_000 # Default from GenServer
+  @default_call_timeout 5_000 # Default from GenServer
 
   @doc false
-  @spec call(server, term, number | opts :: Keyword.t) :: term
+  @spec call(GenServer.server(), number | opts :: Keyword.t) :: term
   def call(server, request, opts \\ [])
   def call(server, request, opts) when is_list(opts) do
-    call(server, term, opts[:timeout])
+    call(server, request, opts[:timeout])
   end
 
-  def call(server, term, nil) do
+  def call(server, request, nil) do
     # If using the configured sync_timeout that is less than the default
     # GenServer.call timeout, use the larger value unless explicitly set
     # using opts[:timeout].
     timeout = max(@default_call_timeout, Application.get_env(:kafka_ex, :sync_timeout, @default_call_timeout))
-    call(server, term, timeout)
+    call(server, request, timeout)
   end
 
-  defp call(server, term, timeout) when is_integer(timeout) do
-    GenServer.call(server, term, timeout)
+  def call(server, request, timeout) when is_integer(timeout) do
+    GenServer.call(server, request, timeout)
   end
 
   defmacro __using__(_) do
@@ -300,7 +298,7 @@ defmodule KafkaEx.Server do
         produce_request_data = Produce.create_request(correlation_id, @client_id, produce_request)
         {broker, state, corr_id} = case MetadataResponse.broker_for_topic(state.metadata, state.brokers, produce_request.topic, produce_request.partition) do
           nil    ->
-            {retrieved_corr_id, _} = retrieve_metadata(state.brokers, state.correlation_id, state.sync_timeout, produce_request.topic)
+            {retrieved_corr_id, _} = retrieve_metadata(state.brokers, state.correlation_id, sync_timeout(), produce_request.topic)
             state = %{update_metadata(state) | correlation_id: retrieved_corr_id}
             {
               MetadataResponse.broker_for_topic(state.metadata, state.brokers, produce_request.topic, produce_request.partition),
@@ -318,7 +316,7 @@ defmodule KafkaEx.Server do
             0 ->  NetworkClient.send_async_request(broker, produce_request_data)
             _ ->
               response = broker
-               |> NetworkClient.send_sync_request(produce_request_data, state.sync_timeout)
+               |> NetworkClient.send_sync_request(produce_request_data, sync_timeout())
                |> Produce.parse_response
               case response do
                 [%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: :no_error, offset: offset, partition: _}], topic: topic}] when offset != nil ->
@@ -347,7 +345,7 @@ defmodule KafkaEx.Server do
             {:topic_not_found, state}
           _ ->
             response = broker
-             |> NetworkClient.send_sync_request(offset_request, state.sync_timeout)
+             |> NetworkClient.send_sync_request(offset_request, sync_timeout())
              |> Offset.parse_response
             state = %{state | correlation_id: state.correlation_id + 1}
             {response, state}
@@ -357,7 +355,7 @@ defmodule KafkaEx.Server do
       end
 
       def kafka_server_metadata(topic, state) do
-        {correlation_id, metadata} = retrieve_metadata(state.brokers, state.correlation_id, state.sync_timeout, topic)
+        {correlation_id, metadata} = retrieve_metadata(state.brokers, state.correlation_id, sync_timeout(), topic)
         updated_state = %{state | metadata: metadata, correlation_id: correlation_id}
         {:reply, metadata, updated_state}
       end
@@ -386,7 +384,7 @@ defmodule KafkaEx.Server do
       end
 
       def update_metadata(state) do
-        {correlation_id, metadata} = retrieve_metadata(state.brokers, state.correlation_id, state.sync_timeout)
+        {correlation_id, metadata} = retrieve_metadata(state.brokers, state.correlation_id, sync_timeout())
         metadata_brokers = metadata.brokers
         brokers = state.brokers
           |> remove_stale_brokers(metadata_brokers)
@@ -454,6 +452,10 @@ defmodule KafkaEx.Server do
             NetworkClient.send_sync_request(broker, request, sync_timeout)
           end
         end)
+      end
+
+      defp sync_timeout do
+        Application.get_env(:kafka_ex, :sync_timeout, @sync_timeout)
       end
     end
   end

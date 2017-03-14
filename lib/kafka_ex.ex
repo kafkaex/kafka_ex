@@ -24,7 +24,6 @@ defmodule KafkaEx do
                         {:password, binary}]
   @type worker_setting :: {:uris, uri}  |
                           {:consumer_group, binary | :no_consumer_group} |
-                          {:sync_timeout, non_neg_integer} |
                           {:metadata_update_interval, non_neg_integer} |
                           {:consumer_group_update_interval, non_neg_integer} |
                           {:ssl_options, ssl_options}
@@ -37,7 +36,6 @@ defmodule KafkaEx do
   - uris: List of brokers in `{"host", port}` form, defaults to `Application.get_env(:kafka_ex, :brokers)`
   - metadata_update_interval: How often `kafka_ex` would update the Kafka cluster metadata information in milliseconds, default is 30000
   - consumer_group_update_interval: How often `kafka_ex` would update the Kafka cluster consumer_groups information in milliseconds, default is 30000
-  - sync_timeout: Timeout for synchronous requests to kafka in milliseconds, default is 1000
   - use_ssl: Boolean flag specifying if ssl should be used for the connection by the worker to kafka, default is false
   - ssl_options: see SSL OPTION DESCRIPTIONS - CLIENT SIDE at http://erlang.org/doc/man/ssl.html, default is []
 
@@ -51,8 +49,6 @@ defmodule KafkaEx do
   iex> KafkaEx.create_worker(:pr, uris: [{"localhost", 9092}])
   {:ok, #PID<0.172.0>}
   iex> KafkaEx.create_worker(:pr, [uris: [{"localhost", 9092}], consumer_group: "foo"])
-  {:ok, #PID<0.173.0>}
-  iex> KafkaEx.create_worker(:pr, [uris: [{"localhost", 9092}], consumer_group: "foo", sync_timeout: 2000])
   {:ok, #PID<0.173.0>}
   iex> KafkaEx.create_worker(:pr, consumer_group: nil)
   {:error, :invalid_consumer_group}
