@@ -78,6 +78,11 @@ defmodule KafkaEx.Socket.Test do
     assert {:error, :closed} == KafkaEx.Socket.send(socket, 'ping')
   end
 
+  test "retrieve nil info from nil socket", context do
+    info = KafkaEx.Socket.info(nil)
+    assert is_nil(info) == true
+  end
+
   test "create a SSL socket", context do
     {:ok, socket} = KafkaEx.Socket.create('localhost', context[:ssl_port], [:binary, {:packet, 0}], true)
     assert socket.ssl == true
