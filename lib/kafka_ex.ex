@@ -14,6 +14,7 @@ defmodule KafkaEx do
   alias KafkaEx.Protocol.OffsetFetch.Request, as: OffsetFetchRequest
   alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
   alias KafkaEx.Protocol.Produce.Message
+  alias KafkaEx.Server
 
   @type uri() :: [{binary|char_list, number}]
   @type worker_init :: [worker_setting]
@@ -23,7 +24,6 @@ defmodule KafkaEx do
                         {:password, binary}]
   @type worker_setting :: {:uris, uri}  |
                           {:consumer_group, binary | :no_consumer_group} |
-                          {:sync_timeout, non_neg_integer} |
                           {:metadata_update_interval, non_neg_integer} |
                           {:consumer_group_update_interval, non_neg_integer} |
                           {:ssl_options, ssl_options}
@@ -36,7 +36,6 @@ defmodule KafkaEx do
   - uris: List of brokers in `{"host", port}` form, defaults to `Application.get_env(:kafka_ex, :brokers)`
   - metadata_update_interval: How often `kafka_ex` would update the Kafka cluster metadata information in milliseconds, default is 30000
   - consumer_group_update_interval: How often `kafka_ex` would update the Kafka cluster consumer_groups information in milliseconds, default is 30000
-  - sync_timeout: Timeout for synchronous requests to kafka in milliseconds, default is 1000
   - use_ssl: Boolean flag specifying if ssl should be used for the connection by the worker to kafka, default is false
   - ssl_options: see SSL OPTION DESCRIPTIONS - CLIENT SIDE at http://erlang.org/doc/man/ssl.html, default is []
 
@@ -50,8 +49,6 @@ defmodule KafkaEx do
   iex> KafkaEx.create_worker(:pr, uris: [{"localhost", 9092}])
   {:ok, #PID<0.172.0>}
   iex> KafkaEx.create_worker(:pr, [uris: [{"localhost", 9092}], consumer_group: "foo"])
-  {:ok, #PID<0.173.0>}
-  iex> KafkaEx.create_worker(:pr, [uris: [{"localhost", 9092}], consumer_group: "foo", sync_timeout: 2000])
   {:ok, #PID<0.173.0>}
   iex> KafkaEx.create_worker(:pr, consumer_group: nil)
   {:error, :invalid_consumer_group}
@@ -74,7 +71,7 @@ defmodule KafkaEx do
   """
   @spec consumer_group(atom | pid) :: binary | :no_consumer_group
   def consumer_group(worker \\ Config.default_worker) do
-    GenServer.call(worker, :consumer_group)
+    Server.call(worker, :consumer_group)
   end
 
   @doc """
@@ -101,12 +98,12 @@ defmodule KafkaEx do
   def metadata(opts \\ []) do
     worker_name  = Keyword.get(opts, :worker_name, Config.default_worker)
     topic = Keyword.get(opts, :topic, "")
-    GenServer.call(worker_name, {:metadata, topic})
+    Server.call(worker_name, {:metadata, topic}, opts)
   end
 
   @spec consumer_group_metadata(atom, binary) :: ConsumerMetadataResponse.t
   def consumer_group_metadata(worker_name, supplied_consumer_group) do
-    GenServer.call(worker_name, {:consumer_group_metadata, supplied_consumer_group})
+    Server.call(worker_name, {:consumer_group_metadata, supplied_consumer_group})
   end
 
   @doc """
@@ -147,7 +144,7 @@ defmodule KafkaEx do
   """
   @spec offset(binary, number, :calendar.datetime | :earliest | :latest, atom|pid) :: [OffsetResponse.t] | :topic_not_found
   def offset(topic, partition, time, name \\ Config.default_worker) do
-    GenServer.call(name, {:offset, topic, partition, time})
+    Server.call(name, {:offset, topic, partition, time})
   end
 
   @wait_time 10
@@ -189,24 +186,24 @@ defmodule KafkaEx do
 
     retrieved_offset = current_offset(supplied_offset, partition, topic, worker_name)
 
-    GenServer.call(worker_name, {:fetch,
+    Server.call(worker_name, {:fetch,
       %FetchRequest{
         auto_commit: auto_commit,
         topic: topic, partition: partition,
         offset: retrieved_offset, wait_time: wait_time,
         min_bytes: min_bytes, max_bytes: max_bytes
       }
-    })
+    }, opts)
   end
 
   @spec offset_commit(atom, OffsetCommitRequest.t) :: OffsetCommitResponse.t
   def offset_commit(worker_name, offset_commit_request) do
-    GenServer.call(worker_name, {:offset_commit, offset_commit_request})
+    Server.call(worker_name, {:offset_commit, offset_commit_request})
   end
 
   @spec offset_fetch(atom, OffsetFetchRequest.t) :: [OffsetFetchResponse.t] | :topic_not_found
   def offset_fetch(worker_name, offset_fetch_request) do
-  GenServer.call(worker_name, {:offset_fetch, offset_fetch_request})
+  Server.call(worker_name, {:offset_fetch, offset_fetch_request})
 end
 
 @doc """
@@ -226,7 +223,7 @@ Optional arguments(KeywordList)
   @spec produce(ProduceRequest.t, Keyword.t) :: nil | :ok | {:ok, integer} | {:error, :closed} | {:error, :inet.posix} | {:error, any} | iodata | :leader_not_available
   def produce(produce_request, opts \\ []) do
     worker_name   = Keyword.get(opts, :worker_name, Config.default_worker)
-    GenServer.call(worker_name, {:produce, produce_request})
+    Server.call(worker_name, {:produce, produce_request}, opts)
   end
 
   @doc """
@@ -293,7 +290,7 @@ Optional arguments(KeywordList)
     min_bytes         = Keyword.get(opts, :min_bytes, @min_bytes)
     max_bytes         = Keyword.get(opts, :max_bytes, @max_bytes)
 
-    event_stream      = GenServer.call(worker_name, {:create_stream, handler, handler_init})
+    event_stream      = Server.call(worker_name, {:create_stream, handler, handler_init})
     retrieved_offset = current_offset(supplied_offset, partition, topic, worker_name)
 
     send(worker_name, {

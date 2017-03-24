@@ -32,9 +32,8 @@ defmodule KafkaEx.Server0P8P0 do
     uris = Keyword.get(args, :uris, [])
     metadata_update_interval = Keyword.get(args, :metadata_update_interval, @metadata_update_interval)
     brokers = Enum.map(uris, fn({host, port}) -> %Broker{host: host, port: port, socket: NetworkClient.create_socket(host, port)} end)
-    sync_timeout = Keyword.get(args, :sync_timeout, Application.get_env(:kafka_ex, :sync_timeout, @sync_timeout))
-    {correlation_id, metadata} = retrieve_metadata(brokers, 0, sync_timeout)
-    state = %State{metadata: metadata, brokers: brokers, correlation_id: correlation_id, metadata_update_interval: metadata_update_interval, worker_name: name, sync_timeout: sync_timeout}
+    {correlation_id, metadata} = retrieve_metadata(brokers, 0, sync_timeout())
+    state = %State{metadata: metadata, brokers: brokers, correlation_id: correlation_id, metadata_update_interval: metadata_update_interval, worker_name: name}
     # Get the initial "real" broker list and start a regular refresh cycle.
     state = update_metadata(state)
     {:ok, _} = :timer.send_interval(state.metadata_update_interval, :update_metadata)
@@ -112,7 +111,7 @@ defmodule KafkaEx.Server0P8P0 do
         {:topic_not_found, state}
       _ ->
         response = broker
-          |> NetworkClient.send_sync_request(fetch_data, state.sync_timeout)
+          |> NetworkClient.send_sync_request(fetch_data, sync_timeout())
           |> Fetch.parse_response
         {response, %{state | correlation_id: state.correlation_id + 1}}
     end

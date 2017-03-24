@@ -16,7 +16,11 @@ config :kafka_ex,
   # `KafkaEx.Server` worker to start during application start-up -
   # i.e., if you want to start your own set of named workers
   disable_default_worker: false,
-  # Timeout value, in msec, for synchronous operations (e.g., network calls)
+  # Timeout value, in msec, for synchronous operations (e.g., network calls).
+  # If this value is greater than GenServer's default timeout of 5000, it will also
+  # be used as the timeout for work dispatched via KafkaEx.Server.call (e.g., KafkaEx.metadata).
+  # In those cases, it should be considered a 'total timeout', encompassing both network calls and
+  # wait time for the genservers.
   sync_timeout: 3000,
   # Supervision max_restarts - the maximum amount of restarts allowed in a time frame
   max_restarts: 10,
@@ -32,7 +36,7 @@ config :kafka_ex,
     keyfile: System.cwd <> "/ssl/key.pem",
   ],
   # set this to the version of the kafka broker that you are using
-  # include only major.minor.patch versions.  must be at least 0.8.0 
+  # include only major.minor.patch versions.  must be at least 0.8.0
   kafka_version: "0.9.0"
 
 env_config = Path.expand("#{Mix.env}.exs", __DIR__)
