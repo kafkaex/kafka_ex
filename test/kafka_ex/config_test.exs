@@ -31,51 +31,16 @@ defmodule KafkaEx.ConfigTest do
     assert [] == Config.ssl_options()
   end
 
-  test "ssl_options raises an error if cacertfile is invalid" do
+  test "ssl_options raises an error if use_ssl is true and ssl_options " <>
+    "are invalid" do
     Application.put_env(:kafka_ex, :use_ssl, true)
-    ssl_options = Application.get_env(:kafka_ex, :ssl_options)
 
-    key = :cacertfile
+    # when ssl_options is not set we should get an error
+    Application.put_env(:kafka_ex, :ssl_options, nil)
+    assert_raise(ArgumentError, ~r/invalid ssl_options/, &Config.ssl_options/0)
 
-    # the option may be omitted - it is up to :ssl to determine if this is ok
-    without_key = Keyword.delete(ssl_options, key)
-    Application.put_env(:kafka_ex, :ssl_options, without_key)
-    assert without_key == Config.ssl_options()
-
-    with_invalid_file = Keyword.put(ssl_options, key, "./should_not_exist")
-    Application.put_env(:kafka_ex, :ssl_options, with_invalid_file)
-    assert_raise(ArgumentError, ~r/could not/, &Config.ssl_options/0)
-  end
-
-  test "ssl_options raises an error if certfile is invalid" do
-    Application.put_env(:kafka_ex, :use_ssl, true)
-    ssl_options = Application.get_env(:kafka_ex, :ssl_options)
-
-    key = :certfile
-
-    # the option may be omitted - it is up to :ssl to determine if this is ok
-    without_key = Keyword.delete(ssl_options, key)
-    Application.put_env(:kafka_ex, :ssl_options, without_key)
-    assert without_key == Config.ssl_options()
-
-    with_invalid_file = Keyword.put(ssl_options, key, "./should_not_exist")
-    Application.put_env(:kafka_ex, :ssl_options, with_invalid_file)
-    assert_raise(ArgumentError, ~r/could not/, &Config.ssl_options/0)
-  end
-
-  test "ssl_options raises an error if keyfile is invalid" do
-    Application.put_env(:kafka_ex, :use_ssl, true)
-    ssl_options = Application.get_env(:kafka_ex, :ssl_options)
-
-    key = :keyfile
-
-    # the option may be omitted - it is up to :ssl to determine if this is ok
-    without_key = Keyword.delete(ssl_options, key)
-    Application.put_env(:kafka_ex, :ssl_options, without_key)
-    assert without_key == Config.ssl_options()
-
-    with_invalid_file = Keyword.put(ssl_options, key, "./should_not_exist")
-    Application.put_env(:kafka_ex, :ssl_options, with_invalid_file)
-    assert_raise(ArgumentError, ~r/could not/, &Config.ssl_options/0)
+    # should also get an error if ssl_options is not a list
+    Application.put_env(:kafka_ex, :ssl_options, %{cacertfile: "/ssl/ca-cert"})
+    assert_raise(ArgumentError, ~r/invalid ssl_options/, &Config.ssl_options/0)
   end
 end

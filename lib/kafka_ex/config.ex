@@ -47,36 +47,16 @@ defmodule KafkaEx.Config do
       "remove this warning, set `ssl_options: []` in the KafkaEx config.")
     []
   end
-  # if ssl is enabled, verify that cacertfile, certfile, and keyfile are set
-  # and point to readable files
+  # verify that options is at least a keyword list
   defp ssl_options(true, options) do
-    options
-    |> verify_ssl_file(:cacertfile)
-    |> verify_ssl_file(:certfile)
-    |> verify_ssl_file(:keyfile)
-  end
-
-  defp verify_ssl_file(options, key) do
-    verify_ssl_file(options, key, Keyword.get(options, key))
-  end
-
-  defp verify_ssl_file(options, _key, nil) do
-    # cert file not present - it will be up to :ssl to determine if this is ok
-    # given the other settings
-    options
-  end
-  defp verify_ssl_file(options, key, path) do
-    # make sure the file is readable to us
-    #    (there is a way to do this without reading the file, but these should
-    #      be small files so this is probably the simplest option)
-    case File.read(path) do
-      {:ok, _} -> options
-      {:error, reason} ->
-        raise(
-          ArgumentError,
-          message: "SSL option #{inspect key} could not be read.  " <>
-            "Error: #{inspect reason}"
-        )
+    if Keyword.keyword?(options) do
+      options
+    else
+      raise(
+        ArgumentError,
+        "SSL is enabled and invalid ssl_options were provided: " <>
+          inspect(options)
+      )
     end
   end
 end
