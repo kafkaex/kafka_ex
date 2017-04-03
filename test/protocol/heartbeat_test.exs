@@ -8,7 +8,13 @@ defmodule KafkaEx.Protocol.Heartbeat.Test do
       1234 :: 32, # GenerationId
       9 :: 16, "member_id" :: binary # MemberId
     >>
-    request = KafkaEx.Protocol.Heartbeat.create_request(42, "client_id", "member_id", "group_id", 1234)
+    heartbeat_request = %KafkaEx.Protocol.Heartbeat.Request{
+      group_name: "group_id",
+      member_id: "member_id",
+      generation_id: 1234,
+    }
+
+    request = KafkaEx.Protocol.Heartbeat.create_request(42, "client_id", heartbeat_request)
     assert request == good_request
   end
 
