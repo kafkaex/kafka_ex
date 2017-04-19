@@ -24,4 +24,32 @@ defmodule KafkaExTest do
     assert [{:undefined, pid, :worker, [Config.server_impl]}] ==
       Supervisor.which_children(KafkaEx.Supervisor)
   end
+
+  test "worker spec" do
+    name = :pr
+    brokers = Application.get_env(:kafka_ex, :brokers)
+    group = Application.get_env(:kafka_ex, :consumer_group)
+    args = [[uris: brokers, consumer_group: group], name]
+    assert(
+      {:ok, {mod, {mod, :start_link, ^args}, :permanent, 5000, :worker, [mod]}}
+      = KafkaEx.worker_spec(name)
+    )
+  end
+
+  test "worker spec with options" do
+    name = :pr
+    {brokers, group, timeout} = {[{"localhost", 9092}], "foo", 2000}
+    opts = [uris: brokers, consumer_group: group, sync_timeout: timeout]
+    args = [opts, name]
+    assert(
+      {:ok, {mod, {mod, :start_link, ^args}, :permanent, 5000, :worker, [mod]}}
+      = KafkaEx.worker_spec(name, opts)
+    )
+  end
+
+  test "worker spec with invalid options" do
+    assert {:error, :invalid_consumer_group}
+      = KafkaEx.worker_spec(:pr, consumer_group: nil)
+  end
+
 end

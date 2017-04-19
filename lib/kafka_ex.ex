@@ -65,6 +65,53 @@ defmodule KafkaEx do
   end
 
   @doc """
+  Returns a KafkaEx worker child specification.
+
+  This child specification can be used to host KafkaEx workers outside of the
+  KafkaEx application itself, for example in your own application supervision
+  tree. Use together with the application option `disable_default_worker` set
+  to `true` to make sure no processes are started by the KafkaEx
+  application.
+
+  It takes the same arguments as create_worker/2.
+
+  Returns {:error, error_description} on invalid arguments
+
+  ## Example
+
+  ```elixir
+  iex> KafkaEx.worker_spec(:pr) # where :pr is the name of the worker created
+  {:ok,
+   {KafkaEx.Server,
+    {KafkaEx.Server, :start_link,
+     [[uris: [{"localhost", 9092}, {"localhost", 9093}, {"localhost", 9094}],
+       consumer_group: "kafka_ex"], :pr]}, :permanent, 5000, :worker,
+    [KafkaEx.Server]}}
+
+  iex> KafkaEx.worker_spec(:pr, [uris: [{"localhost", 9092}], consumer_group: "foo", sync_timeout: 2000])
+  {:ok,
+   {KafkaEx.Server,
+    {KafkaEx.Server, :start_link,
+     [[uris: [{"localhost", 9092}], consumer_group: "foo", sync_timeout: 2000],
+      :pr]}, :permanent, 5000, :worker, [KafkaEx.Server]}}
+
+  iex> KafkaEx.worker_spec(:pr, consumer_group: nil)
+  {:error, :invalid_consumer_group}
+
+  ```
+
+  """
+  @spec worker_spec(atom, KafkaEx.worker_init) :: {:ok, Supervisor.Spec.spec()} | {:eror, any}
+  def worker_spec(name, worker_init \\ []) do
+    case build_worker_options(worker_init) do
+      {:ok, worker_init} ->
+        {:ok, Supervisor.Spec.worker(server, [worker_init, name])}
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  @doc """
   Returns the name of the consumer group for the given worker.
 
   Worker may be an atom or pid.  The default worker is used by default.
