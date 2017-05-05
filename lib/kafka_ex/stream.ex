@@ -6,7 +6,8 @@ defmodule KafkaEx.Stream do
 
   defstruct worker_name: nil,
     fetch_request: %FetchRequest{},
-    consumer_group: nil
+    consumer_group: nil,
+    stream_mode: :infinite
 
   defimpl Enumerable do
     def reduce(data, acc, fun) do
@@ -27,13 +28,16 @@ defmodule KafkaEx.Stream do
            response.last_offset != nil && response.last_offset != offset do
           {response.message_set, response.last_offset}
         else
-          {:halt, offset}
+          {mode(data.stream_mode), offset}
         end
       end
       Stream.resource(
         fn -> data.fetch_request.offset end, next_fun, &(&1)
       ).(acc, fun)
     end
+
+    defp mode(:finite), do: :halt
+    defp mode(:infinite), do: []
 
     defp fetch_response(data, offset) do
       req = data.fetch_request
