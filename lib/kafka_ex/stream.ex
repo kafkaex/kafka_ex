@@ -2,8 +2,11 @@ defmodule KafkaEx.Stream do
   @moduledoc false
   alias KafkaEx.Protocol.OffsetCommit.Request, as: OffsetCommitRequest
   alias KafkaEx.Protocol.Fetch.Request, as: FetchRequest
+  alias KafkaEx.Protocol.Fetch.Response, as: FetchResponse
 
-  defstruct worker_name: nil, fetch_request: %FetchRequest{}, consumer_group: nil
+  defstruct worker_name: nil,
+    fetch_request: %FetchRequest{},
+    consumer_group: nil
 
   defimpl Enumerable do
     def reduce(data, acc, fun) do
@@ -19,9 +22,7 @@ defmodule KafkaEx.Stream do
             }
           })
         end
-        response = data.worker_name
-        |> GenServer.call({:fetch, %{data.fetch_request| offset: offset}})
-        |> hd |> Map.get(:partitions) |> hd
+        response = fetch_response(data, offset)
         if response.error_code == :no_error &&
            response.last_offset != nil && response.last_offset != offset do
           {response.message_set, response.last_offset}
@@ -29,7 +30,16 @@ defmodule KafkaEx.Stream do
           {:halt, offset}
         end
       end
-      Stream.resource(fn -> data.fetch_request.offset end, next_fun, &(&1)).(acc, fun)
+      Stream.resource(
+        fn -> data.fetch_request.offset end, next_fun, &(&1)
+      ).(acc, fun)
+    end
+
+    defp fetch_response(data, offset) do
+      req = data.fetch_request
+      data.worker_name
+      |> GenServer.call({:fetch, %{req| offset: offset}})
+      |> FetchResponse.partition_messages(req.topic, req.partition)
     end
 
     def count(_stream) do
