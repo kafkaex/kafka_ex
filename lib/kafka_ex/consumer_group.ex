@@ -89,6 +89,7 @@ defmodule KafkaEx.ConsumerGroup do
 
   @heartbeat_interval 5_000
   @session_timeout 30_000
+  @session_timeout_padding 5_000
 
   # Client API
 
@@ -178,7 +179,7 @@ defmodule KafkaEx.ConsumerGroup do
     }
 
     join_response = %JoinGroupResponse{error_code: :no_error} =
-      KafkaEx.join_group(join_request, worker_name: worker_name, timeout: session_timeout + 5000)
+      KafkaEx.join_group(join_request, worker_name: worker_name, timeout: session_timeout + @session_timeout_padding)
 
     Logger.debug("Joined consumer group #{group_name}")
 
@@ -217,7 +218,7 @@ defmodule KafkaEx.ConsumerGroup do
     }
 
     sync_request
-    |> KafkaEx.sync_group(worker_name: worker_name, timeout: session_timeout + 5000)
+    |> KafkaEx.sync_group(worker_name: worker_name, timeout: session_timeout + @session_timeout_padding)
     |> update_assignments(state)
   end
 
@@ -231,7 +232,7 @@ defmodule KafkaEx.ConsumerGroup do
     }
 
     sync_request
-    |> KafkaEx.sync_group(timeout: session_timeout + 5000, worker_name: worker_name)
+    |> KafkaEx.sync_group(timeout: session_timeout + @session_timeout_padding, worker_name: worker_name)
     |> update_assignments(state)
   end
 
