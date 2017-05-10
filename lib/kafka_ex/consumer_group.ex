@@ -79,7 +79,6 @@ defmodule KafkaEx.ConsumerGroup do
       :consumer_opts,
       :group_name,
       :topics,
-      :partitions,
       :member_id,
       :generation_id,
       :assignments,
@@ -185,31 +184,19 @@ defmodule KafkaEx.ConsumerGroup do
 
     new_state = %State{state | member_id: join_response.member_id, generation_id: join_response.generation_id}
 
-    if join_response.member_id == join_response.leader_id do
-      sync_leader(new_state, join_response.members)
-    else
-      sync_follower(new_state)
-    end
+    assignments =
+      if join_response.member_id == join_response.leader_id do
+        partitions = assignable_partitions(new_state)
+        assign_partitions(new_state, join_response.members, partitions)
+      else
+        []
+      end
+
+    sync(new_state, assignments)
   end
 
-  defp sync_leader(%State{worker_name: worker_name, topics: topics, partitions: nil} = state, members) do
-    %MetadataResponse{topic_metadatas: topic_metadatas} = KafkaEx.metadata(worker_name: worker_name)
-
-    partitions = Enum.flat_map(topics, fn (topic) ->
-      %TopicMetadata{error_code: :no_error, partition_metadatas: partition_metadatas} = Enum.find(topic_metadatas, &(&1.topic == topic))
-
-      Enum.map(partition_metadatas, fn (%PartitionMetadata{error_code: :no_error, partition_id: partition_id}) ->
-        {topic, partition_id}
-      end)
-    end)
-
-    sync_leader(%State{state | partitions: partitions}, members)
-  end
-
-  defp sync_leader(%State{worker_name: worker_name, session_timeout: session_timeout,
-                          group_name: group_name, generation_id: generation_id, member_id: member_id} = state, members) do
-    assignments = assign_partitions(state, members)
-
+  defp sync(%State{group_name: group_name, member_id: member_id, generation_id: generation_id,
+                   worker_name: worker_name, session_timeout: session_timeout} = state, assignments) do
     sync_request = %SyncGroupRequest{
       group_name: group_name,
       member_id: member_id,
@@ -217,28 +204,13 @@ defmodule KafkaEx.ConsumerGroup do
       assignments: assignments,
     }
 
-    sync_request
-    |> KafkaEx.sync_group(worker_name: worker_name, timeout: session_timeout + @session_timeout_padding)
-    |> update_assignments(state)
-  end
+    case KafkaEx.sync_group(sync_request, worker_name: worker_name, timeout: session_timeout + @session_timeout_padding) do
+      %SyncGroupResponse{error_code: :no_error, assignments: assignments} ->
+        start_consumer(state, assignments)
 
-  defp sync_follower(%State{worker_name: worker_name, session_timeout: session_timeout,
-                            group_name: group_name, generation_id: generation_id, member_id: member_id} = state) do
-    sync_request = %SyncGroupRequest{
-      group_name: group_name,
-      member_id: member_id,
-      generation_id: generation_id,
-      assignments: [],
-    }
-
-    sync_request
-    |> KafkaEx.sync_group(timeout: session_timeout + @session_timeout_padding, worker_name: worker_name)
-    |> update_assignments(state)
-  end
-
-  defp update_assignments(%SyncGroupResponse{error_code: :rebalance_in_progress}, %State{} = state), do: rebalance(state)
-  defp update_assignments(%SyncGroupResponse{error_code: :no_error, assignments: assignments}, %State{} = state) do
-    start_consumer(state, assignments)
+      %SyncGroupResponse{error_code: :rebalance_in_progress} ->
+        rebalance(state)
+    end
   end
 
   defp heartbeat(%State{worker_name: worker_name, group_name: group_name, generation_id: generation_id, member_id: member_id} = state) do
@@ -279,6 +251,8 @@ defmodule KafkaEx.ConsumerGroup do
     :ok
   end
 
+  # Consumer Management
+
   defp start_consumer(%State{consumer_module: consumer_module, consumer_opts: consumer_opts,
                              group_name: group_name, consumer_pid: nil} = state, assignments) do
     assignments =
@@ -297,7 +271,21 @@ defmodule KafkaEx.ConsumerGroup do
     %State{state | consumer_pid: nil}
   end
 
-  defp assign_partitions(%State{consumer_module: consumer_module, partitions: partitions}, members) do
+  # Partition Assignment
+
+  defp assignable_partitions(%State{worker_name: worker_name, topics: topics}) do
+    %MetadataResponse{topic_metadatas: topic_metadatas} = KafkaEx.metadata(worker_name: worker_name)
+
+    Enum.flat_map(topics, fn (topic) ->
+      %TopicMetadata{error_code: :no_error, partition_metadatas: partition_metadatas} = Enum.find(topic_metadatas, &(&1.topic == topic))
+
+      Enum.map(partition_metadatas, fn (%PartitionMetadata{error_code: :no_error, partition_id: partition_id}) ->
+        {topic, partition_id}
+      end)
+    end)
+  end
+
+  defp assign_partitions(%State{consumer_module: consumer_module}, members, partitions) do
     assignments =
       consumer_module.assign_partitions(members, partitions)
       |> Enum.map(fn ({member, topic_partitions}) ->
