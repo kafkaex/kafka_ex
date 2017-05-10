@@ -56,6 +56,7 @@ defmodule KafkaEx.ConsumerGroup do
 
   alias KafkaEx.Config
   alias KafkaEx.Protocol.JoinGroup.Request, as: JoinGroupRequest
+  alias KafkaEx.Protocol.JoinGroup.Response, as: JoinGroupResponse
   alias KafkaEx.Protocol.Heartbeat.Request, as: HeartbeatRequest
   alias KafkaEx.Protocol.Heartbeat.Response, as: HeartbeatResponse
   alias KafkaEx.Protocol.LeaveGroup.Request, as: LeaveGroupRequest
@@ -140,13 +141,13 @@ defmodule KafkaEx.ConsumerGroup do
   end
 
   def handle_info(:timeout, %State{generation_id: nil, member_id: ""} = state) do
-    new_state = join(state)
+    {:ok, new_state} = join(state)
 
     {:noreply, new_state, new_state.heartbeat_interval}
   end
 
   def handle_info(:timeout, %State{} = state) do
-    new_state = heartbeat(state)
+    {:ok, new_state} = heartbeat(state)
 
     {:noreply, new_state, new_state.heartbeat_interval}
   end
@@ -161,8 +162,9 @@ defmodule KafkaEx.ConsumerGroup do
     {:noreply, state, state.heartbeat_interval}
   end
 
+  def terminate(_reason, %State{generation_id: nil, member_id: ""}), do: :ok
   def terminate(_reason, %State{} = state) do
-    leave(state)
+    :ok = leave(state)
   end
 
   # Helpers
@@ -175,10 +177,12 @@ defmodule KafkaEx.ConsumerGroup do
       session_timeout: session_timeout,
     }
 
-    join_response = KafkaEx.join_group(join_request, worker_name: worker_name, timeout: session_timeout + 5000)
-    new_state = %State{state | member_id: join_response.member_id, generation_id: join_response.generation_id}
+    join_response = %JoinGroupResponse{error_code: :no_error} =
+      KafkaEx.join_group(join_request, worker_name: worker_name, timeout: session_timeout + 5000)
 
     Logger.debug("Joined consumer group #{group_name}")
+
+    new_state = %State{state | member_id: join_response.member_id, generation_id: join_response.generation_id}
 
     if join_response.member_id == join_response.leader_id do
       sync_leader(new_state, join_response.members)
@@ -245,9 +249,10 @@ defmodule KafkaEx.ConsumerGroup do
 
     case KafkaEx.heartbeat(heartbeat_request, worker_name: worker_name) do
       %HeartbeatResponse{error_code: :no_error} ->
-        state
+        {:ok, state}
 
       %HeartbeatResponse{error_code: :rebalance_in_progress} ->
+        Logger.debug("Rebalancing consumer group #{group_name}")
         rebalance(state)
     end
   end
@@ -269,6 +274,8 @@ defmodule KafkaEx.ConsumerGroup do
     %LeaveGroupResponse{error_code: :no_error} = KafkaEx.leave_group(leave_request, worker_name: worker_name)
 
     Logger.debug("Left consumer group #{group_name}")
+
+    :ok
   end
 
   defp start_consumer(%State{consumer_module: consumer_module, consumer_opts: consumer_opts,
@@ -280,7 +287,7 @@ defmodule KafkaEx.ConsumerGroup do
 
     {:ok, pid} = KafkaEx.GenConsumer.Supervisor.start_link(consumer_module, group_name, assignments, consumer_opts)
 
-    %State{state | assignments: assignments, consumer_pid: pid}
+    {:ok, %State{state | assignments: assignments, consumer_pid: pid}}
   end
 
   defp stop_consumer(%State{consumer_pid: nil} = state), do: state
