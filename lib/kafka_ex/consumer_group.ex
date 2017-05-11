@@ -83,6 +83,7 @@ defmodule KafkaEx.ConsumerGroup do
       :generation_id,
       :assignments,
       :consumer_pid,
+      :heartbeat_timer,
     ]
   end
 
@@ -145,14 +146,14 @@ defmodule KafkaEx.ConsumerGroup do
   def handle_info(:timeout, %State{generation_id: nil, member_id: ""} = state) do
     {:ok, new_state} = join(state)
 
-    {:noreply, new_state, new_state.heartbeat_interval}
+    {:noreply, new_state}
   end
 
   # After joining the group, a member must periodically send heartbeats to the group coordinator.
-  def handle_info(:timeout, %State{} = state) do
+  def handle_info(:heartbeat, %State{} = state) do
     {:ok, new_state} = heartbeat(state)
 
-    {:noreply, new_state, new_state.heartbeat_interval}
+    {:noreply, new_state}
   end
 
   # Stop the consumer group if the consumer supervisor crashes.
@@ -165,7 +166,7 @@ defmodule KafkaEx.ConsumerGroup do
   # Ignore spurious exit signals. These are often from old consumer PIDs, because the exit signal
   # can arrive after the `consumer_pid` state has already been updated.
   def handle_info({:EXIT, _pid, _reason}, %State{} = state) do
-    {:noreply, state, state.heartbeat_interval}
+    {:noreply, state}
   end
 
   # When terminating, inform the group coordinator that this member is leaving the group so that the
@@ -236,7 +237,11 @@ defmodule KafkaEx.ConsumerGroup do
 
     case KafkaEx.sync_group(sync_request, worker_name: worker_name, timeout: session_timeout + @session_timeout_padding) do
       %SyncGroupResponse{error_code: :no_error, assignments: assignments} ->
-        start_consumer(state, unpack_assignments(assignments))
+        new_state = state
+                    |> start_consumer(unpack_assignments(assignments))
+                    |> start_heartbeat_timer()
+
+        {:ok, new_state}
 
       %SyncGroupResponse{error_code: :rebalance_in_progress} ->
         rebalance(state)
@@ -263,7 +268,9 @@ defmodule KafkaEx.ConsumerGroup do
 
     case KafkaEx.heartbeat(heartbeat_request, worker_name: worker_name) do
       %HeartbeatResponse{error_code: :no_error} ->
-        {:ok, state}
+        new_state = start_heartbeat_timer(state)
+
+        {:ok, new_state}
 
       %HeartbeatResponse{error_code: :rebalance_in_progress} ->
         Logger.debug("Rebalancing consumer group #{group_name}")
@@ -275,7 +282,9 @@ defmodule KafkaEx.ConsumerGroup do
   # is leaving the group without having to wait for the session timeout to expire. Leaving a group
   # triggers a rebalance for the remaining group members.
   defp leave(%State{worker_name: worker_name, group_name: group_name, member_id: member_id} = state) do
-    stop_consumer(state)
+    state
+    |> stop_heartbeat_timer()
+    |> stop_consumer()
 
     leave_request = %LeaveGroupRequest{
       group_name: group_name,
@@ -294,8 +303,26 @@ defmodule KafkaEx.ConsumerGroup do
   # member pauses its consumers and commits its offsets before rejoining the group.
   defp rebalance(%State{} = state) do
     state
+    |> stop_heartbeat_timer()
     |> stop_consumer()
     |> join()
+  end
+
+  ### Timer Management
+
+  # Starts a timer for the next heartbeat.
+  defp start_heartbeat_timer(%State{heartbeat_interval: heartbeat_interval} = state) do
+    {:ok, timer} = :timer.send_after(heartbeat_interval, :heartbeat)
+
+    %State{state | heartbeat_timer: timer}
+  end
+
+  # Stops any active heartbeat timer.
+  defp stop_heartbeat_timer(%State{heartbeat_timer: nil} = state), do: state
+  defp stop_heartbeat_timer(%State{heartbeat_timer: heartbeat_timer} = state) do
+    {:ok, :cancel} = :timer.cancel(heartbeat_timer)
+
+    %State{state | heartbeat_timer: nil}
   end
 
   ### Consumer Management
@@ -305,13 +332,14 @@ defmodule KafkaEx.ConsumerGroup do
                              group_name: group_name, consumer_pid: nil} = state, assignments) do
     {:ok, pid} = KafkaEx.GenConsumer.Supervisor.start_link(consumer_module, group_name, assignments, consumer_opts)
 
-    {:ok, %State{state | assignments: assignments, consumer_pid: pid}}
+    %State{state | assignments: assignments, consumer_pid: pid}
   end
 
   # Stops consuming from the member's assigned partitions and commits offsets.
   defp stop_consumer(%State{consumer_pid: nil} = state), do: state
   defp stop_consumer(%State{consumer_pid: pid} = state) when is_pid(pid) do
     :ok = Supervisor.stop(pid)
+
     %State{state | consumer_pid: nil}
   end
 
