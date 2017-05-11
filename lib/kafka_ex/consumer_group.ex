@@ -62,8 +62,6 @@ defmodule KafkaEx.ConsumerGroup do
   alias KafkaEx.Protocol.LeaveGroup.Request, as: LeaveGroupRequest
   alias KafkaEx.Protocol.LeaveGroup.Response, as: LeaveGroupResponse
   alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
-  alias KafkaEx.Protocol.Metadata.TopicMetadata
-  alias KafkaEx.Protocol.Metadata.PartitionMetadata
   alias KafkaEx.Protocol.SyncGroup.Request, as: SyncGroupRequest
   alias KafkaEx.Protocol.SyncGroup.Response, as: SyncGroupResponse
 
@@ -349,13 +347,13 @@ defmodule KafkaEx.ConsumerGroup do
   # group. This function returns a list of topic/partition tuples that can be passed to a
   # GenConsumer's `assign_partitions` method.
   defp assignable_partitions(%State{worker_name: worker_name, topics: topics}) do
-    %MetadataResponse{topic_metadatas: topic_metadatas} = KafkaEx.metadata(worker_name: worker_name)
+    metadata = KafkaEx.metadata(worker_name: worker_name)
 
     Enum.flat_map(topics, fn (topic) ->
-      %TopicMetadata{error_code: :no_error, partition_metadatas: partition_metadatas} = Enum.find(topic_metadatas, &(&1.topic == topic))
+      partitions = MetadataResponse.partitions_for_topic(metadata, topic)
 
-      Enum.map(partition_metadatas, fn (%PartitionMetadata{error_code: :no_error, partition_id: partition_id}) ->
-        {topic, partition_id}
+      Enum.map(partitions, fn (partition) ->
+        {topic, partition}
       end)
     end)
   end
