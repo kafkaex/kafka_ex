@@ -140,35 +140,54 @@ defmodule KafkaEx.ConsumerGroup do
     {:ok, state, 0}
   end
 
+  # If `member_id` and `generation_id` aren't set, we haven't yet joined the group. `member_id` and
+  # `generation_id` are initialized by `JoinGroupResponse`.
   def handle_info(:timeout, %State{generation_id: nil, member_id: ""} = state) do
     {:ok, new_state} = join(state)
 
     {:noreply, new_state, new_state.heartbeat_interval}
   end
 
+  # After joining the group, a member must periodically send heartbeats to the group coordinator.
   def handle_info(:timeout, %State{} = state) do
     {:ok, new_state} = heartbeat(state)
 
     {:noreply, new_state, new_state.heartbeat_interval}
   end
 
+  # Stop the consumer group if the consumer supervisor crashes.
   def handle_info({:EXIT, pid, reason}, %State{consumer_pid: pid} = state) do
     new_state = %State{state | consumer_pid: nil}
 
     {:stop, reason, new_state}
   end
 
+  # Ignore spurious exit signals. These are often from old consumer PIDs, because the exit signal
+  # can arrive after the `consumer_pid` state has already been updated.
   def handle_info({:EXIT, _pid, _reason}, %State{} = state) do
     {:noreply, state, state.heartbeat_interval}
   end
 
+  # When terminating, inform the group coordinator that this member is leaving the group so that the
+  # group can rebalance without waiting for a session timeout.
   def terminate(_reason, %State{generation_id: nil, member_id: ""}), do: :ok
   def terminate(_reason, %State{} = state) do
     :ok = leave(state)
   end
 
-  # Helpers
+  ### Helpers
 
+  # `JoinGroupRequest` is used to set the active members of a group. The response blocks until the
+  # broker has decided that it has a full list of group members. This requires that all active
+  # members send a `JoinGroupRequest`. For active members, this is triggered by the broker
+  # responding to a heartbeat with a `:rebalance_in_progress` error code. If any group members fail
+  # to send a `JoinGroupRequest` before the session timeout expires, then those group members are
+  # removed from the group and synchronization continues without them.
+  #
+  # `JoinGroupResponse` tells each member its unique member ID as well as the group's current
+  # generation ID. The broker will pick one group member to be the leader, which is reponsible for
+  # assigning partitions to all of the group members. Once a `JoinGroupResponse` is received, all
+  # group members must send a `SyncGroupRequest` (see sync/2).
   defp join(%State{worker_name: worker_name, session_timeout: session_timeout, group_name: group_name, topics: topics, member_id: member_id} = state) do
     join_request = %JoinGroupRequest{
       group_name: group_name,
@@ -185,16 +204,27 @@ defmodule KafkaEx.ConsumerGroup do
     new_state = %State{state | member_id: join_response.member_id, generation_id: join_response.generation_id}
 
     assignments =
-      if join_response.member_id == join_response.leader_id do
+      if JoinGroupResponse.leader?(join_response) do
+        # Leader is responsible for assigning partitions to all group members.
         partitions = assignable_partitions(new_state)
         assign_partitions(new_state, join_response.members, partitions)
       else
+        # Follower does not assign partitions; must be empty.
         []
       end
 
     sync(new_state, assignments)
   end
 
+  # `SyncGroupRequest` is used to distribute partition assignments to all group members. All group
+  # members must send this request after receiving a response to a `JoinGroupRequest`. The request
+  # blocks until assignments are provided by the leader. The leader sends partition assignments
+  # (given by the `assignments` parameter) as part of its `SyncGroupRequest`. For all other members,
+  # `assignments` must be empty.
+  #
+  # `SyncGroupResponse` contains the individual member's partition assignments. Upon receiving a
+  # successful `SyncGroupResponse`, a group member is free to start consuming from its assigned
+  # partitions, but must send periodic heartbeats to the coordinating broker.
   defp sync(%State{group_name: group_name, member_id: member_id, generation_id: generation_id,
                    worker_name: worker_name, session_timeout: session_timeout} = state, assignments) do
     sync_request = %SyncGroupRequest{
@@ -206,13 +236,24 @@ defmodule KafkaEx.ConsumerGroup do
 
     case KafkaEx.sync_group(sync_request, worker_name: worker_name, timeout: session_timeout + @session_timeout_padding) do
       %SyncGroupResponse{error_code: :no_error, assignments: assignments} ->
-        start_consumer(state, assignments)
+        start_consumer(state, unpack_assignments(assignments))
 
       %SyncGroupResponse{error_code: :rebalance_in_progress} ->
         rebalance(state)
     end
   end
 
+  # `HeartbeatRequest` is sent periodically by each active group member (after completing the
+  # join/sync phase) to inform the broker that the member is still alive and participating in the
+  # group. If a group member fails to send a heartbeat before the group's session timeout expires,
+  # the coordinator removes that member from the group and initiates a rebalance.
+  #
+  # `HeartbeatResponse` allows the coordinating broker to communicate the group's status to each
+  # member:
+  #
+  #   * `:no_error` indicates that the group is up to date and no action is needed.
+  #   * `:rebalance_in_progress` instructs each member to rejoin the group by sending a
+  #     `JoinGroupRequest` (see join/1).
   defp heartbeat(%State{worker_name: worker_name, group_name: group_name, generation_id: generation_id, member_id: member_id} = state) do
     heartbeat_request = %HeartbeatRequest{
       group_name: group_name,
@@ -230,12 +271,9 @@ defmodule KafkaEx.ConsumerGroup do
     end
   end
 
-  defp rebalance(%State{} = state) do
-    state
-    |> stop_consumer()
-    |> join()
-  end
-
+  # `LeaveGroupRequest` is used to voluntarily leave a group. This tells the broker that the member
+  # is leaving the group without having to wait for the session timeout to expire. Leaving a group
+  # triggers a rebalance for the remaining group members.
   defp leave(%State{worker_name: worker_name, group_name: group_name, member_id: member_id} = state) do
     stop_consumer(state)
 
@@ -251,28 +289,37 @@ defmodule KafkaEx.ConsumerGroup do
     :ok
   end
 
-  # Consumer Management
+  # When instructed that a rebalance is in progress, a group member must rejoin the group with
+  # `JoinGroupRequest` (see join/1). To keep the state synchronized during the join/sync phase, each
+  # member pauses its consumers and commits its offsets before rejoining the group.
+  defp rebalance(%State{} = state) do
+    state
+    |> stop_consumer()
+    |> join()
+  end
 
+  ### Consumer Management
+
+  # Starts consuming from the member's assigned partitions.
   defp start_consumer(%State{consumer_module: consumer_module, consumer_opts: consumer_opts,
                              group_name: group_name, consumer_pid: nil} = state, assignments) do
-    assignments =
-      Enum.flat_map(assignments, fn ({topic, partition_ids}) ->
-        Enum.map(partition_ids, &({topic, &1}))
-      end)
-
     {:ok, pid} = KafkaEx.GenConsumer.Supervisor.start_link(consumer_module, group_name, assignments, consumer_opts)
 
     {:ok, %State{state | assignments: assignments, consumer_pid: pid}}
   end
 
+  # Stops consuming from the member's assigned partitions and commits offsets.
   defp stop_consumer(%State{consumer_pid: nil} = state), do: state
   defp stop_consumer(%State{consumer_pid: pid} = state) when is_pid(pid) do
     :ok = Supervisor.stop(pid)
     %State{state | consumer_pid: nil}
   end
 
-  # Partition Assignment
+  ### Partition Assignment
 
+  # Queries the Kafka brokers for a list of partitions for the topics of interest to this consumer
+  # group. This function returns a list of topic/partition tuples that can be passed to a
+  # GenConsumer's `assign_partitions` method.
   defp assignable_partitions(%State{worker_name: worker_name, topics: topics}) do
     %MetadataResponse{topic_metadatas: topic_metadatas} = KafkaEx.metadata(worker_name: worker_name)
 
@@ -285,21 +332,47 @@ defmodule KafkaEx.ConsumerGroup do
     end)
   end
 
+  # This function is used by the group leader to determine partition assignments during the
+  # join/sync phase. `members` is provided to the leader by the coordinating broker in
+  # `JoinGroupResponse`. `partitions` is a list of topic/partition tuples, obtained from
+  # `assignable_partitions/1`. The return value is a complete list of member assignments in the
+  # format needed by `SyncGroupResponse`.
   defp assign_partitions(%State{consumer_module: consumer_module}, members, partitions) do
-    assignments =
-      consumer_module.assign_partitions(members, partitions)
-      |> Enum.map(fn ({member, topic_partitions}) ->
-        assigns =
-          topic_partitions
-          |> Enum.group_by(&(elem(&1, 0)), &(elem(&1, 1)))
-          |> Enum.into([])
+    # Delegate partition assignment to GenConsumer module.
+    assignments = consumer_module.assign_partitions(members, partitions)
 
-        {member, assigns}
+    # Convert assignments to format expected by Kafka protocol.
+    packed_assignments =
+      Enum.map(assignments, fn ({member, topic_partitions}) ->
+        {member, pack_assignments(topic_partitions)}
       end)
-      |> Map.new
+    assignments_map = Map.new(packed_assignments)
 
+    # Fill in empty assignments for missing member IDs.
     Enum.map(members, fn (member) ->
-      {member, Map.get(assignments, member, [])}
+      {member, Map.get(assignments_map, member, [])}
     end)
+  end
+
+  # Converts assignments from Kafka's protocol format to topic/partition tuples.
+  #
+  # Example:
+  #
+  #   unpack_assignments([{"foo", [0, 1]}]) #=> [{"foo", 0}, {"foo", 1}]
+  defp unpack_assignments(assignments) do
+    Enum.flat_map(assignments, fn ({topic, partition_ids}) ->
+      Enum.map(partition_ids, &({topic, &1}))
+    end)
+  end
+
+  # Converts assignments from topic/partition tuples to Kafka's protocol format.
+  #
+  # Example:
+  #
+  #   pack_assignments([{"foo", 0}, {"foo", 1}]) #=> [{"foo", [0, 1]}]
+  defp pack_assignments(assignments) do
+    assignments
+    |> Enum.group_by(&(elem(&1, 0)), &(elem(&1, 1)))
+    |> Enum.into([])
   end
 end

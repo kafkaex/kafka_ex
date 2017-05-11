@@ -27,6 +27,10 @@ defmodule KafkaEx.Protocol.JoinGroup do
     defstruct error_code: nil, generation_id: 0, leader_id: nil, member_id: nil, members: []
     @type t :: %Response{error_code: atom | integer, generation_id: integer,
                          leader_id: binary, member_id: binary, members: [binary]}
+
+    def leader?(%__MODULE__{member_id: member_id, leader_id: leader_id}) do
+      member_id == leader_id
+    end
   end
 
   @spec create_request(integer, binary, Request.t) :: binary
