@@ -36,7 +36,7 @@ defmodule KafkaEx.ConsumerGroup do
   end
 
   # use DistributedConsumer in a consumer group
-  {:ok, pid} = KafkaEx.ConsumerGroup.start_link(DistributedConsumer, "test_group", ["test_topic"])
+  {:ok, pid} = KafkaEx.ConsumerGroup.Supervisor.start_link(DistributedConsumer, "test_group", ["test_topic"])
   ```
 
   Running this on multiple nodes might display the following:
@@ -67,9 +67,96 @@ defmodule KafkaEx.ConsumerGroup do
 
   require Logger
 
+  defmodule Supervisor do
+    @moduledoc """
+    A supervisor for managing a consumer group. A `KafkaEx.ConsumerGroup.Supervisor` process will
+    manage an entire process tree for a single consumer group. Multiple supervisors can be used for
+    multiple consumer groups within the same application.
+
+    ## Example
+
+    This supervisor can be addeded to an application's supervision tree with a custom `GenConsumer`
+    implementation with the following child spec:
+
+    ```
+    supervisor(KafkaEx.ConsumerGroup.Supervisor, [MyApp.Consumer, "group_name", ["topic1", "topic2"]])
+    ```
+    """
+
+    use Elixir.Supervisor
+
+    @typedoc """
+    Option values used when starting a `ConsumerGroup.Supervisor`.
+    """
+    @type option :: KafkaEx.GenConsumer.option
+                  | {:name, Elixir.Supervisor.name}
+                  | {:max_restarts, non_neg_integer}
+                  | {:max_seconds, non_neg_integer}
+
+    @typedoc """
+    Options used when starting a `ConsumerGroup.Supervisor`.
+    """
+    @type options :: [option]
+
+    @doc """
+    Starts a `ConsumerGroup.Supervisor` process linked to the current process.
+
+    This can be used to start a `KafkaEx.ConsumerGroup` as part of a supervision tree.
+
+    `module` is a module that implements the `KafkaEx.GenConsumer` behaviour. `group_name` is the
+    name of the consumer group. `topics` is a list of topics that the consumer group should consume
+    from. `opts` can be any options accepted by `KafkaEx.ConsumerGroup` or `Supervisor`.
+
+    ### Return Values
+
+    This function has the same return values as `Supervisor.start_link/3`.
+
+    If the supervisor and consumer group are successfully created and initialized, this function
+    returns `{:ok, pid}`, where `pid` is the PID of the consumer group supervisor process.
+    """
+    @spec start_link(module, binary, [binary], options) :: Elixir.Supervisor.on_start
+    def start_link(consumer_module, group_name, topics, opts \\ []) do
+      {supervisor_opts, module_opts} = Keyword.split(opts, [:name, :strategy, :max_restarts, :max_seconds])
+
+      Elixir.Supervisor.start_link(__MODULE__, {consumer_module, group_name, topics, module_opts}, supervisor_opts)
+    end
+
+    @doc false # used by ConsumerGroup to set partition assignments
+    def start_consumer(pid, consumer_module, group_name, assignments, opts) do
+      child = supervisor(KafkaEx.GenConsumer.Supervisor, [consumer_module, group_name, assignments, opts], id: :consumer)
+
+      case Elixir.Supervisor.start_child(pid, child) do
+        {:ok, _child} -> :ok
+        {:ok, _child, _info} -> :ok
+      end
+    end
+
+    @doc false # used by ConsumerGroup to pause consumption during rebalance
+    def stop_consumer(pid) do
+      case Elixir.Supervisor.terminate_child(pid, :consumer) do
+        :ok ->
+          Elixir.Supervisor.delete_child(pid, :consumer)
+
+        {:error, :not_found} ->
+          :ok
+      end
+    end
+
+    def init({consumer_module, group_name, topics, opts}) do
+      opts = Keyword.put(opts, :supervisor_pid, self())
+
+      children = [
+        worker(KafkaEx.ConsumerGroup, [consumer_module, group_name, topics, opts]),
+      ]
+
+      supervise(children, strategy: :one_for_all)
+    end
+  end
+
   defmodule State do
     @moduledoc false
     defstruct [
+      :supervisor_pid,
       :worker_name,
       :heartbeat_interval,
       :session_timeout,
@@ -80,7 +167,6 @@ defmodule KafkaEx.ConsumerGroup do
       :member_id,
       :generation_id,
       :assignments,
-      :consumer_pid,
       :heartbeat_timer,
     ]
   end
@@ -92,20 +178,8 @@ defmodule KafkaEx.ConsumerGroup do
   # Client API
 
   @doc """
-  Starts a `ConsumerGroup` process linked to the current process.
-
-  This can be used to start a `ConsumerGroup` as part of a supervision tree.
-
-  `module` is a module that implements the `KafkaEx.GenConsumer` behaviour. `group_name` is the name
-  of the consumer group. `topics` is a list of topics that the consumer group should consume from.
-  `opts` can be any options accepted by `GenConsumer` or `GenServer`.
-
-  ### Return Values
-
-  This function has the same return values as `GenServer.start_link/3`.
-
-  If the consumer group is successfully created and initialized, this function returns `{:ok, pid}`,
-  where `pid` is the PID of the consumer group process.
+  Starts a `ConsumerGroup` process linked to the current process. Client programs should use
+  `KafkaEx.ConsumerGroup.Supervisor.start_link/4` instead.
   """
   @spec start_link(module, binary, [binary], KafkaEx.GenConsumer.options) :: GenServer.on_start
   def start_link(consumer_module, group_name, topics, opts \\ []) do
@@ -121,9 +195,11 @@ defmodule KafkaEx.ConsumerGroup do
     heartbeat_interval = Keyword.get(opts, :heartbeat_interval, Application.get_env(:kafka_ex, :heartbeat_interval, @heartbeat_interval))
     session_timeout = Keyword.get(opts, :session_timeout, Application.get_env(:kafka_ex, :session_timeout, @session_timeout))
 
-    consumer_opts = Keyword.drop(opts, [:heartbeat_interval, :session_timeout])
+    supervisor_pid = Keyword.fetch!(opts, :supervisor_pid)
+    consumer_opts = Keyword.drop(opts, [:supervisor_pid, :heartbeat_interval, :session_timeout])
 
     state = %State{
+      supervisor_pid: supervisor_pid,
       worker_name: worker_name,
       heartbeat_interval: heartbeat_interval,
       session_timeout: session_timeout,
@@ -152,19 +228,6 @@ defmodule KafkaEx.ConsumerGroup do
     {:ok, new_state} = heartbeat(state)
 
     {:noreply, new_state}
-  end
-
-  # Stop the consumer group if the consumer supervisor crashes.
-  def handle_info({:EXIT, pid, reason}, %State{consumer_pid: pid} = state) do
-    new_state = %State{state | consumer_pid: nil}
-
-    {:stop, reason, new_state}
-  end
-
-  # Ignore spurious exit signals. These are often from old consumer PIDs, because the exit signal
-  # can arrive after the `consumer_pid` state has already been updated.
-  def handle_info({:EXIT, _pid, _reason}, %State{} = state) do
-    {:noreply, state}
   end
 
   # When terminating, inform the group coordinator that this member is leaving the group so that the
@@ -280,9 +343,7 @@ defmodule KafkaEx.ConsumerGroup do
   # is leaving the group without having to wait for the session timeout to expire. Leaving a group
   # triggers a rebalance for the remaining group members.
   defp leave(%State{worker_name: worker_name, group_name: group_name, member_id: member_id} = state) do
-    state
-    |> stop_heartbeat_timer()
-    |> stop_consumer()
+    stop_heartbeat_timer(state)
 
     leave_request = %LeaveGroupRequest{
       group_name: group_name,
@@ -327,18 +388,17 @@ defmodule KafkaEx.ConsumerGroup do
 
   # Starts consuming from the member's assigned partitions.
   defp start_consumer(%State{consumer_module: consumer_module, consumer_opts: consumer_opts,
-                             group_name: group_name, consumer_pid: nil} = state, assignments) do
-    {:ok, pid} = KafkaEx.GenConsumer.Supervisor.start_link(consumer_module, group_name, assignments, consumer_opts)
+                             group_name: group_name, supervisor_pid: pid} = state, assignments) do
+    :ok = KafkaEx.ConsumerGroup.Supervisor.start_consumer(pid, consumer_module, group_name, assignments, consumer_opts)
 
-    %State{state | assignments: assignments, consumer_pid: pid}
+    state
   end
 
   # Stops consuming from the member's assigned partitions and commits offsets.
-  defp stop_consumer(%State{consumer_pid: nil} = state), do: state
-  defp stop_consumer(%State{consumer_pid: pid} = state) when is_pid(pid) do
-    :ok = Supervisor.stop(pid)
+  defp stop_consumer(%State{supervisor_pid: pid} = state) do
+    :ok = KafkaEx.ConsumerGroup.Supervisor.stop_consumer(pid)
 
-    %State{state | consumer_pid: nil}
+    state
   end
 
   ### Partition Assignment
