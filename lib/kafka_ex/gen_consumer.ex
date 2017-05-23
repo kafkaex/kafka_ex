@@ -273,13 +273,7 @@ defmodule KafkaEx.GenConsumer do
     def start_link(consumer_module, group_name, assignments, opts \\ []) do
       case Elixir.Supervisor.start_link(__MODULE__, {consumer_module, group_name, assignments, opts}) do
         {:ok, pid} ->
-          Enum.each(assignments, fn ({topic, partition}) ->
-            case Elixir.Supervisor.start_child(pid, [topic, partition, opts]) do
-              {:ok, _child} -> nil
-              {:ok, _child, _info} -> nil
-            end
-          end)
-
+          :ok = start_workers(pid, assignments, opts)
           {:ok, pid}
 
         error ->
@@ -293,6 +287,17 @@ defmodule KafkaEx.GenConsumer do
       ]
 
       supervise(children, strategy: :simple_one_for_one)
+    end
+
+    defp start_workers(pid, assignments, opts) do
+      Enum.each(assignments, fn ({topic, partition}) ->
+        case Elixir.Supervisor.start_child(pid, [topic, partition, opts]) do
+          {:ok, _child} -> nil
+          {:ok, _child, _info} -> nil
+        end
+      end)
+
+      :ok
     end
   end
 
