@@ -109,7 +109,6 @@ defmodule KafkaEx.GenConsumer do
 
   use GenServer
 
-  alias KafkaEx.Config
   alias KafkaEx.Protocol.OffsetCommit.Request, as: OffsetCommitRequest
   alias KafkaEx.Protocol.OffsetCommit.Response, as: OffsetCommitResponse
   alias KafkaEx.Protocol.OffsetFetch.Request, as: OffsetFetchRequest
@@ -143,8 +142,7 @@ defmodule KafkaEx.GenConsumer do
   @typedoc """
   Option values used when starting a `GenConsumer`.
   """
-  @type option :: {:worker_name, atom | pid}
-                | {:commit_interval, non_neg_integer}
+  @type option :: {:commit_interval, non_neg_integer}
                 | {:commit_threshold, non_neg_integer}
 
   @typedoc """
@@ -339,8 +337,6 @@ defmodule KafkaEx.GenConsumer do
     acknowledged messages. If not present, the `:commit_interval` environment value is used.
   * `:commit_threshold` - the maximum number of messages that can be acknowledged without being
     committed. If not present, the `:commit_threshold` environment value is used.
-  * `:worker_name` - the name of the `KafkaEx.Server` process to use for communicating with the
-    Kafka brokers. If not present, the default worker is used.
 
   Any valid options for `GenServer.start_link/3` can also be specified.
 
@@ -361,11 +357,11 @@ defmodule KafkaEx.GenConsumer do
   # GenServer callbacks
 
   def init({consumer_module, group_name, topic, partition, opts}) do
-    worker_name = Keyword.get(opts, :worker_name, Config.default_worker)
     commit_interval = Keyword.get(opts, :commit_interval, Application.get_env(:kafka_ex, :commit_interval, @commit_interval))
     commit_threshold = Keyword.get(opts, :commit_threshold, Application.get_env(:kafka_ex, :commit_threshold, @commit_threshold))
 
     {:ok, consumer_state} = consumer_module.init(topic, partition)
+    {:ok, worker_name} = KafkaEx.create_worker(:no_name, consumer_group: group_name)
 
     state = %State{
       consumer_module: consumer_module,

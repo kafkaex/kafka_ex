@@ -54,7 +54,6 @@ defmodule KafkaEx.ConsumerGroup do
 
   use GenServer
 
-  alias KafkaEx.Config
   alias KafkaEx.Protocol.JoinGroup.Request, as: JoinGroupRequest
   alias KafkaEx.Protocol.JoinGroup.Response, as: JoinGroupResponse
   alias KafkaEx.Protocol.Heartbeat.Request, as: HeartbeatRequest
@@ -191,12 +190,13 @@ defmodule KafkaEx.ConsumerGroup do
   # GenServer callbacks
 
   def init({consumer_module, group_name, topics, opts}) do
-    worker_name = Keyword.get(opts, :worker_name, Config.default_worker)
     heartbeat_interval = Keyword.get(opts, :heartbeat_interval, Application.get_env(:kafka_ex, :heartbeat_interval, @heartbeat_interval))
     session_timeout = Keyword.get(opts, :session_timeout, Application.get_env(:kafka_ex, :session_timeout, @session_timeout))
 
     supervisor_pid = Keyword.fetch!(opts, :supervisor_pid)
     consumer_opts = Keyword.drop(opts, [:supervisor_pid, :heartbeat_interval, :session_timeout])
+
+    {:ok, worker_name} = KafkaEx.create_worker(:no_name, consumer_group: group_name)
 
     state = %State{
       supervisor_pid: supervisor_pid,
