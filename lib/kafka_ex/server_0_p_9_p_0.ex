@@ -7,7 +7,6 @@ defmodule KafkaEx.Server0P9P0 do
   alias KafkaEx.Protocol.ConsumerMetadata.Response, as: ConsumerMetadataResponse
   alias KafkaEx.Protocol.Heartbeat
   alias KafkaEx.Protocol.JoinGroup
-  alias KafkaEx.Protocol.JoinGroup.Request, as: JoinGroupRequest
   alias KafkaEx.Protocol.LeaveGroup
   alias KafkaEx.Protocol.Metadata.Broker
   alias KafkaEx.Protocol.SyncGroup
@@ -68,49 +67,42 @@ defmodule KafkaEx.Server0P9P0 do
     {:ok, state}
   end
 
-  def kafka_server_join_group(topics, session_timeout, state) do
+  def kafka_server_join_group(join_group_request, network_timeout, state) do
     true = consumer_group?(state)
     {broker, state} = broker_for_consumer_group_with_update(state)
-    request = JoinGroup.create_request(
-      %JoinGroupRequest{
-        correlation_id: state.correlation_id,
-        client_id: @client_id, member_id: "",
-        group_name: state.consumer_group,
-        topics: topics, session_timeout: session_timeout
-      }
-    )
+    request = JoinGroup.create_request(state.correlation_id, @client_id, join_group_request)
     response = broker
-      |> NetworkClient.send_sync_request(request, sync_timeout())
+      |> NetworkClient.send_sync_request(request, sync_timeout(network_timeout))
       |> JoinGroup.parse_response
     {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
   end
 
-  def kafka_server_sync_group(group_name, generation_id, member_id, assignments, state) do
+  def kafka_server_sync_group(sync_group_request, network_timeout, state) do
     true = consumer_group?(state)
     {broker, state} = broker_for_consumer_group_with_update(state)
-    request = SyncGroup.create_request(state.correlation_id, @client_id, group_name, generation_id, member_id, assignments)
+    request = SyncGroup.create_request(state.correlation_id, @client_id, sync_group_request)
     response = broker
-      |> NetworkClient.send_sync_request(request, sync_timeout())
+      |> NetworkClient.send_sync_request(request, sync_timeout(network_timeout))
       |> SyncGroup.parse_response
     {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
   end
 
-  def kafka_server_leave_group(group_name, member_id, state) do
+  def kafka_server_leave_group(request, network_timeout, state) do
     true = consumer_group?(state)
     {broker, state} = broker_for_consumer_group_with_update(state)
-    request = LeaveGroup.create_request(state.correlation_id, @client_id, group_name, member_id)
+    request = LeaveGroup.create_request(state.correlation_id, @client_id, request)
     response = broker
-      |> NetworkClient.send_sync_request(request, sync_timeout())
+      |> NetworkClient.send_sync_request(request, sync_timeout(network_timeout))
       |> LeaveGroup.parse_response
     {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
   end
 
-  def kafka_server_heartbeat(group_name, generation_id, member_id, state) do
+  def kafka_server_heartbeat(request, network_timeout, state) do
     true = consumer_group?(state)
     {broker, state} = broker_for_consumer_group_with_update(state)
-    request = Heartbeat.create_request(state.correlation_id, @client_id, member_id, group_name, generation_id)
+    request = Heartbeat.create_request(state.correlation_id, @client_id, request)
     response = broker
-      |> NetworkClient.send_sync_request(request, sync_timeout())
+      |> NetworkClient.send_sync_request(request, sync_timeout(network_timeout))
       |> Heartbeat.parse_response
     {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
   end

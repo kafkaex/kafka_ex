@@ -4,19 +4,17 @@ defmodule KafkaEx.Protocol.JoinGroup do
   @moduledoc """
   Implementation of the Kafka JoinGroup request and response APIs
   """
+
   @protocol_type "consumer"
   @strategy_name "assign"
   @metadata_version 0
 
   defmodule Request do
     @moduledoc false
-    defstruct correlation_id: nil,
-      client_id: nil, member_id: nil,
+    defstruct member_id: nil,
       group_name: nil, topics: nil,
       session_timeout: nil
     @type t :: %Request{
-      correlation_id: integer,
-      client_id: binary,
       member_id: binary,
       group_name: binary,
       topics: [binary],
@@ -29,19 +27,21 @@ defmodule KafkaEx.Protocol.JoinGroup do
     defstruct error_code: nil, generation_id: 0, leader_id: nil, member_id: nil, members: []
     @type t :: %Response{error_code: atom | integer, generation_id: integer,
                          leader_id: binary, member_id: binary, members: [binary]}
+
+    def leader?(%__MODULE__{member_id: member_id, leader_id: leader_id}) do
+      member_id == leader_id
+    end
   end
 
-  @spec create_request(Request.t) :: binary
-  def create_request(join_group_req) do
+  @spec create_request(integer, binary, Request.t) :: binary
+  def create_request(correlation_id, client_id, %Request{} = join_group_req) do
     metadata =
       << @metadata_version :: 16-signed,
          length(join_group_req.topics) :: 32-signed, topic_data(join_group_req.topics) :: binary,
          0 :: 32-signed
          >>
 
-    KafkaEx.Protocol.create_request(
-      :join_group, join_group_req.correlation_id, join_group_req.client_id
-    ) <>
+    KafkaEx.Protocol.create_request(:join_group, correlation_id, client_id) <>
       << byte_size(join_group_req.group_name) :: 16-signed, join_group_req.group_name :: binary,
          join_group_req.session_timeout :: 32-signed,
          byte_size(join_group_req.member_id) :: 16-signed, join_group_req.member_id :: binary,
