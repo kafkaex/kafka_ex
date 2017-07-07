@@ -69,7 +69,7 @@ defmodule KafkaEx do
 
   Worker may be an atom or pid.  The default worker is used by default.
   """
-  @spec consumer_group(atom | pid) :: binary | :no_consumer_group
+  @spec consumer_group(GenServer.server) :: binary | :no_consumer_group
   def consumer_group(worker \\ Config.default_worker) do
     Server.call(worker, :consumer_group)
   end
