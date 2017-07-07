@@ -69,7 +69,7 @@ defmodule KafkaEx.Protocol.Metadata do
     alias KafkaEx.Protocol.Metadata.PartitionMetadata
     defstruct error_code: 0, topic: nil, partition_metadatas: []
     @type t :: %TopicMetadata{
-      error_code: integer,
+      error_code: integer | :no_error,
       topic: nil | binary,
       partition_metadatas: [PartitionMetadata.t]
     }

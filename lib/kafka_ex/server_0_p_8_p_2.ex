@@ -49,7 +49,7 @@ defmodule KafkaEx.Server0P8P2 do
     true = KafkaEx.valid_consumer_group?(consumer_group)
 
     brokers = Enum.map(uris, fn({host, port}) -> %Broker{host: host, port: port, socket: NetworkClient.create_socket(host, port)} end)
-    {correlation_id, metadata} = retrieve_metadata(brokers, 0, sync_timeout())
+    {correlation_id, metadata} = retrieve_metadata(brokers, 0, config_sync_timeout())
     state = %State{metadata: metadata, brokers: brokers, correlation_id: correlation_id, consumer_group: consumer_group, metadata_update_interval: metadata_update_interval, consumer_group_update_interval: consumer_group_update_interval, worker_name: name}
     # Get the initial "real" broker list and start a regular refresh cycle.
     state = update_metadata(state)
@@ -91,7 +91,7 @@ defmodule KafkaEx.Server0P8P2 do
         {:topic_not_found, state}
       _ ->
         response = broker
-          |> NetworkClient.send_sync_request(offset_fetch_request, sync_timeout())
+          |> NetworkClient.send_sync_request(offset_fetch_request, config_sync_timeout())
           |> OffsetFetch.parse_response
         {response, %{state | correlation_id: state.correlation_id + 1}}
     end
@@ -188,7 +188,7 @@ defmodule KafkaEx.Server0P8P2 do
         {:topic_not_found, state}
       _ ->
         response = broker
-          |> NetworkClient.send_sync_request(fetch_data, sync_timeout())
+          |> NetworkClient.send_sync_request(fetch_data, config_sync_timeout())
           |> Fetch.parse_response
         state = %{state | correlation_id: state.correlation_id + 1}
         last_offset = response |> hd |> Map.get(:partitions) |> hd |> Map.get(:last_offset)
@@ -216,7 +216,7 @@ defmodule KafkaEx.Server0P8P2 do
 
     offset_commit_request_payload = OffsetCommit.create_request(state.correlation_id, @client_id, offset_commit_request)
     response = broker
-      |> NetworkClient.send_sync_request(offset_commit_request_payload, sync_timeout())
+      |> NetworkClient.send_sync_request(offset_commit_request_payload, config_sync_timeout())
       |> OffsetCommit.parse_response
 
     {response, %{state | correlation_id: state.correlation_id + 1}}
@@ -254,6 +254,6 @@ defmodule KafkaEx.Server0P8P2 do
   end
 
   defp first_broker_response(request, state) do
-    first_broker_response(request, state.brokers, sync_timeout())
+    first_broker_response(request, state.brokers, config_sync_timeout())
   end
 end
