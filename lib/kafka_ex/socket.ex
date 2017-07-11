@@ -79,11 +79,19 @@ defmodule KafkaEx.Socket do
   end
 
   @doc """
+  Returns true if the socket is open
+  """
+  @spec open?(KafkaEx.Socket.t) :: boolean
+  def open?(socket = %KafkaEx.Socket{}) do
+    info(socket) != nil
+  end
+
+  @doc """
   Returns the information about the socket.
 
   For more information, see `Port.info`
   """
-  @spec info(KafkaEx.Socket.t | nil) :: list | nil
+  @spec info(KafkaEx.Socket.t) :: list
   def info(socket) do
     socket
     |> extract_port
