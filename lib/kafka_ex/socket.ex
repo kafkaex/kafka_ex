@@ -91,7 +91,7 @@ defmodule KafkaEx.Socket do
 
   For more information, see `Port.info`
   """
-  @spec info(KafkaEx.Socket.t) :: list
+  @spec info(KafkaEx.Socket.t) :: list | nil
   def info(socket) do
     socket
     |> extract_port
