@@ -125,7 +125,7 @@ library, you will want to manually create a worker so that it is not supervised 
 To do this, you will need to call:
 
 ```elixir
-GenServer.start_link(KafkaEx.Server,
+GenServer.start_link(KafkaEx.Config.server_impl,
   [
     [uris: Application.get_env(:kafka_ex, :brokers),
      consumer_group: Application.get_env(:kafka_ex, :consumer_group)],
