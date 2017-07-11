@@ -60,10 +60,15 @@ defmodule KafkaEx.Server0P9P0 do
     state = update_metadata(state)
     {:ok, _} = :timer.send_interval(state.metadata_update_interval, :update_metadata)
 
-    # only start the consumer group update cycle if we are using consumer groups
-    if consumer_group?(state) do
-      {:ok, _} = :timer.send_interval(state.consumer_group_update_interval, :update_consumer_metadata)
-    end
+    state =
+      if consumer_group?(state) do
+        # If we are using consumer groups then initialize the state and start the update cycle
+        {_, updated_state} = update_consumer_metadata(state)
+        {:ok, _} = :timer.send_interval(state.consumer_group_update_interval, :update_consumer_metadata)
+        updated_state
+      else
+        state
+      end
 
     {:ok, state}
   end
