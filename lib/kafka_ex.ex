@@ -254,23 +254,29 @@ Optional arguments(KeywordList)
   end
 
   @doc """
-  Returns a stream that consumes fetched messages, the stream will halt once
-  the max_bytes number of messages is reached, if you want to halt the stream
-  early supply a small max_bytes, for the inverse supply a large max_bytes.
+  Returns a streamable struct that may be used for consuming messages.
 
-  Optional arguments(KeywordList)
-  - stream_mode: the mode the stream will be in, `:infinite` for an infinite
-  stream and `:finite` for a finite stream, a finite stream will return
-  once there's no data left to consume from the partition while an
-  infinite stream will block till there's data to consume from the stream.
+  By default, the stream consumes indefinitely and will block at log end until
+  new messages are available.  Use the `no_wait_at_logend: true` option to have
+  the stream halt when no more messages are available.
+
+  Optional arguments (keyword list):
+
+  - no_wait_at_logend: Set this to true to halt the stream when there are no
+  more messages available.  Defaults to false, i.e., the stream blocks to wait
+  for new messages.
+
   - worker_name: the worker we want to run this metadata request through, when
   none is provided the default worker `:kafka_ex` is used
+
   - offset: When supplied the fetch would start from this offset, otherwise
   would start from the last committed offset of the consumer_group the worker
   lbelongs to. For Kafka < 0.8.2 you should explicitly specify this.
+
   - auto_commit: specifies if the last offset should be commited or not.
   Default is true.  You must set this to false when using
   Kafka < 0.8.2 or `:no_consumer_group`.
+
   - consumer_group: Name of the group of consumers, `:no_consumer_group`
   should be passed for Kafka < 0.8.2, defaults to
   `Application.get_env(:kafka_ex, :consumer_group)`.
@@ -296,7 +302,7 @@ Optional arguments(KeywordList)
     min_bytes         = Keyword.get(opts, :min_bytes, @min_bytes)
     supplied_offset   = Keyword.get(opts, :offset)
     worker_name       = Keyword.get(opts, :worker_name, Config.default_worker)
-    stream_mode       = Keyword.get(opts, :stream_mode, :infinite)
+    no_wait_at_logend = Keyword.get(opts, :no_wait_at_logend, false)
     wait_time         = Keyword.get(opts, :wait_time, @wait_time)
 
     retrieved_offset  = current_offset(
@@ -315,7 +321,7 @@ Optional arguments(KeywordList)
 
     %Stream{
       worker_name: worker_name, fetch_request: fetch_request,
-      consumer_group: consumer_group, stream_mode: stream_mode
+      consumer_group: consumer_group, no_wait_at_logend: no_wait_at_logend
     }
   end
 

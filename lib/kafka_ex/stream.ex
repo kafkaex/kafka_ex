@@ -1,5 +1,6 @@
 defmodule KafkaEx.Stream do
   @moduledoc false
+
   alias KafkaEx.Protocol.OffsetCommit.Request, as: OffsetCommitRequest
   alias KafkaEx.Protocol.Fetch.Request, as: FetchRequest
   alias KafkaEx.Protocol.Fetch.Response, as: FetchResponse
@@ -7,7 +8,7 @@ defmodule KafkaEx.Stream do
   defstruct worker_name: nil,
     fetch_request: %FetchRequest{},
     consumer_group: nil,
-    stream_mode: :infinite
+    no_wait_at_logend: false
 
   defimpl Enumerable do
     def reduce(data, acc, fun) do
@@ -28,7 +29,7 @@ defmodule KafkaEx.Stream do
            response.last_offset != nil && response.last_offset != offset do
           {response.message_set, response.last_offset}
         else
-          {mode(data.stream_mode), offset}
+          {stream_control(data.no_wait_at_logend), offset}
         end
       end
       Stream.resource(
@@ -36,8 +37,8 @@ defmodule KafkaEx.Stream do
       ).(acc, fun)
     end
 
-    defp mode(:finite), do: :halt
-    defp mode(:infinite), do: []
+    defp stream_control(true), do: :halt
+    defp stream_control(false), do: []
 
     defp fetch_response(data, offset) do
       req = data.fetch_request
@@ -54,5 +55,4 @@ defmodule KafkaEx.Stream do
       {:error, __MODULE__}
     end
   end
-
 end
