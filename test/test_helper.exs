@@ -3,9 +3,18 @@ ExUnit.start()
 ExUnit.configure exclude: [integration: true, consumer_group: true, server_0_p_9_p_0: true]
 
 defmodule TestHelper do
+
   def generate_random_string(string_length \\ 20) do
-    :random.seed(:os.timestamp)
-    Enum.map(1..string_length, fn _ -> (:random.uniform * 25 + 65) |> round end) |> to_string
+    # This allows Elixir 1.1 + OTP 17 to still run the tests, but doesn't throw a warning on higher
+    # versions. This should be removed once OTP 17 support is dropped.
+    rand_module = if :erlang.function_exported(:rand, :uniform, 0) do
+      :rand
+    else
+      r = :random
+      r.seed(:os.timestamp())
+      :random
+    end
+    Enum.map(1..string_length, fn _ -> (rand_module.uniform() * 25 + 65) |> round end) |> to_string
   end
 
   # Wait for the return value of value_getter to pass the predicate condn
