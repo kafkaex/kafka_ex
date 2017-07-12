@@ -102,6 +102,7 @@ defmodule KafkaEx.Socket do
     {:sslsocket, {:gen_tcp, port, _, _}, _} = socket.socket
     port
   end
+  defp extract_port(nil), do: nil
   defp extract_port(socket), do: socket.socket
 
   defp create_socket(host, port, true, socket_options) do
