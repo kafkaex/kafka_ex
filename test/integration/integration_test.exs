@@ -339,7 +339,7 @@ defmodule KafkaEx.Integration.Test do
 
     stream = KafkaEx.stream(random_string, 0, worker_name: :stream, offset: 0, auto_commit: false)
     log = TestHelper.wait_for_accum(
-      fn() -> stream |> Enum.take(2) end,
+      fn() -> Enum.take(stream, 2) end,
       2
     )
 

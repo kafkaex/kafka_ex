@@ -254,13 +254,26 @@ Optional arguments(KeywordList)
   end
 
   @doc """
-  Returns a stream that consumes fetched messages, the stream will halt once the max_bytes number of messages is reached, if you want to halt the stream early supply a small max_bytes, for the inverse supply a large max_bytes.
+  Returns a stream that consumes fetched messages, the stream will halt once
+  the max_bytes number of messages is reached, if you want to halt the stream
+  early supply a small max_bytes, for the inverse supply a large max_bytes.
+
   Optional arguments(KeywordList)
-  - stream_mode: the mode the stream will be in, `:infinite` for an infinite stream and `:finite` for a finite stream, a finite stream will return once there's no data left to consume from the partition while an infinite stream will block till there's data to consume from the stream.
-  - worker_name: the worker we want to run this metadata request through, when none is provided the default worker `:kafka_ex` is used
-  - offset: When supplied the fetch would start from this offset, otherwise would start from the last committed offset of the consumer_group the worker belongs to. For Kafka < 0.8.2 you should explicitly specify this.
-  - auto_commit: specifies if the last offset should be commited or not. Default is true.  You must set this to false when using Kafka < 0.8.2 or `:no_consumer_group`.
-  - consumer_group: Name of the group of consumers, `:no_consumer_group` should be passed for Kafka < 0.8.2, defaults to `Application.get_env(:kafka_ex, :consumer_group)`.
+  - stream_mode: the mode the stream will be in, `:infinite` for an infinite
+  stream and `:finite` for a finite stream, a finite stream will return
+  once there's no data left to consume from the partition while an
+  infinite stream will block till there's data to consume from the stream.
+  - worker_name: the worker we want to run this metadata request through, when
+  none is provided the default worker `:kafka_ex` is used
+  - offset: When supplied the fetch would start from this offset, otherwise
+  would start from the last committed offset of the consumer_group the worker
+  lbelongs to. For Kafka < 0.8.2 you should explicitly specify this.
+  - auto_commit: specifies if the last offset should be commited or not.
+  Default is true.  You must set this to false when using
+  Kafka < 0.8.2 or `:no_consumer_group`.
+  - consumer_group: Name of the group of consumers, `:no_consumer_group`
+  should be passed for Kafka < 0.8.2, defaults to
+  `Application.get_env(:kafka_ex, :consumer_group)`.
 
 
   ## Example
@@ -277,15 +290,21 @@ Optional arguments(KeywordList)
   """
   @spec stream(binary, integer, Keyword.t) :: GenEvent.Stream.t
   def stream(topic, partition, opts \\ []) do
-    auto_commit     = Keyword.get(opts, :auto_commit, true)
+    auto_commit       = Keyword.get(opts, :auto_commit, true)
     consumer_group    = Keyword.get(opts, :consumer_group)
     max_bytes         = Keyword.get(opts, :max_bytes, @max_bytes)
     min_bytes         = Keyword.get(opts, :min_bytes, @min_bytes)
-    supplied_offset = Keyword.get(opts, :offset)
-    worker_name     = Keyword.get(opts, :worker_name, Config.default_worker)
-    retrieved_offset = current_offset(supplied_offset, partition, topic, worker_name)
-    stream_mode     = Keyword.get(opts, :stream_mode, :infinite)
+    supplied_offset   = Keyword.get(opts, :offset)
+    worker_name       = Keyword.get(opts, :worker_name, Config.default_worker)
+    stream_mode       = Keyword.get(opts, :stream_mode, :infinite)
     wait_time         = Keyword.get(opts, :wait_time, @wait_time)
+
+    retrieved_offset  = current_offset(
+      supplied_offset,
+      partition,
+      topic,
+      worker_name
+    )
 
     fetch_request =  %FetchRequest{
       auto_commit: auto_commit,
