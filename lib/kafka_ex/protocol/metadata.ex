@@ -1,5 +1,4 @@
 defmodule KafkaEx.Protocol.Metadata do
-  alias KafkaEx.Socket
   alias KafkaEx.Protocol
   import KafkaEx.Protocol.Common
 
@@ -10,6 +9,19 @@ defmodule KafkaEx.Protocol.Metadata do
     @moduledoc false
     defstruct topic: nil
     @type t :: %Request{topic: binary}
+  end
+
+  defmodule Broker do
+    @moduledoc false
+
+    alias KafkaEx.Socket
+
+    defstruct node_id: -1, host: "", port: 0, socket: nil
+    @type t :: %__MODULE__{}
+
+    def connected?(broker = %Broker{}) do
+      broker.socket != nil && Socket.open?(broker.socket)
+    end
   end
 
   defmodule Response do
@@ -39,28 +51,13 @@ defmodule KafkaEx.Protocol.Metadata do
     defp find_broker(lead_broker, metadata_brokers, brokers) do
       case Enum.find(metadata_brokers, &(lead_broker.leader == &1.node_id)) do
         nil -> nil
-        broker -> case Enum.find(brokers, &(broker.host == &1.host && broker.port == &1.port)) do
-          nil -> nil
-          broker -> broker_with_open_socket(broker)
-        end
+        broker ->
+          Enum.find(brokers, &broker_for_host?(&1, broker.host, broker.port))
       end
     end
 
-    defp broker_with_open_socket(broker) do
-      case Socket.info(broker.socket) do
-        port_info when is_list(port_info) -> broker
-        _ -> nil
-      end
-    end
-  end
-
-  defmodule Broker do
-    @moduledoc false
-    defstruct node_id: -1, host: "", port: 0, socket: nil
-    @type t :: %Broker{node_id: non_neg_integer, host: binary, port: non_neg_integer, socket: nil | Socket.t}
-
-    def connected?(broker = %Broker{}) do
-      broker.socket != nil
+    defp broker_for_host?(broker, host, port) do
+      broker.host == host && broker.port == port && Broker.connected?(broker)
     end
   end
 
