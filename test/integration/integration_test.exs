@@ -329,24 +329,131 @@ defmodule KafkaEx.Integration.Test do
 
   # stream
   test "streams kafka logs" do
-    random_string = generate_random_string()
+    topic_name = generate_random_string()
     KafkaEx.create_worker(:stream, uris: uris())
-    KafkaEx.produce(%Proto.Produce.Request{topic: random_string, partition: 0, required_acks: 1, messages: [
-        %Proto.Produce.Message{value: "hey"},
-        %Proto.Produce.Message{value: "hi"},
+    KafkaEx.produce(%Proto.Produce.Request{
+      topic: topic_name, partition: 0, required_acks: 1, messages: [
+        %Proto.Produce.Message{value: "message 1"},
+        %Proto.Produce.Message{value: "message 2"},
+        %Proto.Produce.Message{value: "message 3"},
+        %Proto.Produce.Message{value: "message 4"},
       ]
     }, worker_name: :stream)
 
-    stream = KafkaEx.stream(random_string, 0, worker_name: :stream, offset: 0, auto_commit: false)
-    log = TestHelper.wait_for_accum(
-      fn() -> Enum.take(stream, 2) end,
-      2
+    stream = KafkaEx.stream(
+      topic_name,
+      0,
+      worker_name: :stream,
+      offset: 0,
+      auto_commit: false
     )
 
-    refute Enum.empty?(log)
-    [first,second|_] = log
-    assert first.value == "hey"
-    assert second.value == "hi"
+    logs = Enum.take(stream, 2)
+    assert 2 == length(logs)
+    [m1, m2] = logs
+    assert m1.value == "message 1"
+    assert m2.value == "message 2"
+
+    # calling stream again will get the same messages
+    assert logs == Enum.take(stream, 2)
+  end
+
+  test "stream with small max_bytes makes multiple requests if necessary" do
+    topic_name = generate_random_string()
+    KafkaEx.create_worker(:stream, uris: uris())
+    KafkaEx.produce(%Proto.Produce.Request{
+      topic: topic_name, partition: 0, required_acks: 1, messages: [
+        %Proto.Produce.Message{value: "message 1"},
+        %Proto.Produce.Message{value: "message 2"},
+        %Proto.Produce.Message{value: "message 3"},
+        %Proto.Produce.Message{value: "message 4"},
+        %Proto.Produce.Message{value: "message 5"},
+      ]
+    }, worker_name: :stream)
+
+    stream = KafkaEx.stream(
+      topic_name,
+      0,
+      worker_name: :stream,
+      max_bytes: 50,
+      offset: 0,
+      auto_commit: false
+    )
+
+    logs = Enum.take(stream, 4)
+    assert 4 == length(logs)
+    [m1, m2, m3, m4] = logs
+    assert m1.value == "message 1"
+    assert m2.value == "message 2"
+    assert m3.value == "message 3"
+    assert m4.value == "message 4"
+
+    # calling stream again will get the same messages
+    assert logs == Enum.take(stream, 4)
+  end
+
+  test "stream blocks until new messages are available" do
+    topic_name = generate_random_string()
+    KafkaEx.create_worker(:stream, uris: uris())
+    KafkaEx.produce(%Proto.Produce.Request{
+      topic: topic_name, partition: 0, required_acks: 1, messages: [
+        %Proto.Produce.Message{value: "message 1"}
+      ]
+    }, worker_name: :stream)
+
+    stream = KafkaEx.stream(
+      topic_name,
+      0,
+      worker_name: :stream,
+      max_bytes: 50,
+      offset: 0,
+      auto_commit: false
+    )
+task = Task.async(fn -> Enum.take(stream, 4) end)
+
+    KafkaEx.produce(%Proto.Produce.Request{
+      topic: topic_name, partition: 0, required_acks: 1, messages: [
+        %Proto.Produce.Message{value: "message 2"},
+        %Proto.Produce.Message{value: "message 3"},
+        %Proto.Produce.Message{value: "message 4"},
+        %Proto.Produce.Message{value: "message 5"},
+      ]
+    }, worker_name: :stream)
+
+    logs = Task.await(task)
+
+    assert 4 == length(logs)
+    [m1, m2, m3, m4] = logs
+    assert m1.value == "message 1"
+    assert m2.value == "message 2"
+    assert m3.value == "message 3"
+    assert m4.value == "message 4"
+  end
+  
+  test "stream is non-blocking with no_wait_at_logend" do
+    topic_name = generate_random_string()
+    KafkaEx.create_worker(:stream, uris: uris())
+    KafkaEx.produce(%Proto.Produce.Request{
+      topic: topic_name, partition: 0, required_acks: 1, messages: [
+        %Proto.Produce.Message{value: "message 1"}
+      ]
+    }, worker_name: :stream)
+
+    stream = KafkaEx.stream(
+      topic_name,
+      0,
+      worker_name: :stream,
+      max_bytes: 50,
+      offset: 0,
+      auto_commit: false,
+      no_wait_at_logend: true
+    )
+
+    logs = Enum.take(stream,  4)
+
+    assert 1 == length(logs)
+    [m1] = logs
+    assert m1.value == "message 1"
   end
 
   test "doesn't error when re-creating an existing stream" do

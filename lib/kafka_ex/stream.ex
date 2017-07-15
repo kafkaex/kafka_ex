@@ -11,29 +11,22 @@ defmodule KafkaEx.Stream do
     no_wait_at_logend: false
 
   defimpl Enumerable do
-    def reduce(data, acc, fun) do
+    def reduce(data = %KafkaEx.Stream{}, acc, fun) do
       next_fun = fn offset ->
         if data.fetch_request.auto_commit do
-          GenServer.call(data.worker_name, {
-            :offset_commit,
-            %OffsetCommitRequest{
-              consumer_group: data.consumer_group,
-              topic: data.fetch_request.topic,
-              partition: data.fetch_request.partition,
-              offset: offset, metadata: ""
-            }
-          })
+          commit_offset(data, offset)
         end
         response = fetch_response(data, offset)
-        if response.error_code == :no_error &&
-           response.last_offset != nil && response.last_offset != offset do
-          {response.message_set, response.last_offset}
+        if response.error_code == :no_error && response.last_offset do
+           {response.message_set, response.last_offset + 1}
         else
           {stream_control(data.no_wait_at_logend), offset}
         end
       end
       Stream.resource(
-        fn -> data.fetch_request.offset end, next_fun, &(&1)
+        fn ->
+          data.fetch_request.offset
+        end, next_fun, &(&1)
       ).(acc, fun)
     end
 
@@ -45,6 +38,18 @@ defmodule KafkaEx.Stream do
       data.worker_name
       |> GenServer.call({:fetch, %{req| offset: offset}})
       |> FetchResponse.partition_messages(req.topic, req.partition)
+    end
+
+    defp commit_offset(stream_data = %KafkaEx.Stream{}, offset) do
+      GenServer.call(stream_data.worker_name, {
+        :offset_commit,
+        %OffsetCommitRequest{
+          consumer_group: stream_data.consumer_group,
+          topic: stream_data.fetch_request.topic,
+          partition: stream_data.fetch_request.partition,
+          offset: offset, metadata: ""
+        }
+      })
     end
 
     def count(_stream) do
