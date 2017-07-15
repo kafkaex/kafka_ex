@@ -294,7 +294,7 @@ Optional arguments(KeywordList)
    %{attributes: 0, crc: 4251893211, key: nil, offset: 1, value: "hi"}]
   ```
   """
-  @spec stream(binary, integer, Keyword.t) :: GenEvent.Stream.t
+  @spec stream(binary, integer, Keyword.t) :: KafkaEx.Stream.t
   def stream(topic, partition, opts \\ []) do
     auto_commit       = Keyword.get(opts, :auto_commit, true)
     consumer_group    = Keyword.get(opts, :consumer_group)

@@ -26,7 +26,7 @@ defmodule KafkaEx.Protocol.Fetch do
     defstruct topic: nil, partitions: []
     @type t :: %Response{topic: binary, partitions: list}
 
-    @spec partition_messages(list, binary, integer) :: list
+    @spec partition_messages(list, binary, integer) :: map
     def partition_messages(responses, topic, partition) do
       response = Enum.find(responses, &(&1.topic == topic)) || %Response{}
       Enum.find(response.partitions, &(&1.partition == partition))

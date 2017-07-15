@@ -409,7 +409,7 @@ defmodule KafkaEx.Integration.Test do
       offset: 0,
       auto_commit: false
     )
-task = Task.async(fn -> Enum.take(stream, 4) end)
+    task = Task.async(fn -> Enum.take(stream, 4) end)
 
     KafkaEx.produce(%Proto.Produce.Request{
       topic: topic_name, partition: 0, required_acks: 1, messages: [
@@ -429,7 +429,7 @@ task = Task.async(fn -> Enum.take(stream, 4) end)
     assert m3.value == "message 3"
     assert m4.value == "message 4"
   end
-  
+
   test "stream is non-blocking with no_wait_at_logend" do
     topic_name = generate_random_string()
     KafkaEx.create_worker(:stream, uris: uris())
