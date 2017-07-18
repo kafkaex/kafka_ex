@@ -216,7 +216,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
 
     refute Enum.empty?(log)
 
-    offset_fetch_response = KafkaEx.offset_fetch(:stream_auto_commit, %Proto.OffsetFetch.Request{topic: random_string, partition: 0}) |> hd
+    [offset_fetch_response | _]  = KafkaEx.offset_fetch(:stream_auto_commit, %Proto.OffsetFetch.Request{topic: random_string, partition: 0})
     error_code = offset_fetch_response.partitions |> hd |> Map.get(:error_code)
     offset = offset_fetch_response.partitions |> hd |> Map.get(:offset)
 
@@ -264,5 +264,103 @@ defmodule KafkaEx.ConsumerGroup.Test do
     offset_fetch_response_offset = offset_fetch_response.partitions |> hd |> Map.get(:offset)
 
     assert 0 >= offset_fetch_response_offset
+  end
+
+  test "stream auto_commit deals with small batches correctly" do
+    topic_name = generate_random_string()
+    consumer_group = "stream_test"
+
+    KafkaEx.create_worker(:stream, uris: uris())
+    KafkaEx.produce(%Proto.Produce.Request{
+      topic: topic_name, partition: 0, required_acks: 1, messages: [
+        %Proto.Produce.Message{value: "message 2"},
+        %Proto.Produce.Message{value: "message 3"},
+        %Proto.Produce.Message{value: "message 4"},
+        %Proto.Produce.Message{value: "message 5"},
+      ]
+    }, worker_name: :stream)
+
+    stream = KafkaEx.stream(
+      topic_name,
+      0,
+      worker_name: :stream,
+      offset: 0,
+      auto_commit: true,
+      consumer_group: "stream_test"
+    )
+
+    [m1, m2] = Enum.take(stream, 2)
+    assert "message 2" == m1.value
+    assert "message 3" == m2.value
+
+    offset = TestHelper.latest_consumer_offset_number(
+      topic_name,
+      0,
+      consumer_group,
+      :stream
+    )
+    assert offset == m2.offset
+  end
+
+  test "stream auto_commit doesn't exceed the end of the log" do
+    topic_name = generate_random_string()
+    consumer_group = "stream_test"
+
+    KafkaEx.create_worker(:stream, uris: uris())
+    KafkaEx.produce(%Proto.Produce.Request{
+      topic: topic_name, partition: 0, required_acks: 1, messages: [
+        %Proto.Produce.Message{value: "message 2"},
+        %Proto.Produce.Message{value: "message 3"},
+        %Proto.Produce.Message{value: "message 4"},
+        %Proto.Produce.Message{value: "message 5"},
+      ]
+    }, worker_name: :stream)
+
+    stream = KafkaEx.stream(
+      topic_name,
+      0,
+      worker_name: :stream,
+      offset: 0,
+      no_wait_at_logend: true,
+      auto_commit: true,
+      consumer_group: consumer_group
+    )
+
+    [m1, m2, m3, m4] = Enum.take(stream, 10)
+    assert "message 2" == m1.value
+    assert "message 3" == m2.value
+    assert "message 4" == m3.value
+    assert "message 5" == m4.value
+
+    offset = TestHelper.latest_consumer_offset_number(
+      topic_name,
+      0,
+      consumer_group,
+      :stream
+    )
+    assert offset == m4.offset
+
+    other_consumer_group = "another_consumer_group"
+    map_stream = KafkaEx.stream(
+      topic_name,
+      0,
+      worker_name: :stream,
+      no_wait_at_logend: true,
+      auto_commit: true,
+      offset: 0,
+      consumer_group: other_consumer_group
+    )
+
+    assert ["message 2", "message 3", "message 4", "message 5"] =
+      Enum.map(map_stream, fn(m) -> m.value end)
+
+    offset = TestHelper.latest_consumer_offset_number(
+      topic_name,
+      0,
+      other_consumer_group,
+      :stream
+    )
+    # should have the same offset as the first stream
+    assert offset == m4.offset
   end
 end

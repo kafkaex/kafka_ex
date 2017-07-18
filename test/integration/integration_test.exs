@@ -454,6 +454,10 @@ defmodule KafkaEx.Integration.Test do
     assert 1 == length(logs)
     [m1] = logs
     assert m1.value == "message 1"
+
+    # we can also execute something like 'map' which would otherwise be
+    # open-ended
+    assert ["message 1"] == Enum.map(stream, fn(m) -> m.value end)
   end
 
   test "doesn't error when re-creating an existing stream" do

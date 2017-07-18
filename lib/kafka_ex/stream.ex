@@ -17,6 +17,7 @@ defmodule KafkaEx.Stream do
       # this function returns a Stream.resource stream, so we need to define
       # start_fun, next_fun, and after_fun callbacks
 
+
       # the state payload for the stream is just the offset
       start_fun = fn -> data.fetch_request.offset end
 
@@ -24,8 +25,8 @@ defmodule KafkaEx.Stream do
       # committing offsets
       next_fun = fn offset ->
         data
-        |> maybe_commit_offset(offset)
         |> fetch_response(offset)
+        |> maybe_commit_offset(data, acc)
         |> stream_control(data, offset)
       end
 
@@ -34,6 +35,14 @@ defmodule KafkaEx.Stream do
       after_fun = fn(_last_offset) -> :ok end
 
       Stream.resource(start_fun, next_fun, after_fun).(acc, fun)
+    end
+
+    def count(_stream) do
+      {:error, __MODULE__}
+    end
+
+    def member?(_stream, _item) do
+      {:error, __MODULE__}
     end
 
     ######################################################################
@@ -68,25 +77,45 @@ defmodule KafkaEx.Stream do
     end
     ######################################################################
 
-    defp fetch_response(data, offset) do
-      req = data.fetch_request
-      data.worker_name
-      |> GenServer.call({:fetch, %{req| offset: offset}})
-      |> FetchResponse.partition_messages(req.topic, req.partition)
-    end
+    ######################################################################
+    # Offset management
 
+    # first, determine if we even need to commit an offset
     defp maybe_commit_offset(
+      fetch_response,
       %KafkaEx.Stream{
-        fetch_request: %FetchRequest{auto_commit: true}
+        fetch_request: %FetchRequest{auto_commit: auto_commit}
       } = stream_data,
-      offset
+      acc
     ) do
-      commit_offset(stream_data, offset)
-      stream_data
+      if need_commit?(fetch_response, auto_commit) do
+        offset_to_commit = last_offset(acc, fetch_response.message_set)
+        commit_offset(stream_data, offset_to_commit)
+      end
+
+      fetch_response
     end
 
-    defp maybe_commit_offset(%KafkaEx.Stream{} = stream_data, _offset) do
-      stream_data
+    # no response -> no commit
+    defp need_commit?(fetch_response, _auto_commit)
+    when fetch_response == %{}, do: false
+    # no messages in response -> no commit
+    defp need_commit?(%{message_set: []}, _auto_commit), do: false
+    # otherwise, use the auto_commit setting
+    defp need_commit?(_fetch_response, auto_commit), do: auto_commit
+
+    # if we have requested fewer messages than we fetched, commit the offset
+    # of the last one we will actually consume
+    defp last_offset({:cont, {_, n}}, message_set)
+    when n <= length(message_set) do
+      message = Enum.at(message_set, n - 1)
+      message.offset
+    end
+
+    # otherwise, commit the offset of the last message
+    defp last_offset({:cont, _}, message_set) do
+      message = List.last(message_set)
+      message.offset
     end
 
     defp commit_offset(%KafkaEx.Stream{} = stream_data, offset) do
@@ -100,13 +129,14 @@ defmodule KafkaEx.Stream do
         }
       })
     end
+    ######################################################################
 
-    def count(_stream) do
-      {:error, __MODULE__}
-    end
-
-    def member?(_stream, _item) do
-      {:error, __MODULE__}
+    # make the actual fetch request
+    defp fetch_response(data, offset) do
+      req = data.fetch_request
+      data.worker_name
+      |> GenServer.call({:fetch, %{req| offset: offset}})
+      |> FetchResponse.partition_messages(req.topic, req.partition)
     end
   end
 end
