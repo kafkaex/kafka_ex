@@ -253,7 +253,7 @@ Optional arguments(KeywordList)
     produce(produce_request, opts)
   end
 
-  @doc """
+  @doc ~S"""
   Returns a streamable struct that may be used for consuming messages.
 
   The returned struct is compatible with the `Stream` and `Enum` modules.
@@ -331,11 +331,15 @@ Optional arguments(KeywordList)
   construct a GenServer-based consumer module and manage your commits manually.
 
   ```
-  Enum.map(1..10, fn(ix) -> KafkaEx.produce("baz", 0, "Msg #{ix}") end)
-  stream = KafkaEx.stream("baz", 0, consumer_group: "my_consumer", auto_commit: true)
-  [m1, m2] = Enum.take(stream, 2)
-  [m1, m2] = Enum.take(stream, 2)   # note we still get the same 2 messages
-  # TODO fix initial offset on stream re-create
+  iex> Enum.map(1..10, fn(ix) -> KafkaEx.produce("baz", 0, "Msg #{ix}") end)
+  iex> stream = KafkaEx.stream("baz", 0, consumer_group: "my_consumer", auto_commit: true)
+  iex> stream |> Enum.take(2) |> Enum.map(fn(msg) -> msg.value end)
+  ["Msg 1", "Msg 2"]
+  iex> stream |> Enum.take(2) |> Enum.map(fn(msg) -> msg.value end)
+  ["Msg 1", "Msg 2"]  # same values
+  iex> stream2 = KafkaEx.stream("baz", 0, consumer_group: "my_consumer", auto_commit: true)
+  iex> stream2 |> Enum.take(1) |> Enum.map(fn(msg) -> msg.value end)
+  ["Msg 3"] # stream2 got the next available offset
   ```
 
   ## Options
@@ -374,12 +378,22 @@ Optional arguments(KeywordList)
     no_wait_at_logend = Keyword.get(opts, :no_wait_at_logend, false)
     wait_time         = Keyword.get(opts, :wait_time, @wait_time)
 
-    retrieved_offset  = current_offset(
-      supplied_offset,
-      partition,
-      topic,
-      worker_name
-    )
+    retrieved_offset =
+      if consumer_group && !supplied_offset do
+        request = %OffsetFetchRequest{
+          topic: topic,
+          partition: partition,
+          consumer_group: consumer_group
+        }
+
+        fetched_offset = worker_name
+        |> KafkaEx.offset_fetch(request)
+        |> KafkaEx.Protocol.OffsetFetch.Response.last_offset
+
+        fetched_offset + 1
+      else
+        current_offset(supplied_offset, partition, topic, worker_name)
+      end
 
     fetch_request =  %FetchRequest{
       auto_commit: auto_commit,
