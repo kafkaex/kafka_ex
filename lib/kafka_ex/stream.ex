@@ -17,7 +17,6 @@ defmodule KafkaEx.Stream do
       # this function returns a Stream.resource stream, so we need to define
       # start_fun, next_fun, and after_fun callbacks
 
-
       # the state payload for the stream is just the offset
       start_fun = fn -> data.fetch_request.offset end
 
