@@ -256,7 +256,8 @@ Optional arguments(KeywordList)
   @doc ~S"""
   Returns a streamable struct that may be used for consuming messages.
 
-  The returned struct is compatible with the `Stream` and `Enum` modules.
+  The returned struct is compatible with the `Stream` and `Enum` modules.  Some
+  important usage notes follow; see below for a detailed list of options.
 
   ```elixir
   iex> KafkaEx.produce("foo", 0, "hey")
@@ -280,7 +281,7 @@ Optional arguments(KeywordList)
 
   Reusing the same `KafkaEx.Stream` struct results in consuming the same
   messages multiple times.  This is by design and mirrors the functionality of
-  `File.stream!`.  If you want to reuse the same stream struct, update its
+  `File.stream!/3`.  If you want to reuse the same stream struct, update its
   `:offset` before reuse.
 
   ```
@@ -323,10 +324,10 @@ Optional arguments(KeywordList)
   gets 25 messages.  In this setting, we will (roughly) be committing offsets
   25, 50, 75, etc.
 
-  Note that offsets are committed immediately after messages are retrieved,
-  and therefore before you know if you have succesfully consumed them.  It is
+  Note that offsets are committed immediately after messages are retrieved
+  and before you know if you have succesfully consumed them.  It is
   therefore possible that you could miss messages if your consumer crashes in
-  the middle of consuming a batch, therefore losing the guarantee of
+  the middle of consuming a batch, effectively losing the guarantee of
   at-least-once delivery.  If you need this guarantee, we recommend that you
   construct a GenServer-based consumer module and manage your commits manually.
 
