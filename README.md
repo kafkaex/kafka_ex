@@ -219,20 +219,12 @@ iex> KafkaEx.produce("foo", 0, "hey") # where "foo" is the topic and "hey" is th
 
 ### Stream kafka logs
 
-**NOTE** You must pass `auto_commit: false` in the options for `stream/3` when using Kafka < 0.8.2 or when using `:no_consumer_group`.
-
-**NOTE** The stream blocks by default at the end of the kafka log.  To override
-this and have the stream return immediately at the end of the log, pass
-`no_wait_at_logend: true` in the options.  This mirrors the command line
-arguments of
-[SimpleConsumerShell](https://cwiki.apache.org/confluence/display/KAFKA/System+Tools#SystemTools-SimpleConsumerShell).
+See the `KafkaEx.stream/3` documentation for details on streaming.
 
 ```elixir
-iex> KafkaEx.create_worker(:stream, [uris: [{"localhost", 9092}]])
-{:ok, #PID<0.196.0>}
-iex> KafkaEx.produce("foo", 0, "hey", worker_name: :stream)
+iex> KafkaEx.produce("foo", 0, "hey")
 :ok
-iex> KafkaEx.produce("foo", 0, "hi", worker_name: :stream)
+iex> KafkaEx.produce("foo", 0, "hi")
 :ok
 iex> KafkaEx.stream("foo", 0, offset: 0) |> Enum.take(2)
 [%{attributes: 0, crc: 4264455069, key: nil, offset: 0, value: "hey"},
