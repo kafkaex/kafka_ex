@@ -388,8 +388,10 @@ defmodule KafkaEx.ConsumerGroup.Test do
       consumer_group: consumer_group
     )
 
-    assert ["Msg 3", "Msg 4"] == stream2
+    message_values = stream2
     |> Enum.take(2)
     |> Enum.map(fn(msg) -> msg.value end)
+
+    assert ["Msg 3", "Msg 4"] == message_values
   end
 end
