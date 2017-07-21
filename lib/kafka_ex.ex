@@ -204,14 +204,15 @@ defmodule KafkaEx do
 
   @spec offset_fetch(atom, OffsetFetchRequest.t) :: [OffsetFetchResponse.t] | :topic_not_found
   def offset_fetch(worker_name, offset_fetch_request) do
-  Server.call(worker_name, {:offset_fetch, offset_fetch_request})
-end
+    Server.call(worker_name, {:offset_fetch, offset_fetch_request})
+  end
 
-@doc """
-Produces batch messages to kafka logs
+  @doc """
+  Produces batch messages to kafka logs
 
-Optional arguments(KeywordList)
-- worker_name: the worker we want to run this metadata request through, when none is provided the default worker `:kafka_ex` is used
+  Optional arguments(KeywordList)
+  - worker_name: the worker we want to run this metadata request through, when none is provided the default worker `:kafka_ex` is used
+
   ## Example
 
   ```elixir
@@ -235,7 +236,9 @@ Optional arguments(KeywordList)
   - required_acks: indicates how many acknowledgements the servers should receive before responding to the request. If it is 0 the server will not send any response (this is the only case where the server will not reply to a request). If it is 1, the server will wait the data is written to the local log before sending a response. If it is -1 the server will block until the message is committed by all in sync replicas before sending a response. For any number > 1 the server will block waiting for this number of acknowledgements to occur (but the server will never wait for more acknowledgements than there are in-sync replicas), default is 0
   - timeout: provides a maximum time in milliseconds the server can await the receipt of the number of acknowledgements in RequiredAcks, default is 100 milliseconds
   - compression: specifies the compression type (:none, :snappy, :gzip)
+
   ## Example
+
   ```elixir
   iex> KafkaEx.produce("bar", 0, "hey")
   :ok
