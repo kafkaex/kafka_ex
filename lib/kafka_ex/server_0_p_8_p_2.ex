@@ -116,33 +116,6 @@ defmodule KafkaEx.Server0P8P2 do
     {:reply, consumer_metadata, state}
   end
 
-  def kafka_server_start_streaming(_, state = %State{event_pid: nil}) do
-    # our streaming could have been canceled with a streaming update in-flight
-    {:noreply, state}
-  end
-  def kafka_server_start_streaming(fetch_request, state) do
-    true = consumer_group_if_auto_commit?(fetch_request.auto_commit, state)
-
-    {response, state} = fetch(fetch_request, state)
-    offset = case response do
-               :topic_not_found ->
-                 fetch_request.offset
-               _ ->
-                 message = response |> hd |> Map.get(:partitions) |> hd
-                 Enum.each(message.message_set, fn(message_set) -> GenEvent.notify(state.event_pid, message_set) end)
-                 case message.last_offset do
-                   nil         -> fetch_request.offset
-                   last_offset -> last_offset + 1
-                 end
-             end
-
-    ref = Process.send_after(
-      self(), {:start_streaming, %{fetch_request | offset: offset}}, 500
-    )
-
-    {:noreply, %{state | stream_timer: ref}}
-  end
-
   def kafka_server_update_consumer_metadata(state) do
     true = consumer_group?(state)
     {_, state} = update_consumer_metadata(state)
