@@ -9,8 +9,8 @@ defmodule KafkaEx.Mixfile do
       dialyzer: [
         plt_add_deps: :transitive,
         flags: [
-          "-Werror_handling",
-          "-Wrace_conditions",
+          :error_handling,
+          :race_conditions
         ]
       ],
       test_coverage: [tool: ExCoveralls],
@@ -34,10 +34,10 @@ defmodule KafkaEx.Mixfile do
 
   defp deps do
     [
-      {:credo, "~> 0.5.3", only: :dev},
-      {:dialyxir, "~> 0.4.3", only: :dev},
+      {:credo, "~> 0.8.4", only: :dev},
+      {:dialyxir, "~> 0.5.0", only: :dev},
       {:earmark, "~> 1.0.3", only: :dev},
-      {:excoveralls, "~> 0.6", only: :test},
+      {:excoveralls, "~> 0.7", only: :test},
       {:ex_doc, "~> 0.14.5", only: :dev},
       {:snappy,
        git: "https://github.com/fdmanana/snappy-erlang-nif",
