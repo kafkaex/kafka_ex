@@ -268,7 +268,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
       worker_name: :stream,
       offset: 0,
       auto_commit: true,
-      consumer_group: "stream_test"
+      consumer_group: consumer_group
     )
 
     [m1, m2] = Enum.take(stream, 2)
