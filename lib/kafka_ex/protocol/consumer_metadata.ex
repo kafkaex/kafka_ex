@@ -1,6 +1,5 @@
 defmodule KafkaEx.Protocol.ConsumerMetadata do
   alias KafkaEx.Protocol
-  alias KafkaEx.Socket
 
   @moduledoc """
   Implementation of the Kafka ConsumerMetadata request and response APIs
@@ -8,6 +7,9 @@ defmodule KafkaEx.Protocol.ConsumerMetadata do
 
   defmodule Response do
     @moduledoc false
+
+    alias KafkaEx.Protocol.Metadata.Broker
+
     defstruct coordinator_id: 0, coordinator_host: "", coordinator_port: 0, error_code: 0
     @type t :: %Response{
       coordinator_id: integer,
@@ -16,8 +18,14 @@ defmodule KafkaEx.Protocol.ConsumerMetadata do
       error_code: atom
     }
 
+    @spec broker_for_consumer_group([Broker.t], t) :: Broker.t | nil
     def broker_for_consumer_group(brokers, consumer_group_metadata) do
-      Enum.find(brokers, &(&1.node_id == consumer_group_metadata.coordinator_id && &1.socket && is_list(Socket.info(&1.socket))))
+      Enum.find(brokers, &(connected_coordinator?(&1, consumer_group_metadata)))
+    end
+
+    defp connected_coordinator?(broker = %Broker{}, consumer_group_metadata) do
+      broker.node_id == consumer_group_metadata.coordinator_id &&
+        Broker.connected?(broker)
     end
   end
 

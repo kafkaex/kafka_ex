@@ -32,7 +32,7 @@ defmodule KafkaEx.Server0P8P0 do
     uris = Keyword.get(args, :uris, [])
     metadata_update_interval = Keyword.get(args, :metadata_update_interval, @metadata_update_interval)
     brokers = Enum.map(uris, fn({host, port}) -> %Broker{host: host, port: port, socket: NetworkClient.create_socket(host, port)} end)
-    {correlation_id, metadata} = retrieve_metadata(brokers, 0, sync_timeout())
+    {correlation_id, metadata} = retrieve_metadata(brokers, 0, config_sync_timeout())
     state = %State{metadata: metadata, brokers: brokers, correlation_id: correlation_id, metadata_update_interval: metadata_update_interval, worker_name: name}
     # Get the initial "real" broker list and start a regular refresh cycle.
     state = update_metadata(state)
@@ -67,31 +67,6 @@ defmodule KafkaEx.Server0P8P0 do
   def kafka_server_heartbeat(_, _, _state), do: raise "Heartbeat is not supported in 0.8.0 version of kafka"
   def kafka_server_update_consumer_metadata(_state), do: raise "Consumer Group Metadata is not supported in 0.8.0 version of kafka"
 
-  def kafka_server_start_streaming(_, state = %State{event_pid: nil}) do
-    # our streaming could have been canceled with a streaming update in-flight
-    {:noreply, state}
-  end
-  def kafka_server_start_streaming(fetch_request, state) do
-    {response, state} = fetch(fetch_request, state)
-    offset = case response do
-               :topic_not_found ->
-                 fetch_request.offset
-               _ ->
-                 message = response |> hd |> Map.get(:partitions) |> hd
-                 Enum.each(message.message_set, fn(message_set) -> GenEvent.notify(state.event_pid, message_set) end)
-                 case message.last_offset do
-                   nil         -> fetch_request.offset
-                   last_offset -> last_offset + 1
-                 end
-             end
-
-    ref = Process.send_after(
-      self(), {:start_streaming, %{fetch_request | offset: offset}}, 500
-    )
-
-    {:noreply, %{state | stream_timer: ref}}
-  end
-
   defp fetch(fetch_request, state) do
     fetch_data = Fetch.create_request(%FetchRequest{
       fetch_request |
@@ -111,7 +86,7 @@ defmodule KafkaEx.Server0P8P0 do
         {:topic_not_found, state}
       _ ->
         response = broker
-          |> NetworkClient.send_sync_request(fetch_data, sync_timeout())
+          |> NetworkClient.send_sync_request(fetch_data, config_sync_timeout())
           |> Fetch.parse_response
         {response, %{state | correlation_id: state.correlation_id + 1}}
     end

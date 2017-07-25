@@ -33,7 +33,6 @@ defmodule KafkaEx.Server0P9P0 do
   defdelegate kafka_server_offset_fetch(offset_fetch, state), to: Server0P8P2
   defdelegate kafka_server_offset_commit(offset_commit_request, state), to: Server0P8P2
   defdelegate kafka_server_consumer_group_metadata(state), to: Server0P8P2
-  defdelegate kafka_server_start_streaming(fetch_request, state), to: Server0P8P2
   defdelegate kafka_server_update_consumer_metadata(state), to: Server0P8P2
 
   def kafka_server_init([args]) do
@@ -53,16 +52,21 @@ defmodule KafkaEx.Server0P9P0 do
     ssl_options = Keyword.get(args, :ssl_options, [])
 
     brokers = Enum.map(uris, fn({host, port}) -> %Broker{host: host, port: port, socket: NetworkClient.create_socket(host, port, ssl_options, use_ssl)} end)
-    {correlation_id, metadata} = retrieve_metadata(brokers, 0, sync_timeout())
+    {correlation_id, metadata} = retrieve_metadata(brokers, 0, config_sync_timeout())
     state = %State{metadata: metadata, brokers: brokers, correlation_id: correlation_id, consumer_group: consumer_group, metadata_update_interval: metadata_update_interval, consumer_group_update_interval: consumer_group_update_interval, worker_name: name, ssl_options: ssl_options, use_ssl: use_ssl}
     # Get the initial "real" broker list and start a regular refresh cycle.
     state = update_metadata(state)
     {:ok, _} = :timer.send_interval(state.metadata_update_interval, :update_metadata)
 
-    # only start the consumer group update cycle if we are using consumer groups
-    if consumer_group?(state) do
-      {:ok, _} = :timer.send_interval(state.consumer_group_update_interval, :update_consumer_metadata)
-    end
+    state =
+      if consumer_group?(state) do
+        # If we are using consumer groups then initialize the state and start the update cycle
+        {_, updated_state} = update_consumer_metadata(state)
+        {:ok, _} = :timer.send_interval(state.consumer_group_update_interval, :update_consumer_metadata)
+        updated_state
+      else
+        state
+      end
 
     {:ok, state}
   end
@@ -159,6 +163,6 @@ defmodule KafkaEx.Server0P9P0 do
   end
 
   defp first_broker_response(request, state) do
-    first_broker_response(request, state.brokers, sync_timeout())
+    first_broker_response(request, state.brokers, config_sync_timeout())
   end
 end

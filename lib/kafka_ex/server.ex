@@ -25,7 +25,6 @@ defmodule KafkaEx.Server do
       metadata: %Metadata.Response{},
       brokers: [],
       event_pid: nil,
-      stream_timer: nil,
       consumer_metadata: %ConsumerMetadata.Response{},
       correlation_id: 0,
       consumer_group: nil,
@@ -40,7 +39,6 @@ defmodule KafkaEx.Server do
         metadata: Metadata.Response.t,
         brokers: [Broker.t],
         event_pid: nil | pid,
-        stream_timer: reference,
         consumer_metadata: ConsumerMetadata.Response.t,
         correlation_id: integer,
         metadata_update_interval: nil | integer,
@@ -140,21 +138,6 @@ defmodule KafkaEx.Server do
     {:noreply, new_state, timeout | :hibernate} |
     {:stop, reason, reply, new_state} |
     {:stop, reason, new_state} when reply: term, new_state: term, reason: term
-  @callback kafka_server_create_stream(handler :: term, handler_init :: term, state :: State.t) ::
-    {:reply, reply, new_state} |
-    {:reply, reply, new_state, timeout | :hibernate} |
-    {:noreply, new_state} |
-    {:noreply, new_state, timeout | :hibernate} |
-    {:stop, reason, reply, new_state} |
-    {:stop, reason, new_state} when reply: term, new_state: term, reason: term
-  @callback kafka_server_start_streaming(fetch_request :: FetchRequest.t, state :: State.t) ::
-    {:noreply, new_state} |
-    {:noreply, new_state, timeout | :hibernate} |
-    {:stop, reason :: term, new_state} when new_state: term
-  @callback kafka_server_stop_streaming(state :: State.t) ::
-    {:noreply, new_state} |
-    {:noreply, new_state, timeout | :hibernate} |
-    {:stop, reason :: term, new_state} when new_state: term
   @callback kafka_server_update_metadata(state :: State.t) ::
     {:noreply, new_state} |
     {:noreply, new_state, timeout | :hibernate} |
@@ -167,7 +150,7 @@ defmodule KafkaEx.Server do
   @default_call_timeout 5_000 # Default from GenServer
 
   @doc false
-  @spec call(GenServer.server(), number | opts :: Keyword.t) :: term
+  @spec call(GenServer.server(), atom | tuple, nil | number | opts :: Keyword.t) :: term
   def call(server, request, opts \\ [])
   def call(server, request, opts) when is_list(opts) do
     call(server, request, opts[:timeout])
@@ -257,24 +240,6 @@ defmodule KafkaEx.Server do
         kafka_server_heartbeat(request, network_timeout, state)
       end
 
-      def handle_call({:create_stream, handler, handler_init}, _from, state) do
-        kafka_server_create_stream(handler, handler_init, state)
-      end
-
-      def handle_info({:start_streaming, fetch_request}, state) do
-        kafka_server_start_streaming(fetch_request, state)
-      end
-
-      def handle_info(:stop_streaming, state) do
-        {:noreply, state} = kafka_server_stop_streaming(state)
-        state = case state.stream_timer do
-          nil -> state
-          ref -> Process.cancel_timer(ref)
-          %{state | stream_timer: nil}
-        end
-        {:noreply, state}
-      end
-
       def handle_info(:update_metadata, state) do
         kafka_server_update_metadata(state)
       end
@@ -302,7 +267,7 @@ defmodule KafkaEx.Server do
         produce_request_data = Produce.create_request(correlation_id, @client_id, produce_request)
         {broker, state, corr_id} = case MetadataResponse.broker_for_topic(state.metadata, state.brokers, produce_request.topic, produce_request.partition) do
           nil    ->
-            {retrieved_corr_id, _} = retrieve_metadata(state.brokers, state.correlation_id, sync_timeout(), produce_request.topic)
+            {retrieved_corr_id, _} = retrieve_metadata(state.brokers, state.correlation_id, config_sync_timeout(), produce_request.topic)
             state = %{update_metadata(state) | correlation_id: retrieved_corr_id}
             {
               MetadataResponse.broker_for_topic(state.metadata, state.brokers, produce_request.topic, produce_request.partition),
@@ -320,7 +285,7 @@ defmodule KafkaEx.Server do
             0 ->  NetworkClient.send_async_request(broker, produce_request_data)
             _ ->
               response = broker
-               |> NetworkClient.send_sync_request(produce_request_data, sync_timeout())
+               |> NetworkClient.send_sync_request(produce_request_data, config_sync_timeout())
                |> Produce.parse_response
               case response do
                 [%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: :no_error, offset: offset, partition: _}], topic: topic}] when offset != nil ->
@@ -349,7 +314,7 @@ defmodule KafkaEx.Server do
             {:topic_not_found, state}
           _ ->
             response = broker
-             |> NetworkClient.send_sync_request(offset_request, sync_timeout())
+             |> NetworkClient.send_sync_request(offset_request, config_sync_timeout())
              |> Offset.parse_response
             state = %{state | correlation_id: state.correlation_id + 1}
             {response, state}
@@ -359,28 +324,9 @@ defmodule KafkaEx.Server do
       end
 
       def kafka_server_metadata(topic, state) do
-        {correlation_id, metadata} = retrieve_metadata(state.brokers, state.correlation_id, sync_timeout(), topic)
+        {correlation_id, metadata} = retrieve_metadata(state.brokers, state.correlation_id, config_sync_timeout(), topic)
         updated_state = %{state | metadata: metadata, correlation_id: correlation_id}
         {:reply, metadata, updated_state}
-      end
-
-      def kafka_server_create_stream(handler, handler_init, state) do
-        new_state = if state.event_pid && Process.alive?(state.event_pid) do
-          Logger.log(:warn, "'#{state.worker_name}' already streaming handler '#{handler}'")
-          state
-        else
-          {:ok, event_pid}  = GenEvent.start_link
-          updated_state = %{state | event_pid: event_pid}
-          :ok = GenEvent.add_handler(updated_state.event_pid, handler, handler_init)
-          updated_state
-        end
-        {:reply, GenEvent.stream(new_state.event_pid), new_state}
-      end
-
-      def kafka_server_stop_streaming(state) do
-        Logger.log(:debug, "Stopped worker #{inspect state.worker_name} from streaming")
-        GenEvent.stop(state.event_pid)
-        {:noreply, %{state | event_pid: nil}}
       end
 
       def kafka_server_update_metadata(state) do
@@ -388,7 +334,7 @@ defmodule KafkaEx.Server do
       end
 
       def update_metadata(state) do
-        {correlation_id, metadata} = retrieve_metadata(state.brokers, state.correlation_id, sync_timeout())
+        {correlation_id, metadata} = retrieve_metadata(state.brokers, state.correlation_id, config_sync_timeout())
         metadata_brokers = metadata.brokers
         brokers = state.brokers
           |> remove_stale_brokers(metadata_brokers)
@@ -423,8 +369,7 @@ defmodule KafkaEx.Server do
 
       defoverridable [
         kafka_server_produce: 2, kafka_server_offset: 4,
-        kafka_server_metadata: 2, kafka_server_create_stream: 3,
-        kafka_server_stop_streaming: 1, kafka_server_update_metadata: 1,
+        kafka_server_metadata: 2, kafka_server_update_metadata: 1,
       ]
 
       defp remove_stale_brokers(brokers, metadata_brokers) do

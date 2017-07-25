@@ -68,7 +68,7 @@ defmodule MyApp.Mixfile do
   defp deps do
     [
       # add to your existing deps
-      {:kafka_ex, "~> 0.6.5"},
+      {:kafka_ex, "~> 0.7.0"},
       # if using snappy compression
       {:snappy, git: "https://github.com/fdmanana/snappy-erlang-nif"}
     ]
@@ -125,7 +125,7 @@ library, you will want to manually create a worker so that it is not supervised 
 To do this, you will need to call:
 
 ```elixir
-GenServer.start_link(KafkaEx.Server,
+GenServer.start_link(KafkaEx.Config.server_impl,
   [
     [uris: Application.get_env(:kafka_ex, :brokers),
      consumer_group: Application.get_env(:kafka_ex, :consumer_group)],
@@ -219,21 +219,19 @@ iex> KafkaEx.produce("foo", 0, "hey") # where "foo" is the topic and "hey" is th
 
 ### Stream kafka logs
 
-**NOTE** You must pass `auto_commit: false` in the options for `stream/3` when using Kafka < 0.8.2 or when using `:no_consumer_group`.
+See the `KafkaEx.stream/3` documentation for details on streaming.
 
 ```elixir
-iex> KafkaEx.create_worker(:stream, [uris: [{"localhost", 9092}]])
-{:ok, #PID<0.196.0>}
-iex> KafkaEx.produce("foo", 0, "hey", worker_name: :stream)
+iex> KafkaEx.produce("foo", 0, "hey")
 :ok
-iex> KafkaEx.produce("foo", 0, "hi", worker_name: :stream)
+iex> KafkaEx.produce("foo", 0, "hi")
 :ok
 iex> KafkaEx.stream("foo", 0, offset: 0) |> Enum.take(2)
 [%{attributes: 0, crc: 4264455069, key: nil, offset: 0, value: "hey"},
  %{attributes: 0, crc: 4251893211, key: nil, offset: 1, value: "hi"}]
 ```
 
-As mentioned, for Kafka < 0.8.2 the `stream/3` requires `autocommit: false`
+For Kafka < 0.8.2 the `stream/3` requires `autocommit: false`
 
 ```elixir
 iex> KafkaEx.stream("foo", 0, offset: 0, auto_commit: false) |> Enum.take(2)
