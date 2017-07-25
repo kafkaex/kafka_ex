@@ -403,7 +403,7 @@ defmodule KafkaEx.Server do
         end)
       end
 
-      defp sync_timeout(timeout \\ nil) do
+      defp config_sync_timeout(timeout \\ nil) do
         timeout || Application.get_env(:kafka_ex, :sync_timeout, @sync_timeout)
       end
     end

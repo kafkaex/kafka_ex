@@ -76,7 +76,7 @@ defmodule KafkaEx.Server0P9P0 do
     {broker, state} = broker_for_consumer_group_with_update(state)
     request = JoinGroup.create_request(state.correlation_id, @client_id, join_group_request)
     response = broker
-      |> NetworkClient.send_sync_request(request, sync_timeout(network_timeout))
+      |> NetworkClient.send_sync_request(request, config_sync_timeout(network_timeout))
       |> JoinGroup.parse_response
     {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
   end
@@ -86,7 +86,7 @@ defmodule KafkaEx.Server0P9P0 do
     {broker, state} = broker_for_consumer_group_with_update(state)
     request = SyncGroup.create_request(state.correlation_id, @client_id, sync_group_request)
     response = broker
-      |> NetworkClient.send_sync_request(request, sync_timeout(network_timeout))
+      |> NetworkClient.send_sync_request(request, config_sync_timeout(network_timeout))
       |> SyncGroup.parse_response
     {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
   end
@@ -96,7 +96,7 @@ defmodule KafkaEx.Server0P9P0 do
     {broker, state} = broker_for_consumer_group_with_update(state)
     request = LeaveGroup.create_request(state.correlation_id, @client_id, request)
     response = broker
-      |> NetworkClient.send_sync_request(request, sync_timeout(network_timeout))
+      |> NetworkClient.send_sync_request(request, config_sync_timeout(network_timeout))
       |> LeaveGroup.parse_response
     {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
   end
@@ -106,7 +106,7 @@ defmodule KafkaEx.Server0P9P0 do
     {broker, state} = broker_for_consumer_group_with_update(state)
     request = Heartbeat.create_request(state.correlation_id, @client_id, request)
     response = broker
-      |> NetworkClient.send_sync_request(request, sync_timeout(network_timeout))
+      |> NetworkClient.send_sync_request(request, config_sync_timeout(network_timeout))
       |> Heartbeat.parse_response
     {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
   end
