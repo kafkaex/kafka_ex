@@ -24,7 +24,7 @@ defmodule KafkaEx.GenConsumer do
     require Logger
 
     def handle_message(%Message{value: message}, state) do
-      Logger.debug("message: " <> inspect(message))
+      Logger.debug(fn -> "message: " <> inspect(message) end)
       {:ack, state}
     end
   end
@@ -450,7 +450,7 @@ defmodule KafkaEx.GenConsumer do
     [%OffsetCommitResponse{topic: ^topic, partitions: [^partition]}] =
       KafkaEx.offset_commit(worker_name, request)
 
-    Logger.debug("Committed offset #{topic}/#{partition}@#{offset} for #{group}")
+    Logger.debug(fn -> "Committed offset #{topic}/#{partition}@#{offset} for #{group}" end)
 
     %State{state | committed_offset: offset, last_commit: :erlang.monotonic_time(:milli_seconds)}
   end
