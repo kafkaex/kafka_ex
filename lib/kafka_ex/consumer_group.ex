@@ -31,7 +31,7 @@ defmodule KafkaEx.ConsumerGroup do
 
     def handle_message(%Message{value: message}, state) do
       IO.puts(to_string(node()) <> ": " <> inspect(message))
-      {:ack, state}
+      {:async_commit, state}
     end
   end
 

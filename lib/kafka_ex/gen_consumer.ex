@@ -25,19 +25,19 @@ defmodule KafkaEx.GenConsumer do
 
     def handle_message(%Message{value: message}, state) do
       Logger.debug(fn -> "message: " <> inspect(message) end)
-      {:ack, state}
+      {:async_commit, state}
     end
   end
   ```
 
   `c:handle_message/2` will be called for each message that's fetched from a Kafka broker. In this
-  example, since `c:handle_message/2` always returns `{:ack, new_state}`, the message offsets will
+  example, since `c:handle_message/2` always returns `{:async_commit, new_state}`, the message offsets will
   be auto-committed.
 
   ## Auto-Committing Offsets
 
   `GenConsumer` manages a consumer's offsets by committing the offsets of acknowledged messages.
-  Messages are acknowledged by returning `{:ack, new_state}` from `c:handle_message/2`.
+  Messages are acknowledged by returning `{:async_commit, new_state}` from `c:handle_message/2`.
   Acknowledged messages are not committed immediately. To avoid excessive network calls,
   acknowledged messages may be batched and committed periodically. Offsets are also committed when a
   `GenServer` is terminated.
@@ -101,7 +101,7 @@ defmodule KafkaEx.GenConsumer do
     test "it acks a message", %{state: state} do
       message = %Message{offset: 0, value: "hello"}
       {response, _new_state} = ExampleGenConsumer.handle_message(message, state)
-      assert response == :ack
+      assert response == :async_commit
     end
   end
   ```
@@ -170,18 +170,18 @@ defmodule KafkaEx.GenConsumer do
   `message` is a message fetched from a Kafka broker and `state` is the current state of the
   `GenConsumer`.
 
-  Returning `{:ack, new_state}` acknowledges `message` and continues to consume from the Kafka queue
+  Returning `{:async_commit, new_state}` acknowledges `message` and continues to consume from the Kafka queue
   with new state `new_state`. Acknowledged messages will be auto-committed (possibly at a later
   time) based on the `:commit_interval` and `:commit_threshold` options.
 
-  Returning `{:commit, new_state}` commits `message` synchronously before continuing to consume from
+  Returning `{:sync_commit, new_state}` commits `message` synchronously before continuing to consume from
   the Kafka queue with new state `new_state`. Committing a message synchronously means that no more
-  messages will be consumed until the message's offset is committed. `:commit` should be used
+  messages will be consumed until the message's offset is committed. `:sync_commit` should be used
   sparingly, since committing every message synchronously would impact a consumer's performance and
   could result in excessive network traffic.
   """
-  @callback handle_message(message :: Message.t, state :: term) :: {:ack, new_state :: term}
-                                                                 | {:commit, new_state :: term}
+  @callback handle_message(message :: Message.t, state :: term) :: {:async_commit, new_state :: term}
+                                                                 | {:sync_commit, new_state :: term}
 
   @doc """
   Invoked to determine partition assignments for a coordinated consumer group.
@@ -352,10 +352,10 @@ defmodule KafkaEx.GenConsumer do
 
   defp handle_message(%Message{offset: offset} = message, %State{consumer_module: consumer_module, consumer_state: consumer_state} = state) do
     case consumer_module.handle_message(message, consumer_state) do
-      {:ack, new_state} ->
+      {:async_commit, new_state} ->
         auto_commit %State{state | consumer_state: new_state, acked_offset: offset + 1, current_offset: offset + 1}
 
-      {:commit, new_state} ->
+      {:sync_commit, new_state} ->
         commit %State{state | consumer_state: new_state, acked_offset: offset + 1, current_offset: offset + 1}
     end
   end
