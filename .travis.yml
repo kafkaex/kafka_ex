@@ -2,6 +2,10 @@ language: elixir
 branches:
   only:
     - "master"
+cache:
+  directories:
+    - deps
+    - _build
 otp_release:
   - 18.3
   - 19.2
