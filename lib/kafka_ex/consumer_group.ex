@@ -2,28 +2,33 @@ defmodule KafkaEx.ConsumerGroup do
   @moduledoc """
   A process that manages membership in a Kafka consumer group.
 
-  Consumers in a consumer group coordinate with each other through a Kafka broker to distribute the
-  work of consuming one or several topics without any overlap. This is facilitated by the [Kafka
-  client-side assignment
-  protocol](https://cwiki.apache.org/confluence/display/KAFKA/Kafka+Client-side+Assignment+Proposal).
+  Consumers in a consumer group coordinate with each other through a Kafka
+  broker to distribute the work of consuming one or several topics without any
+  overlap. This is facilitated by the
+  [Kafka client-side assignment protocol](https://cwiki.apache.org/confluence/display/KAFKA/Kafka+Client-side+Assignment+Proposal).
 
-  Any time group membership changes (a member joins or leaves the group), a Kafka broker initiates
-  group synchronization by asking one of the group members (the leader) to provide partition
-  assignments for the whole group. Partition assignment is handled by the
-  `c:KafkaEx.GenConsumer.assign_partitions/2` callback of the provided consumer module.
+  Any time group membership changes (a member joins or leaves the group), a
+  Kafka broker initiates group synchronization by asking one of the group
+  members (the leader) to provide partition assignments for the whole group.
+  Partition assignment is handled by the
+  `c:KafkaEx.GenConsumer.assign_partitions/2` callback of the provided consumer
+  module.
 
   A `ConsumerGroup` process is responsible for:
 
   1. Maintaining membership in a Kafka consumer group.
   2. Determining partition assignments if elected as the group leader.
-  3. Launching and terminating `GenConsumer` processes based on its assigned partitions.
+  3. Launching and terminating `GenConsumer` processes based on its assigned
+    partitions.
 
-  To use a `ConsumerGroup`, a developer must define a module that implements the
-  `KafkaEx.GenConsumer` behaviour and start a `ConsumerGroup` with that module.
+  To use a `ConsumerGroup`, a developer must define a module that implements
+  the `KafkaEx.GenConsumer` behaviour and start a `ConsumerGroup` with that
+  module.
 
   ## Example
 
-  The following consumer prints each message with the name of the node that's consuming the message:
+  The following consumer prints each message with the name of the node that's
+  consuming the message:
 
   ```
   defmodule DistributedConsumer do
@@ -53,8 +58,8 @@ defmodule KafkaEx.ConsumerGroup do
   node1@host: "nodes"
   ```
 
-  It is not necessary for the nodes to be connected, because `ConsumerGroup` uses Kafka's built-in
-  group coordination protocol.
+  It is not necessary for the nodes to be connected, because `ConsumerGroup`
+  uses Kafka's built-in group coordination protocol.
   """
 
   use GenServer
@@ -96,26 +101,45 @@ defmodule KafkaEx.ConsumerGroup do
   # Client API
 
   @doc """
-  Starts a `ConsumerGroup` process linked to the current process. Client programs should use
-  `KafkaEx.ConsumerGroup.Supervisor.start_link/4` instead.
+  Starts a `ConsumerGroup` process linked to the current process.
+  
+  Client programs should use `KafkaEx.ConsumerGroup.Supervisor.start_link/4`
+  instead.
   """
-  @spec start_link(module, binary, [binary], KafkaEx.GenConsumer.options) :: GenServer.on_start
+  @spec start_link(module, binary, [binary], KafkaEx.GenConsumer.options) ::
+    GenServer.on_start
   def start_link(consumer_module, group_name, topics, opts \\ []) do
-    {server_opts, consumer_opts} = Keyword.split(opts, [:debug, :name, :timeout, :spawn_opt])
+    {server_opts, consumer_opts} =
+      Keyword.split(opts, [:debug, :name, :timeout, :spawn_opt])
 
-    GenServer.start_link(__MODULE__, {consumer_module, group_name, topics, consumer_opts}, server_opts)
+    GenServer.start_link(
+      __MODULE__,
+      {consumer_module, group_name, topics, consumer_opts},
+      server_opts
+    )
   end
 
   # GenServer callbacks
 
   def init({consumer_module, group_name, topics, opts}) do
-    heartbeat_interval = Keyword.get(opts, :heartbeat_interval, Application.get_env(:kafka_ex, :heartbeat_interval, @heartbeat_interval))
-    session_timeout = Keyword.get(opts, :session_timeout, Application.get_env(:kafka_ex, :session_timeout, @session_timeout))
+    heartbeat_interval = Keyword.get(
+      opts,
+      :heartbeat_interval,
+      Application.get_env(:kafka_ex, :heartbeat_interval, @heartbeat_interval)
+    )
+    session_timeout = Keyword.get(
+      opts,
+      :session_timeout,
+      Application.get_env(:kafka_ex, :session_timeout, @session_timeout)
+    )
 
     supervisor_pid = Keyword.fetch!(opts, :supervisor_pid)
-    consumer_opts = Keyword.drop(opts, [:supervisor_pid, :heartbeat_interval, :session_timeout])
+    consumer_opts = Keyword.drop(
+      opts, [:supervisor_pid, :heartbeat_interval, :session_timeout]
+    )
 
-    {:ok, worker_name} = KafkaEx.create_worker(:no_name, consumer_group: group_name)
+    {:ok, worker_name} =
+      KafkaEx.create_worker(:no_name, consumer_group: group_name)
 
     state = %State{
       supervisor_pid: supervisor_pid,
@@ -134,23 +158,28 @@ defmodule KafkaEx.ConsumerGroup do
     {:ok, state, 0}
   end
 
-  # If `member_id` and `generation_id` aren't set, we haven't yet joined the group. `member_id` and
-  # `generation_id` are initialized by `JoinGroupResponse`.
-  def handle_info(:timeout, %State{generation_id: nil, member_id: ""} = state) do
+  # If `member_id` and `generation_id` aren't set, we haven't yet joined the
+  # group. `member_id` and `generation_id` are initialized by
+  # `JoinGroupResponse`.
+  def handle_info(
+    :timeout, %State{generation_id: nil, member_id: ""} = state
+  ) do
     {:ok, new_state} = join(state)
 
     {:noreply, new_state}
   end
 
-  # After joining the group, a member must periodically send heartbeats to the group coordinator.
+  # After joining the group, a member must periodically send heartbeats to the
+  # group coordinator.
   def handle_info(:heartbeat, %State{} = state) do
     {:ok, new_state} = heartbeat(state)
 
     {:noreply, new_state}
   end
 
-  # When terminating, inform the group coordinator that this member is leaving the group so that the
-  # group can rebalance without waiting for a session timeout.
+  # When terminating, inform the group coordinator that this member is leaving
+  # the group so that the group can rebalance without waiting for a session
+  # timeout.
   def terminate(_reason, %State{generation_id: nil, member_id: ""}), do: :ok
   def terminate(_reason, %State{} = state) do
     :ok = leave(state)
@@ -158,18 +187,30 @@ defmodule KafkaEx.ConsumerGroup do
 
   ### Helpers
 
-  # `JoinGroupRequest` is used to set the active members of a group. The response blocks until the
-  # broker has decided that it has a full list of group members. This requires that all active
-  # members send a `JoinGroupRequest`. For active members, this is triggered by the broker
-  # responding to a heartbeat with a `:rebalance_in_progress` error code. If any group members fail
-  # to send a `JoinGroupRequest` before the session timeout expires, then those group members are
-  # removed from the group and synchronization continues without them.
+  # `JoinGroupRequest` is used to set the active members of a group. The
+  # response blocks until the broker has decided that it has a full list of
+  # group members. This requires that all active members send a
+  # `JoinGroupRequest`. For active members, this is triggered by the broker
+  # responding to a heartbeat with a `:rebalance_in_progress` error code. If
+  # any group members fail to send a `JoinGroupRequest` before the session
+  # timeout expires, then those group members are removed from the group and
+  # synchronization continues without them.
   #
-  # `JoinGroupResponse` tells each member its unique member ID as well as the group's current
-  # generation ID. The broker will pick one group member to be the leader, which is reponsible for
-  # assigning partitions to all of the group members. Once a `JoinGroupResponse` is received, all
-  # group members must send a `SyncGroupRequest` (see sync/2).
-  defp join(%State{worker_name: worker_name, session_timeout: session_timeout, group_name: group_name, topics: topics, member_id: member_id} = state) do
+  # `JoinGroupResponse` tells each member its unique member ID as well as the
+  # group's current generation ID. The broker will pick one group member to be
+  # the leader, which is reponsible for assigning partitions to all of the
+  # group members. Once a `JoinGroupResponse` is received, all group members
+  # must send a `SyncGroupRequest` (see sync/2).
+
+  defp join(
+    %State{
+      worker_name: worker_name,
+      session_timeout: session_timeout,
+      group_name: group_name,
+      topics: topics,
+      member_id: member_id
+    } = state
+  ) do
     join_request = %JoinGroupRequest{
       group_name: group_name,
       member_id: member_id,
@@ -178,11 +219,19 @@ defmodule KafkaEx.ConsumerGroup do
     }
 
     join_response = %JoinGroupResponse{error_code: :no_error} =
-      KafkaEx.join_group(join_request, worker_name: worker_name, timeout: session_timeout + @session_timeout_padding)
+      KafkaEx.join_group(
+        join_request,
+        worker_name: worker_name,
+        timeout: session_timeout + @session_timeout_padding
+      )
 
     Logger.debug(fn -> "Joined consumer group #{group_name}" end)
 
-    new_state = %State{state | member_id: join_response.member_id, generation_id: join_response.generation_id}
+    new_state = %State{
+      state |
+      member_id: join_response.member_id,
+      generation_id: join_response.generation_id
+    }
 
     assignments =
       if JoinGroupResponse.leader?(join_response) do
@@ -197,17 +246,28 @@ defmodule KafkaEx.ConsumerGroup do
     sync(new_state, assignments)
   end
 
-  # `SyncGroupRequest` is used to distribute partition assignments to all group members. All group
-  # members must send this request after receiving a response to a `JoinGroupRequest`. The request
-  # blocks until assignments are provided by the leader. The leader sends partition assignments
-  # (given by the `assignments` parameter) as part of its `SyncGroupRequest`. For all other members,
-  # `assignments` must be empty.
+  # `SyncGroupRequest` is used to distribute partition assignments to all group
+  # members. All group members must send this request after receiving a
+  # response to a `JoinGroupRequest`. The request blocks until assignments are
+  # provided by the leader. The leader sends partition assignments (given by
+  # the `assignments` parameter) as part of its `SyncGroupRequest`. For all
+  # other members, `assignments` must be empty.
   #
-  # `SyncGroupResponse` contains the individual member's partition assignments. Upon receiving a
-  # successful `SyncGroupResponse`, a group member is free to start consuming from its assigned
-  # partitions, but must send periodic heartbeats to the coordinating broker.
-  defp sync(%State{group_name: group_name, member_id: member_id, generation_id: generation_id,
-                   worker_name: worker_name, session_timeout: session_timeout} = state, assignments) do
+  # `SyncGroupResponse` contains the individual member's partition assignments.
+  # Upon receiving a successful `SyncGroupResponse`, a group member is free to
+  # start consuming from its assigned partitions, but must send periodic
+  # heartbeats to the coordinating broker.
+
+  defp sync(
+    %State{
+      group_name: group_name,
+      member_id: member_id,
+      generation_id: generation_id,
+      worker_name: worker_name,
+      session_timeout: session_timeout
+    } = state,
+    assignments
+  ) do
     sync_request = %SyncGroupRequest{
       group_name: group_name,
       member_id: member_id,
@@ -215,31 +275,43 @@ defmodule KafkaEx.ConsumerGroup do
       assignments: assignments,
     }
 
-    case KafkaEx.sync_group(sync_request, worker_name: worker_name, timeout: session_timeout + @session_timeout_padding) do
+    sync_group_response = KafkaEx.sync_group(
+      sync_request,
+      worker_name: worker_name,
+      timeout: session_timeout + @session_timeout_padding
+    )
+
+    case sync_group_response do
       %SyncGroupResponse{error_code: :no_error, assignments: assignments} ->
         new_state = state
                     |> start_consumer(unpack_assignments(assignments))
                     |> start_heartbeat_timer()
-
         {:ok, new_state}
-
       %SyncGroupResponse{error_code: :rebalance_in_progress} ->
         rebalance(state)
     end
   end
 
-  # `HeartbeatRequest` is sent periodically by each active group member (after completing the
-  # join/sync phase) to inform the broker that the member is still alive and participating in the
-  # group. If a group member fails to send a heartbeat before the group's session timeout expires,
-  # the coordinator removes that member from the group and initiates a rebalance.
+  # `HeartbeatRequest` is sent periodically by each active group member (after
+  # completing the join/sync phase) to inform the broker that the member is
+  # still alive and participating in the group. If a group member fails to send
+  # a heartbeat before the group's session timeout expires, the coordinator
+  # removes that member from the group and initiates a rebalance.
   #
-  # `HeartbeatResponse` allows the coordinating broker to communicate the group's status to each
-  # member:
+  # `HeartbeatResponse` allows the coordinating broker to communicate the
+  # group's status to each member:
   #
-  #   * `:no_error` indicates that the group is up to date and no action is needed.
-  #   * `:rebalance_in_progress` instructs each member to rejoin the group by sending a
-  #     `JoinGroupRequest` (see join/1).
-  defp heartbeat(%State{worker_name: worker_name, group_name: group_name, generation_id: generation_id, member_id: member_id} = state) do
+  #   * `:no_error` indicates that the group is up to date and no action is
+  #   needed.  * `:rebalance_in_progress` instructs each member to rejoin the
+  #   group by sending a `JoinGroupRequest` (see join/1).
+  defp heartbeat(
+    %State{
+      worker_name: worker_name,
+      group_name: group_name,
+      generation_id: generation_id,
+      member_id: member_id
+    } = state
+  ) do
     heartbeat_request = %HeartbeatRequest{
       group_name: group_name,
       member_id: member_id,
@@ -256,10 +328,17 @@ defmodule KafkaEx.ConsumerGroup do
     end
   end
 
-  # `LeaveGroupRequest` is used to voluntarily leave a group. This tells the broker that the member
-  # is leaving the group without having to wait for the session timeout to expire. Leaving a group
-  # triggers a rebalance for the remaining group members.
-  defp leave(%State{worker_name: worker_name, group_name: group_name, member_id: member_id} = state) do
+  # `LeaveGroupRequest` is used to voluntarily leave a group. This tells the
+  # broker that the member is leaving the group without having to wait for the
+  # session timeout to expire. Leaving a group triggers a rebalance for the
+  # remaining group members.
+  defp leave(
+    %State{
+      worker_name: worker_name,
+      group_name: group_name,
+      member_id: member_id
+    } = state
+  ) do
     stop_heartbeat_timer(state)
 
     leave_request = %LeaveGroupRequest{
@@ -267,16 +346,18 @@ defmodule KafkaEx.ConsumerGroup do
       member_id: member_id,
     }
 
-    %LeaveGroupResponse{error_code: :no_error} = KafkaEx.leave_group(leave_request, worker_name: worker_name)
+    %LeaveGroupResponse{error_code: :no_error} =
+      KafkaEx.leave_group(leave_request, worker_name: worker_name)
 
     Logger.debug(fn -> "Left consumer group #{group_name}" end)
 
     :ok
   end
 
-  # When instructed that a rebalance is in progress, a group member must rejoin the group with
-  # `JoinGroupRequest` (see join/1). To keep the state synchronized during the join/sync phase, each
-  # member pauses its consumers and commits its offsets before rejoining the group.
+  # When instructed that a rebalance is in progress, a group member must rejoin
+  # the group with `JoinGroupRequest` (see join/1). To keep the state
+  # synchronized during the join/sync phase, each member pauses its consumers
+  # and commits its offsets before rejoining the group.
   defp rebalance(%State{} = state) do
     state
     |> stop_heartbeat_timer()
@@ -287,7 +368,9 @@ defmodule KafkaEx.ConsumerGroup do
   ### Timer Management
 
   # Starts a timer for the next heartbeat.
-  defp start_heartbeat_timer(%State{heartbeat_interval: heartbeat_interval} = state) do
+  defp start_heartbeat_timer(
+    %State{heartbeat_interval: heartbeat_interval} = state
+  ) do
     {:ok, timer} = :timer.send_after(heartbeat_interval, :heartbeat)
 
     %State{state | heartbeat_timer: timer}
@@ -295,7 +378,9 @@ defmodule KafkaEx.ConsumerGroup do
 
   # Stops any active heartbeat timer.
   defp stop_heartbeat_timer(%State{heartbeat_timer: nil} = state), do: state
-  defp stop_heartbeat_timer(%State{heartbeat_timer: heartbeat_timer} = state) do
+  defp stop_heartbeat_timer(
+    %State{heartbeat_timer: heartbeat_timer} = state
+  ) do
     {:ok, :cancel} = :timer.cancel(heartbeat_timer)
 
     %State{state | heartbeat_timer: nil}
@@ -304,9 +389,22 @@ defmodule KafkaEx.ConsumerGroup do
   ### Consumer Management
 
   # Starts consuming from the member's assigned partitions.
-  defp start_consumer(%State{consumer_module: consumer_module, consumer_opts: consumer_opts,
-                             group_name: group_name, supervisor_pid: pid} = state, assignments) do
-    :ok = KafkaEx.ConsumerGroup.Supervisor.start_consumer(pid, consumer_module, group_name, assignments, consumer_opts)
+  defp start_consumer(
+    %State{
+      consumer_module: consumer_module,
+      consumer_opts: consumer_opts,
+      group_name: group_name,
+      supervisor_pid: pid
+    } = state,
+    assignments
+  ) do
+    :ok = KafkaEx.ConsumerGroup.Supervisor.start_consumer(
+      pid,
+      consumer_module,
+      group_name,
+      assignments,
+      consumer_opts
+    )
 
     state
   end
@@ -320,10 +418,13 @@ defmodule KafkaEx.ConsumerGroup do
 
   ### Partition Assignment
 
-  # Queries the Kafka brokers for a list of partitions for the topics of interest to this consumer
-  # group. This function returns a list of topic/partition tuples that can be passed to a
-  # GenConsumer's `assign_partitions` method.
-  defp assignable_partitions(%State{worker_name: worker_name, topics: topics}) do
+  # Queries the Kafka brokers for a list of partitions for the topics of
+  # interest to this consumer group. This function returns a list of
+  # topic/partition tuples that can be passed to a GenConsumer's
+  # `assign_partitions` method.
+  defp assignable_partitions(
+    %State{worker_name: worker_name, topics: topics}
+  ) do
     metadata = KafkaEx.metadata(worker_name: worker_name)
 
     Enum.flat_map(topics, fn (topic) ->
@@ -335,12 +436,17 @@ defmodule KafkaEx.ConsumerGroup do
     end)
   end
 
-  # This function is used by the group leader to determine partition assignments during the
-  # join/sync phase. `members` is provided to the leader by the coordinating broker in
-  # `JoinGroupResponse`. `partitions` is a list of topic/partition tuples, obtained from
-  # `assignable_partitions/1`. The return value is a complete list of member assignments in the
-  # format needed by `SyncGroupResponse`.
-  defp assign_partitions(%State{consumer_module: consumer_module}, members, partitions) do
+  # This function is used by the group leader to determine partition
+  # assignments during the join/sync phase. `members` is provided to the leader
+  # by the coordinating broker in `JoinGroupResponse`. `partitions` is a list
+  # of topic/partition tuples, obtained from `assignable_partitions/1`. The
+  # return value is a complete list of member assignments in the format needed
+  # by `SyncGroupResponse`.
+  defp assign_partitions(
+    %State{consumer_module: consumer_module},
+    members,
+    partitions
+  ) do
     # Delegate partition assignment to GenConsumer module.
     assignments = consumer_module.assign_partitions(members, partitions)
 

@@ -1,13 +1,16 @@
 defmodule KafkaEx.GenConsumer.Supervisor do
   @moduledoc """
-  A supervisor for managing `GenConsumer` processes that are part of a consumer group.
+  A supervisor for managing `GenConsumer` processes that are part of a consumer
+  group.
 
-  The supervisor will launch individual `GenConsumer` processes for each partition given by the
-  `partitions` argument to `start_link/4`. When terminated, each of the supervisor's child
-  processes will commit its latest offset before terminating.
+  The supervisor will launch individual `GenConsumer` processes for each
+  partition given by the `partitions` argument to `start_link/4`. When
+  terminated, each of the supervisor's child processes will commit its latest
+  offset before terminating.
 
-  This module manages a static list of consumer processes. For dynamically distributing consumers
-  in a consumer group across a cluster of nodes, see `KafkaEx.ConsumerGroup`.
+  This module manages a static list of consumer processes. For dynamically
+  distributing consumers in a consumer group across a cluster of nodes, see
+  `KafkaEx.ConsumerGroup`.
   """
 
   use Elixir.Supervisor
@@ -15,20 +18,30 @@ defmodule KafkaEx.GenConsumer.Supervisor do
   @doc """
   Starts a `GenConsumer.Supervisor` process linked to the current process.
 
-  `module` is a module that implements the `GenConsumer` behaviour. `group_name` is the name of a
-  consumer group, and `assignments` is a list of partitions for the `GenConsumer`s to consume.
-  `opts` accepts the same options as `KafkaEx.GenConsumer.start_link/5`.
+  `module` is a module that implements the `GenConsumer` behaviour.
+  `group_name` is the name of a consumer group, and `assignments` is a list of
+  partitions for the `GenConsumer`s to consume.  `opts` accepts the same
+  options as `KafkaEx.GenConsumer.start_link/5`.
 
   ### Return Values
 
   This function has the same return values as `Supervisor.start_link/3`.
 
-  If the supervisor and its consumers are successfully created, this function returns `{:ok,
-  pid}`, where `pid` is the PID of the supervisor.
+  If the supervisor and its consumers are successfully created, this function
+  returns `{:ok, pid}`, where `pid` is the PID of the supervisor.
   """
-  @spec start_link(module, binary, [KafkaEx.GenConsumer.partition], KafkaEx.GenConsumer.options) :: Elixir.Supervisor.on_start
+  @spec start_link(
+    module,
+    binary,
+    [KafkaEx.GenConsumer.partition],
+    KafkaEx.GenConsumer.options
+  ) :: Elixir.Supervisor.on_start
   def start_link(consumer_module, group_name, assignments, opts \\ []) do
-    case Elixir.Supervisor.start_link(__MODULE__, {consumer_module, group_name, assignments, opts}) do
+    start_link_result = Elixir.Supervisor.start_link(
+      __MODULE__,
+      {consumer_module, group_name, assignments, opts}
+    )
+    case start_link_result do
       {:ok, pid} ->
         :ok = start_workers(pid, assignments, opts)
         {:ok, pid}
