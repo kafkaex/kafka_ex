@@ -13,7 +13,7 @@ defmodule KafkaEx.GenConsumer do
   The `GenConsumer` behaviour abstracts common Kafka consumer interactions. `GenConsumer` will take
   care of the details of determining a starting offset, fetching messages from a Kafka broker, and
   committing offsets for consumed messages. Developers are only required to implement
-  `c:handle_message/2` to process messages from the queue.
+  `c:handle_message_set/2` to process message sets.
 
   The following is a minimal example that logs each message as it's consumed:
 
@@ -21,30 +21,60 @@ defmodule KafkaEx.GenConsumer do
   defmodule ExampleGenConsumer do
     use KafkaEx.GenConsumer
 
+    alias KafkaEx.Protocol.Fetch.Message
+
     require Logger
 
-    def handle_message(%Message{value: message}, state) do
-      Logger.debug(fn -> "message: " <> inspect(message) end)
+    # note - messages are delivered in batches
+    def handle_message_set(message_set, state) do
+      for %Message{value: message} <- message_set do
+        Logger.debug(fn -> "message: " <> inspect(message) end)
+      end
       {:async_commit, state}
     end
   end
   ```
 
-  `c:handle_message/2` will be called for each message that's fetched from a Kafka broker. In this
-  example, since `c:handle_message/2` always returns `{:async_commit, new_state}`, the message offsets will
-  be auto-committed.
+  `c:handle_message_set/2` will be called with the batch of messages fetched
+  from the broker.  The number of messages in a batch is determined by the
+  number of messages available and the `max_bytes` and `min_bytes` parameters
+  of the fetch request.  In this example, because `c:handle_message_set/2`
+  always returns `{:async_commit, new_state}`, the message offsets will be
+  automatically committed asynchronously.
 
-  ## Auto-Committing Offsets
+  ## Committing Offsets
 
-  `GenConsumer` manages a consumer's offsets by committing the offsets of acknowledged messages.
-  Messages are acknowledged by returning `{:async_commit, new_state}` from `c:handle_message/2`.
-  Acknowledged messages are not committed immediately. To avoid excessive network calls,
-  acknowledged messages may be batched and committed periodically. Offsets are also committed when a
-  `GenServer` is terminated.
+  `GenConsumer` manages a consumer's offsets by committing the the offsets
+  of consumed messages.  KafkaEx supports two commit strategies: asynchronous
+  and synchronous.  The return value of `c:handle_message_set/2` determines
+  which strategy is used:
+  
+  * `{:sync_commit, new_state}` causes synchronous offset commits.
+  * `{:async_commit, new_state}` causes asynchronous offset commits.
 
-  How often a `GenConsumer` auto-commits offsets is controlled by the two configuration values
-  `:commit_interval` and `:commit_threshold`. These can be set globally in the `:kafka_ex` app's
-  environment or on a per-consumer basis by passing options to `start_link/5`:
+  ### Synchronous offset commits
+
+  When `c:handle_message_set/2` returns `{:sync_commit, new_state}`, the offset
+  of the final message in the batch is committed immediately before consuming
+  any more messages.  This strategy causes significantly more communication
+  with the broker and will correspondingly degrade performance, but it will
+  keep the offset commits tightly synchronized with the consumer state.
+
+  Choose the synchronous offset commit strategy if you want to favor
+  consistency of offset commits over performance, or if you have a low rate of
+  message arrival (example: tens of messages per second or less).
+
+  ### Asynchronous offset commits
+
+  When `c:handle_message_set/2` returns `{:async_commit, new_state}`, KafkaEx
+  will not commit offsets after every message batch consumed.  To avoid
+  excessive network calls, the offsets are committed periodically (and when
+  the worker terminates).
+
+  How often a `GenConsumer` auto-commits offsets is controlled by the two
+  configuration values `:commit_interval` and `:commit_threshold`. These can be
+  set globally in the `:kafka_ex` app's environment or on a per-consumer basis
+  by passing options to `start_link/5`:
 
   ```
   # In config/config.exs
@@ -58,31 +88,34 @@ defmodule KafkaEx.GenConsumer do
                                  commit_threshold: 100)
   ```
 
-  * `:commit_interval` is the maximum time (in milliseconds) that a `GenConsumer` will delay
-    committing the offset for an acknowledged message.
-  * `:commit_threshold` is the maximum number of acknowledged messages that a `GenConsumer` will
-    allow to be uncommitted before triggering an auto-commit.
+  * `:commit_interval` is the maximum time (in milliseconds) that a
+  `GenConsumer` will delay committing the offset for an acknowledged message.
+  * `:commit_threshold` is the maximum number of acknowledged messages that a
+  `GenConsumer` will allow to be uncommitted before triggering an auto-commit.
 
-  For low-volume topics, `:commit_interval` is the dominant factor for how often a `GenConsumer`
-  auto-commits. For high-volume topics, `:commit_threshold` is the dominant factor.
+  For low-volume topics, `:commit_interval` is the dominant factor for how
+  often a `GenConsumer` auto-commits. For high-volume topics,
+  `:commit_threshold` is the dominant factor.
 
   ## Callbacks
 
-  There are three callbacks that are required to be implemented in a `GenConsumer`. By adding `use
-  KafkaEx.GenServer` to a module, two of the callbacks will be defined with default behavior,
-  leaving you to implement `c:handle_message/2`.
+  There are three callbacks that are required to be implemented in a
+  `GenConsumer`. By adding `use KafkaEx.GenServer` to a module, two of the
+  callbacks will be defined with default behavior, leaving you to implement
+  `c:handle_message_set/2`.
 
   ## Integration with OTP
 
-  A `GenConsumer` is a specialized `GenServer`. It can be supervised, registered, and debugged the
-  same as any other `GenServer`. However, its arguments for `c:GenServer.init/1` are unspecified, so
-  `start_link/5` should be used to start a `GenConsumer` process instead of `GenServer` primitives.
+  A `GenConsumer` is a specialized `GenServer`. It can be supervised,
+  registered, and debugged the same as any other `GenServer`. However, its
+  arguments for `c:GenServer.init/1` are unspecified, so `start_link/5` should
+  be used to start a `GenConsumer` process instead of `GenServer` primitives.
 
   ## Testing
 
-  A `GenConsumer` can be unit-tested without a running Kafka broker by sending messages directly to
-  its `c:handle_message/2` function. The following recipe can be used as a starting point when
-  testing a `GenConsumer`:
+  A `GenConsumer` can be unit-tested without a running Kafka broker by sending
+  messages directly to its `c:handle_message_set/2` function. The following
+  recipe can be used as a starting point when testing a `GenConsumer`:
 
   ```
   defmodule ExampleGenConsumerTest do
@@ -99,8 +132,9 @@ defmodule KafkaEx.GenConsumer do
     end
 
     test "it acks a message", %{state: state} do
-      message = %Message{offset: 0, value: "hello"}
-      {response, _new_state} = ExampleGenConsumer.handle_message(message, state)
+      message_set = [%Message{offset: 0, value: "hello"}]
+      {response, _new_state} =
+        ExampleGenConsumer.handle_message_set(message_set, state)
       assert response == :async_commit
     end
   end
@@ -165,10 +199,10 @@ defmodule KafkaEx.GenConsumer do
   @callback init(topic :: topic, partition :: partition_id) :: {:ok, state :: term}
 
   @doc """
-  Invoked for each message consumed from a Kafka queue.
+  Invoked for each message set consumed from a Kafka topic partition.
 
-  `message` is a message fetched from a Kafka broker and `state` is the current state of the
-  `GenConsumer`.
+  `message_set` is a message set fetched from a Kafka broker and `state` is the
+  current state of the `GenConsumer`.
 
   Returning `{:async_commit, new_state}` acknowledges `message` and continues to consume from the Kafka queue
   with new state `new_state`. Acknowledged messages will be auto-committed (possibly at a later
@@ -180,8 +214,8 @@ defmodule KafkaEx.GenConsumer do
   sparingly, since committing every message synchronously would impact a consumer's performance and
   could result in excessive network traffic.
   """
-  @callback handle_message(message :: Message.t, state :: term) :: {:async_commit, new_state :: term}
-                                                                 | {:sync_commit, new_state :: term}
+  @callback handle_message_set(message_set :: [Message.t], state :: term) ::
+    {:async_commit, new_state :: term} | {:sync_commit, new_state :: term}
 
   @doc """
   Invoked to determine partition assignments for a coordinated consumer group.
@@ -343,32 +377,46 @@ defmodule KafkaEx.GenConsumer do
 
     case response do
       %{last_offset: nil, message_set: []} ->
-        auto_commit(state)
-
-      %{last_offset: _, message_set: messages} ->
-        Enum.reduce(messages, state, &handle_message/2)
+        handle_commit(:async_commit, state)
+      %{last_offset: _, message_set: message_set} ->
+        handle_message_set(message_set, state)
     end
   end
 
-  defp handle_message(%Message{offset: offset} = message, %State{consumer_module: consumer_module, consumer_state: consumer_state} = state) do
-    case consumer_module.handle_message(message, consumer_state) do
-      {:async_commit, new_state} ->
-        auto_commit %State{state | consumer_state: new_state, acked_offset: offset + 1, current_offset: offset + 1}
+  defp handle_message_set(
+    message_set,
+    %State{consumer_module: consumer_module, consumer_state: consumer_state} = state
+  ) do
+    {sync_status, new_consumer_state} =
+      consumer_module.handle_message_set(message_set, consumer_state)
 
-      {:sync_commit, new_state} ->
-        commit %State{state | consumer_state: new_state, acked_offset: offset + 1, current_offset: offset + 1}
-    end
+    %Message{offset: last_offset} = List.last(message_set)
+    state_out = %State{
+      state |
+      consumer_state: new_consumer_state,
+      acked_offset: last_offset + 1,
+      current_offset: last_offset + 1
+    }
+
+    handle_commit(sync_status, state_out)
   end
 
-  defp auto_commit(%State{acked_offset: acked, committed_offset: committed, commit_threshold: threshold,
-                          last_commit: last_commit, commit_interval: interval} = state) do
+  defp handle_commit(:sync_commit, %State{} = state), do: commit(state)
+  defp handle_commit(
+    :async_commit,
+    %State{
+      acked_offset: acked,
+      committed_offset: committed,
+      commit_threshold: threshold,
+      last_commit: last_commit,
+      commit_interval: interval
+    } = state
+  ) do
     case acked - committed do
       0 ->
         %State{state | last_commit: :erlang.monotonic_time(:milli_seconds)}
-
       n when n >= threshold ->
         commit(state)
-
       _ ->
         if :erlang.monotonic_time(:milli_seconds) - last_commit >= interval do
           commit(state)

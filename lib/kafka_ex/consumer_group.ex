@@ -29,8 +29,13 @@ defmodule KafkaEx.ConsumerGroup do
   defmodule DistributedConsumer do
     use KafkaEx.GenConsumer
 
-    def handle_message(%Message{value: message}, state) do
-      IO.puts(to_string(node()) <> ": " <> inspect(message))
+    alias KafkaEx.Protocol.Fetch.Message
+
+    # note - messages are delivered in batches
+    def handle_message_set(message_set, state) do
+      for %Message{value: message} <- message_set do
+         IO.puts(to_string(node()) <> ": " <> inspect(message))
+      end
       {:async_commit, state}
     end
   end
