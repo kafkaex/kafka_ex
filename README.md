@@ -100,7 +100,7 @@ defmodule ExampleGenConsumer do
 end
 ```
 
-Then add a `KafkaEx.ConsumerGroup.Supervisor` to your application's supervision
+Then add a `KafkaEx.ConsumerGroup` to your application's supervision
 tree and configure it to use the implementation module.
 
 See the `KafkaEx.GenConsumer` and `KafkaEx.ConsumerGroup` documentation for
