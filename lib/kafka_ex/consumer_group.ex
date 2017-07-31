@@ -9,57 +9,67 @@ defmodule KafkaEx.ConsumerGroup do
 
   Any time group membership changes (a member joins or leaves the group), a
   Kafka broker initiates group synchronization by asking one of the group
-  members (the leader) to provide partition assignments for the whole group.
-  Partition assignment is handled by the
+  members (the leader elected by the broker) to provide partition assignments
+  for the whole group.  Partition assignment is handled by the
   `c:KafkaEx.GenConsumer.assign_partitions/2` callback of the provided consumer
   module.
 
-  A `ConsumerGroup` process is responsible for:
+  A `KafkaEx.ConsumerGroup` process is responsible for:
 
   1. Maintaining membership in a Kafka consumer group.
   2. Determining partition assignments if elected as the group leader.
-  3. Launching and terminating `GenConsumer` processes based on its assigned
-    partitions.
+  3. Launching and terminating `KafkaEx.GenConsumer` processes based on its
+    assigned partitions.
 
-  To use a `ConsumerGroup`, a developer must define a module that implements
-  the `KafkaEx.GenConsumer` behaviour and start a `ConsumerGroup` with that
-  module.
+  To use a `KafkaEx.ConsumerGroup`, a developer must define a module that
+  implements the `KafkaEx.GenConsumer` behaviour and start a
+  `KafkaEx.ConsumerGroup` configured to use that module.
 
   ## Example
 
-  The following consumer prints each message with the name of the node that's
-  consuming the message:
+  Suppose we want to consume from a topic called `"example_topic"` with a
+  consumer group named `"example_group"` and we have a `KafkaEx.GenConsumer`
+  implementation called `ExampleGenConsumer` (see the `KafkaEx.GenConsumer`
+  documentation).  We could start a consumer group in our application's
+  supervision tree as follows:
 
   ```
-  defmodule DistributedConsumer do
-    use KafkaEx.GenConsumer
+  defmodule MyApp do
+    use Application
 
-    alias KafkaEx.Protocol.Fetch.Message
+    def start(_type, _args) do
+      import Supervisor.Spec
 
-    # note - messages are delivered in batches
-    def handle_message_set(message_set, state) do
-      for %Message{value: message} <- message_set do
-         IO.puts(to_string(node()) <> ": " <> inspect(message))
-      end
-      {:async_commit, state}
+      consumer_group_opts = [
+        # setting for the ConsumerGroup
+        heartbeat_interval: 1_000,
+        # this setting will be forwarded to the GenConsumer
+        commit_interval: 1_000
+      ]
+
+      gen_consumer_impl = ExampleGenConsumer
+      consumer_group_name = "example_group"
+      topic_names = ["example_topic"]
+
+      children = [
+        # ... other children
+        supervisor(
+          KafkaEx.ConsumerGroup.Supervisor,
+          [gen_consumer_impl, consumer_group_name, topic_names, consumer_group_opts]
+        )
+      ]
+
+      Supervisor.start_link(children, strategy: :one_for_one)
     end
   end
-
-  # use DistributedConsumer in a consumer group
-  {:ok, pid} = KafkaEx.ConsumerGroup.Supervisor.start_link(DistributedConsumer, "test_group", ["test_topic"])
   ```
 
-  Running this on multiple nodes might display the following:
+  **Note** It is not necessary for the Elixir nodes in a consumer group to be
+  connected (i.e., using distributed Erlang methods).  The coordination of
+  group consumers is mediated by the broker.
 
-  ```txt
-  node1@host: "messages"
-  node2@host: "on"
-  node2@host: "multiple"
-  node1@host: "nodes"
-  ```
-
-  It is not necessary for the nodes to be connected, because `ConsumerGroup`
-  uses Kafka's built-in group coordination protocol.
+  See `KafkaEx.ConsumerGroup.Supervisor.start_link/4` for configuration
+  details.
   """
 
   use GenServer
@@ -100,12 +110,8 @@ defmodule KafkaEx.ConsumerGroup do
 
   # Client API
 
-  @doc """
-  Starts a `ConsumerGroup` process linked to the current process.
-  
-  Client programs should use `KafkaEx.ConsumerGroup.Supervisor.start_link/4`
-  instead.
-  """
+  @doc false
+  # use `KafkaEx.ConsumerGroup.Supervisor.start_link/4` instead
   @spec start_link(module, binary, [binary], KafkaEx.GenConsumer.options) ::
     GenServer.on_start
   def start_link(consumer_module, group_name, topics, opts \\ []) do

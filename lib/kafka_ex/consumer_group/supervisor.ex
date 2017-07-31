@@ -1,18 +1,12 @@
 defmodule KafkaEx.ConsumerGroup.Supervisor do
   @moduledoc """
-  A supervisor for managing a consumer group. A
-  `KafkaEx.ConsumerGroup.Supervisor` process will manage an entire process tree
-  for a single consumer group. Multiple supervisors can be used for multiple
-  consumer groups within the same application.
+  A supervisor for managing a consumer group.
+  
+  A `KafkaEx.ConsumerGroup.Supervisor` process manages the entire process
+  tree for a single consumer group.  Multiple supervisors can be used for
+  multiple consumer groups within the same application.
 
-  ## Example
-
-  This supervisor can be addeded to an application's supervision tree with a
-  custom `GenConsumer` implementation with the following child spec:
-
-  ```
-  supervisor(KafkaEx.ConsumerGroup.Supervisor, [MyApp.Consumer, "group_name", ["topic1", "topic2"]])
-  ```
+  See `KafkaEx.ConsumerGroup` for an example.
   """
 
   use Elixir.Supervisor
@@ -44,10 +38,6 @@ defmodule KafkaEx.ConsumerGroup.Supervisor do
   ### Return Values
 
   This function has the same return values as `Supervisor.start_link/3`.
-
-  If the supervisor and consumer group are successfully created and
-  initialized, this function returns `{:ok, pid}`, where `pid` is the PID of
-  the consumer group supervisor process.
   """
   @spec start_link(module, binary, [binary], options) ::
     Elixir.Supervisor.on_start
@@ -87,6 +77,7 @@ defmodule KafkaEx.ConsumerGroup.Supervisor do
     end
   end
 
+  @doc false
   def init({consumer_module, group_name, topics, opts}) do
     opts = Keyword.put(opts, :supervisor_pid, self())
 

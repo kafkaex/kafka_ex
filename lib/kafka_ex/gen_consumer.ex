@@ -2,20 +2,26 @@ defmodule KafkaEx.GenConsumer do
   @moduledoc """
   A behaviour module for implementing a Kafka consumer.
 
-  A `GenConsumer` is an Elixir process that consumes messages from Kafka. A
-  single `GenConsumer` process consumes from a single partition of a Kafka
-  topic. Several `GenConsumer` processes can be used to consume from multiple
-  partitions or even multiple topics. Partition assignments for a group of
-  `GenConsumer`s can be defined manually using `KafkaEx.GenConsumer.Supervisor`
-  or coordinated across a cluster of nodes using `KafkaEx.ConsumerGroup`.
+  A `KafkaEx.GenConsumer` is an Elixir process that consumes messages from
+  Kafka. A single `KafkaEx.GenConsumer` process consumes from a single
+  partition of a Kafka topic. Several `KafkaEx.GenConsumer` processes can be
+  used to consume from multiple partitions or even multiple topics. Partition
+  assignments for a group of `KafkaEx.GenConsumer`s can be defined manually
+  using `KafkaEx.GenConsumer.Supervisor` or coordinated across a cluster of
+  nodes using `KafkaEx.ConsumerGroup`.
+
+  A `KafkaEx.GenConsumer` must implement three callbacks.  Two of these will be
+  defined with default behavior if you add `use KafkaEx.GenConsumer` to your
+  module, leaving just `c:handle_message_set/2` to be implemented.  This is the
+  recommended usage.
 
   ## Example
 
-  The `GenConsumer` behaviour abstracts common Kafka consumer interactions.
-  `GenConsumer` will take care of the details of determining a starting offset,
-  fetching messages from a Kafka broker, and committing offsets for consumed
-  messages. Developers are only required to implement `c:handle_message_set/2`
-  to process message sets.
+  The `KafkaEx.GenConsumer` behaviour abstracts common Kafka consumer
+  interactions.  `KafkaEx.GenConsumer` will take care of the details of
+  determining a starting offset, fetching messages from a Kafka broker, and
+  committing offsets for consumed messages. Developers are only required to
+  implement `c:handle_message_set/2` to process messages.
 
   The following is a minimal example that logs each message as it's consumed:
 
@@ -40,13 +46,13 @@ defmodule KafkaEx.GenConsumer do
   `c:handle_message_set/2` will be called with the batch of messages fetched
   from the broker.  The number of messages in a batch is determined by the
   number of messages available and the `max_bytes` and `min_bytes` parameters
-  of the fetch request.  In this example, because `c:handle_message_set/2`
-  always returns `{:async_commit, new_state}`, the message offsets will be
-  automatically committed asynchronously.
+  of the fetch request (which can be configured in KafkaEx).  In this example,
+  because `c:handle_message_set/2` always returns `{:async_commit, new_state}`,
+  the message offsets will be automatically committed asynchronously.
 
   ## Committing Offsets
 
-  `GenConsumer` manages a consumer's offsets by committing the the offsets
+  `KafkaEx.GenConsumer` manages a consumer's offsets by committing the the offsets
   of consumed messages.  KafkaEx supports two commit strategies: asynchronous
   and synchronous.  The return value of `c:handle_message_set/2` determines
   which strategy is used:
@@ -54,29 +60,47 @@ defmodule KafkaEx.GenConsumer do
   * `{:sync_commit, new_state}` causes synchronous offset commits.
   * `{:async_commit, new_state}` causes asynchronous offset commits.
 
+  Note that with both of the offset commit strategies, only of the final offset
+  in the message set is committed and this is done after the messages are
+  consumed.  If you want to commit the offset of every message consumed, use
+  the synchronous offset commit strategy and implement calls to
+  `KafkaEx.offset_commit/2` within your consumer as appropriate.
+
   ### Synchronous offset commits
 
   When `c:handle_message_set/2` returns `{:sync_commit, new_state}`, the offset
-  of the final message in the batch is committed immediately before consuming
-  any more messages.  This strategy causes significantly more communication
-  with the broker and will correspondingly degrade performance, but it will
-  keep the offset commits tightly synchronized with the consumer state.
+  of the final message in the message set is committed immediately before
+  fetching any more messages.  This strategy requires a significant amount of
+  communication with the broker and could correspondingly degrade consumer
+  performance, but it will keep the offset commits tightly synchronized with
+  the consumer state.
 
   Choose the synchronous offset commit strategy if you want to favor
   consistency of offset commits over performance, or if you have a low rate of
-  message arrival (example: tens of messages per second or less).
+  message arrival.  The definition of a "low rate" depends on the situation,
+  but tens of messages per second could be considered a "low rate" in most
+  situations.
 
   ### Asynchronous offset commits
 
   When `c:handle_message_set/2` returns `{:async_commit, new_state}`, KafkaEx
-  will not commit offsets after every message batch consumed.  To avoid
+  will not commit offsets after every message set consumed.  To avoid
   excessive network calls, the offsets are committed periodically (and when
   the worker terminates).
 
-  How often a `GenConsumer` auto-commits offsets is controlled by the two
-  configuration values `:commit_interval` and `:commit_threshold`. These can be
-  set globally in the `:kafka_ex` app's environment or on a per-consumer basis
-  by passing options to `start_link/5`:
+  How often a `KafkaEx.GenConsumer` auto-commits offsets is controlled by the two
+  configuration values `:commit_interval` and `:commit_threshold`.
+
+  * `:commit_interval` is the maximum time (in milliseconds) that a
+    `KafkaEx.GenConsumer` will delay committing the offset for an acknowledged
+    message.
+
+  * `:commit_threshold` is the maximum number of acknowledged messages that a
+    `KafkaEx.GenConsumer` will allow to be uncommitted before triggering a
+    commit.
+  
+  These can be set globally in the `:kafka_ex` app's environment or on a
+  per-consumer basis by passing options to `start_link/5`:
 
   ```
   # In config/config.exs
@@ -90,34 +114,22 @@ defmodule KafkaEx.GenConsumer do
                                  commit_threshold: 100)
   ```
 
-  * `:commit_interval` is the maximum time (in milliseconds) that a
-  `GenConsumer` will delay committing the offset for an acknowledged message.
-  * `:commit_threshold` is the maximum number of acknowledged messages that a
-  `GenConsumer` will allow to be uncommitted before triggering an auto-commit.
-
   For low-volume topics, `:commit_interval` is the dominant factor for how
-  often a `GenConsumer` auto-commits. For high-volume topics,
+  often a `KafkaEx.GenConsumer` auto-commits. For high-volume topics,
   `:commit_threshold` is the dominant factor.
-
-  ## Callbacks
-
-  There are three callbacks that are required to be implemented in a
-  `GenConsumer`. By adding `use KafkaEx.GenServer` to a module, two of the
-  callbacks will be defined with default behavior, leaving you to implement
-  `c:handle_message_set/2`.
 
   ## Integration with OTP
 
-  A `GenConsumer` is a specialized `GenServer`. It can be supervised,
-  registered, and debugged the same as any other `GenServer`. However, its
-  arguments for `c:GenServer.init/1` are unspecified, so `start_link/5` should
-  be used to start a `GenConsumer` process instead of `GenServer` primitives.
+  A `KafkaEx.GenConsumer` is a specialized `GenServer`. It can be supervised,
+  registered, and debugged the same as any other `GenServer`.  Use
+  `start_link/5` to start a `KafkaEx.GenConsumer` properly; do not use
+  `GenServer.start_link/3` directly to start a `KafkaEx.GenConsumer`.
 
   ## Testing
 
-  A `GenConsumer` can be unit-tested without a running Kafka broker by sending
+  A `KafkaEx.GenConsumer` can be unit-tested without a running Kafka broker by sending
   messages directly to its `c:handle_message_set/2` function. The following
-  recipe can be used as a starting point when testing a `GenConsumer`:
+  recipe can be used as a starting point when testing a `KafkaEx.GenConsumer`:
 
   ```
   defmodule ExampleGenConsumerTest do
@@ -156,33 +168,33 @@ defmodule KafkaEx.GenConsumer do
   require Logger
 
   @typedoc """
-  The ID of a member of a consumer group, assigned by a Kafka broker.
+  The ID (string) of a member of a consumer group, assigned by a Kafka broker.
   """
   @type member_id :: binary
 
   @typedoc """
-  The name of a Kafka topic.
+  The string name of a Kafka topic.
   """
   @type topic :: binary
 
   @typedoc """
-  The ID of a partition of a Kafka topic.
+  The integer ID of a partition of a Kafka topic.
   """
   @type partition_id :: integer
 
   @typedoc """
-  A partition of a particular Kafka topic.
+  A partition of a single topic (embeds the name of the topic).
   """
   @type partition :: {topic, partition_id}
 
   @typedoc """
-  Option values used when starting a `GenConsumer`.
+  Option values used when starting a `KafkaEx.GenConsumer`.
   """
   @type option :: {:commit_interval, non_neg_integer}
                 | {:commit_threshold, non_neg_integer}
 
   @typedoc """
-  Options used when starting a `GenConsumer`.
+  Options used when starting a `KafkaEx.GenConsumer`.
   """
   @type options :: [option | GenServer.option]
 
@@ -191,7 +203,7 @@ defmodule KafkaEx.GenConsumer do
   returns.
 
   `topic` and `partition` are the arguments passed to `start_link/5`. They
-  identify the Kafka partition that the `GenConsumer` will consume from.
+  identify the Kafka partition that the `KafkaEx.GenConsumer` will consume from.
 
   Returning `{:ok, state}` will cause `start_link/5` to return `{:ok, pid}` and
   the process to start consuming from its assigned partition. `state` becomes
@@ -207,7 +219,7 @@ defmodule KafkaEx.GenConsumer do
   Invoked for each message set consumed from a Kafka topic partition.
 
   `message_set` is a message set fetched from a Kafka broker and `state` is the
-  current state of the `GenConsumer`.
+  current state of the `KafkaEx.GenConsumer`.
 
   Returning `{:async_commit, new_state}` acknowledges `message` and continues
   to consume from the Kafka queue with new state `new_state`. Acknowledged
@@ -257,8 +269,8 @@ defmodule KafkaEx.GenConsumer do
   ```
 
   In this case, the consumer group process for `"member1"` will launch two
-  `GenConsumer` processes (one for each of its assigned partitions),
-  `"member2"` will launch one `GenConsumer` process, and `"member3"` will
+  `KafkaEx.GenConsumer` processes (one for each of its assigned partitions),
+  `"member2"` will launch one `KafkaEx.GenConsumer` process, and `"member3"` will
   launch no processes.
   """
   @callback assign_partitions(
@@ -310,33 +322,32 @@ defmodule KafkaEx.GenConsumer do
   # Client API
 
   @doc """
-  Starts a `GenConsumer` process linked to the current process.
+  Starts a `KafkaEx.GenConsumer` process linked to the current process.
 
-  This can be used to start the `GenConsumer` as part of a supervision tree.
+  This can be used to start the `KafkaEx.GenConsumer` as part of a supervision tree.
 
-  Once the consumer has been started, the `c:init/2` function of the given
-  `consumer_module` is called with the given `topic` and `partition`.
+  Once the consumer has been started, the `c:init/2` function of
+  `consumer_module` is called with `topic` and `partition` as its arguments.
   `group_name` is the consumer group name that will be used for managing
   consumer offsets.
 
   ### Options
 
-  * `:commit_interval` - the interval in milliseconds that the consumer will
-    wait to commit acknowledged messages. If not present, the `:commit_interval`
-    environment value is used.
+  * `:commit_interval` - The interval in milliseconds that the consumer will
+    wait to commit offsets of handled messages.  Default 5_000.
 
-  * `:commit_threshold` - the maximum number of messages that can be
-    acknowledged without being committed. If not present, the `:commit_threshold`
-    environment value is used.
+  * `:commit_threshold` - Threshold number of messages consumed to commit
+    offsets to the broker.  Default 100.
+
+  Both `:commit_interval` and `:commit_threshold` default to the application
+  config (e.g., `Application.get_env/2`) if that value is present, or the
+  stated default if the application config is not present.
 
   Any valid options for `GenServer.start_link/3` can also be specified.
 
   ### Return Values
 
   This function has the same return values as `GenServer.start_link/3`.
-
-  If the consumer is successfully created and initialized, this function
-  returns `{:ok, pid}`, where `pid` is the PID of the consumer process.
   """
   @spec start_link(
     module,
