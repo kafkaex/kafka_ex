@@ -46,3 +46,6 @@ do
 done
 
 docker-compose up -d
+
+# create topics needed for testing
+docker-compose run --rm --no-deps kafka1 /bin/bash -c '${KAFKA_HOME}/bin/kafka-topics.sh --create --topic consumer_group_implementation_test --replication-factor 2 --partitions 4 --zookeeper zookeeper:2181'
