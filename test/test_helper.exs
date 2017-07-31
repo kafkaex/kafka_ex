@@ -51,7 +51,7 @@ defmodule TestHelper do
     {x, {a,b,c + 60}}
   end
 
-  def latest_offset_number(topic, partition_id, worker \\ KafkaEx.Server) do
+  def latest_offset_number(topic, partition_id, worker \\ :kafka_ex) do
     offset = KafkaEx.latest_offset(topic, partition_id, worker)
       |> first_partition_offset
 
