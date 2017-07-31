@@ -392,7 +392,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
       Enum.map(assignments, fn ({member, topic_partitions}) ->
         {member, pack_assignments(topic_partitions)}
       end)
-    assignments_map = Map.new(packed_assignments)
+    assignments_map = Enum.into(packed_assignments, %{})
 
     # Fill in empty assignments for missing member IDs.
     Enum.map(members, fn (member) ->
