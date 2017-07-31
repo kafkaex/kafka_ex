@@ -418,7 +418,9 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   #   pack_assignments([{"foo", 0}, {"foo", 1}]) #=> [{"foo", [0, 1]}]
   defp pack_assignments(assignments) do
     assignments
-    |> Enum.group_by(&(elem(&1, 0)), &(elem(&1, 1)))
-    |> Enum.into([])
+    |> Enum.reduce(%{}, fn({topic, partition}, assignments) ->
+      Map.update(assignments, topic, [partition], &(&1 ++ [partition]))
+    end)
+    |> Map.to_list
   end
 end

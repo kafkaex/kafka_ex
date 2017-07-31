@@ -281,6 +281,7 @@ defmodule KafkaEx.GenConsumer do
   defmacro __using__(_opts) do
     quote do
       @behaviour KafkaEx.GenConsumer
+      alias KafkaEx.ConsumerGroup.PartitionAssignment
       alias KafkaEx.Protocol.Fetch.Message
 
       def init(_topic, _partition) do
@@ -288,10 +289,7 @@ defmodule KafkaEx.GenConsumer do
       end
 
       def assign_partitions(members, partitions) do
-        members
-        |> Stream.cycle
-        |> Enum.zip(partitions)
-        |> Enum.group_by(&(elem(&1, 0)), &(elem(&1, 1)))
+        PartitionAssignment.round_robin(members, partitions)
       end
 
       defoverridable [init: 2, assign_partitions: 2]
