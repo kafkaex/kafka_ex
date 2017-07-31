@@ -46,8 +46,8 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
         __MODULE__,
         fn(state) ->
           key = {:assigns, topic}
-          value = [members, partitions]
-          Map.update(state, key, value, &(&1 ++ value))
+          value = {members, partitions}
+          Map.update(state, key, [value], &(&1 ++ [value]))
         end
       )
     end
@@ -108,7 +108,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     # the assign_partitions callback should have been called with all 4
     # partitions
     assigns = Map.get(TestObserver.get(), {:assigns, @topic_name}, [])
-    [[_consumer_id], partitions] = assigns
+    [{[_consumer_id], partitions}] = assigns
     assert @partition_count == length(partitions)
     for ix <- 0..(@partition_count - 1) do
       assert {@topic_name, ix} in partitions
