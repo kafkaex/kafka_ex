@@ -42,7 +42,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   # Client API
 
   @doc false
-  # use `KafkaEx.ConsumerGroup.Supervisor.start_link/4` instead
+  # use `KafkaEx.ConsumerGroup.start_link/4` instead
   @spec start_link(module, binary, [binary], KafkaEx.GenConsumer.options) ::
     GenServer.on_start
   def start_link(consumer_module, group_name, topics, opts \\ []) do

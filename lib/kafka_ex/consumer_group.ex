@@ -68,8 +68,7 @@ defmodule KafkaEx.ConsumerGroup do
   connected (i.e., using distributed Erlang methods).  The coordination of
   group consumers is mediated by the broker.
 
-  See `KafkaEx.ConsumerGroup.Supervisor.start_link/4` for configuration
-  details.
+  See `start_link/4` for configuration details.
   """
 
   use Supervisor
