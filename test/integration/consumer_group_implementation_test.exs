@@ -23,7 +23,6 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
         __MODULE__,
         fn(state) ->
           key = {topic, partition}
-          Logger.debug("FUCK #{inspect message_set}")
           Map.update(state, key, [message_set], &(&1 ++ [message_set]))
         end
       )
@@ -35,7 +34,6 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
         fn(state) ->
           key = {topic, partition}
           message_sets_handled = Map.get(state, key, [])
-          Logger.debug("XXX #{inspect message_sets_handled}")
           List.last(message_sets_handled)
         end
       )
@@ -88,14 +86,31 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     @topic_name
   end
 
-  setup do
-    {:ok, _} = TestObserver.start_link
-    {:ok, _} = ConsumerGroup.start_link(TestConsumer, @consumer_group_name, [@topic_name])
-
-    :ok
+  def sync_stop(pid) when is_pid(pid) do
+    wait_for(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+      !Process.alive?(pid)
+    end)
   end
 
-  test "basic startup and consume test" do
+  setup do
+    {:ok, _} = TestObserver.start_link
+    {:ok, consumer_group_pid} = ConsumerGroup.start_link(
+      TestConsumer,
+      @consumer_group_name,
+      [@topic_name]
+    )
+
+    on_exit fn ->
+      sync_stop(consumer_group_pid)
+    end
+
+    {:ok, consumer_group_pid: consumer_group_pid}
+  end
+
+  test "basic startup, consume, and shutdown test", context do
     starting_offset = latest_offset_number(@topic_name, 0)
 
     produce("OHAI", 0)
@@ -114,9 +129,23 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       assert {@topic_name, ix} in partitions
     end
 
+    # we actually consume the messages
     wait_for(fn ->
       message_set = TestObserver.last_handled_message_set(@topic_name, 0)
       message_set && Map.get(List.last(message_set), :offset) >= starting_offset
+    end)
+
+    # stop the supervisor
+    Process.unlink(context[:consumer_group_pid])
+    sync_stop(context[:consumer_group_pid])
+
+    # offsets should be committed on exit
+    wait_for(fn ->
+      ending_offset =
+        latest_consumer_offset_number(@topic_name, 0, @consumer_group_name)
+      message_set = TestObserver.last_handled_message_set(@topic_name, 0)
+      last_message = List.last(message_set)
+      ending_offset == last_message.offset + 1
     end)
   end
 end
