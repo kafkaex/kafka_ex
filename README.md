@@ -9,7 +9,8 @@ KafkaEx
 [![API Docs](https://img.shields.io/badge/api-docs-yellow.svg?style=flat)](http://hexdocs.pm/kafka_ex/)
 
 KafkaEx is an Elixir client for [Apache Kafka](http://kafka.apache.org/) with
-support for Kafka versions 0.8.0 and newer.
+support for Kafka versions 0.8.0 and newer.  KafkaEx requires Elixir 1.1.1+ and
+Erlang OTP 18+.
 
 See [http://hexdocs.pm/kafka_ex/](http://hexdocs.pm/kafka_ex/) for
 documentation,
