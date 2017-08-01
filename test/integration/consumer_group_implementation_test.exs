@@ -80,6 +80,18 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
 
   def produce(message, partition) do
     KafkaEx.produce(@topic_name, partition, message)
+    message
+  end
+
+  def right_last_message?(nil, _, _), do: false
+  def right_last_message?([], _, _), do: false
+  def right_last_message?(message_set, expected_message, expected_offset) do
+    Logger.debug(fn ->
+      "Got message set: #{inspect message_set} " <>
+        "expecting '#{expected_message}' @ offset #{expected_offset}"
+    end)
+    message = List.last(message_set)
+    message.value == expected_message && message.offset == expected_offset
   end
 
   def topic_name do
@@ -111,9 +123,18 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
   end
 
   test "basic startup, consume, and shutdown test", context do
-    starting_offset = latest_offset_number(@topic_name, 0)
+    partition_range = 0..(@partition_count - 1)
 
-    produce("OHAI", 0)
+    starting_offsets = partition_range
+    |> Enum.map(fn(px) -> {px, latest_offset_number(@topic_name, px)} end)
+    |> Enum.into(%{})
+
+    messages = partition_range
+    |> Enum.map(fn(px) ->
+      offset = Map.get(starting_offsets, px)
+      {px, produce("M #{px} #{offset}", px)}
+    end)
+    |> Enum.into(%{})
 
     wait_for(fn ->
       state = TestObserver.get()
@@ -130,22 +151,26 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     end
 
     # we actually consume the messages
-    wait_for(fn ->
-      message_set = TestObserver.last_handled_message_set(@topic_name, 0)
-      message_set && Map.get(List.last(message_set), :offset) >= starting_offset
-    end)
+    for px <- partition_range do
+      wait_for(fn ->
+        message_set = TestObserver.last_handled_message_set(@topic_name, px)
+        right_last_message?(message_set, messages[px], starting_offsets[px])
+      end)
+    end
 
     # stop the supervisor
     Process.unlink(context[:consumer_group_pid])
     sync_stop(context[:consumer_group_pid])
 
     # offsets should be committed on exit
-    wait_for(fn ->
-      ending_offset =
-        latest_consumer_offset_number(@topic_name, 0, @consumer_group_name)
-      message_set = TestObserver.last_handled_message_set(@topic_name, 0)
-      last_message = List.last(message_set)
-      ending_offset == last_message.offset + 1
-    end)
+    for px <- partition_range do
+      wait_for(fn ->
+        ending_offset =
+          latest_consumer_offset_number(@topic_name, px, @consumer_group_name)
+          message_set = TestObserver.last_handled_message_set(@topic_name, px)
+          last_message = List.last(message_set)
+          ending_offset == last_message.offset + 1
+      end)
+    end
   end
 end
