@@ -54,7 +54,7 @@ defmodule TestHelper do
   def latest_consumer_offset_number(topic,
                                     partition,
                                     consumer_group,
-                                    worker \\ KafkaEx.Server) do
+                                    worker \\ :kafka_ex) do
     request = %KafkaEx.Protocol.OffsetFetch.Request{topic: topic,
                                                     partition: partition,
                                                     consumer_group: consumer_group}
