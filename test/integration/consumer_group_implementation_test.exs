@@ -15,7 +15,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
 
   defmodule TestObserver do
     defmodule Event do
-      defstruct type: nil, from: nil, key: nil, payload: nil
+      defstruct type: nil, source: nil, key: nil, payload: nil
 
       def type?(%Event{type: type}, type), do: true
       def type?(%Event{}, _type), do: false
@@ -29,7 +29,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     end
 
     def event(event = %Event{}) do
-      event = %{event | from: self()}
+      event = %{event | source: self()}
       Agent.update(__MODULE__, fn(events) -> events ++ [event] end)
     end
 
@@ -47,6 +47,10 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
 
     def payloads(events) do
       Enum.map(events, &(&1.payload))
+    end
+
+    def sources(events) do
+      Enum.map(events, &(&1.source))
     end
 
     def on_assign_partitions(topic, members, partitions, assignments) do
@@ -86,6 +90,14 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       |> by_type(:assign_partitions)
       |> by_key(topic)
       |> payloads()
+    end
+
+    def last_handler(topic, partition) do
+      all_events()
+      |> by_type(:handled_message_set)
+      |> by_key({topic, partition})
+      |> sources()
+      |> List.last
     end
 
     def current_assignments(topic) do
@@ -233,6 +245,13 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
         right_last_message?(message_set, messages[px], starting_offsets[px])
       end)
     end
+
+    # each partition should be getting handled by a different consumer
+    handlers = Enum.map(
+      partition_range,
+      &(TestObserver.last_handler(@topic_name, &1))
+    )
+    assert handlers == Enum.uniq(handlers)
 
     # stop the supervisors
     Process.unlink(context[:consumer_group_pid1])
