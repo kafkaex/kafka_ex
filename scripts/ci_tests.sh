@@ -11,7 +11,7 @@ export MIX_ENV=test
 if [ "$COVERALLS" = true ]
 then
   echo "Coveralls will be reported"
-  TEST_COMMAND=coveralls
+  TEST_COMMAND=coveralls.travis
 else
   TEST_COMMAND=test
 fi
