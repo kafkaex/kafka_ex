@@ -49,12 +49,16 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       Enum.map(events, &(&1.payload))
     end
 
-    def on_assign_partitions(topic, members, partitions) do
+    def on_assign_partitions(topic, members, partitions, assignments) do
       event(
         %Event{
           type: :assign_partitions,
           key: topic,
-          payload: {members, partitions}
+          payload: %{
+            members: members,
+            partitions: partitions,
+            assignments: assignments
+          }
         }
       )
     end
@@ -82,6 +86,11 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       |> by_type(:assign_partitions)
       |> by_key(topic)
       |> payloads()
+    end
+
+    def current_assignments(topic) do
+      last_assigns = List.last(get_assigns(topic))
+      last_assigns.assignments
     end
   end
 
@@ -113,8 +122,14 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       # TODO this function should get the state as part of its call and be
       # allowed to mutate the state
       topic_name = KafkaEx.ConsumerGroupImplementationTest.topic_name
-      TestObserver.on_assign_partitions(topic_name, members, partitions)
-      super(members, partitions)
+      assignments = super(members, partitions)
+      TestObserver.on_assign_partitions(
+        topic_name,
+        members,
+        partitions,
+        assignments
+      )
+      assignments
     end
   end
 
@@ -180,7 +195,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     # wait for both consumer groups to join
     wait_for(fn ->
       assigns = TestObserver.get_assigns(@topic_name) || []
-      length(assigns) > 0 && length(elem(List.last(assigns), 0)) == 2
+      length(assigns) > 0 && length(Map.get(List.last(assigns), :members)) == 2
     end)
 
     # the assign_partitions callback should have been called with all 4
@@ -189,11 +204,16 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     assert length(assigns) == 2
     last_assigns = List.last(assigns)
     # we should have two consumers in the most recent batch
-    {[_consumer1_id, _consumer2_id], partitions} = last_assigns
-    assert @partition_count == length(partitions)
+    assert 2 == length(last_assigns.members)
+    assert @partition_count == length(last_assigns.partitions)
     for ix <- 0..(@partition_count - 1) do
-      assert {@topic_name, ix} in partitions
+      assert {@topic_name, ix} in last_assigns.partitions
     end
+    assignments = TestObserver.current_assignments(@topic_name)
+    # there should be two cgs with assignments
+    assert 2 == length(Map.keys(assignments))
+    # each worker should have two partitions
+    assert Enum.all?(Map.values(assignments), fn(p) -> length(p) == 2 end)
 
     starting_offsets = partition_range
     |> Enum.map(fn(px) -> {px, latest_offset_number(@topic_name, px)} end)
