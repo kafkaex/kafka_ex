@@ -50,6 +50,10 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       )
     end
 
+    def get_assigns(topic_name) do
+      Map.get(get(), {:assigns, topic_name})
+    end
+
     def get do
       Agent.get(__MODULE__, &(&1))
     end
@@ -61,15 +65,25 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     alias KafkaEx.ConsumerGroupImplementationTest.TestObserver
 
     def init(topic, partition) do
+      Logger.debug(fn ->
+        "Initialized consumer #{inspect self()} for #{topic}:#{partition}"
+      end)
       {:ok, %{topic: topic, partition: partition}}
     end
 
     def handle_message_set(message_set, state) do
+      Logger.debug(fn ->
+        "Consumer #{inspect self()} handled message set #{inspect message_set}"
+      end)
       TestObserver.on_handled_message_set(message_set, state.topic, state.partition)
       {:async_commit, state}
     end
 
     def assign_partitions(members, partitions) do
+      Logger.debug(fn ->
+        "Consumer #{inspect self()} got " <>
+          "partition assignment: #{inspect members} #{inspect partitions}"
+      end)
       # TODO this function should get the state as part of its call and be
       # allowed to mutate the state
       topic_name = KafkaEx.ConsumerGroupImplementationTest.topic_name
@@ -109,21 +123,51 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
 
   setup do
     {:ok, _} = TestObserver.start_link
-    {:ok, consumer_group_pid} = ConsumerGroup.start_link(
+    {:ok, consumer_group_pid1} = ConsumerGroup.start_link(
       TestConsumer,
       @consumer_group_name,
-      [@topic_name]
+      [@topic_name],
+      heartbeat_interval: 100
+    )
+    {:ok, consumer_group_pid2} = ConsumerGroup.start_link(
+      TestConsumer,
+      @consumer_group_name,
+      [@topic_name],
+      heartbeat_interval: 100
     )
 
     on_exit fn ->
-      sync_stop(consumer_group_pid)
+      sync_stop(consumer_group_pid1)
+      sync_stop(consumer_group_pid2)
     end
 
-    {:ok, consumer_group_pid: consumer_group_pid}
+    {
+      :ok,
+      consumer_group_pid1: consumer_group_pid1,
+      consumer_group_pid2: consumer_group_pid2
+    }
   end
 
   test "basic startup, consume, and shutdown test", context do
     partition_range = 0..(@partition_count - 1)
+
+    # wait for both consumer groups to join
+    wait_for(fn ->
+      assigns = TestObserver.get_assigns(@topic_name) || []
+      length(assigns) > 0 && length(elem(List.last(assigns), 0)) == 2
+    end)
+
+    # the assign_partitions callback should have been called with all 4
+    # partitions
+    assigns = TestObserver.get_assigns(@topic_name)
+    assert length(assigns) == 2
+    last_assigns = List.last(assigns)
+    # we should have two consumers in the most recent batch
+    {[_consumer1_id, _consumer2_id], partitions} = last_assigns
+    assert @partition_count == length(partitions)
+    for ix <- 0..(@partition_count - 1) do
+      assert {@topic_name, ix} in partitions
+    end
 
     starting_offsets = partition_range
     |> Enum.map(fn(px) -> {px, latest_offset_number(@topic_name, px)} end)
@@ -141,15 +185,6 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       length(Map.get(state, {:assigns, @topic_name}, [])) > 0
     end)
 
-    # the assign_partitions callback should have been called with all 4
-    # partitions
-    assigns = Map.get(TestObserver.get(), {:assigns, @topic_name}, [])
-    [{[_consumer_id], partitions}] = assigns
-    assert @partition_count == length(partitions)
-    for ix <- 0..(@partition_count - 1) do
-      assert {@topic_name, ix} in partitions
-    end
-
     # we actually consume the messages
     for px <- partition_range do
       wait_for(fn ->
@@ -158,9 +193,11 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       end)
     end
 
-    # stop the supervisor
-    Process.unlink(context[:consumer_group_pid])
-    sync_stop(context[:consumer_group_pid])
+    # stop the supervisors
+    Process.unlink(context[:consumer_group_pid1])
+    sync_stop(context[:consumer_group_pid1])
+    Process.unlink(context[:consumer_group_pid2])
+    sync_stop(context[:consumer_group_pid2])
 
     # offsets should be committed on exit
     for px <- partition_range do
