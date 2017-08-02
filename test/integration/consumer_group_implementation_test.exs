@@ -189,6 +189,12 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       heartbeat_interval: 100
     )
 
+    # wait for both consumer groups to join
+    wait_for(fn ->
+      assigns = TestObserver.get_assigns(@topic_name) || []
+      length(assigns) > 0 && length(Map.get(List.last(assigns), :members)) == 2
+    end)
+
     on_exit fn ->
       sync_stop(consumer_group_pid1)
       sync_stop(consumer_group_pid2)
@@ -203,12 +209,6 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
 
   test "basic startup, consume, and shutdown test", context do
     partition_range = 0..(@partition_count - 1)
-
-    # wait for both consumer groups to join
-    wait_for(fn ->
-      assigns = TestObserver.get_assigns(@topic_name) || []
-      length(assigns) > 0 && length(Map.get(List.last(assigns), :members)) == 2
-    end)
 
     # the assign_partitions callback should have been called with all 4
     # partitions
@@ -269,5 +269,50 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
           ending_offset == last_message.offset + 1
       end)
     end
+  end
+
+  test "starting/stopping consumers rebalances assignments", context do
+    last_assigns = List.last(TestObserver.get_assigns(@topic_name))
+    assert 2 == length(last_assigns.members)
+
+    Process.unlink(context[:consumer_group_pid1])
+    sync_stop(context[:consumer_group_pid1])
+
+    wait_for(fn ->
+      last_assigns = List.last(TestObserver.get_assigns(@topic_name))
+      1 == length(last_assigns.members)
+    end)
+
+    last_assigns = List.last(TestObserver.get_assigns(@topic_name))
+    assert 1 == length(last_assigns.members)
+
+    {:ok, consumer_group_pid3} = ConsumerGroup.start_link(
+      TestConsumer,
+      @consumer_group_name,
+      [@topic_name],
+      heartbeat_interval: 100
+    )
+
+    wait_for(fn ->
+      last_assigns = List.last(TestObserver.get_assigns(@topic_name))
+      2 == length(last_assigns.members)
+    end)
+
+    last_assigns = List.last(TestObserver.get_assigns(@topic_name))
+    assert 2 == length(last_assigns.members)
+
+    Process.unlink(context[:consumer_group_pid2])
+    sync_stop(context[:consumer_group_pid2])
+
+    wait_for(fn ->
+      last_assigns = List.last(TestObserver.get_assigns(@topic_name))
+      1 == length(last_assigns.members)
+    end)
+
+    last_assigns = List.last(TestObserver.get_assigns(@topic_name))
+    assert 1 == length(last_assigns.members)
+
+    Process.unlink(consumer_group_pid3)
+    sync_stop(consumer_group_pid3)
   end
 end
