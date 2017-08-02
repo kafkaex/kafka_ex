@@ -14,48 +14,74 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
   @consumer_group_name "consumer_group_implementation"
 
   defmodule TestObserver do
+    defmodule Event do
+      defstruct type: nil, from: nil, key: nil, payload: nil
+
+      def type?(%Event{type: type}, type), do: true
+      def type?(%Event{}, _type), do: false
+
+      def key?(%Event{key: key}, key), do: true
+      def key?(%Event{}, _key), do: false
+    end
+
     def start_link do
-      Agent.start_link(fn -> %{} end, name: __MODULE__)
+      Agent.start_link(fn -> [] end, name: __MODULE__)
+    end
+
+    def event(event = %Event{}) do
+      event = %{event | from: self()}
+      Agent.update(__MODULE__, fn(events) -> events ++ [event] end)
+    end
+
+    def all_events() do
+      Agent.get(__MODULE__, &(&1))
+    end
+
+    def by_type(events, type) do
+      Enum.filter(events, &Event.type?(&1, type))
+    end
+
+    def by_key(events, key) do
+      Enum.filter(events, &Event.key?(&1, key))
+    end
+
+    def payloads(events) do
+      Enum.map(events, &(&1.payload))
+    end
+
+    def on_assign_partitions(topic, members, partitions) do
+      event(
+        %Event{
+          type: :assign_partitions,
+          key: topic,
+          payload: {members, partitions}
+        }
+      )
     end
 
     def on_handled_message_set(message_set, topic, partition) do
-      Agent.update(
-        __MODULE__,
-        fn(state) ->
-          key = {topic, partition}
-          Map.update(state, key, [message_set], &(&1 ++ [message_set]))
-        end
+      event(
+        %Event{
+          type: :handled_message_set,
+          key: {topic, partition},
+          payload: message_set
+        }
       )
     end
 
     def last_handled_message_set(topic, partition) do
-      Agent.get(
-        __MODULE__,
-        fn(state) ->
-          key = {topic, partition}
-          message_sets_handled = Map.get(state, key, [])
-          List.last(message_sets_handled)
-        end
-      )
+      all_events()
+      |> by_type(:handled_message_set)
+      |> by_key({topic, partition})
+      |> payloads()
+      |> List.last
     end
 
-    def on_assign_partitions(topic, members, partitions) do
-      Agent.update(
-        __MODULE__,
-        fn(state) ->
-          key = {:assigns, topic}
-          value = {members, partitions}
-          Map.update(state, key, [value], &(&1 ++ [value]))
-        end
-      )
-    end
-
-    def get_assigns(topic_name) do
-      Map.get(get(), {:assigns, topic_name})
-    end
-
-    def get do
-      Agent.get(__MODULE__, &(&1))
+    def get_assigns(topic) do
+      all_events()
+      |> by_type(:assign_partitions)
+      |> by_key(topic)
+      |> payloads()
     end
   end
 
@@ -179,11 +205,6 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       {px, produce("M #{px} #{offset}", px)}
     end)
     |> Enum.into(%{})
-
-    wait_for(fn ->
-      state = TestObserver.get()
-      length(Map.get(state, {:assigns, @topic_name}, [])) > 0
-    end)
 
     # we actually consume the messages
     for px <- partition_range do
