@@ -49,13 +49,13 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   @spec start_link(module, binary, [binary], KafkaEx.GenConsumer.options) ::
     GenServer.on_start
   def start_link(consumer_module, group_name, topics, opts \\ []) do
-    {server_opts, consumer_opts} =
-      Keyword.split(opts, [:debug, :name, :timeout, :spawn_opt])
+    gen_server_opts = Keyword.get(opts, :gen_server_opts, [])
+    consumer_opts = Keyword.drop(opts, [:gen_server_opts])
 
     GenServer.start_link(
       __MODULE__,
       {consumer_module, group_name, topics, consumer_opts},
-      server_opts
+      gen_server_opts
     )
   end
 

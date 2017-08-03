@@ -80,15 +80,32 @@ defmodule KafkaEx.ConsumerGroup do
   @typedoc """
   Option values used when starting a consumer group
 
+  * `:heartbeat_interval` - How frequently, in milliseconds, to send heartbeats
+     to the broker.  This impacts how quickly we will process partition
+     changes as consumers start/stop.  Default: 5000 (5 seconds).
+  * `:session_timeout` - Consumer group session timeout in milliseconds.
+     Default: 30000 (30 seconds).  See below.
   * Any of `t:KafkaEx.GenConsumer.option/0`,
      which will be passed on to consumers
+  * `:gen_server_opts` - `t:GenServer.options/0` passed on to the manager
+     GenServer
   * `:name` - Name for the consumer group supervisor
   * `:max_restarts`, `:max_seconds` - Supervisor restart policy parameters
   * `:partition_assignment_callback` - See
      `t:KafkaEx.ConsumerGroup.PartitionAssignment.callback/0`
+
+  Note `:session_timeout` is registered with the broker and determines how long
+  before the broker will de-register a consumer from which it has not heard a
+  heartbeat.  This value must between the broker cluster's configured values
+  for `group.min.session.timeout.ms` and `group.max.session.timeout.ms` (6000
+  and 30000 by default).  See
+  [https://kafka.apache.org/documentation/#configuration](https://kafka.apache.org/documentation/#configuration).
   """
   @type option :: KafkaEx.GenConsumer.option
+    | {:heartbeat_interval, pos_integer}
+    | {:session_timeout, pos_integer}
     | {:partition_assignment_callback, PartitionAssignment.callback}
+    | {:gen_server_opts, GenServer.options}
     | {:name, Elixir.Supervisor.name}
     | {:max_restarts, non_neg_integer}
     | {:max_seconds, non_neg_integer}
