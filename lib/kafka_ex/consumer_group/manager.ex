@@ -5,6 +5,8 @@ defmodule KafkaEx.ConsumerGroup.Manager do
 
   use GenServer
 
+  alias KafkaEx.ConsumerGroup
+  alias KafkaEx.ConsumerGroup.PartitionAssignment
   alias KafkaEx.Protocol.JoinGroup.Request, as: JoinGroupRequest
   alias KafkaEx.Protocol.JoinGroup.Response, as: JoinGroupResponse
   alias KafkaEx.Protocol.Heartbeat.Request, as: HeartbeatRequest
@@ -26,6 +28,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
       :session_timeout,
       :consumer_module,
       :consumer_opts,
+      :partition_assignment_callback,
       :group_name,
       :topics,
       :member_id,
@@ -69,10 +72,21 @@ defmodule KafkaEx.ConsumerGroup.Manager do
       :session_timeout,
       Application.get_env(:kafka_ex, :session_timeout, @session_timeout)
     )
+    partition_assignment_callback = Keyword.get(
+      opts,
+      :partition_assignment_callback,
+      &PartitionAssignment.round_robin/2
+    )
 
     supervisor_pid = Keyword.fetch!(opts, :supervisor_pid)
     consumer_opts = Keyword.drop(
-      opts, [:supervisor_pid, :heartbeat_interval, :session_timeout]
+      opts,
+      [
+        :supervisor_pid,
+        :heartbeat_interval,
+        :session_timeout,
+        :partition_assignment_callback
+      ]
     )
 
     {:ok, worker_name} =
@@ -84,6 +98,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
       heartbeat_interval: heartbeat_interval,
       session_timeout: session_timeout,
       consumer_module: consumer_module,
+      partition_assignment_callback: partition_assignment_callback,
       consumer_opts: consumer_opts,
       group_name: group_name,
       topics: topics,
@@ -335,7 +350,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
     } = state,
     assignments
   ) do
-    :ok = KafkaEx.ConsumerGroup.start_consumer(
+    :ok = ConsumerGroup.start_consumer(
       pid,
       consumer_module,
       group_name,
@@ -348,7 +363,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
 
   # Stops consuming from the member's assigned partitions and commits offsets.
   defp stop_consumer(%State{supervisor_pid: pid} = state) do
-    :ok = KafkaEx.ConsumerGroup.stop_consumer(pid)
+    :ok = ConsumerGroup.stop_consumer(pid)
 
     state
   end
@@ -380,12 +395,12 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   # return value is a complete list of member assignments in the format needed
   # by `SyncGroupResponse`.
   defp assign_partitions(
-    %State{consumer_module: consumer_module},
+    %State{partition_assignment_callback: partition_assignment_callback},
     members,
     partitions
   ) do
     # Delegate partition assignment to GenConsumer module.
-    assignments = consumer_module.assign_partitions(members, partitions)
+    assignments = partition_assignment_callback.(members, partitions)
 
     # Convert assignments to format expected by Kafka protocol.
     packed_assignments =

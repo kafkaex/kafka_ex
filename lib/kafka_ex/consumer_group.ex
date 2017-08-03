@@ -10,9 +10,11 @@ defmodule KafkaEx.ConsumerGroup do
   Any time group membership changes (a member joins or leaves the group), a
   Kafka broker initiates group synchronization by asking one of the group
   members (the leader elected by the broker) to provide partition assignments
-  for the whole group.  Partition assignment is handled by the
-  `c:KafkaEx.GenConsumer.assign_partitions/2` callback of the provided consumer
-  module.
+  for the whole group.  KafkaEx uses a round robin partition assignment
+  algorithm by deafult.  This can be overridden by passing a callback function
+  in the `:partition_assignment_callback` option.  See
+  `KafkaEx.ConsumerGroup.PartitionAssignment` for details on partition
+  assignment functions.
 
   A `KafkaEx.ConsumerGroup` process is responsible for:
 
@@ -73,17 +75,23 @@ defmodule KafkaEx.ConsumerGroup do
 
   use Supervisor
 
+  alias KafkaEx.ConsumerGroup.PartitionAssignment
+
   @typedoc """
   Option values used when starting a consumer group
 
-  * Any of `KafkaEx.GenConsumer.option`, which will be passed on to consumers
+  * Any of `t:KafkaEx.GenConsumer.option/0`,
+     which will be passed on to consumers
   * `:name` - Name for the consumer group supervisor
   * `:max_restarts`, `:max_seconds` - Supervisor restart policy parameters
+  * `:partition_assignment_callback` - See
+     `t:KafkaEx.ConsumerGroup.PartitionAssignment.callback/0`
   """
   @type option :: KafkaEx.GenConsumer.option
-                | {:name, Elixir.Supervisor.name}
-                | {:max_restarts, non_neg_integer}
-                | {:max_seconds, non_neg_integer}
+    | {:partition_assignment_callback, PartitionAssignment.callback}
+    | {:name, Elixir.Supervisor.name}
+    | {:max_restarts, non_neg_integer}
+    | {:max_seconds, non_neg_integer}
 
   @type options :: [option]
 

@@ -168,26 +168,6 @@ defmodule KafkaEx.GenConsumer do
   require Logger
 
   @typedoc """
-  The ID (string) of a member of a consumer group, assigned by a Kafka broker.
-  """
-  @type member_id :: binary
-
-  @typedoc """
-  The string name of a Kafka topic.
-  """
-  @type topic :: binary
-
-  @typedoc """
-  The integer ID of a partition of a Kafka topic.
-  """
-  @type partition_id :: integer
-
-  @typedoc """
-  A partition of a single topic (embeds the name of the topic).
-  """
-  @type partition :: {topic, partition_id}
-
-  @typedoc """
   Option values used when starting a `KafkaEx.GenConsumer`.
   """
   @type option :: {:commit_interval, non_neg_integer}
@@ -212,7 +192,7 @@ defmodule KafkaEx.GenConsumer do
   Any other return value will cause the `start_link/5` to return `{:error,
   error}` and the process to exit.
   """
-  @callback init(topic :: topic, partition :: partition_id) ::
+  @callback init(topic :: binary, partition :: non_neg_integer) ::
     {:ok, state :: term}
 
   @doc """
@@ -236,63 +216,16 @@ defmodule KafkaEx.GenConsumer do
   @callback handle_message_set(message_set :: [Message.t], state :: term) ::
     {:async_commit, new_state :: term} | {:sync_commit, new_state :: term}
 
-  @doc """
-  Invoked to determine partition assignments for a coordinated consumer group.
-
-  `members` is a list of member IDs and `partitions` is a list of partitions
-  that need to be assigned to a group member.
-
-  The return value must be a map with member IDs as keys and a list of
-  partition assignments as values. For each member ID in the returned map, the
-  assigned partitions will become the `assignments` argument to
-  `KafkaEx.GenConsumer.Supervisor.start_link/4` in the corresponding member
-  process. Any member that's omitted from the return value will not be assigned
-  any partitions.
-
-  If this callback is not implemented, the default implementation by `use
-  KafkaEx.GenConsumer` implements a simple round-robin assignment.
-
-  ### Example
-
-  Given the following `members` and `partitions` to be assigned:
-
-  ```
-  members = ["member1", "member2", "member3"]
-  partitions = [{"topic", 0}, {"topic", 1}, {"topic", 2}]
-  ```
-
-  One possible assignment is as follows:
-
-  ```
-  ExampleGenConsumer.assign_partitions(members, partitions)
-  #=> %{"member1" => [{"topic", 0}, {"topic", 2}], "member2" => [{"topic", 1}]}
-  ```
-
-  In this case, the consumer group process for `"member1"` will launch two
-  `KafkaEx.GenConsumer` processes (one for each of its assigned partitions),
-  `"member2"` will launch one `KafkaEx.GenConsumer` process, and `"member3"` will
-  launch no processes.
-  """
-  @callback assign_partitions(
-    members :: [member_id],
-    partitions :: [partition]
-  ) :: %{member_id => [partition]}
-
   defmacro __using__(_opts) do
     quote do
       @behaviour KafkaEx.GenConsumer
-      alias KafkaEx.ConsumerGroup.PartitionAssignment
       alias KafkaEx.Protocol.Fetch.Message
 
       def init(_topic, _partition) do
         {:ok, nil}
       end
 
-      def assign_partitions(members, partitions) do
-        PartitionAssignment.round_robin(members, partitions)
-      end
-
-      defoverridable [init: 2, assign_partitions: 2]
+      defoverridable [init: 2]
     end
   end
 
@@ -348,10 +281,10 @@ defmodule KafkaEx.GenConsumer do
   This function has the same return values as `GenServer.start_link/3`.
   """
   @spec start_link(
-    module,
-    binary,
-    topic,
-    partition_id,
+    callback_module :: module,
+    consumer_group_name :: binary,
+    topic_name :: binary,
+    partition_id :: non_neg_integer,
     options
   ) :: GenServer.on_start
   def start_link(consumer_module, group_name, topic, partition, opts \\ []) do

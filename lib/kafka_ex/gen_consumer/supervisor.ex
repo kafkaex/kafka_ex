@@ -31,9 +31,11 @@ defmodule KafkaEx.GenConsumer.Supervisor do
   returns `{:ok, pid}`, where `pid` is the PID of the supervisor.
   """
   @spec start_link(
-    module,
-    binary,
-    [KafkaEx.GenConsumer.partition],
+    callback_module :: module,
+    consumer_group_name :: binary,
+    assigned_partitions :: [
+      {topic_name :: binary, partition_id :: non_neg_integer}
+    ],
     KafkaEx.GenConsumer.options
   ) :: Elixir.Supervisor.on_start
   def start_link(consumer_module, group_name, assignments, opts \\ []) do

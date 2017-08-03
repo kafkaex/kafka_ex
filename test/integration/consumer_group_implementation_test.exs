@@ -106,6 +106,28 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     end
   end
 
+  defmodule TestPartitioner do
+    alias KafkaEx.ConsumerGroup.PartitionAssignment
+
+    def assign_partitions(members, partitions) do
+      Logger.debug(fn ->
+        "Consumer #{inspect self()} got " <>
+          "partition assignment: #{inspect members} #{inspect partitions}"
+      end)
+      # TODO this function should get the state as part of its call and be
+      # allowed to mutate the state
+      topic_name = KafkaEx.ConsumerGroupImplementationTest.topic_name
+      assignments = PartitionAssignment.round_robin(members, partitions)
+      TestObserver.on_assign_partitions(
+        topic_name,
+        members,
+        partitions,
+        assignments
+      )
+      assignments
+    end
+  end
+
   defmodule TestConsumer do
     use KafkaEx.GenConsumer
 
@@ -124,24 +146,6 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       end)
       TestObserver.on_handled_message_set(message_set, state.topic, state.partition)
       {:async_commit, state}
-    end
-
-    def assign_partitions(members, partitions) do
-      Logger.debug(fn ->
-        "Consumer #{inspect self()} got " <>
-          "partition assignment: #{inspect members} #{inspect partitions}"
-      end)
-      # TODO this function should get the state as part of its call and be
-      # allowed to mutate the state
-      topic_name = KafkaEx.ConsumerGroupImplementationTest.topic_name
-      assignments = super(members, partitions)
-      TestObserver.on_assign_partitions(
-        topic_name,
-        members,
-        partitions,
-        assignments
-      )
-      assignments
     end
   end
 
@@ -180,13 +184,15 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       TestConsumer,
       @consumer_group_name,
       [@topic_name],
-      heartbeat_interval: 100
+      heartbeat_interval: 100,
+      partition_assignment_callback: &TestPartitioner.assign_partitions/2
     )
     {:ok, consumer_group_pid2} = ConsumerGroup.start_link(
       TestConsumer,
       @consumer_group_name,
       [@topic_name],
-      heartbeat_interval: 100
+      heartbeat_interval: 100,
+      partition_assignment_callback: &TestPartitioner.assign_partitions/2
     )
 
     # wait for both consumer groups to join
@@ -290,7 +296,8 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       TestConsumer,
       @consumer_group_name,
       [@topic_name],
-      heartbeat_interval: 100
+      heartbeat_interval: 100,
+      partition_assignment_callback: &TestPartitioner.assign_partitions/2
     )
 
     wait_for(fn ->
