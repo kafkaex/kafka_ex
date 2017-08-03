@@ -106,7 +106,7 @@ defmodule KafkaEx.ConsumerGroup do
     | {:session_timeout, pos_integer}
     | {:partition_assignment_callback, PartitionAssignment.callback}
     | {:gen_server_opts, GenServer.options}
-    | {:name, Elixir.Supervisor.name}
+    | {:name, Supervisor.name}
     | {:max_restarts, non_neg_integer}
     | {:max_seconds, non_neg_integer}
 
@@ -128,13 +128,12 @@ defmodule KafkaEx.ConsumerGroup do
 
   This function has the same return values as `Supervisor.start_link/3`.
   """
-  @spec start_link(module, binary, [binary], options) ::
-    Elixir.Supervisor.on_start
+  @spec start_link(module, binary, [binary], options) :: Supervisor.on_start
   def start_link(consumer_module, group_name, topics, opts \\ []) do
     {supervisor_opts, module_opts} =
       Keyword.split(opts, [:name, :strategy, :max_restarts, :max_seconds])
 
-    Elixir.Supervisor.start_link(
+    Supervisor.start_link(
       __MODULE__,
       {consumer_module, group_name, topics, module_opts},
       supervisor_opts
@@ -143,14 +142,13 @@ defmodule KafkaEx.ConsumerGroup do
 
   @doc false # used by ConsumerGroup to set partition assignments
   def start_consumer(pid, consumer_module, group_name, assignments, opts) do
-
     child = supervisor(
       KafkaEx.GenConsumer.Supervisor,
       [consumer_module, group_name, assignments, opts],
       id: :consumer
     )
 
-    case Elixir.Supervisor.start_child(pid, child) do
+    case Supervisor.start_child(pid, child) do
       {:ok, _child} -> :ok
       {:ok, _child, _info} -> :ok
     end
@@ -158,9 +156,9 @@ defmodule KafkaEx.ConsumerGroup do
 
   @doc false # used by ConsumerGroup to pause consumption during rebalance
   def stop_consumer(pid) do
-    case Elixir.Supervisor.terminate_child(pid, :consumer) do
+    case Supervisor.terminate_child(pid, :consumer) do
       :ok ->
-        Elixir.Supervisor.delete_child(pid, :consumer)
+        Supervisor.delete_child(pid, :consumer)
 
       {:error, :not_found} ->
         :ok

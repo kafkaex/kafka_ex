@@ -114,9 +114,10 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
         "Consumer #{inspect self()} got " <>
           "partition assignment: #{inspect members} #{inspect partitions}"
       end)
-      # TODO this function should get the state as part of its call and be
-      # allowed to mutate the state
-      topic_name = KafkaEx.ConsumerGroupImplementationTest.topic_name
+
+      # this assumes we are only consuming from one topic
+      [{topic_name, _} | _] = partitions
+
       assignments = PartitionAssignment.round_robin(members, partitions)
       TestObserver.on_assign_partitions(
         topic_name,
