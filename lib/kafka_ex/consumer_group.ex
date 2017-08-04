@@ -124,6 +124,11 @@ defmodule KafkaEx.ConsumerGroup do
   options for the supervisor as well as for the `KafkEx.GenConsumer` processes
   that will be spawned by the supervisor.  See `t:option/0` for details.
 
+  *Note* When starting a consumer group with multiple topics, you should
+  propagate this configuration change to your consumers.  If you add a topic to
+  an existing consumer group from a single consumer, it may take a long time
+  to propagate depending on the leader election process.
+
   ### Return Values
 
   This function has the same return values as `Supervisor.start_link/3`.
