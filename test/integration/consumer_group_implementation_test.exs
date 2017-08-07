@@ -54,20 +54,6 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       Enum.map(events, &(&1.source))
     end
 
-    def on_assign_partitions(topic, members, partitions, assignments) do
-      event(
-        %Event{
-          type: :assign_partitions,
-          key: topic,
-          payload: %{
-            members: members,
-            partitions: partitions,
-            assignments: assignments
-          }
-        }
-      )
-    end
-
     def on_handled_message_set(message_set, topic, partition) do
       event(
         %Event{
@@ -86,24 +72,12 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       |> List.last
     end
 
-    def get_assigns(topic) do
-      all_events()
-      |> by_type(:assign_partitions)
-      |> by_key(topic)
-      |> payloads()
-    end
-
     def last_handler(topic, partition) do
       all_events()
       |> by_type(:handled_message_set)
       |> by_key({topic, partition})
       |> sources()
       |> List.last
-    end
-
-    def current_assignments(topic) do
-      last_assigns = List.last(get_assigns(topic))
-      last_assigns.assignments
     end
   end
 
@@ -116,17 +90,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
           "partition assignment: #{inspect members} #{inspect partitions}"
       end)
 
-      # this assumes we are only consuming from one topic
-      [{topic_name, _} | _] = partitions
-
-      assignments = PartitionAssignment.round_robin(members, partitions)
-      TestObserver.on_assign_partitions(
-        topic_name,
-        members,
-        partitions,
-        assignments
-      )
-      assignments
+      PartitionAssignment.round_robin(members, partitions)
     end
   end
 
@@ -199,8 +163,8 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
 
     # wait for both consumer groups to join
     wait_for(fn ->
-      assigns = TestObserver.get_assigns(@topic_name) || []
-      length(assigns) > 0 && length(Map.get(List.last(assigns), :members)) == 2
+      ConsumerGroup.active?(consumer_group_pid1) &&
+        ConsumerGroup.active?(consumer_group_pid2)
     end)
 
     on_exit fn ->
@@ -263,24 +227,10 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
 
     assert consumer2_assignments == Enum.sort(assignments2)
 
-    partition_range = 0..(@partition_count - 1)
+    # all of the partitions should be accounted for
+    assert @partition_count == length(Enum.uniq(assignments1 ++ assignments2))
 
-    # the assign_partitions callback should have been called with all 4
-    # partitions
-    assigns = TestObserver.get_assigns(@topic_name)
-    assert length(assigns) == 2
-    last_assigns = List.last(assigns)
-    # we should have two consumers in the most recent batch
-    assert 2 == length(last_assigns.members)
-    assert @partition_count == length(last_assigns.partitions)
-    for ix <- 0..(@partition_count - 1) do
-      assert {@topic_name, ix} in last_assigns.partitions
-    end
-    assignments = TestObserver.current_assignments(@topic_name)
-    # there should be two cgs with assignments
-    assert 2 == length(Map.keys(assignments))
-    # each worker should have two partitions
-    assert Enum.all?(Map.values(assignments), fn(p) -> length(p) == 2 end)
+    partition_range = 0..(@partition_count - 1)
 
     starting_offsets = partition_range
     |> Enum.map(fn(px) -> {px, latest_offset_number(@topic_name, px)} end)
@@ -327,19 +277,17 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
   end
 
   test "starting/stopping consumers rebalances assignments", context do
-    last_assigns = List.last(TestObserver.get_assigns(@topic_name))
-    assert 2 == length(last_assigns.members)
-
     Process.unlink(context[:consumer_group_pid1])
     sync_stop(context[:consumer_group_pid1])
 
+    # the other cg should get assigned all of the partitions
     wait_for(fn ->
-      last_assigns = List.last(TestObserver.get_assigns(@topic_name))
-      1 == length(last_assigns.members)
+      @partition_count ==
+        length(ConsumerGroup.assignments(context[:consumer_group_pid2]))
     end)
 
-    last_assigns = List.last(TestObserver.get_assigns(@topic_name))
-    assert 1 == length(last_assigns.members)
+    # and become the leader
+    assert ConsumerGroup.leader?(context[:consumer_group_pid2])
 
     {:ok, consumer_group_pid3} = ConsumerGroup.start_link(
       TestConsumer,
@@ -349,24 +297,21 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       partition_assignment_callback: &TestPartitioner.assign_partitions/2
     )
 
+    # the new worker should get assigned some partitions
     wait_for(fn ->
-      last_assigns = List.last(TestObserver.get_assigns(@topic_name))
-      2 == length(last_assigns.members)
+      ConsumerGroup.active?(consumer_group_pid3)
     end)
-
-    last_assigns = List.last(TestObserver.get_assigns(@topic_name))
-    assert 2 == length(last_assigns.members)
 
     Process.unlink(context[:consumer_group_pid2])
     sync_stop(context[:consumer_group_pid2])
 
+    # now the new cg should get all of the partitions
     wait_for(fn ->
-      last_assigns = List.last(TestObserver.get_assigns(@topic_name))
-      1 == length(last_assigns.members)
+      @partition_count == length(ConsumerGroup.assignments(consumer_group_pid3))
     end)
 
-    last_assigns = List.last(TestObserver.get_assigns(@topic_name))
-    assert 1 == length(last_assigns.members)
+    # and become the leader
+    assert ConsumerGroup.leader?(consumer_group_pid3)
 
     Process.unlink(consumer_group_pid3)
     sync_stop(consumer_group_pid3)

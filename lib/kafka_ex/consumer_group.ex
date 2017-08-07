@@ -76,6 +76,7 @@ defmodule KafkaEx.ConsumerGroup do
   use Supervisor
 
   alias KafkaEx.ConsumerGroup.PartitionAssignment
+  alias KafkaEx.GenConsumer
 
   @typedoc """
   Option values used when starting a consumer group
@@ -210,6 +211,19 @@ defmodule KafkaEx.ConsumerGroup do
   @spec consumer_supervisor_pid(Supervisor.supervisor) :: nil | pid
   def consumer_supervisor_pid(supervisor_pid) do
     call_manager(supervisor_pid, :consumer_supervisor_pid)
+  end
+
+  @doc """
+  Returns true if at least one child consumer process is alive
+  """
+  @spec active?(Supervisor.supervisor) :: boolean
+  def active?(supervisor_pid) do
+    consumer_supervisor = consumer_supervisor_pid(supervisor_pid)
+    if consumer_supervisor && Process.alive?(consumer_supervisor) do
+      GenConsumer.Supervisor.active?(consumer_supervisor)
+    else
+      false
+    end
   end
 
   @doc false # used by ConsumerGroup.Manager to set partition assignments

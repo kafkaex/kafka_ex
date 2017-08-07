@@ -65,6 +65,16 @@ defmodule KafkaEx.GenConsumer.Supervisor do
     |> Enum.map(fn({_, pid, _, _}) -> pid end)
   end
 
+  @doc """
+  Returns true if any child pids are alive
+  """
+  @spec active?(Supervisor.supervisor) :: boolean
+  def active?(supervisor_pid) do
+    supervisor_pid
+    |> child_pids
+    |> Enum.any?(&Process.alive?/1)
+  end
+
   def init({consumer_module, group_name, _assignments, _opts}) do
     children = [
       worker(KafkaEx.GenConsumer, [consumer_module, group_name])
