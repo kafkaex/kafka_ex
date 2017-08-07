@@ -14,81 +14,24 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
   @partition_count 4
   @consumer_group_name "consumer_group_implementation"
 
-  defmodule TestObserver do
-    defmodule Event do
-      defstruct type: nil, source: nil, key: nil, payload: nil
-
-      def type?(%Event{type: type}, type), do: true
-      def type?(%Event{}, _type), do: false
-
-      def key?(%Event{key: key}, key), do: true
-      def key?(%Event{}, _key), do: false
-    end
-
-    def start_link do
-      Agent.start_link(fn -> [] end, name: __MODULE__)
-    end
-
-    def event(event = %Event{}) do
-      event = %{event | source: self()}
-      Agent.update(__MODULE__, fn(events) -> events ++ [event] end)
-    end
-
-    def all_events() do
-      Agent.get(__MODULE__, &(&1))
-    end
-
-    def by_type(events, type) do
-      Enum.filter(events, &Event.type?(&1, type))
-    end
-
-    def by_key(events, key) do
-      Enum.filter(events, &Event.key?(&1, key))
-    end
-
-    def payloads(events) do
-      Enum.map(events, &(&1.payload))
-    end
-
-    def sources(events) do
-      Enum.map(events, &(&1.source))
-    end
-
-    def on_handled_message_set(message_set, topic, partition) do
-      event(
-        %Event{
-          type: :handled_message_set,
-          key: {topic, partition},
-          payload: message_set
-        }
-      )
-    end
-
-    def last_handled_message_set(topic, partition) do
-      all_events()
-      |> by_type(:handled_message_set)
-      |> by_key({topic, partition})
-      |> payloads()
-      |> List.last
-    end
-
-    def last_handler(topic, partition) do
-      all_events()
-      |> by_type(:handled_message_set)
-      |> by_key({topic, partition})
-      |> sources()
-      |> List.last
-    end
-  end
-
   defmodule TestPartitioner do
     alias KafkaEx.ConsumerGroup.PartitionAssignment
+
+    def start_link do
+      Agent.start_link(fn -> 0 end, name: __MODULE__)
+    end
+
+    def calls do
+      Agent.get(__MODULE__, &(&1))
+    end
 
     def assign_partitions(members, partitions) do
       Logger.debug(fn ->
         "Consumer #{inspect self()} got " <>
           "partition assignment: #{inspect members} #{inspect partitions}"
       end)
+
+      Agent.update(__MODULE__, &(&1 + 1))
 
       PartitionAssignment.round_robin(members, partitions)
     end
@@ -97,21 +40,31 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
   defmodule TestConsumer do
     use KafkaEx.GenConsumer
 
-    alias KafkaEx.ConsumerGroupImplementationTest.TestObserver
+    alias KafkaEx.GenConsumer
+
+    def last_message_set(pid) do
+      List.last(GenConsumer.call(pid, :message_sets)) || []
+    end
 
     def init(topic, partition) do
       Logger.debug(fn ->
         "Initialized consumer #{inspect self()} for #{topic}:#{partition}"
       end)
-      {:ok, %{topic: topic, partition: partition}}
+      {:ok, %{topic: topic, partition: partition, message_sets: []}}
+    end
+
+    def handle_call(:message_sets, _from, state) do
+      {:reply, state.message_sets, state}
     end
 
     def handle_message_set(message_set, state) do
       Logger.debug(fn ->
         "Consumer #{inspect self()} handled message set #{inspect message_set}"
       end)
-      TestObserver.on_handled_message_set(message_set, state.topic, state.partition)
-      {:async_commit, state}
+      {
+        :async_commit,
+        %{state | message_sets: state.message_sets ++ [message_set]}
+      }
     end
   end
 
@@ -145,7 +98,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
   end
 
   setup do
-    {:ok, _} = TestObserver.start_link
+    {:ok, _} = TestPartitioner.start_link
     {:ok, consumer_group_pid1} = ConsumerGroup.start_link(
       TestConsumer,
       @consumer_group_name,
@@ -180,6 +133,8 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
   end
 
   test "basic startup, consume, and shutdown test", context do
+    assert TestPartitioner.calls > 0
+
     generation_id1 = ConsumerGroup.generation_id(context[:consumer_group_pid1])
     generation_id2 = ConsumerGroup.generation_id(context[:consumer_group_pid2])
     assert generation_id1 == generation_id2
@@ -213,7 +168,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid1])
     consumer1_assignments = consumer1_pid
     |> GenConsumer.Supervisor.child_pids
-    |> Enum.map(&GenConsumer.topic_partition/1)
+    |> Enum.map(&GenConsumer.partition/1)
     |> Enum.sort
 
     assert consumer1_assignments == Enum.sort(assignments1)
@@ -222,7 +177,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid2])
     consumer2_assignments = consumer2_pid
     |> GenConsumer.Supervisor.child_pids
-    |> Enum.map(&GenConsumer.topic_partition/1)
+    |> Enum.map(&GenConsumer.partition/1)
     |> Enum.sort
 
     assert consumer2_assignments == Enum.sort(assignments2)
@@ -243,20 +198,23 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     end)
     |> Enum.into(%{})
 
+    consumers = Map.merge(
+      ConsumerGroup.partition_consumer_map(context[:consumer_group_pid1]),
+      ConsumerGroup.partition_consumer_map(context[:consumer_group_pid2])
+    )
+
     # we actually consume the messages
-    for px <- partition_range do
+    last_offsets = partition_range
+    |> Enum.map(fn(px) ->
+      consumer_pid = Map.get(consumers, {@topic_name, px})
       wait_for(fn ->
-        message_set = TestObserver.last_handled_message_set(@topic_name, px)
+        message_set = TestConsumer.last_message_set(consumer_pid)
         right_last_message?(message_set, messages[px], starting_offsets[px])
       end)
-    end
-
-    # each partition should be getting handled by a different consumer
-    handlers = Enum.map(
-      partition_range,
-      &(TestObserver.last_handler(@topic_name, &1))
-    )
-    assert handlers == Enum.uniq(handlers)
+      last_message = List.last(TestConsumer.last_message_set(consumer_pid))
+      {px, last_message.offset}
+    end)
+    |> Enum.into(%{})
 
     # stop the supervisors
     Process.unlink(context[:consumer_group_pid1])
@@ -269,9 +227,8 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       wait_for(fn ->
         ending_offset =
           latest_consumer_offset_number(@topic_name, px, @consumer_group_name)
-          message_set = TestObserver.last_handled_message_set(@topic_name, px)
-          last_message = List.last(message_set)
-          ending_offset == last_message.offset + 1
+        last_offset = Map.get(last_offsets, px)
+        ending_offset == last_offset + 1
       end)
     end
   end

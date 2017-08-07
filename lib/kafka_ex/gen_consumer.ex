@@ -118,12 +118,40 @@ defmodule KafkaEx.GenConsumer do
   often a `KafkaEx.GenConsumer` auto-commits. For high-volume topics,
   `:commit_threshold` is the dominant factor.
 
-  ## Integration with OTP
+  ## Handler state and interaction
 
-  A `KafkaEx.GenConsumer` is a specialized `GenServer`. It can be supervised,
-  registered, and debugged the same as any other `GenServer`.  Use
-  `start_link/5` to start a `KafkaEx.GenConsumer` properly; do not use
-  `GenServer.start_link/3` directly to start a `KafkaEx.GenConsumer`.
+  Use the `c:init/2` to initialize consumer state and `c:handle_call/3` 
+  to interact.
+
+  Example:
+
+  ```
+  defmodule MyConsumer do
+    use KafkaEx.GenConsumer
+
+    defmodule State do
+      defstruct messages: [], calls: 0
+    end
+
+    def init(_topic, _partition) do
+      {:ok, %State{}}
+    end
+
+    def handle_message_set(message_set, state) do
+      {:async_commit, %{state | messages: state.messages ++ message_set}}
+    end
+
+    def handle_call(:messages, _from, messages_so_far)
+      {:reply, state.messages, %{state | calls: state.calls + 1}}
+    end
+  end
+
+  {:ok, pid} = GenConsumer.start_link(MyConsumer, "consumer_group", "topic", 0)
+  GenConsumer.call(pid, :messages)
+  ```
+
+  **NOTE** If you do not implement a `c:handle_call/3` callback, any calls to
+  `GenConsumer.call/3` that go to your consumer will cause a `MatchError`.
 
   ## Testing
 
@@ -216,6 +244,15 @@ defmodule KafkaEx.GenConsumer do
   @callback handle_message_set(message_set :: [Message.t], state :: term) ::
     {:async_commit, new_state :: term} | {:sync_commit, new_state :: term}
 
+  @doc """
+  Invoked by `KafkaEx.GenConsumer.call/3`.
+
+  Note the default implementation will cause a `MatchError`.  If you want to
+  interact with your consumer, you must implement a handle_call function.
+  """
+  @callback handle_call(call :: term, from :: GenServer.from, state :: term)
+    :: {:reply, reply_value :: term, new_state :: term}
+
   defmacro __using__(_opts) do
     quote do
       @behaviour KafkaEx.GenConsumer
@@ -225,7 +262,12 @@ defmodule KafkaEx.GenConsumer do
         {:ok, nil}
       end
 
-      defoverridable [init: 2]
+      def handle_call(_call, _from, _consumer_state) do
+        # the user must implement this if they expect to recieve calls
+        :handle_call_not_implemented
+      end
+
+      defoverridable [init: 2, handle_call: 3]
     end
   end
 
@@ -301,10 +343,26 @@ defmodule KafkaEx.GenConsumer do
   @doc """
   Returns the topic and partition id for this consumer process
   """
-  @spec topic_partition(GenServer.server) ::
+  @spec partition(GenServer.server) ::
     {topic :: binary, partition_id :: non_neg_integer}
-  def topic_partition(gen_consumer) do
-    GenServer.call(gen_consumer, :topic_partition)
+  def partition(gen_consumer) do
+    GenServer.call(gen_consumer, :partition)
+  end
+
+  @doc """
+  Forwards a `GenServer.call/3` to the consumer implementation with the
+  consumer's state.
+
+  The implementation must return a `GenServer.call/3`-compatible value of the
+  form `{:reply, reply_value, new_consumer_state}`.  The GenConsumer will
+  turn this into an immediate timeout, which drives continued message
+  consumption.
+
+  See the moduledoc for an example.
+  """
+  @spec call(GenServer.server, term, timeout) :: term
+  def call(gen_consumer, message, timeout \\ 5000) do
+    GenServer.call(gen_consumer, {:consumer_call, message}, timeout)
   end
 
   # GenServer callbacks
@@ -341,8 +399,28 @@ defmodule KafkaEx.GenConsumer do
     {:ok, state, 0}
   end
 
-  def handle_call(:topic_partition, _from, state) do
+  def handle_call(:partition, _from, state) do
     {:reply, {state.topic, state.partition}, state, 0}
+  end
+
+  def handle_call(
+    {:consumer_call, message},
+    from,
+    %State{
+      consumer_module: consumer_module,
+      consumer_state: consumer_state
+    } = state
+  ) do
+    # NOTE we only support the {:reply, _, _} result format here
+    #   which we turn into a timeout = 0 clause so that we continue to consume.
+    #   any other GenServer flow control could have unintended consequences,
+    #   so we leave that for later consideration
+    {:reply, reply, new_consumer_state} = consumer_module.handle_call(
+      message,
+      from,
+      consumer_state
+    )
+    {:reply, reply, %{state | consumer_state: new_consumer_state}, 0}
   end
 
   def handle_info(

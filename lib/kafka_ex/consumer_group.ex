@@ -214,6 +214,30 @@ defmodule KafkaEx.ConsumerGroup do
   end
 
   @doc """
+  Returns the pids of consumer processes
+  """
+  @spec consumer_pids(Supervisor.supervisor) :: [pid]
+  def consumer_pids(supervisor_pid) do
+    supervisor_pid
+    |> consumer_supervisor_pid
+    |> GenConsumer.Supervisor.child_pids
+  end
+
+  @doc """
+  Returns a map from `{topic, partition_id}` to consumer pid
+  """
+  @spec partition_consumer_map(Supervisor.supervisor) ::
+    %{{topic :: binary, partition_id :: non_neg_integer} => pid}
+  def partition_consumer_map(supervisor_pid) do
+    supervisor_pid
+    |> consumer_pids
+    |> Enum.map(fn(pid) ->
+      {GenConsumer.partition(pid), pid}
+    end)
+    |> Enum.into(%{})
+  end
+
+  @doc """
   Returns true if at least one child consumer process is alive
   """
   @spec active?(Supervisor.supervisor) :: boolean
