@@ -298,6 +298,15 @@ defmodule KafkaEx.GenConsumer do
     )
   end
 
+  @doc """
+  Returns the topic and partition id for this consumer process
+  """
+  @spec topic_partition(GenServer.server) ::
+    {topic :: binary, partition_id :: non_neg_integer}
+  def topic_partition(gen_consumer) do
+    GenServer.call(gen_consumer, :topic_partition)
+  end
+
   # GenServer callbacks
 
   def init({consumer_module, group_name, topic, partition, opts}) do
@@ -330,6 +339,10 @@ defmodule KafkaEx.GenConsumer do
     Process.flag(:trap_exit, true)
 
     {:ok, state, 0}
+  end
+
+  def handle_call(:topic_partition, _from, state) do
+    {:reply, {state.topic, state.partition}, state, 0}
   end
 
   def handle_info(

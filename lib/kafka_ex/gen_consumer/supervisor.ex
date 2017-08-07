@@ -53,6 +53,18 @@ defmodule KafkaEx.GenConsumer.Supervisor do
     end
   end
 
+  @doc """
+  Returns a list of child pids
+
+  Intended to be used for operational and testing purposes
+  """
+  @spec child_pids(pid | atom) :: [pid]
+  def child_pids(supervisor_pid) do
+    supervisor_pid
+    |> Supervisor.which_children
+    |> Enum.map(fn({_, pid, _, _}) -> pid end)
+  end
+
   def init({consumer_module, group_name, _assignments, _opts}) do
     children = [
       worker(KafkaEx.GenConsumer, [consumer_module, group_name])

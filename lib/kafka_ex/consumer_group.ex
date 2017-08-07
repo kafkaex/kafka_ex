@@ -145,7 +145,74 @@ defmodule KafkaEx.ConsumerGroup do
     )
   end
 
-  @doc false # used by ConsumerGroup to set partition assignments
+  @doc """
+  Returns the generation id of the consumer group.
+
+  The generation id is provided by the broker on sync.  Returns `nil` if
+  queried before the initial sync has completed.
+  """
+  @spec generation_id(Supervisor.supervisor) :: integer | nil
+  def generation_id(supervisor_pid) do
+    call_manager(supervisor_pid, :generation_id)
+  end
+
+  @doc """
+  Returns the consumer group member id
+
+  The id is assigned by the broker.  Returns `nil` if queried before the
+  initial sync has completed.
+  """
+  @spec member_id(Supervisor.supervisor) :: binary | nil
+  def member_id(supervisor_pid) do
+    call_manager(supervisor_pid, :member_id)
+  end
+
+  @doc """
+  Returns the member id of the consumer group's leader
+
+  This is provided by the broker on sync.  Returns `nil` if queried before the
+  initial sync has completed
+  """
+  @spec leader_id(Supervisor.supervisor) :: binary | nil
+  def leader_id(supervisor_pid) do
+    call_manager(supervisor_pid, :leader_id)
+  end
+
+  @doc """
+  Returns true if this consumer is the leader of the consumer group
+
+  Leaders are elected by the broker and are responsible for assigning
+  partitions.  Returns false if queried before the intiial sync has completed.
+  """
+  @spec leader?(Supervisor.supervisor) ::  boolean
+  def leader?(supervisor_pid) do
+    call_manager(supervisor_pid, :am_leader)
+  end
+
+  @doc """
+  Returns a list of topic and partition assignments for which this consumer is
+  responsible.
+
+  These are assigned by the leader and communicated by the broker on sync.
+  """
+  @spec assignments(Supervisor.supervisor) ::
+    [{topic :: binary, partition_id :: non_neg_integer}]
+  def assignments(supervisor_pid) do
+    call_manager(supervisor_pid, :assignments)
+  end
+
+  @doc """
+  Returns the pid of the `KafkaEx.GenConsumer.Supervisor` that supervises this
+  member's consumers.
+
+  Returns `nil` if called before the initial sync.
+  """
+  @spec consumer_supervisor_pid(Supervisor.supervisor) :: nil | pid
+  def consumer_supervisor_pid(supervisor_pid) do
+    call_manager(supervisor_pid, :consumer_supervisor_pid)
+  end
+
+  @doc false # used by ConsumerGroup.Manager to set partition assignments
   def start_consumer(pid, consumer_module, group_name, assignments, opts) do
     child = supervisor(
       KafkaEx.GenConsumer.Supervisor,
@@ -154,8 +221,8 @@ defmodule KafkaEx.ConsumerGroup do
     )
 
     case Supervisor.start_child(pid, child) do
-      {:ok, _child} -> :ok
-      {:ok, _child, _info} -> :ok
+      {:ok, consumer_pid} -> {:ok, consumer_pid}
+      {:ok, consumer_pid, _info} -> {:ok, consumer_pid}
     end
   end
 
@@ -182,5 +249,22 @@ defmodule KafkaEx.ConsumerGroup do
     ]
 
     supervise(children, strategy: :one_for_all)
+  end
+
+  defp call_manager(supervisor_pid, call) do
+    supervisor_pid
+    |> get_manager_pid
+    |> GenServer.call(call)
+  end
+
+  defp get_manager_pid(supervisor_pid) do
+    {_, pid, _, _} = Enum.find(
+      Supervisor.which_children(supervisor_pid),
+      fn
+        ({KafkaEx.ConsumerGroup.Manager, _, _, _}) -> true
+        ({_, _, _, _}) -> false
+      end
+    )
+    pid
   end
 end

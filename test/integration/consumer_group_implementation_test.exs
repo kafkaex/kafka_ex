@@ -2,6 +2,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
   use ExUnit.Case
 
   alias KafkaEx.ConsumerGroup
+  alias KafkaEx.GenConsumer
   import TestHelper
 
   require Logger
@@ -215,6 +216,53 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
   end
 
   test "basic startup, consume, and shutdown test", context do
+    generation_id1 = ConsumerGroup.generation_id(context[:consumer_group_pid1])
+    generation_id2 = ConsumerGroup.generation_id(context[:consumer_group_pid2])
+    assert generation_id1 == generation_id2
+
+    member1 = ConsumerGroup.member_id(context[:consumer_group_pid1])
+    member2 = ConsumerGroup.member_id(context[:consumer_group_pid2])
+    assert member1 != member2
+
+    leader1 = ConsumerGroup.leader_id(context[:consumer_group_pid1])
+    leader2 = ConsumerGroup.leader_id(context[:consumer_group_pid2])
+    assert leader1 == leader2
+
+    cond do
+      leader1 == member1 ->
+        assert ConsumerGroup.leader?(context[:consumer_group_pid1])
+        refute ConsumerGroup.leader?(context[:consumer_group_pid2])
+      leader1 == member2 ->
+        refute ConsumerGroup.leader?(context[:consumer_group_pid1])
+        assert ConsumerGroup.leader?(context[:consumer_group_pid2])
+      true ->
+        raise "Neither member is the leader"
+    end
+
+    assignments1 = ConsumerGroup.assignments(context[:consumer_group_pid1])
+    assignments2 = ConsumerGroup.assignments(context[:consumer_group_pid2])
+    assert 2 == length(assignments1)
+    assert 2 == length(assignments2)
+    refute assignments1 == assignments2
+
+    consumer1_pid =
+      ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid1])
+    consumer1_assignments = consumer1_pid
+    |> GenConsumer.Supervisor.child_pids
+    |> Enum.map(&GenConsumer.topic_partition/1)
+    |> Enum.sort
+
+    assert consumer1_assignments == Enum.sort(assignments1)
+
+    consumer2_pid =
+      ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid2])
+    consumer2_assignments = consumer2_pid
+    |> GenConsumer.Supervisor.child_pids
+    |> Enum.map(&GenConsumer.topic_partition/1)
+    |> Enum.sort
+
+    assert consumer2_assignments == Enum.sort(assignments2)
+
     partition_range = 0..(@partition_count - 1)
 
     # the assign_partitions callback should have been called with all 4

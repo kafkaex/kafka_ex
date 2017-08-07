@@ -32,6 +32,9 @@ defmodule KafkaEx.ConsumerGroup.Manager do
       :group_name,
       :topics,
       :member_id,
+      :leader_id,
+      :consumer_supervisor_pid,
+      :members,
       :generation_id,
       :assignments,
       :heartbeat_timer,
@@ -102,7 +105,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
       consumer_opts: consumer_opts,
       group_name: group_name,
       topics: topics,
-      member_id: "",
+      member_id: nil,
     }
 
     Process.flag(:trap_exit, true)
@@ -110,11 +113,38 @@ defmodule KafkaEx.ConsumerGroup.Manager do
     {:ok, state, 0}
   end
 
+  ######################################################################
+  # handle_call clauses - mostly for ops queries
+  def handle_call(:generation_id, _from, state) do
+    {:reply, state.generation_id, state}
+  end
+
+  def handle_call(:member_id, _from, state) do
+    {:reply, state.member_id, state}
+  end
+
+  def handle_call(:leader_id, _from, state) do
+    {:reply, state.leader_id, state}
+  end
+
+  def handle_call(:am_leader, _from, state) do
+    {:reply, state.leader_id && state.member_id == state.leader_id, state}
+  end
+
+  def handle_call(:assignments, _from, state) do
+    {:reply, state.assignments, state}
+  end
+
+  def handle_call(:consumer_supervisor_pid, _from, state) do
+    {:reply, state.consumer_supervisor_pid, state}
+  end
+  ######################################################################
+
   # If `member_id` and `generation_id` aren't set, we haven't yet joined the
   # group. `member_id` and `generation_id` are initialized by
   # `JoinGroupResponse`.
   def handle_info(
-    :timeout, %State{generation_id: nil, member_id: ""} = state
+    :timeout, %State{generation_id: nil, member_id: nil} = state
   ) do
     {:ok, new_state} = join(state)
 
@@ -132,7 +162,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   # When terminating, inform the group coordinator that this member is leaving
   # the group so that the group can rebalance without waiting for a session
   # timeout.
-  def terminate(_reason, %State{generation_id: nil, member_id: ""}), do: :ok
+  def terminate(_reason, %State{generation_id: nil, member_id: nil}), do: :ok
   def terminate(_reason, %State{} = state) do
     :ok = leave(state)
   end
@@ -165,7 +195,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   ) do
     join_request = %JoinGroupRequest{
       group_name: group_name,
-      member_id: member_id,
+      member_id: member_id || "",
       topics: topics,
       session_timeout: session_timeout,
     }
@@ -181,6 +211,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
 
     new_state = %State{
       state |
+      leader_id: join_response.leader_id,
       member_id: join_response.member_id,
       generation_id: join_response.generation_id
     }
@@ -350,7 +381,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
     } = state,
     assignments
   ) do
-    :ok = ConsumerGroup.start_consumer(
+    {:ok, consumer_supervisor_pid} = ConsumerGroup.start_consumer(
       pid,
       consumer_module,
       group_name,
@@ -358,7 +389,11 @@ defmodule KafkaEx.ConsumerGroup.Manager do
       consumer_opts
     )
 
-    state
+    %{
+      state |
+      assignments: assignments,
+      consumer_supervisor_pid: consumer_supervisor_pid
+    }
   end
 
   # Stops consuming from the member's assigned partitions and commits offsets.
