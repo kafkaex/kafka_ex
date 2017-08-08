@@ -15,6 +15,9 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
   @consumer_group_name "consumer_group_implementation"
 
   defmodule TestPartitioner do
+    # wraps an Agent that we use to capture the fact that the partitioner was
+    # called - normally one would not really need to do this
+
     alias KafkaEx.ConsumerGroup.PartitionAssignment
 
     def start_link do
@@ -38,6 +41,8 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
   end
 
   defmodule TestConsumer do
+    # test consumer - keeps track of messages handled
+
     use KafkaEx.GenConsumer
 
     alias KafkaEx.GenConsumer
@@ -50,7 +55,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       Logger.debug(fn ->
         "Initialized consumer #{inspect self()} for #{topic}:#{partition}"
       end)
-      {:ok, %{topic: topic, partition: partition, message_sets: []}}
+      {:ok, %{message_sets: []}}
     end
 
     def handle_call(:message_sets, _from, state) do
@@ -73,19 +78,15 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     message
   end
 
-  def right_last_message?(nil, _, _), do: false
-  def right_last_message?([], _, _), do: false
-  def right_last_message?(message_set, expected_message, expected_offset) do
+  def correct_last_message?(nil, _, _), do: false
+  def correct_last_message?([], _, _), do: false
+  def correct_last_message?(message_set, expected_message, expected_offset) do
     Logger.debug(fn ->
       "Got message set: #{inspect message_set} " <>
         "expecting '#{expected_message}' @ offset #{expected_offset}"
     end)
     message = List.last(message_set)
     message.value == expected_message && message.offset == expected_offset
-  end
-
-  def topic_name do
-    @topic_name
   end
 
   def sync_stop(pid) when is_pid(pid) do
@@ -209,7 +210,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       consumer_pid = Map.get(consumers, {@topic_name, px})
       wait_for(fn ->
         message_set = TestConsumer.last_message_set(consumer_pid)
-        right_last_message?(message_set, messages[px], starting_offsets[px])
+        correct_last_message?(message_set, messages[px], starting_offsets[px])
       end)
       last_message = List.last(TestConsumer.last_message_set(consumer_pid))
       {px, last_message.offset}
