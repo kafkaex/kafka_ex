@@ -163,7 +163,10 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     assignments2 = ConsumerGroup.assignments(context[:consumer_group_pid2])
     assert 2 == length(assignments1)
     assert 2 == length(assignments2)
-    refute assignments1 == assignments2
+    assert MapSet.disjoint?(
+      Enum.into(assignments1, MapSet.new),
+      Enum.into(assignments2, MapSet.new)
+    )
 
     consumer1_pid =
       ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid1])
