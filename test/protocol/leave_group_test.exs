@@ -8,7 +8,12 @@ defmodule KafkaEx.Protocol.LeaveGroup.Test do
         byte_size("member") :: 16, "member" :: binary, # MemberId
       >>
 
-    request = KafkaEx.Protocol.LeaveGroup.create_request(42, "client_id", "group", "member")
+    leave_request = %KafkaEx.Protocol.LeaveGroup.Request{
+      group_name: "group",
+      member_id: "member",
+    }
+
+    request = KafkaEx.Protocol.LeaveGroup.create_request(42, "client_id", leave_request)
 
     assert request == good_request
   end

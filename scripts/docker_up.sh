@@ -46,3 +46,6 @@ do
 done
 
 docker-compose up -d
+
+# create topics needed for testing
+docker-compose exec kafka3 /bin/bash -c "KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181 KAFKA_PORT=9094 KAFKA_CREATE_TOPICS=consumer_group_implementation_test:4:2 create-topics.sh"

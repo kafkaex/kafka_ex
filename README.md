@@ -24,23 +24,11 @@ KakfaEx supports the following Kafka features:
 * Fetch Messages
 * Message Compression with Snappy and gzip
 * Offset Management (fetch / commit / autocommit)
+* Consumer Groups
 
 See [Kafka Protocol Documentation](http://kafka.apache.org/protocol.html) and
  [A Guide to the Kafka Protocol](https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol)
 for details of these features.
-
-KafkaEx **does support** consumer groups for message consumption.  This feature
-was added in Kafka 0.8.2.  This translates to providing a consumer group
-name when committing offsets.  It is up to the client to assign partitions to
-workers in this mode of operation.
-
-KafkaEx currently provides **limited support** for the [Kafka ConsumerGroup
-API](https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol#AGuideToTheKafkaProtocol-GroupMembershipAPI)
-that was added in Kafka 0.9.0.  Most of the protocol requests are implemented
-in KafkaEx, but we do not yet support automatic joining and management of
-consumer group memebership (e.g., automatically assigning partitions to
-clients).  We are actively working on an implementation for automatic consumer
-group management.
 
 ## Using KafkaEx in an Elixir project
 
@@ -89,6 +77,35 @@ for a description of configuration variables, including the Kafka broker list
 You can also override options when creating a worker, see below.
 
 ## Usage Examples
+
+### Consumer Groups
+
+To use a consumer group, first implement a handler module using
+`KafkaEx.GenConsumer`.
+
+```
+defmodule ExampleGenConsumer do
+  use KafkaEx.GenConsumer
+
+  alias KafkaEx.Protocol.Fetch.Message
+
+  require Logger
+
+  # note - messages are delivered in batches
+  def handle_message_set(message_set, state) do
+    for %Message{value: message} <- message_set do
+      Logger.debug(fn -> "message: " <> inspect(message) end)
+    end
+    {:async_commit, state}
+  end
+end
+```
+
+Then add a `KafkaEx.ConsumerGroup` to your application's supervision
+tree and configure it to use the implementation module.
+
+See the `KafkaEx.GenConsumer` and `KafkaEx.ConsumerGroup` documentation for
+details.
 
 ### Create a KafkaEx Worker
 

@@ -28,8 +28,14 @@ defmodule KafkaEx.Protocol.SyncGroup.Test do
         byte_size(second_assignments) :: 32, second_assignments :: binary
       >>
 
-    request = KafkaEx.Protocol.SyncGroup.create_request(42, "client_id", "group", 1, "member_one",
-      [{"member_one", [{"topic1", [1, 3, 5]}]}, {"member_two", [{"topic1", [2, 4, 6]}]}])
+    sync_request = %KafkaEx.Protocol.SyncGroup.Request{
+      group_name: "group",
+      member_id: "member_one",
+      generation_id: 1,
+      assignments: [{"member_one", [{"topic1", [1, 3, 5]}]}, {"member_two", [{"topic1", [2, 4, 6]}]}],
+    }
+
+    request = KafkaEx.Protocol.SyncGroup.create_request(42, "client_id", sync_request)
     assert request == good_request
   end
 
@@ -42,6 +48,16 @@ defmodule KafkaEx.Protocol.SyncGroup.Test do
       >>
     expected_response = %KafkaEx.Protocol.SyncGroup.Response{error_code: :no_error,
       assignments: [{"topic1", [5, 3, 1]}]}
+    assert KafkaEx.Protocol.SyncGroup.parse_response(response) == expected_response
+  end
+
+  test "parse empty assignments correctly" do
+    response = <<
+        42 :: 32, # CorrelationId
+        0 :: 16, # ErrorCode
+        0 :: 32, # MemberAssignment (empty)
+      >>
+    expected_response = %KafkaEx.Protocol.SyncGroup.Response{error_code: :no_error, assignments: []}
     assert KafkaEx.Protocol.SyncGroup.parse_response(response) == expected_response
   end
 end

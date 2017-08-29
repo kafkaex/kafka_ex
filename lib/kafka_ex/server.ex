@@ -4,6 +4,9 @@ defmodule KafkaEx.Server do
   """
 
   alias KafkaEx.Protocol.ConsumerMetadata
+  alias KafkaEx.Protocol.Heartbeat.Request, as: HeartbeatRequest
+  alias KafkaEx.Protocol.JoinGroup.Request, as: JoinGroupRequest
+  alias KafkaEx.Protocol.LeaveGroup.Request, as: LeaveGroupRequest
   alias KafkaEx.Protocol.Metadata
   alias KafkaEx.Protocol.Metadata.Broker
   alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
@@ -12,6 +15,7 @@ defmodule KafkaEx.Server do
   alias KafkaEx.Protocol.Fetch.Request, as: FetchRequest
   alias KafkaEx.Protocol.Produce
   alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
+  alias KafkaEx.Protocol.SyncGroup.Request, as: SyncGroupRequest
   alias KafkaEx.Socket
 
   defmodule State do
@@ -106,28 +110,28 @@ defmodule KafkaEx.Server do
     {:noreply, new_state, timeout | :hibernate} |
     {:stop, reason, reply, new_state} |
     {:stop, reason, new_state} when reply: term, new_state: term, reason: term
-  @callback kafka_server_join_group(topics :: [binary], session_timeout :: integer, state :: State.t) ::
+  @callback kafka_server_join_group(JoinGroupRequest.t, network_timeout :: integer, state :: State.t) ::
     {:reply, reply, new_state} |
     {:reply, reply, new_state, timeout | :hibernate} |
     {:noreply, new_state} |
     {:noreply, new_state, timeout | :hibernate} |
     {:stop, reason, reply, new_state} |
     {:stop, reason, new_state} when reply: term, new_state: term, reason: term
-  @callback kafka_server_sync_group(group_name :: binary, generation_id :: integer, member_id :: binary, assignments :: [binary] , state :: State.t) ::
+  @callback kafka_server_sync_group(SyncGroupRequest.t, network_timeout :: integer, state :: State.t) ::
     {:reply, reply, new_state} |
     {:reply, reply, new_state, timeout | :hibernate} |
     {:noreply, new_state} |
     {:noreply, new_state, timeout | :hibernate} |
     {:stop, reason, reply, new_state} |
     {:stop, reason, new_state} when reply: term, new_state: term, reason: term
-  @callback kafka_server_leave_group(group_name :: binary, member_id :: binary, state :: State.t) ::
+  @callback kafka_server_leave_group(LeaveGroupRequest.t, network_timeout :: integer, state :: State.t) ::
     {:reply, reply, new_state} |
     {:reply, reply, new_state, timeout | :hibernate} |
     {:noreply, new_state} |
     {:noreply, new_state, timeout | :hibernate} |
     {:stop, reason, reply, new_state} |
     {:stop, reason, new_state} when reply: term, new_state: term, reason: term
-  @callback kafka_server_heartbeat(group_name :: binary, generation_id :: integer, member_id :: binary, state :: State.t) ::
+  @callback kafka_server_heartbeat(HeartbeatRequest.t, network_timeout :: integer, state :: State.t) ::
     {:reply, reply, new_state} |
     {:reply, reply, new_state, timeout | :hibernate} |
     {:noreply, new_state} |
@@ -220,20 +224,20 @@ defmodule KafkaEx.Server do
         kafka_server_metadata(topic, state)
       end
 
-      def handle_call({:join_group, topics, session_timeout}, _from, state) do
-        kafka_server_join_group(topics, session_timeout,state)
+      def handle_call({:join_group, request, network_timeout}, _from, state) do
+        kafka_server_join_group(request, network_timeout, state)
       end
 
-      def handle_call({:sync_group, group_name, generation_id, member_id, assignments}, _from, state) do
-        kafka_server_sync_group(group_name, generation_id, member_id, assignments, state)
+      def handle_call({:sync_group, request, network_timeout}, _from, state) do
+        kafka_server_sync_group(request, network_timeout, state)
       end
 
-      def handle_call({:leave_group, group_name, member_id}, _from, state) do
-        kafka_server_leave_group(group_name, member_id, state)
+      def handle_call({:leave_group, request, network_timeout}, _from, state) do
+        kafka_server_leave_group(request, network_timeout, state)
       end
 
-      def handle_call({:heartbeat, group_name, generation_id, member_id}, _from, state) do
-        kafka_server_heartbeat(group_name, generation_id, member_id, state)
+      def handle_call({:heartbeat, request, network_timeout}, _from, state) do
+        kafka_server_heartbeat(request, network_timeout, state)
       end
 
       def handle_info(:update_metadata, state) do
@@ -399,8 +403,8 @@ defmodule KafkaEx.Server do
         end)
       end
 
-      defp config_sync_timeout do
-        Application.get_env(:kafka_ex, :sync_timeout, @sync_timeout)
+      defp config_sync_timeout(timeout \\ nil) do
+        timeout || Application.get_env(:kafka_ex, :sync_timeout, @sync_timeout)
       end
     end
   end
