@@ -200,12 +200,18 @@ defmodule KafkaEx.ConsumerGroup.Manager do
       session_timeout: session_timeout,
     }
 
-    join_response = %JoinGroupResponse{error_code: :no_error} =
-      KafkaEx.join_group(
-        join_request,
-        worker_name: worker_name,
-        timeout: session_timeout + @session_timeout_padding
-      )
+    join_response = KafkaEx.join_group(
+      join_request,
+      worker_name: worker_name,
+      timeout: session_timeout + @session_timeout_padding
+    )
+
+    # crash the worker if we recieve an error, but do it with a meaningful
+    #   error message
+    if join_response.error_code != :no_error do
+      raise "Error joining consumer group #{group_name}: " <>
+        "#{inspect join_response.error_code}"
+    end
 
     Logger.debug(fn -> "Joined consumer group #{group_name}" end)
 
