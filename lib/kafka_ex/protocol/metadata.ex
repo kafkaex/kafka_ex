@@ -34,8 +34,6 @@ defmodule KafkaEx.Protocol.Metadata do
       topic_metadatas: [TopicMetadata.t]
     }
 
-    require Logger
-
     def broker_for_topic(metadata, brokers, topic, partition) do
       case Enum.find(metadata.topic_metadatas, &(topic == &1.topic)) do
         nil -> nil
@@ -46,9 +44,6 @@ defmodule KafkaEx.Protocol.Metadata do
     def partitions_for_topic(metadata, topic) do
       case Enum.find(metadata.topic_metadatas, &(&1.topic == topic)) do
         nil ->
-          Logger.debug(fn ->
-            "Partitions requested for nonexistent topic #{inspect topic}"
-          end)
           []  # topic doesn't exist yet, no partitions
         topic_metadata ->
           Enum.map(topic_metadata.partition_metadatas, &(&1.partition_id))
