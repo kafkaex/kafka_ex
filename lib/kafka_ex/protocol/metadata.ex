@@ -42,9 +42,12 @@ defmodule KafkaEx.Protocol.Metadata do
     end
 
     def partitions_for_topic(metadata, topic) do
-      topic_metadata = Enum.find(metadata.topic_metadatas, &(&1.topic == topic))
-
-      Enum.map(topic_metadata.partition_metadatas, &(&1.partition_id))
+      case Enum.find(metadata.topic_metadatas, &(&1.topic == topic)) do
+        nil ->
+          []  # topic doesn't exist yet, no partitions
+        topic_metadata ->
+          Enum.map(topic_metadata.partition_metadatas, &(&1.partition_id))
+      end
     end
 
     defp find_lead_broker(metadata_brokers, topic_metadata, brokers, partition) do

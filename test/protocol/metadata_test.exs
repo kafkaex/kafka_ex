@@ -147,4 +147,40 @@ defmodule KafkaEx.Protocol.Metadata.Test do
     assert KafkaEx.Protocol.Metadata.Response.broker_for_topic(metadata, brokers, "bar", 0) == nil
     Port.close(fake_socket)
   end
+
+  test "Response.partitions_for_topic returns a list of partition ids" do
+    alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
+    alias KafkaEx.Protocol.Metadata.TopicMetadata
+
+    partition_metadata = %KafkaEx.Protocol.Metadata.PartitionMetadata{
+      partition_id: 0
+    }
+
+    metadata = %MetadataResponse{
+      topic_metadatas: [
+        %TopicMetadata{
+          error_code: :no_error,
+          partition_metadatas: [
+            %{partition_metadata | partition_id: 0},
+            %{partition_metadata | partition_id: 1},
+            %{partition_metadata | partition_id: 2},
+            %{partition_metadata | partition_id: 3}
+          ],
+          topic: "bar"
+        }
+      ]
+    }
+
+    assert [0, 1, 2, 3] ==
+      MetadataResponse.partitions_for_topic(metadata, "bar")
+  end
+
+  test "Response.partitions_for_topic returns an empty list for a topic " <>
+    "that does not exist" do
+    alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
+
+    metadata = %MetadataResponse{topic_metadatas: []}
+
+    assert [] == MetadataResponse.partitions_for_topic(metadata, "foo")
+  end
 end

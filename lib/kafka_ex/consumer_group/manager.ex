@@ -416,18 +416,27 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   # topic/partition tuples that can be passed to a GenConsumer's
   # `assign_partitions` method.
   defp assignable_partitions(
-    %State{worker_name: worker_name, topics: topics}
+    %State{worker_name: worker_name, topics: topics, group_name: group_name}
   ) do
     metadata = KafkaEx.metadata(worker_name: worker_name)
 
     Enum.flat_map(topics, fn (topic) ->
       partitions = MetadataResponse.partitions_for_topic(metadata, topic)
 
+      warn_if_no_partitions(partitions, group_name, topic)
+
       Enum.map(partitions, fn (partition) ->
         {topic, partition}
       end)
     end)
   end
+
+  defp warn_if_no_partitions([], group_name, topic) do
+    Logger.warn(fn ->
+      "Consumer group #{group_name} encountered nonexistent topic #{topic}"
+    end)
+  end
+  defp warn_if_no_partitions(_partitions, _group_name, _topic), do: :ok
 
   # This function is used by the group leader to determine partition
   # assignments during the join/sync phase. `members` is provided to the leader
