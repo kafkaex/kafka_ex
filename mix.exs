@@ -4,7 +4,7 @@ defmodule KafkaEx.Mixfile do
   def project do
     [
       app: :kafka_ex,
-      version: "0.7.0",
+      version: "0.8.0",
       elixir: "~> 1.1",
       dialyzer: [
         plt_add_deps: :transitive,
