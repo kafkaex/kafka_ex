@@ -394,8 +394,6 @@ defmodule KafkaEx.GenConsumer do
       partition: partition,
     }
 
-    Process.flag(:trap_exit, true)
-
     {:ok, state, 0}
   end
 
