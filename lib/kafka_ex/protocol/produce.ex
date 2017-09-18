@@ -32,41 +32,45 @@ defmodule KafkaEx.Protocol.Produce do
   end
 
   def create_request(correlation_id, client_id, %Request{topic: topic, partition: partition, required_acks: required_acks, timeout: timeout, compression: compression, messages: messages}) do
-    message_set = create_message_set(messages, compression)
-    KafkaEx.Protocol.create_request(:produce, correlation_id, client_id) <>
-      << required_acks :: 16-signed, timeout :: 32-signed, 1 :: 32-signed >> <>
-      << byte_size(topic) :: 16-signed, topic :: binary, 1 :: 32-signed, partition :: 32-signed, byte_size(message_set) :: 32-signed >> <> message_set
+    {message_set, mssize} = create_message_set(messages, compression)
+    [KafkaEx.Protocol.create_request(:produce, correlation_id, client_id),
+      << required_acks :: 16-signed, timeout :: 32-signed, 1 :: 32-signed >>,
+      << byte_size(topic) :: 16-signed, topic :: binary, 1 :: 32-signed, partition :: 32-signed, mssize :: 32-signed >>,
+      message_set]
   end
 
   def parse_response(<< _correlation_id :: 32-signed, num_topics :: 32-signed, rest :: binary >>), do: parse_topics(num_topics, rest, __MODULE__)
   def parse_response(unknown), do: unknown
 
-  defp create_message_set([], _compression_type), do: ""
+  defp create_message_set([], _compression_type), do: {"", 0}
   defp create_message_set([%Message{key: key, value: value}|messages], :none) do
-    message = create_message(value, key)
-    message_set = << 0 :: 64-signed >> <> << byte_size(message) :: 32-signed >> <> message
-    message_set <> create_message_set(messages, :none)
+    {message, msize} = create_message(value, key)
+    message_set = [<< 0 :: 64-signed >>, << msize :: 32-signed >>, message]
+    {message_set2, ms2size} = create_message_set(messages, :none)
+    {[message_set, message_set2], 8 + 4 + msize + ms2size}
   end
   defp create_message_set(messages, compression_type) do
-    message_set = create_message_set(messages, :none)
+    {message_set, _} = create_message_set(messages, :none)
     {compressed_message_set, attribute} =
       Compression.compress(compression_type, message_set)
-    message = create_message(compressed_message_set, nil, attribute)
+    {message, msize} = create_message(compressed_message_set, nil, attribute)
 
-    << 0 :: 64-signed >> <> << byte_size(message) :: 32-signed >> <> message
+    {[<< 0 :: 64-signed >>, << msize :: 32-signed >>, message], 8 + 4 + msize}
   end
 
   defp create_message(value, key, attributes \\ 0) do
-    sub = << 0 :: 8, attributes :: 8-signed >> <> bytes(key) <> bytes(value)
+    {bkey, skey} = bytes(key)
+    {bvalue, svalue} = bytes(value)
+    sub = [<< 0 :: 8, attributes :: 8-signed >>, bkey, bvalue]
     crc = :erlang.crc32(sub)
-    << crc :: 32 >> <> sub
+    {[<< crc :: 32 >>, sub], 4 + 2 + skey + svalue}
   end
 
-  defp bytes(nil), do: << -1 :: 32-signed >>
+  defp bytes(nil), do: {<< -1 :: 32-signed >>, 4}
   defp bytes(data) do
-    case byte_size(data) do
-      0 -> << 0 :: 32 >>
-      size -> << size :: 32, data :: binary >>
+    case :erlang.iolist_size(data) do
+      0 -> {<< 0 :: 32 >>, 4}
+      size -> {[<< size :: 32>> , data], 4 + size}
     end
   end
 

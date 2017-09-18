@@ -10,7 +10,7 @@ defmodule KafkaEx.Protocol.Produce.Test do
       ]
     })
 
-    assert expected_request == request
+    assert expected_request == :erlang.iolist_to_binary(request)
   end
 
   test "create_request correctly batches multiple request messages" do
@@ -24,7 +24,7 @@ defmodule KafkaEx.Protocol.Produce.Test do
       ]
     })
 
-    assert expected_request == request
+    assert expected_request == :erlang.iolist_to_binary(request)
   end
 
   test "create_request correctly encodes messages with gzip" do
@@ -44,7 +44,7 @@ defmodule KafkaEx.Protocol.Produce.Test do
 
     request = KafkaEx.Protocol.Produce.create_request(1, "compression_client_test", produce)
 
-    assert expected_request == request
+    assert expected_request == :erlang.iolist_to_binary(request)
   end
 
   test "create_request correctly encodes messages with snappy" do
@@ -66,7 +66,7 @@ defmodule KafkaEx.Protocol.Produce.Test do
                                                       "compression_client_test",
                                                       produce)
 
-    assert expected_request == request
+    assert expected_request == :erlang.iolist_to_binary(request)
   end
 
   test "parse_response correctly parses a valid response with single topic and partition" do
