@@ -23,7 +23,7 @@ defmodule KafkaEx.Protocol.ConsumerMetadata do
       Enum.find(brokers, &(connected_coordinator?(&1, consumer_group_metadata)))
     end
 
-    defp connected_coordinator?(broker = %Broker{}, consumer_group_metadata) do
+    defp connected_coordinator?(%Broker{} = broker, consumer_group_metadata) do
       broker.node_id == consumer_group_metadata.coordinator_id &&
         Broker.connected?(broker)
     end

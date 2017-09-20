@@ -19,7 +19,7 @@ defmodule KafkaEx.Protocol.Metadata do
     defstruct node_id: -1, host: "", port: 0, socket: nil
     @type t :: %__MODULE__{}
 
-    def connected?(broker = %Broker{}) do
+    def connected?(%Broker{} = broker) do
       broker.socket != nil && Socket.open?(broker.socket)
     end
   end
