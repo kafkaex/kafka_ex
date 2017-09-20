@@ -486,7 +486,8 @@ defmodule KafkaEx do
           |> OffsetFetchResponse.last_offset
 
         if last_offset < 0 do
-          earliest_offset(topic, partition, worker_name)
+          topic
+          |> earliest_offset(partition, worker_name)
           |> OffsetResponse.extract_offset
         else
           last_offset + 1

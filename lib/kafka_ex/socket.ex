@@ -82,7 +82,7 @@ defmodule KafkaEx.Socket do
   Returns true if the socket is open
   """
   @spec open?(KafkaEx.Socket.t) :: boolean
-  def open?(socket = %KafkaEx.Socket{}) do
+  def open?(%KafkaEx.Socket{} = socket) do
     info(socket) != nil
   end
 

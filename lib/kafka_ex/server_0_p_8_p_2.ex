@@ -128,12 +128,12 @@ defmodule KafkaEx.Server0P8P2 do
   def kafka_server_heartbeat(_, _, _state), do: raise "Heartbeat is not supported in 0.8.0 version of kafka"
   defp update_consumer_metadata(state), do: update_consumer_metadata(state, @retry_count, 0)
 
-  defp update_consumer_metadata(state = %State{consumer_group: consumer_group}, 0, error_code) do
+  defp update_consumer_metadata(%State{consumer_group: consumer_group} = state, 0, error_code) do
     Logger.log(:error, "Fetching consumer_group #{consumer_group} metadata failed with error_code #{inspect error_code}")
     {%ConsumerMetadataResponse{error_code: error_code}, state}
   end
 
-  defp update_consumer_metadata(state = %State{consumer_group: consumer_group, correlation_id: correlation_id}, retry, _error_code) do
+  defp update_consumer_metadata(%State{consumer_group: consumer_group, correlation_id: correlation_id} = state, retry, _error_code) do
     response = correlation_id
       |> ConsumerMetadata.create_request(@client_id, consumer_group)
       |> first_broker_response(state)

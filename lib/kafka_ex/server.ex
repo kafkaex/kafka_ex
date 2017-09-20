@@ -169,6 +169,7 @@ defmodule KafkaEx.Server do
   end
 
   defmacro __using__(_) do
+    # credo:disable-for-next-line Credo.Check.Refactor.LongQuoteBlocks
     quote location: :keep do
       @behaviour KafkaEx.Server
       require Logger
@@ -252,7 +253,6 @@ defmodule KafkaEx.Server do
         {:noreply, state}
       end
 
-
       def terminate(_, state) do
         Logger.log(:debug, "Shutting down worker #{inspect state.worker_name}")
         if state.event_pid do
@@ -287,8 +287,9 @@ defmodule KafkaEx.Server do
               response = broker
                |> NetworkClient.send_sync_request(produce_request_data, config_sync_timeout())
                |> Produce.parse_response
+              # credo:disable-for-next-line Credo.Check.Refactor.Nesting
               case response do
-                [%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: :no_error, offset: offset, partition: _}], topic: topic}] when offset != nil ->
+                [%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: :no_error, offset: offset}], topic: topic}] when offset != nil ->
                   {:ok, offset}
                 _ ->
                   {:error, response}
@@ -342,11 +343,14 @@ defmodule KafkaEx.Server do
         %{state | metadata: metadata, brokers: brokers, correlation_id: correlation_id + 1}
       end
 
+      # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
       def retrieve_metadata(brokers, correlation_id, sync_timeout, topic \\ []), do: retrieve_metadata(brokers, correlation_id, sync_timeout, topic, @retry_count, 0)
+      # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
       def retrieve_metadata(_, correlation_id, _sync_timeout, topic, 0, error_code) do
         Logger.log(:error, "Metadata request for topic #{inspect topic} failed with error_code #{inspect error_code}")
         {correlation_id, %Metadata.Response{}}
       end
+      # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
       def retrieve_metadata(brokers, correlation_id, sync_timeout, topic, retry, _error_code) do
         metadata_request = Metadata.create_request(correlation_id, @client_id, topic)
         data = first_broker_response(metadata_request, brokers, sync_timeout)
