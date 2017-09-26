@@ -165,21 +165,24 @@ defmodule KafkaEx.Server0P8P2 do
         Logger.log(:error, "Leader for topic #{fetch_request.topic} is not available")
         {:topic_not_found, state}
       _ ->
-        response = broker
-          |> NetworkClient.send_sync_request(fetch_data, config_sync_timeout())
-          |> Fetch.parse_response
-        state = %{state | correlation_id: state.correlation_id + 1}
-        last_offset = response |> hd |> Map.get(:partitions) |> hd |> Map.get(:last_offset)
-        if last_offset != nil && fetch_request.auto_commit do
-          offset_commit_request = %OffsetCommit.Request{
-            topic: fetch_request.topic,
-            offset: last_offset,
-            partition: fetch_request.partition,
-            consumer_group: state.consumer_group}
-          {_, state} = offset_commit(state, offset_commit_request)
-          {response, state}
-        else
-          {response, state}
+        response = NetworkClient.send_sync_request(broker, fetch_data, config_sync_timeout())
+        case response do
+          nil -> {response, state}
+          _ ->
+            response = Fetch.parse_response(response)
+            state = %{state | correlation_id: state.correlation_id + 1}
+            last_offset = response |> hd |> Map.get(:partitions) |> hd |> Map.get(:last_offset)
+            if last_offset != nil && fetch_request.auto_commit do
+              offset_commit_request = %OffsetCommit.Request{
+                topic: fetch_request.topic,
+                offset: last_offset,
+                partition: fetch_request.partition,
+                consumer_group: state.consumer_group}
+              {_, state} = offset_commit(state, offset_commit_request)
+              {response, state}
+            else
+              {response, state}
+            end
         end
     end
   end
