@@ -262,9 +262,9 @@ defmodule KafkaEx.GenConsumer do
         {:ok, nil}
       end
 
-      def handle_call(msg, _from, _consumer_state) do
+      def handle_call(msg, _from, consumer_state) do
         # taken from the GenServer handle_call implementation
-        case Process.info(self(), :registered_name) do
+        proc = case Process.info(self(), :registered_name) do
           {_, []}   -> self()
           {_, name} -> name
         end
