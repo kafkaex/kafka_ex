@@ -272,8 +272,8 @@ defmodule KafkaEx.GenConsumer do
         # We do this to trick Dialyzer to not complain about non-local returns.
         case :erlang.phash2(1, 1) do
           0 ->
-            raise "attempted to call GenServer #{inspect proc} but no " <>
-              "handle_call/3 clause was provided"
+            raise "attempted to call KafkaEx.GenConsumer #{inspect proc} " <>
+              "but no handle_call/3 clause was provided"
           1 -> {:reply, {:bad_call, msg}, consumer_state}
         end
       end
