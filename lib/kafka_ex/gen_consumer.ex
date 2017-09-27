@@ -151,7 +151,7 @@ defmodule KafkaEx.GenConsumer do
   ```
 
   **NOTE** If you do not implement a `c:handle_call/3` callback, any calls to
-  `GenConsumer.call/3` that go to your consumer will cause a `MatchError`.
+  `GenConsumer.call/3` that go to your consumer will raise an error.
 
   ## Testing
 
@@ -262,9 +262,20 @@ defmodule KafkaEx.GenConsumer do
         {:ok, nil}
       end
 
-      def handle_call(_call, _from, _consumer_state) do
-        # the user must implement this if they expect to recieve calls
-        :handle_call_not_implemented
+      def handle_call(msg, _from, consumer_state) do
+        # taken from the GenServer handle_call implementation
+        proc = case Process.info(self(), :registered_name) do
+          {_, []}   -> self()
+          {_, name} -> name
+        end
+
+        # We do this to trick Dialyzer to not complain about non-local returns.
+        case :erlang.phash2(1, 1) do
+          0 ->
+            raise "attempted to call KafkaEx.GenConsumer #{inspect proc} " <>
+              "but no handle_call/3 clause was provided"
+          1 -> {:reply, {:bad_call, msg}, consumer_state}
+        end
       end
 
       defoverridable [init: 2, handle_call: 3]
