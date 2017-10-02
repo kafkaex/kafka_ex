@@ -20,7 +20,8 @@ defmodule KafkaEx.Mixfile do
       deps: deps(),
       docs: [
         main: "readme",
-        extras: ["README.md"]
+        extras: ["README.md"],
+        source_url: "https://github.com/kafkaex/kafka_ex"
       ]
     ]
   end
