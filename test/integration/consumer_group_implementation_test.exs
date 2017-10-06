@@ -140,6 +140,9 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     generation_id2 = ConsumerGroup.generation_id(context[:consumer_group_pid2])
     assert generation_id1 == generation_id2
 
+    assert @consumer_group_name ==
+      ConsumerGroup.group_name(context[:consumer_group_pid1])
+
     member1 = ConsumerGroup.member_id(context[:consumer_group_pid1])
     member2 = ConsumerGroup.member_id(context[:consumer_group_pid2])
     assert member1 != member2
