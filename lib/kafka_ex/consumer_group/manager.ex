@@ -138,6 +138,10 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   def handle_call(:consumer_supervisor_pid, _from, state) do
     {:reply, state.consumer_supervisor_pid, state}
   end
+
+  def handle_call(:group_name, _from, state) do
+    {:reply, state.group_name, state}
+  end
   ######################################################################
 
   # If `member_id` and `generation_id` aren't set, we haven't yet joined the

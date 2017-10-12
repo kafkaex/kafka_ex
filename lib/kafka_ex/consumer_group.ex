@@ -224,6 +224,14 @@ defmodule KafkaEx.ConsumerGroup do
   end
 
   @doc """
+  Returns the name of the consumer group
+  """
+  @spec group_name(Supervisor.supervisor) :: binary
+  def group_name(supervisor_pid) do
+    call_manager(supervisor_pid, :group_name)
+  end
+
+  @doc """
   Returns a map from `{topic, partition_id}` to consumer pid
   """
   @spec partition_consumer_map(Supervisor.supervisor) ::
