@@ -391,8 +391,11 @@ defmodule KafkaEx.GenConsumer do
     )
 
     {:ok, consumer_state} = consumer_module.init(topic, partition)
-    {:ok, worker_name} =
-      KafkaEx.create_worker(:no_name, consumer_group: group_name)
+    worker_opts = Keyword.take(opts, [:uris])
+    {:ok, worker_name} = KafkaEx.create_worker(
+      :no_name,
+      [consumer_group: group_name] ++ worker_opts
+    )
 
     state = %State{
       consumer_module: consumer_module,
