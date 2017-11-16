@@ -346,7 +346,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
       Logger.debug(fn -> "Left consumer group #{group_name}" end)
     else
       Logger.warn(fn ->
-        "Received error #{inspect leave_group_response.error_code}, "
+        "Received error #{inspect leave_group_response.error_code}, " <>
         "consumer group manager will exit regardless."
       end)
     end
