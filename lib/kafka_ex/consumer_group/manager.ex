@@ -12,7 +12,6 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   alias KafkaEx.Protocol.Heartbeat.Request, as: HeartbeatRequest
   alias KafkaEx.Protocol.Heartbeat.Response, as: HeartbeatResponse
   alias KafkaEx.Protocol.LeaveGroup.Request, as: LeaveGroupRequest
-  alias KafkaEx.Protocol.LeaveGroup.Response, as: LeaveGroupResponse
   alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
   alias KafkaEx.Protocol.SyncGroup.Request, as: SyncGroupRequest
   alias KafkaEx.Protocol.SyncGroup.Response, as: SyncGroupResponse
@@ -169,6 +168,8 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   def terminate(_reason, %State{generation_id: nil, member_id: nil}), do: :ok
   def terminate(_reason, %State{} = state) do
     :ok = leave(state)
+    Process.unlink(state.worker_name)
+    KafkaEx.stop_worker(state.worker_name)
   end
 
   ### Helpers

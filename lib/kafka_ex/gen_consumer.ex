@@ -454,6 +454,8 @@ defmodule KafkaEx.GenConsumer do
 
   def terminate(_reason, %State{} = state) do
     commit(state)
+    Process.unlink(state.worker_name)
+    KafkaEx.stop_worker(state.worker_name)
   end
 
   # Helpers

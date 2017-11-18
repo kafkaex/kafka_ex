@@ -258,6 +258,24 @@ defmodule KafkaEx.ConsumerGroup do
     end
   end
 
+  @doc """
+  Returns the pid of the `KafkaEx.ConsumerGroup.Manager` process for the
+  given consumer group supervisor.
+
+  Intended for introspection usage only.
+  """
+  @spec get_manager_pid(Supervisor.supervisor) :: pid
+  def get_manager_pid(supervisor_pid) do
+    {_, pid, _, _} = Enum.find(
+      Supervisor.which_children(supervisor_pid),
+      fn
+        ({KafkaEx.ConsumerGroup.Manager, _, _, _}) -> true
+        ({_, _, _, _}) -> false
+      end
+    )
+    pid
+  end
+
   @doc false # used by ConsumerGroup.Manager to set partition assignments
   def start_consumer(pid, consumer_module, group_name, assignments, opts) do
     child = supervisor(
@@ -301,16 +319,5 @@ defmodule KafkaEx.ConsumerGroup do
     supervisor_pid
     |> get_manager_pid
     |> GenServer.call(call)
-  end
-
-  defp get_manager_pid(supervisor_pid) do
-    {_, pid, _, _} = Enum.find(
-      Supervisor.which_children(supervisor_pid),
-      fn
-        ({KafkaEx.ConsumerGroup.Manager, _, _, _}) -> true
-        ({_, _, _, _}) -> false
-      end
-    )
-    pid
   end
 end
