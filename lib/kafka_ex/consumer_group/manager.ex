@@ -278,6 +278,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
     case sync_group_response do
       %SyncGroupResponse{error_code: :no_error, assignments: assignments} ->
         new_state = state
+                    |> stop_consumer()
                     |> start_consumer(unpack_assignments(assignments))
                     |> start_heartbeat_timer()
         {:ok, new_state}
