@@ -74,6 +74,17 @@ defmodule KafkaEx do
   end
 
   @doc """
+  Stop a worker created with create_worker/2
+
+  Returns `:ok` on success or `:error` if `worker` is not a valid worker
+  """
+  @spec stop_worker(atom | pid) :: :ok |
+    {:error, :not_found} | {:error, :simple_one_for_one}
+  def stop_worker(worker) do
+    KafkaEx.Supervisor.stop_child(worker)
+  end
+
+  @doc """
   Returns the name of the consumer group for the given worker.
 
   Worker may be an atom or pid.  The default worker is used by default.

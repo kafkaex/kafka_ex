@@ -98,7 +98,15 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     end)
   end
 
+  def num_open_ports() do
+    :erlang.ports
+    |> Enum.map(&(:erlang.port_info(&1, :name)))
+    |> Enum.filter(&(&1 == {:name, 'tcp_inet'}))
+    |> length
+  end
+
   setup do
+    ports_before = num_open_ports()
     {:ok, _} = TestPartitioner.start_link
     {:ok, consumer_group_pid1} = ConsumerGroup.start_link(
       TestConsumer,
@@ -129,11 +137,14 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     {
       :ok,
       consumer_group_pid1: consumer_group_pid1,
-      consumer_group_pid2: consumer_group_pid2
+      consumer_group_pid2: consumer_group_pid2,
+      ports_before: ports_before
     }
   end
 
   test "basic startup, consume, and shutdown test", context do
+    assert num_open_ports() > context[:ports_before]
+
     assert TestPartitioner.calls > 0
 
     generation_id1 = ConsumerGroup.generation_id(context[:consumer_group_pid1])
@@ -238,9 +249,14 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
         ending_offset == last_offset + 1
       end)
     end
+
+    # ports should be released
+    assert context[:ports_before] == num_open_ports()
   end
 
   test "starting/stopping consumers rebalances assignments", context do
+    assert num_open_ports() > context[:ports_before]
+
     Process.unlink(context[:consumer_group_pid1])
     sync_stop(context[:consumer_group_pid1])
 
@@ -279,5 +295,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
 
     Process.unlink(consumer_group_pid3)
     sync_stop(consumer_group_pid3)
+
+    assert context[:ports_before] == num_open_ports()
   end
 end
