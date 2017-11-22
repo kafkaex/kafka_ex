@@ -91,8 +91,11 @@ defmodule KafkaEx.ConsumerGroup.Manager do
       ]
     )
 
-    {:ok, worker_name} =
-      KafkaEx.create_worker(:no_name, consumer_group: group_name)
+    worker_opts = Keyword.take(opts, [:uris])
+    {:ok, worker_name} = KafkaEx.create_worker(
+      :no_name,
+      [consumer_group: group_name] ++ worker_opts
+    )
 
     state = %State{
       supervisor_pid: supervisor_pid,
