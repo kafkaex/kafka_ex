@@ -73,21 +73,12 @@ defmodule KafkaEx.Server0P9P0 do
     {:ok, state}
   end
 
-  def kafka_server_join_group(join_group_request, network_timeout, state_in) do
+  def kafka_server_join_group(request, network_timeout, state_in) do
     true = consumer_group?(state_in)
 
-    request_builder = fn(state) ->
-      JoinGroup.create_request(
-        state.correlation_id,
-        @client_id,
-        join_group_request
-      )
-    end
-    response_parser = &JoinGroup.parse_response/1
-
     {response, state_out} = consumer_group_sync_request(
-      request_builder,
-      response_parser,
+      request,
+      JoinGroup,
       network_timeout,
       state_in
     )
@@ -95,21 +86,12 @@ defmodule KafkaEx.Server0P9P0 do
     {:reply, response, state_out}
   end
 
-  def kafka_server_sync_group(sync_group_request, network_timeout, state_in) do
+  def kafka_server_sync_group(request, network_timeout, state_in) do
     true = consumer_group?(state_in)
 
-    request_builder = fn(state) ->
-      SyncGroup.create_request(
-        state.correlation_id,
-        @client_id,
-        sync_group_request
-      )
-    end
-    response_parser = &SyncGroup.parse_response/1
-
     {response, state_out} = consumer_group_sync_request(
-      request_builder,
-      response_parser,
+      request,
+      SyncGroup,
       network_timeout,
       state_in
     )
@@ -120,14 +102,9 @@ defmodule KafkaEx.Server0P9P0 do
   def kafka_server_leave_group(request, network_timeout, state_in) do
     true = consumer_group?(state_in)
 
-    request_builder = fn(state) ->
-      LeaveGroup.create_request(state.correlation_id, @client_id, request)
-    end
-    response_parser = &LeaveGroup.parse_response/1
-
     {response, state_out} = consumer_group_sync_request(
-      request_builder,
-      response_parser,
+      request,
+      LeaveGroup,
       network_timeout,
       state_in
     )
@@ -138,14 +115,9 @@ defmodule KafkaEx.Server0P9P0 do
   def kafka_server_heartbeat(request, network_timeout, state_in) do
     true = consumer_group?(state_in)
 
-    request_builder = fn(state) ->
-      Heartbeat.create_request(state.correlation_id, @client_id, request)
-    end
-    response_parser = &Heartbeat.parse_response/1
-
     {response, state_out} = consumer_group_sync_request(
-      request_builder,
-      response_parser,
+      request,
+      Heartbeat,
       network_timeout,
       state_in
     )
@@ -154,8 +126,8 @@ defmodule KafkaEx.Server0P9P0 do
   end
 
   defp consumer_group_sync_request(
-    request_builder,
-    response_parser,
+    request,
+    protocol_module,
     network_timeout,
     state
   ) do
@@ -163,21 +135,25 @@ defmodule KafkaEx.Server0P9P0 do
 
     sync_timeout = config_sync_timeout(network_timeout)
 
-    wire_request = request_builder.(state)
+    wire_request = protocol_module.create_request(
+      state.correlation_id,
+      @client_id,
+      request
+    )
     wire_response = NetworkClient.send_sync_request(
       broker,
       wire_request,
       sync_timeout
     )
-    response = response_parser.(wire_response)
+    response = protocol_module.parse_response(wire_response)
 
     state_out = %{state | correlation_id: state.correlation_id + 1}
 
     if response.error_code == :not_coordinator_for_consumer do
       {_, updated_state_out} = update_consumer_metadata(state_out)
       consumer_group_sync_request(
-        request_builder,
-        response_parser,
+        request,
+        protocol_module,
         network_timeout,
         updated_state_out
       )
