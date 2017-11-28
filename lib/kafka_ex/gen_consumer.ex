@@ -455,6 +455,12 @@ defmodule KafkaEx.GenConsumer do
     {:noreply, new_state, 0}
   end
 
+  def handle_info({:EXIT, _pid, :normal}, %State{} = state) do
+    new_state = consume(state)
+
+    {:noreply, new_state, 0}
+  end
+
   def terminate(_reason, %State{} = state) do
     commit(state)
     Process.unlink(state.worker_name)
