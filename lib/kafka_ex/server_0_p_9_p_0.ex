@@ -3,6 +3,8 @@ defmodule KafkaEx.Server0P9P0 do
   Implements kafkaEx.Server behaviors for kafka 0.9.0 API.
   """
   use KafkaEx.Server
+  alias KafkaEx.ConsumerGroupRequiredError
+  alias KafkaEx.InvalidConsumerGroupError
   alias KafkaEx.Protocol.ConsumerMetadata
   alias KafkaEx.Protocol.ConsumerMetadata.Response, as: ConsumerMetadataResponse
   alias KafkaEx.Protocol.Heartbeat
@@ -45,10 +47,13 @@ defmodule KafkaEx.Server0P9P0 do
     uris = Keyword.get(args, :uris, [])
     metadata_update_interval = Keyword.get(args, :metadata_update_interval, @metadata_update_interval)
     consumer_group_update_interval = Keyword.get(args, :consumer_group_update_interval, @consumer_group_update_interval)
+
     # this should have already been validated, but it's possible someone could
     # try to short-circuit the start call
     consumer_group = Keyword.get(args, :consumer_group)
-    true = KafkaEx.valid_consumer_group?(consumer_group)
+    unless KafkaEx.valid_consumer_group?(consumer_group) do
+      raise InvalidConsumerGroupError, consumer_group
+    end
 
     use_ssl = Keyword.get(args, :use_ssl, false)
     ssl_options = Keyword.get(args, :ssl_options, [])
@@ -74,8 +79,6 @@ defmodule KafkaEx.Server0P9P0 do
   end
 
   def kafka_server_join_group(request, network_timeout, state_in) do
-    true = consumer_group?(state_in)
-
     {response, state_out} = consumer_group_sync_request(
       request,
       JoinGroup,
@@ -87,8 +90,6 @@ defmodule KafkaEx.Server0P9P0 do
   end
 
   def kafka_server_sync_group(request, network_timeout, state_in) do
-    true = consumer_group?(state_in)
-
     {response, state_out} = consumer_group_sync_request(
       request,
       SyncGroup,
@@ -100,8 +101,6 @@ defmodule KafkaEx.Server0P9P0 do
   end
 
   def kafka_server_leave_group(request, network_timeout, state_in) do
-    true = consumer_group?(state_in)
-
     {response, state_out} = consumer_group_sync_request(
       request,
       LeaveGroup,
@@ -113,8 +112,6 @@ defmodule KafkaEx.Server0P9P0 do
   end
 
   def kafka_server_heartbeat(request, network_timeout, state_in) do
-    true = consumer_group?(state_in)
-
     {response, state_out} = consumer_group_sync_request(
       request,
       Heartbeat,
@@ -131,6 +128,10 @@ defmodule KafkaEx.Server0P9P0 do
     network_timeout,
     state
   ) do
+    unless consumer_group?(state) do
+      raise ConnsumerGroupRequiredError, request
+    end
+
     {broker, state} = broker_for_consumer_group_with_update(state)
 
     sync_timeout = config_sync_timeout(network_timeout)
@@ -217,13 +218,6 @@ defmodule KafkaEx.Server0P9P0 do
   # valid binary consumer group name
   def consumer_group?(%State{consumer_group: :no_consumer_group}), do: false
   def consumer_group?(_), do: true
-
-  def consumer_group_if_auto_commit?(true, state) do
-    consumer_group?(state)
-  end
-  def consumer_group_if_auto_commit?(false, _state) do
-    true
-  end
 
   defp first_broker_response(request, state) do
     first_broker_response(request, state.brokers, config_sync_timeout())
