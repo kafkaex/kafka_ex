@@ -12,6 +12,8 @@ defmodule KafkaEx.Server0P8P2 do
   ]
 
   use KafkaEx.Server
+  alias KafkaEx.ConsumerGroupRequiredError
+  alias KafkaEx.InvalidConsumerGroupError
   alias KafkaEx.Protocol.ConsumerMetadata
   alias KafkaEx.Protocol.ConsumerMetadata.Response, as: ConsumerMetadataResponse
   alias KafkaEx.Protocol.Fetch
@@ -46,7 +48,9 @@ defmodule KafkaEx.Server0P8P2 do
     # this should have already been validated, but it's possible someone could
     # try to short-circuit the start call
     consumer_group = Keyword.get(args, :consumer_group)
-    true = KafkaEx.valid_consumer_group?(consumer_group)
+    unless KafkaEx.valid_consumer_group?(consumer_group) do
+      raise InvalidConsumerGroupError, consumer_group
+    end
 
     brokers = Enum.map(uris, fn({host, port}) -> %Broker{host: host, port: port, socket: NetworkClient.create_socket(host, port)} end)
     {correlation_id, metadata} = retrieve_metadata(brokers, 0, config_sync_timeout())
@@ -80,7 +84,10 @@ defmodule KafkaEx.Server0P8P2 do
   end
 
   def kafka_server_offset_fetch(offset_fetch, state) do
-    true = consumer_group?(state)
+    unless consumer_group?(state) do
+      raise ConsumerGroupRequiredError, offset_fetch
+    end
+
     {broker, state} = broker_for_consumer_group_with_update(state)
 
     # if the request is for a specific consumer group, use that
@@ -111,13 +118,15 @@ defmodule KafkaEx.Server0P8P2 do
   end
 
   def kafka_server_consumer_group_metadata(state) do
-    true = consumer_group?(state)
     {consumer_metadata, state} = update_consumer_metadata(state)
     {:reply, consumer_metadata, state}
   end
 
   def kafka_server_update_consumer_metadata(state) do
-    true = consumer_group?(state)
+    unless consumer_group?(state) do
+      raise ConsumerGroupRequiredError, "consumer metadata update"
+    end
+
     {_, state} = update_consumer_metadata(state)
     {:noreply, state}
   end
