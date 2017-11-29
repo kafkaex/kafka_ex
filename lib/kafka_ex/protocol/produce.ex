@@ -72,9 +72,9 @@ defmodule KafkaEx.Protocol.Produce do
   ) do
     KafkaEx.Protocol.create_request(:produce, correlation_id, client_id) <>
       << required_acks :: 16-signed, timeout :: 32-signed, 1 :: 32-signed >> <>
-        << byte_size(topic) :: 16-signed, topic :: binary >> <>
-          << 1 :: 32-signed, partition :: 32-signed >> <>
-            << byte_size(message_set) :: 32-signed >>
+      << byte_size(topic) :: 16-signed, topic :: binary >> <>
+      << 1 :: 32-signed, partition :: 32-signed >> <>
+      << byte_size(message_set) :: 32-signed >>
   end
 
   defp message_set_header(message) do
