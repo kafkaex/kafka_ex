@@ -31,11 +31,14 @@ defmodule KafkaEx.Protocol.Produce do
     @type t :: %Response{topic: binary, partitions: list}
   end
 
-  def create_request(correlation_id, client_id, %Request{topic: topic, partition: partition, required_acks: required_acks, timeout: timeout, compression: compression, messages: messages}) do
+  def create_request(
+    correlation_id,
+    client_id,
+    request = %Request{compression: compression, messages: messages}
+  ) do
     message_set = create_message_set(messages, compression)
-    KafkaEx.Protocol.create_request(:produce, correlation_id, client_id) <>
-      << required_acks :: 16-signed, timeout :: 32-signed, 1 :: 32-signed >> <>
-      << byte_size(topic) :: 16-signed, topic :: binary, 1 :: 32-signed, partition :: 32-signed, byte_size(message_set) :: 32-signed >> <> message_set
+    header = produce_header(correlation_id, client_id, request, message_set)
+    header <> message_set
   end
 
   def parse_response(<< _correlation_id :: 32-signed, num_topics :: 32-signed, rest :: binary >>), do: parse_topics(num_topics, rest, __MODULE__)
@@ -44,7 +47,7 @@ defmodule KafkaEx.Protocol.Produce do
   defp create_message_set([], _compression_type), do: ""
   defp create_message_set([%Message{key: key, value: value}|messages], :none) do
     message = create_message(value, key)
-    message_set = << 0 :: 64-signed >> <> << byte_size(message) :: 32-signed >> <> message
+    message_set = message_set_header(message) <> message
     message_set <> create_message_set(messages, :none)
   end
   defp create_message_set(messages, compression_type) do
@@ -53,7 +56,29 @@ defmodule KafkaEx.Protocol.Produce do
       Compression.compress(compression_type, message_set)
     message = create_message(compressed_message_set, nil, attribute)
 
-    << 0 :: 64-signed >> <> << byte_size(message) :: 32-signed >> <> message
+    message_set_header(message) <> message
+  end
+
+  defp produce_header(
+    correlation_id,
+    client_id,
+    %Request{
+      topic: topic,
+      partition: partition,
+      required_acks: required_acks,
+      timeout: timeout
+    },
+    message_set
+  ) do
+    KafkaEx.Protocol.create_request(:produce, correlation_id, client_id) <>
+      << required_acks :: 16-signed, timeout :: 32-signed, 1 :: 32-signed >> <>
+      << byte_size(topic) :: 16-signed, topic :: binary >> <>
+      << 1 :: 32-signed, partition :: 32-signed >> <>
+      << byte_size(message_set) :: 32-signed >>
+  end
+
+  defp message_set_header(message) do
+    << 0 :: 64-signed, byte_size(message) :: 32-signed >>
   end
 
   defp create_message(value, key, attributes \\ 0) do

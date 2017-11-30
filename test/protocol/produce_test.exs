@@ -30,21 +30,55 @@ defmodule KafkaEx.Protocol.Produce.Test do
   test "create_request correctly encodes messages with gzip" do
     expected_request = <<0, 0, 0, 0, 0, 0, 0, 1, 0, 23, 99, 111, 109, 112, 114, 101, 115, 115, 105, 111, 110, 95, 99, 108, 105, 101, 110, 116, 95, 116, 101, 115, 116, 0, 1, 0, 0, 0, 10, 0, 0, 0, 1, 0, 16, 99, 111, 109, 112, 114, 101, 115, 115, 101, 100, 95, 116, 111, 112, 105, 99, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 86, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 74, 79, 44, 46, 209, 0, 1, 255, 255, 255, 255, 0, 0, 0, 60, 31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 99, 96, 128, 3, 153, 135, 115, 4, 255, 131, 89, 172, 217, 169, 149, 10, 137, 64, 6, 103, 110, 106, 113, 113, 98, 122, 42, 152, 3, 87, 199, 242, 37, 117, 30, 66, 93, 18, 178, 186, 36, 0, 127, 205, 212, 97, 80, 0, 0, 0>>
 
+    client_id = "compression_client_test"
+    topic = "compressed_topic"
+    messages = [
+      %KafkaEx.Protocol.Produce.Message{key: "key a", value: "message a"},
+      %KafkaEx.Protocol.Produce.Message{key: "key b", value: "message b"}
+    ]
+
     produce = %KafkaEx.Protocol.Produce.Request{
-      topic: "compressed_topic",
+      topic: topic,
       partition: 0,
       required_acks: 1,
       timeout: 10,
       compression: :gzip,
-      messages: [
-        %KafkaEx.Protocol.Produce.Message{key: "key a", value: "message a"},
-        %KafkaEx.Protocol.Produce.Message{key: "key b", value: "message b"}
-      ]
+      messages: messages
     }
 
-    request = KafkaEx.Protocol.Produce.create_request(1, "compression_client_test", produce)
+    request = KafkaEx.Protocol.Produce.create_request(1, client_id, produce)
 
-    assert expected_request == request
+    # The exact binary contents of the message can change as zlib changes,
+    # but they should remain compatible.  We test this by splitting the binary
+    # up into the parts that should be the same and the parts that may differ -
+    # which are the crc checkshum and the compressed part of the message.
+    #
+    # the byte sizes here are determined by looking at the construction of the
+    # messages and headers in produce.ex
+    pre_crc_header_size = 46 + byte_size(topic) + byte_size(client_id)
+    crc_size = 4
+    # note this includes the size of the compressed part of the binary, which
+    # should be the same.
+    post_crc_header_size = 10
+
+    << pre_crc_header :: binary-size(pre_crc_header_size),
+      _crc :: binary-size(crc_size),
+      post_crc_header :: binary-size(post_crc_header_size),
+      compressed_message_set :: binary >> = request
+
+    << expect_pre_crc_header :: binary-size(pre_crc_header_size),
+      _expect_crc :: binary-size(crc_size),
+      expect_post_crc_header :: binary-size(post_crc_header_size),
+      expect_compressed_message_set :: binary >> = expected_request
+
+    assert pre_crc_header == expect_pre_crc_header
+    assert post_crc_header == expect_post_crc_header
+
+    decompressed_message_set = :zlib.gunzip(compressed_message_set)
+    expect_decompressed_message_set =
+      :zlib.gunzip(expect_compressed_message_set)
+
+    assert decompressed_message_set == expect_decompressed_message_set
   end
 
   test "create_request correctly encodes messages with snappy" do
