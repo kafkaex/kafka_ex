@@ -57,7 +57,7 @@ defmodule MyApp.Mixfile do
   defp deps do
     [
       # add to your existing deps
-      {:kafka_ex, "~> 0.8.0"},
+      {:kafka_ex, "~> 0.8.1"},
       # if using snappy compression
       {:snappy, git: "https://github.com/fdmanana/snappy-erlang-nif"}
     ]
