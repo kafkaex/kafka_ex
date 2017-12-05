@@ -471,7 +471,18 @@ defmodule KafkaEx do
     }
   end
 
-  defp build_worker_options(worker_init) do
+  @doc """
+  Builds options to be used with workers
+
+  Merges the given options with defaults from the application env config.
+  Returns p{:error, :invalid_consumer_options}` if the consumer group
+  configuation is invalid, and `{:ok, merged_options}` otherwise.
+
+  Note this happens automatically when using `KafkaEx.create_worker`.
+  """
+  @spec build_worker_options(worker_init) ::
+    {:ok, worker_init} | {:error, :invalid_consumer_group}
+  def build_worker_options(worker_init) do
     defaults = [
       uris: Application.get_env(:kafka_ex, :brokers),
       consumer_group: Application.get_env(:kafka_ex, :consumer_group),
