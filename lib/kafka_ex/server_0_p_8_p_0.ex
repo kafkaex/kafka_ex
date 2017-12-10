@@ -18,8 +18,6 @@ defmodule KafkaEx.Server0P8P0 do
 
   use KafkaEx.Server
   alias KafkaEx.Protocol.Fetch
-  alias KafkaEx.Server.State
-  alias KafkaEx.NetworkClient
 
   def kafka_server_init([args]) do
     kafka_server_init([args, self()])

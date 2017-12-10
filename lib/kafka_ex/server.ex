@@ -22,6 +22,9 @@ defmodule KafkaEx.Server do
   defmodule State do
     @moduledoc false
 
+    alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
+    alias KafkaEx.Protocol.Metadata.Broker
+
     defstruct(
       metadata: %Metadata.Response{},
       brokers: [],
@@ -48,6 +51,21 @@ defmodule KafkaEx.Server do
         ssl_options: KafkaEx.ssl_options,
         use_ssl: boolean
       }
+
+    @spec increment_correlation_id(t) :: t
+    def increment_correlation_id(state = %State{correlation_id: cid}) do
+      %{state | correlation_id: cid + 1}
+    end
+
+    @spec broker_for_partition(t, binary, integer) :: Broker.t | nil
+    def broker_for_partition(state, topic, partition) do
+      MetadataResponse.broker_for_topic(
+        state.metadata,
+        state.brokers,
+        topic,
+        partition
+      )
+    end
   end
 
   @callback kafka_server_init(args :: [term]) ::
@@ -433,23 +451,14 @@ defmodule KafkaEx.Server do
         }
       end
 
-      defp broker_for_partition(state, topic, partition) do
-        MetadataResponse.broker_for_topic(
-          state.metadata,
-          state.brokers,
-          topic,
-          partition
-        )
-      end
-
       # gets the broker for a given partition, updating metadata if necessary
       # returns {broker, maybe_updated_state}
       defp broker_for_partition_with_update(state, topic, partition) do
-        case broker_for_partition(state, topic, partition) do
+        case State.broker_for_partition(state, topic, partition) do
           nil ->
             updated_state = update_metadata(state)
             {
-              broker_for_partition(updated_state, topic, partition),
+              State.broker_for_partition(updated_state, topic, partition),
               updated_state
             }
           broker ->
@@ -457,10 +466,8 @@ defmodule KafkaEx.Server do
         end
       end
 
-      defp increment_correlation_id(state = %State{correlation_id: cid}) do
-        %{state | correlation_id: cid + 1}
-      end
-
+      # assumes module.create_request(request) and module.parse_response
+      # both work
       defp network_request(request, module, state) do
         {broker, updated_state} = broker_for_partition_with_update(
           state,
@@ -486,7 +493,7 @@ defmodule KafkaEx.Server do
             )
             |> module.parse_response
     
-            state_out = increment_correlation_id(updated_state)
+            state_out = State.increment_correlation_id(updated_state)
     
             {response, state_out}
         end
