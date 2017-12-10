@@ -8,10 +8,23 @@ defmodule KafkaEx.Server0P9P0.Test do
 
   @topic "test0p8p0"
 
-  test "can produce and fetch a message" do
+  setup do
     {:ok, args} = KafkaEx.build_worker_options([])
     {:ok, worker} = Server.start_link(args, :no_name)
 
+    # we don't want to crash if the worker crashes
+    Process.unlink(worker)
+
+    on_exit fn ->
+      if Process.alive?(worker) do
+        GenServer.stop(worker)
+      end
+    end
+
+    [worker: worker]
+  end
+
+  test "can produce and fetch a message", %{worker: worker}do
     now = :erlang.monotonic_time
     msg = "test message #{now}"
     partition = 0
@@ -28,9 +41,16 @@ defmodule KafkaEx.Server0P9P0.Test do
       [got_partition] = got.partitions
       Enum.any?(got_partition.message_set, fn(m) -> m.value == msg end)
     end)
+  end
 
-    Process.unlink(worker)
-    GenServer.stop(worker)
-    refute Process.alive?(worker)
+  test "when the partition is not found", %{worker: worker} do
+    partition = 42
+    assert :topic_not_found == KafkaEx.fetch(
+      @topic,
+      partition,
+      worker_name: worker,
+      offset: 1,
+      auto_commit: false
+    )
   end
 end
