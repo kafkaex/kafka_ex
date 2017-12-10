@@ -17,7 +17,7 @@ defmodule KafkaEx.Server0P8P0.Test do
 
     on_exit fn ->
       if Process.alive?(worker) do
-        GenServer.stop(worker)
+        Process.exit(worker, :normal)
       end
     end
 
