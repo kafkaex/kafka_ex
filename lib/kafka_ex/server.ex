@@ -474,7 +474,7 @@ defmodule KafkaEx.Server do
           request.topic,
           request.partition
         )
-    
+
         case broker do
           nil ->
             Logger.error(fn ->
@@ -485,16 +485,16 @@ defmodule KafkaEx.Server do
             wire_request = request
             |> client_request(updated_state)
             |> module.create_request
-    
+
             response = broker
             |> NetworkClient.send_sync_request(
               wire_request,
               config_sync_timeout()
             )
             |> module.parse_response
-    
+
             state_out = State.increment_correlation_id(updated_state)
-    
+
             {response, state_out}
         end
       end

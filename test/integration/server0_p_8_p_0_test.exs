@@ -1,4 +1,4 @@
-defmodule KafkaEx.Server0P9P0.Test do
+defmodule KafkaEx.Server0P8P0.Test do
   use ExUnit.Case
   import TestHelper
 
