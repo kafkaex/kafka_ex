@@ -21,7 +21,7 @@ defmodule KafkaEx.Server0P8P0.Test do
       end
     end
 
-    [worker: worker]
+    {:ok, [worker: worker]}
   end
 
   test "can produce and fetch a message", %{worker: worker}do
