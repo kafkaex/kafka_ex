@@ -4,6 +4,8 @@ defmodule KafkaEx.Server do
   """
 
   alias KafkaEx.NetworkClient
+  alias KafkaEx.InvalidConsumerGroupError
+  alias KafkaEx.ConsumerGroupRequiredError
   alias KafkaEx.Protocol.ConsumerMetadata
   alias KafkaEx.Protocol.Heartbeat.Request, as: HeartbeatRequest
   alias KafkaEx.Protocol.JoinGroup.Request, as: JoinGroupRequest
@@ -201,6 +203,7 @@ defmodule KafkaEx.Server do
       @min_bytes 1
       @max_bytes 1_000_000
       @metadata_update_interval       30_000
+      @consumer_group_update_interval 30_000
       @sync_timeout                   1_000
       @ssl_options []
 
@@ -406,6 +409,15 @@ defmodule KafkaEx.Server do
           @metadata_update_interval
         )
 
+        # the implementation may or may not use consumer groups,
+        # we just populate the settings here
+        consumer_group = Keyword.get(args, :consumer_group)
+        consumer_group_update_interval = Keyword.get(
+          args,
+          :consumer_group_update_interval,
+          @consumer_group_update_interval
+        )
+
         brokers = for {host, port} <- uris do
           connect_broker(host, port, ssl_options, use_ssl)
         end
@@ -421,6 +433,8 @@ defmodule KafkaEx.Server do
           brokers: brokers,
           correlation_id: correlation_id,
           metadata_update_interval: metadata_update_interval,
+          consumer_group_update_interval: consumer_group_update_interval,
+          consumer_group: consumer_group,
           ssl_options: ssl_options,
           use_ssl: use_ssl,
           worker_name: name
@@ -433,6 +447,29 @@ defmodule KafkaEx.Server do
         )
 
         state
+      end
+
+      defp consumer_group_init(
+        state = %State{consumer_group: :no_consumer_group}
+      ) do
+        state
+      end
+
+      defp consumer_group_init(state) do
+        # this should have already been validated, but it's possible someone
+        # could try to short-circuit the start call
+        unless KafkaEx.valid_consumer_group?(state.consumer_group) do
+          raise InvalidConsumerGroupError, state.consumer_group
+        end
+
+        # If we are using consumer groups then initialize the state
+        # and start the update cycle
+        {_, updated_state} = update_consumer_metadata(state)
+        {:ok, _} = :timer.send_interval(
+          state.consumer_group_update_interval,
+          :update_consumer_metadata
+        )
+        updated_state
       end
 
       defp connect_broker(host, port, ssl_opts, use_ssl) do

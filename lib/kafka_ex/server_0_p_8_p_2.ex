@@ -13,19 +13,15 @@ defmodule KafkaEx.Server0P8P2 do
 
   use KafkaEx.Server
   alias KafkaEx.ConsumerGroupRequiredError
-  alias KafkaEx.InvalidConsumerGroupError
   alias KafkaEx.Protocol.ConsumerMetadata
   alias KafkaEx.Protocol.ConsumerMetadata.Response, as: ConsumerMetadataResponse
   alias KafkaEx.Protocol.Fetch
   alias KafkaEx.Protocol.Fetch.Request, as: FetchRequest
-  alias KafkaEx.Protocol.Metadata.Broker
   alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
   alias KafkaEx.Protocol.OffsetFetch
   alias KafkaEx.Protocol.OffsetCommit
   alias KafkaEx.Server.State
   alias KafkaEx.NetworkClient
-
-  @consumer_group_update_interval 30_000
 
   def start_link(args, name \\ __MODULE__)
 
@@ -41,35 +37,19 @@ defmodule KafkaEx.Server0P8P2 do
   end
 
   def kafka_server_init([args, name]) do
-    uris = Keyword.get(args, :uris, [])
-    metadata_update_interval = Keyword.get(args, :metadata_update_interval, @metadata_update_interval)
-    consumer_group_update_interval = Keyword.get(args, :consumer_group_update_interval, @consumer_group_update_interval)
-
-    # this should have already been validated, but it's possible someone could
-    # try to short-circuit the start call
-    consumer_group = Keyword.get(args, :consumer_group)
-    unless KafkaEx.valid_consumer_group?(consumer_group) do
-      raise InvalidConsumerGroupError, consumer_group
+    # warn if ssl is configured
+    if Keyword.get(args, :use_ssl) do
+      Logger.warn(fn ->
+        "KafkaEx is being configured to use ssl with a broker version that " <>
+          "does not support ssl"
+      end)
     end
 
-    brokers = Enum.map(uris, fn({host, port}) -> %Broker{host: host, port: port, socket: NetworkClient.create_socket(host, port)} end)
-    {correlation_id, metadata} = retrieve_metadata(brokers, 0, config_sync_timeout())
-    state = %State{metadata: metadata, brokers: brokers, correlation_id: correlation_id, consumer_group: consumer_group, metadata_update_interval: metadata_update_interval, consumer_group_update_interval: consumer_group_update_interval, worker_name: name}
-    # Get the initial "real" broker list and start a regular refresh cycle.
-    state = update_metadata(state)
-    {:ok, _} = :timer.send_interval(state.metadata_update_interval, :update_metadata)
+    state = kafka_common_init(args, name)
 
-    state =
-      if consumer_group?(state) do
-        # If we are using consumer groups then initialize the state and start the update cycle
-        {_, updated_state} = update_consumer_metadata(state)
-        {:ok, _} = :timer.send_interval(state.consumer_group_update_interval, :update_consumer_metadata)
-        updated_state
-      else
-        state
-      end
+    state_with_cg_metadata = consumer_group_init(state)
 
-    {:ok, state}
+    {:ok, state_with_cg_metadata}
   end
 
   def kafka_server_consumer_group(state) do
