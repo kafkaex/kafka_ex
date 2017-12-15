@@ -25,5 +25,5 @@ then
   echo "First tests passed, skipping repeat"
 else
   echo "Repeating tests"
-  mix "$TEST_COMMAND" --include integration --include consumer_group --include server_0_p_9_p_0 
+  mix "$TEST_COMMAND" --include integration --include consumer_group --include server_0_p_9_p_0 --include server_0_p_8_p_0
 fi
