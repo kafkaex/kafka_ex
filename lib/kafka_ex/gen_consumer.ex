@@ -200,6 +200,7 @@ defmodule KafkaEx.GenConsumer do
   """
   @type option :: {:commit_interval, non_neg_integer}
                 | {:commit_threshold, non_neg_integer}
+                | {:auto_offset_reset, :none | :earliest | :latest}
 
   @typedoc """
   Options used when starting a `KafkaEx.GenConsumer`.
