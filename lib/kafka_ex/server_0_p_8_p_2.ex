@@ -135,41 +135,18 @@ defmodule KafkaEx.Server0P8P2 do
     end
   end
 
-  defp fetch(fetch_request, state) do
-    true = consumer_group_if_auto_commit?(fetch_request.auto_commit, state)
-    fetch_data = Fetch.create_request(%FetchRequest{
-      fetch_request |
-      client_id: @client_id,
-      correlation_id: state.correlation_id,
-    })
-    {broker, state} = case MetadataResponse.broker_for_topic(state.metadata, state.brokers, fetch_request.topic, fetch_request.partition) do
-      nil    ->
-        updated_state = update_metadata(state)
-        {MetadataResponse.broker_for_topic(updated_state.metadata, updated_state.brokers, fetch_request.topic, fetch_request.partition), updated_state}
-      broker -> {broker, state}
-    end
-
-    case broker do
-      nil ->
-        Logger.log(:error, "Leader for topic #{fetch_request.topic} is not available")
-        {:topic_not_found, state}
-      _ ->
-        response = broker
-          |> NetworkClient.send_sync_request(fetch_data, config_sync_timeout())
-          |> Fetch.parse_response
-        state = %{state | correlation_id: state.correlation_id + 1}
-        last_offset = response |> hd |> Map.get(:partitions) |> hd |> Map.get(:last_offset)
-        if last_offset != nil && fetch_request.auto_commit do
-          offset_commit_request = %OffsetCommit.Request{
-            topic: fetch_request.topic,
-            offset: last_offset,
-            partition: fetch_request.partition,
-            consumer_group: state.consumer_group}
-          {_, state} = offset_commit(state, offset_commit_request)
-          {response, state}
-        else
-          {response, state}
-        end
+  defp fetch(request, state) do
+    case network_request(request, Fetch, state) do
+      {{:error, error}, state_out} -> {error, state_out}
+      {response, state_after_fetch} ->
+        # commit the offset if we need to
+        last_offset = last_offset_from_fetch(response)
+        state_out = maybe_commit_offset(
+          last_offset,
+          request,
+          state_after_fetch
+        )
+        {response, state_out}
     end
   end
 
@@ -222,5 +199,26 @@ defmodule KafkaEx.Server0P8P2 do
 
   defp first_broker_response(request, state) do
     first_broker_response(request, state.brokers, config_sync_timeout())
+  end
+
+  defp maybe_commit_offset(nil, _fetch_request, state), do: state
+  defp maybe_commit_offset(offset, %FetchRequest{auto_commit: false}, state) do
+    state
+  end
+
+  defp maybe_commit_offset(offset, fetch_request, state) do
+    offset_commit_request = %OffsetCommit.Request{
+      topic: fetch_request.topic,
+      partition: fetch_request.partition,
+      offset: offset,
+      consumer_group: state.consumer_group
+    }
+    {_, state_out} = offset_commit(state, offset_commit_request)
+    state_out
+  end
+
+  defp last_offset_from_fetch([response]) do
+    [partition] = response.partitions
+    partition.last_offset
   end
 end

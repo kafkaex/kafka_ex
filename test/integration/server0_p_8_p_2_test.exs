@@ -7,6 +7,7 @@ defmodule KafkaEx.Server0P8P2.Test do
   alias KafkaEx.Server0P8P2, as: Server
 
   @topic "test0p8p2"
+  @consumer_group "group0p8p0"
 
   defp publish_message(partition, worker) do
     now = :erlang.monotonic_time
@@ -15,8 +16,19 @@ defmodule KafkaEx.Server0P8P2.Test do
     msg
   end
 
+  defp get_offset(partition, worker) do
+    latest_consumer_offset_number(
+      @topic,
+      partition,
+      @consumer_group,
+      worker
+    )
+  end
+
   setup do
-    {:ok, args} = KafkaEx.build_worker_options([])
+    {:ok, args} = KafkaEx.build_worker_options(
+      [consumer_group: @consumer_group]
+    )
     {:ok, worker} = Server.start_link(args, :no_name)
 
     # we don't want to crash if the worker crashes
@@ -33,6 +45,8 @@ defmodule KafkaEx.Server0P8P2.Test do
 
   test "can produce and fetch a message", %{worker: worker}do
     partition = 0
+    offset_before = get_offset(partition, worker)
+
     _ = publish_message(partition, worker)
     msg = publish_message(partition, worker)
 
@@ -47,6 +61,10 @@ defmodule KafkaEx.Server0P8P2.Test do
       [got_partition] = got.partitions
       Enum.any?(got_partition.message_set, fn(m) -> m.value == msg end)
     end)
+
+    # auto_commit was false
+    offset_after = get_offset(partition, worker)
+    assert offset_after == offset_before
   end
 
   test "when the partition is not found", %{worker: worker} do
@@ -58,5 +76,28 @@ defmodule KafkaEx.Server0P8P2.Test do
       offset: 1,
       auto_commit: false
     )
+  end
+
+  test "offset auto_commit works", %{worker: worker} do
+    partition = 0
+    offset_before = get_offset(partition, worker)
+
+    _ = publish_message(partition, worker)
+    msg = publish_message(partition, worker)
+
+    wait_for(fn ->
+      [got] = KafkaEx.fetch(
+        @topic,
+        partition,
+        worker_name: worker,
+        offset: 1,
+        auto_commit: true
+      )
+      [got_partition] = got.partitions
+      Enum.any?(got_partition.message_set, fn(m) -> m.value == msg end)
+    end)
+
+    offset_after = get_offset(partition, worker)
+    assert offset_after > offset_before
   end
 end
