@@ -8,6 +8,13 @@ defmodule KafkaEx.Server0P8P0.Test do
 
   @topic "test0p8p0"
 
+  defp publish_message(partition, worker) do
+    now = :erlang.monotonic_time
+    msg = "test message #{now}"
+    :ok = KafkaEx.produce(@topic, partition, msg, worker_name: worker)
+    msg
+  end
+
   setup do
     {:ok, args} = KafkaEx.build_worker_options([])
     {:ok, worker} = Server.start_link(args, :no_name)
@@ -25,10 +32,9 @@ defmodule KafkaEx.Server0P8P0.Test do
   end
 
   test "can produce and fetch a message", %{worker: worker}do
-    now = :erlang.monotonic_time
-    msg = "test message #{now}"
     partition = 0
-    :ok = KafkaEx.produce(@topic, partition, msg, worker_name: worker)
+    _ = publish_message(partition, worker)
+    msg = publish_message(partition, worker)
 
     wait_for(fn ->
       [got] = KafkaEx.fetch(
