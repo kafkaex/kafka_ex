@@ -73,12 +73,8 @@ defmodule KafkaEx.Protocol.Fetch do
   defp parse_message_set([last|_] = list, _) do
     {:ok, Enum.reverse(list), last.offset}
   end
-  defp parse_message_set(_, << offset :: 64, msg_size :: 32, rest :: binary >>) do
-    if byte_size(rest) < msg_size do
-      raise RuntimeError, "Too little data fetched at offset #{offset}. Message size #{msg_size} but only got another #{byte_size rest} bytes! Try increasing max_bytes to at least #{msg_size + 12}."
-    else
-      raise FunctionClauseError, "no function clause matching in #{__MODULE__}.parse_message_set/2"
-    end
+  defp parse_message_set(_, << offset :: 64, msg_size :: 32, partial_msg_data :: binary >>) when byte_size(partial_message_data> < msg_size do
+    raise RuntimeError, "Insufficient data fetched at offset #{offset}. Message size is #{msg_size} but only received #{byte_size(partial_message_data)} bytes. Try increasing max_bytes."
   end
 
   # handles the single message case and the batch (compression) case
