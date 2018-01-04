@@ -64,7 +64,7 @@ defmodule KafkaEx.Server0P8P0 do
   def kafka_server_update_consumer_metadata(_state), do: raise "Consumer Group Metadata is not supported in 0.8.0 version of kafka"
 
   defp fetch(request, state) do
-    case network_request(request, Fetch, state) do
+    case partition_request(request, Fetch, state) do
       {{:error, error}, state_out} -> {error, state_out}
       {response, state_out} -> {response, state_out}
     end

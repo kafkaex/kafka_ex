@@ -8,12 +8,14 @@ defmodule KafkaEx.Protocol.OffsetFetch do
 
   defmodule Request do
     @moduledoc false
-    defstruct consumer_group: nil, topic: nil, partition: nil
-    @type t :: %Request{
-      consumer_group: nil | binary,
-      topic: binary,
-      partition: integer
-    }
+    defstruct([
+      consumer_group: nil,
+      topic: nil,
+      partition: nil,
+      correlation_id: nil,
+      client_id: nil
+    ])
+    @type t :: %__MODULE__{}
   end
 
   defmodule Response do
@@ -37,8 +39,30 @@ defmodule KafkaEx.Protocol.OffsetFetch do
     end
   end
 
+  def create_request(offset_fetch_request) do
+    header = KafkaEx.Protocol.create_request(
+      :offset_fetch,
+      offset_fetch_request.correlation_id,
+      offset_fetch_request.client_id
+    ) 
+    data = << byte_size(offset_fetch_request.consumer_group) :: 16-signed,
+      offset_fetch_request.consumer_group :: binary,
+      1 :: 32-signed,
+      byte_size(offset_fetch_request.topic) :: 16-signed,
+      offset_fetch_request.topic :: binary,
+      1 :: 32-signed,
+      offset_fetch_request.partition :: 32 >>
+    header <> data
+  end
+
   def create_request(correlation_id, client_id, offset_fetch_request) do
-    KafkaEx.Protocol.create_request(:offset_fetch, correlation_id, client_id) <> << byte_size(offset_fetch_request.consumer_group) :: 16-signed, offset_fetch_request.consumer_group :: binary, 1 :: 32-signed, byte_size(offset_fetch_request.topic) :: 16-signed, offset_fetch_request.topic :: binary, 1 :: 32-signed, offset_fetch_request.partition :: 32 >>
+    create_request(
+      %{
+        offset_fetch_request |
+        correlation_id: correlation_id,
+        client_id: client_id
+      }
+    )
   end
 
   def parse_response(<< _correlation_id :: 32-signed, topics_size :: 32-signed, topics_data :: binary >>) do

@@ -13,11 +13,8 @@ defmodule KafkaEx.Server0P8P2 do
 
   use KafkaEx.Server
   alias KafkaEx.ConsumerGroupRequiredError
-  alias KafkaEx.Protocol.ConsumerMetadata
-  alias KafkaEx.Protocol.ConsumerMetadata.Response, as: ConsumerMetadataResponse
   alias KafkaEx.Protocol.Fetch
   alias KafkaEx.Protocol.Fetch.Request, as: FetchRequest
-  alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
   alias KafkaEx.Protocol.OffsetFetch
   alias KafkaEx.Protocol.OffsetCommit
   alias KafkaEx.Server.State
@@ -64,7 +61,7 @@ defmodule KafkaEx.Server0P8P2 do
   end
 
   def kafka_server_offset_fetch(offset_fetch, state) do
-    unless consumer_group?(state) do
+    unless State.consumer_group?(state) do
       raise ConsumerGroupRequiredError, offset_fetch
     end
 
@@ -75,7 +72,9 @@ defmodule KafkaEx.Server0P8P2 do
     consumer_group = offset_fetch.consumer_group || state.consumer_group
     offset_fetch = %{offset_fetch | consumer_group: consumer_group}
 
-    offset_fetch_request = OffsetFetch.create_request(state.correlation_id, @client_id, offset_fetch)
+    wire_request = offset_fetch
+                   |> client_request(state)
+                   |> OffsetFetch.create_request
 
     {response, state} = case broker do
       nil    ->
@@ -83,7 +82,7 @@ defmodule KafkaEx.Server0P8P2 do
         {:topic_not_found, state}
       _ ->
         response = broker
-          |> NetworkClient.send_sync_request(offset_fetch_request, config_sync_timeout())
+          |> NetworkClient.send_sync_request(wire_request, config_sync_timeout())
           |> OffsetFetch.parse_response
         {response, %{state | correlation_id: state.correlation_id + 1}}
     end
@@ -103,7 +102,7 @@ defmodule KafkaEx.Server0P8P2 do
   end
 
   def kafka_server_update_consumer_metadata(state) do
-    unless consumer_group?(state) do
+    unless State.consumer_group?(state) do
       raise ConsumerGroupRequiredError, "consumer metadata update"
     end
 
@@ -115,28 +114,9 @@ defmodule KafkaEx.Server0P8P2 do
   def kafka_server_sync_group(_, _, _state), do: raise "Sync Group is not supported in 0.8.0 version of kafka"
   def kafka_server_leave_group(_, _, _state), do: raise "Leave Group is not supported in 0.8.0 version of Kafka"
   def kafka_server_heartbeat(_, _, _state), do: raise "Heartbeat is not supported in 0.8.0 version of kafka"
-  defp update_consumer_metadata(state), do: update_consumer_metadata(state, @retry_count, 0)
-
-  defp update_consumer_metadata(%State{consumer_group: consumer_group} = state, 0, error_code) do
-    Logger.log(:error, "Fetching consumer_group #{consumer_group} metadata failed with error_code #{inspect error_code}")
-    {%ConsumerMetadataResponse{error_code: error_code}, state}
-  end
-
-  defp update_consumer_metadata(%State{consumer_group: consumer_group, correlation_id: correlation_id} = state, retry, _error_code) do
-    response = correlation_id
-      |> ConsumerMetadata.create_request(@client_id, consumer_group)
-      |> first_broker_response(state)
-      |> ConsumerMetadata.parse_response
-
-    case response.error_code do
-      :no_error -> {response, %{state | consumer_metadata: response, correlation_id: state.correlation_id + 1}}
-      _ -> :timer.sleep(400)
-        update_consumer_metadata(%{state | correlation_id: state.correlation_id + 1}, retry - 1, response.error_code)
-    end
-  end
 
   defp fetch(request, state) do
-    case network_request(request, Fetch, state) do
+    case partition_request(request, Fetch, state) do
       {{:error, error}, state_out} -> {error, state_out}
       {response, state_after_fetch} ->
         # commit the offset if we need to
@@ -166,34 +146,10 @@ defmodule KafkaEx.Server0P8P2 do
     {response, %{state | correlation_id: state.correlation_id + 1}}
   end
 
-  defp broker_for_consumer_group(state) do
-    ConsumerMetadataResponse.broker_for_consumer_group(state.brokers, state.consumer_metadata)
+  defp consumer_group_if_auto_commit?(true, state) do
+    State.consumer_group?(state)
   end
-
-  # refactored from two versions, one that used the first broker as valid answer, hence
-  # the optional extra flag to do that. Wraps broker_for_consumer_group with an update
-  # call if no broker was found.
-  defp broker_for_consumer_group_with_update(state, use_first_as_default \\ false) do
-    case broker_for_consumer_group(state) do
-      nil ->
-        {_, updated_state} = update_consumer_metadata(state)
-        default_broker = if use_first_as_default, do: hd(state.brokers), else: nil
-        {broker_for_consumer_group(updated_state) || default_broker, updated_state}
-      broker ->
-        {broker, state}
-    end
-  end
-
-  # note within the genserver state, we've already validated the
-  # consumer group, so it can only be either :no_consumer_group or a
-  # valid binary consumer group name
-  def consumer_group?(%State{consumer_group: :no_consumer_group}), do: false
-  def consumer_group?(_), do: true
-
-  def consumer_group_if_auto_commit?(true, state) do
-    consumer_group?(state)
-  end
-  def consumer_group_if_auto_commit?(false, _state) do
+  defp consumer_group_if_auto_commit?(false, _state) do
     true
   end
 
@@ -202,11 +158,15 @@ defmodule KafkaEx.Server0P8P2 do
   end
 
   defp maybe_commit_offset(nil, _fetch_request, state), do: state
-  defp maybe_commit_offset(offset, %FetchRequest{auto_commit: false}, state) do
+  defp maybe_commit_offset(_, %FetchRequest{auto_commit: false}, state) do
     state
   end
 
   defp maybe_commit_offset(offset, fetch_request, state) do
+    unless State.consumer_group?(state) do
+      raise ConsumerGroupRequiredError, fetch_request
+    end
+
     offset_commit_request = %OffsetCommit.Request{
       topic: fetch_request.topic,
       partition: fetch_request.partition,

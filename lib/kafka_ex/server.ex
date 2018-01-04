@@ -68,6 +68,19 @@ defmodule KafkaEx.Server do
         partition
       )
     end
+
+    @spec broker_for_consumer_group(t) :: Broker.t | nil
+    def broker_for_consumer_group(state) do
+      ConsumerMetadata.Response.broker_for_consumer_group(
+        state.brokers,
+        state.consumer_metadata
+      )
+    end
+
+    @spec consumer_group?(t) :: boolean
+    def consumer_group?(%State{consumer_group: :no_consumer_group}), do: false
+    def consumer_group?(%State{consumer_group: nil}), do: false
+    def consumer_group?(_), do: true
   end
 
   @callback kafka_server_init(args :: [term]) ::
@@ -356,6 +369,55 @@ defmodule KafkaEx.Server do
         {:noreply, update_metadata(state)}
       end
 
+      defp update_consumer_metadata(state) do
+        update_consumer_metadata(state, @retry_count, 0)
+      end
+    
+      defp update_consumer_metadata(
+        state = %State{consumer_group: consumer_group},
+        0,
+        error_code
+      ) do
+        Logger.error(fn ->
+          "Fetching consumer_group #{consumer_group} metadata failed " <>
+            "with error_code #{inspect error_code}"
+        end)
+        {%ConsumerMetadata.Response{error_code: error_code}, state}
+      end
+
+      defp update_consumer_metadata(
+        state = %State{
+          consumer_group: consumer_group,
+          correlation_id: correlation_id
+        },
+        retry,
+        _error_code
+      ) do
+        response = correlation_id
+          |> ConsumerMetadata.create_request(@client_id, consumer_group)
+          |> first_broker_response(state)
+          |> ConsumerMetadata.parse_response
+    
+        case response.error_code do
+          :no_error ->
+            {
+              response,
+              %{
+                state |
+                consumer_metadata: response,
+                correlation_id: state.correlation_id + 1
+              }
+            }
+          _ ->
+            :timer.sleep(400)
+            update_consumer_metadata(
+              %{state | correlation_id: state.correlation_id + 1},
+              retry - 1,
+              response.error_code
+            )
+        end
+      end
+
       def update_metadata(state) do
         {correlation_id, metadata} = retrieve_metadata(state.brokers, state.correlation_id, config_sync_timeout())
         metadata_brokers = metadata.brokers
@@ -488,6 +550,10 @@ defmodule KafkaEx.Server do
         }
       end
 
+      defp broker_for_consumer_group(state) do
+        State.broker_for_consumer_group(state)
+      end
+
       # gets the broker for a given partition, updating metadata if necessary
       # returns {broker, maybe_updated_state}
       defp broker_for_partition_with_update(state, topic, partition) do
@@ -503,9 +569,35 @@ defmodule KafkaEx.Server do
         end
       end
 
+      # refactored from two versions, one that used the first broker as valid
+      # answer, hence the optional extra flag to do that. Wraps
+      # broker_for_consumer_group with an update call if no broker was found.
+      defp broker_for_consumer_group_with_update(
+        state = %State{},
+        use_first_as_default \\ false
+      ) do
+        case State.broker_for_consumer_group(state) do
+          nil ->
+            {_, updated_state} = update_consumer_metadata(state)
+
+            default_broker = if use_first_as_default do
+              [first_broker | _rest] = state.brokers
+              first_broker
+            else
+              nil
+            end
+
+            {
+              State.broker_for_consumer_group(updated_state) || default_broker,
+              updated_state
+            }
+          broker -> {broker, state}
+        end
+      end
+
       # assumes module.create_request(request) and module.parse_response
       # both work
-      defp network_request(request, module, state) do
+      defp partition_request(request, module, state) do
         {broker, updated_state} = broker_for_partition_with_update(
           state,
           request.topic,
@@ -570,6 +662,10 @@ defmodule KafkaEx.Server do
       defp config_sync_timeout(timeout \\ nil) do
         timeout || Application.get_env(:kafka_ex, :sync_timeout, @sync_timeout)
       end
+
+      defp valid_consumer_group?(:no_consumer_group), do: false
+      defp valid_consumer_group?(nil), do: false
+      defp valid_consumer_group?(_), do: true
     end
   end
 end

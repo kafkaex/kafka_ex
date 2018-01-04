@@ -5,8 +5,8 @@ defmodule KafkaEx.Server0P9P0 do
   use KafkaEx.Server
   alias KafkaEx.ConsumerGroupRequiredError
   alias KafkaEx.InvalidConsumerGroupError
-  alias KafkaEx.Protocol.ConsumerMetadata
-  alias KafkaEx.Protocol.ConsumerMetadata.Response, as: ConsumerMetadataResponse
+  alias KafkaEx.Protocol.ConsumerMetadata.Response,
+    as: ConsumerMetadataResponse
   alias KafkaEx.Protocol.Heartbeat
   alias KafkaEx.Protocol.JoinGroup
   alias KafkaEx.Protocol.LeaveGroup
@@ -163,54 +163,8 @@ defmodule KafkaEx.Server0P9P0 do
     end
   end
 
-  defp update_consumer_metadata(state), do: update_consumer_metadata(state, @retry_count, 0)
-
-  defp update_consumer_metadata(%State{consumer_group: consumer_group} = state, 0, error_code) do
-    Logger.log(:error, "Fetching consumer_group #{consumer_group} metadata failed with error_code #{inspect error_code}")
-    {%ConsumerMetadataResponse{error_code: error_code}, state}
-  end
-
-  defp update_consumer_metadata(%State{consumer_group: consumer_group, correlation_id: correlation_id} = state, retry, _error_code) do
-    response = correlation_id
-      |> ConsumerMetadata.create_request(@client_id, consumer_group)
-      |> first_broker_response(state)
-      |> ConsumerMetadata.parse_response
-
-    case response.error_code do
-      :no_error ->
-        {
-          response,
-          %{
-            state |
-            consumer_metadata: response,
-            correlation_id: state.correlation_id + 1
-          }
-        }
-      _ -> :timer.sleep(400)
-        update_consumer_metadata(
-          %{state | correlation_id: state.correlation_id + 1},
-          retry - 1,
-          response.error_code
-        )
-    end
-  end
-
   defp broker_for_consumer_group(state) do
     ConsumerMetadataResponse.broker_for_consumer_group(state.brokers, state.consumer_metadata)
-  end
-
-  # refactored from two versions, one that used the first broker as valid answer, hence
-  # the optional extra flag to do that. Wraps broker_for_consumer_group with an update
-  # call if no broker was found.
-  defp broker_for_consumer_group_with_update(state, use_first_as_default \\ false) do
-    case broker_for_consumer_group(state) do
-      nil ->
-        {_, updated_state} = update_consumer_metadata(state)
-        default_broker = if use_first_as_default, do: hd(state.brokers), else: nil
-        {broker_for_consumer_group(updated_state) || default_broker, updated_state}
-      broker ->
-        {broker, state}
-    end
   end
 
   # note within the genserver state, we've already validated the
