@@ -486,12 +486,8 @@ defmodule KafkaEx.Server do
             |> client_request(updated_state)
             |> module.create_request
 
-            response = broker
-            |> NetworkClient.send_sync_request(
-              wire_request,
-              config_sync_timeout()
-            )
-            |> module.parse_response
+            response = NetworkClient.send_sync_request(broker, wire_request, config_sync_timeout())
+            response = if response != nil, do: module.parse_response(response), else: nil
 
             state_out = State.increment_correlation_id(updated_state)
 
