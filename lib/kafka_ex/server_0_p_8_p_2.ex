@@ -102,8 +102,13 @@ defmodule KafkaEx.Server0P8P2 do
         Logger.log(:error, "Coordinator for topic #{offset_fetch.topic} is not available")
         {:topic_not_found, state}
       _ ->
-        response = NetworkClient.send_sync_request(broker, offset_fetch_request, config_sync_timeout())
-        response = if response != nil, do: OffsetFetch.parse_response(response), else: nil
+        response = NetworkClient.send_sync_request(
+          broker,
+          offset_fetch_request,
+          config_sync_timeout())
+        response = if response != nil,
+                      do: OffsetFetch.parse_response(response),
+                      else: nil
         {response, %{state | correlation_id: state.correlation_id + 1}}
     end
 
