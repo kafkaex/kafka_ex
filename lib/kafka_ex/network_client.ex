@@ -51,11 +51,11 @@ defmodule KafkaEx.NetworkClient do
     response
   end
 
-  @spec format_host(binary) :: char_list | :inet.ip_address
+  @spec format_host(binary) :: [char] | :inet.ip_address
   def format_host(host) do
     case Regex.scan(~r/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/, host) do
       [match_data] = [[_, _, _, _, _]] -> match_data |> tl |> List.flatten |> Enum.map(&String.to_integer/1) |> List.to_tuple
-      _ -> to_char_list(host)
+      _ -> apply(String, :to_char_list, [host]) # to_char_list is deprecated from Elixir 1.3 onward
     end
   end
 

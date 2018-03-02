@@ -32,7 +32,7 @@ defmodule KafkaEx.ConsumerGroup.PartitionAssignment do
   @typedoc """
   A function that can assign partitions.
 
- `members` is a list of member IDs and `partitions` is a list of partitions
+  `members` is a list of member IDs and `partitions` is a list of partitions
   that need to be assigned to a group member.
 
   The return value must be a map with member IDs as keys and a list of

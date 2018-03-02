@@ -275,7 +275,7 @@ defmodule KafkaEx.Server do
       def terminate(_, state) do
         Logger.log(:debug, "Shutting down worker #{inspect state.worker_name}")
         if state.event_pid do
-          GenEvent.stop(state.event_pid)
+          :gen_event.stop(state.event_pid)
         end
         Enum.each(state.brokers, fn(broker) -> NetworkClient.close_socket(broker.socket) end)
       end
@@ -501,9 +501,9 @@ defmodule KafkaEx.Server do
       end
 
       defp remove_stale_brokers(brokers, metadata_brokers) do
-        {brokers_to_keep, brokers_to_remove} = Enum.partition(brokers, fn(broker) ->
+        {brokers_to_keep, brokers_to_remove} = apply(Enum, :partition, [brokers, fn(broker) ->
           Enum.find_value(metadata_brokers, &(broker.node_id == -1 || (broker.node_id == &1.node_id) && broker.socket && Socket.info(broker.socket)))
-        end)
+        end])
         case length(brokers_to_keep) do
           0 -> brokers_to_remove
           _ -> Enum.each(brokers_to_remove, fn(broker) ->
