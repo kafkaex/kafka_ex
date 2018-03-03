@@ -129,7 +129,7 @@ defmodule KafkaEx.Server0P9P0 do
     state
   ) do
     unless consumer_group?(state) do
-      raise ConnsumerGroupRequiredError, request
+      raise ConsumerGroupRequiredError, request
     end
 
     {broker, state} = broker_for_consumer_group_with_update(state)

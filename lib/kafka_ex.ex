@@ -25,7 +25,7 @@ defmodule KafkaEx do
   alias KafkaEx.Server
   alias KafkaEx.Stream
 
-  @type uri() :: [{binary|char_list, number}]
+  @type uri() :: [{binary|[char], number}]
   @type worker_init :: [worker_setting]
   @type ssl_options :: [{:cacertfile, binary} |
                         {:certfile, binary} |

@@ -492,7 +492,6 @@ defmodule KafkaEx.GenConsumer do
 
   defp consume(
     %State{
-      worker_name: worker_name,
       topic: topic,
       partition: partition,
       current_offset: offset,
@@ -554,9 +553,6 @@ defmodule KafkaEx.GenConsumer do
       worker_name: worker_name,
       topic: topic,
       partition: partition,
-      current_offset: current_offset,
-      committed_offset: committed_offset,
-      acked_offset: acked_offset,
       auto_offset_reset: auto_offset_reset
     } = state
   ) do
