@@ -53,7 +53,7 @@ defmodule KafkaEx.Server do
       }
 
     @spec increment_correlation_id(t) :: t
-    def increment_correlation_id(state = %State{correlation_id: cid}) do
+    def increment_correlation_id(%State{correlation_id: cid} = state) do
       %{state | correlation_id: cid + 1}
     end
 
