@@ -134,6 +134,8 @@ defmodule KafkaEx.Server0P9P0 do
 
     {broker, state} = broker_for_consumer_group_with_update(state)
 
+    state_out = %{state | correlation_id: state.correlation_id + 1}
+
     sync_timeout = config_sync_timeout(network_timeout)
 
     wire_request = protocol_module.create_request(
@@ -146,20 +148,23 @@ defmodule KafkaEx.Server0P9P0 do
       wire_request,
       sync_timeout
     )
-    response = protocol_module.parse_response(wire_response)
 
-    state_out = %{state | correlation_id: state.correlation_id + 1}
+    case wire_response do
+      {:error, reason} -> {{:error, reason}, state_out}
+      _ ->
+        response = protocol_module.parse_response(wire_response)
 
-    if response.error_code == :not_coordinator_for_consumer do
-      {_, updated_state_out} = update_consumer_metadata(state_out)
-      consumer_group_sync_request(
-        request,
-        protocol_module,
-        network_timeout,
-        updated_state_out
-      )
-    else
-      {response, state_out}
+        if response.error_code == :not_coordinator_for_consumer do
+          {_, updated_state_out} = update_consumer_metadata(state_out)
+          consumer_group_sync_request(
+            request,
+            protocol_module,
+            network_timeout,
+            updated_state_out
+          )
+        else
+          {response, state_out}
+        end
     end
   end
 

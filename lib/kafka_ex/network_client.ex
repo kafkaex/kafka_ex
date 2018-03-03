@@ -40,11 +40,11 @@ defmodule KafkaEx.NetworkClient do
           {:ok, data} -> data
           {:error, reason} ->
             Logger.log(:error, "Receiving data from broker #{inspect broker.host}:#{inspect broker.port} failed with #{inspect reason}")
-            nil
+            {:error, reason}
         end
       {_, reason} ->
         Logger.log(:error, "Sending data to broker #{inspect broker.host}:#{inspect broker.port} failed with #{inspect reason}")
-        nil
+        {:error, reason}
     end
 
     :ok = Socket.setopts(socket, [:binary, {:packet, 4}, {:active, true}])
