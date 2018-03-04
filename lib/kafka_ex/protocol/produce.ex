@@ -34,7 +34,7 @@ defmodule KafkaEx.Protocol.Produce do
   def create_request(
     correlation_id,
     client_id,
-    request = %Request{compression: compression, messages: messages}
+    %Request{compression: compression, messages: messages} = request
   ) do
     message_set = create_message_set(messages, compression)
     header = produce_header(correlation_id, client_id, request, message_set)
