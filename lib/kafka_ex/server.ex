@@ -304,8 +304,14 @@ defmodule KafkaEx.Server do
             0 ->  NetworkClient.send_async_request(broker, produce_request_data)
             _ ->
               response = broker
-               |> NetworkClient.send_sync_request(produce_request_data, config_sync_timeout())
-               |> Produce.parse_response
+                |> NetworkClient.send_sync_request(
+                     produce_request_data,
+                     config_sync_timeout())
+                |> case do
+                     {:error, reason} -> reason
+                     response -> Produce.parse_response(response)
+                   end
+
               # credo:disable-for-next-line Credo.Check.Refactor.Nesting
               case response do
                 [%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: :no_error, offset: offset}], topic: topic}] when offset != nil ->
@@ -334,8 +340,14 @@ defmodule KafkaEx.Server do
             {:topic_not_found, state}
           _ ->
             response = broker
-             |> NetworkClient.send_sync_request(offset_request, config_sync_timeout())
-             |> Offset.parse_response
+              |> NetworkClient.send_sync_request(
+                   offset_request,
+                   config_sync_timeout())
+              |> case do
+                   {:error, reason} -> {:error, reason}
+                   response -> Offset.parse_response(response)
+                 end
+
             state = %{state | correlation_id: state.correlation_id + 1}
             {response, state}
         end
@@ -486,16 +498,16 @@ defmodule KafkaEx.Server do
             |> client_request(updated_state)
             |> module.create_request
 
-            response = NetworkClient.send_sync_request(
-              broker,
-              wire_request,
-              config_sync_timeout())
-            response = if response != nil,
-                          do: module.parse_response(response),
-                          else: nil
+            response = broker
+              |> NetworkClient.send_sync_request(
+                   wire_request,
+                   config_sync_timeout())
+              |> case do
+                   {:error, reason} -> {:error, reason}
+                   response -> module.parse_response(response)
+                 end
 
             state_out = State.increment_correlation_id(updated_state)
-
             {response, state_out}
         end
       end
@@ -523,10 +535,14 @@ defmodule KafkaEx.Server do
         end
       end
 
-      defp first_broker_response(request, brokers, sync_timeout) do
+      defp first_broker_response(request, brokers, timeout) do
         Enum.find_value(brokers, fn(broker) ->
           if Broker.connected?(broker) do
-            NetworkClient.send_sync_request(broker, request, sync_timeout)
+            # credo:disable-for-next-line Credo.Check.Refactor.Nesting
+            case NetworkClient.send_sync_request(broker, request, timeout) do
+              {:error, _} -> nil
+              response -> response
+            end
           end
         end)
       end
