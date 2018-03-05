@@ -31,7 +31,7 @@ defmodule KafkaEx.NetworkClient do
     end
   end
 
-  @spec send_sync_request(Broker.t, iodata, timeout) :: nil | iodata
+  @spec send_sync_request(Broker.t, iodata, timeout) ::  iodata | {:error, any()}
   def send_sync_request(%{:socket => socket} = broker, data, timeout) do
     :ok = Socket.setopts(socket, [:binary, {:packet, 4}, {:active, false}])
     response = case Socket.send(socket, data) do
