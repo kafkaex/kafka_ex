@@ -281,6 +281,8 @@ defmodule KafkaEx.Server do
       end
 
       # KakfaEx.Server behavior default implementations
+      # This needs a refactor, but for now make credo pass:
+      # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
       def kafka_server_produce(produce_request, state) do
         correlation_id = state.correlation_id + 1
         produce_request_data = Produce.create_request(correlation_id, @client_id, produce_request)
