@@ -280,10 +280,14 @@ defmodule KafkaEx.ConsumerGroup.Manager do
 
     case sync_group_response do
       %SyncGroupResponse{error_code: :no_error, assignments: assignments} ->
+        # On a high-latency connection, the join/sync process takes a long
+        # time. Send a heartbeat as soon as possible to avoid hitting the
+        # session timeout.
+        send(self(), :heartbeat)
         new_state = state
                     |> stop_consumer()
                     |> start_consumer(unpack_assignments(assignments))
-                    |> heartbeat()
+                    |> start_heartbeat_timer()
         {:ok, new_state}
       %SyncGroupResponse{error_code: :rebalance_in_progress} ->
         rebalance(state)
@@ -300,8 +304,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   # group's status to each member:
   #
   #   * `:no_error` indicates that the group is up to date and no action is
-  #   needed.
-  #   * `:rebalance_in_progress` instructs each member to rejoin the
+  #   needed.  * `:rebalance_in_progress` instructs each member to rejoin the
   #   group by sending a `JoinGroupRequest` (see join/1).
   defp heartbeat(
     %State{
