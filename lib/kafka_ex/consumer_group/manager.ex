@@ -280,6 +280,10 @@ defmodule KafkaEx.ConsumerGroup.Manager do
 
     case sync_group_response do
       %SyncGroupResponse{error_code: :no_error, assignments: assignments} ->
+        # On a high-latency connection, the join/sync process takes a long
+        # time. Send a heartbeat as soon as possible to avoid hitting the
+        # session timeout.
+        send(self(), :heartbeat)
         new_state = state
                     |> stop_consumer()
                     |> start_consumer(unpack_assignments(assignments))
