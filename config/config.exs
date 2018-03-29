@@ -1,7 +1,10 @@
 use Mix.Config
 
 config :kafka_ex,
-  # a list of brokers to connect to in {"HOST", port} format
+  # A list of brokers to connect to in {"HOST", port} format. If you receive :leader_not_available
+  # errors when producing messages, it may be necessary to modify "advertised.host.name" in the
+  # server.properties file.
+  # In the case below you would set "advertised.host.name=localhost"
   brokers: [
     {"localhost", 9092},
     {"localhost", 9093},
