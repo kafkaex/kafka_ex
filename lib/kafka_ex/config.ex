@@ -10,13 +10,13 @@ defmodule KafkaEx.Config do
   require Logger
 
   @doc false
-  def use_ssl, do: Application.get_env(:kafka_ex, :use_ssl)
+  def use_ssl, do: Application.get_env(:kafka_ex, :use_ssl, false)
 
   # use this function to get the ssl options - it verifies the options and
   #   either emits warnings or raises errors as appropriate on misconfiguration
   @doc false
   def ssl_options do
-    ssl_options(use_ssl(), Application.get_env(:kafka_ex, :ssl_options))
+    ssl_options(use_ssl(), Application.get_env(:kafka_ex, :ssl_options, []))
   end
 
   @doc false
@@ -37,7 +37,6 @@ defmodule KafkaEx.Config do
 
   # ssl_options should be an empty list by default if use_ssl is false
   defp ssl_options(false, []), do: []
-  defp ssl_options(false, nil), do: []
   # emit a warning if use_ssl is false but options are present
   #   (this is not a fatal error and can occur if one disables ssl in the
   #    default option set)
