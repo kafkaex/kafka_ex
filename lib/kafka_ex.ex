@@ -485,7 +485,7 @@ defmodule KafkaEx do
   def build_worker_options(worker_init) do
     defaults = [
       uris: Application.get_env(:kafka_ex, :brokers),
-      consumer_group: Application.get_env(:kafka_ex, :consumer_group),
+      consumer_group: Config.consumer_group(),
       use_ssl: Config.use_ssl(),
       ssl_options: Config.ssl_options(),
     ]
@@ -533,7 +533,7 @@ defmodule KafkaEx do
     max_seconds = Application.get_env(:kafka_ex, :max_seconds, 60)
     {:ok, pid}     = KafkaEx.Supervisor.start_link(Config.server_impl, max_restarts, max_seconds)
 
-    if Application.get_env(:kafka_ex, :disable_default_worker) == true do
+    if Config.disable_default_worker do
       {:ok, pid}
     else
       case KafkaEx.create_worker(Config.default_worker, []) do
