@@ -533,7 +533,7 @@ defmodule KafkaEx do
     max_seconds = Application.get_env(:kafka_ex, :max_seconds, 60)
     {:ok, pid}     = KafkaEx.Supervisor.start_link(Config.server_impl, max_restarts, max_seconds)
 
-    if Application.get_env(:kafka_ex, :disable_default_worker) == true do
+    if Config.disable_default_worker do
       {:ok, pid}
     else
       case KafkaEx.create_worker(Config.default_worker, []) do

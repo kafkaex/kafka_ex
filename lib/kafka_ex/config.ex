@@ -10,6 +10,11 @@ defmodule KafkaEx.Config do
   require Logger
 
   @doc false
+  def disable_default_worker do
+    Application.get_env(:kafka_ex, :disable_default_worker, false)
+  end
+
+  @doc false
   def use_ssl, do: Application.get_env(:kafka_ex, :use_ssl, false)
 
   # use this function to get the ssl options - it verifies the options and
