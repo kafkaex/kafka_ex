@@ -83,7 +83,7 @@ You can also override options when creating a worker, see below.
 To use a consumer group, first implement a handler module using
 `KafkaEx.GenConsumer`.
 
-```
+```elixir
 defmodule ExampleGenConsumer do
   use KafkaEx.GenConsumer
 
