@@ -44,7 +44,7 @@ defmodule KafkaEx.Config do
   end
 
   @doc false
-  def brokers() do
+  def brokers do
     :kafka_ex
       |> Application.get_env(:brokers)
       |> brokers()
