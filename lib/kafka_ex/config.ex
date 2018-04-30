@@ -56,7 +56,7 @@ defmodule KafkaEx.Config do
     do: list
   defp brokers(csv) when is_binary(csv) do
     for line <- String.split(csv, ","), into: [] do
-      case line |> String.trim() |> String.split(":") do
+      case line |> trim() |> String.split(":") do
         [host] ->
           {host, @default_port}
         [host, port] ->
@@ -64,6 +64,12 @@ defmodule KafkaEx.Config do
           {host, port}
       end
     end
+  end
+
+  if Version.match?(System.version, "<1.3.0") do
+    defp trim(string), do: String.strip(string)
+  else
+    defp trim(string), do: String.trim(string)
   end
 
   defp server("0.8.0"), do: KafkaEx.Server0P8P0
