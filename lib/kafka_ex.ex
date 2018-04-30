@@ -42,7 +42,7 @@ defmodule KafkaEx do
 
   Optional arguments(KeywordList)
   - consumer_group: Name of the group of consumers, `:no_consumer_group` should be passed for Kafka < 0.8.2, defaults to `Application.get_env(:kafka_ex, :consumer_group)`
-  - uris: List of brokers in `{"host", port}` form, defaults to `Application.get_env(:kafka_ex, :brokers)`
+  - uris: List of brokers in `{"host", port}` or comma separated value `"host:port,host:port"` form, defaults to `Application.get_env(:kafka_ex, :brokers)`
   - metadata_update_interval: How often `kafka_ex` would update the Kafka cluster metadata information in milliseconds, default is 30000
   - consumer_group_update_interval: How often `kafka_ex` would update the Kafka cluster consumer_groups information in milliseconds, default is 30000
   - use_ssl: Boolean flag specifying if ssl should be used for the connection by the worker to kafka, default is false
@@ -380,7 +380,7 @@ defmodule KafkaEx do
   If you pass a value for the `consumer_group` option and true for
   `auto_commit`, the offset of the last message consumed will be committed to
   the broker during each cycle.
-  
+
   For example, suppose we start at the beginning of a partition with millions
   of messages and the `max_bytes` setting is such that each `fetch` request
   gets 25 messages.  In this setting, we will (roughly) be committing offsets
@@ -484,7 +484,7 @@ defmodule KafkaEx do
     {:ok, worker_init} | {:error, :invalid_consumer_group}
   def build_worker_options(worker_init) do
     defaults = [
-      uris: Application.get_env(:kafka_ex, :brokers),
+      uris: Config.brokers(),
       consumer_group: Config.consumer_group(),
       use_ssl: Config.use_ssl(),
       ssl_options: Config.ssl_options(),

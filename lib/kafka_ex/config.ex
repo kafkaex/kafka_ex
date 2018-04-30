@@ -9,6 +9,8 @@ defmodule KafkaEx.Config do
 
   require Logger
 
+  @default_port 9092
+
   @doc false
   def disable_default_worker do
     Application.get_env(:kafka_ex, :disable_default_worker, false)
@@ -39,6 +41,29 @@ defmodule KafkaEx.Config do
     :kafka_ex
       |> Application.get_env(:kafka_version, :default)
       |> server
+  end
+
+  @doc false
+  def brokers() do
+    :kafka_ex
+      |> Application.get_env(:brokers)
+      |> brokers()
+  end
+
+  defp brokers(nil),
+    do: nil
+  defp brokers(list) when is_list(list),
+    do: list
+  defp brokers(csv) when is_binary(csv) do
+    for line <- String.split(csv, ","), into: [] do
+      case line |> String.trim() |> String.split(":") do
+        [host] ->
+          {host, @default_port}
+        [host, port] ->
+          {port, _} = Integer.parse(port)
+          {host, port}
+      end
+    end
   end
 
   defp server("0.8.0"), do: KafkaEx.Server0P8P0
