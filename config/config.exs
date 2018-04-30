@@ -1,7 +1,12 @@
 use Mix.Config
 
 config :kafka_ex,
-  # A list of brokers to connect to in {"HOST", port} format. If you receive :leader_not_available
+  # A list of brokers to connect to. This can be in either of the following formats
+  #
+  #  * [{"HOST", port}...]
+  #  * CSV - `"HOST:PORT,HOST:PORT[,...]"`
+  #
+  # If you receive :leader_not_available
   # errors when producing messages, it may be necessary to modify "advertised.host.name" in the
   # server.properties file.
   # In the case below you would set "advertised.host.name=localhost"
@@ -10,6 +15,10 @@ config :kafka_ex,
     {"localhost", 9093},
     {"localhost", 9094},
   ],
+  #
+  # OR:
+  # brokers: "localhost:9092,localhost:9093,localhost:9094"
+  #
   # the default consumer group for worker processes, must be a binary (string)
   #    NOTE if you are on Kafka < 0.8.2 or if you want to disable the use of
   #    consumer groups, set this to :no_consumer_group (this is the
