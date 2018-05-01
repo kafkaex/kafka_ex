@@ -9,8 +9,6 @@ defmodule KafkaEx.Config do
 
   require Logger
 
-  @default_port 9092
-
   @doc false
   def disable_default_worker do
     Application.get_env(:kafka_ex, :disable_default_worker, false)
@@ -58,7 +56,9 @@ defmodule KafkaEx.Config do
     for line <- String.split(csv, ","), into: [] do
       case line |> trim() |> String.split(":") do
         [host] ->
-          {host, @default_port}
+          msg = "Port not set for kafka broker #{host}"
+          Logger.warn(msg)
+          raise msg
         [host, port] ->
           {port, _} = Integer.parse(port)
           {host, port}

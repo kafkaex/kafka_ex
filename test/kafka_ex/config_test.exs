@@ -52,10 +52,10 @@ defmodule KafkaEx.ConfigTest do
   end
 
   test "brokers with a csv of hosts" do
-    brokers = " example.com,one.example.com:4534, two.example.com:9999 "
+    brokers = " example.com:3452,one.example.com:4534, two.example.com:9999 "
 
     parsed_brokers = [
-      {"example.com", 9092},
+      {"example.com", 3452},
       {"one.example.com", 4534},
       {"two.example.com", 9999}
     ]
