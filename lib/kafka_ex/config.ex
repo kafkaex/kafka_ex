@@ -41,6 +41,37 @@ defmodule KafkaEx.Config do
       |> server
   end
 
+  @doc false
+  def brokers do
+    :kafka_ex
+      |> Application.get_env(:brokers)
+      |> brokers()
+  end
+
+  defp brokers(nil),
+    do: nil
+  defp brokers(list) when is_list(list),
+    do: list
+  defp brokers(csv) when is_binary(csv) do
+    for line <- String.split(csv, ","), into: [] do
+      case line |> trim() |> String.split(":") do
+        [host] ->
+          msg = "Port not set for kafka broker #{host}"
+          Logger.warn(msg)
+          raise msg
+        [host, port] ->
+          {port, _} = Integer.parse(port)
+          {host, port}
+      end
+    end
+  end
+
+  if Version.match?(System.version, "<1.3.0") do
+    defp trim(string), do: String.strip(string)
+  else
+    defp trim(string), do: String.trim(string)
+  end
+
   defp server("0.8.0"), do: KafkaEx.Server0P8P0
   defp server("0.8.2"), do: KafkaEx.Server0P8P2
   defp server(_), do: KafkaEx.Server0P9P0
