@@ -9,8 +9,6 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   alias KafkaEx.ConsumerGroup.PartitionAssignment
   alias KafkaEx.Protocol.JoinGroup.Request, as: JoinGroupRequest
   alias KafkaEx.Protocol.JoinGroup.Response, as: JoinGroupResponse
-  alias KafkaEx.Protocol.Heartbeat.Request, as: HeartbeatRequest
-  alias KafkaEx.Protocol.Heartbeat.Response, as: HeartbeatResponse
   alias KafkaEx.Protocol.LeaveGroup.Request, as: LeaveGroupRequest
   alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
   alias KafkaEx.Protocol.SyncGroup.Request, as: SyncGroupRequest
@@ -38,11 +36,14 @@ defmodule KafkaEx.ConsumerGroup.Manager do
       :assignments,
       :heartbeat_timer,
     ]
+    @type t :: %__MODULE__{}
   end
 
   @heartbeat_interval 5_000
   @session_timeout 30_000
   @session_timeout_padding 5_000
+
+  @type assignments :: [{binary(), integer()}]
 
   # Client API
 
@@ -157,12 +158,10 @@ defmodule KafkaEx.ConsumerGroup.Manager do
     {:noreply, new_state}
   end
 
-  # After joining the group, a member must periodically send heartbeats to the
-  # group coordinator.
-  def handle_info(:heartbeat, %State{} = state) do
-    {:ok, new_state} = heartbeat(state)
-
-    {:noreply, new_state}
+  # If the heartbeat gets an error, we need to rebalance.
+  def handle_info({:EXIT, heartbeat_timer, :rebalance}, %State{heartbeat_timer: heartbeat_timer} = state) do
+    {:ok, state} = rebalance(state)
+    {:noreply, state}
   end
 
   # When terminating, inform the group coordinator that this member is leaving
@@ -192,6 +191,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   # group members. Once a `JoinGroupResponse` is received, all group members
   # must send a `SyncGroupRequest` (see sync/2).
 
+  @spec join(State.t) :: {:ok, State.t}
   defp join(
     %State{
       worker_name: worker_name,
@@ -215,10 +215,9 @@ defmodule KafkaEx.ConsumerGroup.Manager do
     )
 
     # crash the worker if we recieve an error, but do it with a meaningful
-    #   error message
+    # error message
     if join_response.error_code != :no_error do
-      raise "Error joining consumer group #{group_name}: " <>
-        "#{inspect join_response.error_code}"
+      raise "Error joining consumer group #{group_name}: " <> "#{inspect join_response.error_code}"
     end
 
     Logger.debug(fn -> "Joined consumer group #{group_name}" end)
@@ -254,7 +253,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   # Upon receiving a successful `SyncGroupResponse`, a group member is free to
   # start consuming from its assigned partitions, but must send periodic
   # heartbeats to the coordinating broker.
-
+  @spec sync(State.t, assignments) :: {:ok, State.t}
   defp sync(
     %State{
       group_name: group_name,
@@ -283,49 +282,12 @@ defmodule KafkaEx.ConsumerGroup.Manager do
         # On a high-latency connection, the join/sync process takes a long
         # time. Send a heartbeat as soon as possible to avoid hitting the
         # session timeout.
-        send(self(), :heartbeat)
         new_state = state
+                    |> start_heartbeat_timer()
                     |> stop_consumer()
                     |> start_consumer(unpack_assignments(assignments))
-                    |> start_heartbeat_timer()
         {:ok, new_state}
       %SyncGroupResponse{error_code: :rebalance_in_progress} ->
-        rebalance(state)
-    end
-  end
-
-  # `HeartbeatRequest` is sent periodically by each active group member (after
-  # completing the join/sync phase) to inform the broker that the member is
-  # still alive and participating in the group. If a group member fails to send
-  # a heartbeat before the group's session timeout expires, the coordinator
-  # removes that member from the group and initiates a rebalance.
-  #
-  # `HeartbeatResponse` allows the coordinating broker to communicate the
-  # group's status to each member:
-  #
-  #   * `:no_error` indicates that the group is up to date and no action is
-  #   needed.  * `:rebalance_in_progress` instructs each member to rejoin the
-  #   group by sending a `JoinGroupRequest` (see join/1).
-  defp heartbeat(
-    %State{
-      worker_name: worker_name,
-      group_name: group_name,
-      generation_id: generation_id,
-      member_id: member_id
-    } = state
-  ) do
-    heartbeat_request = %HeartbeatRequest{
-      group_name: group_name,
-      member_id: member_id,
-      generation_id: generation_id,
-    }
-
-    case KafkaEx.heartbeat(heartbeat_request, worker_name: worker_name) do
-      %HeartbeatResponse{error_code: :no_error} ->
-        new_state = start_heartbeat_timer(state)
-        {:ok, new_state}
-      %HeartbeatResponse{error_code: :rebalance_in_progress} ->
-        Logger.debug(fn -> "Rebalancing consumer group #{group_name}" end)
         rebalance(state)
     end
   end
@@ -334,6 +296,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   # broker that the member is leaving the group without having to wait for the
   # session timeout to expire. Leaving a group triggers a rebalance for the
   # remaining group members.
+  @spec leave(State.t) :: :ok
   defp leave(
     %State{
       worker_name: worker_name,
@@ -367,6 +330,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   # the group with `JoinGroupRequest` (see join/1). To keep the state
   # synchronized during the join/sync phase, each member pauses its consumers
   # and commits its offsets before rejoining the group.
+  @spec rebalance(State.t) :: {:ok, State.t}
   defp rebalance(%State{} = state) do
     state
     |> stop_heartbeat_timer()
@@ -376,28 +340,32 @@ defmodule KafkaEx.ConsumerGroup.Manager do
 
   ### Timer Management
 
-  # Starts a timer for the next heartbeat.
-  defp start_heartbeat_timer(
-    %State{heartbeat_interval: heartbeat_interval} = state
-  ) do
-    {:ok, timer} = :timer.send_after(heartbeat_interval, :heartbeat)
+  # Starts a heartbeat process to send heartbeats in the background to keep the
+  # consumers active even if it takes a long time to process a batch of
+  # messages.
+  @spec start_heartbeat_timer(State.t) :: State.t
+  defp start_heartbeat_timer(%State{} = state) do
+    {:ok, timer} = KafkaEx.ConsumerGroup.Heartbeat.start_link(state)
 
     %State{state | heartbeat_timer: timer}
   end
 
-  # Stops any active heartbeat timer.
+  # Stops the heartbeat process.
+  @spec stop_heartbeat_timer(State.t) :: State.t
   defp stop_heartbeat_timer(%State{heartbeat_timer: nil} = state), do: state
   defp stop_heartbeat_timer(
     %State{heartbeat_timer: heartbeat_timer} = state
   ) do
-    {:ok, :cancel} = :timer.cancel(heartbeat_timer)
-
+    if Process.alive?(heartbeat_timer) do
+      GenServer.stop(heartbeat_timer)
+    end
     %State{state | heartbeat_timer: nil}
   end
 
   ### Consumer Management
 
   # Starts consuming from the member's assigned partitions.
+  @spec start_consumer(State.t, assignments) :: State.t
   defp start_consumer(
     %State{
       consumer_module: consumer_module,
@@ -423,6 +391,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   end
 
   # Stops consuming from the member's assigned partitions and commits offsets.
+  @spec stop_consumer(State.t) :: State.t
   defp stop_consumer(%State{supervisor_pid: pid} = state) do
     :ok = ConsumerGroup.stop_consumer(pid)
 
@@ -435,6 +404,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   # interest to this consumer group. This function returns a list of
   # topic/partition tuples that can be passed to a GenConsumer's
   # `assign_partitions` method.
+  @spec assignable_partitions(State.t) :: assignments()
   defp assignable_partitions(
     %State{worker_name: worker_name, topics: topics, group_name: group_name}
   ) do
@@ -464,6 +434,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   # of topic/partition tuples, obtained from `assignable_partitions/1`. The
   # return value is a complete list of member assignments in the format needed
   # by `SyncGroupResponse`.
+  @spec assign_partitions(State.t, list(), list()) :: list()
   defp assign_partitions(
     %State{partition_assignment_callback: partition_assignment_callback},
     members,
