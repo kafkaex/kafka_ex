@@ -77,6 +77,7 @@ defmodule KafkaEx.ConsumerGroup.Heartbeat do
 
       %HeartbeatResponse{error_code: error_code} ->
         Logger.warn("Heartbeat failed, got error code #{error_code}")
+        {:stop, {:error, error_code}, state}
     end
   end
 end
