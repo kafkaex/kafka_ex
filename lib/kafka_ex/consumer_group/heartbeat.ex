@@ -27,18 +27,21 @@ defmodule KafkaEx.ConsumerGroup.Heartbeat do
   alias KafkaEx.Protocol.Heartbeat.Response, as: HeartbeatResponse
 
   defmodule State do
-    defstruct [
-      :worker_name,
-      :heartbeat_request,
-      :heartbeat_interval
-    ]
+    @moduledoc false
+    defstruct [:worker_name, :heartbeat_request, :heartbeat_interval]
   end
 
   def start_link(options) do
     GenServer.start_link(__MODULE__, options)
   end
 
-  def init(%{group_name: group_name, member_id: member_id, generation_id: generation_id, worker_name: worker_name, heartbeat_interval: heartbeat_interval}) do
+  def init(%{
+        group_name: group_name,
+        member_id: member_id,
+        generation_id: generation_id,
+        worker_name: worker_name,
+        heartbeat_interval: heartbeat_interval
+      }) do
     heartbeat_request = %HeartbeatRequest{
       group_name: group_name,
       member_id: member_id,
@@ -64,11 +67,9 @@ defmodule KafkaEx.ConsumerGroup.Heartbeat do
       ) do
     case KafkaEx.heartbeat(heartbeat_request, worker_name: worker_name) do
       %HeartbeatResponse{error_code: :no_error} ->
-        Logger.debug("XXX: HB OK")
         {:noreply, state, heartbeat_interval}
 
       %HeartbeatResponse{error_code: :rebalance_in_progress} ->
-        Logger.debug("XXX: HB REBALANCE")
         {:stop, :rebalance, state}
 
       %HeartbeatResponse{error_code: :unknown_member_id} ->

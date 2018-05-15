@@ -6,6 +6,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   use GenServer
 
   alias KafkaEx.ConsumerGroup
+  alias KafkaEx.ConsumerGroup.Heartbeat
   alias KafkaEx.ConsumerGroup.PartitionAssignment
   alias KafkaEx.Protocol.JoinGroup.Request, as: JoinGroupRequest
   alias KafkaEx.Protocol.JoinGroup.Response, as: JoinGroupResponse
@@ -13,7 +14,6 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
   alias KafkaEx.Protocol.SyncGroup.Request, as: SyncGroupRequest
   alias KafkaEx.Protocol.SyncGroup.Response, as: SyncGroupResponse
-
   require Logger
 
   defmodule State do
@@ -345,7 +345,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   # messages.
   @spec start_heartbeat_timer(State.t) :: State.t
   defp start_heartbeat_timer(%State{} = state) do
-    {:ok, timer} = KafkaEx.ConsumerGroup.Heartbeat.start_link(state)
+    {:ok, timer} = Heartbeat.start_link(state)
 
     %State{state | heartbeat_timer: timer}
   end
