@@ -357,7 +357,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
     %State{heartbeat_timer: heartbeat_timer} = state
   ) do
     if Process.alive?(heartbeat_timer) do
-      GenServer.stop(heartbeat_timer)
+      :gen_server.stop(heartbeat_timer)
     end
     %State{state | heartbeat_timer: nil}
   end
