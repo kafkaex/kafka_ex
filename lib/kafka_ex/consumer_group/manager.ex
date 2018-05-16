@@ -284,17 +284,9 @@ defmodule KafkaEx.ConsumerGroup.Manager do
         # On a high-latency connection, the join/sync process takes a long
         # time. Send a heartbeat as soon as possible to avoid hitting the
         # session timeout.
-        with {:ok, state} <- start_heartbeat_timer(state),
-             {:ok, state} <- stop_consumer(state),
-             {:ok, state} <-
-               start_consumer(state, unpack_assignments(assignments)) do
-          {:ok, state}
-        else
-          e ->
-            raise "Failed to restart consumers after joining group: #{
-                    inspect(e)
-                  }"
-        end
+        {:ok, state} = start_heartbeat_timer(state)
+        {:ok, state} = stop_consumer(state)
+        start_consumer(state, unpack_assignments(assignments))
 
       :rebalance_in_progress ->
         rebalance(state)
@@ -339,16 +331,9 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   # synchronized during the join/sync phase, each member pauses its consumers
   # and commits its offsets before rejoining the group.
   defp rebalance(%State{} = state) do
-    with {:ok, state} <- stop_heartbeat_timer(state),
-         {:ok, state} <- stop_consumer(state),
-         {:ok, state} <- join(state)
-    do
-      {:ok, state}
-    else
-      {:error, e} ->
-        Logger.warn("Error in rebalance: #{inspect e}")
-        {:error, e}
-    end
+    {:ok, state} = stop_heartbeat_timer(state),
+    {:ok, state} = stop_consumer(state),
+    join(state)
   end
 
   ### Timer Management
