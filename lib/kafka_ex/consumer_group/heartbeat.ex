@@ -22,6 +22,7 @@ defmodule KafkaEx.ConsumerGroup.Heartbeat do
   # trapped by the KafkaEx.ConsumerGroup.Manager and handled by re-joining the
   # consumer group. (see KafkaEx.ConsumerGroup.Manager.join/1)
 
+  use GenServer
   require Logger
   alias KafkaEx.Protocol.Heartbeat.Request, as: HeartbeatRequest
   alias KafkaEx.Protocol.Heartbeat.Response, as: HeartbeatResponse
