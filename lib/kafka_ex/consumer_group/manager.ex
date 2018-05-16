@@ -159,7 +159,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   end
 
   # If the heartbeat gets an error, we need to rebalance.
-  def handle_info({:EXIT, heartbeat_timer, :rebalance}, %State{heartbeat_timer: heartbeat_timer} = state) do
+  def handle_info({:EXIT, heartbeat_timer, {:shutdown, :rebalance}}, %State{heartbeat_timer: heartbeat_timer} = state) do
     {:ok, state} = rebalance(state)
     {:noreply, state}
   end

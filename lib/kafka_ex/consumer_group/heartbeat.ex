@@ -70,14 +70,14 @@ defmodule KafkaEx.ConsumerGroup.Heartbeat do
         {:noreply, state, heartbeat_interval}
 
       %HeartbeatResponse{error_code: :rebalance_in_progress} ->
-        {:stop, :rebalance, state}
+        {:stop, {:shutdown, :rebalance}, state}
 
       %HeartbeatResponse{error_code: :unknown_member_id} ->
-        {:stop, :rebalance, state}
+        {:stop, {:shutdown, :rebalance}, state}
 
       %HeartbeatResponse{error_code: error_code} ->
         Logger.warn("Heartbeat failed, got error code #{error_code}")
-        {:stop, {:error, error_code}, state}
+        {:stop, {:shutdown, {:error, error_code}}, state}
     end
   end
 end
