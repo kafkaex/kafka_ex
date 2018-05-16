@@ -160,10 +160,8 @@ defmodule KafkaEx.ConsumerGroup.Manager do
 
   # If the heartbeat gets an error, we need to rebalance.
   def handle_info({:EXIT, heartbeat_timer, {:shutdown, :rebalance}}, %State{heartbeat_timer: heartbeat_timer} = state) do
-    case rebalance(state) do
-      {:ok, state} -> {:noreply, state}
-      {:error, error} -> raise "failed to rebalance with error #{inspect error}"
-    end
+    {:ok, state} = rebalance(state)
+    {:noreply, state}
   end
 
   # When terminating, inform the group coordinator that this member is leaving
@@ -276,8 +274,6 @@ defmodule KafkaEx.ConsumerGroup.Manager do
         worker_name: worker_name,
         timeout: session_timeout + @session_timeout_padding
       )
-
-    unpacked_assignments = unpack_assignments(assignments)
 
     case error_code do
       :no_error ->
