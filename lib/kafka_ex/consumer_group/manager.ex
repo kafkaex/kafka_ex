@@ -331,8 +331,8 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   # synchronized during the join/sync phase, each member pauses its consumers
   # and commits its offsets before rejoining the group.
   defp rebalance(%State{} = state) do
-    {:ok, state} = stop_heartbeat_timer(state),
-    {:ok, state} = stop_consumer(state),
+    {:ok, state} = stop_heartbeat_timer(state)
+    {:ok, state} = stop_consumer(state)
     join(state)
   end
 
