@@ -12,12 +12,12 @@ defmodule KafkaEx.Server0P8P2 do
   ]
 
   use KafkaEx.Server
+  alias KafkaEx.ConsumerGroupRequiredError
+  alias KafkaEx.InvalidConsumerGroupError
   alias KafkaEx.Protocol.ConsumerMetadata
   alias KafkaEx.Protocol.ConsumerMetadata.Response, as: ConsumerMetadataResponse
   alias KafkaEx.Protocol.Fetch
-  alias KafkaEx.Protocol.Fetch.Request, as: FetchRequest
   alias KafkaEx.Protocol.Metadata.Broker
-  alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
   alias KafkaEx.Protocol.OffsetFetch
   alias KafkaEx.Protocol.OffsetCommit
   alias KafkaEx.Server.State
@@ -46,7 +46,9 @@ defmodule KafkaEx.Server0P8P2 do
     # this should have already been validated, but it's possible someone could
     # try to short-circuit the start call
     consumer_group = Keyword.get(args, :consumer_group)
-    true = KafkaEx.valid_consumer_group?(consumer_group)
+    unless KafkaEx.valid_consumer_group?(consumer_group) do
+      raise InvalidConsumerGroupError, consumer_group
+    end
 
     brokers = Enum.map(uris, fn({host, port}) -> %Broker{host: host, port: port, socket: NetworkClient.create_socket(host, port)} end)
     {correlation_id, metadata} = retrieve_metadata(brokers, 0, config_sync_timeout())
@@ -80,7 +82,10 @@ defmodule KafkaEx.Server0P8P2 do
   end
 
   def kafka_server_offset_fetch(offset_fetch, state) do
-    true = consumer_group?(state)
+    unless consumer_group?(state) do
+      raise ConsumerGroupRequiredError, offset_fetch
+    end
+
     {broker, state} = broker_for_consumer_group_with_update(state)
 
     # if the request is for a specific consumer group, use that
@@ -96,8 +101,14 @@ defmodule KafkaEx.Server0P8P2 do
         {:topic_not_found, state}
       _ ->
         response = broker
-          |> NetworkClient.send_sync_request(offset_fetch_request, config_sync_timeout())
-          |> OffsetFetch.parse_response
+          |> NetworkClient.send_sync_request(
+               offset_fetch_request,
+               config_sync_timeout())
+          |> case do
+               {:error, reason} -> {:error, reason}
+               response -> OffsetFetch.parse_response(response)
+             end
+
         {response, %{state | correlation_id: state.correlation_id + 1}}
     end
 
@@ -111,13 +122,15 @@ defmodule KafkaEx.Server0P8P2 do
   end
 
   def kafka_server_consumer_group_metadata(state) do
-    true = consumer_group?(state)
     {consumer_metadata, state} = update_consumer_metadata(state)
     {:reply, consumer_metadata, state}
   end
 
   def kafka_server_update_consumer_metadata(state) do
-    true = consumer_group?(state)
+    unless consumer_group?(state) do
+      raise ConsumerGroupRequiredError, "consumer metadata update"
+    end
+
     {_, state} = update_consumer_metadata(state)
     {:noreply, state}
   end
@@ -128,12 +141,12 @@ defmodule KafkaEx.Server0P8P2 do
   def kafka_server_heartbeat(_, _, _state), do: raise "Heartbeat is not supported in 0.8.0 version of kafka"
   defp update_consumer_metadata(state), do: update_consumer_metadata(state, @retry_count, 0)
 
-  defp update_consumer_metadata(state = %State{consumer_group: consumer_group}, 0, error_code) do
+  defp update_consumer_metadata(%State{consumer_group: consumer_group} = state, 0, error_code) do
     Logger.log(:error, "Fetching consumer_group #{consumer_group} metadata failed with error_code #{inspect error_code}")
     {%ConsumerMetadataResponse{error_code: error_code}, state}
   end
 
-  defp update_consumer_metadata(state = %State{consumer_group: consumer_group, correlation_id: correlation_id}, retry, _error_code) do
+  defp update_consumer_metadata(%State{consumer_group: consumer_group, correlation_id: correlation_id} = state, retry, _error_code) do
     response = correlation_id
       |> ConsumerMetadata.create_request(@client_id, consumer_group)
       |> first_broker_response(state)
@@ -146,40 +159,22 @@ defmodule KafkaEx.Server0P8P2 do
     end
   end
 
-  defp fetch(fetch_request, state) do
-    true = consumer_group_if_auto_commit?(fetch_request.auto_commit, state)
-    fetch_data = Fetch.create_request(%FetchRequest{
-      fetch_request |
-      client_id: @client_id,
-      correlation_id: state.correlation_id,
-    })
-    {broker, state} = case MetadataResponse.broker_for_topic(state.metadata, state.brokers, fetch_request.topic, fetch_request.partition) do
-      nil    ->
-        updated_state = update_metadata(state)
-        {MetadataResponse.broker_for_topic(updated_state.metadata, updated_state.brokers, fetch_request.topic, fetch_request.partition), updated_state}
-      broker -> {broker, state}
-    end
-
-    case broker do
-      nil ->
-        Logger.log(:error, "Leader for topic #{fetch_request.topic} is not available")
-        {:topic_not_found, state}
-      _ ->
-        response = broker
-          |> NetworkClient.send_sync_request(fetch_data, config_sync_timeout())
-          |> Fetch.parse_response
-        state = %{state | correlation_id: state.correlation_id + 1}
+  defp fetch(request, state) do
+    true = consumer_group_if_auto_commit?(request.auto_commit, state)
+    case network_request(request, Fetch, state) do
+      {{:error, error}, state_out} -> {error, state_out}
+      {response, state_out} ->
         last_offset = response |> hd |> Map.get(:partitions) |> hd |> Map.get(:last_offset)
-        if last_offset != nil && fetch_request.auto_commit do
+        if last_offset != nil && request.auto_commit do
           offset_commit_request = %OffsetCommit.Request{
-            topic: fetch_request.topic,
+            topic: request.topic,
             offset: last_offset,
-            partition: fetch_request.partition,
-            consumer_group: state.consumer_group}
-          {_, state} = offset_commit(state, offset_commit_request)
+            partition: request.partition,
+            consumer_group: state_out.consumer_group}
+          {_, state} = offset_commit(state_out, offset_commit_request)
           {response, state}
         else
-          {response, state}
+          {response, state_out}
         end
     end
   end
@@ -193,9 +188,15 @@ defmodule KafkaEx.Server0P8P2 do
     offset_commit_request = %{offset_commit_request | consumer_group: consumer_group}
 
     offset_commit_request_payload = OffsetCommit.create_request(state.correlation_id, @client_id, offset_commit_request)
+
     response = broker
-      |> NetworkClient.send_sync_request(offset_commit_request_payload, config_sync_timeout())
-      |> OffsetCommit.parse_response
+      |> NetworkClient.send_sync_request(
+           offset_commit_request_payload,
+           config_sync_timeout())
+      |> case do
+           {:error, reason} -> {:error, reason}
+           response -> OffsetCommit.parse_response(response)
+         end
 
     {response, %{state | correlation_id: state.correlation_id + 1}}
   end

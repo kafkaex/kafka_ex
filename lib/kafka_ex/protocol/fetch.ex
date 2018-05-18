@@ -73,6 +73,9 @@ defmodule KafkaEx.Protocol.Fetch do
   defp parse_message_set([last|_] = list, _) do
     {:ok, Enum.reverse(list), last.offset}
   end
+  defp parse_message_set(_, << offset :: 64, msg_size :: 32, partial_message_data :: binary >>) when byte_size(partial_message_data) < msg_size do
+    raise RuntimeError, "Insufficient data fetched at offset #{offset}. Message size is #{msg_size} but only received #{byte_size(partial_message_data)} bytes. Try increasing max_bytes."
+  end
 
   # handles the single message case and the batch (compression) case
   defp append_messages([], list) do
@@ -85,11 +88,11 @@ defmodule KafkaEx.Protocol.Fetch do
     [message | list]
   end
 
-  defp parse_message(message = %Message{}, << crc :: 32, _magic :: 8, attributes :: 8, rest :: binary>>) do
+  defp parse_message(%Message{} = message, << crc :: 32, _magic :: 8, attributes :: 8, rest :: binary>>) do
     maybe_decompress(%{message | crc: crc, attributes: attributes}, rest)
   end
 
-  defp maybe_decompress(message = %Message{attributes: 0}, rest) do
+  defp maybe_decompress(%Message{attributes: 0} = message, rest) do
     parse_key(message, rest)
   end
   defp maybe_decompress(%Message{attributes: attributes}, rest) do
@@ -99,17 +102,17 @@ defmodule KafkaEx.Protocol.Fetch do
     {:ok, msg_set}
   end
 
-  defp parse_key(message = %Message{}, << -1 :: 32-signed, rest :: binary >>) do
+  defp parse_key(%Message{} = message, << -1 :: 32-signed, rest :: binary >>) do
     parse_value(%{message | key: nil}, rest)
   end
-  defp parse_key(message = %Message{}, << key_size :: 32, key :: size(key_size)-binary, rest :: binary >>) do
+  defp parse_key(%Message{} = message, << key_size :: 32, key :: size(key_size)-binary, rest :: binary >>) do
     parse_value(%{message | key: key}, rest)
   end
 
-  defp parse_value(message = %Message{}, << -1 :: 32-signed >>) do
+  defp parse_value(%Message{} = message, << -1 :: 32-signed >>) do
     {:ok, %{message | value: nil}}
   end
-  defp parse_value(message = %Message{}, << value_size :: 32, value :: size(value_size)-binary >>) do
+  defp parse_value(%Message{} = message, << value_size :: 32, value :: size(value_size)-binary >>) do
     {:ok, %{message | value: value}}
   end
 end

@@ -35,7 +35,7 @@ for details of these features.
 The standard approach for adding dependencies to an Elixir application applies:
 add KafkaEx to the deps and applications lists in your project's mix.exs file.
 You may also optionally add
-[snappy-erlang-nif](https://github.com/fdmanana/snappy-erlang-nif) (required 
+[snappy-erlang-nif](https://github.com/fdmanana/snappy-erlang-nif) (required
 only if you want to use snappy compression).
 
 ```elixir
@@ -53,11 +53,11 @@ defmodule MyApp.Mixfile do
       ]
     ]
   end
- 
+
   defp deps do
     [
       # add to your existing deps
-      {:kafka_ex, "~> 0.8.0"},
+      {:kafka_ex, "~> 0.8.2"},
       # if using snappy compression
       {:snappy, git: "https://github.com/fdmanana/snappy-erlang-nif"}
     ]
@@ -73,7 +73,7 @@ See [config/config.exs](https://github.com/kafkaex/kafka_ex/blob/master/config/c
 or [KafkaEx.Config](https://hexdocs.pm/kafka_ex/KafkaEx.Config.html)
 for a description of configuration variables, including the Kafka broker list
  and default consumer group.
- 
+
 You can also override options when creating a worker, see below.
 
 ## Usage Examples
@@ -83,7 +83,7 @@ You can also override options when creating a worker, see below.
 To use a consumer group, first implement a handler module using
 `KafkaEx.GenConsumer`.
 
-```
+```elixir
 defmodule ExampleGenConsumer do
   use KafkaEx.GenConsumer
 
@@ -145,7 +145,7 @@ To do this, you will need to call:
 ```elixir
 GenServer.start_link(KafkaEx.Config.server_impl,
   [
-    [uris: Application.get_env(:kafka_ex, :brokers),
+    [uris: KafkaEx.Config.brokers(),
      consumer_group: Application.get_env(:kafka_ex, :consumer_group)],
     :no_name
   ]

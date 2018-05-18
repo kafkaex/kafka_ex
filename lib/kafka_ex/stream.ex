@@ -44,6 +44,10 @@ defmodule KafkaEx.Stream do
       {:error, __MODULE__}
     end
 
+    def slice(_stream) do
+      {:error, __MODULE__}
+    end
+
     ######################################################################
     # Main stream flow control
 

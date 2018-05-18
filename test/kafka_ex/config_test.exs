@@ -43,4 +43,24 @@ defmodule KafkaEx.ConfigTest do
     Application.put_env(:kafka_ex, :ssl_options, %{cacertfile: "/ssl/ca-cert"})
     assert_raise(ArgumentError, ~r/invalid ssl_options/, &Config.ssl_options/0)
   end
+
+  test "brokers with list of hosts" do
+    brokers = [{"example.com", 9092}]
+    Application.put_env(:kafka_ex, :brokers, brokers)
+
+    assert brokers == Config.brokers()
+  end
+
+  test "brokers with a csv of hosts" do
+    brokers = " example.com:3452,one.example.com:4534, two.example.com:9999 "
+
+    parsed_brokers = [
+      {"example.com", 3452},
+      {"one.example.com", 4534},
+      {"two.example.com", 9999}
+    ]
+
+    Application.put_env(:kafka_ex, :brokers, brokers)
+    assert parsed_brokers == Config.brokers()
+  end
 end

@@ -3,6 +3,8 @@ defmodule KafkaEx.Server0P9P0 do
   Implements kafkaEx.Server behaviors for kafka 0.9.0 API.
   """
   use KafkaEx.Server
+  alias KafkaEx.ConsumerGroupRequiredError
+  alias KafkaEx.InvalidConsumerGroupError
   alias KafkaEx.Protocol.ConsumerMetadata
   alias KafkaEx.Protocol.ConsumerMetadata.Response, as: ConsumerMetadataResponse
   alias KafkaEx.Protocol.Heartbeat
@@ -13,6 +15,8 @@ defmodule KafkaEx.Server0P9P0 do
   alias KafkaEx.Server.State
   alias KafkaEx.NetworkClient
   alias KafkaEx.Server0P8P2
+
+  require Logger
 
   @consumer_group_update_interval 30_000
 
@@ -43,10 +47,13 @@ defmodule KafkaEx.Server0P9P0 do
     uris = Keyword.get(args, :uris, [])
     metadata_update_interval = Keyword.get(args, :metadata_update_interval, @metadata_update_interval)
     consumer_group_update_interval = Keyword.get(args, :consumer_group_update_interval, @consumer_group_update_interval)
+
     # this should have already been validated, but it's possible someone could
     # try to short-circuit the start call
     consumer_group = Keyword.get(args, :consumer_group)
-    true = KafkaEx.valid_consumer_group?(consumer_group)
+    unless KafkaEx.valid_consumer_group?(consumer_group) do
+      raise InvalidConsumerGroupError, consumer_group
+    end
 
     use_ssl = Keyword.get(args, :use_ssl, false)
     ssl_options = Keyword.get(args, :ssl_options, [])
@@ -71,63 +78,125 @@ defmodule KafkaEx.Server0P9P0 do
     {:ok, state}
   end
 
-  def kafka_server_join_group(join_group_request, network_timeout, state) do
-    true = consumer_group?(state)
-    {broker, state} = broker_for_consumer_group_with_update(state)
-    request = JoinGroup.create_request(state.correlation_id, @client_id, join_group_request)
-    response = broker
-      |> NetworkClient.send_sync_request(request, config_sync_timeout(network_timeout))
-      |> JoinGroup.parse_response
-    {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
+  def kafka_server_join_group(request, network_timeout, state_in) do
+    {response, state_out} = consumer_group_sync_request(
+      request,
+      JoinGroup,
+      network_timeout,
+      state_in
+    )
+
+    {:reply, response, state_out}
   end
 
-  def kafka_server_sync_group(sync_group_request, network_timeout, state) do
-    true = consumer_group?(state)
-    {broker, state} = broker_for_consumer_group_with_update(state)
-    request = SyncGroup.create_request(state.correlation_id, @client_id, sync_group_request)
-    response = broker
-      |> NetworkClient.send_sync_request(request, config_sync_timeout(network_timeout))
-      |> SyncGroup.parse_response
-    {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
+  def kafka_server_sync_group(request, network_timeout, state_in) do
+    {response, state_out} = consumer_group_sync_request(
+      request,
+      SyncGroup,
+      network_timeout,
+      state_in
+    )
+
+    {:reply, response, state_out}
   end
 
-  def kafka_server_leave_group(request, network_timeout, state) do
-    true = consumer_group?(state)
-    {broker, state} = broker_for_consumer_group_with_update(state)
-    request = LeaveGroup.create_request(state.correlation_id, @client_id, request)
-    response = broker
-      |> NetworkClient.send_sync_request(request, config_sync_timeout(network_timeout))
-      |> LeaveGroup.parse_response
-    {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
+  def kafka_server_leave_group(request, network_timeout, state_in) do
+    {response, state_out} = consumer_group_sync_request(
+      request,
+      LeaveGroup,
+      network_timeout,
+      state_in
+    )
+
+    {:reply, response, state_out}
   end
 
-  def kafka_server_heartbeat(request, network_timeout, state) do
-    true = consumer_group?(state)
+  def kafka_server_heartbeat(request, network_timeout, state_in) do
+    {response, state_out} = consumer_group_sync_request(
+      request,
+      Heartbeat,
+      network_timeout,
+      state_in
+    )
+
+    {:reply, response, state_out}
+  end
+
+  defp consumer_group_sync_request(
+    request,
+    protocol_module,
+    network_timeout,
+    state
+  ) do
+    unless consumer_group?(state) do
+      raise ConsumerGroupRequiredError, request
+    end
+
     {broker, state} = broker_for_consumer_group_with_update(state)
-    request = Heartbeat.create_request(state.correlation_id, @client_id, request)
-    response = broker
-      |> NetworkClient.send_sync_request(request, config_sync_timeout(network_timeout))
-      |> Heartbeat.parse_response
-    {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
+
+    state_out = %{state | correlation_id: state.correlation_id + 1}
+
+    sync_timeout = config_sync_timeout(network_timeout)
+
+    wire_request = protocol_module.create_request(
+      state.correlation_id,
+      @client_id,
+      request
+    )
+    wire_response = NetworkClient.send_sync_request(
+      broker,
+      wire_request,
+      sync_timeout
+    )
+
+    case wire_response do
+      {:error, reason} -> {{:error, reason}, state_out}
+      _ ->
+        response = protocol_module.parse_response(wire_response)
+
+        if response.error_code == :not_coordinator_for_consumer do
+          {_, updated_state_out} = update_consumer_metadata(state_out)
+          consumer_group_sync_request(
+            request,
+            protocol_module,
+            network_timeout,
+            updated_state_out
+          )
+        else
+          {response, state_out}
+        end
+    end
   end
 
   defp update_consumer_metadata(state), do: update_consumer_metadata(state, @retry_count, 0)
 
-  defp update_consumer_metadata(state = %State{consumer_group: consumer_group}, 0, error_code) do
+  defp update_consumer_metadata(%State{consumer_group: consumer_group} = state, 0, error_code) do
     Logger.log(:error, "Fetching consumer_group #{consumer_group} metadata failed with error_code #{inspect error_code}")
     {%ConsumerMetadataResponse{error_code: error_code}, state}
   end
 
-  defp update_consumer_metadata(state = %State{consumer_group: consumer_group, correlation_id: correlation_id}, retry, _error_code) do
+  defp update_consumer_metadata(%State{consumer_group: consumer_group, correlation_id: correlation_id} = state, retry, _error_code) do
     response = correlation_id
       |> ConsumerMetadata.create_request(@client_id, consumer_group)
       |> first_broker_response(state)
       |> ConsumerMetadata.parse_response
 
     case response.error_code do
-      :no_error -> {response, %{state | consumer_metadata: response, correlation_id: state.correlation_id + 1}}
+      :no_error ->
+        {
+          response,
+          %{
+            state |
+            consumer_metadata: response,
+            correlation_id: state.correlation_id + 1
+          }
+        }
       _ -> :timer.sleep(400)
-        update_consumer_metadata(%{state | correlation_id: state.correlation_id + 1}, retry - 1, response.error_code)
+        update_consumer_metadata(
+          %{state | correlation_id: state.correlation_id + 1},
+          retry - 1,
+          response.error_code
+        )
     end
   end
 
@@ -154,13 +223,6 @@ defmodule KafkaEx.Server0P9P0 do
   # valid binary consumer group name
   def consumer_group?(%State{consumer_group: :no_consumer_group}), do: false
   def consumer_group?(_), do: true
-
-  def consumer_group_if_auto_commit?(true, state) do
-    consumer_group?(state)
-  end
-  def consumer_group_if_auto_commit?(false, _state) do
-    true
-  end
 
   defp first_broker_response(request, state) do
     first_broker_response(request, state.brokers, config_sync_timeout())

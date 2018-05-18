@@ -31,7 +31,7 @@ defmodule KafkaEx.NetworkClient do
     end
   end
 
-  @spec send_sync_request(Broker.t, iodata, timeout) :: nil | iodata
+  @spec send_sync_request(Broker.t, iodata, timeout) :: iodata | {:error, any()}
   def send_sync_request(%{:socket => socket} = broker, data, timeout) do
     :ok = Socket.setopts(socket, [:binary, {:packet, 4}, {:active, false}])
     response = case Socket.send(socket, data) do
@@ -40,22 +40,22 @@ defmodule KafkaEx.NetworkClient do
           {:ok, data} -> data
           {:error, reason} ->
             Logger.log(:error, "Receiving data from broker #{inspect broker.host}:#{inspect broker.port} failed with #{inspect reason}")
-            nil
+            {:error, reason}
         end
       {_, reason} ->
         Logger.log(:error, "Sending data to broker #{inspect broker.host}:#{inspect broker.port} failed with #{inspect reason}")
-        nil
+        {:error, reason}
     end
 
     :ok = Socket.setopts(socket, [:binary, {:packet, 4}, {:active, true}])
     response
   end
 
-  @spec format_host(binary) :: char_list | :inet.ip_address
+  @spec format_host(binary) :: [char] | :inet.ip_address
   def format_host(host) do
     case Regex.scan(~r/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/, host) do
       [match_data] = [[_, _, _, _, _]] -> match_data |> tl |> List.flatten |> Enum.map(&String.to_integer/1) |> List.to_tuple
-      _ -> to_char_list(host)
+      _ -> apply(String, :to_char_list, [host]) # to_char_list is deprecated from Elixir 1.3 onward
     end
   end
 

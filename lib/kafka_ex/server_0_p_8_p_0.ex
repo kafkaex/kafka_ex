@@ -18,25 +18,21 @@ defmodule KafkaEx.Server0P8P0 do
 
   use KafkaEx.Server
   alias KafkaEx.Protocol.Fetch
-  alias KafkaEx.Protocol.Fetch.Request, as: FetchRequest
-  alias KafkaEx.Protocol.Metadata.Broker
-  alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
-  alias KafkaEx.Server.State
-  alias KafkaEx.NetworkClient
 
   def kafka_server_init([args]) do
     kafka_server_init([args, self()])
   end
 
   def kafka_server_init([args, name]) do
-    uris = Keyword.get(args, :uris, [])
-    metadata_update_interval = Keyword.get(args, :metadata_update_interval, @metadata_update_interval)
-    brokers = Enum.map(uris, fn({host, port}) -> %Broker{host: host, port: port, socket: NetworkClient.create_socket(host, port)} end)
-    {correlation_id, metadata} = retrieve_metadata(brokers, 0, config_sync_timeout())
-    state = %State{metadata: metadata, brokers: brokers, correlation_id: correlation_id, metadata_update_interval: metadata_update_interval, worker_name: name}
-    # Get the initial "real" broker list and start a regular refresh cycle.
-    state = update_metadata(state)
-    {:ok, _} = :timer.send_interval(state.metadata_update_interval, :update_metadata)
+    # warn if ssl is configured
+    if Keyword.get(args, :use_ssl) do
+      Logger.warn(fn ->
+        "KafkaEx is being configured to use ssl with a broker version that " <>
+          "does not support ssl"
+      end)
+    end
+
+    state = kafka_common_init(args, name)
 
     {:ok, state}
   end
@@ -67,28 +63,10 @@ defmodule KafkaEx.Server0P8P0 do
   def kafka_server_heartbeat(_, _, _state), do: raise "Heartbeat is not supported in 0.8.0 version of kafka"
   def kafka_server_update_consumer_metadata(_state), do: raise "Consumer Group Metadata is not supported in 0.8.0 version of kafka"
 
-  defp fetch(fetch_request, state) do
-    fetch_data = Fetch.create_request(%FetchRequest{
-      fetch_request |
-      client_id: @client_id,
-      correlation_id: state.correlation_id,
-    })
-    {broker, state} = case MetadataResponse.broker_for_topic(state.metadata, state.brokers, fetch_request.topic, fetch_request.partition) do
-      nil    ->
-        updated_state = update_metadata(state)
-        {MetadataResponse.broker_for_topic(state.metadata, state.brokers, fetch_request.topic, fetch_request.partition), updated_state}
-      broker -> {broker, state}
-    end
-
-    case broker do
-      nil ->
-        Logger.log(:error, "Leader for topic #{fetch_request.topic} is not available")
-        {:topic_not_found, state}
-      _ ->
-        response = broker
-          |> NetworkClient.send_sync_request(fetch_data, config_sync_timeout())
-          |> Fetch.parse_response
-        {response, %{state | correlation_id: state.correlation_id + 1}}
+  defp fetch(request, state) do
+    case network_request(request, Fetch, state) do
+      {{:error, error}, state_out} -> {error, state_out}
+      {response, state_out} -> {response, state_out}
     end
   end
 end

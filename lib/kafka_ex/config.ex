@@ -10,13 +10,23 @@ defmodule KafkaEx.Config do
   require Logger
 
   @doc false
-  def use_ssl, do: Application.get_env(:kafka_ex, :use_ssl)
+  def disable_default_worker do
+    Application.get_env(:kafka_ex, :disable_default_worker, false)
+  end
+
+  @doc false
+  def consumer_group do
+    Application.get_env(:kafka_ex, :consumer_group, "kafka_ex")
+  end
+
+  @doc false
+  def use_ssl, do: Application.get_env(:kafka_ex, :use_ssl, false)
 
   # use this function to get the ssl options - it verifies the options and
   #   either emits warnings or raises errors as appropriate on misconfiguration
   @doc false
   def ssl_options do
-    ssl_options(use_ssl(), Application.get_env(:kafka_ex, :ssl_options))
+    ssl_options(use_ssl(), Application.get_env(:kafka_ex, :ssl_options, []))
   end
 
   @doc false
@@ -31,13 +41,43 @@ defmodule KafkaEx.Config do
       |> server
   end
 
+  @doc false
+  def brokers do
+    :kafka_ex
+      |> Application.get_env(:brokers)
+      |> brokers()
+  end
+
+  defp brokers(nil),
+    do: nil
+  defp brokers(list) when is_list(list),
+    do: list
+  defp brokers(csv) when is_binary(csv) do
+    for line <- String.split(csv, ","), into: [] do
+      case line |> trim() |> String.split(":") do
+        [host] ->
+          msg = "Port not set for kafka broker #{host}"
+          Logger.warn(msg)
+          raise msg
+        [host, port] ->
+          {port, _} = Integer.parse(port)
+          {host, port}
+      end
+    end
+  end
+
+  if Version.match?(System.version, "<1.3.0") do
+    defp trim(string), do: String.strip(string)
+  else
+    defp trim(string), do: String.trim(string)
+  end
+
   defp server("0.8.0"), do: KafkaEx.Server0P8P0
   defp server("0.8.2"), do: KafkaEx.Server0P8P2
   defp server(_), do: KafkaEx.Server0P9P0
 
   # ssl_options should be an empty list by default if use_ssl is false
   defp ssl_options(false, []), do: []
-  defp ssl_options(false, nil), do: []
   # emit a warning if use_ssl is false but options are present
   #   (this is not a fatal error and can occur if one disables ssl in the
   #    default option set)

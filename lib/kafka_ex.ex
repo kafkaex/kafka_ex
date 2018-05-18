@@ -25,7 +25,7 @@ defmodule KafkaEx do
   alias KafkaEx.Server
   alias KafkaEx.Stream
 
-  @type uri() :: [{binary|char_list, number}]
+  @type uri() :: [{binary|[char], number}]
   @type worker_init :: [worker_setting]
   @type ssl_options :: [{:cacertfile, binary} |
                         {:certfile, binary} |
@@ -42,7 +42,7 @@ defmodule KafkaEx do
 
   Optional arguments(KeywordList)
   - consumer_group: Name of the group of consumers, `:no_consumer_group` should be passed for Kafka < 0.8.2, defaults to `Application.get_env(:kafka_ex, :consumer_group)`
-  - uris: List of brokers in `{"host", port}` form, defaults to `Application.get_env(:kafka_ex, :brokers)`
+  - uris: List of brokers in `{"host", port}` or comma separated value `"host:port,host:port"` form, defaults to `Application.get_env(:kafka_ex, :brokers)`
   - metadata_update_interval: How often `kafka_ex` would update the Kafka cluster metadata information in milliseconds, default is 30000
   - consumer_group_update_interval: How often `kafka_ex` would update the Kafka cluster consumer_groups information in milliseconds, default is 30000
   - use_ssl: Boolean flag specifying if ssl should be used for the connection by the worker to kafka, default is false
@@ -71,6 +71,17 @@ defmodule KafkaEx do
       {:error, error} ->
         {:error, error}
     end
+  end
+
+  @doc """
+  Stop a worker created with create_worker/2
+
+  Returns `:ok` on success or `:error` if `worker` is not a valid worker
+  """
+  @spec stop_worker(atom | pid) :: :ok |
+    {:error, :not_found} | {:error, :simple_one_for_one}
+  def stop_worker(worker) do
+    KafkaEx.Supervisor.stop_child(worker)
   end
 
   @doc """
@@ -369,7 +380,7 @@ defmodule KafkaEx do
   If you pass a value for the `consumer_group` option and true for
   `auto_commit`, the offset of the last message consumed will be committed to
   the broker during each cycle.
-  
+
   For example, suppose we start at the beginning of a partition with millions
   of messages and the `max_bytes` setting is such that each `fetch` request
   gets 25 messages.  In this setting, we will (roughly) be committing offsets
@@ -460,10 +471,21 @@ defmodule KafkaEx do
     }
   end
 
-  defp build_worker_options(worker_init) do
+  @doc """
+  Builds options to be used with workers
+
+  Merges the given options with defaults from the application env config.
+  Returns p{:error, :invalid_consumer_options}` if the consumer group
+  configuation is invalid, and `{:ok, merged_options}` otherwise.
+
+  Note this happens automatically when using `KafkaEx.create_worker`.
+  """
+  @spec build_worker_options(worker_init) ::
+    {:ok, worker_init} | {:error, :invalid_consumer_group}
+  def build_worker_options(worker_init) do
     defaults = [
-      uris: Application.get_env(:kafka_ex, :brokers),
-      consumer_group: Application.get_env(:kafka_ex, :consumer_group),
+      uris: Config.brokers(),
+      consumer_group: Config.consumer_group(),
       use_ssl: Config.use_ssl(),
       ssl_options: Config.ssl_options(),
     ]
@@ -486,7 +508,8 @@ defmodule KafkaEx do
           |> OffsetFetchResponse.last_offset
 
         if last_offset < 0 do
-          earliest_offset(topic, partition, worker_name)
+          topic
+          |> earliest_offset(partition, worker_name)
           |> OffsetResponse.extract_offset
         else
           last_offset + 1
@@ -510,7 +533,7 @@ defmodule KafkaEx do
     max_seconds = Application.get_env(:kafka_ex, :max_seconds, 60)
     {:ok, pid}     = KafkaEx.Supervisor.start_link(Config.server_impl, max_restarts, max_seconds)
 
-    if Application.get_env(:kafka_ex, :disable_default_worker) == true do
+    if Config.disable_default_worker do
       {:ok, pid}
     else
       case KafkaEx.create_worker(Config.default_worker, []) do

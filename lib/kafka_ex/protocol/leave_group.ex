@@ -10,6 +10,8 @@ defmodule KafkaEx.Protocol.LeaveGroup do
   end
 
   defmodule Response do
+    @moduledoc false
+
     defstruct error_code: nil
 
     @type t :: %Response{

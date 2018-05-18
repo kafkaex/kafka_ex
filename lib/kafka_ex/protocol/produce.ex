@@ -31,7 +31,11 @@ defmodule KafkaEx.Protocol.Produce do
     @type t :: %Response{topic: binary, partitions: list}
   end
 
-  def create_request(correlation_id, client_id, %Request{topic: topic, partition: partition, required_acks: required_acks, timeout: timeout, compression: compression, messages: messages}) do
+  def create_request(
+    correlation_id,
+    client_id,
+    %Request{topic: topic, partition: partition, required_acks: required_acks, timeout: timeout, compression: compression, messages: messages}
+    ) do
     {message_set, mssize} = create_message_set(messages, compression)
     [KafkaEx.Protocol.create_request(:produce, correlation_id, client_id),
       << required_acks :: 16-signed, timeout :: 32-signed, 1 :: 32-signed >>,

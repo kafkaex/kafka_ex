@@ -224,6 +224,14 @@ defmodule KafkaEx.ConsumerGroup do
   end
 
   @doc """
+  Returns the name of the consumer group
+  """
+  @spec group_name(Supervisor.supervisor) :: binary
+  def group_name(supervisor_pid) do
+    call_manager(supervisor_pid, :group_name)
+  end
+
+  @doc """
   Returns a map from `{topic, partition_id}` to consumer pid
   """
   @spec partition_consumer_map(Supervisor.supervisor) ::
@@ -248,6 +256,24 @@ defmodule KafkaEx.ConsumerGroup do
     else
       false
     end
+  end
+
+  @doc """
+  Returns the pid of the `KafkaEx.ConsumerGroup.Manager` process for the
+  given consumer group supervisor.
+
+  Intended for introspection usage only.
+  """
+  @spec get_manager_pid(Supervisor.supervisor) :: pid
+  def get_manager_pid(supervisor_pid) do
+    {_, pid, _, _} = Enum.find(
+      Supervisor.which_children(supervisor_pid),
+      fn
+        ({KafkaEx.ConsumerGroup.Manager, _, _, _}) -> true
+        ({_, _, _, _}) -> false
+      end
+    )
+    pid
   end
 
   @doc false # used by ConsumerGroup.Manager to set partition assignments
@@ -293,16 +319,5 @@ defmodule KafkaEx.ConsumerGroup do
     supervisor_pid
     |> get_manager_pid
     |> GenServer.call(call)
-  end
-
-  defp get_manager_pid(supervisor_pid) do
-    {_, pid, _, _} = Enum.find(
-      Supervisor.which_children(supervisor_pid),
-      fn
-        ({KafkaEx.ConsumerGroup.Manager, _, _, _}) -> true
-        ({_, _, _, _}) -> false
-      end
-    )
-    pid
   end
 end

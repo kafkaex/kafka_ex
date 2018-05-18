@@ -3,6 +3,7 @@ defmodule KafkaEx.Server do
   Defines the KafkaEx.Server behavior that all Kafka API servers must implement, this module also provides some common callback functions that are injected into the servers that `use` it.
   """
 
+  alias KafkaEx.NetworkClient
   alias KafkaEx.Protocol.ConsumerMetadata
   alias KafkaEx.Protocol.Heartbeat.Request, as: HeartbeatRequest
   alias KafkaEx.Protocol.JoinGroup.Request, as: JoinGroupRequest
@@ -20,6 +21,9 @@ defmodule KafkaEx.Server do
 
   defmodule State do
     @moduledoc false
+
+    alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
+    alias KafkaEx.Protocol.Metadata.Broker
 
     defstruct(
       metadata: %Metadata.Response{},
@@ -47,6 +51,21 @@ defmodule KafkaEx.Server do
         ssl_options: KafkaEx.ssl_options,
         use_ssl: boolean
       }
+
+    @spec increment_correlation_id(t) :: t
+    def increment_correlation_id(%State{correlation_id: cid} = state) do
+      %{state | correlation_id: cid + 1}
+    end
+
+    @spec broker_for_partition(t, binary, integer) :: Broker.t | nil
+    def broker_for_partition(state, topic, partition) do
+      MetadataResponse.broker_for_topic(
+        state.metadata,
+        state.brokers,
+        topic,
+        partition
+      )
+    end
   end
 
   @callback kafka_server_init(args :: [term]) ::
@@ -169,6 +188,7 @@ defmodule KafkaEx.Server do
   end
 
   defmacro __using__(_) do
+    # credo:disable-for-next-line Credo.Check.Refactor.LongQuoteBlocks
     quote location: :keep do
       @behaviour KafkaEx.Server
       require Logger
@@ -252,16 +272,17 @@ defmodule KafkaEx.Server do
         {:noreply, state}
       end
 
-
       def terminate(_, state) do
         Logger.log(:debug, "Shutting down worker #{inspect state.worker_name}")
         if state.event_pid do
-          GenEvent.stop(state.event_pid)
+          :gen_event.stop(state.event_pid)
         end
         Enum.each(state.brokers, fn(broker) -> NetworkClient.close_socket(broker.socket) end)
       end
 
       # KakfaEx.Server behavior default implementations
+      # This needs a refactor, but for now make credo pass:
+      # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
       def kafka_server_produce(produce_request, state) do
         correlation_id = state.correlation_id + 1
         produce_request_data = Produce.create_request(correlation_id, @client_id, produce_request)
@@ -285,10 +306,17 @@ defmodule KafkaEx.Server do
             0 ->  NetworkClient.send_async_request(broker, produce_request_data)
             _ ->
               response = broker
-               |> NetworkClient.send_sync_request(produce_request_data, config_sync_timeout())
-               |> Produce.parse_response
+                |> NetworkClient.send_sync_request(
+                     produce_request_data,
+                     config_sync_timeout())
+                |> case do
+                     {:error, reason} -> reason
+                     response -> Produce.parse_response(response)
+                   end
+
+              # credo:disable-for-next-line Credo.Check.Refactor.Nesting
               case response do
-                [%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: :no_error, offset: offset, partition: _}], topic: topic}] when offset != nil ->
+                [%KafkaEx.Protocol.Produce.Response{partitions: [%{error_code: :no_error, offset: offset}], topic: topic}] when offset != nil ->
                   {:ok, offset}
                 _ ->
                   {:error, response}
@@ -314,8 +342,14 @@ defmodule KafkaEx.Server do
             {:topic_not_found, state}
           _ ->
             response = broker
-             |> NetworkClient.send_sync_request(offset_request, config_sync_timeout())
-             |> Offset.parse_response
+              |> NetworkClient.send_sync_request(
+                   offset_request,
+                   config_sync_timeout())
+              |> case do
+                   {:error, reason} -> {:error, reason}
+                   response -> Offset.parse_response(response)
+                 end
+
             state = %{state | correlation_id: state.correlation_id + 1}
             {response, state}
         end
@@ -342,11 +376,14 @@ defmodule KafkaEx.Server do
         %{state | metadata: metadata, brokers: brokers, correlation_id: correlation_id + 1}
       end
 
+      # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
       def retrieve_metadata(brokers, correlation_id, sync_timeout, topic \\ []), do: retrieve_metadata(brokers, correlation_id, sync_timeout, topic, @retry_count, 0)
+      # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
       def retrieve_metadata(_, correlation_id, _sync_timeout, topic, 0, error_code) do
         Logger.log(:error, "Metadata request for topic #{inspect topic} failed with error_code #{inspect error_code}")
         {correlation_id, %Metadata.Response{}}
       end
+      # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
       def retrieve_metadata(brokers, correlation_id, sync_timeout, topic, retry, _error_code) do
         metadata_request = Metadata.create_request(correlation_id, @client_id, topic)
         data = first_broker_response(metadata_request, brokers, sync_timeout)
@@ -372,10 +409,115 @@ defmodule KafkaEx.Server do
         kafka_server_metadata: 2, kafka_server_update_metadata: 1,
       ]
 
+      defp kafka_common_init(args, name) do
+        use_ssl = Keyword.get(args, :use_ssl, false)
+        ssl_options = Keyword.get(args, :ssl_options, [])
+
+        uris = Keyword.get(args, :uris, [])
+        metadata_update_interval = Keyword.get(
+          args,
+          :metadata_update_interval,
+          @metadata_update_interval
+        )
+
+        brokers = for {host, port} <- uris do
+          connect_broker(host, port, ssl_options, use_ssl)
+        end
+
+        {correlation_id, metadata} = retrieve_metadata(
+          brokers,
+          0,
+          config_sync_timeout()
+        )
+
+        state = %State{
+          metadata: metadata,
+          brokers: brokers,
+          correlation_id: correlation_id,
+          metadata_update_interval: metadata_update_interval,
+          ssl_options: ssl_options,
+          use_ssl: use_ssl,
+          worker_name: name
+        }
+
+        state = update_metadata(state)
+        {:ok, _} = :timer.send_interval(
+          state.metadata_update_interval,
+          :update_metadata
+        )
+
+        state
+      end
+
+      defp connect_broker(host, port, ssl_opts, use_ssl) do
+        %Broker{
+          host: host,
+          port: port,
+          socket: NetworkClient.create_socket(host, port, ssl_opts, use_ssl)
+        }
+      end
+
+      defp client_request(request, state) do
+        %{
+          request |
+          client_id: @client_id,
+          correlation_id: state.correlation_id
+        }
+      end
+
+      # gets the broker for a given partition, updating metadata if necessary
+      # returns {broker, maybe_updated_state}
+      defp broker_for_partition_with_update(state, topic, partition) do
+        case State.broker_for_partition(state, topic, partition) do
+          nil ->
+            updated_state = update_metadata(state)
+            {
+              State.broker_for_partition(updated_state, topic, partition),
+              updated_state
+            }
+          broker ->
+            {broker, state}
+        end
+      end
+
+      # assumes module.create_request(request) and module.parse_response
+      # both work
+      defp network_request(request, module, state) do
+        {broker, updated_state} = broker_for_partition_with_update(
+          state,
+          request.topic,
+          request.partition
+        )
+
+        case broker do
+          nil ->
+            Logger.error(fn ->
+              "Leader for topic #{request.topic} is not available"
+            end)
+            {{:error, :topic_not_found}, updated_state}
+          _ ->
+            wire_request = request
+            |> client_request(updated_state)
+            |> module.create_request
+
+            response = broker
+              |> NetworkClient.send_sync_request(
+                   wire_request,
+                   config_sync_timeout())
+              |> case do
+                   {:error, reason} -> {:error, reason}
+                   response -> module.parse_response(response)
+                 end
+
+            state_out = State.increment_correlation_id(updated_state)
+            {response, state_out}
+        end
+      end
+
       defp remove_stale_brokers(brokers, metadata_brokers) do
-        {brokers_to_keep, brokers_to_remove} = Enum.partition(brokers, fn(broker) ->
+        {brokers_to_keep, brokers_to_remove} = apply(Enum, :partition, [brokers, fn(broker) ->
           Enum.find_value(metadata_brokers, &(broker.node_id == -1 || (broker.node_id == &1.node_id) && broker.socket && Socket.info(broker.socket)))
-        end)
+        end])
         case length(brokers_to_keep) do
           0 -> brokers_to_remove
           _ -> Enum.each(brokers_to_remove, fn(broker) ->
@@ -395,10 +537,14 @@ defmodule KafkaEx.Server do
         end
       end
 
-      defp first_broker_response(request, brokers, sync_timeout) do
+      defp first_broker_response(request, brokers, timeout) do
         Enum.find_value(brokers, fn(broker) ->
           if Broker.connected?(broker) do
-            NetworkClient.send_sync_request(broker, request, sync_timeout)
+            # credo:disable-for-next-line Credo.Check.Refactor.Nesting
+            case NetworkClient.send_sync_request(broker, request, timeout) do
+              {:error, _} -> nil
+              response -> response
+            end
           end
         end)
       end
