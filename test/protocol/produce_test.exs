@@ -46,7 +46,8 @@ defmodule KafkaEx.Protocol.Produce.Test do
       messages: messages
     }
 
-    request = KafkaEx.Protocol.Produce.create_request(1, client_id, produce)
+    iolist_request = KafkaEx.Protocol.Produce.create_request(1, client_id, produce)
+    request = :erlang.iolist_to_binary(iolist_request)
 
     # The exact binary contents of the message can change as zlib changes,
     # but they should remain compatible.  We test this by splitting the binary
