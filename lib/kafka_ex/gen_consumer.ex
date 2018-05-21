@@ -120,8 +120,8 @@ defmodule KafkaEx.GenConsumer do
 
   ## Handler state and interaction
 
-  Use the `c:init/2` to initialize consumer state and `c:handle_call/3` 
-  to interact.
+  Use the `c:init/2` to initialize consumer state and `c:handle_call/3`,
+  `c:handle_cast/2`, or `c:handle_info/2` to interact.
 
   Example:
 
@@ -141,7 +141,7 @@ defmodule KafkaEx.GenConsumer do
       {:async_commit, %{state | messages: state.messages ++ message_set}}
     end
 
-    def handle_call(:messages, _from, messages_so_far)
+    def handle_call(:messages, _from, state)
       {:reply, state.messages, %{state | calls: state.calls + 1}}
     end
   end
@@ -150,8 +150,10 @@ defmodule KafkaEx.GenConsumer do
   GenConsumer.call(pid, :messages)
   ```
 
-  **NOTE** If you do not implement a `c:handle_call/3` callback, any calls to
-  `GenConsumer.call/3` that go to your consumer will raise an error.
+  **NOTE** If you do not implement `c:handle_call/3` or `c:handle_cast/2`, any
+  calls to `GenConsumer.call/3` or casts to `GenConsumer.cast/2` will raise an
+  error. Similarly, any messages sent to a `GenConsumer` will log an error if
+  there is no corresponding `c:handle_info/2` callback defined.
 
   ## Testing
 
@@ -248,11 +250,29 @@ defmodule KafkaEx.GenConsumer do
   @doc """
   Invoked by `KafkaEx.GenConsumer.call/3`.
 
-  Note the default implementation will cause a `MatchError`.  If you want to
+  Note the default implementation will cause a `RuntimeError`.  If you want to
   interact with your consumer, you must implement a handle_call function.
   """
   @callback handle_call(call :: term, from :: GenServer.from, state :: term)
     :: {:reply, reply_value :: term, new_state :: term}
+
+  @doc """
+  Invoked by `KafkaEx.GenConsumer.cast/2`.
+
+  Note the default implementation will cause a `RuntimeError`.  If you want to
+  interact with your consumer, you must implement a handle_cast function.
+  """
+  @callback handle_cast(cast :: term, state :: term) ::
+    {:noreply, new_state :: term}
+
+  @doc """
+  Invoked by sending messages to the consumer.
+
+  Note the default implementation will log error messages.  If you want to
+  interact with your consumer, you must implement a handle_info function.
+  """
+  @callback handle_info(info :: term, state :: term) ::
+    {:noreply, new_state :: term}
 
   defmacro __using__(_opts) do
     quote do
@@ -279,7 +299,35 @@ defmodule KafkaEx.GenConsumer do
         end
       end
 
-      defoverridable [init: 2, handle_call: 3]
+      def handle_cast(msg, consumer_state) do
+        # taken from the GenServer handle_cast implementation
+        proc = case Process.info(self(), :registered_name) do
+          {_, []}   -> self()
+          {_, name} -> name
+        end
+
+        # We do this to trick Dialyzer to not complain about non-local returns.
+        case :erlang.phash2(1, 1) do
+          0 ->
+            raise "attempted to cast KafkaEx.GenConsumer #{inspect(proc)} " <>
+              " but no handle_cast/2 clause was provided"
+          1 -> {:noreply, {:bad_cast, msg}, consumer_state}
+        end
+      end
+
+      def handle_info(msg, consumer_state) do
+        # taken from the GenServer handle_info implementation
+        proc = case Process.info(self(), :registered_name) do
+          {_, []} -> self()
+          {_, name} -> name
+        end
+
+        pattern = '~p ~p received unexpected message in handle_info/2: ~p~n'
+        :error_logger.error_msg(pattern, [__MODULE__, proc, msg])
+        {:noreply, consumer_state}
+      end
+
+      defoverridable [init: 2, handle_call: 3, handle_cast: 2, handle_info: 2]
     end
   end
 
@@ -388,6 +436,19 @@ defmodule KafkaEx.GenConsumer do
     GenServer.call(gen_consumer, {:consumer_call, message}, timeout)
   end
 
+  @doc """
+  Forwards a `GenServer.cast/2` to the consumer implementation with the
+  consumer's state.
+
+  The implementation must return a `GenServer.cast/2`-compatible value of the
+  form `{:noreply, new_consumer_state}`. The GenConsumer will turn this into an
+  immediate timeout, which drives continued message consumption.
+  """
+  @spec cast(GenServer.server, term) :: term
+  def cast(gen_consumer, message) do
+    GenServer.cast(gen_consumer, {:consumer_cast, message})
+  end
+
   # GenServer callbacks
 
   def init({consumer_module, group_name, topic, partition, opts}) do
@@ -464,6 +525,24 @@ defmodule KafkaEx.GenConsumer do
     {:reply, reply, %{state | consumer_state: new_consumer_state}, 0}
   end
 
+  def handle_cast(
+    {:consumer_cast, message},
+    %State{
+      consumer_module: consumer_module,
+      consumer_state: consumer_state
+    } = state
+  ) do
+    # NOTE we only support the {:noreply, _} result format here
+    #   which we turn into a timeout = 0 clause so that we continue to consume.
+    #   any other GenServer flow control could have unintended consequences,
+    #   so we leave that for later consideration
+    {:noreply, new_consumer_state} = consumer_module.handle_cast(
+      message,
+      consumer_state
+    )
+    {:noreply, %{state | consumer_state: new_consumer_state}, 0}
+  end
+
   def handle_info(
     :timeout,
     %State{current_offset: nil, last_commit: nil} = state
@@ -480,6 +559,24 @@ defmodule KafkaEx.GenConsumer do
     new_state = consume(state)
 
     {:noreply, new_state, 0}
+  end
+
+  def handle_info(
+    message,
+    %State{
+      consumer_module: consumer_module,
+      consumer_state: consumer_state
+    } = state
+  ) do
+    # NOTE we only support the {:noreply, _} result format here
+    #   which we turn into a timeout = 0 clause so that we continue to consume.
+    #   any other GenServer flow control could have unintended consequences,
+    #   so we leave that for later consideration
+    {:noreply, new_consumer_state} = consumer_module.handle_info(
+      message,
+      consumer_state
+    )
+    {:noreply, %{state | consumer_state: new_consumer_state}, 0}
   end
 
   def terminate(_reason, %State{} = state) do

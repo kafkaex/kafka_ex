@@ -51,6 +51,14 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       List.last(GenConsumer.call(pid, :message_sets)) || []
     end
 
+    def get(pid, key) do
+      GenConsumer.call(pid, {:get, key})
+    end
+
+    def set(pid, key, value) do
+      GenConsumer.cast(pid, {:set, key, value})
+    end
+
     def init(topic, partition) do
       Logger.debug(fn ->
         "Initialized consumer #{inspect self()} for #{topic}:#{partition}"
@@ -60,6 +68,18 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
 
     def handle_call(:message_sets, _from, state) do
       {:reply, state.message_sets, state}
+    end
+
+    def handle_call({:get, key}, _from, state) do
+      {:reply, Map.get(state, key), state}
+    end
+
+    def handle_cast({:set, key, value}, state) do
+      {:noreply, Map.put_new(state, key, value)}
+    end
+
+    def handle_info({:set, key, value}, state) do
+      {:noreply, Map.put_new(state, key, value)}
     end
 
     def handle_message_set(message_set, state) do
@@ -297,5 +317,29 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     sync_stop(consumer_group_pid3)
 
     assert context[:ports_before] == num_open_ports()
+  end
+
+  test "handle_cast and handle_info calls", context do
+    consumer_group_pid =
+      ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid1])
+    consumer_pids = GenConsumer.Supervisor.child_pids(consumer_group_pid)
+
+    # Send a cast and info message to each consumer
+    for consumer_pid <- consumer_pids do
+      TestConsumer.set(consumer_pid, :test_cast, :value)
+      send(consumer_pid, {:set, :test_info, :value})
+    end
+
+    # Check that each consumer successfully set their internal state
+    for consumer_pid <- consumer_pids do
+      wait_for(fn ->
+        TestConsumer.get(consumer_pid, :test_cast) != nil
+      end)
+      assert :value == TestConsumer.get(consumer_pid, :test_cast)
+      wait_for(fn ->
+        TestConsumer.get(consumer_pid, :test_info) != nil
+      end)
+      assert :value == TestConsumer.get(consumer_pid, :test_info)
+    end
   end
 end
