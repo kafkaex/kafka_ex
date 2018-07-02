@@ -285,49 +285,56 @@ defmodule KafkaEx.GenConsumer do
 
       def handle_call(msg, _from, consumer_state) do
         # taken from the GenServer handle_call implementation
-        proc = case Process.info(self(), :registered_name) do
-          {_, []}   -> self()
-          {_, name} -> name
-        end
+        proc =
+          case Process.info(self(), :registered_name) do
+            {_, []} -> self()
+            {_, name} -> name
+          end
 
         # We do this to trick Dialyzer to not complain about non-local returns.
         case :erlang.phash2(1, 1) do
           0 ->
-            raise "attempted to call KafkaEx.GenConsumer #{inspect proc} " <>
-              "but no handle_call/3 clause was provided"
-          1 -> {:reply, {:bad_call, msg}, consumer_state}
+            raise "attempted to call KafkaEx.GenConsumer #{inspect(proc)} " <>
+                    "but no handle_call/3 clause was provided"
+
+          1 ->
+            {:reply, {:bad_call, msg}, consumer_state}
         end
       end
 
       def handle_cast(msg, consumer_state) do
         # taken from the GenServer handle_cast implementation
-        proc = case Process.info(self(), :registered_name) do
-          {_, []}   -> self()
-          {_, name} -> name
-        end
+        proc =
+          case Process.info(self(), :registered_name) do
+            {_, []} -> self()
+            {_, name} -> name
+          end
 
         # We do this to trick Dialyzer to not complain about non-local returns.
         case :erlang.phash2(1, 1) do
           0 ->
             raise "attempted to cast KafkaEx.GenConsumer #{inspect(proc)} " <>
-              " but no handle_cast/2 clause was provided"
-          1 -> {:noreply, {:bad_cast, msg}, consumer_state}
+                    " but no handle_cast/2 clause was provided"
+
+          1 ->
+            {:noreply, consumer_state}
         end
       end
 
       def handle_info(msg, consumer_state) do
         # taken from the GenServer handle_info implementation
-        proc = case Process.info(self(), :registered_name) do
-          {_, []} -> self()
-          {_, name} -> name
-        end
+        proc =
+          case Process.info(self(), :registered_name) do
+            {_, []} -> self()
+            {_, name} -> name
+          end
 
         pattern = '~p ~p received unexpected message in handle_info/2: ~p~n'
         :error_logger.error_msg(pattern, [__MODULE__, proc, msg])
         {:noreply, consumer_state}
       end
 
-      defoverridable [init: 2, handle_call: 3, handle_cast: 2, handle_info: 2]
+      defoverridable init: 2, handle_call: 3, handle_cast: 2, handle_info: 2
     end
   end
 
