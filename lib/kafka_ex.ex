@@ -527,6 +527,23 @@ defmodule KafkaEx do
   def valid_consumer_group?(b) when is_binary(b), do: byte_size(b) > 0
   def valid_consumer_group?(_), do: false
 
+
+  @doc """
+
+  ## Example
+
+  ```elixir
+  iex> KafkaEx.create_worker(:mt)
+
+  ```
+  """
+  @spec create_topics(String.t) :: CreateTopics.Response.t
+  def create_topics(topic_name, opts \\ []) do
+    worker_name  = Keyword.get(opts, :worker_name, Config.default_worker)
+    # topic = Keyword.get(opts, :topic, "")
+    Server.call(worker_name, {:create_topics, topic_name})
+  end
+
 #OTP API
   def start(_type, _args) do
     max_restarts = Application.get_env(:kafka_ex, :max_restarts, 10)

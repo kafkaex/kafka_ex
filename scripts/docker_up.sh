@@ -14,6 +14,7 @@ set -e
 
 # Kafka needs to know our ip address so that it can advertise valid
 # connnection details
+
 if [ -z ${IP_IFACE} ]
 then
   echo Detecting active network interface

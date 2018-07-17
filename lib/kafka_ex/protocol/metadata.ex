@@ -2,6 +2,8 @@ defmodule KafkaEx.Protocol.Metadata do
   alias KafkaEx.Protocol
   import KafkaEx.Protocol.Common
 
+  @default_api_version 0
+
   @moduledoc """
   Implementation of the Kafka Hearbeat request and response APIs
   """
@@ -16,8 +18,8 @@ defmodule KafkaEx.Protocol.Metadata do
 
     alias KafkaEx.Socket
 
-    defstruct node_id: -1, host: "", port: 0, socket: nil
-    @type t :: %__MODULE__{}
+    defstruct node_id: -1, host: "", port: 0, socket: nil, is_controller: nil
+    @type t :: %__MODULE__{node_id: integer, host: binary, port: integer, socket: KafkaEx.Socket.t, is_controller: boolean }
 
     def connected?(%Broker{} = broker) do
       broker.socket != nil && Socket.open?(broker.socket)
@@ -28,10 +30,11 @@ defmodule KafkaEx.Protocol.Metadata do
     @moduledoc false
     alias KafkaEx.Protocol.Metadata.Broker
     alias KafkaEx.Protocol.Metadata.TopicMetadata
-    defstruct brokers: [], topic_metadatas: []
+    defstruct brokers: [], topic_metadatas: [], controller_id: nil
     @type t :: %Response{
       brokers: [Broker.t],
-      topic_metadatas: [TopicMetadata.t]
+      topic_metadatas: [TopicMetadata.t],
+      controller_id: integer
     }
 
     def broker_for_topic(metadata, brokers, topic, partition) do
@@ -73,10 +76,11 @@ defmodule KafkaEx.Protocol.Metadata do
   defmodule TopicMetadata do
     @moduledoc false
     alias KafkaEx.Protocol.Metadata.PartitionMetadata
-    defstruct error_code: 0, topic: nil, partition_metadatas: []
+    defstruct error_code: 0, topic: nil, is_internal: nil, partition_metadatas: []
     @type t :: %TopicMetadata{
       error_code: integer | :no_error,
       topic: nil | binary,
+      is_internal: nil | boolean,
       partition_metadatas: [PartitionMetadata.t]
     }
   end
@@ -93,18 +97,44 @@ defmodule KafkaEx.Protocol.Metadata do
     }
   end
 
-  def create_request(correlation_id, client_id, ""), do: KafkaEx.Protocol.create_request(:metadata, correlation_id, client_id) <> << 0 :: 32-signed >>
-
-  def create_request(correlation_id, client_id, topic) when is_binary(topic), do: create_request(correlation_id, client_id, [topic])
-
-  def create_request(correlation_id, client_id, topics) when is_list(topics) do
-    KafkaEx.Protocol.create_request(:metadata, correlation_id, client_id) <> << length(topics) :: 32-signed, topic_data(topics) :: binary >>
+  def valid_api_version(v) do
+    case v do
+      nil -> @default_api_version
+      v -> v
+    end
   end
 
-  def parse_response(<< _correlation_id :: 32-signed, brokers_size :: 32-signed, rest :: binary >>) do
-    {brokers, rest} = parse_brokers(brokers_size, rest, [])
-    << topic_metadatas_size :: 32-signed, rest :: binary >> = rest
-    %Response{brokers: brokers, topic_metadatas: parse_topic_metadatas(topic_metadatas_size, rest)}
+  def create_request(correlation_id, client_id, ""), do: create_request(correlation_id, client_id, "", nil)
+  def create_request(correlation_id, client_id, topics) when is_list(topics), do: create_request(correlation_id, client_id, topics, nil)
+
+  def create_request(correlation_id, client_id, "", api_version) do
+    version = valid_api_version(api_version)
+    topic_count = if 0 == version, do: 0, else: -1
+    KafkaEx.Protocol.create_request(:metadata, correlation_id, client_id, version) <> << topic_count :: 32-signed >>
+  end
+  def create_request(correlation_id, client_id, topic, api_version) when is_binary(topic), do: create_request(correlation_id, client_id, [topic], valid_api_version(api_version))
+
+  def create_request(correlation_id, client_id, topics, api_version) when is_list(topics) do
+    KafkaEx.Protocol.create_request(:metadata, correlation_id, client_id, valid_api_version(api_version)) <> << length(topics) :: 32-signed, topic_data(topics) :: binary >>
+  end
+
+  def parse_response(data) do
+    parse_response(data, nil)
+  end
+
+  def parse_response(<< _correlation_id :: 32-signed, brokers_size :: 32-signed, rest :: binary >>, api_version) do
+    version = valid_api_version(api_version)
+    case version do
+      1 ->
+        {brokers, rest} = parse_brokers_v1(brokers_size, rest, [])
+        << controller_id :: 32-signed, rest :: binary >> = rest
+        << topic_metadatas_size :: 32-signed, rest :: binary >> = rest
+        %Response{brokers: brokers, controller_id: controller_id, topic_metadatas: parse_topic_metadatas_v1(topic_metadatas_size, rest)}
+      0 ->
+        {brokers, rest} = parse_brokers(brokers_size, rest, [])
+        << topic_metadatas_size :: 32-signed, rest :: binary >> = rest
+        %Response{brokers: brokers, topic_metadatas: parse_topic_metadatas(topic_metadatas_size, rest)}
+    end
   end
 
   defp parse_brokers(0, rest, brokers), do: {brokers, rest}
@@ -113,11 +143,53 @@ defmodule KafkaEx.Protocol.Metadata do
     parse_brokers(brokers_size - 1, rest, [%Broker{node_id: node_id, host: host, port: port} | brokers])
   end
 
+  defp parse_brokers_v1(0, rest, brokers), do: {brokers, rest}
+
+  defp parse_brokers_v1(brokers_size, <<
+                                      node_id :: 32-signed,
+                                      host_len :: 16-signed,
+                                      host :: size(host_len)-binary,
+                                      port :: 32-signed,
+                                      # rack is nullable
+                                      -1 :: 16-signed,
+                                      rest :: binary
+                                    >>, brokers) do
+    parse_brokers_v1(brokers_size - 1, rest, [%Broker{node_id: node_id, host: host, port: port} | brokers])
+  end
+
+  defp parse_brokers_v1(brokers_size, <<
+                                      node_id :: 32-signed,
+                                      host_len :: 16-signed,
+                                      host :: size(host_len)-binary,
+                                      port :: 32-signed,
+                                      rack_len :: 16-signed,
+                                      _rack :: size(rack_len)-binary,
+                                      rest :: binary
+                                    >>, brokers) do
+    parse_brokers_v1(brokers_size - 1, rest, [%Broker{node_id: node_id, host: host, port: port} | brokers])
+  end
+
   defp parse_topic_metadatas(0, _), do: []
 
   defp parse_topic_metadatas(topic_metadatas_size, << error_code :: 16-signed, topic_len :: 16-signed, topic :: size(topic_len)-binary, partition_metadatas_size :: 32-signed, rest :: binary >>) do
     {partition_metadatas, rest} = parse_partition_metadatas(partition_metadatas_size, [], rest)
     [%TopicMetadata{error_code: Protocol.error(error_code), topic: topic, partition_metadatas: partition_metadatas} | parse_topic_metadatas(topic_metadatas_size - 1, rest)]
+  end
+
+  defp parse_topic_metadatas_v1(0, _), do: []
+
+  defp parse_topic_metadatas_v1(
+      topic_metadatas_size,
+      <<  error_code :: 16-signed,
+          topic_len :: 16-signed,
+          topic :: size(topic_len)-binary,
+          # booleans are actually 8-signed
+          is_internal :: 8-signed,
+          partition_metadatas_size :: 32-signed,
+          rest :: binary >>) do
+    {partition_metadatas, rest} = parse_partition_metadatas(partition_metadatas_size, [], rest)
+    [%TopicMetadata{error_code: Protocol.error(error_code), topic: topic, partition_metadatas: partition_metadatas, is_internal: is_internal == 1 } |
+      parse_topic_metadatas_v1(topic_metadatas_size - 1, rest)]
   end
 
   defp parse_partition_metadatas(0, partition_metadatas, rest), do: {partition_metadatas, rest}
