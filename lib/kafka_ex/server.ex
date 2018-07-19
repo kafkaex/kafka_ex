@@ -289,7 +289,19 @@ defmodule KafkaEx.Server do
       # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
       def kafka_server_produce(produce_request, state) do
         correlation_id = state.correlation_id + 1
-        produce_request_data = Produce.create_request(correlation_id, @client_id, produce_request)
+        produce_request_data = try do
+          Produce.create_request(correlation_id, @client_id, produce_request)
+        rescue
+          e in FunctionClauseError -> nil
+        end
+
+        case produce_request_data do
+          nil -> {:reply, {:error, "Invalid produce request"}, state}
+          _ -> kafka_server_produce_send_request(correlation_id, produce_request, produce_request_data, state)
+        end
+      end
+
+      def kafka_server_produce_send_request(correlation_id, produce_request, produce_request_data, state) do
         {broker, state, corr_id} = case MetadataResponse.broker_for_topic(state.metadata, state.brokers, produce_request.topic, produce_request.partition) do
           nil ->
             {retrieved_corr_id, _} = retrieve_metadata(state.brokers, state.correlation_id, config_sync_timeout(), produce_request.topic)

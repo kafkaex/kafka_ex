@@ -82,11 +82,15 @@ defmodule KafkaEx.Protocol.Produce do
   def parse_response(unknown), do: unknown
 
   defp create_message_set([], _compression_type), do: {"", 0}
-  defp create_message_set([%Message{key: key, value: value}|messages], :none) do
+  defp create_message_set_uncompressed([%Message{key: key, value: value}|messages]) do
     {message, msize} = create_message(value, key)
     message_set = [<< 0 :: 64-signed >>, << msize :: 32-signed >>, message]
     {message_set2, ms2size} = create_message_set(messages, :none)
     {[message_set, message_set2], 8 + 4 + msize + ms2size}
+  end
+
+  defp create_message_set(messages, :none) do
+    create_message_set_uncompressed(messages)
   end
   defp create_message_set(messages, compression_type) do
     {message_set, _} = create_message_set(messages, :none)
