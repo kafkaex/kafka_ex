@@ -39,18 +39,18 @@ defmodule KafkaEx.Server do
       use_ssl: false
     )
 
-      @type t :: %State{
-        metadata: Metadata.Response.t,
-        brokers: [Broker.t],
-        event_pid: nil | pid,
-        consumer_metadata: ConsumerMetadata.Response.t,
-        correlation_id: integer,
-        metadata_update_interval: nil | integer,
-        consumer_group_update_interval: nil | integer,
-        worker_name: atom,
-        ssl_options: KafkaEx.ssl_options,
-        use_ssl: boolean
-      }
+    @type t :: %State{
+      metadata: Metadata.Response.t,
+      brokers: [Broker.t],
+      event_pid: nil | pid,
+      consumer_metadata: ConsumerMetadata.Response.t,
+      correlation_id: integer,
+      metadata_update_interval: nil | integer,
+      consumer_group_update_interval: nil | integer,
+      worker_name: atom,
+      ssl_options: KafkaEx.ssl_options,
+      use_ssl: boolean,
+    }
 
     @spec increment_correlation_id(t) :: t
     def increment_correlation_id(%State{correlation_id: cid} = state) do
@@ -287,7 +287,7 @@ defmodule KafkaEx.Server do
         correlation_id = state.correlation_id + 1
         produce_request_data = Produce.create_request(correlation_id, @client_id, produce_request)
         {broker, state, corr_id} = case MetadataResponse.broker_for_topic(state.metadata, state.brokers, produce_request.topic, produce_request.partition) do
-          nil    ->
+          nil ->
             {retrieved_corr_id, _} = retrieve_metadata(state.brokers, state.correlation_id, config_sync_timeout(), produce_request.topic)
             state = %{update_metadata(state) | correlation_id: retrieved_corr_id}
             {
