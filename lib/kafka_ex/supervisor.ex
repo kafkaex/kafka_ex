@@ -8,6 +8,10 @@ defmodule KafkaEx.Supervisor do
     {:ok, pid}
   end
 
+  def start_child(opts) do
+    Supervisor.start_child(__MODULE__, opts)
+  end
+
   def stop_child(child) do
     Supervisor.terminate_child(__MODULE__, child)
   end
