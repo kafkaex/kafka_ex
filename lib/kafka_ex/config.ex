@@ -65,6 +65,12 @@ defmodule KafkaEx.Config do
       end
     end
   end
+  defp brokers({mod, fun, args}) when is_atom(mod) and is_atom(fun) do
+    apply(mod, fun, args)
+  end
+  defp brokers(fun) when is_function(fun, 0) do
+    fun.()
+  end
 
   if Version.match?(System.version, "<1.3.0") do
     defp trim(string), do: String.strip(string)

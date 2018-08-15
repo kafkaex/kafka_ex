@@ -5,6 +5,9 @@ config :kafka_ex,
   #
   #  * [{"HOST", port}...]
   #  * CSV - `"HOST:PORT,HOST:PORT[,...]"`
+  #  * {mod, fun, args}
+  #  * &arity_zero_fun/0
+  #  * fn -> ... end
   #
   # If you receive :leader_not_available
   # errors when producing messages, it may be necessary to modify "advertised.host.name" in the
@@ -18,6 +21,12 @@ config :kafka_ex,
   #
   # OR:
   # brokers: "localhost:9092,localhost:9093,localhost:9094"
+  #
+  # It may be useful to configure your brokers at runtime, for example if you use
+  # service discovery instead of storing your broker hostnames in a config file.
+  # To do this, you can use `{mod, fun, args}` or a zero-arity function, and `KafkaEx`
+  # will invoke your callback when fetching the `:brokers` configuration.
+  # Note that when using this approach you must return a list of host/port pairs.
   #
   # the default consumer group for worker processes, must be a binary (string)
   #    NOTE if you are on Kafka < 0.8.2 or if you want to disable the use of
