@@ -223,12 +223,8 @@ defmodule KafkaEx.Server0P8P2 do
   def consumer_group?(%State{consumer_group: :no_consumer_group}), do: false
   def consumer_group?(_), do: true
 
-  def consumer_group_if_auto_commit?(true, state) do
-    consumer_group?(state)
-  end
-  def consumer_group_if_auto_commit?(false, _state) do
-    true
-  end
+  def consumer_group_if_auto_commit?(true, state), do: consumer_group?(state)
+  def consumer_group_if_auto_commit?(false, _state), do: true
 
   defp first_broker_response(request, state) do
     first_broker_response(request, state.brokers, config_sync_timeout())
