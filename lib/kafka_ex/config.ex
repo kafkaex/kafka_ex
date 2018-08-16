@@ -48,10 +48,9 @@ defmodule KafkaEx.Config do
       |> brokers()
   end
 
-  defp brokers(nil),
-    do: nil
-  defp brokers(list) when is_list(list),
-    do: list
+  defp brokers(nil), do: nil
+  defp brokers({:system, env_variable}), do: brokers(System.get_env(env_variable))
+  defp brokers(list) when is_list(list), do: list
   defp brokers(csv) when is_binary(csv) do
     for line <- String.split(csv, ","), into: [] do
       case line |> trim() |> String.split(":") do
