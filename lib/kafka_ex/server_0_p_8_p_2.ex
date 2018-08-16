@@ -57,17 +57,15 @@ defmodule KafkaEx.Server0P8P2 do
     state = update_metadata(state)
     {:ok, _} = :timer.send_interval(state.metadata_update_interval, :update_metadata)
 
-    state =
-      if consumer_group?(state) do
-        # If we are using consumer groups then initialize the state and start the update cycle
-        {_, updated_state} = update_consumer_metadata(state)
-        {:ok, _} = :timer.send_interval(state.consumer_group_update_interval, :update_consumer_metadata)
-        updated_state
-      else
-        state
-      end
+    if consumer_group?(state) do
+      # If we are using consumer groups then initialize the state and start the update cycle
+      {_, updated_state} = update_consumer_metadata(state)
+      {:ok, _} = :timer.send_interval(state.consumer_group_update_interval, :update_consumer_metadata)
+      {:ok, updated_state}
+    else
+      {:ok, state}
+    end
 
-    {:ok, state}
   end
 
   def kafka_server_consumer_group(state) do
@@ -225,12 +223,8 @@ defmodule KafkaEx.Server0P8P2 do
   def consumer_group?(%State{consumer_group: :no_consumer_group}), do: false
   def consumer_group?(_), do: true
 
-  def consumer_group_if_auto_commit?(true, state) do
-    consumer_group?(state)
-  end
-  def consumer_group_if_auto_commit?(false, _state) do
-    true
-  end
+  def consumer_group_if_auto_commit?(true, state), do: consumer_group?(state)
+  def consumer_group_if_auto_commit?(false, _state), do: true
 
   defp first_broker_response(request, state) do
     first_broker_response(request, state.brokers, config_sync_timeout())

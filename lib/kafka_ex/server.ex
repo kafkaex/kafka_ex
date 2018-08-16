@@ -39,18 +39,18 @@ defmodule KafkaEx.Server do
       use_ssl: false
     )
 
-      @type t :: %State{
-        metadata: Metadata.Response.t,
-        brokers: [Broker.t],
-        event_pid: nil | pid,
-        consumer_metadata: ConsumerMetadata.Response.t,
-        correlation_id: integer,
-        metadata_update_interval: nil | integer,
-        consumer_group_update_interval: nil | integer,
-        worker_name: atom,
-        ssl_options: KafkaEx.ssl_options,
-        use_ssl: boolean
-      }
+    @type t :: %State{
+      metadata: Metadata.Response.t,
+      brokers: [Broker.t],
+      event_pid: nil | pid,
+      consumer_metadata: ConsumerMetadata.Response.t,
+      correlation_id: integer,
+      metadata_update_interval: nil | integer,
+      consumer_group_update_interval: nil | integer,
+      worker_name: atom,
+      ssl_options: KafkaEx.ssl_options,
+      use_ssl: boolean,
+    }
 
     @spec increment_correlation_id(t) :: t
     def increment_correlation_id(%State{correlation_id: cid} = state) do
@@ -287,7 +287,7 @@ defmodule KafkaEx.Server do
         correlation_id = state.correlation_id + 1
         produce_request_data = Produce.create_request(correlation_id, @client_id, produce_request)
         {broker, state, corr_id} = case MetadataResponse.broker_for_topic(state.metadata, state.brokers, produce_request.topic, produce_request.partition) do
-          nil    ->
+          nil ->
             {retrieved_corr_id, _} = retrieve_metadata(state.brokers, state.correlation_id, config_sync_timeout(), produce_request.topic)
             state = %{update_metadata(state) | correlation_id: retrieved_corr_id}
             {
@@ -387,20 +387,20 @@ defmodule KafkaEx.Server do
       def retrieve_metadata(brokers, correlation_id, sync_timeout, topic, retry, _error_code) do
         metadata_request = Metadata.create_request(correlation_id, @client_id, topic)
         data = first_broker_response(metadata_request, brokers, sync_timeout)
-        response = case data do
-                     nil ->
-                       Logger.log(:error, "Unable to fetch metadata from any brokers.  Timeout is #{sync_timeout}.")
-                       raise "Unable to fetch metadata from any brokers.  Timeout is #{sync_timeout}."
-                       :no_metadata_available
-                     data ->
-                       Metadata.parse_response(data)
-                   end
+        if data do
+          response = Metadata.parse_response(data)
 
-                   case Enum.find(response.topic_metadatas, &(&1.error_code == :leader_not_available)) do
-          nil  -> {correlation_id + 1, response}
-          topic_metadata ->
-            :timer.sleep(300)
-            retrieve_metadata(brokers, correlation_id + 1, sync_timeout, topic, retry - 1, topic_metadata.error_code)
+          case Enum.find(response.topic_metadatas, &(&1.error_code == :leader_not_available)) do
+            nil -> {correlation_id + 1, response}
+            topic_metadata ->
+              :timer.sleep(300)
+              retrieve_metadata(brokers, correlation_id + 1, sync_timeout, topic, retry - 1, topic_metadata.error_code)
+          end
+        else
+          message = "Unable to fetch metadata from any brokers. Timeout is #{sync_timeout}."
+          Logger.log(:error, message)
+          raise message
+          :no_metadata_available
         end
       end
 

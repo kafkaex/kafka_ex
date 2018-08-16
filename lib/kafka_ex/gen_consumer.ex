@@ -60,7 +60,7 @@ defmodule KafkaEx.GenConsumer do
   * `{:sync_commit, new_state}` causes synchronous offset commits.
   * `{:async_commit, new_state}` causes asynchronous offset commits.
 
-  Note that with both of the offset commit strategies, only of the final offset
+  Note that with both of the offset commit strategies, only if the final offset
   in the message set is committed and this is done after the messages are
   consumed.  If you want to commit the offset of every message consumed, use
   the synchronous offset commit strategy and implement calls to
@@ -141,7 +141,7 @@ defmodule KafkaEx.GenConsumer do
       {:async_commit, %{state | messages: state.messages ++ message_set}}
     end
 
-    def handle_call(:messages, _from, state)
+    def handle_call(:messages, _from, state) do
       {:reply, state.messages, %{state | calls: state.calls + 1}}
     end
   end
