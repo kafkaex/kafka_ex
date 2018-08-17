@@ -63,4 +63,29 @@ defmodule KafkaEx.ConfigTest do
     Application.put_env(:kafka_ex, :brokers, brokers)
     assert parsed_brokers == Config.brokers()
   end
+
+  test "brokers with lazy configuration using mod, fun, and args" do
+    opts = [port: 8888]
+    brokers = {KafkaEx.ConfigTest, :get_brokers, [opts]}
+    Application.put_env(:kafka_ex, :brokers, brokers)
+
+    assert get_brokers(port: 8888) == Config.brokers()
+  end
+
+  test "brokers with lazy configuration using fun" do
+    brokers =
+      fn ->
+        get_brokers(port: 8888)
+      end
+    Application.put_env(:kafka_ex, :brokers, brokers)
+
+    assert get_brokers(port: 8888) == Config.brokers()
+  end
+
+  def get_brokers(opts) do
+    port = Keyword.get(opts, :port)
+    [
+      {"elixir-lang.org", port}
+    ]
+  end
 end
