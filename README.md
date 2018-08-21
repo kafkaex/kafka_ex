@@ -249,7 +249,7 @@ iex> KafkaEx.stream("foo", 0, offset: 0) |> Enum.take(2)
  %{attributes: 0, crc: 4251893211, key: nil, offset: 1, value: "hi"}]
 ```
 
-For Kafka < 0.8.2 the `stream/3` requires `autocommit: false`
+For Kafka < 0.8.2 the `stream/3` requires `auto_commit: false`
 
 ```elixir
 iex> KafkaEx.stream("foo", 0, offset: 0, auto_commit: false) |> Enum.take(2)
