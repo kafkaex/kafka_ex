@@ -387,7 +387,7 @@ defmodule KafkaEx do
   25, 50, 75, etc.
 
   Note that offsets are committed immediately after messages are retrieved
-  and before you know if you have succesfully consumed them.  It is
+  and before you know if you have successfully consumed them.  It is
   therefore possible that you could miss messages if your consumer crashes in
   the middle of consuming a batch, effectively losing the guarantee of
   at-least-once delivery.  If you need this guarantee, we recommend that you

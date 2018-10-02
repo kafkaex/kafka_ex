@@ -8,7 +8,7 @@ defmodule KafkaEx.NetworkClient do
   def create_socket(host, port, ssl_options \\ [], use_ssl \\ false) do
     case Socket.create(format_host(host), port, build_socket_options(ssl_options), use_ssl) do
       {:ok, socket} ->
-        Logger.log(:debug, "Succesfully connected to broker #{inspect(host)}:#{inspect port}")
+        Logger.log(:debug, "Successfully connected to broker #{inspect(host)}:#{inspect port}")
         socket
       err           ->
         Logger.log(:error, "Could not connect to broker #{inspect(host)}:#{inspect port} because of error #{inspect err}")
