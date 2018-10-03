@@ -31,10 +31,10 @@ defmodule KafkaEx.Protocol.CreateTopics do
 
   defmodule TopicRequest do
     defstruct topic: nil,
-              num_partitions: nil,
-              replication_factor: nil,
-              replica_assignment: nil,
-              config_entries: nil
+              num_partitions: -1,
+              replication_factor: -1,
+              replica_assignment: [],
+              config_entries: []
     @type t :: %TopicRequest{
       topic: binary,
       num_partitions: integer,

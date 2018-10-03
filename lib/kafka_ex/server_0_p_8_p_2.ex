@@ -138,7 +138,7 @@ defmodule KafkaEx.Server0P8P2 do
   def kafka_server_leave_group(_, _, _state), do: raise "Leave Group is not supported in 0.8.0 version of Kafka"
   def kafka_server_heartbeat(_, _, _state), do: raise "Heartbeat is not supported in 0.8.0 version of kafka"
   defp update_consumer_metadata(state), do: update_consumer_metadata(state, @retry_count, 0)
-  def kafka_create_topics(_, _state), do: raise "CreateTopic is not supported in 0.9.0 version of kafka"
+  def kafka_create_topics(_, _, _state), do: raise "CreateTopic is not supported in 0.8.0 version of kafka"
 
   defp update_consumer_metadata(%State{consumer_group: consumer_group} = state, 0, error_code) do
     Logger.log(:error, "Fetching consumer_group #{consumer_group} metadata failed with error_code #{inspect error_code}")

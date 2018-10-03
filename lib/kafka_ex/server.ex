@@ -260,8 +260,8 @@ defmodule KafkaEx.Server do
         kafka_server_heartbeat(request, network_timeout, state)
       end
 
-      def handle_call({:create_topics, topic_name}, _from, state) do
-        kafka_create_topics(topic_name, state)
+      def handle_call({:create_topics, requests, network_timeout}, _from, state) do
+        kafka_create_topics(requests, network_timeout, state)
       end
 
       def handle_info(:update_metadata, state) do

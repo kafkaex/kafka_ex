@@ -7,17 +7,11 @@ defmodule KafkaEx.Server0P10P1 do
   alias KafkaEx.Server0P8P2
   alias KafkaEx.Server0P9P0
 
-  # alias KafkaEx.ConsumerGroupRequiredError
   alias KafkaEx.InvalidConsumerGroupError
   alias KafkaEx.Protocol.ConsumerMetadata
   alias KafkaEx.Protocol.ConsumerMetadata.Response, as: ConsumerMetadataResponse
-  # alias KafkaEx.Protocol.Heartbeat
-  # alias KafkaEx.Protocol.JoinGroup
-  # alias KafkaEx.Protocol.LeaveGroup
   alias KafkaEx.Protocol.Metadata.Broker
-  # alias KafkaEx.Protocol.SyncGroup
   alias KafkaEx.Server.State
-  # alias KafkaEx.NetworkClient
 
   require Logger
 
@@ -100,10 +94,10 @@ defmodule KafkaEx.Server0P10P1 do
     {:noreply, update_metadata(state, @metadata_api_version)}
   end
 
-  def kafka_create_topics(requests, state) do
+  def kafka_create_topics(requests, network_timeout, state) do
     create_topics_request = %CreateTopics.Request{
       create_topic_requests: requests,
-      timeout: 2000
+      timeout: network_timeout
     }
 
     mainRequest = CreateTopics.create_request(state.correlation_id, @client_id, create_topics_request)

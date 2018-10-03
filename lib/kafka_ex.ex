@@ -538,10 +538,10 @@ defmodule KafkaEx do
   ```
   """
   @spec create_topics(String.t) :: CreateTopics.Response.t
-  def create_topics(topic_name, opts \\ []) do
+  def create_topics(requests, opts \\ []) do
     worker_name  = Keyword.get(opts, :worker_name, Config.default_worker)
-    # topic = Keyword.get(opts, :topic, "")
-    Server.call(worker_name, {:create_topics, topic_name})
+    timeout = Keyword.get(opts, :timeout, 4000)
+    Server.call(worker_name, {:create_topics, requests, timeout})
   end
 
 #OTP API
