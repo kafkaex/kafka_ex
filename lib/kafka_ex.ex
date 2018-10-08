@@ -22,6 +22,8 @@ defmodule KafkaEx do
   alias KafkaEx.Protocol.Produce.Message
   alias KafkaEx.Protocol.SyncGroup.Request, as: SyncGroupRequest
   alias KafkaEx.Protocol.SyncGroup.Response, as: SyncGroupResponse
+  alias KafkaEx.Protocol.CreateTopics.Request, as: CreateTopicsRequest
+  alias KafkaEx.Protocol.CreateTopics.Response, as: CreateTopicsResponse
   alias KafkaEx.Server
   alias KafkaEx.Stream
 
@@ -537,7 +539,7 @@ defmodule KafkaEx do
 
   ```
   """
-  @spec create_topics(CreateTopics.Requests.t, Keyword.t) :: CreateTopics.Response.t
+  @spec create_topics([CreateTopicsRequest.t], Keyword.t) :: CreateTopicsResponse.t
   def create_topics(requests, opts \\ []) do
     worker_name  = Keyword.get(opts, :worker_name, Config.default_worker)
     timeout = Keyword.get(opts, :timeout, 4000)

@@ -88,7 +88,6 @@ defmodule KafkaEx.Protocol.CreateTopics do
     replica_assignments |> map_encode(&encode_replica_assignment/1)
   end
 
-  @spec encode_replica_assignment(ReplicaAssignment.t) :: binary
   defp encode_replica_assignment(replica_assignment) do
     << replica_assignment.partition :: 32-signed >> <>
     replica_assignment.replicas |> map_encode(&(<< &1 :: 32-signed >>))
