@@ -537,7 +537,7 @@ defmodule KafkaEx do
 
   ```
   """
-  @spec create_topics(String.t) :: CreateTopics.Response.t
+  @spec create_topics(CreateTopics.Requests.t, Keyword.t) :: CreateTopics.Response.t
   def create_topics(requests, opts \\ []) do
     worker_name  = Keyword.get(opts, :worker_name, Config.default_worker)
     timeout = Keyword.get(opts, :timeout, 4000)

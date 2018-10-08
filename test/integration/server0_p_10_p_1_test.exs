@@ -17,11 +17,11 @@ defmodule KafkaEx.Server0P10P1.Test do
         %{config_name: "min.compaction.lag.ms", config_value: "0"}
       ]}
 
-    resp = KafkaEx.create_topics([request], :timeout 2000)
+    resp = KafkaEx.create_topics([request], timeout: 2000)
     # error = NONE
     assert {0, name} == parse_create_topic_resp(resp)
 
-    resp = KafkaEx.create_topics([request], :timeout 2000)
+    resp = KafkaEx.create_topics([request], timeout: 2000)
     # error = TOPIC_ALREADY_EXISTS
     assert {36, name} == parse_create_topic_resp(resp)
 

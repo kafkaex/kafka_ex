@@ -13,7 +13,8 @@ defmodule KafkaEx.Server0P8P0 do
     {:nowarn_function, kafka_server_consumer_group_metadata: 1},
     {:nowarn_function, kafka_server_consumer_group: 1},
     {:nowarn_function, kafka_server_offset_commit: 2},
-    {:nowarn_function, kafka_server_offset_fetch: 2}
+    {:nowarn_function, kafka_server_offset_fetch: 2},
+    {:nowarn_function, kafka_create_topics: 3},
   ]
 
   use KafkaEx.Server

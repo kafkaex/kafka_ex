@@ -6,7 +6,7 @@ defmodule KafkaEx.Server0P9P0 do
 
   # these functions aren't implemented for 0.9.0
   @dialyzer [
-    {:nowarn_function, kafka_create_topics: 2},
+    {:nowarn_function, kafka_create_topics: 3},
   ]
 
   use KafkaEx.Server
@@ -45,7 +45,7 @@ defmodule KafkaEx.Server0P9P0 do
   defdelegate kafka_server_offset_commit(offset_commit_request, state), to: Server0P8P2
   defdelegate kafka_server_consumer_group_metadata(state), to: Server0P8P2
   defdelegate kafka_server_update_consumer_metadata(state), to: Server0P8P2
-  def kafka_create_topics(_, _, _state), do: raise "CreateTopic is not supported in 0.9.0 version of kafka"
+  defdelegate kafka_create_topics(requests, network_timeout, state),to: Server0P8P2
 
   def kafka_server_init([args]) do
     kafka_server_init([args, self()])

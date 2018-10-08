@@ -43,7 +43,6 @@ defmodule KafkaEx.Server0P8P0.Test do
     end)
   end
 
-  @tag :producer_mem_leak
   test "does not mem leak when message is not a Produce.Message" do
     name = "create_topic_#{:rand.uniform(2000000)}"
 
