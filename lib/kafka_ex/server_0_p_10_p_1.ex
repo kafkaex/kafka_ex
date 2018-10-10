@@ -65,7 +65,7 @@ defmodule KafkaEx.Server0P10P1 do
 
     brokers = Enum.map(uris, fn({host, port}) -> %Broker{host: host, port: port, socket: NetworkClient.create_socket(host, port, ssl_options, use_ssl)} end)
 
-    {correlation_id, metadata} = retrieve_metadata_with_version(brokers, 0, config_sync_timeout(), @metadata_api_version)
+    {correlation_id, metadata} = retrieve_metadata(brokers, 0, config_sync_timeout(), [], @metadata_api_version)
     state = %State{metadata: metadata, brokers: brokers, correlation_id: correlation_id, consumer_group: consumer_group, metadata_update_interval: metadata_update_interval, consumer_group_update_interval: consumer_group_update_interval, worker_name: name, ssl_options: ssl_options, use_ssl: use_ssl}
     # Get the initial "real" broker list and start a regular refresh cycle.
     state = update_metadata(state, @metadata_api_version)
@@ -85,7 +85,7 @@ defmodule KafkaEx.Server0P10P1 do
   end
 
   def kafka_server_metadata(topic, state) do
-    {correlation_id, metadata} = retrieve_metadata_with_version(state.brokers, state.correlation_id, config_sync_timeout(), @metadata_api_version, topic)
+    {correlation_id, metadata} = retrieve_metadata(state.brokers, state.correlation_id, config_sync_timeout(), topic, @metadata_api_version)
     updated_state = %{state | metadata: metadata, correlation_id: correlation_id}
     {:reply, metadata, updated_state}
   end

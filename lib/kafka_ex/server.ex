@@ -383,10 +383,10 @@ defmodule KafkaEx.Server do
         {:noreply, update_metadata(state)}
       end
 
-      def update_metadata(state), do: update_metadata(state, nil)
+      def update_metadata(state), do: update_metadata(state, 0)
 
       def update_metadata(state, api_version) do
-        {correlation_id, metadata} = retrieve_metadata_with_version(state.brokers, state.correlation_id, config_sync_timeout(), api_version)
+        {correlation_id, metadata} = retrieve_metadata(state.brokers, state.correlation_id, config_sync_timeout(), [], api_version)
         metadata_brokers = metadata.brokers |> Enum.map(&(%{&1 | is_controller: &1.node_id == metadata.controller_id}))
         brokers = state.brokers
           |> remove_stale_brokers(metadata_brokers)
@@ -395,24 +395,20 @@ defmodule KafkaEx.Server do
       end
 
       # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
-      def retrieve_metadata(brokers, correlation_id, sync_timeout, topic \\ []), do: retrieve_metadata(brokers, correlation_id, sync_timeout, topic, @retry_count, 0)
+      def retrieve_metadata(brokers, correlation_id, sync_timeout, topic \\ [], api_version \\ 0) do
+        retrieve_metadata(brokers, correlation_id, sync_timeout, topic, @retry_count, 0, api_version)
+      end
+
+      def retrieve_metadata(brokers, correlation_id, sync_timeout, topic, retry, error_code, api_version \\ 0)
 
       # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
-      def retrieve_metadata_with_version(brokers, correlation_id, sync_timeout, api_version, topic \\ []), do: retrieve_metadata(brokers, correlation_id, sync_timeout, topic, @retry_count, api_version, 0)
-
-      # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
-      def retrieve_metadata(_, correlation_id, _sync_timeout, topic, 0, error_code) do
+      def retrieve_metadata(_, correlation_id, _sync_timeout, topic, 0, error_code, api_version) do
         Logger.log(:error, "Metadata request for topic #{inspect topic} failed with error_code #{inspect error_code}")
         {correlation_id, %Metadata.Response{}}
       end
 
       # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
-      def retrieve_metadata(brokers, correlation_id, sync_timeout, topic, retry, error_code) do
-        retrieve_metadata(brokers, correlation_id, sync_timeout, topic, retry, nil, error_code)
-      end
-
-      # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
-      def retrieve_metadata(brokers, correlation_id, sync_timeout, topic, retry, api_version, _error_code) do
+      def retrieve_metadata(brokers, correlation_id, sync_timeout, topic, retry, _error_code, api_version) do
         metadata_request = Metadata.create_request(correlation_id, @client_id, topic, api_version)
         data = first_broker_response(metadata_request, brokers, sync_timeout)
         if data do
@@ -422,7 +418,7 @@ defmodule KafkaEx.Server do
             nil -> {correlation_id + 1, response}
             topic_metadata ->
               :timer.sleep(300)
-              retrieve_metadata(brokers, correlation_id + 1, sync_timeout, topic, retry - 1, topic_metadata.error_code)
+              retrieve_metadata(brokers, correlation_id + 1, sync_timeout, topic, retry - 1, topic_metadata.error_code, api_version)
           end
         else
           message = "Unable to fetch metadata from any brokers. Timeout is #{sync_timeout}."
