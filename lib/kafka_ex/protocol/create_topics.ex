@@ -26,7 +26,7 @@ defmodule KafkaEx.Protocol.CreateTopics do
 
   defmodule ConfigEntry do
     defstruct config_name: nil, config_value: nil
-    @type t :: %ConfigEntry{ config_name: binary, config_value: binary }
+    @type t :: %ConfigEntry{ config_name: binary, config_value: binary | nil }
   end
 
   defmodule TopicRequest do
@@ -105,10 +105,9 @@ defmodule KafkaEx.Protocol.CreateTopics do
 
   @spec encode_nullable_string(String.t) :: binary
   defp encode_nullable_string(text) do
-    if text == nil do
-      << -1 :: 16-signed >>
-    else
-      encode_string(text)
+    case text do
+      nil -> << -1 :: 16-signed >>
+      _ -> encode_string(text)
     end
   end
 
