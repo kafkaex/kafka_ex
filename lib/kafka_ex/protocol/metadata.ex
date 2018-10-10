@@ -122,26 +122,26 @@ defmodule KafkaEx.Protocol.Metadata do
   def parse_response(<< _correlation_id :: 32-signed, brokers_size :: 32-signed, rest :: binary >>, api_version) do
     case api_version do
       1 ->
-        {brokers, rest} = parse_brokers_v1(brokers_size, rest, [])
+        {brokers, rest} = parse_brokers(1, brokers_size, rest, [])
         << controller_id :: 32-signed, rest :: binary >> = rest
         << topic_metadatas_size :: 32-signed, rest :: binary >> = rest
         %Response{brokers: brokers, controller_id: controller_id, topic_metadatas: parse_topic_metadatas_v1(topic_metadatas_size, rest)}
       0 ->
-        {brokers, rest} = parse_brokers(brokers_size, rest, [])
+        {brokers, rest} = parse_brokers(0, brokers_size, rest, [])
         << topic_metadatas_size :: 32-signed, rest :: binary >> = rest
         %Response{brokers: brokers, topic_metadatas: parse_topic_metadatas(topic_metadatas_size, rest)}
     end
   end
 
-  defp parse_brokers(0, rest, brokers), do: {brokers, rest}
+  defp parse_brokers(_api_version, 0, rest, brokers), do: {brokers, rest}
 
-  defp parse_brokers(brokers_size, << node_id :: 32-signed, host_len :: 16-signed, host :: size(host_len)-binary, port :: 32-signed, rest :: binary >>, brokers) do
-    parse_brokers(brokers_size - 1, rest, [%Broker{node_id: node_id, host: host, port: port} | brokers])
+  defp parse_brokers(0, brokers_size, << node_id :: 32-signed, host_len :: 16-signed, host :: size(host_len)-binary, port :: 32-signed, rest :: binary >>, brokers) do
+    parse_brokers(0, brokers_size - 1, rest, [%Broker{node_id: node_id, host: host, port: port} | brokers])
   end
 
-  defp parse_brokers_v1(0, rest, brokers), do: {brokers, rest}
+  # defp parse_brokers_v1(0, rest, brokers), do: {brokers, rest}
 
-  defp parse_brokers_v1(brokers_size, <<
+  defp parse_brokers(1, brokers_size, <<
                                       node_id :: 32-signed,
                                       host_len :: 16-signed,
                                       host :: size(host_len)-binary,
@@ -150,10 +150,10 @@ defmodule KafkaEx.Protocol.Metadata do
                                       -1 :: 16-signed,
                                       rest :: binary
                                     >>, brokers) do
-    parse_brokers_v1(brokers_size - 1, rest, [%Broker{node_id: node_id, host: host, port: port} | brokers])
+    parse_brokers(1, brokers_size - 1, rest, [%Broker{node_id: node_id, host: host, port: port} | brokers])
   end
 
-  defp parse_brokers_v1(brokers_size, <<
+  defp parse_brokers(1, brokers_size, <<
                                       node_id :: 32-signed,
                                       host_len :: 16-signed,
                                       host :: size(host_len)-binary,
@@ -162,7 +162,7 @@ defmodule KafkaEx.Protocol.Metadata do
                                       _rack :: size(rack_len)-binary,
                                       rest :: binary
                                     >>, brokers) do
-    parse_brokers_v1(brokers_size - 1, rest, [%Broker{node_id: node_id, host: host, port: port} | brokers])
+    parse_brokers(1, brokers_size - 1, rest, [%Broker{node_id: node_id, host: host, port: port} | brokers])
   end
 
   defp parse_topic_metadatas(0, _), do: []
