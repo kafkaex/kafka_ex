@@ -1,5 +1,6 @@
 defmodule KafkaEx.Server0P10P1.Test do
   use ExUnit.Case
+  import TestHelper
 
   @moduletag :server_0_p_10_p_1
 
@@ -25,8 +26,10 @@ defmodule KafkaEx.Server0P10P1.Test do
     # error = TOPIC_ALREADY_EXISTS
     assert {36, name} == parse_create_topic_resp(resp)
 
-    topics = KafkaEx.metadata.topic_metadatas |> Enum.map(&(&1.topic))
-    assert Enum.member?(topics, name)
+    wait_for(fn ->
+      topics = KafkaEx.metadata.topic_metadatas |> Enum.map(&(&1.topic))
+      assert Enum.member?(topics, name)
+    end)
   end
 
   def parse_create_topic_resp(response) do

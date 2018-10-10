@@ -126,7 +126,6 @@ defmodule KafkaEx.Protocol.CreateTopics do
         |> Enum.map(function)
         |> Enum.reduce(&(&1 <> &2)))
     end
-
   end
 
   @spec parse_response(binary) :: [] | Response.t

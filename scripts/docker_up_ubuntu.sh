@@ -6,7 +6,7 @@
 set -e
 
 IP_IFACE="docker0"
-DOCKER_IP=$(ip addr show dev docker0 | grep -o "inet[^/]*" | grep -o "[0-9]\{1,3\}[.][0-9.]*")
+DOCKER_IP=$(ip addr show dev $IP_IFACE | grep -o "inet[^/]*" | grep -o "[0-9]\{1,3\}[.][0-9.]*")
 
 for i in 1 2 3
 do
