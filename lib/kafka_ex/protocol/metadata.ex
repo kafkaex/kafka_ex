@@ -97,34 +97,30 @@ defmodule KafkaEx.Protocol.Metadata do
     }
   end
 
-  def valid_api_version(v) do
-    case v do
-      nil -> @default_api_version
-      v -> v
-    end
-  end
+  def create_request(correlation_id, client_id, ""), do: create_request(correlation_id, client_id, "", @default_api_version)
+  def create_request(correlation_id, client_id, topics) when is_list(topics), do: create_request(correlation_id, client_id, topics, @default_api_version)
 
-  def create_request(correlation_id, client_id, ""), do: create_request(correlation_id, client_id, "", nil)
-  def create_request(correlation_id, client_id, topics) when is_list(topics), do: create_request(correlation_id, client_id, topics, nil)
+  def create_request(correlation_id, client_id, "", nil), do: create_request(correlation_id, client_id, "", @default_api_version)
+  def create_request(correlation_id, client_id, topics, nil) when is_list(topics), do: create_request(correlation_id, client_id, topics, @default_api_version)
 
   def create_request(correlation_id, client_id, "", api_version) do
-    version = valid_api_version(api_version)
-    topic_count = if 0 == version, do: 0, else: -1
-    KafkaEx.Protocol.create_request(:metadata, correlation_id, client_id, version) <> << topic_count :: 32-signed >>
+    topic_count = if 0 == api_version, do: 0, else: -1
+    KafkaEx.Protocol.create_request(:metadata, correlation_id, client_id, api_version) <> << topic_count :: 32-signed >>
   end
-  def create_request(correlation_id, client_id, topic, api_version) when is_binary(topic), do: create_request(correlation_id, client_id, [topic], valid_api_version(api_version))
+
+  def create_request(correlation_id, client_id, topic, api_version) when is_binary(topic) do
+    create_request(correlation_id, client_id, [topic], api_version)
+  end
 
   def create_request(correlation_id, client_id, topics, api_version) when is_list(topics) do
-    KafkaEx.Protocol.create_request(:metadata, correlation_id, client_id, valid_api_version(api_version)) <> << length(topics) :: 32-signed, topic_data(topics) :: binary >>
+    KafkaEx.Protocol.create_request(:metadata, correlation_id, client_id, api_version) <> << length(topics) :: 32-signed, topic_data(topics) :: binary >>
   end
 
-  def parse_response(data) do
-    parse_response(data, nil)
-  end
+  def parse_response(data), do: parse_response(data, @default_api_version)
+  def parse_response(data, nil), do: parse_response(data, @default_api_version)
 
   def parse_response(<< _correlation_id :: 32-signed, brokers_size :: 32-signed, rest :: binary >>, api_version) do
-    version = valid_api_version(api_version)
-    case version do
+    case api_version do
       1 ->
         {brokers, rest} = parse_brokers_v1(brokers_size, rest, [])
         << controller_id :: 32-signed, rest :: binary >> = rest
