@@ -26,8 +26,9 @@ sudo: required
 services:
   - docker
 env:
-  - COVERALLS=false
-  - CREDO=false
+  global:
+    - COVERALLS=false
+    - CREDO=false
 before_script:
   - IP_IFACE=eth0 ./scripts/docker_up.sh
 script:
