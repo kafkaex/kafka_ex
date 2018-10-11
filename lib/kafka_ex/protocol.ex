@@ -106,7 +106,20 @@ defmodule KafkaEx.Protocol do
     28 => :invalid_commit_offset,
     29 => :topic_authorization_failed,
     30 => :group_authorization_failed,
-    31 => :cluster_authorization_failed
+    31 => :cluster_authorization_failed,
+    32 => :invalid_timestamp,
+    33 => :unsupported_sasl_mechanism,
+    34 => :illegal_sasl_state,
+    35 => :unsupported_version,
+    36 => :topic_already_exists,
+    37 => :invalid_partitions,
+    38 => :invalid_replication_factor,
+    39 => :invalid_replica_assignment,
+    40 => :invalid_config,
+    41 => :not_controller,
+    42 => :invalid_request,
+    43 => :unsupported_for_message_format,
+
   }
 
   @spec error(integer) :: atom | integer

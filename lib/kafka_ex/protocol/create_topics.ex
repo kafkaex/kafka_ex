@@ -52,7 +52,7 @@ defmodule KafkaEx.Protocol.CreateTopics do
 
   defmodule TopicError do
     defstruct topic_name: nil, error_code: nil
-    @type t :: %TopicError{ topic_name: binary, error_code: integer }
+    @type t :: %TopicError{ topic_name: binary, error_code: atom }
   end
 
   defmodule Response do
@@ -137,7 +137,7 @@ defmodule KafkaEx.Protocol.CreateTopics do
   @spec parse_topic_errors(integer, binary) :: [TopicError.t]
   defp parse_topic_errors(topic_errors_count,
       << topic_name_size :: 16-signed, topic_name :: size(topic_name_size)-binary, error_code :: 16-signed, rest :: binary >>) do
-    [%TopicError{topic_name: topic_name, error_code: error_code} | parse_topic_errors(topic_errors_count - 1, rest)]
+    [%TopicError{topic_name: topic_name, error_code: Protocol.error(error_code)} | parse_topic_errors(topic_errors_count - 1, rest)]
   end
 
 end

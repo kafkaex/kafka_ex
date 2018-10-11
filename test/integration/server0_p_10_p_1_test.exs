@@ -19,12 +19,10 @@ defmodule KafkaEx.Server0P10P1.Test do
       ]}
 
     resp = KafkaEx.create_topics([request], timeout: 2000)
-    # error = NONE
-    assert {0, name} == parse_create_topic_resp(resp)
+    assert {:no_error, name} == parse_create_topic_resp(resp)
 
     resp = KafkaEx.create_topics([request], timeout: 2000)
-    # error = TOPIC_ALREADY_EXISTS
-    assert {36, name} == parse_create_topic_resp(resp)
+    assert {:topic_already_exists, name} == parse_create_topic_resp(resp)
 
     wait_for(fn ->
       topics = KafkaEx.metadata.topic_metadatas |> Enum.map(&(&1.topic))
