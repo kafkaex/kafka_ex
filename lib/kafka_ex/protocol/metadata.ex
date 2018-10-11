@@ -97,8 +97,7 @@ defmodule KafkaEx.Protocol.Metadata do
     }
   end
 
-  def create_request(correlation_id, client_id, ""), do: create_request(correlation_id, client_id, "", @default_api_version)
-  def create_request(correlation_id, client_id, topics) when is_list(topics), do: create_request(correlation_id, client_id, topics, @default_api_version)
+  def create_request(correlation_id, client_id, topics, api_version \\ @default_api_version)
 
   def create_request(correlation_id, client_id, "", api_version) do
     topic_count = if 0 == api_version, do: 0, else: -1
