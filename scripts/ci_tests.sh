@@ -12,7 +12,7 @@ export MIX_ENV=test
 
 if [ "$CREDO" = true ]
 then
-  mix credo
+  MIX_ENV=dev mix credo
 fi
 
 if [ "$COVERALLS" = true ]
