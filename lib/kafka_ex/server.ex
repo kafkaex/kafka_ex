@@ -260,6 +260,10 @@ defmodule KafkaEx.Server do
         kafka_server_heartbeat(request, network_timeout, state)
       end
 
+      def handle_call({:create_topics, requests, network_timeout}, _from, state) do
+        kafka_create_topics(requests, network_timeout, state)
+      end
+
       def handle_info(:update_metadata, state) do
         kafka_server_update_metadata(state)
       end
@@ -285,7 +289,19 @@ defmodule KafkaEx.Server do
       # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
       def kafka_server_produce(produce_request, state) do
         correlation_id = state.correlation_id + 1
-        produce_request_data = Produce.create_request(correlation_id, @client_id, produce_request)
+        produce_request_data = try do
+          Produce.create_request(correlation_id, @client_id, produce_request)
+        rescue
+          e in FunctionClauseError -> nil
+        end
+
+        case produce_request_data do
+          nil -> {:reply, {:error, "Invalid produce request"}, state}
+          _ -> kafka_server_produce_send_request(correlation_id, produce_request, produce_request_data, state)
+        end
+      end
+
+      def kafka_server_produce_send_request(correlation_id, produce_request, produce_request_data, state) do
         {broker, state, corr_id} = case MetadataResponse.broker_for_topic(state.metadata, state.brokers, produce_request.topic, produce_request.partition) do
           nil ->
             {retrieved_corr_id, _} = retrieve_metadata(state.brokers, state.correlation_id, config_sync_timeout(), produce_request.topic)
@@ -367,9 +383,11 @@ defmodule KafkaEx.Server do
         {:noreply, update_metadata(state)}
       end
 
-      def update_metadata(state) do
-        {correlation_id, metadata} = retrieve_metadata(state.brokers, state.correlation_id, config_sync_timeout())
-        metadata_brokers = metadata.brokers
+      def update_metadata(state), do: update_metadata(state, 0)
+
+      def update_metadata(state, api_version) do
+        {correlation_id, metadata} = retrieve_metadata(state.brokers, state.correlation_id, config_sync_timeout(), [], api_version)
+        metadata_brokers = metadata.brokers |> Enum.map(&(%{&1 | is_controller: &1.node_id == metadata.controller_id}))
         brokers = state.brokers
           |> remove_stale_brokers(metadata_brokers)
           |> add_new_brokers(metadata_brokers, state.ssl_options, state.use_ssl)
@@ -377,24 +395,30 @@ defmodule KafkaEx.Server do
       end
 
       # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
-      def retrieve_metadata(brokers, correlation_id, sync_timeout, topic \\ []), do: retrieve_metadata(brokers, correlation_id, sync_timeout, topic, @retry_count, 0)
+      def retrieve_metadata(brokers, correlation_id, sync_timeout, topic \\ [], api_version \\ 0) do
+        retrieve_metadata(brokers, correlation_id, sync_timeout, topic, @retry_count, 0, api_version)
+      end
+
+      def retrieve_metadata(brokers, correlation_id, sync_timeout, topic, retry, error_code, api_version \\ 0)
+
       # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
-      def retrieve_metadata(_, correlation_id, _sync_timeout, topic, 0, error_code) do
+      def retrieve_metadata(_, correlation_id, _sync_timeout, topic, 0, error_code, api_version) do
         Logger.log(:error, "Metadata request for topic #{inspect topic} failed with error_code #{inspect error_code}")
         {correlation_id, %Metadata.Response{}}
       end
+
       # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
-      def retrieve_metadata(brokers, correlation_id, sync_timeout, topic, retry, _error_code) do
-        metadata_request = Metadata.create_request(correlation_id, @client_id, topic)
+      def retrieve_metadata(brokers, correlation_id, sync_timeout, topic, retry, _error_code, api_version) do
+        metadata_request = Metadata.create_request(correlation_id, @client_id, topic, api_version)
         data = first_broker_response(metadata_request, brokers, sync_timeout)
         if data do
-          response = Metadata.parse_response(data)
+          response = Metadata.parse_response(data, api_version)
 
           case Enum.find(response.topic_metadatas, &(&1.error_code == :leader_not_available)) do
             nil -> {correlation_id + 1, response}
             topic_metadata ->
               :timer.sleep(300)
-              retrieve_metadata(brokers, correlation_id + 1, sync_timeout, topic, retry - 1, topic_metadata.error_code)
+              retrieve_metadata(brokers, correlation_id + 1, sync_timeout, topic, retry - 1, topic_metadata.error_code, api_version)
           end
         else
           message = "Unable to fetch metadata from any brokers. Timeout is #{sync_timeout}."

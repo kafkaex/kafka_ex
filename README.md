@@ -318,7 +318,7 @@ variable:
 IP_IFACE=eth0 ./scripts/docker_up.sh
 ```
 
-The test cluster runs Kafka 0.9.2.
+The test cluster runs Kafka 0.10.1.0.
 
 ### Running the KafkaEx Tests
 
@@ -327,7 +327,7 @@ and Kafka versions.
 
 #### Unit tests
 
-These tests do not require a Kafka cluster to be running.
+These tests do not require a Kafka cluster to be running (see test/test_helper.exs:3 for the tags excluded when running this).
 
 ```
 mix test --no-start
@@ -338,7 +338,16 @@ mix test --no-start
 If you are not using the Docker test cluster, you may need to modify
 `config/config.exs` for your set up.
 
-The full test suite requires Kafka 0.9+.
+The full test suite requires Kafka 0.10.1.0+.
+
+##### Kafka >= 0.9.0
+
+The 0.9 client includes functionality that cannot be tested with older
+clusters.
+
+```
+mix test --include integration --include consumer_group --include server_0_p_10_p_1  --include server_0_p_9_p_0 --include server_0_p_8_p_0
+```
 
 ##### Kafka >= 0.9.0
 
@@ -362,7 +371,7 @@ mix test --include consumer_group --include integration
 If your test cluster is older, the consumer group tests must be omitted.
 
 ```
-mix test --include integration
+mix test --include integration --include server_0_p_8_p_0
 ```
 
 ### Static analysis
