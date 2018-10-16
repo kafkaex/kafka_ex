@@ -4,6 +4,8 @@ defmodule KafkaEx.Protocol.CreateTopics do
 
   @moduledoc """
   Implementation of the Kafka CreateTopics request and response APIs
+
+  See: https://kafka.apache.org/protocol.html#The_Messages_CreateTopics
   """
 
   # CreateTopics Request (Version: 0) => [create_topic_requests] timeout

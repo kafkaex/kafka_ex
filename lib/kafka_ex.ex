@@ -529,15 +529,19 @@ defmodule KafkaEx do
   def valid_consumer_group?(b) when is_binary(b), do: byte_size(b) > 0
   def valid_consumer_group?(_), do: false
 
+  @doc """
+  Retrieve supported api versions for each api key.
+  """
+  @spec api_versions(Keyword.t) :: CreateTopicsResponse.t
+  def api_versions(opts \\ []) do
+    worker_name  = Keyword.get(opts, :worker_name, Config.default_worker)
+    Server.call(worker_name, {:api_versions})
+  end
+
 
   @doc """
-
-  ## Example
-
-  ```elixir
-  iex> KafkaEx.create_worker(:mt)
-
-  ```
+  Create topics. Must provide a list of CreateTopicsRequest, each containing
+  all the information needed for the creation of a new topic.
   """
   @spec create_topics([CreateTopicsRequest.t], Keyword.t) :: CreateTopicsResponse.t
   def create_topics(requests, opts \\ []) do

@@ -24,4 +24,15 @@ defmodule KafkaEx.Protocol.Common do
       } | parse_topics(topics_size - 1, topics_data, mod)
     ]
   end
+
+  def read_array(0, data_after_array, _read_one) do
+    {[], data_after_array}
+  end
+
+  def read_array(num_items, data, read_one) do
+    {item, rest} = read_one.(data)
+    {items, data_after_array} = read_array(num_items - 1, rest, read_one)
+    {[item  | items], data_after_array}
+  end
+
 end
