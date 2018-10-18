@@ -43,6 +43,18 @@ defmodule KafkaEx.Server0P8P0.Test do
     end)
   end
 
+  test "does not mem leak when message is not a Produce.Message" do
+    name = "create_topic_#{:rand.uniform(2000000)}"
+
+    assert {:error, "Invalid produce request"} == KafkaEx.produce(%KafkaEx.Protocol.Produce.Request{
+      messages: [%{key: "key1", value: "value1"}],
+      partition: 0,
+      required_acks: 0,
+      timeout: 500,
+      topic: name
+    })
+  end
+
   test "when the partition is not found", %{worker: worker} do
     partition = 42
     assert :topic_not_found == KafkaEx.fetch(

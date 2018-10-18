@@ -1,30 +1,12 @@
 #!/bin/bash
 
-# Launches a dockerized kafka cluster configured for testing with KafkaEx
-#
-# This script attempts to auto-detect the ip address of an active network
-# interface using `./scripts/active_ifaces.sh`.  You can override this by
-# supplying the name of an interface through the IP_IFACE env var - e.g.,
-#
-# IP_IFACE=eth0 ./scripts/docker_up.sh
-#
+# see docker_up.sh
 # This script should be run from the project root
 
 set -e
 
-# Kafka needs to know our ip address so that it can advertise valid
-# connnection details
-
-if [ -z ${IP_IFACE} ]
-then
-  echo Detecting active network interface
-  IP_IFACE=$(ifconfig | ./scripts/active_ifaces.sh | head -n 1 | cut -d ':' -f1)
-fi
-
-export DOCKER_IP=$(ifconfig ${IP_IFACE} | grep 'inet ' | awk '{print $2}' | cut -d ':' -f2)
-
-# for debugging purposes
-echo Detected active network interface ${IP_IFACE} with ip ${DOCKER_IP}
+IP_IFACE="docker0"
+DOCKER_IP=$(ip addr show dev $IP_IFACE | grep -o "inet[^/]*" | grep -o "[0-9]\{1,3\}[.][0-9.]*")
 
 for i in 1 2 3
 do

@@ -33,10 +33,32 @@ for details of these features.
 ## Using KafkaEx in an Elixir project
 
 The standard approach for adding dependencies to an Elixir application applies:
-add KafkaEx to the deps and applications lists in your project's mix.exs file.
+add KafkaEx to the deps list in your project's mix.exs file.
 You may also optionally add
 [snappy-erlang-nif](https://github.com/fdmanana/snappy-erlang-nif) (required
 only if you want to use snappy compression).
+
+```elixir
+# mix.exs
+defmodule MyApp.Mixfile do
+  # ...
+
+  defp deps do
+    [
+      # add to your existing deps
+      {:kafka_ex, "~> 0.8.3"},
+      # if using snappy compression
+      {:snappy, git: "https://github.com/fdmanana/snappy-erlang-nif"}
+    ]
+  end
+end
+```
+
+Then run `mix deps.get` to fetch dependencies.
+
+### Adding kafka_ex application
+
+When using elixir < 1.4, you will need to add kafka_ex to the applications list of your mix.exs file.
 
 ```elixir
 # mix.exs
@@ -53,19 +75,8 @@ defmodule MyApp.Mixfile do
       ]
     ]
   end
-
-  defp deps do
-    [
-      # add to your existing deps
-      {:kafka_ex, "~> 0.8.3"},
-      # if using snappy compression
-      {:snappy, git: "https://github.com/fdmanana/snappy-erlang-nif"}
-    ]
-  end
 end
 ```
-
-Then run `mix deps.get` to fetch dependencies.
 
 ## Configuration
 
@@ -318,7 +329,7 @@ variable:
 IP_IFACE=eth0 ./scripts/docker_up.sh
 ```
 
-The test cluster runs Kafka 0.9.2.
+The test cluster runs Kafka 0.10.1.0.
 
 ### Running the KafkaEx Tests
 
@@ -327,7 +338,7 @@ and Kafka versions.
 
 #### Unit tests
 
-These tests do not require a Kafka cluster to be running.
+These tests do not require a Kafka cluster to be running (see test/test_helper.exs:3 for the tags excluded when running this).
 
 ```
 mix test --no-start
@@ -338,7 +349,16 @@ mix test --no-start
 If you are not using the Docker test cluster, you may need to modify
 `config/config.exs` for your set up.
 
-The full test suite requires Kafka 0.9+.
+The full test suite requires Kafka 0.10.1.0+.
+
+##### Kafka >= 0.9.0
+
+The 0.9 client includes functionality that cannot be tested with older
+clusters.
+
+```
+mix test --include integration --include consumer_group --include server_0_p_10_p_1  --include server_0_p_9_p_0 --include server_0_p_8_p_0
+```
 
 ##### Kafka >= 0.9.0
 
@@ -362,7 +382,7 @@ mix test --include consumer_group --include integration
 If your test cluster is older, the consumer group tests must be omitted.
 
 ```
-mix test --include integration
+mix test --include integration --include server_0_p_8_p_0
 ```
 
 ### Static analysis

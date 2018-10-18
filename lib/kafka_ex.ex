@@ -22,6 +22,8 @@ defmodule KafkaEx do
   alias KafkaEx.Protocol.Produce.Message
   alias KafkaEx.Protocol.SyncGroup.Request, as: SyncGroupRequest
   alias KafkaEx.Protocol.SyncGroup.Response, as: SyncGroupResponse
+  alias KafkaEx.Protocol.CreateTopics.Request, as: CreateTopicsRequest
+  alias KafkaEx.Protocol.CreateTopics.Response, as: CreateTopicsResponse
   alias KafkaEx.Server
   alias KafkaEx.Stream
 
@@ -526,6 +528,23 @@ defmodule KafkaEx do
   def valid_consumer_group?(:no_consumer_group), do: true
   def valid_consumer_group?(b) when is_binary(b), do: byte_size(b) > 0
   def valid_consumer_group?(_), do: false
+
+
+  @doc """
+
+  ## Example
+
+  ```elixir
+  iex> KafkaEx.create_worker(:mt)
+
+  ```
+  """
+  @spec create_topics([CreateTopicsRequest.t], Keyword.t) :: CreateTopicsResponse.t
+  def create_topics(requests, opts \\ []) do
+    worker_name  = Keyword.get(opts, :worker_name, Config.default_worker)
+    timeout = Keyword.get(opts, :timeout, 4000)
+    Server.call(worker_name, {:create_topics, requests, timeout})
+  end
 
 #OTP API
   def start(_type, _args) do

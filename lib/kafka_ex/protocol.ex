@@ -12,6 +12,9 @@ defmodule KafkaEx.Protocol do
   @heartbeat_request         12
   @leave_group_request       13
   @sync_group_request        14
+  @create_topics_request     19
+  # DescribeConfigs	32
+  # AlterConfigs	33 Valid resource types are "Topic" and "Broker".
 
   @api_version  0
 
@@ -59,8 +62,16 @@ defmodule KafkaEx.Protocol do
     @sync_group_request
   end
 
+  defp api_key(:create_topics) do
+    @create_topics_request
+  end
+
   def create_request(type, correlation_id, client_id) do
-    << api_key(type) :: 16, @api_version :: 16, correlation_id :: 32,
+    create_request(type, correlation_id, client_id, @api_version)
+  end
+
+  def create_request(type, correlation_id, client_id, api_version) do
+    << api_key(type) :: 16, api_version :: 16, correlation_id :: 32,
        byte_size(client_id) :: 16, client_id :: binary >>
   end
 
@@ -95,7 +106,20 @@ defmodule KafkaEx.Protocol do
     28 => :invalid_commit_offset,
     29 => :topic_authorization_failed,
     30 => :group_authorization_failed,
-    31 => :cluster_authorization_failed
+    31 => :cluster_authorization_failed,
+    32 => :invalid_timestamp,
+    33 => :unsupported_sasl_mechanism,
+    34 => :illegal_sasl_state,
+    35 => :unsupported_version,
+    36 => :topic_already_exists,
+    37 => :invalid_partitions,
+    38 => :invalid_replication_factor,
+    39 => :invalid_replica_assignment,
+    40 => :invalid_config,
+    41 => :not_controller,
+    42 => :invalid_request,
+    43 => :unsupported_for_message_format,
+
   }
 
   @spec error(integer) :: atom | integer

@@ -36,7 +36,7 @@ defmodule KafkaEx.Mixfile do
   defp deps do
     [
       {:credo, "~> 0.8.10", only: :dev},
-      {:dialyxir, "~> 0.5.1", only: :dev},
+      {:dialyxir, "~> 1.0.0-rc.3", only: :dev},
       {:excoveralls, "~> 0.7", only: :test},
       {:ex_doc, "~> 0.18", only: :dev},
       {:snappy,

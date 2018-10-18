@@ -8,6 +8,8 @@ cache:
     - _build
 matrix:
   include:
+    - elixir: 1.7.3
+      otp_release: 21.0
     - elixir: 1.6.2
       otp_release: 20.2
     - elixir: 1.5.3
