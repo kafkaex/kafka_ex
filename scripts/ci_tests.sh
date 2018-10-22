@@ -16,7 +16,7 @@ else
   TEST_COMMAND=test
 fi
 
-INCLUDED_TESTS="--include integration --include consumer_group --include server_0_p_10_p_1  --include server_0_p_9_p_0 --include server_0_p_8_p_0"
+INCLUDED_TESTS="--include integration --include consumer_group --include server_0_p_10_and_later  --include server_0_p_9_p_0 --include server_0_p_8_p_0"
 
 mix "$TEST_COMMAND" $INCLUDED_TESTS
 

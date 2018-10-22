@@ -53,7 +53,16 @@ defmodule KafkaEx.Server0P8P2 do
 
     brokers = Enum.map(uris, fn({host, port}) -> %Broker{host: host, port: port, socket: NetworkClient.create_socket(host, port)} end)
     {correlation_id, metadata} = retrieve_metadata(brokers, 0, config_sync_timeout())
-    state = %State{metadata: metadata, brokers: brokers, correlation_id: correlation_id, consumer_group: consumer_group, metadata_update_interval: metadata_update_interval, consumer_group_update_interval: consumer_group_update_interval, worker_name: name}
+    state = %State{
+      metadata: metadata,
+      brokers: brokers,
+      correlation_id: correlation_id,
+      consumer_group: consumer_group,
+      metadata_update_interval: metadata_update_interval,
+      consumer_group_update_interval: consumer_group_update_interval,
+      worker_name: name,
+      api_versions: [:unsupported]
+    }
     # Get the initial "real" broker list and start a regular refresh cycle.
     state = update_metadata(state)
     {:ok, _} = :timer.send_interval(state.metadata_update_interval, :update_metadata)
