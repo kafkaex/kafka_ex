@@ -120,12 +120,19 @@ defmodule KafkaEx.Server0P10AndLater do
   end
 
   def kafka_create_topics(requests, network_timeout, state) do
+    api_version = case CreateTopics.api_version(state.api_versions) do
+      {:ok, api_version} -> api_version
+      _ -> raise "CreateTopic is not supported in this version of Kafka, or the versions supported by the client do not match the ones supported by the server."
+    end
+
+    IO.puts "API version for create_topics: #{api_version}"
+
     create_topics_request = %CreateTopics.Request{
       create_topic_requests: requests,
       timeout: network_timeout
     }
 
-    mainRequest = CreateTopics.create_request(state.correlation_id, @client_id, create_topics_request)
+    mainRequest = CreateTopics.create_request(state.correlation_id, @client_id, create_topics_request, api_version)
 
     broker = state.brokers |> Enum.find(&(&1.is_controller))
 
@@ -138,7 +145,7 @@ defmodule KafkaEx.Server0P10AndLater do
           |> NetworkClient.send_sync_request(mainRequest, config_sync_timeout())
           |> case do
                 {:error, reason} -> {:error, reason}
-                response -> CreateTopics.parse_response(response)
+                response -> CreateTopics.parse_response(response, api_version)
               end
         {response, %{state | correlation_id: state.correlation_id + 1}}
     end

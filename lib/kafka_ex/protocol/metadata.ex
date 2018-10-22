@@ -101,6 +101,11 @@ defmodule KafkaEx.Protocol.Metadata do
   def api_version(api_versions) do
     case KafkaEx.ApiVersions.find_api_version(api_versions, :metadata, @supported_versions_range) do
       {:ok, version} -> version
+      # those three should never happen since :metadata is part of the protocol since the beginning.
+      # they are left here as this will server as reference implementation
+      # :unknown_message_for_server ->
+      # :unknown_message_for_client ->
+      # :no_version_supported ->
       _ -> @default_api_version
     end
   end

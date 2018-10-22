@@ -1,6 +1,8 @@
 
 defmodule KafkaEx.Protocol.CreateTopics do
   alias KafkaEx.Protocol
+  @supported_versions_range {0, 0}
+  @default_api_version 0
 
   @moduledoc """
   Implementation of the Kafka CreateTopics request and response APIs
@@ -63,8 +65,14 @@ defmodule KafkaEx.Protocol.CreateTopics do
     @type t :: %Response{topic_errors: [TopicError]}
   end
 
-  @spec create_request(integer, binary, Request.t) :: binary
-  def create_request(correlation_id, client_id, create_topics_request) do
+  def api_version(api_versions) do
+    KafkaEx.ApiVersions.find_api_version(api_versions, :create_topics, @supported_versions_range)
+  end
+
+  @spec create_request(integer, binary, Request.t, integer) :: binary
+  def create_request(correlation_id, client_id, create_topics_request, api_version)
+
+  def create_request(correlation_id, client_id, create_topics_request, 0) do
     Protocol.create_request(:create_topics, correlation_id, client_id) <>
       encode_topic_requests(create_topics_request.create_topic_requests) <>
         << create_topics_request.timeout  :: 32-signed >>
@@ -129,8 +137,10 @@ defmodule KafkaEx.Protocol.CreateTopics do
     end
   end
 
-  @spec parse_response(binary) :: [] | Response.t
-  def parse_response(<< _correlation_id :: 32-signed, topic_errors_count :: 32-signed, topic_errors :: binary >>) do
+  @spec parse_response(binary, integer) :: [] | Response.t
+  def parse_response(message, api_version)
+
+  def parse_response(<< _correlation_id :: 32-signed, topic_errors_count :: 32-signed, topic_errors :: binary >>, 0) do
     %Response{topic_errors: parse_topic_errors(topic_errors_count, topic_errors)}
   end
 
