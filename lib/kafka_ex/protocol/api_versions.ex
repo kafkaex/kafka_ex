@@ -56,8 +56,6 @@ defmodule KafkaEx.Protocol.ApiVersions do
                         api_versions_count :: 32-signed,
                         rest :: binary
                       >>, this_api_version) do
-    Logger.debug("parse_response for api_versions #{this_api_version}")
-
     %{ parse_rest_of_response(api_versions_count, rest, this_api_version) | error_code: Protocol.error(error_code) }
   end
 

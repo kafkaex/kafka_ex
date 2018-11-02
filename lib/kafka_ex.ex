@@ -24,6 +24,7 @@ defmodule KafkaEx do
   alias KafkaEx.Protocol.SyncGroup.Response, as: SyncGroupResponse
   alias KafkaEx.Protocol.CreateTopics.Request, as: CreateTopicsRequest
   alias KafkaEx.Protocol.CreateTopics.Response, as: CreateTopicsResponse
+  alias KafkaEx.Protocol.ApiVersions.Response, as: ApiVersionsResponse
   alias KafkaEx.Server
   alias KafkaEx.Stream
 
@@ -532,7 +533,7 @@ defmodule KafkaEx do
   @doc """
   Retrieve supported api versions for each api key.
   """
-  @spec api_versions(Keyword.t) :: CreateTopicsResponse.t
+  @spec api_versions(Keyword.t) :: ApiVersionsResponse.t
   def api_versions(opts \\ []) do
     worker_name  = Keyword.get(opts, :worker_name, Config.default_worker)
     Server.call(worker_name, {:api_versions})
