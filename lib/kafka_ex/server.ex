@@ -17,6 +17,7 @@ defmodule KafkaEx.Server do
   alias KafkaEx.Protocol.Produce
   alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
   alias KafkaEx.Protocol.SyncGroup.Request, as: SyncGroupRequest
+  alias KafkaEx.Protocol.CreateTopics.Request, as: CreateTopicsRequest
   alias KafkaEx.Socket
 
   defmodule State do
@@ -157,6 +158,10 @@ defmodule KafkaEx.Server do
     {:noreply, new_state, timeout | :hibernate} |
     {:stop, reason, reply, new_state} |
     {:stop, reason, new_state} when reply: term, new_state: term, reason: term
+  @callback kafka_create_topics(CreateTopicsRequest.t, network_timeout :: integer, state :: State.t) ::
+    {:reply, reply, new_state} when reply: term, new_state: term
+  @callback kafka_api_versions(state :: State.t) ::
+    {:reply, reply, new_state} when reply: term, new_state: term
   @callback kafka_server_update_metadata(state :: State.t) ::
     {:noreply, new_state} |
     {:noreply, new_state, timeout | :hibernate} |
@@ -260,12 +265,12 @@ defmodule KafkaEx.Server do
         kafka_server_heartbeat(request, network_timeout, state)
       end
 
-      def handle_call({:api_versions}, _from, state) do
-        kafka_api_versions(state)
-      end
-
       def handle_call({:create_topics, requests, network_timeout}, _from, state) do
         kafka_create_topics(requests, network_timeout, state)
+      end
+
+      def handle_call({:api_versions}, _from, state) do
+        kafka_api_versions(state)
       end
 
       def handle_info(:update_metadata, state) do
