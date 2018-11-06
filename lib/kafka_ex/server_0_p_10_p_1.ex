@@ -4,6 +4,7 @@ defmodule KafkaEx.Server0P10P1 do
   """
   use KafkaEx.Server
   alias KafkaEx.Protocol.CreateTopics
+  alias KafkaEx.Protocol.ApiVersions
   alias KafkaEx.Server0P8P2
   alias KafkaEx.Server0P9P0
 
@@ -92,6 +93,15 @@ defmodule KafkaEx.Server0P10P1 do
 
   def kafka_server_update_metadata(state) do
     {:noreply, update_metadata(state, @metadata_api_version)}
+  end
+
+  def kafka_api_versions(state) do
+    response = state.correlation_id
+              |> ApiVersions.create_request(@client_id)
+              |> first_broker_response(state)
+              |> ApiVersions.parse_response
+
+    {:reply, response, %{ state | correlation_id: state.correlation_id + 1 }}
   end
 
   def kafka_create_topics(requests, network_timeout, state) do
