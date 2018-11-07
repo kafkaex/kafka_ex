@@ -125,8 +125,6 @@ defmodule KafkaEx.Server0P10AndLater do
       _ -> raise "CreateTopic is not supported in this version of Kafka, or the versions supported by the client do not match the ones supported by the server."
     end
 
-    IO.puts "API version for create_topics: #{api_version}"
-
     create_topics_request = %CreateTopics.Request{
       create_topic_requests: requests,
       timeout: network_timeout
