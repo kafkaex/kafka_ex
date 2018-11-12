@@ -2,6 +2,7 @@ defmodule KafkaEx.Protocol.Metadata do
   alias KafkaEx.Protocol
   import KafkaEx.Protocol.Common
 
+  @supported_versions_range {0, 1}
   @default_api_version 0
 
   @moduledoc """
@@ -97,7 +98,23 @@ defmodule KafkaEx.Protocol.Metadata do
     }
   end
 
+  def api_version(api_versions) do
+    case KafkaEx.ApiVersions.find_api_version(api_versions, :metadata, @supported_versions_range) do
+      {:ok, version} -> version
+      # those three should never happen since :metadata is part of the protocol since the beginning.
+      # they are left here as this will server as reference implementation
+      # :unknown_message_for_server ->
+      # :unknown_message_for_client ->
+      # :no_version_supported ->
+      _ -> @default_api_version
+    end
+  end
+
   def create_request(correlation_id, client_id, topics, api_version \\ @default_api_version)
+
+  def create_request(correlation_id, client_id, nil, api_version) do
+    create_request(correlation_id, client_id, "", api_version)
+  end
 
   def create_request(correlation_id, client_id, "", api_version) do
     topic_count = if 0 == api_version, do: 0, else: -1
