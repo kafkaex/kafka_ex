@@ -287,8 +287,8 @@ defmodule KafkaEx.Server do
         {:noreply, state}
       end
 
-      def terminate(_, state) do
-        Logger.log(:debug, "Shutting down worker #{inspect state.worker_name}")
+      def terminate(reason, state) do
+        Logger.log(:debug, "Shutting down worker #{inspect state.worker_name}, reason: #{inspect reason}")
         if state.event_pid do
           :gen_event.stop(state.event_pid)
         end
@@ -327,7 +327,7 @@ defmodule KafkaEx.Server do
 
         response = case broker do
           nil    ->
-            Logger.log(:error, "Leader for topic #{produce_request.topic} is not available")
+            Logger.log(:error, "kafka_server_produce_send_request: leader for topic #{produce_request.topic}/#{produce_request.partition} is not available")
             :leader_not_available
           broker -> case produce_request.required_acks do
             0 ->  NetworkClient.send_async_request(broker, produce_request_data)
@@ -365,7 +365,7 @@ defmodule KafkaEx.Server do
 
         {response, state} = case broker do
           nil ->
-            Logger.log(:error, "Leader for topic #{topic} is not available")
+            Logger.log(:error, "kafka_server_offset: leader for topic #{topic}/#{partition} is not available")
             {:topic_not_found, state}
           _ ->
             response = broker
@@ -530,7 +530,7 @@ defmodule KafkaEx.Server do
         case broker do
           nil ->
             Logger.error(fn ->
-              "Leader for topic #{request.topic} is not available"
+              "network_request: leader for topic #{request.topic}/#{request.partition} is not available"
             end)
             {{:error, :topic_not_found}, updated_state}
           _ ->
