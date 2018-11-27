@@ -15,6 +15,7 @@ defmodule KafkaEx.Server0P8P0 do
     {:nowarn_function, kafka_server_offset_commit: 2},
     {:nowarn_function, kafka_server_offset_fetch: 2},
     {:nowarn_function, kafka_create_topics: 3},
+    {:nowarn_function, kafka_api_versions: 1}
   ]
 
   use KafkaEx.Server

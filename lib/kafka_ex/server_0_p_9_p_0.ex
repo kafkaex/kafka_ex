@@ -7,6 +7,7 @@ defmodule KafkaEx.Server0P9P0 do
   # these functions aren't implemented for 0.9.0
   @dialyzer [
     {:nowarn_function, kafka_create_topics: 3},
+    {:nowarn_function, kafka_api_versions: 1}
   ]
 
   use KafkaEx.Server

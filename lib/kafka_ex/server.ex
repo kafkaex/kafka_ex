@@ -160,7 +160,7 @@ defmodule KafkaEx.Server do
     {:noreply, new_state, timeout | :hibernate} |
     {:stop, reason, reply, new_state} |
     {:stop, reason, new_state} when reply: term, new_state: term, reason: term
-  @callback kafka_create_topics(CreateTopicsRequest.t, network_timeout :: integer, state :: State.t) ::
+  @callback kafka_create_topics([CreateTopicsRequest.t], network_timeout :: integer, state :: State.t) ::
     {:reply, reply, new_state} when reply: term, new_state: term
   @callback kafka_api_versions(state :: State.t) ::
     {:reply, reply, new_state} when reply: term, new_state: term

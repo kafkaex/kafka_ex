@@ -10,6 +10,7 @@ defmodule KafkaEx.Server0P8P2 do
     {:nowarn_function, kafka_server_join_group: 3},
     {:nowarn_function, kafka_server_leave_group: 3},
     {:nowarn_function, kafka_create_topics: 3},
+    {:nowarn_function, kafka_api_versions: 1}
   ]
 
   use KafkaEx.Server
