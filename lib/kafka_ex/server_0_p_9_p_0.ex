@@ -46,7 +46,7 @@ defmodule KafkaEx.Server0P9P0 do
   defdelegate kafka_server_consumer_group_metadata(state), to: Server0P8P2
   defdelegate kafka_server_update_consumer_metadata(state), to: Server0P8P2
   defdelegate kafka_api_versions(state), to: Server0P8P2
-  defdelegate kafka_create_topics(requests, network_timeout, state),to: Server0P8P2
+  defdelegate kafka_create_topics(requests, network_timeout, state), to: Server0P8P2
 
   def kafka_server_init([args]) do
     kafka_server_init([args, self()])
