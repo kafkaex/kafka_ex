@@ -370,8 +370,14 @@ defmodule KafkaEx.Server do
       # KakfaEx.Server behavior default implementations
       # This needs a refactor, but for now make credo pass:
       # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
-      def kafka_server_produce(produce_request, state) do
+      def kafka_server_produce(
+            produce_request,
+            %State{metadata: metadata} = state
+          ) do
         correlation_id = state.correlation_id + 1
+
+        produce_request =
+          default_partitioner().assign_partition(produce_request, metadata)
 
         produce_request_data =
           try do
@@ -931,6 +937,10 @@ defmodule KafkaEx.Server do
 
       defp config_sync_timeout(timeout \\ nil) do
         timeout || Application.get_env(:kafka_ex, :sync_timeout, @sync_timeout)
+      end
+
+      defp default_partitioner do
+        Application.get_env(:kafka_ex, :partitioner, KafkaEx.DefaultPartitioner)
       end
     end
   end
