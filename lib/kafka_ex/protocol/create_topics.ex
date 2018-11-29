@@ -140,8 +140,6 @@ defmodule KafkaEx.Protocol.CreateTopics do
   end
 
   @spec parse_response(binary, integer) :: [] | Response.t
-  #def parse_response(message, api_version)
-
   def parse_response(<< _correlation_id :: 32-signed, topic_errors_count :: 32-signed, topic_errors :: binary >>, 0) do
     %Response{topic_errors: parse_topic_errors(topic_errors_count, topic_errors)}
   end
