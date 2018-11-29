@@ -144,9 +144,9 @@ defmodule KafkaEx.Protocol.CreateTopics do
     %Response{topic_errors: parse_topic_errors(topic_errors_count, topic_errors)}
   end
 
+  @spec parse_topic_errors(integer, binary) :: [TopicError.t]
   defp parse_topic_errors(0, _), do: []
 
-  @spec parse_topic_errors(integer, binary) :: [TopicError.t]
   defp parse_topic_errors(topic_errors_count,
       << topic_name_size :: 16-signed, topic_name :: size(topic_name_size)-binary, error_code :: 16-signed, rest :: binary >>) do
     [%TopicError{topic_name: topic_name, error_code: Protocol.error(error_code)} | parse_topic_errors(topic_errors_count - 1, rest)]
