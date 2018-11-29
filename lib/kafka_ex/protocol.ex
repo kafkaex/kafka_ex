@@ -1,76 +1,33 @@
 defmodule KafkaEx.Protocol do
   @moduledoc false
 
-  @produce_request           0
-  @fetch_request             1
-  @offset_request            2
-  @metadata_request          3
-  @offset_commit_request     8
-  @offset_fetch_request      9
-  @consumer_metadata_request 10
-  @join_group_request        11
-  @heartbeat_request         12
-  @leave_group_request       13
-  @sync_group_request        14
-  @create_topics_request     19
+  @message_type_to_api_key %{
+    produce:           0,
+    fetch:             1,
+    offset:            2,
+    metadata:          3,
+    offset_commit:     8,
+    offset_fetch:      9,
+    consumer_metadata: 10,
+    join_group:        11,
+    heartbeat:         12,
+    leave_group:       13,
+    sync_group:        14,
+    api_versions:      18,
+    create_topics:     19,
+  }
+
   # DescribeConfigs	32
   # AlterConfigs	33 Valid resource types are "Topic" and "Broker".
 
-  @api_version  0
+  @default_api_version  0
 
-  defp api_key(:produce) do
-    @produce_request
+  @spec api_key(atom) :: integer | nil
+  def api_key(type) do
+    Map.get(@message_type_to_api_key, type, nil)
   end
 
-  defp api_key(:fetch) do
-    @fetch_request
-  end
-
-  defp api_key(:offset) do
-    @offset_request
-  end
-
-  defp api_key(:metadata) do
-    @metadata_request
-  end
-
-  defp api_key(:offset_commit) do
-    @offset_commit_request
-  end
-
-  defp api_key(:offset_fetch) do
-    @offset_fetch_request
-  end
-
-  defp api_key(:consumer_metadata) do
-    @consumer_metadata_request
-  end
-
-  defp api_key(:join_group) do
-    @join_group_request
-  end
-
-  defp api_key(:heartbeat) do
-    @heartbeat_request
-  end
-
-  defp api_key(:leave_group) do
-    @leave_group_request
-  end
-
-  defp api_key(:sync_group) do
-    @sync_group_request
-  end
-
-  defp api_key(:create_topics) do
-    @create_topics_request
-  end
-
-  def create_request(type, correlation_id, client_id) do
-    create_request(type, correlation_id, client_id, @api_version)
-  end
-
-  def create_request(type, correlation_id, client_id, api_version) do
+  def create_request(type, correlation_id, client_id, api_version \\ @default_api_version) do
     << api_key(type) :: 16, api_version :: 16, correlation_id :: 32,
        byte_size(client_id) :: 16, client_id :: binary >>
   end

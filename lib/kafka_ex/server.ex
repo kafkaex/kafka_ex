@@ -17,6 +17,7 @@ defmodule KafkaEx.Server do
   alias KafkaEx.Protocol.Produce
   alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
   alias KafkaEx.Protocol.SyncGroup.Request, as: SyncGroupRequest
+  alias KafkaEx.Protocol.CreateTopics.Request, as: CreateTopicsRequest
   alias KafkaEx.Socket
 
   defmodule State do
@@ -36,7 +37,8 @@ defmodule KafkaEx.Server do
       consumer_group_update_interval: nil,
       worker_name: KafkaEx.Server,
       ssl_options: [],
-      use_ssl: false
+      use_ssl: false,
+      api_versions: []
     )
 
     @type t :: %State{
@@ -50,6 +52,7 @@ defmodule KafkaEx.Server do
       worker_name: atom,
       ssl_options: KafkaEx.ssl_options,
       use_ssl: boolean,
+      api_versions: [KafkaEx.Protocol.ApiVersions.ApiVersion],
     }
 
     @spec increment_correlation_id(t) :: t
@@ -157,6 +160,10 @@ defmodule KafkaEx.Server do
     {:noreply, new_state, timeout | :hibernate} |
     {:stop, reason, reply, new_state} |
     {:stop, reason, new_state} when reply: term, new_state: term, reason: term
+  @callback kafka_create_topics([CreateTopicsRequest.t], network_timeout :: integer, state :: State.t) ::
+    {:reply, reply, new_state} when reply: term, new_state: term
+  @callback kafka_api_versions(state :: State.t) ::
+    {:reply, reply, new_state} when reply: term, new_state: term
   @callback kafka_server_update_metadata(state :: State.t) ::
     {:noreply, new_state} |
     {:noreply, new_state, timeout | :hibernate} |
@@ -264,6 +271,10 @@ defmodule KafkaEx.Server do
         kafka_create_topics(requests, network_timeout, state)
       end
 
+      def handle_call({:api_versions}, _from, state) do
+        kafka_api_versions(state)
+      end
+
       def handle_info(:update_metadata, state) do
         kafka_server_update_metadata(state)
       end
@@ -276,8 +287,8 @@ defmodule KafkaEx.Server do
         {:noreply, state}
       end
 
-      def terminate(_, state) do
-        Logger.log(:debug, "Shutting down worker #{inspect state.worker_name}")
+      def terminate(reason, state) do
+        Logger.log(:debug, "Shutting down worker #{inspect state.worker_name}, reason: #{inspect reason}")
         if state.event_pid do
           :gen_event.stop(state.event_pid)
         end
@@ -301,11 +312,12 @@ defmodule KafkaEx.Server do
         end
       end
 
+      # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
       def kafka_server_produce_send_request(correlation_id, produce_request, produce_request_data, state) do
         {broker, state, corr_id} = case MetadataResponse.broker_for_topic(state.metadata, state.brokers, produce_request.topic, produce_request.partition) do
           nil ->
-            {retrieved_corr_id, _} = retrieve_metadata(state.brokers, state.correlation_id, config_sync_timeout(), produce_request.topic)
-            state = %{update_metadata(state) | correlation_id: retrieved_corr_id}
+            {retrieved_corr_id, _} = retrieve_metadata(state.brokers, state.correlation_id, config_sync_timeout(), produce_request.topic, state.api_versions)
+            state = update_metadata(%{state | correlation_id: retrieved_corr_id})
             {
               MetadataResponse.broker_for_topic(state.metadata, state.brokers, produce_request.topic, produce_request.partition),
               state,
@@ -316,7 +328,7 @@ defmodule KafkaEx.Server do
 
         response = case broker do
           nil    ->
-            Logger.log(:error, "Leader for topic #{produce_request.topic} is not available")
+            Logger.log(:error, "kafka_server_produce_send_request: leader for topic #{produce_request.topic}/#{produce_request.partition} is not available")
             :leader_not_available
           broker -> case produce_request.required_acks do
             0 ->  NetworkClient.send_async_request(broker, produce_request_data)
@@ -354,7 +366,7 @@ defmodule KafkaEx.Server do
 
         {response, state} = case broker do
           nil ->
-            Logger.log(:error, "Leader for topic #{topic} is not available")
+            Logger.log(:error, "kafka_server_offset: leader for topic #{topic}/#{partition} is not available")
             {:topic_not_found, state}
           _ ->
             response = broker
@@ -374,7 +386,7 @@ defmodule KafkaEx.Server do
       end
 
       def kafka_server_metadata(topic, state) do
-        {correlation_id, metadata} = retrieve_metadata(state.brokers, state.correlation_id, config_sync_timeout(), topic)
+        {correlation_id, metadata} = retrieve_metadata(state.brokers, state.correlation_id, config_sync_timeout(), topic, state.api_versions)
         updated_state = %{state | metadata: metadata, correlation_id: correlation_id}
         {:reply, metadata, updated_state}
       end
@@ -383,10 +395,8 @@ defmodule KafkaEx.Server do
         {:noreply, update_metadata(state)}
       end
 
-      def update_metadata(state), do: update_metadata(state, 0)
-
-      def update_metadata(state, api_version) do
-        {correlation_id, metadata} = retrieve_metadata(state.brokers, state.correlation_id, config_sync_timeout(), [], api_version)
+      def update_metadata(state) do
+        {correlation_id, metadata} = retrieve_metadata(state.brokers, state.correlation_id, config_sync_timeout(), nil, state.api_versions)
         metadata_brokers = metadata.brokers |> Enum.map(&(%{&1 | is_controller: &1.node_id == metadata.controller_id}))
         brokers = state.brokers
           |> remove_stale_brokers(metadata_brokers)
@@ -395,30 +405,33 @@ defmodule KafkaEx.Server do
       end
 
       # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
-      def retrieve_metadata(brokers, correlation_id, sync_timeout, topic \\ [], api_version \\ 0) do
-        retrieve_metadata(brokers, correlation_id, sync_timeout, topic, @retry_count, 0, api_version)
+      def retrieve_metadata(brokers, correlation_id, sync_timeout, topic \\ [], server_api_versions \\ [:unsupported]) do
+        retrieve_metadata(brokers, correlation_id, sync_timeout, topic, @retry_count, 0, server_api_versions)
       end
 
-      def retrieve_metadata(brokers, correlation_id, sync_timeout, topic, retry, error_code, api_version \\ 0)
+      # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
+      def retrieve_metadata(brokers, correlation_id, sync_timeout, topic, retry, error_code, server_api_versions \\ [:unsupported]) do
+        api_version = Metadata.api_version(server_api_versions)
+        retrieve_metadata_with_version(brokers, correlation_id, sync_timeout, topic, retry, error_code, api_version)
+      end
 
       # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
-      def retrieve_metadata(_, correlation_id, _sync_timeout, topic, 0, error_code, api_version) do
+      def retrieve_metadata_with_version(_, correlation_id, _sync_timeout, topic, 0, error_code, server_api_versions) do
         Logger.log(:error, "Metadata request for topic #{inspect topic} failed with error_code #{inspect error_code}")
         {correlation_id, %Metadata.Response{}}
       end
 
       # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
-      def retrieve_metadata(brokers, correlation_id, sync_timeout, topic, retry, _error_code, api_version) do
+      def retrieve_metadata_with_version(brokers, correlation_id, sync_timeout, topic, retry, _error_code, api_version) do
         metadata_request = Metadata.create_request(correlation_id, @client_id, topic, api_version)
         data = first_broker_response(metadata_request, brokers, sync_timeout)
         if data do
           response = Metadata.parse_response(data, api_version)
-
           case Enum.find(response.topic_metadatas, &(&1.error_code == :leader_not_available)) do
             nil -> {correlation_id + 1, response}
             topic_metadata ->
               :timer.sleep(300)
-              retrieve_metadata(brokers, correlation_id + 1, sync_timeout, topic, retry - 1, topic_metadata.error_code, api_version)
+              retrieve_metadata_with_version(brokers, correlation_id + 1, sync_timeout, topic, retry - 1, topic_metadata.error_code, api_version)
           end
         else
           message = "Unable to fetch metadata from any brokers. Timeout is #{sync_timeout}."
@@ -427,6 +440,7 @@ defmodule KafkaEx.Server do
           :no_metadata_available
         end
       end
+
 
       defoverridable [
         kafka_server_produce: 2, kafka_server_offset: 4,
@@ -461,7 +475,8 @@ defmodule KafkaEx.Server do
           metadata_update_interval: metadata_update_interval,
           ssl_options: ssl_options,
           use_ssl: use_ssl,
-          worker_name: name
+          worker_name: name,
+          api_versions: [:unsupported]
         }
 
         state = update_metadata(state)
@@ -516,7 +531,7 @@ defmodule KafkaEx.Server do
         case broker do
           nil ->
             Logger.error(fn ->
-              "Leader for topic #{request.topic} is not available"
+              "network_request: leader for topic #{request.topic}/#{request.partition} is not available"
             end)
             {{:error, :topic_not_found}, updated_state}
           _ ->

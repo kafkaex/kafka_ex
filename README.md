@@ -357,7 +357,7 @@ The 0.9 client includes functionality that cannot be tested with older
 clusters.
 
 ```
-mix test --include integration --include consumer_group --include server_0_p_10_p_1  --include server_0_p_9_p_0 --include server_0_p_8_p_0
+./all_tests.sh
 ```
 
 ##### Kafka >= 0.9.0

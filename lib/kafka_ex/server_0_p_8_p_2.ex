@@ -10,6 +10,7 @@ defmodule KafkaEx.Server0P8P2 do
     {:nowarn_function, kafka_server_join_group: 3},
     {:nowarn_function, kafka_server_leave_group: 3},
     {:nowarn_function, kafka_create_topics: 3},
+    {:nowarn_function, kafka_api_versions: 1}
   ]
 
   use KafkaEx.Server
@@ -53,7 +54,16 @@ defmodule KafkaEx.Server0P8P2 do
 
     brokers = Enum.map(uris, fn({host, port}) -> %Broker{host: host, port: port, socket: NetworkClient.create_socket(host, port)} end)
     {correlation_id, metadata} = retrieve_metadata(brokers, 0, config_sync_timeout())
-    state = %State{metadata: metadata, brokers: brokers, correlation_id: correlation_id, consumer_group: consumer_group, metadata_update_interval: metadata_update_interval, consumer_group_update_interval: consumer_group_update_interval, worker_name: name}
+    state = %State{
+      metadata: metadata,
+      brokers: brokers,
+      correlation_id: correlation_id,
+      consumer_group: consumer_group,
+      metadata_update_interval: metadata_update_interval,
+      consumer_group_update_interval: consumer_group_update_interval,
+      worker_name: name,
+      api_versions: [:unsupported]
+    }
     # Get the initial "real" broker list and start a regular refresh cycle.
     state = update_metadata(state)
     {:ok, _} = :timer.send_interval(state.metadata_update_interval, :update_metadata)
@@ -134,11 +144,12 @@ defmodule KafkaEx.Server0P8P2 do
     {:noreply, state}
   end
 
-  def kafka_server_join_group(_, _, _state), do: raise "Join Group is not supported in 0.8.0 version of kafka"
-  def kafka_server_sync_group(_, _, _state), do: raise "Sync Group is not supported in 0.8.0 version of kafka"
-  def kafka_server_leave_group(_, _, _state), do: raise "Leave Group is not supported in 0.8.0 version of Kafka"
-  def kafka_server_heartbeat(_, _, _state), do: raise "Heartbeat is not supported in 0.8.0 version of kafka"
-  def kafka_create_topics(_, _, _state), do: raise "CreateTopic is not supported in 0.8.0 version of kafka"
+  def kafka_server_join_group(_, _, _state), do: raise "Join Group is not supported in 0.8.2 version of kafka"
+  def kafka_server_sync_group(_, _, _state), do: raise "Sync Group is not supported in 0.8.2 version of kafka"
+  def kafka_server_leave_group(_, _, _state), do: raise "Leave Group is not supported in 0.8.2 version of Kafka"
+  def kafka_server_heartbeat(_, _, _state), do: raise "Heartbeat is not supported in 0.8.2 version of kafka"
+  def kafka_api_versions(_state), do: raise "ApiVersions is not supported in 0.8.2 version of kafka"
+  def kafka_create_topics(_, _, _state), do: raise "CreateTopic is not supported in 0.8.2 version of kafka"
 
   defp update_consumer_metadata(state), do: update_consumer_metadata(state, @retry_count, 0)
 

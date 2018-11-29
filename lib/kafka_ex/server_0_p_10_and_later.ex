@@ -1,9 +1,10 @@
-defmodule KafkaEx.Server0P10P1 do
+defmodule KafkaEx.Server0P10AndLater do
   @moduledoc """
   Implements kafkaEx.Server behaviors for kafka 0.10.1 API.
   """
   use KafkaEx.Server
   alias KafkaEx.Protocol.CreateTopics
+  alias KafkaEx.Protocol.ApiVersions
   alias KafkaEx.Server0P8P2
   alias KafkaEx.Server0P9P0
 
@@ -15,7 +16,6 @@ defmodule KafkaEx.Server0P10P1 do
 
   require Logger
 
-  @metadata_api_version 1
   @consumer_group_update_interval 30_000
 
 
@@ -65,10 +65,26 @@ defmodule KafkaEx.Server0P10P1 do
 
     brokers = Enum.map(uris, fn({host, port}) -> %Broker{host: host, port: port, socket: NetworkClient.create_socket(host, port, ssl_options, use_ssl)} end)
 
-    {correlation_id, metadata} = retrieve_metadata(brokers, 0, config_sync_timeout(), [], @metadata_api_version)
-    state = %State{metadata: metadata, brokers: brokers, correlation_id: correlation_id, consumer_group: consumer_group, metadata_update_interval: metadata_update_interval, consumer_group_update_interval: consumer_group_update_interval, worker_name: name, ssl_options: ssl_options, use_ssl: use_ssl}
+    {_, %KafkaEx.Protocol.ApiVersions.Response{api_versions: api_versions, error_code: :no_error}, state} = kafka_api_versions(%State{brokers: brokers})
+    api_versions = KafkaEx.ApiVersions.api_versions_map(api_versions)
+
+    {correlation_id, metadata} = retrieve_metadata(brokers, state.correlation_id, config_sync_timeout(), [], api_versions)
+
+    state = %State{
+      metadata: metadata,
+      brokers: brokers,
+      correlation_id: correlation_id,
+      consumer_group: consumer_group,
+      metadata_update_interval: metadata_update_interval,
+      consumer_group_update_interval: consumer_group_update_interval,
+      worker_name: name,
+      ssl_options: ssl_options,
+      use_ssl: use_ssl,
+      api_versions: api_versions,
+    }
+
     # Get the initial "real" broker list and start a regular refresh cycle.
-    state = update_metadata(state, @metadata_api_version)
+    state = update_metadata(state)
     {:ok, _} = :timer.send_interval(state.metadata_update_interval, :update_metadata)
 
     state =
@@ -85,22 +101,36 @@ defmodule KafkaEx.Server0P10P1 do
   end
 
   def kafka_server_metadata(topic, state) do
-    {correlation_id, metadata} = retrieve_metadata(state.brokers, state.correlation_id, config_sync_timeout(), topic, @metadata_api_version)
+    {correlation_id, metadata} = retrieve_metadata(state.brokers, state.correlation_id, config_sync_timeout(), topic, state.api_versions)
     updated_state = %{state | metadata: metadata, correlation_id: correlation_id}
     {:reply, metadata, updated_state}
   end
 
   def kafka_server_update_metadata(state) do
-    {:noreply, update_metadata(state, @metadata_api_version)}
+    {:noreply, update_metadata(state)}
+  end
+
+  def kafka_api_versions(state) do
+    response = state.correlation_id
+              |> ApiVersions.create_request(@client_id)
+              |> first_broker_response(state)
+              |> ApiVersions.parse_response
+
+    {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
   end
 
   def kafka_create_topics(requests, network_timeout, state) do
+    api_version = case CreateTopics.api_version(state.api_versions) do
+      {:ok, api_version} -> api_version
+      _ -> raise "CreateTopic is not supported in this version of Kafka, or the versions supported by the client do not match the ones supported by the server."
+    end
+
     create_topics_request = %CreateTopics.Request{
       create_topic_requests: requests,
       timeout: network_timeout
     }
 
-    mainRequest = CreateTopics.create_request(state.correlation_id, @client_id, create_topics_request)
+    main_request = CreateTopics.create_request(state.correlation_id, @client_id, create_topics_request, api_version)
 
     broker = state.brokers |> Enum.find(&(&1.is_controller))
 
@@ -110,10 +140,10 @@ defmodule KafkaEx.Server0P10P1 do
         {:topic_not_found, state}
       _ ->
         response = broker
-          |> NetworkClient.send_sync_request(mainRequest, config_sync_timeout())
+          |> NetworkClient.send_sync_request(main_request, config_sync_timeout())
           |> case do
                 {:error, reason} -> {:error, reason}
-                response -> CreateTopics.parse_response(response)
+                response -> CreateTopics.parse_response(response, api_version)
               end
         {response, %{state | correlation_id: state.correlation_id + 1}}
     end
