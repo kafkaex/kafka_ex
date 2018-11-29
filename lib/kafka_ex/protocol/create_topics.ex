@@ -1,8 +1,6 @@
-
 defmodule KafkaEx.Protocol.CreateTopics do
   alias KafkaEx.Protocol
   @supported_versions_range {0, 0}
-  @default_api_version 0
 
   @moduledoc """
   Implementation of the Kafka CreateTopics request and response APIs
@@ -24,16 +22,19 @@ defmodule KafkaEx.Protocol.CreateTopics do
   # timeout => INT32
 
   defmodule ReplicaAssignment do
+    @moduledoc false
     defstruct partition: nil, replicas: nil
-    @type t :: %ReplicaAssignment{ partition: integer, replicas: [integer] }
+    @type t :: %ReplicaAssignment{partition: integer, replicas: [integer]}
   end
 
   defmodule ConfigEntry do
+    @moduledoc false
     defstruct config_name: nil, config_value: nil
-    @type t :: %ConfigEntry{ config_name: binary, config_value: binary | nil }
+    @type t :: %ConfigEntry{config_name: binary, config_value: binary | nil}
   end
 
   defmodule TopicRequest do
+    @moduledoc false
     defstruct topic: nil,
               num_partitions: -1,
               replication_factor: -1,
@@ -55,8 +56,9 @@ defmodule KafkaEx.Protocol.CreateTopics do
   end
 
   defmodule TopicError do
+    @moduledoc false
     defstruct topic_name: nil, error_code: nil
-    @type t :: %TopicError{ topic_name: binary, error_code: atom }
+    @type t :: %TopicError{topic_name: binary, error_code: atom}
   end
 
   defmodule Response do
@@ -127,7 +129,7 @@ defmodule KafkaEx.Protocol.CreateTopics do
   end
 
   defp map_encode(elems, function) do
-    if nil == elems or 0 == length(elems) do
+    if nil == elems or [] == elems do
       << 0 ::  32-signed >>
     else
       << length(elems) ::  32-signed >> <>
@@ -138,15 +140,13 @@ defmodule KafkaEx.Protocol.CreateTopics do
   end
 
   @spec parse_response(binary, integer) :: [] | Response.t
-  def parse_response(message, api_version)
-
   def parse_response(<< _correlation_id :: 32-signed, topic_errors_count :: 32-signed, topic_errors :: binary >>, 0) do
     %Response{topic_errors: parse_topic_errors(topic_errors_count, topic_errors)}
   end
 
+  @spec parse_topic_errors(integer, binary) :: [TopicError.t]
   defp parse_topic_errors(0, _), do: []
 
-  @spec parse_topic_errors(integer, binary) :: [TopicError.t]
   defp parse_topic_errors(topic_errors_count,
       << topic_name_size :: 16-signed, topic_name :: size(topic_name_size)-binary, error_code :: 16-signed, rest :: binary >>) do
     [%TopicError{topic_name: topic_name, error_code: Protocol.error(error_code)} | parse_topic_errors(topic_errors_count - 1, rest)]

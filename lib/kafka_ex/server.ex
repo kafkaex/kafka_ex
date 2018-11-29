@@ -160,7 +160,7 @@ defmodule KafkaEx.Server do
     {:noreply, new_state, timeout | :hibernate} |
     {:stop, reason, reply, new_state} |
     {:stop, reason, new_state} when reply: term, new_state: term, reason: term
-  @callback kafka_create_topics(CreateTopicsRequest.t, network_timeout :: integer, state :: State.t) ::
+  @callback kafka_create_topics([CreateTopicsRequest.t], network_timeout :: integer, state :: State.t) ::
     {:reply, reply, new_state} when reply: term, new_state: term
   @callback kafka_api_versions(state :: State.t) ::
     {:reply, reply, new_state} when reply: term, new_state: term
@@ -312,6 +312,7 @@ defmodule KafkaEx.Server do
         end
       end
 
+      # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
       def kafka_server_produce_send_request(correlation_id, produce_request, produce_request_data, state) do
         {broker, state, corr_id} = case MetadataResponse.broker_for_topic(state.metadata, state.brokers, produce_request.topic, produce_request.partition) do
           nil ->
@@ -415,6 +416,12 @@ defmodule KafkaEx.Server do
       end
 
       # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
+      def retrieve_metadata_with_version(_, correlation_id, _sync_timeout, topic, 0, error_code, server_api_versions) do
+        Logger.log(:error, "Metadata request for topic #{inspect topic} failed with error_code #{inspect error_code}")
+        {correlation_id, %Metadata.Response{}}
+      end
+
+      # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
       def retrieve_metadata_with_version(brokers, correlation_id, sync_timeout, topic, retry, _error_code, api_version) do
         metadata_request = Metadata.create_request(correlation_id, @client_id, topic, api_version)
         data = first_broker_response(metadata_request, brokers, sync_timeout)
@@ -432,12 +439,6 @@ defmodule KafkaEx.Server do
           raise message
           :no_metadata_available
         end
-      end
-
-      # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
-      def retrieve_metadata_with_version(_, correlation_id, _sync_timeout, topic, 0, error_code, server_api_versions) do
-        Logger.log(:error, "Metadata request for topic #{inspect topic} failed with error_code #{inspect error_code}")
-        {correlation_id, %Metadata.Response{}}
       end
 
 

@@ -56,7 +56,7 @@ defmodule KafkaEx.Protocol.ApiVersions do
                         api_versions_count :: 32-signed,
                         rest :: binary
                       >>, this_api_version) do
-    %{ parse_rest_of_response(api_versions_count, rest, this_api_version) | error_code: Protocol.error(error_code) }
+    %{parse_rest_of_response(api_versions_count, rest, this_api_version) | error_code: Protocol.error(error_code)}
   end
 
   defp parse_rest_of_response(api_versions_count, data, this_api_version) do
@@ -69,7 +69,7 @@ defmodule KafkaEx.Protocol.ApiVersions do
   end
 
   defp parse_one_api_version(<< api_key :: 16-signed, min_version :: 16-signed, max_version :: 16-signed, rest :: binary >>) do
-    {%ApiVersion{ api_key: api_key, min_version: min_version, max_version: max_version }, rest}
+    {%ApiVersion{api_key: api_key, min_version: min_version, max_version: max_version}, rest}
   end
 
 end

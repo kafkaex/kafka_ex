@@ -20,7 +20,7 @@ defmodule KafkaEx.Protocol.Metadata do
     alias KafkaEx.Socket
 
     defstruct node_id: -1, host: "", port: 0, socket: nil, is_controller: nil
-    @type t :: %__MODULE__{node_id: integer, host: binary, port: integer, socket: KafkaEx.Socket.t, is_controller: boolean }
+    @type t :: %__MODULE__{node_id: integer, host: binary, port: integer, socket: KafkaEx.Socket.t, is_controller: boolean}
 
     def connected?(%Broker{} = broker) do
       broker.socket != nil && Socket.open?(broker.socket)
@@ -197,7 +197,7 @@ defmodule KafkaEx.Protocol.Metadata do
           partition_metadatas_size :: 32-signed,
           rest :: binary >>) do
     {partition_metadatas, rest} = parse_partition_metadatas(partition_metadatas_size, [], rest)
-    [%TopicMetadata{error_code: Protocol.error(error_code), topic: topic, partition_metadatas: partition_metadatas, is_internal: is_internal == 1 } |
+    [%TopicMetadata{error_code: Protocol.error(error_code), topic: topic, partition_metadatas: partition_metadatas, is_internal: is_internal == 1} |
       parse_topic_metadatas_v1(topic_metadatas_size - 1, rest)]
   end
 

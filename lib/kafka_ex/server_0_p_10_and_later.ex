@@ -65,7 +65,7 @@ defmodule KafkaEx.Server0P10AndLater do
 
     brokers = Enum.map(uris, fn({host, port}) -> %Broker{host: host, port: port, socket: NetworkClient.create_socket(host, port, ssl_options, use_ssl)} end)
 
-    { _, %KafkaEx.Protocol.ApiVersions.Response{ api_versions: api_versions, error_code: :no_error }, state } = kafka_api_versions(%State{brokers: brokers})
+    {_, %KafkaEx.Protocol.ApiVersions.Response{api_versions: api_versions, error_code: :no_error}, state} = kafka_api_versions(%State{brokers: brokers})
     api_versions = KafkaEx.ApiVersions.api_versions_map(api_versions)
 
     {correlation_id, metadata} = retrieve_metadata(brokers, state.correlation_id, config_sync_timeout(), [], api_versions)
@@ -116,7 +116,7 @@ defmodule KafkaEx.Server0P10AndLater do
               |> first_broker_response(state)
               |> ApiVersions.parse_response
 
-    {:reply, response, %{ state | correlation_id: state.correlation_id + 1 }}
+    {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
   end
 
   def kafka_create_topics(requests, network_timeout, state) do
@@ -130,7 +130,7 @@ defmodule KafkaEx.Server0P10AndLater do
       timeout: network_timeout
     }
 
-    mainRequest = CreateTopics.create_request(state.correlation_id, @client_id, create_topics_request, api_version)
+    main_request = CreateTopics.create_request(state.correlation_id, @client_id, create_topics_request, api_version)
 
     broker = state.brokers |> Enum.find(&(&1.is_controller))
 
@@ -140,7 +140,7 @@ defmodule KafkaEx.Server0P10AndLater do
         {:topic_not_found, state}
       _ ->
         response = broker
-          |> NetworkClient.send_sync_request(mainRequest, config_sync_timeout())
+          |> NetworkClient.send_sync_request(main_request, config_sync_timeout())
           |> case do
                 {:error, reason} -> {:error, reason}
                 response -> CreateTopics.parse_response(response, api_version)
