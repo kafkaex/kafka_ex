@@ -16,7 +16,7 @@ matrix:
       otp_release: 20.2
     - elixir: 1.4.5
       otp_release: 19.3
-      env: COVERALLS=true
+      env: COVERALLS=true CREDO=true
     - elixir: 1.3.4
       otp_release: 19.3
     - elixir: 1.2.6
@@ -28,7 +28,9 @@ sudo: required
 services:
   - docker
 env:
-  - COVERALLS=false
+  global:
+    - COVERALLS=false
+    - CREDO=false
 before_script:
   - IP_IFACE=eth0 ./scripts/docker_up.sh
 script:

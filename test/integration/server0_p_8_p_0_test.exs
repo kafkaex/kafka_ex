@@ -35,7 +35,7 @@ defmodule KafkaEx.Server0P8P0.Test do
         @topic,
         partition,
         worker_name: worker,
-        offset: 1,
+        offset: 0,
         auto_commit: false
       )
       [got_partition] = got.partitions
@@ -61,7 +61,7 @@ defmodule KafkaEx.Server0P8P0.Test do
       @topic,
       partition,
       worker_name: worker,
-      offset: 1,
+      offset: 0,
       auto_commit: false
     )
   end
