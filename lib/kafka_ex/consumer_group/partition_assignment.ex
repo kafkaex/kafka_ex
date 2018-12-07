@@ -64,8 +64,8 @@ defmodule KafkaEx.ConsumerGroup.PartitionAssignment do
   launch no processes.
   """
   @type callback ::
-    ((members :: [member_id], partitions :: [partition]) ->
-     %{member_id => [partition]})
+          (members :: [member_id], partitions :: [partition] ->
+             %{member_id => [partition]})
 
   @doc """
   Round robin assignment
@@ -81,9 +81,9 @@ defmodule KafkaEx.ConsumerGroup.PartitionAssignment do
   @spec round_robin([binary], [partition]) :: %{binary => [partition]}
   def round_robin(members, partitions) do
     members
-    |> Stream.cycle
+    |> Stream.cycle()
     |> Enum.zip(partitions)
-    |> Enum.reduce(%{}, fn({member, partition}, assignments) ->
+    |> Enum.reduce(%{}, fn {member, partition}, assignments ->
       Map.update(assignments, member, [partition], &(&1 ++ [partition]))
     end)
   end

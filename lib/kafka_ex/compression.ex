@@ -30,7 +30,7 @@ defmodule KafkaEx.Compression do
   end
 
   def decompress(@snappy_attribute, data) do
-    << _snappy_header :: 64, _snappy_version_info :: 64, rest :: binary>> = data
+    <<_snappy_header::64, _snappy_version_info::64, rest::binary>> = data
     snappy_decompress_chunk(rest, <<>>)
   end
 
@@ -44,6 +44,7 @@ defmodule KafkaEx.Compression do
     {:ok, compressed_data} = :snappy.compress(data)
     {compressed_data, @snappy_attribute}
   end
+
   def compress(:gzip, data) do
     compressed_data = :zlib.gzip(data)
     {compressed_data, @gzip_attribute}
@@ -52,9 +53,11 @@ defmodule KafkaEx.Compression do
   def snappy_decompress_chunk(<<>>, so_far) do
     so_far
   end
-  def snappy_decompress_chunk(<< valsize :: 32-unsigned,
-                              value :: size(valsize)-binary,
-                              rest :: binary>>, so_far) do
+
+  def snappy_decompress_chunk(
+        <<valsize::32-unsigned, value::size(valsize)-binary, rest::binary>>,
+        so_far
+      ) do
     {:ok, decompressed_value} = :snappy.decompress(value)
     snappy_decompress_chunk(rest, so_far <> decompressed_value)
   end

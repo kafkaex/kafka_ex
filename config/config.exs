@@ -16,7 +16,7 @@ config :kafka_ex,
   brokers: [
     {"localhost", 9092},
     {"localhost", 9093},
-    {"localhost", 9094},
+    {"localhost", 9094}
   ],
   #
   # OR:
@@ -57,15 +57,16 @@ config :kafka_ex,
   # see SSL OPTION DESCRIPTIONS - CLIENT SIDE at http://erlang.org/doc/man/ssl.html
   # for supported options
   ssl_options: [
-    cacertfile: System.cwd <> "/ssl/ca-cert",
-    certfile: System.cwd <> "/ssl/cert.pem",
-    keyfile: System.cwd <> "/ssl/key.pem",
+    cacertfile: System.cwd() <> "/ssl/ca-cert",
+    certfile: System.cwd() <> "/ssl/cert.pem",
+    keyfile: System.cwd() <> "/ssl/key.pem"
   ],
   # set this to the version of the kafka broker that you are using
   # include only major.minor.patch versions.  must be at least 0.8.0
   kafka_version: "0.10.1"
 
-env_config = Path.expand("#{Mix.env}.exs", __DIR__)
+env_config = Path.expand("#{Mix.env()}.exs", __DIR__)
+
 if File.exists?(env_config) do
   import_config(env_config)
 end

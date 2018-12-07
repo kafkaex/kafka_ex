@@ -34,8 +34,9 @@ defmodule KafkaEx.ConsumerGroup.Manager do
       :members,
       :generation_id,
       :assignments,
-      :heartbeat_timer,
+      :heartbeat_timer
     ]
+
     @type t :: %__MODULE__{}
   end
 
@@ -49,8 +50,8 @@ defmodule KafkaEx.ConsumerGroup.Manager do
 
   @doc false
   # use `KafkaEx.ConsumerGroup.start_link/4` instead
-  @spec start_link(module, binary, [binary], KafkaEx.GenConsumer.options) ::
-    GenServer.on_start
+  @spec start_link(module, binary, [binary], KafkaEx.GenConsumer.options()) ::
+          GenServer.on_start()
   def start_link(consumer_module, group_name, topics, opts \\ []) do
     gen_server_opts = Keyword.get(opts, :gen_server_opts, [])
     consumer_opts = Keyword.drop(opts, [:gen_server_opts])
@@ -65,38 +66,47 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   # GenServer callbacks
 
   def init({consumer_module, group_name, topics, opts}) do
-    heartbeat_interval = Keyword.get(
-      opts,
-      :heartbeat_interval,
-      Application.get_env(:kafka_ex, :heartbeat_interval, @heartbeat_interval)
-    )
-    session_timeout = Keyword.get(
-      opts,
-      :session_timeout,
-      Application.get_env(:kafka_ex, :session_timeout, @session_timeout)
-    )
-    partition_assignment_callback = Keyword.get(
-      opts,
-      :partition_assignment_callback,
-      &PartitionAssignment.round_robin/2
-    )
+    heartbeat_interval =
+      Keyword.get(
+        opts,
+        :heartbeat_interval,
+        Application.get_env(:kafka_ex, :heartbeat_interval, @heartbeat_interval)
+      )
+
+    session_timeout =
+      Keyword.get(
+        opts,
+        :session_timeout,
+        Application.get_env(:kafka_ex, :session_timeout, @session_timeout)
+      )
+
+    partition_assignment_callback =
+      Keyword.get(
+        opts,
+        :partition_assignment_callback,
+        &PartitionAssignment.round_robin/2
+      )
 
     supervisor_pid = Keyword.fetch!(opts, :supervisor_pid)
-    consumer_opts = Keyword.drop(
-      opts,
-      [
-        :supervisor_pid,
-        :heartbeat_interval,
-        :session_timeout,
-        :partition_assignment_callback
-      ]
-    )
+
+    consumer_opts =
+      Keyword.drop(
+        opts,
+        [
+          :supervisor_pid,
+          :heartbeat_interval,
+          :session_timeout,
+          :partition_assignment_callback
+        ]
+      )
 
     worker_opts = Keyword.take(opts, [:uris])
-    {:ok, worker_name} = KafkaEx.create_worker(
-      :no_name,
-      [consumer_group: group_name] ++ worker_opts
-    )
+
+    {:ok, worker_name} =
+      KafkaEx.create_worker(
+        :no_name,
+        [consumer_group: group_name] ++ worker_opts
+      )
 
     state = %State{
       supervisor_pid: supervisor_pid,
@@ -108,7 +118,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
       consumer_opts: consumer_opts,
       group_name: group_name,
       topics: topics,
-      member_id: nil,
+      member_id: nil
     }
 
     Process.flag(:trap_exit, true)
@@ -145,21 +155,26 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   def handle_call(:group_name, _from, state) do
     {:reply, state.group_name, state}
   end
+
   ######################################################################
 
   # If `member_id` and `generation_id` aren't set, we haven't yet joined the
   # group. `member_id` and `generation_id` are initialized by
   # `JoinGroupResponse`.
   def handle_info(
-    :timeout, %State{generation_id: nil, member_id: nil} = state
-  ) do
+        :timeout,
+        %State{generation_id: nil, member_id: nil} = state
+      ) do
     {:ok, new_state} = join(state)
 
     {:noreply, new_state}
   end
 
   # If the heartbeat gets an error, we need to rebalance.
-  def handle_info({:EXIT, heartbeat_timer, {:shutdown, :rebalance}}, %State{heartbeat_timer: heartbeat_timer} = state) do
+  def handle_info(
+        {:EXIT, heartbeat_timer, {:shutdown, :rebalance}},
+        %State{heartbeat_timer: heartbeat_timer} = state
+      ) do
     {:ok, state} = rebalance(state)
     {:noreply, state}
   end
@@ -168,6 +183,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   # the group so that the group can rebalance without waiting for a session
   # timeout.
   def terminate(_reason, %State{generation_id: nil, member_id: nil}), do: :ok
+
   def terminate(_reason, %State{} = state) do
     {:ok, _state} = leave(state)
     Process.unlink(state.worker_name)
@@ -191,40 +207,42 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   # group members. Once a `JoinGroupResponse` is received, all group members
   # must send a `SyncGroupRequest` (see sync/2).
   defp join(
-    %State{
-      worker_name: worker_name,
-      session_timeout: session_timeout,
-      group_name: group_name,
-      topics: topics,
-      member_id: member_id
-    } = state
-  ) do
+         %State{
+           worker_name: worker_name,
+           session_timeout: session_timeout,
+           group_name: group_name,
+           topics: topics,
+           member_id: member_id
+         } = state
+       ) do
     join_request = %JoinGroupRequest{
       group_name: group_name,
       member_id: member_id || "",
       topics: topics,
-      session_timeout: session_timeout,
+      session_timeout: session_timeout
     }
 
-    join_response = KafkaEx.join_group(
-      join_request,
-      worker_name: worker_name,
-      timeout: session_timeout + @session_timeout_padding
-    )
+    join_response =
+      KafkaEx.join_group(
+        join_request,
+        worker_name: worker_name,
+        timeout: session_timeout + @session_timeout_padding
+      )
 
     # crash the worker if we recieve an error, but do it with a meaningful
     # error message
     if join_response.error_code != :no_error do
-      raise "Error joining consumer group #{group_name}: " <> "#{inspect join_response.error_code}"
+      raise "Error joining consumer group #{group_name}: " <>
+              "#{inspect(join_response.error_code)}"
     end
 
     Logger.debug(fn -> "Joined consumer group #{group_name}" end)
 
     new_state = %State{
-      state |
-      leader_id: join_response.leader_id,
-      member_id: join_response.member_id,
-      generation_id: join_response.generation_id
+      state
+      | leader_id: join_response.leader_id,
+        member_id: join_response.member_id,
+        generation_id: join_response.generation_id
     }
 
     assignments =
@@ -294,17 +312,17 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   # session timeout to expire. Leaving a group triggers a rebalance for the
   # remaining group members.
   defp leave(
-    %State{
-      worker_name: worker_name,
-      group_name: group_name,
-      member_id: member_id
-    } = state
-  ) do
+         %State{
+           worker_name: worker_name,
+           group_name: group_name,
+           member_id: member_id
+         } = state
+       ) do
     stop_heartbeat_timer(state)
 
     leave_request = %LeaveGroupRequest{
       group_name: group_name,
-      member_id: member_id,
+      member_id: member_id
     }
 
     leave_group_response =
@@ -314,8 +332,8 @@ defmodule KafkaEx.ConsumerGroup.Manager do
       Logger.debug(fn -> "Left consumer group #{group_name}" end)
     else
       Logger.warn(fn ->
-        "Received error #{inspect leave_group_response.error_code}, " <>
-        "consumer group manager will exit regardless."
+        "Received error #{inspect(leave_group_response.error_code)}, " <>
+          "consumer group manager will exit regardless."
       end)
     end
 
@@ -344,13 +362,14 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   end
 
   # Stops the heartbeat process.
-  defp stop_heartbeat_timer(%State{heartbeat_timer: nil} = state), do: {:ok, state}
-  defp stop_heartbeat_timer(
-    %State{heartbeat_timer: heartbeat_timer} = state
-  ) do
+  defp stop_heartbeat_timer(%State{heartbeat_timer: nil} = state),
+    do: {:ok, state}
+
+  defp stop_heartbeat_timer(%State{heartbeat_timer: heartbeat_timer} = state) do
     if Process.alive?(heartbeat_timer) do
       :gen_server.stop(heartbeat_timer)
     end
+
     new_state = %State{state | heartbeat_timer: nil}
     {:ok, new_state}
   end
@@ -359,27 +378,29 @@ defmodule KafkaEx.ConsumerGroup.Manager do
 
   # Starts consuming from the member's assigned partitions.
   defp start_consumer(
-    %State{
-      consumer_module: consumer_module,
-      consumer_opts: consumer_opts,
-      group_name: group_name,
-      supervisor_pid: pid
-    } = state,
-    assignments
-  ) do
-    {:ok, consumer_supervisor_pid} = ConsumerGroup.start_consumer(
-      pid,
-      consumer_module,
-      group_name,
-      assignments,
-      consumer_opts
-    )
+         %State{
+           consumer_module: consumer_module,
+           consumer_opts: consumer_opts,
+           group_name: group_name,
+           supervisor_pid: pid
+         } = state,
+         assignments
+       ) do
+    {:ok, consumer_supervisor_pid} =
+      ConsumerGroup.start_consumer(
+        pid,
+        consumer_module,
+        group_name,
+        assignments,
+        consumer_opts
+      )
 
     state = %{
-      state |
-      assignments: assignments,
-      consumer_supervisor_pid: consumer_supervisor_pid
+      state
+      | assignments: assignments,
+        consumer_supervisor_pid: consumer_supervisor_pid
     }
+
     {:ok, state}
   end
 
@@ -396,17 +417,19 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   # interest to this consumer group. This function returns a list of
   # topic/partition tuples that can be passed to a GenConsumer's
   # `assign_partitions` method.
-  defp assignable_partitions(
-    %State{worker_name: worker_name, topics: topics, group_name: group_name}
-  ) do
+  defp assignable_partitions(%State{
+         worker_name: worker_name,
+         topics: topics,
+         group_name: group_name
+       }) do
     metadata = KafkaEx.metadata(worker_name: worker_name)
 
-    Enum.flat_map(topics, fn (topic) ->
+    Enum.flat_map(topics, fn topic ->
       partitions = MetadataResponse.partitions_for_topic(metadata, topic)
 
       warn_if_no_partitions(partitions, group_name, topic)
 
-      Enum.map(partitions, fn (partition) ->
+      Enum.map(partitions, fn partition ->
         {topic, partition}
       end)
     end)
@@ -417,6 +440,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
       "Consumer group #{group_name} encountered nonexistent topic #{topic}"
     end)
   end
+
   defp warn_if_no_partitions(_partitions, _group_name, _topic), do: :ok
 
   # This function is used by the group leader to determine partition
@@ -426,22 +450,23 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   # return value is a complete list of member assignments in the format needed
   # by `SyncGroupResponse`.
   defp assign_partitions(
-    %State{partition_assignment_callback: partition_assignment_callback},
-    members,
-    partitions
-  ) do
+         %State{partition_assignment_callback: partition_assignment_callback},
+         members,
+         partitions
+       ) do
     # Delegate partition assignment to GenConsumer module.
     assignments = partition_assignment_callback.(members, partitions)
 
     # Convert assignments to format expected by Kafka protocol.
     packed_assignments =
-      Enum.map(assignments, fn ({member, topic_partitions}) ->
+      Enum.map(assignments, fn {member, topic_partitions} ->
         {member, pack_assignments(topic_partitions)}
       end)
+
     assignments_map = Enum.into(packed_assignments, %{})
 
     # Fill in empty assignments for missing member IDs.
-    Enum.map(members, fn (member) ->
+    Enum.map(members, fn member ->
       {member, Map.get(assignments_map, member, [])}
     end)
   end
@@ -452,8 +477,8 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   #
   #   unpack_assignments([{"foo", [0, 1]}]) #=> [{"foo", 0}, {"foo", 1}]
   defp unpack_assignments(assignments) do
-    Enum.flat_map(assignments, fn ({topic, partition_ids}) ->
-      Enum.map(partition_ids, &({topic, &1}))
+    Enum.flat_map(assignments, fn {topic, partition_ids} ->
+      Enum.map(partition_ids, &{topic, &1})
     end)
   end
 
@@ -464,9 +489,9 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   #   pack_assignments([{"foo", 0}, {"foo", 1}]) #=> [{"foo", [0, 1]}]
   defp pack_assignments(assignments) do
     assignments
-    |> Enum.reduce(%{}, fn({topic, partition}, assignments) ->
+    |> Enum.reduce(%{}, fn {topic, partition}, assignments ->
       Map.update(assignments, topic, [partition], &(&1 ++ [partition]))
     end)
-    |> Map.to_list
+    |> Map.to_list()
   end
 end

@@ -4,7 +4,13 @@ defmodule KafkaEx.Supervisor do
   use Supervisor
 
   def start_link(server, max_restarts, max_seconds) do
-    {:ok, pid} = Supervisor.start_link(__MODULE__, [server, max_restarts, max_seconds], [name: __MODULE__])
+    {:ok, pid} =
+      Supervisor.start_link(
+        __MODULE__,
+        [server, max_restarts, max_seconds],
+        name: __MODULE__
+      )
+
     {:ok, pid}
   end
 
@@ -20,6 +26,12 @@ defmodule KafkaEx.Supervisor do
     children = [
       worker(server, [])
     ]
-    supervise(children, [strategy: :simple_one_for_one, max_restarts: max_restarts, max_seconds: max_seconds])
+
+    supervise(
+      children,
+      strategy: :simple_one_for_one,
+      max_restarts: max_restarts,
+      max_seconds: max_seconds
+    )
   end
 end

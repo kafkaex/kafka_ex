@@ -31,18 +31,20 @@ defmodule KafkaEx.GenConsumer.Supervisor do
   returns `{:ok, pid}`, where `pid` is the PID of the supervisor.
   """
   @spec start_link(
-    callback_module :: module,
-    consumer_group_name :: binary,
-    assigned_partitions :: [
-      {topic_name :: binary, partition_id :: non_neg_integer}
-    ],
-    KafkaEx.GenConsumer.options
-  ) :: Elixir.Supervisor.on_start
+          callback_module :: module,
+          consumer_group_name :: binary,
+          assigned_partitions :: [
+            {topic_name :: binary, partition_id :: non_neg_integer}
+          ],
+          KafkaEx.GenConsumer.options()
+        ) :: Elixir.Supervisor.on_start()
   def start_link(consumer_module, group_name, assignments, opts \\ []) do
-    start_link_result = Elixir.Supervisor.start_link(
-      __MODULE__,
-      {consumer_module, group_name, assignments, opts}
-    )
+    start_link_result =
+      Elixir.Supervisor.start_link(
+        __MODULE__,
+        {consumer_module, group_name, assignments, opts}
+      )
+
     case start_link_result do
       {:ok, pid} ->
         :ok = start_workers(pid, assignments, opts)
@@ -61,14 +63,14 @@ defmodule KafkaEx.GenConsumer.Supervisor do
   @spec child_pids(pid | atom) :: [pid]
   def child_pids(supervisor_pid) do
     supervisor_pid
-    |> Supervisor.which_children
-    |> Enum.map(fn({_, pid, _, _}) -> pid end)
+    |> Supervisor.which_children()
+    |> Enum.map(fn {_, pid, _, _} -> pid end)
   end
 
   @doc """
   Returns true if any child pids are alive
   """
-  @spec active?(Supervisor.supervisor) :: boolean
+  @spec active?(Supervisor.supervisor()) :: boolean
   def active?(supervisor_pid) do
     supervisor_pid
     |> child_pids
@@ -84,7 +86,7 @@ defmodule KafkaEx.GenConsumer.Supervisor do
   end
 
   defp start_workers(pid, assignments, opts) do
-    Enum.each(assignments, fn ({topic, partition}) ->
+    Enum.each(assignments, fn {topic, partition} ->
       case Elixir.Supervisor.start_child(pid, [topic, partition, opts]) do
         {:ok, _child} -> nil
         {:ok, _child, _info} -> nil

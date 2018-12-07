@@ -11,7 +11,7 @@ defmodule KafkaExTest do
 
     # the supervisor should now have no children and the default worker should not be registered
     assert [] == Supervisor.which_children(KafkaEx.Supervisor)
-    assert nil == Process.whereis(Config.default_worker)
+    assert nil == Process.whereis(Config.default_worker())
 
     # revert the change, restart the application
     :ok = Application.stop(:kafka_ex)
@@ -19,9 +19,10 @@ defmodule KafkaExTest do
     {:ok, _} = Application.ensure_all_started(:kafka_ex)
 
     # we should have the default worker back again
-    pid = Process.whereis(Config.default_worker)
+    pid = Process.whereis(Config.default_worker())
     assert is_pid(pid)
-    assert [{:undefined, pid, :worker, [Config.server_impl]}] ==
-      Supervisor.which_children(KafkaEx.Supervisor)
+
+    assert [{:undefined, pid, :worker, [Config.server_impl()]}] ==
+             Supervisor.which_children(KafkaEx.Supervisor)
   end
 end
