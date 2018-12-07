@@ -6,13 +6,16 @@ defmodule KafkaEx.ConfigTest do
   setup do
     # reset application env after each test
     env_before = Application.get_all_env(:kafka_ex)
-    on_exit fn ->
+
+    on_exit(fn ->
       # this is basically Application.put_all_env
       for {k, v} <- env_before do
         Application.put_env(:kafka_ex, k, v)
       end
+
       :ok
-    end
+    end)
+
     :ok
   end
 
@@ -27,12 +30,12 @@ defmodule KafkaEx.ConfigTest do
     Application.put_env(:kafka_ex, :ssl_options, nil)
     assert [] == Config.ssl_options()
 
-    Application.put_env(:kafka_ex, :ssl_options, [foo: :bar])
+    Application.put_env(:kafka_ex, :ssl_options, foo: :bar)
     assert [] == Config.ssl_options()
   end
 
   test "ssl_options raises an error if use_ssl is true and ssl_options " <>
-    "are invalid" do
+         "are invalid" do
     Application.put_env(:kafka_ex, :use_ssl, true)
 
     # when ssl_options is not set we should get an error
@@ -73,10 +76,10 @@ defmodule KafkaEx.ConfigTest do
   end
 
   test "brokers with lazy configuration using fun" do
-    brokers =
-      fn ->
-        get_brokers(port: 8888)
-      end
+    brokers = fn ->
+      get_brokers(port: 8888)
+    end
+
     Application.put_env(:kafka_ex, :brokers, brokers)
 
     assert get_brokers(port: 8888) == Config.brokers()
@@ -84,6 +87,7 @@ defmodule KafkaEx.ConfigTest do
 
   def get_brokers(opts) do
     port = Keyword.get(opts, :port)
+
     [
       {"elixir-lang.org", port}
     ]

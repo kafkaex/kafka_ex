@@ -40,8 +40,7 @@ defmodule KafkaEx.Mixfile do
       {:excoveralls, "~> 0.7", only: :test},
       {:ex_doc, "~> 0.18", only: :dev},
       {:snappy,
-       git: "https://github.com/fdmanana/snappy-erlang-nif",
-       only: [:dev, :test]}
+       git: "https://github.com/fdmanana/snappy-erlang-nif", only: [:dev, :test]}
     ]
   end
 
@@ -50,9 +49,11 @@ defmodule KafkaEx.Mixfile do
   end
 
   defp package do
-    [maintainers: ["Abejide Ayodele", "Dan Swain", "Jack Lund"],
-     files: ["lib", "config/config.exs", "mix.exs", "README.md"],
-     licenses: ["MIT"],
-     links: %{"Github" => "https://github.com/kafkaex/kafka_ex"}]
+    [
+      maintainers: ["Abejide Ayodele", "Dan Swain", "Jack Lund"],
+      files: ["lib", "config/config.exs", "mix.exs", "README.md"],
+      licenses: ["MIT"],
+      links: %{"Github" => "https://github.com/kafkaex/kafka_ex"}
+    ]
   end
 end

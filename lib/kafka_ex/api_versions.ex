@@ -22,10 +22,17 @@ defmodule KafkaEx.ApiVersions do
 
         api_key ->
           case api_versions_map[api_key] do
-            %{min_version: min} when min > max_implemented_version -> :no_version_supported
-            %{max_version: max} when max < min_implemented_version -> :no_version_supported
-            %{max_version: max} -> {:ok, Enum.min([max_implemented_version, max])}
-            _ -> :unknown_message_for_server
+            %{min_version: min} when min > max_implemented_version ->
+              :no_version_supported
+
+            %{max_version: max} when max < min_implemented_version ->
+              :no_version_supported
+
+            %{max_version: max} ->
+              {:ok, Enum.min([max_implemented_version, max])}
+
+            _ ->
+              :unknown_message_for_server
           end
       end
     end

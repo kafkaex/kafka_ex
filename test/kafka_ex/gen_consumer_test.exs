@@ -20,7 +20,7 @@ defmodule KafkaEx.GenConsumerTest do
 
   test "calling handle_info raises an error if there is no implementation" do
     assert capture_log(fn ->
-      TestConsumer.handle_info(nil, nil)
-    end) =~ "unexpected message in handle_info"
+             TestConsumer.handle_info(nil, nil)
+           end) =~ "unexpected message in handle_info"
   end
 end

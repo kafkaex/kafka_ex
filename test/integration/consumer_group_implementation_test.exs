@@ -25,13 +25,13 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     end
 
     def calls do
-      Agent.get(__MODULE__, &(&1))
+      Agent.get(__MODULE__, & &1)
     end
 
     def assign_partitions(members, partitions) do
       Logger.debug(fn ->
-        "Consumer #{inspect self()} got " <>
-          "partition assignment: #{inspect members} #{inspect partitions}"
+        "Consumer #{inspect(self())} got " <>
+          "partition assignment: #{inspect(members)} #{inspect(partitions)}"
       end)
 
       Agent.update(__MODULE__, &(&1 + 1))
@@ -61,8 +61,9 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
 
     def init(topic, partition) do
       Logger.debug(fn ->
-        "Initialized consumer #{inspect self()} for #{topic}:#{partition}"
+        "Initialized consumer #{inspect(self())} for #{topic}:#{partition}"
       end)
+
       {:ok, %{message_sets: []}}
     end
 
@@ -84,8 +85,9 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
 
     def handle_message_set(message_set, state) do
       Logger.debug(fn ->
-        "Consumer #{inspect self()} handled message set #{inspect message_set}"
+        "Consumer #{inspect(self())} handled message set #{inspect(message_set)}"
       end)
+
       {
         :async_commit,
         %{state | message_sets: state.message_sets ++ [message_set]}
@@ -100,11 +102,13 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
 
   def correct_last_message?(nil, _, _), do: false
   def correct_last_message?([], _, _), do: false
+
   def correct_last_message?(message_set, expected_message, expected_offset) do
     Logger.debug(fn ->
-      "Got message set: #{inspect message_set} " <>
+      "Got message set: #{inspect(message_set)} " <>
         "expecting '#{expected_message}' @ offset #{expected_offset}"
     end)
+
     message = List.last(message_set)
     message.value == expected_message && message.offset == expected_offset
   end
@@ -114,34 +118,39 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       if Process.alive?(pid) do
         Process.exit(pid, :normal)
       end
+
       !Process.alive?(pid)
     end)
   end
 
   def num_open_ports() do
-    :erlang.ports
-    |> Enum.map(&(:erlang.port_info(&1, :name)))
+    :erlang.ports()
+    |> Enum.map(&:erlang.port_info(&1, :name))
     |> Enum.filter(&(&1 == {:name, 'tcp_inet'}))
     |> length
   end
 
   setup do
     ports_before = num_open_ports()
-    {:ok, _} = TestPartitioner.start_link
-    {:ok, consumer_group_pid1} = ConsumerGroup.start_link(
-      TestConsumer,
-      @consumer_group_name,
-      [@topic_name],
-      heartbeat_interval: 100,
-      partition_assignment_callback: &TestPartitioner.assign_partitions/2
-    )
-    {:ok, consumer_group_pid2} = ConsumerGroup.start_link(
-      TestConsumer,
-      @consumer_group_name,
-      [@topic_name],
-      heartbeat_interval: 100,
-      partition_assignment_callback: &TestPartitioner.assign_partitions/2
-    )
+    {:ok, _} = TestPartitioner.start_link()
+
+    {:ok, consumer_group_pid1} =
+      ConsumerGroup.start_link(
+        TestConsumer,
+        @consumer_group_name,
+        [@topic_name],
+        heartbeat_interval: 100,
+        partition_assignment_callback: &TestPartitioner.assign_partitions/2
+      )
+
+    {:ok, consumer_group_pid2} =
+      ConsumerGroup.start_link(
+        TestConsumer,
+        @consumer_group_name,
+        [@topic_name],
+        heartbeat_interval: 100,
+        partition_assignment_callback: &TestPartitioner.assign_partitions/2
+      )
 
     # wait for both consumer groups to join
     wait_for(fn ->
@@ -149,10 +158,10 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
         ConsumerGroup.active?(consumer_group_pid2)
     end)
 
-    on_exit fn ->
+    on_exit(fn ->
       sync_stop(consumer_group_pid1)
       sync_stop(consumer_group_pid2)
-    end
+    end)
 
     {
       :ok,
@@ -165,14 +174,14 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
   test "basic startup, consume, and shutdown test", context do
     assert num_open_ports() > context[:ports_before]
 
-    assert TestPartitioner.calls > 0
+    assert TestPartitioner.calls() > 0
 
     generation_id1 = ConsumerGroup.generation_id(context[:consumer_group_pid1])
     generation_id2 = ConsumerGroup.generation_id(context[:consumer_group_pid2])
     assert generation_id1 == generation_id2
 
     assert @consumer_group_name ==
-      ConsumerGroup.group_name(context[:consumer_group_pid1])
+             ConsumerGroup.group_name(context[:consumer_group_pid1])
 
     member1 = ConsumerGroup.member_id(context[:consumer_group_pid1])
     member2 = ConsumerGroup.member_id(context[:consumer_group_pid2])
@@ -186,9 +195,11 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       leader1 == member1 ->
         assert ConsumerGroup.leader?(context[:consumer_group_pid1])
         refute ConsumerGroup.leader?(context[:consumer_group_pid2])
+
       leader1 == member2 ->
         refute ConsumerGroup.leader?(context[:consumer_group_pid1])
         assert ConsumerGroup.leader?(context[:consumer_group_pid2])
+
       true ->
         raise "Neither member is the leader"
     end
@@ -197,26 +208,31 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     assignments2 = ConsumerGroup.assignments(context[:consumer_group_pid2])
     assert 2 == length(assignments1)
     assert 2 == length(assignments2)
+
     assert MapSet.disjoint?(
-      Enum.into(assignments1, MapSet.new),
-      Enum.into(assignments2, MapSet.new)
-    )
+             Enum.into(assignments1, MapSet.new()),
+             Enum.into(assignments2, MapSet.new())
+           )
 
     consumer1_pid =
       ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid1])
-    consumer1_assignments = consumer1_pid
-    |> GenConsumer.Supervisor.child_pids
-    |> Enum.map(&GenConsumer.partition/1)
-    |> Enum.sort
+
+    consumer1_assignments =
+      consumer1_pid
+      |> GenConsumer.Supervisor.child_pids()
+      |> Enum.map(&GenConsumer.partition/1)
+      |> Enum.sort()
 
     assert consumer1_assignments == Enum.sort(assignments1)
 
     consumer2_pid =
       ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid2])
-    consumer2_assignments = consumer2_pid
-    |> GenConsumer.Supervisor.child_pids
-    |> Enum.map(&GenConsumer.partition/1)
-    |> Enum.sort
+
+    consumer2_assignments =
+      consumer2_pid
+      |> GenConsumer.Supervisor.child_pids()
+      |> Enum.map(&GenConsumer.partition/1)
+      |> Enum.sort()
 
     assert consumer2_assignments == Enum.sort(assignments2)
 
@@ -225,34 +241,40 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
 
     partition_range = 0..(@partition_count - 1)
 
-    starting_offsets = partition_range
-    |> Enum.map(fn(px) -> {px, latest_offset_number(@topic_name, px)} end)
-    |> Enum.into(%{})
+    starting_offsets =
+      partition_range
+      |> Enum.map(fn px -> {px, latest_offset_number(@topic_name, px)} end)
+      |> Enum.into(%{})
 
-    messages = partition_range
-    |> Enum.map(fn(px) ->
-      offset = Map.get(starting_offsets, px)
-      {px, produce("M #{px} #{offset}", px)}
-    end)
-    |> Enum.into(%{})
+    messages =
+      partition_range
+      |> Enum.map(fn px ->
+        offset = Map.get(starting_offsets, px)
+        {px, produce("M #{px} #{offset}", px)}
+      end)
+      |> Enum.into(%{})
 
-    consumers = Map.merge(
-      ConsumerGroup.partition_consumer_map(context[:consumer_group_pid1]),
-      ConsumerGroup.partition_consumer_map(context[:consumer_group_pid2])
-    )
+    consumers =
+      Map.merge(
+        ConsumerGroup.partition_consumer_map(context[:consumer_group_pid1]),
+        ConsumerGroup.partition_consumer_map(context[:consumer_group_pid2])
+      )
 
     # we actually consume the messages
-    last_offsets = partition_range
-    |> Enum.map(fn(px) ->
-      consumer_pid = Map.get(consumers, {@topic_name, px})
-      wait_for(fn ->
-        message_set = TestConsumer.last_message_set(consumer_pid)
-        correct_last_message?(message_set, messages[px], starting_offsets[px])
+    last_offsets =
+      partition_range
+      |> Enum.map(fn px ->
+        consumer_pid = Map.get(consumers, {@topic_name, px})
+
+        wait_for(fn ->
+          message_set = TestConsumer.last_message_set(consumer_pid)
+          correct_last_message?(message_set, messages[px], starting_offsets[px])
+        end)
+
+        last_message = List.last(TestConsumer.last_message_set(consumer_pid))
+        {px, last_message.offset}
       end)
-      last_message = List.last(TestConsumer.last_message_set(consumer_pid))
-      {px, last_message.offset}
-    end)
-    |> Enum.into(%{})
+      |> Enum.into(%{})
 
     # stop the supervisors
     Process.unlink(context[:consumer_group_pid1])
@@ -265,6 +287,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       wait_for(fn ->
         ending_offset =
           latest_consumer_offset_number(@topic_name, px, @consumer_group_name)
+
         last_offset = Map.get(last_offsets, px)
         ending_offset == last_offset + 1
       end)
@@ -289,13 +312,14 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     # and become the leader
     assert ConsumerGroup.leader?(context[:consumer_group_pid2])
 
-    {:ok, consumer_group_pid3} = ConsumerGroup.start_link(
-      TestConsumer,
-      @consumer_group_name,
-      [@topic_name],
-      heartbeat_interval: 100,
-      partition_assignment_callback: &TestPartitioner.assign_partitions/2
-    )
+    {:ok, consumer_group_pid3} =
+      ConsumerGroup.start_link(
+        TestConsumer,
+        @consumer_group_name,
+        [@topic_name],
+        heartbeat_interval: 100,
+        partition_assignment_callback: &TestPartitioner.assign_partitions/2
+      )
 
     # the new worker should get assigned some partitions
     wait_for(fn ->
@@ -322,6 +346,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
   test "handle_cast and handle_info calls", context do
     consumer_group_pid =
       ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid1])
+
     consumer_pids = GenConsumer.Supervisor.child_pids(consumer_group_pid)
 
     # Send a cast and info message to each consumer
@@ -335,10 +360,13 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       wait_for(fn ->
         TestConsumer.get(consumer_pid, :test_cast) != nil
       end)
+
       assert :value == TestConsumer.get(consumer_pid, :test_cast)
+
       wait_for(fn ->
         TestConsumer.get(consumer_pid, :test_info) != nil
       end)
+
       assert :value == TestConsumer.get(consumer_pid, :test_info)
     end
   end

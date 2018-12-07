@@ -200,14 +200,15 @@ defmodule KafkaEx.GenConsumer do
   @typedoc """
   Option values used when starting a `KafkaEx.GenConsumer`.
   """
-  @type option :: {:commit_interval, non_neg_integer}
-                | {:commit_threshold, non_neg_integer}
-                | {:auto_offset_reset, :none | :earliest | :latest}
+  @type option ::
+          {:commit_interval, non_neg_integer}
+          | {:commit_threshold, non_neg_integer}
+          | {:auto_offset_reset, :none | :earliest | :latest}
 
   @typedoc """
   Options used when starting a `KafkaEx.GenConsumer`.
   """
-  @type options :: [option | GenServer.option]
+  @type options :: [option | GenServer.option()]
 
   @doc """
   Invoked when the server is started. `start_link/5` will block until it
@@ -224,7 +225,7 @@ defmodule KafkaEx.GenConsumer do
   error}` and the process to exit.
   """
   @callback init(topic :: binary, partition :: non_neg_integer) ::
-    {:ok, state :: term}
+              {:ok, state :: term}
 
   @doc """
   Invoked for each message set consumed from a Kafka topic partition.
@@ -244,8 +245,9 @@ defmodule KafkaEx.GenConsumer do
   used sparingly, since committing every message synchronously would impact a
   consumer's performance and could result in excessive network traffic.
   """
-  @callback handle_message_set(message_set :: [Message.t], state :: term) ::
-    {:async_commit, new_state :: term} | {:sync_commit, new_state :: term}
+  @callback handle_message_set(message_set :: [Message.t()], state :: term) ::
+              {:async_commit, new_state :: term}
+              | {:sync_commit, new_state :: term}
 
   @doc """
   Invoked by `KafkaEx.GenConsumer.call/3`.
@@ -253,8 +255,8 @@ defmodule KafkaEx.GenConsumer do
   Note the default implementation will cause a `RuntimeError`.  If you want to
   interact with your consumer, you must implement a handle_call function.
   """
-  @callback handle_call(call :: term, from :: GenServer.from, state :: term)
-    :: {:reply, reply_value :: term, new_state :: term}
+  @callback handle_call(call :: term, from :: GenServer.from(), state :: term) ::
+              {:reply, reply_value :: term, new_state :: term}
 
   @doc """
   Invoked by `KafkaEx.GenConsumer.cast/2`.
@@ -263,7 +265,7 @@ defmodule KafkaEx.GenConsumer do
   interact with your consumer, you must implement a handle_cast function.
   """
   @callback handle_cast(cast :: term, state :: term) ::
-    {:noreply, new_state :: term}
+              {:noreply, new_state :: term}
 
   @doc """
   Invoked by sending messages to the consumer.
@@ -272,7 +274,7 @@ defmodule KafkaEx.GenConsumer do
   interact with your consumer, you must implement a handle_info function.
   """
   @callback handle_info(info :: term, state :: term) ::
-    {:noreply, new_state :: term}
+              {:noreply, new_state :: term}
 
   defmacro __using__(_opts) do
     quote do
@@ -401,12 +403,12 @@ defmodule KafkaEx.GenConsumer do
   This function has the same return values as `GenServer.start_link/3`.
   """
   @spec start_link(
-    callback_module :: module,
-    consumer_group_name :: binary,
-    topic_name :: binary,
-    partition_id :: non_neg_integer,
-    options
-  ) :: GenServer.on_start
+          callback_module :: module,
+          consumer_group_name :: binary,
+          topic_name :: binary,
+          partition_id :: non_neg_integer,
+          options
+        ) :: GenServer.on_start()
   def start_link(consumer_module, group_name, topic, partition, opts \\ []) do
     {server_opts, consumer_opts} =
       Keyword.split(opts, [:debug, :name, :timeout, :spawn_opt])
@@ -421,8 +423,8 @@ defmodule KafkaEx.GenConsumer do
   @doc """
   Returns the topic and partition id for this consumer process
   """
-  @spec partition(GenServer.server) ::
-    {topic :: binary, partition_id :: non_neg_integer}
+  @spec partition(GenServer.server()) ::
+          {topic :: binary, partition_id :: non_neg_integer}
   def partition(gen_consumer) do
     GenServer.call(gen_consumer, :partition)
   end
@@ -438,7 +440,7 @@ defmodule KafkaEx.GenConsumer do
 
   See the moduledoc for an example.
   """
-  @spec call(GenServer.server, term, timeout) :: term
+  @spec call(GenServer.server(), term, timeout) :: term
   def call(gen_consumer, message, timeout \\ 5000) do
     GenServer.call(gen_consumer, {:consumer_call, message}, timeout)
   end
@@ -451,7 +453,7 @@ defmodule KafkaEx.GenConsumer do
   form `{:noreply, new_consumer_state}`. The GenConsumer will turn this into an
   immediate timeout, which drives continued message consumption.
   """
-  @spec cast(GenServer.server, term) :: term
+  @spec cast(GenServer.server(), term) :: term
   def cast(gen_consumer, message) do
     GenServer.cast(gen_consumer, {:consumer_cast, message})
   end
@@ -459,28 +461,35 @@ defmodule KafkaEx.GenConsumer do
   # GenServer callbacks
 
   def init({consumer_module, group_name, topic, partition, opts}) do
-    commit_interval = Keyword.get(
-      opts,
-      :commit_interval,
-      Application.get_env(:kafka_ex, :commit_interval, @commit_interval)
-    )
-    commit_threshold = Keyword.get(
-      opts,
-      :commit_threshold,
-      Application.get_env(:kafka_ex, :commit_threshold, @commit_threshold)
-    )
-    auto_offset_reset = Keyword.get(
-      opts,
-      :auto_offset_reset,
-      Application.get_env(:kafka_ex, :auto_offset_reset, @auto_offset_reset)
-    )
+    commit_interval =
+      Keyword.get(
+        opts,
+        :commit_interval,
+        Application.get_env(:kafka_ex, :commit_interval, @commit_interval)
+      )
+
+    commit_threshold =
+      Keyword.get(
+        opts,
+        :commit_threshold,
+        Application.get_env(:kafka_ex, :commit_threshold, @commit_threshold)
+      )
+
+    auto_offset_reset =
+      Keyword.get(
+        opts,
+        :auto_offset_reset,
+        Application.get_env(:kafka_ex, :auto_offset_reset, @auto_offset_reset)
+      )
 
     {:ok, consumer_state} = consumer_module.init(topic, partition)
     worker_opts = Keyword.take(opts, [:uris])
-    {:ok, worker_name} = KafkaEx.create_worker(
-      :no_name,
-      [consumer_group: group_name] ++ worker_opts
-    )
+
+    {:ok, worker_name} =
+      KafkaEx.create_worker(
+        :no_name,
+        [consumer_group: group_name] ++ worker_opts
+      )
 
     default_fetch_options = [
       auto_commit: false,
@@ -513,50 +522,54 @@ defmodule KafkaEx.GenConsumer do
   end
 
   def handle_call(
-    {:consumer_call, message},
-    from,
-    %State{
-      consumer_module: consumer_module,
-      consumer_state: consumer_state
-    } = state
-  ) do
+        {:consumer_call, message},
+        from,
+        %State{
+          consumer_module: consumer_module,
+          consumer_state: consumer_state
+        } = state
+      ) do
     # NOTE we only support the {:reply, _, _} result format here
     #   which we turn into a timeout = 0 clause so that we continue to consume.
     #   any other GenServer flow control could have unintended consequences,
     #   so we leave that for later consideration
-    {:reply, reply, new_consumer_state} = consumer_module.handle_call(
-      message,
-      from,
-      consumer_state
-    )
+    {:reply, reply, new_consumer_state} =
+      consumer_module.handle_call(
+        message,
+        from,
+        consumer_state
+      )
+
     {:reply, reply, %{state | consumer_state: new_consumer_state}, 0}
   end
 
   def handle_cast(
-    {:consumer_cast, message},
-    %State{
-      consumer_module: consumer_module,
-      consumer_state: consumer_state
-    } = state
-  ) do
+        {:consumer_cast, message},
+        %State{
+          consumer_module: consumer_module,
+          consumer_state: consumer_state
+        } = state
+      ) do
     # NOTE we only support the {:noreply, _} result format here
     #   which we turn into a timeout = 0 clause so that we continue to consume.
     #   any other GenServer flow control could have unintended consequences,
     #   so we leave that for later consideration
-    {:noreply, new_consumer_state} = consumer_module.handle_cast(
-      message,
-      consumer_state
-    )
+    {:noreply, new_consumer_state} =
+      consumer_module.handle_cast(
+        message,
+        consumer_state
+      )
+
     {:noreply, %{state | consumer_state: new_consumer_state}, 0}
   end
 
   def handle_info(
-    :timeout,
-    %State{current_offset: nil, last_commit: nil} = state
-  ) do
+        :timeout,
+        %State{current_offset: nil, last_commit: nil} = state
+      ) do
     new_state = %State{
-      load_offsets(state) |
-      last_commit: :erlang.monotonic_time(:milli_seconds)
+      load_offsets(state)
+      | last_commit: :erlang.monotonic_time(:milli_seconds)
     }
 
     {:noreply, new_state, 0}
@@ -569,20 +582,22 @@ defmodule KafkaEx.GenConsumer do
   end
 
   def handle_info(
-    message,
-    %State{
-      consumer_module: consumer_module,
-      consumer_state: consumer_state
-    } = state
-  ) do
+        message,
+        %State{
+          consumer_module: consumer_module,
+          consumer_state: consumer_state
+        } = state
+      ) do
     # NOTE we only support the {:noreply, _} result format here
     #   which we turn into a timeout = 0 clause so that we continue to consume.
     #   any other GenServer flow control could have unintended consequences,
     #   so we leave that for later consideration
-    {:noreply, new_consumer_state} = consumer_module.handle_info(
-      message,
-      consumer_state
-    )
+    {:noreply, new_consumer_state} =
+      consumer_module.handle_info(
+        message,
+        consumer_state
+      )
+
     {:noreply, %{state | consumer_state: new_consumer_state}, 0}
   end
 
@@ -595,13 +610,13 @@ defmodule KafkaEx.GenConsumer do
   # Helpers
 
   defp consume(
-    %State{
-      topic: topic,
-      partition: partition,
-      current_offset: offset,
-      fetch_options: fetch_options
-    } = state
-  ) do
+         %State{
+           topic: topic,
+           partition: partition,
+           current_offset: offset,
+           fetch_options: fetch_options
+         } = state
+       ) do
     [
       %FetchResponse{
         topic: ^topic,
@@ -609,16 +624,18 @@ defmodule KafkaEx.GenConsumer do
           response = %{error_code: error_code, partition: ^partition}
         ]
       }
-    ] = KafkaEx.fetch(
-      topic,
-      partition,
-      Keyword.merge(fetch_options, [offset: offset])
-    )
+    ] =
+      KafkaEx.fetch(
+        topic,
+        partition,
+        Keyword.merge(fetch_options, offset: offset)
+      )
 
     state =
       case error_code do
         :offset_out_of_range ->
           handle_offset_out_of_range(state)
+
         :no_error ->
           state
       end
@@ -626,40 +643,42 @@ defmodule KafkaEx.GenConsumer do
     case response do
       %{last_offset: nil, message_set: []} ->
         handle_commit(:async_commit, state)
+
       %{last_offset: _, message_set: message_set} ->
         handle_message_set(message_set, state)
     end
   end
 
   defp handle_message_set(
-    message_set,
-    %State{
-      consumer_module: consumer_module,
-      consumer_state: consumer_state
-    } = state
-  ) do
+         message_set,
+         %State{
+           consumer_module: consumer_module,
+           consumer_state: consumer_state
+         } = state
+       ) do
     {sync_status, new_consumer_state} =
       consumer_module.handle_message_set(message_set, consumer_state)
 
     %Message{offset: last_offset} = List.last(message_set)
+
     state_out = %State{
-      state |
-      consumer_state: new_consumer_state,
-      acked_offset: last_offset + 1,
-      current_offset: last_offset + 1
+      state
+      | consumer_state: new_consumer_state,
+        acked_offset: last_offset + 1,
+        current_offset: last_offset + 1
     }
 
     handle_commit(sync_status, state_out)
   end
 
   defp handle_offset_out_of_range(
-    %State{
-      worker_name: worker_name,
-      topic: topic,
-      partition: partition,
-      auto_offset_reset: auto_offset_reset
-    } = state
-  ) do
+         %State{
+           worker_name: worker_name,
+           topic: topic,
+           partition: partition,
+           auto_offset_reset: auto_offset_reset
+         } = state
+       ) do
     [
       %OffsetResponse{
         topic: ^topic,
@@ -667,39 +686,47 @@ defmodule KafkaEx.GenConsumer do
           %{partition: ^partition, error_code: :no_error, offset: [offset]}
         ]
       }
-    ] = case auto_offset_reset do
-      :earliest ->
-        KafkaEx.earliest_offset(topic, partition, worker_name)
-      :latest ->
-        KafkaEx.latest_offset(topic, partition, worker_name)
-      _ ->
-        raise "Offset out of range while consuming topic #{topic}, partition #{partition}."
-    end
+    ] =
+      case auto_offset_reset do
+        :earliest ->
+          KafkaEx.earliest_offset(topic, partition, worker_name)
+
+        :latest ->
+          KafkaEx.latest_offset(topic, partition, worker_name)
+
+        _ ->
+          raise "Offset out of range while consuming topic #{topic}, partition #{
+                  partition
+                }."
+      end
 
     %State{
-      state |
-      current_offset: offset,
-      committed_offset: offset,
-      acked_offset: offset
+      state
+      | current_offset: offset,
+        committed_offset: offset,
+        acked_offset: offset
     }
   end
 
   defp handle_commit(:sync_commit, %State{} = state), do: commit(state)
+
   defp handle_commit(
-    :async_commit,
-    %State{
-      acked_offset: acked,
-      committed_offset: committed,
-      commit_threshold: threshold,
-      last_commit: last_commit,
-      commit_interval: interval
-    } = state
-  ) do
+         :async_commit,
+         %State{
+           acked_offset: acked,
+           committed_offset: committed,
+           commit_threshold: threshold,
+           last_commit: last_commit,
+           commit_interval: interval
+         } = state
+       ) do
     case acked - committed do
       0 ->
         %State{state | last_commit: :erlang.monotonic_time(:milli_seconds)}
+
       n when n >= threshold ->
         commit(state)
+
       _ ->
         if :erlang.monotonic_time(:milli_seconds) - last_commit >= interval do
           commit(state)
@@ -709,26 +736,24 @@ defmodule KafkaEx.GenConsumer do
     end
   end
 
-  defp commit(
-    %State{acked_offset: offset, committed_offset: offset} = state
-  ) do
+  defp commit(%State{acked_offset: offset, committed_offset: offset} = state) do
     state
   end
 
   defp commit(
-    %State{
-      worker_name: worker_name,
-      group: group,
-      topic: topic,
-      partition: partition,
-      acked_offset: offset
-    } = state
-  ) do
+         %State{
+           worker_name: worker_name,
+           group: group,
+           topic: topic,
+           partition: partition,
+           acked_offset: offset
+         } = state
+       ) do
     request = %OffsetCommitRequest{
       consumer_group: group,
       topic: topic,
       partition: partition,
-      offset: offset,
+      offset: offset
     }
 
     [%OffsetCommitResponse{topic: ^topic, partitions: [^partition]}] =
@@ -739,20 +764,20 @@ defmodule KafkaEx.GenConsumer do
     end)
 
     %State{
-      state |
-      committed_offset: offset,
-      last_commit: :erlang.monotonic_time(:milli_seconds)
+      state
+      | committed_offset: offset,
+        last_commit: :erlang.monotonic_time(:milli_seconds)
     }
   end
 
   defp load_offsets(
-    %State{
-      worker_name: worker_name,
-      group: group,
-      topic: topic,
-      partition: partition
-    } = state
-  ) do
+         %State{
+           worker_name: worker_name,
+           group: group,
+           topic: topic,
+           partition: partition
+         } = state
+       ) do
     request = %OffsetFetchRequest{
       consumer_group: group,
       topic: topic,
@@ -771,11 +796,12 @@ defmodule KafkaEx.GenConsumer do
     case error_code do
       :no_error ->
         %State{
-          state |
-          current_offset: offset,
-          committed_offset: offset,
-          acked_offset: offset
+          state
+          | current_offset: offset,
+            committed_offset: offset,
+            acked_offset: offset
         }
+
       :unknown_topic_or_partition ->
         [
           %OffsetResponse{
@@ -787,10 +813,10 @@ defmodule KafkaEx.GenConsumer do
         ] = KafkaEx.earliest_offset(topic, partition, worker_name)
 
         %State{
-          state |
-          current_offset: offset,
-          committed_offset: offset,
-          acked_offset: offset
+          state
+          | current_offset: offset,
+            committed_offset: offset,
+            acked_offset: offset
         }
     end
   end

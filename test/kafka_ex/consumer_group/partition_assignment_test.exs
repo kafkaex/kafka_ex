@@ -9,10 +9,12 @@ defmodule KafkaEx.ConsumerGroup.PartitionAssignmentTest do
     partitions = [{topic, 0}, {topic, 1}, {topic, 2}]
 
     assignments = PartitionAssignment.round_robin(members, partitions)
+
     expected = %{
       "member1" => [{topic, 0}, {topic, 2}],
       "member2" => [{topic, 1}]
     }
+
     assert expected == assignments
   end
 end
