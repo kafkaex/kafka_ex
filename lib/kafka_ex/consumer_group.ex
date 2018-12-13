@@ -11,7 +11,7 @@ defmodule KafkaEx.ConsumerGroup do
   Kafka broker initiates group synchronization by asking one of the group
   members (the leader elected by the broker) to provide partition assignments
   for the whole group.  KafkaEx uses a round robin partition assignment
-  algorithm by deafult.  This can be overridden by passing a callback function
+  algorithm by default.  This can be overridden by passing a callback function
   in the `:partition_assignment_callback` option.  See
   `KafkaEx.ConsumerGroup.PartitionAssignment` for details on partition
   assignment functions.
