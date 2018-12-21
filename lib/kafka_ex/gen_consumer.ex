@@ -52,7 +52,7 @@ defmodule KafkaEx.GenConsumer do
 
   ## Committing Offsets
 
-  `KafkaEx.GenConsumer` manages a consumer's offsets by committing the the offsets
+  `KafkaEx.GenConsumer` manages a consumer's offsets by committing the offsets
   of consumed messages.  KafkaEx supports two commit strategies: asynchronous
   and synchronous.  The return value of `c:handle_message_set/2` determines
   which strategy is used:
