@@ -540,7 +540,7 @@ defmodule KafkaEx do
 
   Merges the given options with defaults from the application env config.
   Returns `{:error, :invalid_consumer_options}` if the consumer group
-  configuation is invalid, and `{:ok, merged_options}` otherwise.
+  configuration is invalid, and `{:ok, merged_options}` otherwise.
 
   Note this happens automatically when using `KafkaEx.create_worker`.
   """
