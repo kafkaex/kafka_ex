@@ -9,7 +9,7 @@ defmodule KafkaEx.Protocol.Produce do
 
   defmodule Request do
     @moduledoc """
-    - require_acks: indicates how many acknowledgements the servers should
+    - required_acks: indicates how many acknowledgements the servers should
     receive before responding to the request. If it is 0 the server will not
     send any response (this is the only case where the server will not reply
     to a request). If it is 1, the server will wait the data is written to the
