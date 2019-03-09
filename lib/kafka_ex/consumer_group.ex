@@ -137,12 +137,32 @@ defmodule KafkaEx.ConsumerGroup do
   """
   @spec start_link(module, binary, [binary], options) :: Supervisor.on_start()
   def start_link(consumer_module, group_name, topics, opts \\ []) do
+    start_link(KafkaEx.GenConsumer, consumer_module, group_name, topics, opts)
+  end
+
+  @doc """
+  Starts a consumer group process tree with an alternate consumer implementation.
+
+  By default starts `KafkaEx.GenConsumer` But can be passed any module
+  implementing `GenServer`. The consumer is responsible for pulling messages and
+  managing its commit state. For example `KafkExGenStageConsumer` implements a
+  `GenStage` producer which pulls messages from kafka according to demand.
+  """
+  @spec start_link(module, module, binary, [binary], options) ::
+          Supervisor.on_start()
+  def start_link(
+        gen_consumer_module,
+        consumer_module,
+        group_name,
+        topics,
+        opts
+      ) do
     {supervisor_opts, module_opts} =
       Keyword.split(opts, [:name, :strategy, :max_restarts, :max_seconds])
 
     Supervisor.start_link(
       __MODULE__,
-      {consumer_module, group_name, topics, module_opts},
+      {gen_consumer_module, consumer_module, group_name, topics, module_opts},
       supervisor_opts
     )
   end
@@ -284,11 +304,18 @@ defmodule KafkaEx.ConsumerGroup do
 
   # used by ConsumerGroup.Manager to set partition assignments
   @doc false
-  def start_consumer(pid, consumer_module, group_name, assignments, opts) do
+  def start_consumer(
+        pid,
+        gen_consumer_module,
+        consumer_module,
+        group_name,
+        assignments,
+        opts
+      ) do
     child =
       supervisor(
         KafkaEx.GenConsumer.Supervisor,
-        [consumer_module, group_name, assignments, opts],
+        [gen_consumer_module, consumer_module, group_name, assignments, opts],
         id: :consumer
       )
 
@@ -311,13 +338,13 @@ defmodule KafkaEx.ConsumerGroup do
   end
 
   @doc false
-  def init({consumer_module, group_name, topics, opts}) do
+  def init({gen_consumer_module, consumer_module, group_name, topics, opts}) do
     opts = Keyword.put(opts, :supervisor_pid, self())
 
     children = [
       worker(
         KafkaEx.ConsumerGroup.Manager,
-        [consumer_module, group_name, topics, opts]
+        [gen_consumer_module, consumer_module, group_name, topics, opts]
       )
     ]
 

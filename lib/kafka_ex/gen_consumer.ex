@@ -175,7 +175,7 @@ defmodule KafkaEx.GenConsumer do
     @partition 0
 
     setup do
-      {:ok, state} = ExampleGenConsumer.init(@topic, @partition)
+      {k:ok, state} = ExampleGenConsumer.init(@topic, @partition)
       {:ok, %{state: state}}
     end
 
@@ -239,7 +239,7 @@ defmodule KafkaEx.GenConsumer do
   `topic` and `partition` are the arguments passed to `start_link/5`. They
   identify the Kafka partition that the `KafkaEx.GenConsumer` will consume from.
 
-  `extra_args` is the value of the `extra_consumer_args` option to `start_link/5`. 
+  `extra_args` is the value of the `extra_consumer_args` option to `start_link/5`.
 
   The default implementation of this function calls `init/2`.
 
@@ -424,7 +424,7 @@ defmodule KafkaEx.GenConsumer do
     `KafkaEx.fetch` call.
 
   * `:extra_consumer_args` - Optional parameter that is passed along to the
-    `GenConsumer.init` call in the consumer module. Note that if `init/3` is not 
+    `GenConsumer.init` call in the consumer module. Note that if `init/3` is not
     implemented, the default implementation calls to `init/2`, dropping the extra
     arguments.
 
@@ -518,7 +518,7 @@ defmodule KafkaEx.GenConsumer do
         Application.get_env(:kafka_ex, :auto_offset_reset, @auto_offset_reset)
       )
 
-    extra_consumer_args = 
+    extra_consumer_args =
       Keyword.get(
         opts,
         :extra_consumer_args

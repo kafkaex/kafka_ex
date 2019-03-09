@@ -38,11 +38,11 @@ defmodule KafkaEx.GenConsumer.Supervisor do
           ],
           KafkaEx.GenConsumer.options()
         ) :: Elixir.Supervisor.on_start()
-  def start_link(consumer_module, group_name, assignments, opts \\ []) do
+  def start_link(gen_consumer_module, consumer_module, group_name, assignments, opts \\ []) do
     start_link_result =
       Elixir.Supervisor.start_link(
         __MODULE__,
-        {consumer_module, group_name, assignments, opts}
+        {gen_consumer_module, consumer_module, group_name, assignments, opts}
       )
 
     case start_link_result do
@@ -77,9 +77,9 @@ defmodule KafkaEx.GenConsumer.Supervisor do
     |> Enum.any?(&Process.alive?/1)
   end
 
-  def init({consumer_module, group_name, _assignments, _opts}) do
+  def init({gen_consumer_module, consumer_module, group_name, _assignments, _opts}) do
     children = [
-      worker(KafkaEx.GenConsumer, [consumer_module, group_name])
+      worker(gen_consumer_module, [consumer_module, group_name])
     ]
 
     supervise(children, strategy: :simple_one_for_one)
