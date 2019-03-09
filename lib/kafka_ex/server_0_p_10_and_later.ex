@@ -4,6 +4,7 @@ defmodule KafkaEx.Server0P10AndLater do
   """
   use KafkaEx.Server
   alias KafkaEx.Protocol.CreateTopics
+  alias KafkaEx.Protocol.DeleteTopics
   alias KafkaEx.Protocol.ApiVersions
   alias KafkaEx.Server0P8P2
   alias KafkaEx.Server0P9P0
@@ -177,6 +178,53 @@ defmodule KafkaEx.Server0P10AndLater do
       |> ApiVersions.parse_response()
 
     {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
+  end
+
+  def kafka_delete_topics(topics, network_timeout, state) do
+    api_version =
+      case DeleteTopics.api_version(state.api_versions) do
+        {:ok, api_version} ->
+          api_version
+
+        _ ->
+          raise "DeleteTopic is not supported in this version of Kafka, or the versions supported by the client do not match the ones supported by the server."
+      end
+
+    main_request =
+      DeleteTopics.create_request(
+        state.correlation_id,
+        @client_id,
+        %DeleteTopics.Request{
+          topics: topics,
+          timeout: network_timeout
+        },
+        api_version
+      )
+
+    broker = state.brokers |> Enum.find(& &1.is_controller)
+
+    {response, state} =
+      case broker do
+        nil ->
+          Logger.log(:error, "Coordinator for topic is not available")
+          {:topic_not_found, state}
+
+        _ ->
+          response =
+            broker
+            |> NetworkClient.send_sync_request(
+              main_request,
+              config_sync_timeout()
+            )
+            |> case do
+              {:error, reason} -> {:error, reason}
+              response -> DeleteTopics.parse_response(response, api_version)
+            end
+
+          {response, %{state | correlation_id: state.correlation_id + 1}}
+      end
+
+    {:reply, response, state}
   end
 
   def kafka_create_topics(requests, network_timeout, state) do

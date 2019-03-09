@@ -18,6 +18,7 @@ defmodule KafkaEx.Server do
   alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
   alias KafkaEx.Protocol.SyncGroup.Request, as: SyncGroupRequest
   alias KafkaEx.Protocol.CreateTopics.Request, as: CreateTopicsRequest
+  alias KafkaEx.Protocol.DeleteTopics.Request, as: DeleteTopicsRequest
   alias KafkaEx.Socket
 
   defmodule State do
@@ -212,6 +213,12 @@ defmodule KafkaEx.Server do
               state :: State.t()
             ) :: {:reply, reply, new_state}
             when reply: term, new_state: term
+  @callback kafka_delete_topics(
+              [DeleteTopicsRequest.t()],
+              network_timeout :: integer,
+              state :: State.t()
+            ) :: {:reply, reply, new_state}
+            when reply: term, new_state: term
   @callback kafka_api_versions(state :: State.t()) :: {:reply, reply, new_state}
             when reply: term, new_state: term
   @callback kafka_server_update_metadata(state :: State.t()) ::
@@ -332,6 +339,10 @@ defmodule KafkaEx.Server do
 
       def handle_call({:create_topics, requests, network_timeout}, _from, state) do
         kafka_create_topics(requests, network_timeout, state)
+      end
+
+      def handle_call({:delete_topics, topics, network_timeout}, _from, state) do
+        kafka_delete_topics(topics, network_timeout, state)
       end
 
       def handle_call({:api_versions}, _from, state) do
@@ -857,7 +868,7 @@ defmodule KafkaEx.Server do
                         "Parse error during #{inspect(module)}.parse_response. Couldn't parse: #{
                           inspect(response)
                         }",
-                        __STACKTRACE__
+                        System.stacktrace()
                       )
                   end
               end

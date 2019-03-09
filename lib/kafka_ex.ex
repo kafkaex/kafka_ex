@@ -24,6 +24,8 @@ defmodule KafkaEx do
   alias KafkaEx.Protocol.SyncGroup.Response, as: SyncGroupResponse
   alias KafkaEx.Protocol.CreateTopics.Request, as: CreateTopicsRequest
   alias KafkaEx.Protocol.CreateTopics.Response, as: CreateTopicsResponse
+  alias KafkaEx.Protocol.DeleteTopics.Request, as: DeleteTopicsRequest
+  alias KafkaEx.Protocol.DeleteTopics.Response, as: DeleteTopicsResponse
   alias KafkaEx.Protocol.ApiVersions.Response, as: ApiVersionsResponse
   alias KafkaEx.Server
   alias KafkaEx.Stream
@@ -616,6 +618,17 @@ defmodule KafkaEx do
     worker_name = Keyword.get(opts, :worker_name, Config.default_worker())
     timeout = Keyword.get(opts, :timeout, 4000)
     Server.call(worker_name, {:create_topics, requests, timeout})
+  end
+
+  @doc """
+  Delete topics. Must provide a list of topic names.
+  """
+  @spec delete_topics([DeleteTopicsRequest.t()], Keyword.t()) ::
+          DeleteTopicsResponse.t()
+  def delete_topics(requests, opts \\ []) do
+    worker_name = Keyword.get(opts, :worker_name, Config.default_worker())
+    timeout = Keyword.get(opts, :timeout, 4000)
+    Server.call(worker_name, {:delete_topics, requests, timeout})
   end
 
   # OTP API

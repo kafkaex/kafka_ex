@@ -14,7 +14,8 @@ defmodule KafkaEx.Protocol do
     leave_group: 13,
     sync_group: 14,
     api_versions: 18,
-    create_topics: 19
+    create_topics: 19,
+    delete_topics: 20
   }
 
   # DescribeConfigs	32

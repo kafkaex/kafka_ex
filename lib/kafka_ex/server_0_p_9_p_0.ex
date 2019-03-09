@@ -7,6 +7,7 @@ defmodule KafkaEx.Server0P9P0 do
   # these functions aren't implemented for 0.9.0
   @dialyzer [
     {:nowarn_function, kafka_create_topics: 3},
+    {:nowarn_function, kafka_delete_topics: 3},
     {:nowarn_function, kafka_api_versions: 1}
   ]
 
@@ -53,6 +54,9 @@ defmodule KafkaEx.Server0P9P0 do
   defdelegate kafka_api_versions(state), to: Server0P8P2
 
   defdelegate kafka_create_topics(requests, network_timeout, state),
+    to: Server0P8P2
+
+  defdelegate kafka_delete_topics(requests, network_timeout, state),
     to: Server0P8P2
 
   def kafka_server_init([args]) do
