@@ -24,7 +24,6 @@ defmodule KafkaEx do
   alias KafkaEx.Protocol.SyncGroup.Response, as: SyncGroupResponse
   alias KafkaEx.Protocol.CreateTopics.Request, as: CreateTopicsRequest
   alias KafkaEx.Protocol.CreateTopics.Response, as: CreateTopicsResponse
-  alias KafkaEx.Protocol.DeleteTopics.Request, as: DeleteTopicsRequest
   alias KafkaEx.Protocol.DeleteTopics.Response, as: DeleteTopicsResponse
   alias KafkaEx.Protocol.ApiVersions.Response, as: ApiVersionsResponse
   alias KafkaEx.Server
