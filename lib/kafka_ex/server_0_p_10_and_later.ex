@@ -196,7 +196,7 @@ defmodule KafkaEx.Server0P10AndLater do
         @client_id,
         %DeleteTopics.Request{
           topics: topics,
-          timeout: network_timeout
+          timeout: config_sync_timeout(network_timeout)
         },
         api_version
       )
@@ -239,7 +239,7 @@ defmodule KafkaEx.Server0P10AndLater do
 
     create_topics_request = %CreateTopics.Request{
       create_topic_requests: requests,
-      timeout: network_timeout
+      timeout: config_sync_timeout(network_timeout)
     }
 
     main_request =

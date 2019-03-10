@@ -616,7 +616,7 @@ defmodule KafkaEx do
           CreateTopicsResponse.t()
   def create_topics(requests, opts \\ []) do
     worker_name = Keyword.get(opts, :worker_name, Config.default_worker())
-    timeout = Keyword.get(opts, :timeout, 4000)
+    timeout = Keyword.get(opts, :timeout)
     Server.call(worker_name, {:create_topics, requests, timeout})
   end
 
@@ -627,7 +627,7 @@ defmodule KafkaEx do
           DeleteTopicsResponse.t()
   def delete_topics(requests, opts \\ []) do
     worker_name = Keyword.get(opts, :worker_name, Config.default_worker())
-    timeout = Keyword.get(opts, :timeout, 4000)
+    timeout = Keyword.get(opts, :timeout)
     Server.call(worker_name, {:delete_topics, requests, timeout})
   end
 
