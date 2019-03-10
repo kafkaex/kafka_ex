@@ -623,12 +623,12 @@ defmodule KafkaEx do
   @doc """
   Delete topics. Must provide a list of topic names.
   """
-  @spec delete_topics([DeleteTopicsRequest.t()], Keyword.t()) ::
+  @spec delete_topics([String.t()], Keyword.t()) ::
           DeleteTopicsResponse.t()
-  def delete_topics(requests, opts \\ []) do
+  def delete_topics(topics, opts \\ []) do
     worker_name = Keyword.get(opts, :worker_name, Config.default_worker())
     timeout = Keyword.get(opts, :timeout)
-    Server.call(worker_name, {:delete_topics, requests, timeout})
+    Server.call(worker_name, {:delete_topics, topics, timeout})
   end
 
   # OTP API

@@ -214,7 +214,7 @@ defmodule KafkaEx.Server do
             ) :: {:reply, reply, new_state}
             when reply: term, new_state: term
   @callback kafka_delete_topics(
-              [DeleteTopicsRequest.t()],
+              [String.t()],
               network_timeout :: integer,
               state :: State.t()
             ) :: {:reply, reply, new_state}
