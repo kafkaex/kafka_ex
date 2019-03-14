@@ -201,6 +201,8 @@ iex> KafkaEx.metadata(topic: "foo")
 
 ### Retrieve offset from a particular time
 
+**NOTE**: KafkaEx stores offsets in Zookeeper and not in Kafka. See [#245](https://github.com/kafkaex/kafka_ex/issues/245) for more details. Also relevant: [#244](https://github.com/kafkaex/kafka_ex/issues/244), [#293](https://github.com/kafkaex/kafka_ex/issues/293), [#311](https://github.com/kafkaex/kafka_ex/issues/311) 
+
 Kafka will get the starting offset of the log segment that is created no later than the given timestamp. Due to this, and since the offset request is served only at segment granularity, the offset fetch request returns less accurate results for larger segment sizes.
 
 ```elixir
