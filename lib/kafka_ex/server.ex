@@ -12,7 +12,6 @@ defmodule KafkaEx.Server do
   alias KafkaEx.Protocol.Metadata.Broker
   alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
   alias KafkaEx.Protocol.OffsetCommit.Request, as: OffsetCommitRequest
-  alias KafkaEx.Protocol.OffsetCommit.V1.Request, as: OffsetCommitRequestV1
   alias KafkaEx.Protocol.OffsetFetch.Request, as: OffsetFetchRequest
   alias KafkaEx.Protocol.Fetch.Request, as: FetchRequest
   alias KafkaEx.Protocol.Produce

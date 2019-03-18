@@ -8,7 +8,10 @@ defmodule KafkaEx.Protocol.OffsetFetch do
 
   defmodule Request do
     @moduledoc false
-    defstruct consumer_group: nil, topic: nil, partition: nil
+    defstruct consumer_group: nil,
+              topic: nil,
+              partition: nil,
+              api_version: 0
 
     @type t :: %Request{
             consumer_group: nil | binary,
@@ -43,6 +46,29 @@ defmodule KafkaEx.Protocol.OffsetFetch do
   end
 
   def create_request(correlation_id, client_id, offset_fetch_request) do
+    create_request_by_version(
+      correlation_id,
+      client_id,
+      offset_fetch_request,
+      offset_fetch_request.api_version
+    )
+  end
+
+  def create_request_by_version(correlation_id,
+    client_id,
+    offset_fetch_request,
+    1) do
+    KafkaEx.Protocol.OffsetFetch.V1.create_request(
+      correlation_id,
+      client_id,
+      offset_fetch_request
+    )
+  end
+
+  def create_request_by_version(correlation_id,
+    client_id,
+    offset_fetch_request,
+    _) do
     KafkaEx.Protocol.create_request(:offset_fetch, correlation_id, client_id) <>
       <<byte_size(offset_fetch_request.consumer_group)::16-signed,
         offset_fetch_request.consumer_group::binary, 1::32-signed,

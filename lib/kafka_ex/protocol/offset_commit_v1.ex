@@ -14,7 +14,8 @@ defmodule KafkaEx.Protocol.OffsetCommit.V1 do
               metadata:       "",
               member_id:      "",
               timestamp:      -1,
-              generation_id:  -1
+              generation_id:  -1,
+              api_version:    1
 
     @type t :: %Request{
             consumer_group: binary,

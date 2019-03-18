@@ -8,7 +8,10 @@ defmodule KafkaEx.Protocol.OffsetFetch.V1 do
 
   defmodule Request do
     @moduledoc false
-    defstruct consumer_group: nil, topic: nil, partition: nil
+    defstruct consumer_group: nil,
+              topic: nil,
+              partition: nil,
+              api_version: 1
 
     @type t :: %Request{
             consumer_group: nil | binary,

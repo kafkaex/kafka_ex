@@ -11,7 +11,8 @@ defmodule KafkaEx.Protocol.OffsetCommit do
               topic: nil,
               partition: nil,
               offset: nil,
-              metadata: ""
+              metadata: "",
+              api_version: 0
 
     @type t :: %Request{
             consumer_group: binary,
@@ -29,6 +30,28 @@ defmodule KafkaEx.Protocol.OffsetCommit do
 
   @spec create_request(integer, binary, Request.t()) :: binary
   def create_request(correlation_id, client_id, offset_commit_request) do
+    create_request_by_version(correlation_id, client_id,
+      offset_commit_request, offset_commit_request.api_version)
+  end
+
+  defp create_request_by_version(
+    correlation_id,
+    client_id,
+    offset_commit_request,
+    1) do
+    KafkaEx.Protocol.OffsetCommit.V1.create_request(
+      correlation_id,
+      client_id,
+      offset_commit_request
+    )
+  end
+
+  # If api version isn't supported, default to zero.
+  defp create_request_by_version(
+    correlation_id,
+    client_id,
+    offset_commit_request,
+    _) do
     Protocol.create_request(:offset_commit, correlation_id, client_id) <>
       <<byte_size(offset_commit_request.consumer_group)::16-signed,
         offset_commit_request.consumer_group::binary, 1::32-signed,
@@ -39,6 +62,7 @@ defmodule KafkaEx.Protocol.OffsetCommit do
         byte_size(offset_commit_request.metadata)::16-signed,
         offset_commit_request.metadata::binary>>
   end
+
 
   @spec parse_response(binary) :: [] | [Response.t()]
   def parse_response(
