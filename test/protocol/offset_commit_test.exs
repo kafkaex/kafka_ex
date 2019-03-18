@@ -39,4 +39,51 @@ defmodule KafkaEx.Protocol.OffsetCommit.Test do
              }
            ]
   end
+
+  test "create_request creates a valid offset commit message - api version 1" do
+    corr_id = 3
+    client_id = "kafka_ex"
+    generation_id = -1
+    timestamp = -1
+    member_id = "member"
+
+    offset_commit_request = %KafkaEx.Protocol.OffsetCommit.V1.Request{
+      offset: 10,
+      partition: 0,
+      topic: "foo",
+      consumer_group: "bar",
+      metadata: "baz",
+      member_id: member_id,
+      timestamp: timestamp,
+      generation_id: generation_id
+    }
+
+    good_request =
+      <<8::16, 1::16, corr_id::32, byte_size(client_id)::16, client_id::binary,
+      3::16, "bar", generation_id::32, byte_size(member_id)::16,
+      member_id::binary, 1::32, 3::16, "foo", 1::32, 0::32, 10::64,
+      timestamp::64, 3::16, "baz">>
+
+    request =
+      KafkaEx.Protocol.OffsetCommit.V1.create_request(
+        corr_id,
+        client_id,
+        offset_commit_request
+      )
+
+    assert request == good_request
+  end
+
+  test "parse_response correctly parses a valid response - api version 1" do
+    response =
+      <<0, 0, 156, 64, 0, 0, 0, 1, 0, 4, 102, 111, 111, 100, 0, 0, 0, 1, 0, 0,
+        0, 0, 0, 0>>
+
+    assert KafkaEx.Protocol.OffsetCommit.V1.parse_response(response) == [
+             %KafkaEx.Protocol.OffsetCommit.V1.Response{
+               partitions: [0],
+               topic: "food"
+             }
+           ]
+  end
 end
