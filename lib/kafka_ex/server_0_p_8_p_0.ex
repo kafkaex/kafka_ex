@@ -15,6 +15,7 @@ defmodule KafkaEx.Server0P8P0 do
     {:nowarn_function, kafka_server_offset_commit: 2},
     {:nowarn_function, kafka_server_offset_fetch: 2},
     {:nowarn_function, kafka_create_topics: 3},
+    {:nowarn_function, kafka_delete_topics: 3},
     {:nowarn_function, kafka_api_versions: 1}
   ]
 
@@ -93,6 +94,9 @@ defmodule KafkaEx.Server0P8P0 do
 
   def kafka_create_topics(_, _, _state),
     do: raise("CreateTopic is not supported in 0.8.0 version of kafka")
+
+  def kafka_delete_topics(_, _, _state),
+    do: raise("DeleteTopic is not supported in 0.8.0 version of kafka")
 
   defp fetch(request, state) do
     case network_request(request, Fetch, state) do

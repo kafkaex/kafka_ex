@@ -10,6 +10,7 @@ defmodule KafkaEx.Server0P8P2 do
     {:nowarn_function, kafka_server_join_group: 3},
     {:nowarn_function, kafka_server_leave_group: 3},
     {:nowarn_function, kafka_create_topics: 3},
+    {:nowarn_function, kafka_delete_topics: 3},
     {:nowarn_function, kafka_api_versions: 1}
   ]
 
@@ -198,6 +199,9 @@ defmodule KafkaEx.Server0P8P2 do
 
   def kafka_create_topics(_, _, _state),
     do: raise("CreateTopic is not supported in 0.8.2 version of kafka")
+
+  def kafka_delete_topics(_, _, _state),
+    do: raise("DeleteTopic is not supported in 0.8.2 version of kafka")
 
   defp update_consumer_metadata(state),
     do: update_consumer_metadata(state, @retry_count, 0)

@@ -43,4 +43,28 @@ defmodule KafkaEx.Protocol.Common do
     {items, data_after_array} = read_array(num_items - 1, rest, read_one)
     {[item | items], data_after_array}
   end
+
+  @spec encode_nullable_string(String.t()) :: binary
+  def encode_nullable_string(text) do
+    case text do
+      nil -> <<-1::16-signed>>
+      _ -> encode_string(text)
+    end
+  end
+
+  @spec encode_string(String.t()) :: binary
+  def encode_string(text) do
+    <<byte_size(text)::16-signed, text::binary>>
+  end
+
+  def map_encode(elems, function) do
+    if nil == elems or [] == elems do
+      <<0::32-signed>>
+    else
+      <<length(elems)::32-signed>> <>
+        (elems
+         |> Enum.map(function)
+         |> Enum.reduce(&(&1 <> &2)))
+    end
+  end
 end
