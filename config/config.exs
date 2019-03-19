@@ -57,9 +57,9 @@ config :kafka_ex,
   # see SSL OPTION DESCRIPTIONS - CLIENT SIDE at http://erlang.org/doc/man/ssl.html
   # for supported options
   ssl_options: [
-    cacertfile: System.cwd() <> "/ssl/ca-cert",
-    certfile: System.cwd() <> "/ssl/cert.pem",
-    keyfile: System.cwd() <> "/ssl/key.pem"
+    cacertfile: File.cwd!() <> "/ssl/ca-cert",
+    certfile: File.cwd!() <> "/ssl/cert.pem",
+    keyfile: File.cwd!() <> "/ssl/key.pem"
   ],
   # set this to the version of the kafka broker that you are using
   # include only major.minor.patch versions.  must be at least 0.8.0
