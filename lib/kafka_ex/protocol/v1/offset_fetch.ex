@@ -1,7 +1,6 @@
 defmodule KafkaEx.Protocol.OffsetFetch.V1 do
   alias KafkaEx.Protocol
   alias KafkaEx.Protocol.OffsetFetch, as: V0
-  import KafkaEx.Protocol.Common
 
   @moduledoc """
   Implementation of the Kafka OffsetFetch request and response APIs
@@ -27,7 +26,7 @@ defmodule KafkaEx.Protocol.OffsetFetch.V1 do
   # However a Version 1 of OffsetFetch is required because offsets
   # committed using Version 1 can only be fetched by a version 1 request.
   def create_request(correlation_id, client_id, offset_fetch_request) do
-    KafkaEx.Protocol.create_request(:offset_fetch, correlation_id,
+    Protocol.create_request(:offset_fetch, correlation_id,
       client_id, 1) <>
         <<byte_size(offset_fetch_request.consumer_group)::16-signed,
         offset_fetch_request.consumer_group::binary,
