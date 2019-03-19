@@ -232,7 +232,7 @@ defmodule KafkaEx.Server do
   @spec call(
           GenServer.server(),
           atom | tuple,
-          nil | number | opts :: Keyword.t()
+          nil | number | (opts :: Keyword.t())
         ) :: term
   def call(server, request, opts \\ [])
 
