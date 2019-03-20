@@ -212,6 +212,12 @@ defmodule KafkaEx.Server do
               state :: State.t()
             ) :: {:reply, reply, new_state}
             when reply: term, new_state: term
+  @callback kafka_delete_topics(
+              [String.t()],
+              network_timeout :: integer,
+              state :: State.t()
+            ) :: {:reply, reply, new_state}
+            when reply: term, new_state: term
   @callback kafka_api_versions(state :: State.t()) :: {:reply, reply, new_state}
             when reply: term, new_state: term
   @callback kafka_server_update_metadata(state :: State.t()) ::
@@ -232,7 +238,7 @@ defmodule KafkaEx.Server do
   @spec call(
           GenServer.server(),
           atom | tuple,
-          nil | number | opts :: Keyword.t()
+          nil | number | (opts :: Keyword.t())
         ) :: term
   def call(server, request, opts \\ [])
 
@@ -332,6 +338,10 @@ defmodule KafkaEx.Server do
 
       def handle_call({:create_topics, requests, network_timeout}, _from, state) do
         kafka_create_topics(requests, network_timeout, state)
+      end
+
+      def handle_call({:delete_topics, topics, network_timeout}, _from, state) do
+        kafka_delete_topics(topics, network_timeout, state)
       end
 
       def handle_call({:api_versions}, _from, state) do
@@ -839,8 +849,27 @@ defmodule KafkaEx.Server do
                 config_sync_timeout()
               )
               |> case do
-                {:error, reason} -> {:error, reason}
-                response -> module.parse_response(response)
+                {:error, reason} ->
+                  {:error, reason}
+
+                response ->
+                  try do
+                    module.parse_response(response)
+                  rescue
+                    _ ->
+                      Logger.error(
+                        "Failed to parse a response from the server: #{
+                          inspect(response)
+                        }"
+                      )
+
+                      Kernel.reraise(
+                        "Parse error during #{inspect(module)}.parse_response. Couldn't parse: #{
+                          inspect(response)
+                        }",
+                        System.stacktrace()
+                      )
+                  end
               end
 
             state_out = State.increment_correlation_id(updated_state)

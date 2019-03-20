@@ -2,9 +2,10 @@ defmodule KafkaEx.Server0P10P1.Test do
   use ExUnit.Case
 
   @moduletag :server_0_p_10_and_later
-  @moduletag :server_0_p_10_p_1
 
   # specific to this server version because we want to test that the api_versions list is exact
+  @moduletag :server_0_p_10_p_1
+
   @tag :api_version
   test "can retrieve api versions" do
     # api_key, max_version, min_version

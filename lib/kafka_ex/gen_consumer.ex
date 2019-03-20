@@ -250,9 +250,12 @@ defmodule KafkaEx.GenConsumer do
   Any other return value will cause the `start_link/5` to return `{:error,
   error}` and the process to exit.
   """
-  @callback init(topic :: binary, partition :: non_neg_integer, extra_args :: map()) ::
-    {:ok, state :: term}
-
+  @callback init(
+              topic :: binary,
+              partition :: non_neg_integer,
+              extra_args :: map()
+            ) ::
+              {:ok, state :: term}
 
   @doc """
   Invoked for each message set consumed from a Kafka topic partition.
@@ -367,7 +370,11 @@ defmodule KafkaEx.GenConsumer do
         {:noreply, consumer_state}
       end
 
-      defoverridable init: 2, init: 3, handle_call: 3, handle_cast: 2, handle_info: 2
+      defoverridable init: 2,
+                     init: 3,
+                     handle_call: 3,
+                     handle_cast: 2,
+                     handle_info: 2
     end
   end
 
@@ -518,13 +525,15 @@ defmodule KafkaEx.GenConsumer do
         Application.get_env(:kafka_ex, :auto_offset_reset, @auto_offset_reset)
       )
 
-    extra_consumer_args = 
+    extra_consumer_args =
       Keyword.get(
         opts,
         :extra_consumer_args
       )
 
-    {:ok, consumer_state} = consumer_module.init(topic, partition, extra_consumer_args)
+    {:ok, consumer_state} =
+      consumer_module.init(topic, partition, extra_consumer_args)
+
     worker_opts = Keyword.take(opts, [:uris])
 
     {:ok, worker_name} =

@@ -1,5 +1,6 @@
 defmodule KafkaEx.Protocol.CreateTopics do
   alias KafkaEx.Protocol
+  import KafkaEx.Protocol.Common
   @supported_versions_range {0, 0}
 
   @moduledoc """
@@ -124,30 +125,6 @@ defmodule KafkaEx.Protocol.CreateTopics do
   defp encode_config_entry(config_entry) do
     encode_string(config_entry.config_name) <>
       encode_nullable_string(config_entry.config_value)
-  end
-
-  @spec encode_nullable_string(String.t()) :: binary
-  defp encode_nullable_string(text) do
-    case text do
-      nil -> <<-1::16-signed>>
-      _ -> encode_string(text)
-    end
-  end
-
-  @spec encode_string(String.t()) :: binary
-  defp encode_string(text) do
-    <<byte_size(text)::16-signed, text::binary>>
-  end
-
-  defp map_encode(elems, function) do
-    if nil == elems or [] == elems do
-      <<0::32-signed>>
-    else
-      <<length(elems)::32-signed>> <>
-        (elems
-         |> Enum.map(function)
-         |> Enum.reduce(&(&1 <> &2)))
-    end
   end
 
   @spec parse_response(binary, integer) :: [] | Response.t()

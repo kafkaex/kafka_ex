@@ -360,7 +360,7 @@ clusters.
 ./all_tests.sh
 ```
 
-##### Kafka >= 0.9.0
+##### Kafka = 0.9.0
 
 The 0.9 client includes functionality that cannot be tested with older
 clusters.
