@@ -759,6 +759,10 @@ defmodule KafkaEx.GenConsumer do
     }
   end
 
+  defp handle_commit(:no_commit, %State{acked_offset: offset} = state) do
+    %State{state | committed_offset: offset}
+  end
+
   defp handle_commit(:sync_commit, %State{} = state), do: commit(state)
 
   defp handle_commit(
