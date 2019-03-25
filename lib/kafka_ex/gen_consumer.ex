@@ -829,23 +829,8 @@ defmodule KafkaEx.GenConsumer do
            partition: partition
          } = state
        ) do
-    request = %OffsetFetchRequest{
-      consumer_group: group,
-      topic: topic,
-      partition: partition
-    }
-
-    [
-      %OffsetFetchResponse{
-        topic: ^topic,
-        partitions: [
-          %{partition: ^partition, error_code: error_code, offset: offset}
-        ]
-      }
-    ] = KafkaEx.offset_fetch(worker_name, request)
-
-    case error_code do
-      :no_error ->
+    case Keyword.fetch(state.fetch_options, :offset) do
+      {:ok, offset} ->
         %State{
           state
           | current_offset: offset,
@@ -853,22 +838,52 @@ defmodule KafkaEx.GenConsumer do
             acked_offset: offset
         }
 
-      :unknown_topic_or_partition ->
+      :error ->
+        request = %OffsetFetchRequest{
+          consumer_group: group,
+          topic: topic,
+          partition: partition
+        }
+
         [
-          %OffsetResponse{
+          %OffsetFetchResponse{
             topic: ^topic,
-            partition_offsets: [
-              %{partition: ^partition, error_code: :no_error, offset: [offset]}
+            partitions: [
+              %{partition: ^partition, error_code: error_code, offset: offset}
             ]
           }
-        ] = KafkaEx.earliest_offset(topic, partition, worker_name)
+        ] = KafkaEx.offset_fetch(worker_name, request)
 
-        %State{
-          state
-          | current_offset: offset,
-            committed_offset: offset,
-            acked_offset: offset
-        }
+        case error_code do
+          :no_error ->
+            %State{
+              state
+              | current_offset: offset,
+                committed_offset: offset,
+                acked_offset: offset
+            }
+
+          :unknown_topic_or_partition ->
+            [
+              %OffsetResponse{
+                topic: ^topic,
+                partition_offsets: [
+                  %{
+                    partition: ^partition,
+                    error_code: :no_error,
+                    offset: [offset]
+                  }
+                ]
+              }
+            ] = KafkaEx.earliest_offset(topic, partition, worker_name)
+
+            %State{
+              state
+              | current_offset: offset,
+                committed_offset: offset,
+                acked_offset: offset
+            }
+        end
     end
   end
 end
