@@ -255,8 +255,7 @@ defmodule KafkaEx.GenConsumer do
               topic :: binary,
               partition :: non_neg_integer,
               extra_args :: map()
-            ) ::
-              {:ok, state :: term}
+            ) :: {:ok, state :: term}
 
   @doc """
   Invoked for each message set consumed from a Kafka topic partition.
