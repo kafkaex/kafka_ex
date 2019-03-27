@@ -59,12 +59,13 @@ defmodule KafkaEx.GenConsumer do
 
   * `{:sync_commit, new_state}` causes synchronous offset commits.
   * `{:async_commit, new_state}` causes asynchronous offset commits.
+  * `{:no_commit, new_state}` disables offset commit.
 
-  Note that with both of the offset commit strategies, only if the final offset
+  Note that with both sync and async commit strategies, only if the final offset
   in the message set is committed and this is done after the messages are
-  consumed.  If you want to commit the offset of every message consumed, use
-  the synchronous offset commit strategy and implement calls to
-  `KafkaEx.offset_commit/2` within your consumer as appropriate.
+  consumed. If you want to commit the offset of every message consumed, use
+  the no_commit strategy and implement calls to `KafkaEx.offset_commit/2`
+  within your consumer as appropriate.
 
   ### Synchronous offset commits
 
