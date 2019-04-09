@@ -175,7 +175,7 @@ defmodule KafkaEx.GenConsumer do
     @partition 0
 
     setup do
-      {k:ok, state} = ExampleGenConsumer.init(@topic, @partition)
+      {:ok, state} = ExampleGenConsumer.init(@topic, @partition)
       {:ok, %{state: state}}
     end
 
