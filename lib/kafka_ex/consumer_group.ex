@@ -136,7 +136,7 @@ defmodule KafkaEx.ConsumerGroup do
   This function has the same return values as `Supervisor.start_link/3`.
   """
   @spec start_link(module, binary, [binary], options) :: Supervisor.on_start()
-  def start_link(consumer_module, group_name, topics, opts \\ []) do
+  def start_link(consumer_module, group_name, topics, opts \\ []) when is_atom(consumer_module) do
     start_link({KafkaEx.GenConsumer, consumer_module}, group_name, topics, opts)
   end
 
