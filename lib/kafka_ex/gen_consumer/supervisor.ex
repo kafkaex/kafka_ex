@@ -31,18 +31,22 @@ defmodule KafkaEx.GenConsumer.Supervisor do
   returns `{:ok, pid}`, where `pid` is the PID of the supervisor.
   """
   @spec start_link(
-          callback_module :: module,
-          consumer_group_name :: binary,
+          {callback_module :: module, consumer_group_name :: binary},
           assigned_partitions :: [
             {topic_name :: binary, partition_id :: non_neg_integer}
           ],
           KafkaEx.GenConsumer.options()
         ) :: Elixir.Supervisor.on_start()
-  def start_link(gen_consumer_module, consumer_module, group_name, assignments, opts \\ []) do
+  def start_link(
+        {gen_consumer_module, consumer_module},
+        group_name,
+        assignments,
+        opts \\ []
+      ) do
     start_link_result =
       Elixir.Supervisor.start_link(
         __MODULE__,
-        {gen_consumer_module, consumer_module, group_name, assignments, opts}
+        {{gen_consumer_module, consumer_module}, group_name, assignments, opts}
       )
 
     case start_link_result do
@@ -77,7 +81,10 @@ defmodule KafkaEx.GenConsumer.Supervisor do
     |> Enum.any?(&Process.alive?/1)
   end
 
-  def init({gen_consumer_module, consumer_module, group_name, _assignments, _opts}) do
+  def init(
+        {{gen_consumer_module, consumer_module}, group_name, _assignments,
+         _opts}
+      ) do
     children = [
       worker(gen_consumer_module, [consumer_module, group_name])
     ]

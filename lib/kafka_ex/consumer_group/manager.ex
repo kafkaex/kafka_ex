@@ -52,8 +52,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   @doc false
   # use `KafkaEx.ConsumerGroup.start_link/4` instead
   @spec start_link(
-          module,
-          module,
+          {module, module},
           binary,
           [binary],
           KafkaEx.GenConsumer.options()
@@ -71,14 +70,15 @@ defmodule KafkaEx.ConsumerGroup.Manager do
 
     GenServer.start_link(
       __MODULE__,
-      {gen_consumer_module, consumer_module, group_name, topics, consumer_opts},
+      {{gen_consumer_module, consumer_module}, group_name, topics,
+       consumer_opts},
       gen_server_opts
     )
   end
 
   # GenServer callbacks
 
-  def init({gen_consumer_module, consumer_module, group_name, topics, opts}) do
+  def init({{gen_consumer_module, consumer_module}, group_name, topics, opts}) do
     heartbeat_interval =
       Keyword.get(
         opts,
@@ -404,8 +404,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
     {:ok, consumer_supervisor_pid} =
       ConsumerGroup.start_consumer(
         pid,
-        gen_consumer_module,
-        consumer_module,
+        {gen_consumer_module, consumer_module},
         group_name,
         assignments,
         consumer_opts
