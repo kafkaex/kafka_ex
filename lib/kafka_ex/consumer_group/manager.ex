@@ -59,8 +59,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
         ) ::
           GenServer.on_start()
   def start_link(
-        gen_consumer_module,
-        consumer_module,
+        {gen_consumer_module, consumer_module},
         group_name,
         topics,
         opts \\ []

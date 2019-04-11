@@ -135,8 +135,10 @@ defmodule KafkaEx.ConsumerGroup do
 
   This function has the same return values as `Supervisor.start_link/3`.
   """
-  @spec start_link(module, binary, [binary], options) :: Supervisor.on_start()
-  def start_link(consumer_module, group_name, topics, opts \\ []) when is_atom(consumer_module) do
+  @spec start_link(module | {module, module}, binary, [binary], options) :: Supervisor.on_start()
+  def start_link(consumer_module, group_name, topics, opts \\ [])
+  def start_link(consumer_module, group_name, topics, opts)
+      when is_atom(consumer_module) do
     start_link({KafkaEx.GenConsumer, consumer_module}, group_name, topics, opts)
   end
 
@@ -148,8 +150,6 @@ defmodule KafkaEx.ConsumerGroup do
   managing its commit state. For example `KafkExGenStageConsumer` implements a
   `GenStage` producer which pulls messages from kafka according to demand.
   """
-  @spec start_link({module, module}, binary, [binary], options) ::
-          Supervisor.on_start()
   def start_link(
         {gen_consumer_module, consumer_module},
         group_name,
