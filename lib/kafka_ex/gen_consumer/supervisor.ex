@@ -18,7 +18,9 @@ defmodule KafkaEx.GenConsumer.Supervisor do
   @doc """
   Starts a `GenConsumer.Supervisor` process linked to the current process.
 
-  `module` is a module that implements the `GenConsumer` behaviour.
+  `gen_consumer_module` is a module that implements the `GenServer` behaviour
+  which consumes events from kafka.
+  `consumer_module` is a module that implements the `GenConsumer` behaviour.
   `group_name` is the name of a consumer group, and `assignments` is a list of
   partitions for the `GenConsumer`s to consume.  `opts` accepts the same
   options as `KafkaEx.GenConsumer.start_link/5`.
@@ -31,7 +33,8 @@ defmodule KafkaEx.GenConsumer.Supervisor do
   returns `{:ok, pid}`, where `pid` is the PID of the supervisor.
   """
   @spec start_link(
-          {callback_module :: module, consumer_group_name :: binary},
+          {gen_consumer_module ::module, consumer_module :: module},
+          consumer_group_name :: binary,
           assigned_partitions :: [
             {topic_name :: binary, partition_id :: non_neg_integer}
           ],

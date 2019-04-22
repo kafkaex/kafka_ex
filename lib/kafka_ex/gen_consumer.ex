@@ -439,7 +439,7 @@ defmodule KafkaEx.GenConsumer do
   This function has the same return values as `GenServer.start_link/3`.
   """
   @spec start_link(
-          callback_module :: module,
+          consumer_module :: module,
           consumer_group_name :: binary,
           topic_name :: binary,
           partition_id :: non_neg_integer,
