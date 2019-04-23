@@ -120,11 +120,20 @@ defmodule KafkaEx.ConsumerGroup do
   This can be used to start a `KafkaEx.ConsumerGroup` as part of a supervision
   tree.
 
-  `module` is a module that implements the `KafkaEx.GenConsumer` behaviour.
-  `group_name` is the name of the consumer group. `topics` is a list of topics
-  that the consumer group should consume from.  `opts` can be composed of
-  options for the supervisor as well as for the `KafkEx.GenConsumer` processes
-  that will be spawned by the supervisor.  See `t:option/0` for details.
+  `consumer_module` is
+   - a module that implements the `KafkaEx.GenConsumer`
+  behaviour.
+   - a tuple of `{gen_consumer_module, consumer_module}` can substitute another
+     `GenServer` implementation for `KafkaEx.GenConsumer`. When a single module
+     is passed it is transformed to `{KafkaEx.GenConsumer, consumer_module}`.
+
+  `group_name` is the name of the consumer group.
+
+  `topics` is a list of topics that the consumer group should consume from.
+
+  `opts` can be composed of options for the supervisor as well as for the
+  `KafkEx.GenConsumer` processes that will be spawned by the supervisor.  See
+  `t:option/0` for details.
 
   *Note* When starting a consumer group with multiple topics, you should
   propagate this configuration change to your consumers.  If you add a topic to
@@ -135,14 +144,27 @@ defmodule KafkaEx.ConsumerGroup do
 
   This function has the same return values as `Supervisor.start_link/3`.
   """
-  @spec start_link(module, binary, [binary], options) :: Supervisor.on_start()
-  def start_link(consumer_module, group_name, topics, opts \\ []) do
+  @spec start_link(module | {module, module}, binary, [binary], options) ::
+          Supervisor.on_start()
+  def start_link(consumer_module, group_name, topics, opts \\ [])
+
+  def start_link(consumer_module, group_name, topics, opts)
+      when is_atom(consumer_module) do
+    start_link({KafkaEx.GenConsumer, consumer_module}, group_name, topics, opts)
+  end
+
+  def start_link(
+        {gen_consumer_module, consumer_module},
+        group_name,
+        topics,
+        opts
+      ) do
     {supervisor_opts, module_opts} =
       Keyword.split(opts, [:name, :strategy, :max_restarts, :max_seconds])
 
     Supervisor.start_link(
       __MODULE__,
-      {consumer_module, group_name, topics, module_opts},
+      {{gen_consumer_module, consumer_module}, group_name, topics, module_opts},
       supervisor_opts
     )
   end
@@ -284,11 +306,17 @@ defmodule KafkaEx.ConsumerGroup do
 
   # used by ConsumerGroup.Manager to set partition assignments
   @doc false
-  def start_consumer(pid, consumer_module, group_name, assignments, opts) do
+  def start_consumer(
+        pid,
+        {gen_consumer_module, consumer_module},
+        group_name,
+        assignments,
+        opts
+      ) do
     child =
       supervisor(
         KafkaEx.GenConsumer.Supervisor,
-        [consumer_module, group_name, assignments, opts],
+        [{gen_consumer_module, consumer_module}, group_name, assignments, opts],
         id: :consumer
       )
 
@@ -311,13 +339,13 @@ defmodule KafkaEx.ConsumerGroup do
   end
 
   @doc false
-  def init({consumer_module, group_name, topics, opts}) do
+  def init({{gen_consumer_module, consumer_module}, group_name, topics, opts}) do
     opts = Keyword.put(opts, :supervisor_pid, self())
 
     children = [
       worker(
         KafkaEx.ConsumerGroup.Manager,
-        [consumer_module, group_name, topics, opts]
+        [{gen_consumer_module, consumer_module}, group_name, topics, opts]
       )
     ]
 

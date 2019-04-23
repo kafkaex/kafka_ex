@@ -239,7 +239,7 @@ defmodule KafkaEx.GenConsumer do
   `topic` and `partition` are the arguments passed to `start_link/5`. They
   identify the Kafka partition that the `KafkaEx.GenConsumer` will consume from.
 
-  `extra_args` is the value of the `extra_consumer_args` option to `start_link/5`. 
+  `extra_args` is the value of the `extra_consumer_args` option to `start_link/5`.
 
   The default implementation of this function calls `init/2`.
 
@@ -431,7 +431,7 @@ defmodule KafkaEx.GenConsumer do
     `KafkaEx.fetch` call.
 
   * `:extra_consumer_args` - Optional parameter that is passed along to the
-    `GenConsumer.init` call in the consumer module. Note that if `init/3` is not 
+    `GenConsumer.init` call in the consumer module. Note that if `init/3` is not
     implemented, the default implementation calls to `init/2`, dropping the extra
     arguments.
 
@@ -446,7 +446,7 @@ defmodule KafkaEx.GenConsumer do
   This function has the same return values as `GenServer.start_link/3`.
   """
   @spec start_link(
-          callback_module :: module,
+          consumer_module :: module,
           consumer_group_name :: binary,
           topic_name :: binary,
           partition_id :: non_neg_integer,

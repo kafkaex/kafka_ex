@@ -18,7 +18,9 @@ defmodule KafkaEx.GenConsumer.Supervisor do
   @doc """
   Starts a `GenConsumer.Supervisor` process linked to the current process.
 
-  `module` is a module that implements the `GenConsumer` behaviour.
+  `gen_consumer_module` is a module that implements the `GenServer` behaviour
+  which consumes events from kafka.
+  `consumer_module` is a module that implements the `GenConsumer` behaviour.
   `group_name` is the name of a consumer group, and `assignments` is a list of
   partitions for the `GenConsumer`s to consume.  `opts` accepts the same
   options as `KafkaEx.GenConsumer.start_link/5`.
@@ -31,18 +33,23 @@ defmodule KafkaEx.GenConsumer.Supervisor do
   returns `{:ok, pid}`, where `pid` is the PID of the supervisor.
   """
   @spec start_link(
-          callback_module :: module,
+          {gen_consumer_module ::module, consumer_module :: module},
           consumer_group_name :: binary,
           assigned_partitions :: [
             {topic_name :: binary, partition_id :: non_neg_integer}
           ],
           KafkaEx.GenConsumer.options()
         ) :: Elixir.Supervisor.on_start()
-  def start_link(consumer_module, group_name, assignments, opts \\ []) do
+  def start_link(
+        {gen_consumer_module, consumer_module},
+        group_name,
+        assignments,
+        opts \\ []
+      ) do
     start_link_result =
       Elixir.Supervisor.start_link(
         __MODULE__,
-        {consumer_module, group_name, assignments, opts}
+        {{gen_consumer_module, consumer_module}, group_name, assignments, opts}
       )
 
     case start_link_result do
@@ -77,9 +84,12 @@ defmodule KafkaEx.GenConsumer.Supervisor do
     |> Enum.any?(&Process.alive?/1)
   end
 
-  def init({consumer_module, group_name, _assignments, _opts}) do
+  def init(
+        {{gen_consumer_module, consumer_module}, group_name, _assignments,
+         _opts}
+      ) do
     children = [
-      worker(KafkaEx.GenConsumer, [consumer_module, group_name])
+      worker(gen_consumer_module, [consumer_module, group_name])
     ]
 
     supervise(children, strategy: :simple_one_for_one)
