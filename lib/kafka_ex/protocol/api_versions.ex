@@ -70,6 +70,10 @@ defmodule KafkaEx.Protocol.ApiVersions do
     }
   end
 
+  def parse_response(nil, _this_api_version) do
+    %Response{error_code: :no_response}
+  end
+
   defp parse_rest_of_response(api_versions_count, data, this_api_version) do
     {api_versions, remaining_data} =
       Protocol.Common.read_array(
