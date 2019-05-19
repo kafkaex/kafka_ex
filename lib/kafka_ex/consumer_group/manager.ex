@@ -194,10 +194,10 @@ defmodule KafkaEx.ConsumerGroup.Manager do
 
   # If the heartbeat gets an unrecoverable error.
   def handle_info(
-        {:EXIT, _heartbeat_timer, {:shutdown, {:error, _reason}}},
+        {:EXIT, _heartbeat_timer, {:shutdown, {:error, reason}}},
         %State{} = state
       ) do
-    {:noreply, state}
+    {:stop, {:shutdown, {:error, reason}}, state}
   end
 
   # When terminating, inform the group coordinator that this member is leaving
