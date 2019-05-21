@@ -83,6 +83,35 @@ defmodule KafkaEx do
   end
 
   @doc """
+  start_worker start_link KafkaEx workers. Arguments are the same as `KafkaEx.create_worker`.
+  The only difference is that start_worker starts worker without supervisor and links it with current process
+
+  ## Example
+
+  ```elixir
+  iex> KafkaEx.stop_worker(:pr) # where :pr is the name of the worker created
+  {:ok, #PID<0.171.0>}
+  iex> KafkaEx.stop_worker(:pr, uris: [{"localhost", 9092}])
+  {:ok, #PID<0.172.0>}
+  iex> KafkaEx.stop_worker(:pr, [uris: [{"localhost", 9092}], consumer_group: "foo"])
+  {:ok, #PID<0.173.0>}
+  iex> KafkaEx.stop_worker(:pr, consumer_group: nil)
+  {:error, :invalid_consumer_group}
+  ```
+  """
+  @spec start_worker(atom, KafkaEx.worker_init()) ::
+          GenServer.on_start()
+  def start_worker(name, worker_init \\ []) do
+    case build_worker_options(worker_init) do
+      {:ok, worker_init} ->
+        apply(KafkaEx.Config.server_impl, :start_link, [worker_init, name])
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  @doc """
   Stop a worker created with create_worker/2
 
   Returns `:ok` on success or `:error` if `worker` is not a valid worker

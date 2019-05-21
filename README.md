@@ -149,19 +149,8 @@ iex> KafkaEx.create_worker(:no_name) # indicates to the server process not to na
 
 ### Use KafkaEx with a pooling library
 
-Note that KafkaEx has a supervisor to manage its workers. If you are using Poolboy or a similar
-library, you will want to manually create a worker so that it is not supervised by `KafkaEx.Supervisor`.
-To do this, you will need to call:
-
-```elixir
-GenServer.start_link(KafkaEx.Config.server_impl,
-  [
-    [uris: KafkaEx.Config.brokers(),
-     consumer_group: Application.get_env(:kafka_ex, :consumer_group)],
-    :no_name
-  ]
-)
-```
+Note that KafkaEx has a supervisor to manage its workers started with `KafkaEx.create_worker`. If you are using Poolboy or a similar
+library, you will want to manually create a worker with `KafkaEx.start_worker` so that it is not supervised by `KafkaEx.Supervisor`.
 
 ### Retrieve kafka metadata
 For all metadata

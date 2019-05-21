@@ -115,7 +115,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
     worker_opts = Keyword.take(opts, [:uris])
 
     {:ok, worker_name} =
-      KafkaEx.create_worker(
+      KafkaEx.start_worker(
         :no_name,
         [consumer_group: group_name] ++ worker_opts
       )
@@ -199,8 +199,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
 
   def terminate(_reason, %State{} = state) do
     {:ok, _state} = leave(state)
-    Process.unlink(state.worker_name)
-    KafkaEx.stop_worker(state.worker_name)
+    GenServer.stop(state.worker_name)
   end
 
   ### Helpers
