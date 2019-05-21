@@ -206,19 +206,20 @@ defmodule KafkaEx.Server do
               | {:stop, reason, reply, new_state}
               | {:stop, reason, new_state}
             when reply: term, new_state: term, reason: term
-  @callback kafka_create_topics(
+  @callback kafka_server_create_topics(
               [CreateTopicsRequest.t()],
               network_timeout :: integer,
               state :: State.t()
             ) :: {:reply, reply, new_state}
             when reply: term, new_state: term
-  @callback kafka_delete_topics(
+  @callback kafka_server_delete_topics(
               [String.t()],
               network_timeout :: integer,
               state :: State.t()
             ) :: {:reply, reply, new_state}
             when reply: term, new_state: term
-  @callback kafka_api_versions(state :: State.t()) :: {:reply, reply, new_state}
+  @callback kafka_server_api_versions(state :: State.t()) ::
+              {:reply, reply, new_state}
             when reply: term, new_state: term
   @callback kafka_server_update_metadata(state :: State.t()) ::
               {:noreply, new_state}
@@ -337,15 +338,15 @@ defmodule KafkaEx.Server do
       end
 
       def handle_call({:create_topics, requests, network_timeout}, _from, state) do
-        kafka_create_topics(requests, network_timeout, state)
+        kafka_server_create_topics(requests, network_timeout, state)
       end
 
       def handle_call({:delete_topics, topics, network_timeout}, _from, state) do
-        kafka_delete_topics(topics, network_timeout, state)
+        kafka_server_delete_topics(topics, network_timeout, state)
       end
 
       def handle_call({:api_versions}, _from, state) do
-        kafka_api_versions(state)
+        kafka_server_api_versions(state)
       end
 
       def handle_info(:update_metadata, state) do

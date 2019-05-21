@@ -9,9 +9,9 @@ defmodule KafkaEx.Server0P8P2 do
     {:nowarn_function, kafka_server_sync_group: 3},
     {:nowarn_function, kafka_server_join_group: 3},
     {:nowarn_function, kafka_server_leave_group: 3},
-    {:nowarn_function, kafka_create_topics: 3},
-    {:nowarn_function, kafka_delete_topics: 3},
-    {:nowarn_function, kafka_api_versions: 1}
+    {:nowarn_function, kafka_server_create_topics: 3},
+    {:nowarn_function, kafka_server_delete_topics: 3},
+    {:nowarn_function, kafka_server_api_versions: 1}
   ]
 
   use KafkaEx.Server
@@ -200,13 +200,13 @@ defmodule KafkaEx.Server0P8P2 do
   def kafka_server_heartbeat(_, _, _state),
     do: raise("Heartbeat is not supported in 0.8.2 version of kafka")
 
-  def kafka_api_versions(_state),
+  def kafka_server_api_versions(_state),
     do: raise("ApiVersions is not supported in 0.8.2 version of kafka")
 
-  def kafka_create_topics(_, _, _state),
+  def kafka_server_create_topics(_, _, _state),
     do: raise("CreateTopic is not supported in 0.8.2 version of kafka")
 
-  def kafka_delete_topics(_, _, _state),
+  def kafka_server_delete_topics(_, _, _state),
     do: raise("DeleteTopic is not supported in 0.8.2 version of kafka")
 
   defp update_consumer_metadata(state),

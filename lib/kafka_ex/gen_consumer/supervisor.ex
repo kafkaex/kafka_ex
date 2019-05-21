@@ -33,7 +33,7 @@ defmodule KafkaEx.GenConsumer.Supervisor do
   returns `{:ok, pid}`, where `pid` is the PID of the supervisor.
   """
   @spec start_link(
-          {gen_consumer_module ::module, consumer_module :: module},
+          {gen_consumer_module :: module, consumer_module :: module},
           consumer_group_name :: binary,
           assigned_partitions :: [
             {topic_name :: binary, partition_id :: non_neg_integer}
