@@ -17,7 +17,7 @@ defmodule KafkaEx.Server do
   alias KafkaEx.Protocol.Produce
   alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
   alias KafkaEx.Protocol.SyncGroup.Request, as: SyncGroupRequest
-  alias KafkaEx.Protocol.CreateTopics.Request, as: CreateTopicsRequest
+  alias KafkaEx.Protocol.CreateTopics.TopicRequest, as: CreateTopicsRequest
   alias KafkaEx.Socket
 
   defmodule State do

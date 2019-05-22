@@ -46,15 +46,15 @@ defmodule KafkaEx.Protocol.CreateTopics do
             topic: binary,
             num_partitions: integer,
             replication_factor: integer,
-            replica_assignment: [ReplicaAssignment],
-            config_entries: [ConfigEntry]
+            replica_assignment: [ReplicaAssignment.t()],
+            config_entries: [ConfigEntry.t()]
           }
   end
 
   defmodule Request do
     @moduledoc false
     defstruct create_topic_requests: nil, timeout: nil
-    @type t :: %Request{create_topic_requests: [TopicRequest], timeout: integer}
+    @type t :: %Request{create_topic_requests: [TopicRequest.t()], timeout: integer}
   end
 
   defmodule TopicError do
@@ -66,7 +66,7 @@ defmodule KafkaEx.Protocol.CreateTopics do
   defmodule Response do
     @moduledoc false
     defstruct topic_errors: nil
-    @type t :: %Response{topic_errors: [TopicError]}
+    @type t :: %Response{topic_errors: [TopicError.t()]}
   end
 
   def api_version(api_versions) do

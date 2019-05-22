@@ -33,7 +33,7 @@ defmodule KafkaEx.Protocol.DeleteTopics do
   defmodule Response do
     @moduledoc false
     defstruct topic_errors: nil
-    @type t :: %Response{topic_errors: [TopicError]}
+    @type t :: %Response{topic_errors: [TopicError.t()]}
   end
 
   def api_version(api_versions) do
