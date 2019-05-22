@@ -20,7 +20,7 @@ defmodule KafkaEx.Server0P10P1AndLater.Test do
     resp = create_topic(name, config)
     assert {:topic_already_exists, name} == parse_create_topic_resp(resp)
 
-    Enum.member?(existing_topics(), name)
+    assert Enum.member?(existing_topics(), name)
 
     assert @num_partitions ==
              KafkaEx.Protocol.Metadata.Response.partitions_for_topic(

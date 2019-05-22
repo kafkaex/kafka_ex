@@ -99,7 +99,7 @@ defmodule KafkaEx.Server0P10AndLater do
     %KafkaEx.Protocol.ApiVersions.Response{
       api_versions: api_versions,
       error_code: error_code
-    }, state} = kafka_api_versions(%State{brokers: brokers})
+    }, state} = kafka_server_api_versions(%State{brokers: brokers})
     if error_code == :no_response do
       sleep_for_reconnect()
       raise "Brokers sockets are closed"

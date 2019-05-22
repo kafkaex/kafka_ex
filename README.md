@@ -25,6 +25,7 @@ KakfaEx supports the following Kafka features:
 * Message Compression with Snappy and gzip
 * Offset Management (fetch / commit / autocommit)
 * Consumer Groups
+* Topics Management (create / delete)
 
 See [Kafka Protocol Documentation](http://kafka.apache.org/protocol.html) and
  [A Guide to the Kafka Protocol](https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol)
