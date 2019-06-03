@@ -55,4 +55,10 @@ defmodule KafkaEx.Protocol.ConsumerMetadata do
       error_code: Protocol.error(error_code)
     }
   end
+
+  def parse_response(nil) do
+    %Response{
+      error_code: :no_response
+    }
+  end
 end

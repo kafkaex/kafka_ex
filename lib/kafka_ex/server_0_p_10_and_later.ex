@@ -92,15 +92,22 @@ defmodule KafkaEx.Server0P10AndLater do
         }
       end)
 
+    check_brokers_sockets!(brokers)
+
     {_,
-     %KafkaEx.Protocol.ApiVersions.Response{
-       api_versions: api_versions,
-       error_code: :no_error
-     }, state} = kafka_api_versions(%State{brokers: brokers})
+    %KafkaEx.Protocol.ApiVersions.Response{
+      api_versions: api_versions,
+      error_code: error_code
+    }, state} = kafka_api_versions(%State{brokers: brokers})
+    if error_code == :no_response do
+      sleep_for_reconnect()
+      raise "Brokers sockets are closed"
+    end
+    :no_error = error_code
 
     api_versions = KafkaEx.ApiVersions.api_versions_map(api_versions)
 
-    {correlation_id, metadata} =
+    {correlation_id, metadata} = try do
       retrieve_metadata(
         brokers,
         state.correlation_id,
@@ -108,6 +115,10 @@ defmodule KafkaEx.Server0P10AndLater do
         [],
         api_versions
       )
+    rescue e ->
+      sleep_for_reconnect()
+      Kernel.reraise(e, System.stacktrace())
+    end
 
     state = %State{
       metadata: metadata,

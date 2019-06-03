@@ -52,6 +52,8 @@ config :kafka_ex,
   # Threshold number of messages consumed for GenConsumer to commit offsets
   # to the broker.
   commit_threshold: 100,
+  # Interval in milliseconds to wait before reconnect to kafka
+  sleep_for_reconnect: 400,
   # This is the flag that enables use of ssl
   use_ssl: true,
   # see SSL OPTION DESCRIPTIONS - CLIENT SIDE at http://erlang.org/doc/man/ssl.html

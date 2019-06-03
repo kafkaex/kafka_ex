@@ -192,15 +192,30 @@ defmodule KafkaEx.ConsumerGroup.Manager do
     {:noreply, state}
   end
 
+  # If the heartbeat gets an unrecoverable error.
+  def handle_info(
+        {:EXIT, _heartbeat_timer, {:shutdown, {:error, reason}}},
+        %State{} = state
+      ) do
+    {:stop, {:shutdown, {:error, reason}}, state}
+  end
+
   # When terminating, inform the group coordinator that this member is leaving
   # the group so that the group can rebalance without waiting for a session
   # timeout.
-  def terminate(_reason, %State{generation_id: nil, member_id: nil}), do: :ok
+  def terminate(_reason, %State{generation_id: nil, member_id: nil} = state) do
+    Process.unlink(state.worker_name)
+    KafkaEx.stop_worker(state.worker_name)
+  end
 
   def terminate(_reason, %State{} = state) do
     {:ok, _state} = leave(state)
     Process.unlink(state.worker_name)
     KafkaEx.stop_worker(state.worker_name)
+
+    # should be at end because of race condition (stop heartbeat while it is shutting down)
+    # if race condition happens, worker will be abandoned
+    stop_heartbeat_timer(state)
   end
 
   ### Helpers
@@ -244,9 +259,14 @@ defmodule KafkaEx.ConsumerGroup.Manager do
 
     # crash the worker if we recieve an error, but do it with a meaningful
     # error message
-    if join_response.error_code != :no_error do
-      raise "Error joining consumer group #{group_name}: " <>
-              "#{inspect(join_response.error_code)}"
+    case join_response do
+      %{error_code: :no_error} -> :ok
+      %{error_code: error_code} ->
+        raise "Error joining consumer group #{group_name}: " <>
+                "#{inspect(error_code)}"
+      {:error, reason} ->
+        raise "Error joining consumer group #{group_name}: " <>
+                "#{inspect(reason)}"
     end
 
     Logger.debug(fn -> "Joined consumer group #{group_name}" end)
@@ -331,7 +351,6 @@ defmodule KafkaEx.ConsumerGroup.Manager do
            member_id: member_id
          } = state
        ) do
-    stop_heartbeat_timer(state)
 
     leave_request = %LeaveGroupRequest{
       group_name: group_name,
@@ -341,13 +360,19 @@ defmodule KafkaEx.ConsumerGroup.Manager do
     leave_group_response =
       KafkaEx.leave_group(leave_request, worker_name: worker_name)
 
-    if leave_group_response.error_code == :no_error do
-      Logger.debug(fn -> "Left consumer group #{group_name}" end)
-    else
-      Logger.warn(fn ->
-        "Received error #{inspect(leave_group_response.error_code)}, " <>
-          "consumer group manager will exit regardless."
-      end)
+    case leave_group_response do
+      %{error_code: :no_error} ->
+        Logger.debug(fn -> "Left consumer group #{group_name}" end)
+      %{error_code: error_code} ->
+        Logger.warn(fn ->
+          "Received error #{inspect(error_code)}, " <>
+            "consumer group manager will exit regardless."
+        end)
+      {:error, reason} ->
+        Logger.warn(fn ->
+          "Received error #{inspect(reason)}, " <>
+            "consumer group manager will exit regardless."
+        end)
     end
 
     {:ok, state}

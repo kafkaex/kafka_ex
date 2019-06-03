@@ -19,7 +19,7 @@ defmodule KafkaEx.Protocol.Heartbeat do
     # We could just return the error code instead of having the struct, but this
     # keeps the code normalized
     defstruct error_code: nil
-    @type t :: %Response{error_code: atom | integer}
+    @type t :: %Response{error_code: atom | integer} | {:error, atom}
   end
 
   @spec create_request(integer, binary, Request.t()) :: binary

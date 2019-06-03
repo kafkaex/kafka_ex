@@ -96,6 +96,10 @@ defmodule KafkaEx.NetworkClient do
     response
   end
 
+  def send_sync_request(nil, _, _) do
+    {:error, :no_broker}
+  end
+
   @spec format_host(binary) :: [char] | :inet.ip_address()
   def format_host(host) do
     case Regex.scan(~r/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/, host) do

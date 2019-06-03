@@ -627,9 +627,12 @@ defmodule KafkaEx.GenConsumer do
   end
 
   def handle_info(:timeout, %State{} = state) do
-    new_state = consume(state)
-
-    {:noreply, new_state, 0}
+    case consume(state) do
+      {:error, reason} ->
+        {:stop, reason, state}
+      new_state ->
+        {:noreply, new_state, 0}
+    end
   end
 
   def handle_info(
@@ -668,20 +671,23 @@ defmodule KafkaEx.GenConsumer do
            fetch_options: fetch_options
          } = state
        ) do
-    [
-      %FetchResponse{
-        topic: ^topic,
-        partitions: [
-          response = %{error_code: error_code, partition: ^partition}
-        ]
-      }
-    ] =
-      KafkaEx.fetch(
-        topic,
-        partition,
-        Keyword.merge(fetch_options, offset: offset)
-      )
+    response = KafkaEx.fetch(
+      topic,
+      partition,
+      Keyword.merge(fetch_options, offset: offset)
+    )
+    response
+    |> handle_fetch_response(state)
+  end
 
+  defp handle_fetch_response([
+    %FetchResponse{
+      topic: _topic,
+      partitions: [
+        response = %{error_code: error_code, partition: _partition}
+      ]
+    }
+  ], state) do
     state =
       case error_code do
         :offset_out_of_range ->
@@ -698,6 +704,10 @@ defmodule KafkaEx.GenConsumer do
       %{last_offset: _, message_set: message_set} ->
         handle_message_set(message_set, state)
     end
+  end
+
+  defp handle_fetch_response(error, _state) do
+    {:error, error}
   end
 
   defp handle_message_set(

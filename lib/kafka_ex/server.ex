@@ -754,12 +754,18 @@ defmodule KafkaEx.Server do
             connect_broker(host, port, ssl_options, use_ssl)
           end
 
-        {correlation_id, metadata} =
+        check_brokers_sockets!(brokers)
+
+        {correlation_id, metadata} = try do
           retrieve_metadata(
             brokers,
             0,
             config_sync_timeout()
           )
+        rescue e ->
+          sleep_for_reconnect()
+          Kernel.reraise(e, System.stacktrace())
+        end
 
         state = %State{
           metadata: metadata,
@@ -781,6 +787,20 @@ defmodule KafkaEx.Server do
           )
 
         state
+      end
+
+      defp sleep_for_reconnect() do
+        Process.sleep(Application.get_env(:kafka_ex, :sleep_for_reconnect, 400))
+      end
+
+      defp check_brokers_sockets!(brokers) do
+        any_socket_opened = brokers
+        |> Enum.map(fn %Broker{socket: socket} -> !is_nil(socket) end)
+        |> Enum.reduce(&(&1 || &2))
+        if !any_socket_opened do
+          sleep_for_reconnect()
+          raise "Brokers sockets are not opened"
+        end
       end
 
       defp connect_broker(host, port, ssl_opts, use_ssl) do
