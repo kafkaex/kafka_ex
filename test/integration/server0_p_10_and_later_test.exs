@@ -3,6 +3,7 @@ defmodule KafkaEx.Server0P10P1AndLater.Test do
   import TestHelper
 
   @moduletag :server_0_p_10_and_later
+  @num_partitions 10
 
   @tag :create_topic
   test "can create a topic" do
@@ -19,11 +20,14 @@ defmodule KafkaEx.Server0P10P1AndLater.Test do
     resp = create_topic(name, config)
     assert {:topic_already_exists, name} == parse_create_topic_resp(resp)
 
-    wait_for(fn ->
-      Enum.member?(existing_topics(), name)
-    end)
-
     assert Enum.member?(existing_topics(), name)
+
+    assert @num_partitions ==
+             KafkaEx.Protocol.Metadata.Response.partitions_for_topic(
+               KafkaEx.metadata(),
+               name
+             )
+             |> Enum.count()
   end
 
   @tag :delete_topic
@@ -39,11 +43,6 @@ defmodule KafkaEx.Server0P10P1AndLater.Test do
 
     resp = KafkaEx.delete_topics([name], timeout: 5_000)
     assert {:no_error, name} = parse_delete_topic_resp(resp)
-
-    wait_for(fn ->
-      not Enum.member?(existing_topics(), name)
-    end)
-
     assert not Enum.member?(existing_topics(), name)
   end
 
@@ -78,13 +77,13 @@ defmodule KafkaEx.Server0P10P1AndLater.Test do
       [
         %{
           topic: name,
-          num_partitions: 10,
+          num_partitions: @num_partitions,
           replication_factor: 1,
           replica_assignment: [],
           config_entries: config
         }
       ],
-      timeout: 5_000
+      timeout: 10_000
     )
   end
 

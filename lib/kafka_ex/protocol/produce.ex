@@ -31,7 +31,7 @@ defmodule KafkaEx.Protocol.Produce do
 
     @type t :: %Request{
             topic: binary,
-            partition: integer,
+            partition: integer | nil,
             required_acks: integer,
             timeout: integer,
             compression: atom,
