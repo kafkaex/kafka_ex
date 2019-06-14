@@ -2,6 +2,7 @@ language: elixir
 branches:
   only:
     - "master"
+    - "kayrock_integration"
 cache:
   directories:
     - deps
