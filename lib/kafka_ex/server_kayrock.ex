@@ -158,124 +158,63 @@ defmodule KafkaEx.ServerKayrock do
   end
 
   defp kayrock_network_request(request, node_selector, state) do
-    case node_selector do
-      :any ->
-        wire_request =
-          request
-          |> client_request(state)
-          |> Kayrock.Request.serialize()
+    {sender, updated_state} = get_sender(node_selector, state)
 
-        response =
-          case(
-            first_broker_response(
-              wire_request,
-              state.brokers,
-              config_sync_timeout()
-            )
-          ) do
-            {:error, reason} ->
-              {:error, reason}
+    wire_request =
+      request
+      |> client_request(updated_state)
+      |> Kayrock.Request.serialize()
 
-            data ->
-              deserializer = Kayrock.Request.response_deserializer(request)
-              {resp, _} = deserializer.(data)
-              {:ok, resp}
-          end
+    response =
+      case(sender.(wire_request)) do
+        {:error, reason} -> {:error, reason}
+        data -> {:ok, deserialize(data, request)}
+      end
 
-        state = %{state | correlation_id: state.correlation_id + 1}
-        {response, state}
-
-      {:partition, topic, partition} ->
-        {broker, updated_state} =
-          broker_for_partition_with_update(
-            state,
-            topic,
-            partition
-          )
-
-        wire_request =
-          request
-          |> client_request(updated_state)
-          |> Kayrock.Request.serialize()
-
-        response =
-          case(
-            broker
-            |> NetworkClient.send_sync_request(
-              wire_request,
-              config_sync_timeout()
-            )
-          ) do
-            {:error, reason} ->
-              {:error, reason}
-
-            data ->
-              deserializer = Kayrock.Request.response_deserializer(request)
-              {resp, _} = deserializer.(data)
-              {:ok, resp}
-          end
-
-        state = %{state | correlation_id: state.correlation_id + 1}
-        {response, state}
-    end
+    state_out = %{updated_state | correlation_id: state.correlation_id + 1}
+    {response, state_out}
   end
 
-  defp never_callederson(request, module, state) do
+  defp get_sender(:any, state) do
+    {fn wire_request ->
+       first_broker_response(wire_request, state.brokers, config_sync_timeout())
+     end, state}
+  end
+
+  defp get_sender({:partition, topic, partition}, state) do
     {broker, updated_state} =
       broker_for_partition_with_update(
         state,
-        request.topic,
-        request.partition
+        topic,
+        partition
       )
 
-    case broker do
-      nil ->
-        Logger.error(fn ->
-          "network_request: leader for topic #{request.topic}/#{
-            request.partition
-          } is not available"
-        end)
+    {fn wire_request ->
+       NetworkClient.send_sync_request(
+         broker,
+         wire_request,
+         config_sync_timeout()
+       )
+     end, updated_state}
+  end
 
-        {{:error, :topic_not_found}, updated_state}
-
+  defp deserialize(data, request) do
+    try do
+      deserializer = Kayrock.Request.response_deserializer(request)
+      {resp, _} = deserializer.(data)
+      resp
+    rescue
       _ ->
-        wire_request =
-          request
-          |> client_request(updated_state)
-          |> module.create_request
+        Logger.error(
+          "Failed to parse a response from the server: #{inspect(data)} " <>
+            "for request #{inspect(request)}"
+        )
 
-        response =
-          broker
-          |> NetworkClient.send_sync_request(
-            wire_request,
-            config_sync_timeout()
-          )
-          |> case do
-            {:error, reason} ->
-              {:error, reason}
-
-            response ->
-              try do
-                module.parse_response(response)
-              rescue
-                _ ->
-                  Logger.error(
-                    "Failed to parse a response from the server: #{
-                      inspect(response)
-                    }"
-                  )
-
-                  Kernel.reraise(
-                    "Parse error during #{inspect(module)}.parse_response. Couldn't parse: #{
-                      inspect(response)
-                    }",
-                    System.stacktrace()
-                  )
-              end
-          end
-
-        state_out = State.increment_correlation_id(updated_state)
-        {response, state_out}
+        Kernel.reraise(
+          "Parse error during #{inspect(request)} response deserializer. " <>
+            "Couldn't parse: #{inspect(data)}",
+          System.stacktrace()
+        )
     end
   end
 end
