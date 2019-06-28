@@ -7,6 +7,7 @@ defmodule KafkaEx.ServerKayrock do
 
   use KafkaEx.Server
 
+  alias KafkaEx.Protocol
   alias KafkaEx.Protocol.Metadata.Broker
   alias KafkaEx.Server0P10AndLater
   alias KafkaEx.Server0P8P2
@@ -57,8 +58,6 @@ defmodule KafkaEx.ServerKayrock do
 
   defdelegate kafka_server_update_metadata(state), to: Server0P10AndLater
 
-  defdelegate kafka_server_api_versions(state), to: Server0P10AndLater
-
   defdelegate kafka_server_delete_topics(topics, network_timeout, state),
     to: Server0P10AndLater
 
@@ -92,7 +91,7 @@ defmodule KafkaEx.ServerKayrock do
     check_brokers_sockets!(brokers)
 
     {_,
-     %KafkaEx.Protocol.ApiVersions.Response{
+     %{
        api_versions: api_versions,
        error_code: error_code
      }, state} = kafka_server_api_versions(%State{brokers: brokers})
@@ -144,6 +143,31 @@ defmodule KafkaEx.ServerKayrock do
       :timer.send_interval(state.metadata_update_interval, :update_metadata)
 
     {:ok, state}
+  end
+
+  def kafka_server_api_versions(state) do
+    request = %Kayrock.ApiVersions.V0.Request{}
+
+    {{:ok, response}, state_out} = kayrock_network_request(request, :any, state)
+
+    # map to the KafkaEx version of this message
+    api_versions = %Protocol.ApiVersions.Response{
+      error_code: Kayrock.ErrorCode.code_to_atom(response.error_code),
+      api_versions:
+        Enum.map(
+          response.api_versions,
+          fn api_version ->
+            %Protocol.ApiVersions.ApiVersion{
+              api_key: api_version.api_key,
+              min_version: api_version.min_version,
+              max_version: api_version.max_version
+            }
+          end
+        )
+    }
+
+    {:reply, api_versions,
+     %{state_out | correlation_id: state_out.correlation_id + 1}}
   end
 
   def handle_call(
