@@ -2,7 +2,6 @@ language: elixir
 branches:
   only:
     - "master"
-    - "use_kafka_0p11_for_tests"
 cache:
   directories:
     - deps
