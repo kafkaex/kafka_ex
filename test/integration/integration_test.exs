@@ -569,7 +569,6 @@ defmodule KafkaEx.Integration.Test do
         topic_name,
         0,
         worker_name: :stream,
-        max_bytes: 50,
         offset: 0,
         auto_commit: false
       )
@@ -607,7 +606,6 @@ defmodule KafkaEx.Integration.Test do
         topic_name,
         0,
         worker_name: :stream,
-        max_bytes: 50,
         offset: 0,
         auto_commit: false
       )
@@ -660,7 +658,6 @@ defmodule KafkaEx.Integration.Test do
         topic_name,
         0,
         worker_name: :stream,
-        max_bytes: 50,
         offset: 0,
         auto_commit: false,
         no_wait_at_logend: true
