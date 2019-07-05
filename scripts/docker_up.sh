@@ -10,7 +10,7 @@
 #
 # This script should be run from the project root
 
-set -e
+# set -e
 
 # Kafka needs to know our ip address so that it can advertise valid
 # connnection details
@@ -47,6 +47,7 @@ do
 done
 
 docker-compose up -d
+docker-compose logs
 
 # create topics needed for testing
 docker-compose exec kafka3 /bin/bash -c "KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181 KAFKA_PORT=9094 KAFKA_CREATE_TOPICS=consumer_group_implementation_test:4:2,test0p8p0:4:2 create-topics.sh"
