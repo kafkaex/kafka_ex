@@ -570,8 +570,10 @@ defmodule KafkaEx.ServerKayrock do
         retry,
         error_code
       ) do
+    # default to version 4 of the metdata protocol because this one treats an
+    # empty list of topics as 'no topics'.  note this limits us to kafka 0.11+
     api_version =
-      ApiVersions.max_supported_version(state.api_versions, :metadata, 1)
+      ApiVersions.max_supported_version(state.api_versions, :metadata, 4)
 
     retrieve_metadata_with_version(
       state,
