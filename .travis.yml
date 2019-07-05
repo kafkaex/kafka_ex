@@ -35,6 +35,7 @@ env:
     - COVERALLS=false
     - CREDO=false
 before_script:
+  - rm -rf kafka1 kafka2 kafka3
   - IP_IFACE=eth0 ./scripts/docker_up.sh
 script:
   - MIX_ENV=test mix deps.compile
