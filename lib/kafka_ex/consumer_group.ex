@@ -182,9 +182,9 @@ defmodule KafkaEx.ConsumerGroup do
   The generation id is provided by the broker on sync.  Returns `nil` if
   queried before the initial sync has completed.
   """
-  @spec generation_id(Supervisor.supervisor()) :: integer | nil
-  def generation_id(supervisor_pid) do
-    call_manager(supervisor_pid, :generation_id)
+  @spec generation_id(Supervisor.supervisor(), timeout) :: integer | nil
+  def generation_id(supervisor_pid, timeout \\ 5000) do
+    call_manager(supervisor_pid, :generation_id, timeout)
   end
 
   @doc """
@@ -193,9 +193,9 @@ defmodule KafkaEx.ConsumerGroup do
   The id is assigned by the broker.  Returns `nil` if queried before the
   initial sync has completed.
   """
-  @spec member_id(Supervisor.supervisor()) :: binary | nil
-  def member_id(supervisor_pid) do
-    call_manager(supervisor_pid, :member_id)
+  @spec member_id(Supervisor.supervisor(), timeout) :: binary | nil
+  def member_id(supervisor_pid, timeout \\ 5000) do
+    call_manager(supervisor_pid, :member_id, timeout)
   end
 
   @doc """
@@ -204,9 +204,9 @@ defmodule KafkaEx.ConsumerGroup do
   This is provided by the broker on sync.  Returns `nil` if queried before the
   initial sync has completed
   """
-  @spec leader_id(Supervisor.supervisor()) :: binary | nil
-  def leader_id(supervisor_pid) do
-    call_manager(supervisor_pid, :leader_id)
+  @spec leader_id(Supervisor.supervisor(), timeout) :: binary | nil
+  def leader_id(supervisor_pid, timeout \\ 5000) do
+    call_manager(supervisor_pid, :leader_id, timeout)
   end
 
   @doc """
@@ -215,9 +215,9 @@ defmodule KafkaEx.ConsumerGroup do
   Leaders are elected by the broker and are responsible for assigning
   partitions.  Returns false if queried before the intiial sync has completed.
   """
-  @spec leader?(Supervisor.supervisor()) :: boolean
-  def leader?(supervisor_pid) do
-    call_manager(supervisor_pid, :am_leader)
+  @spec leader?(Supervisor.supervisor(), timeout) :: boolean
+  def leader?(supervisor_pid, timeout \\ 5000) do
+    call_manager(supervisor_pid, :am_leader, timeout)
   end
 
   @doc """
@@ -226,11 +226,11 @@ defmodule KafkaEx.ConsumerGroup do
 
   These are assigned by the leader and communicated by the broker on sync.
   """
-  @spec assignments(Supervisor.supervisor()) :: [
+  @spec assignments(Supervisor.supervisor(), timeout) :: [
           {topic :: binary, partition_id :: non_neg_integer}
         ]
-  def assignments(supervisor_pid) do
-    call_manager(supervisor_pid, :assignments)
+  def assignments(supervisor_pid, timeout \\ 5000) do
+    call_manager(supervisor_pid, :assignments, timeout)
   end
 
   @doc """
@@ -239,9 +239,9 @@ defmodule KafkaEx.ConsumerGroup do
 
   Returns `nil` if called before the initial sync.
   """
-  @spec consumer_supervisor_pid(Supervisor.supervisor()) :: nil | pid
-  def consumer_supervisor_pid(supervisor_pid) do
-    call_manager(supervisor_pid, :consumer_supervisor_pid)
+  @spec consumer_supervisor_pid(Supervisor.supervisor(), timeout) :: nil | pid
+  def consumer_supervisor_pid(supervisor_pid, timeout \\ 5000) do
+    call_manager(supervisor_pid, :consumer_supervisor_pid, timeout)
   end
 
   @doc """
@@ -257,9 +257,9 @@ defmodule KafkaEx.ConsumerGroup do
   @doc """
   Returns the name of the consumer group
   """
-  @spec group_name(Supervisor.supervisor()) :: binary
-  def group_name(supervisor_pid) do
-    call_manager(supervisor_pid, :group_name)
+  @spec group_name(Supervisor.supervisor(), timeout) :: binary
+  def group_name(supervisor_pid, timeout \\ 5000) do
+    call_manager(supervisor_pid, :group_name, timeout)
   end
 
   @doc """
@@ -280,9 +280,9 @@ defmodule KafkaEx.ConsumerGroup do
   @doc """
   Returns true if at least one child consumer process is alive
   """
-  @spec active?(Supervisor.supervisor()) :: boolean
-  def active?(supervisor_pid) do
-    consumer_supervisor = consumer_supervisor_pid(supervisor_pid)
+  @spec active?(Supervisor.supervisor(), timeout) :: boolean
+  def active?(supervisor_pid, timeout \\ 5000) do
+    consumer_supervisor = consumer_supervisor_pid(supervisor_pid, timeout)
 
     if consumer_supervisor && Process.alive?(consumer_supervisor) do
       GenConsumer.Supervisor.active?(consumer_supervisor)
@@ -359,9 +359,9 @@ defmodule KafkaEx.ConsumerGroup do
     supervise(children, strategy: :one_for_all, max_restarts: 0, max_seconds: 1)
   end
 
-  defp call_manager(supervisor_pid, call) do
+  defp call_manager(supervisor_pid, call, timeout) do
     supervisor_pid
     |> get_manager_pid
-    |> GenServer.call(call)
+    |> GenServer.call(call, timeout)
   end
 end

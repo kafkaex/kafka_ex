@@ -156,8 +156,8 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
 
     # wait for both consumer groups to join
     wait_for(fn ->
-      ConsumerGroup.active?(consumer_group_pid1) &&
-        ConsumerGroup.active?(consumer_group_pid2)
+      ConsumerGroup.active?(consumer_group_pid1, 30000) &&
+        ConsumerGroup.active?(consumer_group_pid2, 30000)
     end)
 
     on_exit(fn ->
