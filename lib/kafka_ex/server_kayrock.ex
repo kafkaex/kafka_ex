@@ -167,7 +167,6 @@ defmodule KafkaEx.ServerKayrock do
         api_versions: api_versions
     }
 
-    # HERE
     # Get the initial "real" broker list and start a regular refresh cycle.
     state = update_metadata(state)
 
@@ -175,6 +174,22 @@ defmodule KafkaEx.ServerKayrock do
       :timer.send_interval(state.metadata_update_interval, :update_metadata)
 
     {:ok, state}
+  end
+
+  def handle_call(:update_metadata, _from, state) do
+    updated_state = update_metadata(state)
+    {:reply, {:ok, updated_state.cluster_metadata}, updated_state}
+  end
+
+  def handle_call({:topic_metadata, topics}, _from, state) do
+    updated_state = update_metadata(state, topics)
+    # todo should live in clustermetadata
+    topic_metadata =
+      updated_state.cluster_metadata.topics
+      |> Map.take(topics)
+      |> Map.values()
+
+    {:reply, {:ok, topic_metadata}, updated_state}
   end
 
   #  def handle_call(:consumer_group, _from, state) do
@@ -237,9 +252,10 @@ defmodule KafkaEx.ServerKayrock do
   #    kafka_server_api_versions(state)
   #  end
   #
-  #  def handle_info(:update_metadata, state) do
-  #    kafka_server_update_metadata(state)
-  #  end
+  def handle_info(:update_metadata, state) do
+    {:noreply, update_metadata(state)}
+  end
+
   #
   #  def handle_info(:update_consumer_metadata, state) do
   #    kafka_server_update_consumer_metadata(state)
@@ -473,12 +489,16 @@ defmodule KafkaEx.ServerKayrock do
   #    {:noreply, update_metadata(state)}
   #  end
 
-  def update_metadata(state) do
+  def update_metadata(state, topics \\ []) do
+    # make sure we update metadata about known topics
+    known_topics = ClusterMetadata.known_topics(state.cluster_metadata)
+    topics = Enum.uniq(known_topics ++ topics)
+
     {updated_state, response} =
       retrieve_metadata(
         state,
         config_sync_timeout(),
-        []
+        topics
       )
 
     case response do
@@ -681,142 +701,6 @@ defmodule KafkaEx.ServerKayrock do
 
       broker ->
         {broker, state}
-    end
-  end
-
-  # assumes module.create_request(request) and module.parse_response
-  # both work
-  defp network_request(request, module, state) do
-    {broker, updated_state} =
-      broker_for_partition_with_update(
-        state,
-        request.topic,
-        request.partition
-      )
-
-    case broker do
-      nil ->
-        Logger.error(fn ->
-          "network_request: leader for topic #{request.topic}/#{
-            request.partition
-          } is not available"
-        end)
-
-        {{:error, :topic_not_found}, updated_state}
-
-      _ ->
-        wire_request =
-          request
-          |> client_request(updated_state)
-          |> module.create_request
-
-        response =
-          broker
-          |> NetworkClient.send_sync_request(
-            wire_request,
-            config_sync_timeout()
-          )
-          |> case do
-            {:error, reason} ->
-              {:error, reason}
-
-            response ->
-              try do
-                module.parse_response(response)
-              rescue
-                _ ->
-                  Logger.error(
-                    "Failed to parse a response from the server: #{
-                      inspect(response)
-                    }"
-                  )
-
-                  Kernel.reraise(
-                    "Parse error during #{inspect(module)}.parse_response. Couldn't parse: #{
-                      inspect(response)
-                    }",
-                    System.stacktrace()
-                  )
-              end
-          end
-
-        state_out = State.increment_correlation_id(updated_state)
-        {response, state_out}
-    end
-  end
-
-  defp remove_stale_brokers(brokers, metadata_brokers) do
-    {brokers_to_keep, brokers_to_remove} =
-      apply(Enum, :partition, [
-        brokers,
-        fn broker ->
-          Enum.find_value(
-            metadata_brokers,
-            &(broker.node_id == -1 ||
-                (broker.node_id == &1.node_id && broker.socket &&
-                   Socket.info(broker.socket)))
-          )
-        end
-      ])
-
-    case length(brokers_to_keep) do
-      0 ->
-        brokers_to_remove
-
-      _ ->
-        Enum.each(brokers_to_remove, fn broker ->
-          Logger.log(
-            :debug,
-            "Closing connection to broker #{broker.node_id}: #{
-              inspect(broker.host)
-            } on port #{inspect(broker.port)}"
-          )
-
-          NetworkClient.close_socket(broker.socket)
-        end)
-
-        brokers_to_keep
-    end
-  end
-
-  defp add_new_brokers(brokers, [], _, _), do: brokers
-
-  defp add_new_brokers(
-         brokers,
-         [metadata_broker | metadata_brokers],
-         ssl_options,
-         use_ssl
-       ) do
-    case Enum.find(brokers, &(metadata_broker.node_id == &1.node_id)) do
-      nil ->
-        Logger.log(
-          :debug,
-          "Establishing connection to broker #{metadata_broker.node_id}: #{
-            inspect(metadata_broker.host)
-          } on port #{inspect(metadata_broker.port)}"
-        )
-
-        add_new_brokers(
-          [
-            %{
-              metadata_broker
-              | socket:
-                  NetworkClient.create_socket(
-                    metadata_broker.host,
-                    metadata_broker.port,
-                    ssl_options,
-                    use_ssl
-                  )
-            }
-            | brokers
-          ],
-          metadata_brokers,
-          ssl_options,
-          use_ssl
-        )
-
-      _ ->
-        add_new_brokers(brokers, metadata_brokers, ssl_options, use_ssl)
     end
   end
 

@@ -3,6 +3,9 @@ defmodule KafkaEx.ServerKayrock.Test do
 
   alias KafkaEx.ServerKayrock
 
+  alias KafkaEx.New.ClusterMetadata
+  alias KafkaEx.New.Topic
+
   @moduletag :server_kayrock
 
   #  setup do
@@ -13,11 +16,21 @@ defmodule KafkaEx.ServerKayrock.Test do
   #    {:ok, %{client: pid}}
   #  end
 
-  test "Connects and doesn't explode" do
+  test "Connects and doesn't explode, can update metadata" do
     {:ok, args} = KafkaEx.build_worker_options([])
 
     {:ok, pid} = ServerKayrock.start_link(args)
     assert Process.alive?(pid)
+
+    {:ok, updated_metadata} = ServerKayrock.call(pid, :update_metadata)
+    %ClusterMetadata{topics: topics} = updated_metadata
+    # we don't fetch any topics on startup
+    assert topics == %{}
+
+    {:ok, [topic_metadata]} =
+      ServerKayrock.call(pid, {:topic_metadata, ["test0p8p0"]})
+
+    assert %Topic{name: "test0p8p0"} = topic_metadata
   end
 
   #  test "basic request to any node", %{client: client} do
