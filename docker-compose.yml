@@ -5,32 +5,32 @@ services:
     ports:
       - "2181:2181"
   kafka1:
-    image: wurstmeister/kafka:0.10.1.0
+    image: wurstmeister/kafka:0.11.0.1
     ports:
       - "9092:9092"
     depends_on:
       - zookeeper
     volumes:
-      - ./kafka1/server.properties.in:/opt/kafka_2.11-0.10.1.0/config/server.properties.in
+      - ./kafka1/server.properties.in:/opt/kafka/config/server.properties.in
       - ./scripts/docker-start-kafka.sh:/usr/bin/start-kafka.sh
       - ./ssl:/ssl
   kafka2:
-    image: wurstmeister/kafka:0.10.1.0
+    image: wurstmeister/kafka:0.11.0.1
     ports:
       - "9093:9093"
     depends_on:
       - zookeeper
     volumes:
-      - ./kafka2/server.properties.in:/opt/kafka_2.11-0.10.1.0/config/server.properties.in
+      - ./kafka2/server.properties.in:/opt/kafka/config/server.properties.in
       - ./scripts/docker-start-kafka.sh:/usr/bin/start-kafka.sh
       - ./ssl:/ssl
   kafka3:
-    image: wurstmeister/kafka:0.10.1.0
+    image: wurstmeister/kafka:0.11.0.1
     ports:
       - "9094:9094"
     depends_on:
       - zookeeper
     volumes:
-      - ./kafka3/server.properties.in:/opt/kafka_2.11-0.10.1.0/config/server.properties.in
+      - ./kafka3/server.properties.in:/opt/kafka/config/server.properties.in
       - ./scripts/docker-start-kafka.sh:/usr/bin/start-kafka.sh
       - ./ssl:/ssl
