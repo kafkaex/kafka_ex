@@ -68,6 +68,7 @@ defmodule KafkaEx.NetworkClient do
         :ok ->
           case Socket.recv(socket, 0, timeout) do
             {:ok, data} ->
+              :ok = Socket.setopts(socket, [:binary, {:packet, 4}, {:active, true}])
               data
 
             {:error, reason} ->
@@ -77,6 +78,8 @@ defmodule KafkaEx.NetworkClient do
                   inspect(broker.port)
                 } failed with #{inspect(reason)}"
               )
+
+              Socket.close(socket)
 
               {:error, reason}
           end
@@ -88,11 +91,12 @@ defmodule KafkaEx.NetworkClient do
               inspect(broker.port)
             } failed with #{inspect(reason)}"
           )
+          
+          Socket.close(socket)
 
           {:error, reason}
       end
 
-    :ok = Socket.setopts(socket, [:binary, {:packet, 4}, {:active, true}])
     response
   end
 

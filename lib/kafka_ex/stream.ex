@@ -1,6 +1,7 @@
 defmodule KafkaEx.Stream do
   @moduledoc false
 
+  alias KafkaEx.Server
   alias KafkaEx.Protocol.OffsetCommit.Request, as: OffsetCommitRequest
   alias KafkaEx.Protocol.Fetch.Request, as: FetchRequest
   alias KafkaEx.Protocol.Fetch.Response, as: FetchResponse
@@ -126,7 +127,7 @@ defmodule KafkaEx.Stream do
     end
 
     defp commit_offset(%KafkaEx.Stream{} = stream_data, offset) do
-      GenServer.call(stream_data.worker_name, {
+      Server.call(stream_data.worker_name, {
         :offset_commit,
         %OffsetCommitRequest{
           consumer_group: stream_data.consumer_group,
@@ -145,7 +146,7 @@ defmodule KafkaEx.Stream do
       req = data.fetch_request
 
       data.worker_name
-      |> GenServer.call({:fetch, %{req | offset: offset}})
+      |> Server.call({:fetch, %{req | offset: offset}})
       |> FetchResponse.partition_messages(req.topic, req.partition)
     end
   end
