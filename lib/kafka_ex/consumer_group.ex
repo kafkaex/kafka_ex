@@ -86,6 +86,8 @@ defmodule KafkaEx.ConsumerGroup do
      changes as consumers start/stop.  Default: 5000 (5 seconds).
   * `:session_timeout` - Consumer group session timeout in milliseconds.
      Default: 30000 (30 seconds).  See below.
+  * `:session_timeout_padding` - Timeout padding for consumer group options.
+     Default: 10000 (10 seconds).  See below.
   * Any of `t:KafkaEx.GenConsumer.option/0`,
      which will be passed on to consumers
   * `:gen_server_opts` - `t:GenServer.options/0` passed on to the manager
@@ -102,11 +104,14 @@ defmodule KafkaEx.ConsumerGroup do
   for `group.min.session.timeout.ms` and `group.max.session.timeout.ms` (6000
   and 30000 by default).  See
   [https://kafka.apache.org/documentation/#configuration](https://kafka.apache.org/documentation/#configuration).
+  You may need to adjust `session_timeout_padding` on high-latency clusters to
+  avoid timing out when joining/syncing consumer groups.
   """
   @type option ::
           KafkaEx.GenConsumer.option()
           | {:heartbeat_interval, pos_integer}
           | {:session_timeout, pos_integer}
+          | {:session_timeout_padding, pos_integer}
           | {:partition_assignment_callback, PartitionAssignment.callback()}
           | {:gen_server_opts, GenServer.options()}
           | {:name, Supervisor.name()}

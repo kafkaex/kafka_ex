@@ -23,6 +23,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
       :worker_name,
       :heartbeat_interval,
       :session_timeout,
+      :session_timeout_padding,
       :gen_consumer_module,
       :consumer_module,
       :consumer_opts,
@@ -91,6 +92,17 @@ defmodule KafkaEx.ConsumerGroup.Manager do
         Application.get_env(:kafka_ex, :session_timeout, @session_timeout)
       )
 
+    session_timeout_padding =
+      Keyword.get(
+        opts,
+        :session_timeout_padding,
+        Application.get_env(
+          :kafka_ex,
+          :session_timeout_padding,
+          @session_timeout_padding
+        )
+      )
+
     partition_assignment_callback =
       Keyword.get(
         opts,
@@ -124,6 +136,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
       worker_name: worker_name,
       heartbeat_interval: heartbeat_interval,
       session_timeout: session_timeout,
+      session_timeout_padding: session_timeout_padding,
       consumer_module: consumer_module,
       gen_consumer_module: gen_consumer_module,
       partition_assignment_callback: partition_assignment_callback,
@@ -237,6 +250,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
          %State{
            worker_name: worker_name,
            session_timeout: session_timeout,
+           session_timeout_padding: session_timeout_padding,
            group_name: group_name,
            topics: topics,
            member_id: member_id
@@ -253,7 +267,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
       KafkaEx.join_group(
         join_request,
         worker_name: worker_name,
-        timeout: session_timeout + @session_timeout_padding
+        timeout: session_timeout + session_timeout_padding
       )
 
     # crash the worker if we recieve an error, but do it with a meaningful
@@ -310,7 +324,8 @@ defmodule KafkaEx.ConsumerGroup.Manager do
            member_id: member_id,
            generation_id: generation_id,
            worker_name: worker_name,
-           session_timeout: session_timeout
+           session_timeout: session_timeout,
+           session_timeout_padding: session_timeout_padding
          } = state,
          assignments
        ) do
@@ -325,7 +340,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
       KafkaEx.sync_group(
         sync_request,
         worker_name: worker_name,
-        timeout: session_timeout + @session_timeout_padding
+        timeout: session_timeout + session_timeout_padding
       )
 
     case error_code do
