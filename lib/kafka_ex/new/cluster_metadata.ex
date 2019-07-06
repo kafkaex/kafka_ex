@@ -82,17 +82,25 @@ defmodule KafkaEx.New.ClusterMetadata do
     }
   end
 
+  require Logger
+
   def merge_brokers(
         %__MODULE__{} = old_cluster_metadata,
         %__MODULE__{} = new_cluster_metadata
       ) do
-    old_brokers = old_cluster_metadata.brokers
+    old_brokers = Map.values(old_cluster_metadata.brokers)
+
+    Logger.debug(
+      "MERGE #{inspect(old_brokers)} #{inspect(new_cluster_metadata)}"
+    )
 
     new_brokers =
       Enum.into(new_cluster_metadata.brokers, %{}, fn {node_id, new_broker} ->
-        case Map.get(old_brokers, node_id) do
-          %Broker{pid: pid} when is_pid(pid) ->
-            {node_id, %{new_broker | pid: pid}}
+        case Enum.find(old_brokers, fn b ->
+               b.host == new_broker.host && b.port == new_broker.port
+             end) do
+          %Broker{socket: socket} when not is_nil(socket) ->
+            {node_id, %{new_broker | socket: socket}}
 
           _ ->
             {node_id, new_broker}
@@ -101,8 +109,16 @@ defmodule KafkaEx.New.ClusterMetadata do
 
     brokers_to_close =
       old_brokers
-      |> Map.keys()
-      |> Enum.filter(fn k -> not Map.has_key?(new_brokers, k) end)
+      |> Enum.filter(fn b ->
+        !Enum.any?(new_brokers, fn {_, nb} ->
+          nb.host == b.host && nb.port == b.port
+        end)
+      end)
+
+    Logger.debug(
+      "MERGED BROKERS #{inspect(new_brokers)}, " <>
+        "TO CLOSE: #{inspect(brokers_to_close)}"
+    )
 
     {%{new_cluster_metadata | brokers: new_brokers}, brokers_to_close}
   end
@@ -122,5 +138,15 @@ defmodule KafkaEx.New.ClusterMetadata do
 
     {val,
      %{cluster_metadata | brokers: Map.put(brokers, node_id, updated_broker)}}
+  end
+
+  def update_brokers(%__MODULE__{brokers: brokers} = cluster_metadata, cb)
+      when is_function(cb, 1) do
+    updated_brokers =
+      Enum.into(brokers, %{}, fn {node_id, broker} ->
+        {node_id, cb.(broker)}
+      end)
+
+    %{cluster_metadata | brokers: updated_brokers}
   end
 end

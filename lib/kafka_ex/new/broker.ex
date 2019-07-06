@@ -1,7 +1,18 @@
 defmodule KafkaEx.New.Broker do
   @moduledoc false
 
-  defstruct node_id: nil, host: nil, port: nil, rack: nil, pid: nil
+  alias KafkaEx.Socket
 
-  def put_pid(%__MODULE__{} = broker, pid), do: %{broker | pid: pid}
+  defstruct node_id: nil,
+            host: nil,
+            port: nil,
+            socket: nil,
+            rack: nil,
+            socket: nil
+
+  def put_socket(%__MODULE__{} = broker, socket), do: %{broker | socket: socket}
+
+  def connected?(%__MODULE__{} = broker) do
+    broker.socket != nil && Socket.open?(broker.socket)
+  end
 end

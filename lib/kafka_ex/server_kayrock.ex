@@ -5,7 +5,7 @@ defmodule KafkaEx.ServerKayrock do
 
   alias KafkaEx.NetworkClient
   alias KafkaEx.Protocol.Metadata
-  alias KafkaEx.Protocol.Metadata.Broker
+  alias KafkaEx.New.Broker
   alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
   alias KafkaEx.Protocol.Produce
   alias KafkaEx.Socket
@@ -21,7 +21,6 @@ defmodule KafkaEx.ServerKayrock do
 
     defstruct(
       cluster_metadata: %ClusterMetadata{},
-      brokers: %{},
       event_pid: nil,
       consumer_metadata: %ConsumerGroupMetadata{},
       correlation_id: 0,
@@ -39,6 +38,30 @@ defmodule KafkaEx.ServerKayrock do
     @spec increment_correlation_id(t) :: t
     def increment_correlation_id(%State{correlation_id: cid} = state) do
       %{state | correlation_id: cid + 1}
+    end
+
+    require Logger
+
+    def select_broker(
+          %State{cluster_metadata: cluster_metadata},
+          selector
+        ) do
+      with {:ok, node_id} <-
+             ClusterMetadata.select_node(cluster_metadata, selector),
+           broker <-
+             ClusterMetadata.broker_by_node_id(cluster_metadata, node_id) do
+        {:ok, broker}
+      else
+        err -> err
+      end
+    end
+
+    def update_brokers(%State{cluster_metadata: cluster_metadata} = state, cb)
+        when is_function(cb, 1) do
+      %{
+        state
+        | cluster_metadata: ClusterMetadata.update_brokers(cluster_metadata, cb)
+      }
     end
   end
 
@@ -115,7 +138,7 @@ defmodule KafkaEx.ServerKayrock do
 
     brokers =
       Enum.into(Enum.with_index(uris), %{}, fn {{host, port}, ix} ->
-        {ix,
+        {ix + 1,
          %Broker{
            host: host,
            port: port,
@@ -125,8 +148,21 @@ defmodule KafkaEx.ServerKayrock do
 
     check_brokers_sockets!(brokers)
 
-    {ok_or_err, api_versions, state} =
-      get_api_versions(%State{brokers: brokers})
+    # in kayrock we manage the consumer group elsewhere
+    consumer_group = :no_consumer_group
+
+    state = %State{
+      consumer_group: consumer_group,
+      metadata_update_interval: metadata_update_interval,
+      consumer_group_update_interval: nil,
+      worker_name: name,
+      ssl_options: ssl_options,
+      use_ssl: use_ssl,
+      api_versions: %{},
+      cluster_metadata: %ClusterMetadata{brokers: brokers}
+    }
+
+    {ok_or_err, api_versions, state} = get_api_versions(state)
 
     if ok_or_err == :error do
       sleep_for_reconnect()
@@ -136,29 +172,20 @@ defmodule KafkaEx.ServerKayrock do
     :no_error = Kayrock.ErrorCode.code_to_atom(api_versions.error_code)
 
     api_versions = ApiVersions.from_response(api_versions)
+    state = %{state | api_versions: api_versions}
 
-    {state, cluster_metadata} =
+    state =
       try do
-        retrieve_metadata(
-          state,
-          config_sync_timeout(),
-          []
-        )
+        update_metadata(state)
       rescue
         e ->
           sleep_for_reconnect()
           Kernel.reraise(e, System.stacktrace())
       end
 
-    # in kayrock we manage the consumer group elsewhere
-    consumer_group = :no_consumer_group
-
     state = %{
       state
-      | cluster_metadata:
-          ClusterMetadata.from_metadata_v1_response(cluster_metadata),
-        brokers: brokers,
-        consumer_group: consumer_group,
+      | consumer_group: consumer_group,
         metadata_update_interval: metadata_update_interval,
         consumer_group_update_interval: nil,
         worker_name: name,
@@ -192,21 +219,33 @@ defmodule KafkaEx.ServerKayrock do
     {:reply, {:ok, topic_metadata}, updated_state}
   end
 
+  def handle_call({:offset, topic, partition, time}, _from, state) do
+    partition_request = %{partition: partition, timestamp: time}
+
+    request = %Kayrock.ListOffsets.V1.Request{
+      replica_id: -1,
+      topics: [%{topic: topic, partitions: [partition_request]}]
+    }
+
+    {response, updated_state} = list_offsets(request, state)
+
+    {:noreply, response, updated_state}
+  end
+
+  def handle_call({:list_offsets, request}, _from, state) do
+    {response, updated_state} = list_offsets(request, state)
+    {:reply, response, updated_state}
+  end
+
   #  def handle_call(:consumer_group, _from, state) do
   #    kafka_server_consumer_group(state)
   #  end
   #
-  #  def handle_call({:produce, produce_request}, _from, state) do
-  #    kafka_server_produce(produce_request, state)
-  #  end
   #
   #  def handle_call({:fetch, fetch_request}, _from, state) do
   #    kafka_server_fetch(fetch_request, state)
   #  end
   #
-  #  def handle_call({:offset, topic, partition, time}, _from, state) do
-  #    kafka_server_offset(topic, partition, time, state)
-  #  end
   #
   #  def handle_call({:offset_fetch, offset_fetch}, _from, state) do
   #    kafka_server_offset_fetch(offset_fetch, state)
@@ -503,6 +542,7 @@ defmodule KafkaEx.ServerKayrock do
 
     case response do
       nil ->
+        Logger.debug("WAS NIL")
         updated_state
 
       _ ->
@@ -515,6 +555,8 @@ defmodule KafkaEx.ServerKayrock do
             new_cluster_metadata
           )
 
+        Logger.debug("BROKERS TO CLOSE: #{inspect(brokers_to_close)}")
+
         for broker <- brokers_to_close do
           Logger.log(
             :debug,
@@ -526,7 +568,26 @@ defmodule KafkaEx.ServerKayrock do
           NetworkClient.close_socket(broker.socket)
         end
 
-        %{updated_state | cluster_metadata: updated_cluster_metadata}
+        updated_state =
+          State.update_brokers(
+            %{updated_state | cluster_metadata: updated_cluster_metadata},
+            fn b ->
+              %{
+                b
+                | socket:
+                    NetworkClient.create_socket(
+                      b.host,
+                      b.port,
+                      state.ssl_options,
+                      state.use_ssl
+                    )
+              }
+            end
+          )
+
+        Logger.debug("UPDATED METADATA #{inspect(updated_state)}")
+
+        updated_state
     end
 
     ## this will probably also not work
@@ -620,7 +681,7 @@ defmodule KafkaEx.ServerKayrock do
     {{ok_or_err, response}, state_out} =
       kayrock_network_request(metadata_request, :any, state)
 
-    Logger.debug(inspect(response))
+    Logger.debug("RETRIEVE METADATA #{inspect(ok_or_err)} #{inspect(response)}")
 
     case ok_or_err do
       :ok ->
@@ -692,16 +753,22 @@ defmodule KafkaEx.ServerKayrock do
   # gets the broker for a given partition, updating metadata if necessary
   # returns {broker, maybe_updated_state}
   defp broker_for_partition_with_update(state, topic, partition) do
-    case State.broker_for_partition(state, topic, partition) do
-      nil ->
-        updated_state = update_metadata(state)
+    case State.select_broker(state, {:topic_partition, topic, partition}) do
+      {:error, _} ->
+        updated_state = update_metadata(state, [topic])
 
-        {
-          State.broker_for_partition(updated_state, topic, partition),
-          updated_state
-        }
+        case State.select_broker(
+               updated_state,
+               {:topic_partition, topic, partition}
+             ) do
+          {:error, _} ->
+            {nil, updated_state}
 
-      broker ->
+          {:ok, broker} ->
+            {broker, updated_state}
+        end
+
+      {:ok, broker} ->
         {broker, state}
     end
   end
@@ -710,9 +777,16 @@ defmodule KafkaEx.ServerKayrock do
     Enum.find_value(brokers, fn {_node_id, broker} ->
       if Broker.connected?(broker) do
         # credo:disable-for-next-line Credo.Check.Refactor.Nesting
+        Logger.debug("SENDING TO #{inspect(broker)}")
+
         case NetworkClient.send_sync_request(broker, request, timeout) do
-          {:error, _} -> nil
-          response -> response
+          {:error, error} ->
+            Logger.debug("GOT ERROR #{inspect(error)}")
+            nil
+
+          response ->
+            Logger.debug("GOT RESPONSE #{inspect(response)}")
+            response
         end
       end
     end)
@@ -751,6 +825,7 @@ defmodule KafkaEx.ServerKayrock do
     response =
       case(sender.(wire_request)) do
         {:error, reason} -> {:error, reason}
+        nil -> {:error, :no_response}
         data -> {:ok, deserialize(data, request)}
       end
 
@@ -760,17 +835,25 @@ defmodule KafkaEx.ServerKayrock do
 
   defp get_sender(:any, state) do
     {fn wire_request ->
-       first_broker_response(wire_request, state.brokers, config_sync_timeout())
+       first_broker_response(
+         wire_request,
+         state.cluster_metadata.brokers,
+         config_sync_timeout()
+       )
      end, state}
   end
 
   defp get_sender({:partition, topic, partition}, state) do
+    Logger.debug("SELECT BROKER #{inspect(state)}")
+    # TODO can be cleaned up with select_broker
     {broker, updated_state} =
       broker_for_partition_with_update(
         state,
         topic,
         partition
       )
+
+    Logger.debug("SHOULD SEND TO BROKER #{inspect(broker)}")
 
     {fn wire_request ->
        NetworkClient.send_sync_request(
@@ -799,5 +882,18 @@ defmodule KafkaEx.ServerKayrock do
           System.stacktrace()
         )
     end
+  end
+
+  defp list_offsets(request, state) do
+    # TODO only handles a single partition
+    [topic_request | _] = request.topics
+
+    [%{partition: partition} | _] = topic_request.partitions
+
+    kayrock_network_request(
+      request,
+      {:partition, topic_request.topic, partition},
+      state
+    )
   end
 end
