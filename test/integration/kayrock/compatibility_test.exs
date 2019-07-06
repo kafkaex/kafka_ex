@@ -1,4 +1,8 @@
 defmodule KafkaEx.KayrockCompatibilityTest do
+  @moduledoc """
+  These are tests using the original KafkaEx API with the kayrock server
+  """
+
   use ExUnit.Case
 
   @moduletag :server_kayrock

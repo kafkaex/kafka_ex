@@ -41,9 +41,10 @@ defmodule KafkaEx.ServerKayrock.Test do
       }
 
       {:ok, resp} =
-        ServerKayrock.call(
+        ServerKayrock.kayrock_call(
           client,
-          {:list_offsets, request}
+          request,
+          {:topic_partition, topic, partition}
         )
 
       %Kayrock.ListOffsets.V1.Response{responses: responses} = resp

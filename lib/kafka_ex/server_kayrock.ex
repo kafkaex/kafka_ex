@@ -227,7 +227,12 @@ defmodule KafkaEx.ServerKayrock do
   def handle_call({:offset, topic, partition, time}, _from, state) do
     request = Adapter.list_offsets_request(topic, partition, time)
 
-    {response, updated_state} = list_offsets(request, state)
+    {response, updated_state} =
+      kayrock_network_request(
+        request,
+        {:topic_partition, topic, partition},
+        state
+      )
 
     adapted_response =
       case response do
@@ -239,11 +244,6 @@ defmodule KafkaEx.ServerKayrock do
       end
 
     {:reply, adapted_response, updated_state}
-  end
-
-  def handle_call({:list_offsets, request}, _from, state) do
-    {response, updated_state} = list_offsets(request, state)
-    {:reply, response, updated_state}
   end
 
   def handle_call({:produce, produce_request}, _from, state) do
@@ -848,19 +848,6 @@ defmodule KafkaEx.ServerKayrock do
           System.stacktrace()
         )
     end
-  end
-
-  defp list_offsets(request, state) do
-    # TODO only handles a single partition
-    [topic_request | _] = request.topics
-
-    [%{partition: partition} | _] = topic_request.partitions
-
-    kayrock_network_request(
-      request,
-      {:topic_partition, topic_request.topic, partition},
-      state
-    )
   end
 
   defp produce(request, state) do
