@@ -81,6 +81,10 @@ defmodule KafkaEx.ServerKayrock do
     GenServer.start_link(__MODULE__, [args, name], name: name)
   end
 
+  def kayrock_call(server, request, node_selector, opts \\ []) do
+    call(server, {:kayrock_request, request, node_selector}, opts)
+  end
+
   @doc false
   @spec call(
           GenServer.server(),
@@ -244,6 +248,13 @@ defmodule KafkaEx.ServerKayrock do
 
   def handle_call({:produce, produce_request}, _from, state) do
     {response, updated_state} = produce(produce_request, state)
+    {:reply, response, updated_state}
+  end
+
+  def handle_call({:kayrock_request, request, node_selector}, _from, state) do
+    {response, updated_state} =
+      kayrock_network_request(request, node_selector, state)
+
     {:reply, response, updated_state}
   end
 
@@ -798,7 +809,7 @@ defmodule KafkaEx.ServerKayrock do
      end, state}
   end
 
-  defp get_sender({:partition, topic, partition}, state) do
+  defp get_sender({:topic_partition, topic, partition}, state) do
     Logger.debug("SELECT BROKER #{inspect(state)}")
     # TODO can be cleaned up with select_broker
     {broker, updated_state} =
@@ -847,7 +858,7 @@ defmodule KafkaEx.ServerKayrock do
 
     kayrock_network_request(
       request,
-      {:partition, topic_request.topic, partition},
+      {:topic_partition, topic_request.topic, partition},
       state
     )
   end
@@ -858,7 +869,7 @@ defmodule KafkaEx.ServerKayrock do
 
     kayrock_network_request(
       request,
-      {:partition, topic_data.topic, partition},
+      {:topic_partition, topic_data.topic, partition},
       state
     )
   end
