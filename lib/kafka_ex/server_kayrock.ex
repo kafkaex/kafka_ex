@@ -5,12 +5,13 @@ defmodule KafkaEx.ServerKayrock do
 
   alias KafkaEx.NetworkClient
   alias KafkaEx.Protocol.Metadata
-  alias KafkaEx.New.Broker
   alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
   alias KafkaEx.Protocol.Produce
   alias KafkaEx.Socket
 
+  alias KafkaEx.New.Adapter
   alias KafkaEx.New.ApiVersions
+  alias KafkaEx.New.Broker
   alias KafkaEx.New.ClusterMetadata
 
   defmodule State do
@@ -220,16 +221,20 @@ defmodule KafkaEx.ServerKayrock do
   end
 
   def handle_call({:offset, topic, partition, time}, _from, state) do
-    partition_request = %{partition: partition, timestamp: time}
-
-    request = %Kayrock.ListOffsets.V1.Request{
-      replica_id: -1,
-      topics: [%{topic: topic, partitions: [partition_request]}]
-    }
+    request = Adapter.list_offsets_request(topic, partition, time)
 
     {response, updated_state} = list_offsets(request, state)
 
-    {:noreply, response, updated_state}
+    adapted_response =
+      case response do
+        {:ok, api_response} ->
+          {:ok, Adapter.list_offsets_response(api_response)}
+
+        other ->
+          other
+      end
+
+    {:reply, adapted_response, updated_state}
   end
 
   def handle_call({:list_offsets, request}, _from, state) do
@@ -572,16 +577,22 @@ defmodule KafkaEx.ServerKayrock do
           State.update_brokers(
             %{updated_state | cluster_metadata: updated_cluster_metadata},
             fn b ->
-              %{
-                b
-                | socket:
-                    NetworkClient.create_socket(
-                      b.host,
-                      b.port,
-                      state.ssl_options,
-                      state.use_ssl
-                    )
-              }
+              case Broker.connected?(b) do
+                true ->
+                  b
+
+                false ->
+                  %{
+                    b
+                    | socket:
+                        NetworkClient.create_socket(
+                          b.host,
+                          b.port,
+                          state.ssl_options,
+                          state.use_ssl
+                        )
+                  }
+              end
             end
           )
 
@@ -825,7 +836,6 @@ defmodule KafkaEx.ServerKayrock do
     response =
       case(sender.(wire_request)) do
         {:error, reason} -> {:error, reason}
-        nil -> {:error, :no_response}
         data -> {:ok, deserialize(data, request)}
       end
 

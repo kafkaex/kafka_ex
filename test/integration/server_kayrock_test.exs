@@ -5,6 +5,7 @@ defmodule KafkaEx.ServerKayrock.Test do
 
   alias KafkaEx.New.ClusterMetadata
   alias KafkaEx.New.Topic
+  alias KafkaEx.Protocol.Offset.Response, as: OffsetResponse
 
   @moduletag :server_kayrock
 
@@ -50,6 +51,18 @@ defmodule KafkaEx.ServerKayrock.Test do
       [%{error_code: error_code}] = main_resp.partition_responses
       assert error_code == 0
     end
+  end
+
+  test "able to list offsets (compatibility)", %{client: client} do
+    topic = "test0p8p0"
+
+    {:ok, resp} = KafkaEx.offset(topic, 0, :earliest, client)
+
+    [%OffsetResponse{topic: ^topic, partition_offsets: [partition_offsets]}] =
+      resp
+
+    %{error_code: :no_error, offset: [offset], partition: 0} = partition_offsets
+    assert offset >= 0
   end
 
   #  test "basic request to any node", %{client: client} do
