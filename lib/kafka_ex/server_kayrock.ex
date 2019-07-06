@@ -242,6 +242,11 @@ defmodule KafkaEx.ServerKayrock do
     {:reply, response, updated_state}
   end
 
+  def handle_call({:produce, produce_request}, _from, state) do
+    {response, updated_state} = produce(produce_request, state)
+    {:reply, response, updated_state}
+  end
+
   #  def handle_call(:consumer_group, _from, state) do
   #    kafka_server_consumer_group(state)
   #  end
@@ -447,66 +452,6 @@ defmodule KafkaEx.ServerKayrock do
   #      end
   #
   #    state = %{state | correlation_id: corr_id + 1}
-  #    {:reply, response, state}
-  #  end
-  #
-  #  def kafka_server_offset(topic, partition, time, state) do
-  #    offset_request =
-  #      Offset.create_request(
-  #        state.correlation_id,
-  #        @client_id,
-  #        topic,
-  #        partition,
-  #        time
-  #      )
-  #
-  #    {broker, state} =
-  #      case MetadataResponse.broker_for_topic(
-  #             state.metadata,
-  #             state.brokers,
-  #             topic,
-  #             partition
-  #           ) do
-  #        nil ->
-  #          state = update_metadata(state)
-  #
-  #          {MetadataResponse.broker_for_topic(
-  #             state.metadata,
-  #             state.brokers,
-  #             topic,
-  #             partition
-  #           ), state}
-  #
-  #        broker ->
-  #          {broker, state}
-  #      end
-  #
-  #    {response, state} =
-  #      case broker do
-  #        nil ->
-  #          Logger.log(
-  #            :error,
-  #            "kafka_server_offset: leader for topic #{topic}/#{partition} is not available"
-  #          )
-  #
-  #          {:topic_not_found, state}
-  #
-  #        _ ->
-  #          response =
-  #            broker
-  #            |> NetworkClient.send_sync_request(
-  #              offset_request,
-  #              config_sync_timeout()
-  #            )
-  #            |> case do
-  #              {:error, reason} -> {:error, reason}
-  #              response -> Offset.parse_response(response)
-  #            end
-  #
-  #          state = %{state | correlation_id: state.correlation_id + 1}
-  #          {response, state}
-  #      end
-  #
   #    {:reply, response, state}
   #  end
   #
@@ -903,6 +848,17 @@ defmodule KafkaEx.ServerKayrock do
     kayrock_network_request(
       request,
       {:partition, topic_request.topic, partition},
+      state
+    )
+  end
+
+  defp produce(request, state) do
+    [topic_data | _] = request.topic_data
+    [%{partition: partition} | _] = topic_data.data
+
+    kayrock_network_request(
+      request,
+      {:partition, topic_data.topic, partition},
       state
     )
   end
