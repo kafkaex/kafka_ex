@@ -7,6 +7,8 @@ defmodule KafkaEx.ServerKayrock.Test do
   alias KafkaEx.New.KafkaExAPI
   alias KafkaEx.New.Topic
 
+  alias Kayrock.RecordBatch
+
   @moduletag :server_kayrock
 
   setup do
@@ -17,7 +19,7 @@ defmodule KafkaEx.ServerKayrock.Test do
     {:ok, %{client: pid}}
   end
 
-  test "can update metadata", %{client: client} do
+  test "update metadata", %{client: client} do
     {:ok, updated_metadata} = ServerKayrock.call(client, :update_metadata)
     %ClusterMetadata{topics: topics} = updated_metadata
     # we don't fetch any topics on startup
@@ -29,14 +31,14 @@ defmodule KafkaEx.ServerKayrock.Test do
     assert %Topic{name: "test0p8p0"} = topic_metadata
   end
 
-  test "able to list offsets", %{client: client} do
+  test "list offsets", %{client: client} do
     topic = "test0p8p0"
 
     for partition <- 0..3 do
       request = %Kayrock.ListOffsets.V1.Request{
         replica_id: -1,
         topics: [
-          %{topic: topic, partitions: [%{partition: partition, timestamp: -2}]}
+          %{topic: topic, partitions: [%{partition: partition, timestamp: -1}]}
         ]
       }
 
@@ -57,5 +59,45 @@ defmodule KafkaEx.ServerKayrock.Test do
       {:ok, latest_offset} = KafkaExAPI.latest_offset(client, topic, partition)
       assert latest_offset == offset
     end
+  end
+
+  test "produce (new message format)", %{client: client} do
+    topic = "test0p8p0"
+    partition = 1
+
+    {:ok, offset_before} = KafkaExAPI.latest_offset(client, topic, partition)
+
+    record_batch = RecordBatch.from_binary_list(["foo", "bar", "baz"])
+
+    request = %Kayrock.Produce.V1.Request{
+      acks: 1,
+      timeout: 1000,
+      topic_data: [
+        %{
+          topic: topic,
+          data: [
+            %{partition: partition, record_set: record_batch}
+          ]
+        }
+      ]
+    }
+
+    {:ok, response} =
+      ServerKayrock.kayrock_call(
+        client,
+        request,
+        {:topic_partition, topic, partition}
+      )
+
+    %Kayrock.Produce.V1.Response{responses: [topic_response]} = response
+    assert topic_response.topic == topic
+
+    [%{partition: ^partition, error_code: error_code}] =
+      topic_response.partition_responses
+
+    assert error_code == 0
+
+    {:ok, offset_after} = KafkaExAPI.latest_offset(client, topic, partition)
+    assert offset_after == offset_before + 3
   end
 end

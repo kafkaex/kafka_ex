@@ -3,11 +3,13 @@ defmodule KafkaEx.New.KafkaExAPI do
 
   alias KafkaEx.ServerKayrock
 
+  require Logger
+
   def latest_offset(client, topic, partition) do
     request = %Kayrock.ListOffsets.V1.Request{
       replica_id: -1,
       topics: [
-        %{topic: topic, partitions: [%{partition: partition, timestamp: -2}]}
+        %{topic: topic, partitions: [%{partition: partition, timestamp: -1}]}
       ]
     }
 
