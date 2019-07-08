@@ -140,7 +140,8 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
         @consumer_group_name,
         [@topic_name],
         heartbeat_interval: 100,
-        partition_assignment_callback: &TestPartitioner.assign_partitions/2
+        partition_assignment_callback: &TestPartitioner.assign_partitions/2,
+        session_timeout_padding: 30000
       )
 
     {:ok, consumer_group_pid2} =
@@ -149,13 +150,14 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
         @consumer_group_name,
         [@topic_name],
         heartbeat_interval: 100,
-        partition_assignment_callback: &TestPartitioner.assign_partitions/2
+        partition_assignment_callback: &TestPartitioner.assign_partitions/2,
+        session_timeout_padding: 30000
       )
 
     # wait for both consumer groups to join
     wait_for(fn ->
-      ConsumerGroup.active?(consumer_group_pid1) &&
-        ConsumerGroup.active?(consumer_group_pid2)
+      ConsumerGroup.active?(consumer_group_pid1, 30000) &&
+        ConsumerGroup.active?(consumer_group_pid2, 30000)
     end)
 
     on_exit(fn ->

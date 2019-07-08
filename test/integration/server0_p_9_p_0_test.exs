@@ -25,7 +25,9 @@ defmodule KafkaEx.Server0P9P0.Test do
       session_timeout: 6000
     }
 
-    answer = KafkaEx.join_group(request, worker_name: :join_group)
+    answer =
+      KafkaEx.join_group(request, worker_name: :join_group, timeout: 10000)
+
     assert answer.error_code == :no_error
     assert answer.generation_id == 1
     # We should be the leader
@@ -50,7 +52,9 @@ defmodule KafkaEx.Server0P9P0.Test do
       session_timeout: 6000
     }
 
-    answer = KafkaEx.join_group(request, worker_name: :sync_group)
+    answer =
+      KafkaEx.join_group(request, worker_name: :sync_group, timeout: 10000)
+
     assert answer.error_code == :no_error
 
     member_id = answer.member_id
@@ -91,7 +95,9 @@ defmodule KafkaEx.Server0P9P0.Test do
       session_timeout: 6000
     }
 
-    answer = KafkaEx.join_group(request, worker_name: :leave_group)
+    answer =
+      KafkaEx.join_group(request, worker_name: :leave_group, timeout: 10000)
+
     assert answer.error_code == :no_error
 
     member_id = answer.member_id
@@ -122,7 +128,9 @@ defmodule KafkaEx.Server0P9P0.Test do
       session_timeout: 6000
     }
 
-    answer = KafkaEx.join_group(request, worker_name: :heartbeat)
+    answer =
+      KafkaEx.join_group(request, worker_name: :heartbeat, timeout: 10000)
+
     assert answer.error_code == :no_error
 
     member_id = answer.member_id

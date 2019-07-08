@@ -23,6 +23,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
       :worker_name,
       :heartbeat_interval,
       :session_timeout,
+      :session_timeout_padding,
       :gen_consumer_module,
       :consumer_module,
       :consumer_opts,
@@ -43,7 +44,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
 
   @heartbeat_interval 5_000
   @session_timeout 30_000
-  @session_timeout_padding 5_000
+  @session_timeout_padding 10_000
 
   @type assignments :: [{binary(), integer()}]
 
@@ -56,8 +57,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
           binary,
           [binary],
           KafkaEx.GenConsumer.options()
-        ) ::
-          GenServer.on_start()
+        ) :: GenServer.on_start()
   def start_link(
         {gen_consumer_module, consumer_module},
         group_name,
@@ -90,6 +90,17 @@ defmodule KafkaEx.ConsumerGroup.Manager do
         opts,
         :session_timeout,
         Application.get_env(:kafka_ex, :session_timeout, @session_timeout)
+      )
+
+    session_timeout_padding =
+      Keyword.get(
+        opts,
+        :session_timeout_padding,
+        Application.get_env(
+          :kafka_ex,
+          :session_timeout_padding,
+          @session_timeout_padding
+        )
       )
 
     partition_assignment_callback =
@@ -125,6 +136,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
       worker_name: worker_name,
       heartbeat_interval: heartbeat_interval,
       session_timeout: session_timeout,
+      session_timeout_padding: session_timeout_padding,
       consumer_module: consumer_module,
       gen_consumer_module: gen_consumer_module,
       partition_assignment_callback: partition_assignment_callback,
@@ -238,6 +250,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
          %State{
            worker_name: worker_name,
            session_timeout: session_timeout,
+           session_timeout_padding: session_timeout_padding,
            group_name: group_name,
            topics: topics,
            member_id: member_id
@@ -254,16 +267,19 @@ defmodule KafkaEx.ConsumerGroup.Manager do
       KafkaEx.join_group(
         join_request,
         worker_name: worker_name,
-        timeout: session_timeout + @session_timeout_padding
+        timeout: session_timeout + session_timeout_padding
       )
 
     # crash the worker if we recieve an error, but do it with a meaningful
     # error message
     case join_response do
-      %{error_code: :no_error} -> :ok
+      %{error_code: :no_error} ->
+        :ok
+
       %{error_code: error_code} ->
         raise "Error joining consumer group #{group_name}: " <>
                 "#{inspect(error_code)}"
+
       {:error, reason} ->
         raise "Error joining consumer group #{group_name}: " <>
                 "#{inspect(reason)}"
@@ -308,7 +324,8 @@ defmodule KafkaEx.ConsumerGroup.Manager do
            member_id: member_id,
            generation_id: generation_id,
            worker_name: worker_name,
-           session_timeout: session_timeout
+           session_timeout: session_timeout,
+           session_timeout_padding: session_timeout_padding
          } = state,
          assignments
        ) do
@@ -323,7 +340,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
       KafkaEx.sync_group(
         sync_request,
         worker_name: worker_name,
-        timeout: session_timeout + @session_timeout_padding
+        timeout: session_timeout + session_timeout_padding
       )
 
     case error_code do
@@ -351,7 +368,6 @@ defmodule KafkaEx.ConsumerGroup.Manager do
            member_id: member_id
          } = state
        ) do
-
     leave_request = %LeaveGroupRequest{
       group_name: group_name,
       member_id: member_id
@@ -363,11 +379,13 @@ defmodule KafkaEx.ConsumerGroup.Manager do
     case leave_group_response do
       %{error_code: :no_error} ->
         Logger.debug(fn -> "Left consumer group #{group_name}" end)
+
       %{error_code: error_code} ->
         Logger.warn(fn ->
           "Received error #{inspect(error_code)}, " <>
             "consumer group manager will exit regardless."
         end)
+
       {:error, reason} ->
         Logger.warn(fn ->
           "Received error #{inspect(reason)}, " <>
