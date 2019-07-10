@@ -77,6 +77,20 @@ defmodule KafkaEx.New.Adapter do
     {topic, partition, request}
   end
 
+  def produce_response(:ok), do: :ok
+
+  def produce_response(%Kayrock.Produce.V0.Response{
+        responses: [
+          %{
+            partition_responses: [
+              %{base_offset: base_offset, error_code: 0}
+            ]
+          }
+        ]
+      }) do
+    base_offset
+  end
+
   defp kafka_ex_message_to_kayrock_message(msg, compression) do
     %Message{key: msg.key, value: msg.value, compression: compression}
   end

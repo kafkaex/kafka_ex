@@ -28,4 +28,8 @@ defmodule KafkaEx.New.KafkaExAPI do
       _ -> {:error, Kayrock.ErrorCode.code_to_atom(error_code)}
     end
   end
+
+  def cluster_metadata(client) do
+    GenServer.call(client, :cluster_metadata)
+  end
 end

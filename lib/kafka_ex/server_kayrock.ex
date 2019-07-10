@@ -207,6 +207,10 @@ defmodule KafkaEx.ServerKayrock do
     {:ok, state}
   end
 
+  def handle_call(:cluster_metadata, _from, state) do
+    {:reply, {:ok, state.cluster_metadata}, state}
+  end
+
   def handle_call(:update_metadata, _from, state) do
     updated_state = update_metadata(state)
     {:reply, {:ok, updated_state.cluster_metadata}, updated_state}
@@ -255,6 +259,12 @@ defmodule KafkaEx.ServerKayrock do
         {:topic_partition, topic, partition},
         state
       )
+
+    response =
+      case response do
+        {:ok, val} -> {:ok, Adapter.produce_response(val)}
+        _ -> response
+      end
 
     {:reply, response, updated_state}
   end
