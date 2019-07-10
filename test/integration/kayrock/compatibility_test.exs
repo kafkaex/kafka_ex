@@ -30,7 +30,10 @@ defmodule KafkaEx.KayrockCompatibilityTest do
     assert offset >= 0
   end
 
-  # test "produce/4 without an acq required returns :ok", %{client: client} do
-  #  assert KafkaEx.produce("food", 0, "hey", client) == :ok
-  # end
+  test "produce/4 without an acq required returns :ok", %{client: client} do
+    assert KafkaEx.produce("food", 0, "hey",
+             worker_name: client,
+             required_acks: 0
+           ) == :ok
+  end
 end

@@ -6,7 +6,6 @@ defmodule KafkaEx.ServerKayrock do
   alias KafkaEx.NetworkClient
   alias KafkaEx.Protocol.Metadata
   alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
-  alias KafkaEx.Protocol.Produce
   alias KafkaEx.Socket
 
   alias KafkaEx.New.Adapter
@@ -247,7 +246,16 @@ defmodule KafkaEx.ServerKayrock do
   end
 
   def handle_call({:produce, produce_request}, _from, state) do
-    {response, updated_state} = produce(produce_request, state)
+    # TODO handle partition assignment
+    {topic, partition, request} = Adapter.produce_request(produce_request)
+
+    {response, updated_state} =
+      kayrock_network_request(
+        request,
+        {:topic_partition, topic, partition},
+        state
+      )
+
     {:reply, response, updated_state}
   end
 
@@ -640,9 +648,11 @@ defmodule KafkaEx.ServerKayrock do
         _error_code,
         api_version
       ) do
+    # TODO auto topic creation should be configurable
     metadata_request = %{
       Kayrock.Metadata.get_request_struct(api_version)
-      | topics: topics
+      | topics: topics,
+        allow_auto_topic_creation: true
     }
 
     {{ok_or_err, response}, state_out} =
@@ -778,8 +788,21 @@ defmodule KafkaEx.ServerKayrock do
     {ok_or_error, response, state_out}
   end
 
-  defp kayrock_network_request(request, node_selector, state) do
-    {sender, updated_state} = get_sender(node_selector, state)
+  defp kayrock_network_request(
+         request,
+         node_selector,
+         state,
+         synchronous \\ true
+       ) do
+    # produce request have an acks field and if this is 0 then we do not want to
+    # wait for a response from the broker
+    synchronous =
+      case Map.get(request, :acks) do
+        0 -> false
+        _ -> true
+      end
+
+    {sender, updated_state} = get_sender(node_selector, state, synchronous)
 
     Logger.debug(inspect(request))
     Logger.debug(inspect(updated_state))
@@ -791,15 +814,22 @@ defmodule KafkaEx.ServerKayrock do
 
     response =
       case(sender.(wire_request)) do
-        {:error, reason} -> {:error, reason}
-        data -> {:ok, deserialize(data, request)}
+        {:error, reason} ->
+          {:error, reason}
+
+        data ->
+          if synchronous do
+            {:ok, deserialize(data, request)}
+          else
+            data
+          end
       end
 
     state_out = %{updated_state | correlation_id: state.correlation_id + 1}
     {response, state_out}
   end
 
-  defp get_sender(:any, state) do
+  defp get_sender(:any, state, _synchronous) do
     {fn wire_request ->
        first_broker_response(
          wire_request,
@@ -809,7 +839,11 @@ defmodule KafkaEx.ServerKayrock do
      end, state}
   end
 
-  defp get_sender({:topic_partition, topic, partition}, state) do
+  defp get_sender(
+         {:topic_partition, topic, partition},
+         state,
+         synchronous
+       ) do
     Logger.debug("SELECT BROKER #{inspect(state)}")
     # TODO can be cleaned up with select_broker
     {broker, updated_state} =
@@ -821,13 +855,19 @@ defmodule KafkaEx.ServerKayrock do
 
     Logger.debug("SHOULD SEND TO BROKER #{inspect(broker)}")
 
-    {fn wire_request ->
-       NetworkClient.send_sync_request(
-         broker,
-         wire_request,
-         config_sync_timeout()
-       )
-     end, updated_state}
+    if synchronous do
+      {fn wire_request ->
+         NetworkClient.send_sync_request(
+           broker,
+           wire_request,
+           config_sync_timeout()
+         )
+       end, updated_state}
+    else
+      {fn wire_request ->
+         NetworkClient.send_async_request(broker, wire_request)
+       end, updated_state}
+    end
   end
 
   defp deserialize(data, request) do
@@ -848,16 +888,5 @@ defmodule KafkaEx.ServerKayrock do
           System.stacktrace()
         )
     end
-  end
-
-  defp produce(request, state) do
-    [topic_data | _] = request.topic_data
-    [%{partition: partition} | _] = topic_data.data
-
-    kayrock_network_request(
-      request,
-      {:topic_partition, topic_data.topic, partition},
-      state
-    )
   end
 end
