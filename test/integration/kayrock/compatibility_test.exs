@@ -9,6 +9,9 @@ defmodule KafkaEx.KayrockCompatibilityTest do
 
   alias KafkaEx.ServerKayrock
   alias KafkaEx.Protocol, as: Proto
+  alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
+  alias KafkaEx.Protocol.Metadata.Broker
+  alias KafkaEx.Protocol.Metadata.TopicMetadata
   alias KafkaEx.Protocol.Offset.Response, as: OffsetResponse
 
   alias KafkaEx.New.ClusterMetadata
@@ -17,9 +20,43 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   setup do
     {:ok, args} = KafkaEx.build_worker_options([])
 
-    {:ok, pid} = ServerKayrock.start_link(args)
+    {:ok, pid} = ServerKayrock.start_link(args, :no_name)
 
     {:ok, %{client: pid}}
+  end
+
+  test "Creates a worker even when the one of the provided brokers is not available" do
+    uris = Application.get_env(:kafka_ex, :brokers) ++ [{"bad_host", 9000}]
+    {:ok, args} = KafkaEx.build_worker_options(uris: uris)
+
+    {:ok, pid} = ServerKayrock.start_link(args, :no_name)
+
+    assert Process.alive?(pid)
+  end
+
+  test "worker updates metadata after specified interval" do
+    {:ok, args} = KafkaEx.build_worker_options(metadata_update_interval: 100)
+    {:ok, pid} = ServerKayrock.start_link(args, :no_name)
+    previous_corr_id = KafkaExAPI.correlation_id(pid)
+
+    :timer.sleep(105)
+    curr_corr_id = KafkaExAPI.correlation_id(pid)
+    refute curr_corr_id == previous_corr_id
+  end
+
+  test "get metadata", %{client: client} do
+    metadata = KafkaEx.metadata(worker_name: client, topic: "test0p8p0")
+
+    %MetadataResponse{topic_metadatas: topic_metadatas, brokers: brokers} =
+      metadata
+
+    assert is_list(topic_metadatas)
+    [topic_metadata | _] = topic_metadatas
+    assert %TopicMetadata{} = topic_metadata
+    refute topic_metadatas == []
+    assert is_list(brokers)
+    [broker | _] = brokers
+    assert %Broker{} = broker
   end
 
   test "list offsets", %{client: client} do

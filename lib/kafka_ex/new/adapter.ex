@@ -7,6 +7,10 @@ defmodule KafkaEx.New.Adapter do
   the compatibility mode during transition to the new API.
   """
 
+  alias KafkaEx.Protocol.Metadata.Broker
+  alias KafkaEx.Protocol.Metadata.TopicMetadata
+  alias KafkaEx.Protocol.Metadata.PartitionMetadata
+  alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
   alias KafkaEx.Protocol.Offset, as: Offset
   alias KafkaEx.Protocol.Offset.Response, as: OffsetResponse
   alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
@@ -91,7 +95,58 @@ defmodule KafkaEx.New.Adapter do
     base_offset
   end
 
+  def metadata_response(cluster_metadata) do
+    brokers =
+      cluster_metadata.brokers
+      |> Enum.map(fn {node_id, broker} ->
+        kayrock_broker_to_kafka_ex_broker(
+          {node_id, broker},
+          node_id == cluster_metadata.controller_id
+        )
+      end)
+
+    topics =
+      cluster_metadata.topics
+      |> Enum.map(&kayrock_topic_to_kafka_ex_topic_metadata/1)
+
+    %MetadataResponse{
+      brokers: brokers,
+      topic_metadatas: topics
+    }
+  end
+
   defp kafka_ex_message_to_kayrock_message(msg, compression) do
     %Message{key: msg.key, value: msg.value, compression: compression}
+  end
+
+  defp kayrock_broker_to_kafka_ex_broker({node_id, broker}, is_controller) do
+    %Broker{
+      node_id: node_id,
+      host: broker.host,
+      port: broker.port,
+      socket: broker.socket,
+      is_controller: is_controller
+    }
+  end
+
+  defp kayrock_topic_to_kafka_ex_topic_metadata({topic_name, topic}) do
+    %TopicMetadata{
+      topic: topic_name,
+      is_internal: topic.is_internal,
+      partition_metadatas:
+        Enum.map(
+          topic.partitions,
+          &kayrock_partition_to_kafka_ex_partition_metadata/1
+        )
+    }
+  end
+
+  defp kayrock_partition_to_kafka_ex_partition_metadata(partition) do
+    %PartitionMetadata{
+      partition_id: partition.partition_id,
+      leader: partition.leader,
+      replicas: partition.replicas,
+      isrs: partition.isr
+    }
   end
 end

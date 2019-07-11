@@ -211,6 +211,10 @@ defmodule KafkaEx.ServerKayrock do
     {:reply, {:ok, state.cluster_metadata}, state}
   end
 
+  def handle_call(:correlation_id, _from, state) do
+    {:reply, {:ok, state.correlation_id}, state}
+  end
+
   def handle_call(:update_metadata, _from, state) do
     updated_state = update_metadata(state)
     {:reply, {:ok, updated_state.cluster_metadata}, updated_state}
@@ -276,6 +280,13 @@ defmodule KafkaEx.ServerKayrock do
     {:reply, response, updated_state}
   end
 
+  def handle_call({:metadata, topic}, _from, state) do
+    updated_state = update_metadata(state, [topic])
+
+    {:reply, Adapter.metadata_response(updated_state.cluster_metadata),
+     updated_state}
+  end
+
   #  def handle_call(:consumer_group, _from, state) do
   #    kafka_server_consumer_group(state)
   #  end
@@ -298,9 +309,6 @@ defmodule KafkaEx.ServerKayrock do
   #    kafka_server_consumer_group_metadata(state)
   #  end
   #
-  #  def handle_call({:metadata, topic}, _from, state) do
-  #    kafka_server_metadata(topic, state)
-  #  end
   #
   #  def handle_call({:join_group, request, network_timeout}, _from, state) do
   #    kafka_server_join_group(request, network_timeout, state)

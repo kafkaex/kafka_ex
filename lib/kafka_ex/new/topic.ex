@@ -1,9 +1,18 @@
 defmodule KafkaEx.New.Topic do
   @moduledoc false
 
-  defstruct name: nil, partition_leaders: %{}
+  alias KafkaEx.New.Partition
 
-  def from_topic_metadata(%{topic: name, partition_metadata: partition_metadata}) do
+  defstruct name: nil,
+            partition_leaders: %{},
+            is_internal: false,
+            partitions: []
+
+  def from_topic_metadata(%{
+        topic: name,
+        partition_metadata: partition_metadata,
+        is_internal: is_internal
+      }) do
     partition_leaders =
       Enum.into(
         partition_metadata,
@@ -13,6 +22,14 @@ defmodule KafkaEx.New.Topic do
         end
       )
 
-    %__MODULE__{name: name, partition_leaders: partition_leaders}
+    partitions =
+      Enum.map(partition_metadata, &Partition.from_partition_metadata/1)
+
+    %__MODULE__{
+      name: name,
+      partition_leaders: partition_leaders,
+      is_internal: is_internal,
+      partitions: partitions
+    }
   end
 end

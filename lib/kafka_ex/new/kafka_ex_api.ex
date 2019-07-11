@@ -32,4 +32,8 @@ defmodule KafkaEx.New.KafkaExAPI do
   def cluster_metadata(client) do
     GenServer.call(client, :cluster_metadata)
   end
+
+  def correlation_id(client) do
+    GenServer.call(client, :correlation_id)
+  end
 end
