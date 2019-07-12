@@ -27,6 +27,7 @@ defmodule KafkaEx.ServerKayrock do
       consumer_group: nil,
       metadata_update_interval: nil,
       consumer_group_update_interval: nil,
+      consumer_group_metadata: nil,
       worker_name: KafkaEx.Server,
       ssl_options: [],
       use_ssl: false,
@@ -124,6 +125,7 @@ defmodule KafkaEx.ServerKayrock do
   @min_bytes 1
   @max_bytes 1_000_000
   @metadata_update_interval 30_000
+  @consumer_group_update_interval 30_000
   @sync_timeout 1_000
   @ssl_options []
 
@@ -136,6 +138,13 @@ defmodule KafkaEx.ServerKayrock do
 
     metadata_update_interval =
       Keyword.get(args, :metadata_update_interval, @metadata_update_interval)
+
+    consumer_group_update_interval =
+      Keyword.get(
+        args,
+        :consumer_group_update_interval,
+        @consumer_group_update_interval
+      )
 
     use_ssl = Keyword.get(args, :use_ssl, false)
     ssl_options = Keyword.get(args, :ssl_options, [])
@@ -152,13 +161,19 @@ defmodule KafkaEx.ServerKayrock do
 
     check_brokers_sockets!(brokers)
 
-    # in kayrock we manage the consumer group elsewhere
-    consumer_group = :no_consumer_group
+    consumer_group = Keyword.get(args, :consumer_group)
+
+    unless KafkaEx.valid_consumer_group?(consumer_group) do
+      raise InvalidConsumerGroupError, consumer_group
+    end
+
+    # TODO: intend to not just tie the worker to a single consumer group
+    consumer_group_metadata = consumer_group
 
     state = %State{
-      consumer_group: consumer_group,
+      consumer_group_metadata: consumer_group_metadata,
       metadata_update_interval: metadata_update_interval,
-      consumer_group_update_interval: nil,
+      consumer_group_update_interval: consumer_group_update_interval,
       worker_name: name,
       ssl_options: ssl_options,
       use_ssl: use_ssl,
@@ -187,18 +202,8 @@ defmodule KafkaEx.ServerKayrock do
           Kernel.reraise(e, System.stacktrace())
       end
 
-    state = %{
-      state
-      | consumer_group: consumer_group,
-        metadata_update_interval: metadata_update_interval,
-        consumer_group_update_interval: nil,
-        worker_name: name,
-        ssl_options: ssl_options,
-        use_ssl: use_ssl,
-        api_versions: api_versions
-    }
-
     # Get the initial "real" broker list and start a regular refresh cycle.
+    # TODO might not need to do this still
     state = update_metadata(state)
 
     {:ok, _} =
@@ -287,14 +292,34 @@ defmodule KafkaEx.ServerKayrock do
      updated_state}
   end
 
+  def handle_call({:fetch, fetch_request}, _from, state) do
+    true = consumer_group_if_auto_commit?(fetch_request.auto_commit, state)
+    {topic, partition, request} = Adapter.fetch_request(fetch_request)
+
+    {response, updated_state} =
+      kayrock_network_request(
+        request,
+        {:topic_partition, topic, partition},
+        state
+      )
+
+    response =
+      case response do
+        {:ok, resp} ->
+          Adapter.fetch_response(resp)
+
+        _ ->
+          response
+      end
+
+    {:reply, response, updated_state}
+  end
+
   #  def handle_call(:consumer_group, _from, state) do
   #    kafka_server_consumer_group(state)
   #  end
   #
   #
-  #  def handle_call({:fetch, fetch_request}, _from, state) do
-  #    kafka_server_fetch(fetch_request, state)
-  #  end
   #
   #
   #  def handle_call({:offset_fetch, offset_fetch}, _from, state) do
@@ -794,6 +819,18 @@ defmodule KafkaEx.ServerKayrock do
   defp default_partitioner do
     Application.get_env(:kafka_ex, :partitioner, KafkaEx.DefaultPartitioner)
   end
+
+  def consumer_group_if_auto_commit?(true, state), do: consumer_group?(state)
+  def consumer_group_if_auto_commit?(false, _state), do: true
+
+  # note within the genserver state, we've already validated the
+  # consumer group, so it can only be either :no_consumer_group or a
+  # valid binary consumer group name
+  def consumer_group?(%State{consumer_group_metadata: :no_consumer_group}) do
+    false
+  end
+
+  def consumer_group?(_), do: true
 
   ##### NEW CODE
 

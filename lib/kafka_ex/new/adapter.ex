@@ -14,6 +14,8 @@ defmodule KafkaEx.New.Adapter do
   alias KafkaEx.Protocol.Offset, as: Offset
   alias KafkaEx.Protocol.Offset.Response, as: OffsetResponse
   alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
+  alias KafkaEx.Protocol.Fetch.Response, as: FetchResponse
+  alias KafkaEx.Protocol.Fetch.Message, as: FetchMessage
 
   alias Kayrock.MessageSet
   alias Kayrock.MessageSet.Message
@@ -113,6 +115,66 @@ defmodule KafkaEx.New.Adapter do
       brokers: brokers,
       topic_metadatas: topics
     }
+  end
+
+  def fetch_request(fetch_request) do
+    {fetch_request.topic, fetch_request.partition,
+     %Kayrock.Fetch.V0.Request{
+       max_wait_time: fetch_request.wait_time,
+       min_bytes: fetch_request.min_bytes,
+       replica_id: -1,
+       topics: [
+         %{
+           topic: fetch_request.topic,
+           partitions: [
+             %{
+               partition: fetch_request.partition,
+               fetch_offset: fetch_request.offset,
+               max_bytes: fetch_request.max_bytes
+             }
+           ]
+         }
+       ]
+     }}
+  end
+
+  def fetch_response(fetch_response) do
+    [topic_response | _] = fetch_response.responses
+    [partition_response | _] = topic_response.partition_responses
+
+    {message_set, last_offset} =
+      kayrock_message_set_to_kafka_ex(partition_response.record_set)
+
+    [
+      %FetchResponse{
+        topic: topic_response.topic,
+        partitions: [
+          %{
+            partition: partition_response.partition_header.partition,
+            error_code: partition_response.partition_header.error_code,
+            hw_mark_offset: partition_response.partition_header.high_watermark,
+            message_set: message_set,
+            last_offset: last_offset
+          }
+        ]
+      }
+    ]
+  end
+
+  defp kayrock_message_set_to_kafka_ex(%Kayrock.MessageSet{} = message_set) do
+    messages =
+      Enum.map(message_set.messages, fn message ->
+        %FetchMessage{
+          attributes: message.attributes,
+          crc: message.crc,
+          key: message.key,
+          value: message.value,
+          offset: message.offset
+        }
+      end)
+
+    last_offset = Enum.max_by(messages, fn m -> m.offset end)
+    {messages, last_offset}
   end
 
   defp kafka_ex_message_to_kayrock_message(msg, compression) do
