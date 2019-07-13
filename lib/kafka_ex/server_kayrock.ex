@@ -250,7 +250,7 @@ defmodule KafkaEx.ServerKayrock do
     adapted_response =
       case response do
         {:ok, api_response} ->
-          {:ok, Adapter.list_offsets_response(api_response)}
+          Adapter.list_offsets_response(api_response)
 
         other ->
           other
@@ -870,7 +870,7 @@ defmodule KafkaEx.ServerKayrock do
         {{:error, :no_broker}, updated_state}
 
       _ ->
-        Logger.debug(inspect(request))
+        Logger.debug("SEND: " <> inspect(request, limit: :infinity))
         Logger.debug(inspect(updated_state))
 
         wire_request =
@@ -891,6 +891,7 @@ defmodule KafkaEx.ServerKayrock do
               end
           end
 
+        Logger.debug("RECV: " <> inspect(response, limit: :infinity))
         state_out = %{updated_state | correlation_id: state.correlation_id + 1}
         {response, state_out}
     end

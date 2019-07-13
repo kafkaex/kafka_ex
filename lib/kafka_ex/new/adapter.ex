@@ -151,7 +151,10 @@ defmodule KafkaEx.New.Adapter do
         partitions: [
           %{
             partition: partition_response.partition_header.partition,
-            error_code: partition_response.partition_header.error_code,
+            error_code:
+              KafkaEx.Protocol.error(
+                partition_response.partition_header.error_code
+              ),
             hw_mark_offset: partition_response.partition_header.high_watermark,
             message_set: message_set,
             last_offset:
@@ -179,8 +182,8 @@ defmodule KafkaEx.New.Adapter do
         {messages, nil}
 
       _ ->
-        last_offset = Enum.max_by(messages, fn m -> m.offset end)
-        {messages, last_offset}
+        last_offset_message = Enum.max_by(messages, fn m -> m.offset end)
+        {messages, last_offset_message.offset}
     end
   end
 
@@ -201,8 +204,8 @@ defmodule KafkaEx.New.Adapter do
         {messages, nil}
 
       _ ->
-        last_offset = Enum.max_by(messages, fn m -> m.offset end)
-        {messages, last_offset}
+        last_offset_message = Enum.max_by(messages, fn m -> m.offset end)
+        {messages, last_offset_message.offset}
     end
   end
 
