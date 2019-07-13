@@ -31,7 +31,8 @@ defmodule KafkaEx.ServerKayrock do
       worker_name: KafkaEx.Server,
       ssl_options: [],
       use_ssl: false,
-      api_versions: %{}
+      api_versions: %{},
+      allow_auto_topic_creation: true
     )
 
     @type t :: %__MODULE__{}
@@ -293,6 +294,8 @@ defmodule KafkaEx.ServerKayrock do
   end
 
   def handle_call({:fetch, fetch_request}, _from, state) do
+    allow_auto_topic_creation = state.allow_auto_topic_creation
+
     true = consumer_group_if_auto_commit?(fetch_request.auto_commit, state)
     {topic, partition, request} = Adapter.fetch_request(fetch_request)
 
@@ -300,7 +303,7 @@ defmodule KafkaEx.ServerKayrock do
       kayrock_network_request(
         request,
         {:topic_partition, topic, partition},
-        state
+        %{state | allow_auto_topic_creation: false}
       )
 
     response =
@@ -308,11 +311,15 @@ defmodule KafkaEx.ServerKayrock do
         {:ok, resp} ->
           Adapter.fetch_response(resp)
 
+        {:error, :no_broker} ->
+          :topic_not_found
+
         _ ->
           response
       end
 
-    {:reply, response, updated_state}
+    {:reply, response,
+     %{updated_state | allow_auto_topic_creation: allow_auto_topic_creation}}
   end
 
   #  def handle_call(:consumer_group, _from, state) do
@@ -695,7 +702,7 @@ defmodule KafkaEx.ServerKayrock do
     metadata_request = %{
       Kayrock.Metadata.get_request_struct(api_version)
       | topics: topics,
-        allow_auto_topic_creation: true
+        allow_auto_topic_creation: state.allow_auto_topic_creation
     }
 
     {{ok_or_err, response}, state_out} =
@@ -846,8 +853,7 @@ defmodule KafkaEx.ServerKayrock do
   defp kayrock_network_request(
          request,
          node_selector,
-         state,
-         synchronous \\ true
+         state
        ) do
     # produce request have an acks field and if this is 0 then we do not want to
     # wait for a response from the broker
@@ -859,29 +865,35 @@ defmodule KafkaEx.ServerKayrock do
 
     {sender, updated_state} = get_sender(node_selector, state, synchronous)
 
-    Logger.debug(inspect(request))
-    Logger.debug(inspect(updated_state))
+    case sender do
+      :no_broker ->
+        {{:error, :no_broker}, updated_state}
 
-    wire_request =
-      request
-      |> client_request(updated_state)
-      |> Kayrock.Request.serialize()
+      _ ->
+        Logger.debug(inspect(request))
+        Logger.debug(inspect(updated_state))
 
-    response =
-      case(sender.(wire_request)) do
-        {:error, reason} ->
-          {:error, reason}
+        wire_request =
+          request
+          |> client_request(updated_state)
+          |> Kayrock.Request.serialize()
 
-        data ->
-          if synchronous do
-            {:ok, deserialize(data, request)}
-          else
-            data
+        response =
+          case(sender.(wire_request)) do
+            {:error, reason} ->
+              {:error, reason}
+
+            data ->
+              if synchronous do
+                {:ok, deserialize(data, request)}
+              else
+                data
+              end
           end
-      end
 
-    state_out = %{updated_state | correlation_id: state.correlation_id + 1}
-    {response, state_out}
+        state_out = %{updated_state | correlation_id: state.correlation_id + 1}
+        {response, state_out}
+    end
   end
 
   defp get_sender(:any, state, _synchronous) do
@@ -910,18 +922,22 @@ defmodule KafkaEx.ServerKayrock do
 
     Logger.debug("SHOULD SEND TO BROKER #{inspect(broker)}")
 
-    if synchronous do
-      {fn wire_request ->
-         NetworkClient.send_sync_request(
-           broker,
-           wire_request,
-           config_sync_timeout()
-         )
-       end, updated_state}
+    if broker do
+      if synchronous do
+        {fn wire_request ->
+           NetworkClient.send_sync_request(
+             broker,
+             wire_request,
+             config_sync_timeout()
+           )
+         end, updated_state}
+      else
+        {fn wire_request ->
+           NetworkClient.send_async_request(broker, wire_request)
+         end, updated_state}
+      end
     else
-      {fn wire_request ->
-         NetworkClient.send_async_request(broker, wire_request)
-       end, updated_state}
+      {:no_broker, updated_state}
     end
   end
 
@@ -933,8 +949,9 @@ defmodule KafkaEx.ServerKayrock do
     rescue
       _ ->
         Logger.error(
-          "Failed to parse a response from the server: #{inspect(data)} " <>
-            "for request #{inspect(request)}"
+          "Failed to parse a response from the server: " <>
+            inspect(data, limit: :infinity) <>
+            " for request #{inspect(request, limit: :infinity)}"
         )
 
         Kernel.reraise(

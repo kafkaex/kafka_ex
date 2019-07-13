@@ -154,11 +154,34 @@ defmodule KafkaEx.New.Adapter do
             error_code: partition_response.partition_header.error_code,
             hw_mark_offset: partition_response.partition_header.high_watermark,
             message_set: message_set,
-            last_offset: last_offset
+            last_offset:
+              last_offset || partition_response.partition_header.high_watermark
           }
         ]
       }
     ]
+  end
+
+  defp kayrock_message_set_to_kafka_ex(%Kayrock.RecordBatch{} = record_batch) do
+    messages =
+      Enum.map(record_batch.records, fn record ->
+        %FetchMessage{
+          attributes: record.attributes,
+          crc: nil,
+          key: record.key,
+          value: record.value,
+          offset: record.offset
+        }
+      end)
+
+    case messages do
+      [] ->
+        {messages, nil}
+
+      _ ->
+        last_offset = Enum.max_by(messages, fn m -> m.offset end)
+        {messages, last_offset}
+    end
   end
 
   defp kayrock_message_set_to_kafka_ex(%Kayrock.MessageSet{} = message_set) do
@@ -173,8 +196,14 @@ defmodule KafkaEx.New.Adapter do
         }
       end)
 
-    last_offset = Enum.max_by(messages, fn m -> m.offset end)
-    {messages, last_offset}
+    case messages do
+      [] ->
+        {messages, nil}
+
+      _ ->
+        last_offset = Enum.max_by(messages, fn m -> m.offset end)
+        {messages, last_offset}
+    end
   end
 
   defp kafka_ex_message_to_kayrock_message(msg, compression) do

@@ -137,6 +137,17 @@ defmodule KafkaEx.KayrockCompatibilityTest do
     assert random_string in ClusterMetadata.known_topics(cluster_metadata)
   end
 
+  test "fetch returns ':topic_not_found' for non-existing topic", %{
+    client: client
+  } do
+    random_string = TestHelper.generate_random_string()
+
+    assert KafkaEx.fetch(random_string, 0, offset: 0, worker_name: client) ==
+             :topic_not_found
+  end
+
+  # TODO test fetch empty topic
+
   test "fetch works", %{client: client} do
     random_string = TestHelper.generate_random_string()
 
