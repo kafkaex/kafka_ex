@@ -1,6 +1,8 @@
 defmodule KafkaEx.KayrockCompatibilityTest do
   @moduledoc """
   These are tests using the original KafkaEx API with the kayrock server
+
+  These mostly come from the original integration_test.exs file
   """
 
   use ExUnit.Case

@@ -22,12 +22,10 @@ defmodule KafkaEx.ServerKayrock do
     defstruct(
       cluster_metadata: %ClusterMetadata{},
       event_pid: nil,
-      consumer_metadata: %ConsumerGroupMetadata{},
       correlation_id: 0,
       consumer_group: nil,
       metadata_update_interval: nil,
       consumer_group_update_interval: nil,
-      consumer_group_metadata: nil,
       worker_name: KafkaEx.Server,
       ssl_options: [],
       use_ssl: false,
@@ -63,6 +61,22 @@ defmodule KafkaEx.ServerKayrock do
       %{
         state
         | cluster_metadata: ClusterMetadata.update_brokers(cluster_metadata, cb)
+      }
+    end
+
+    def put_consumer_group_coordinator(
+          %State{cluster_metadata: cluster_metadata} = state,
+          consumer_group,
+          coordinator_node_id
+        ) do
+      %{
+        state
+        | cluster_metadata:
+            ClusterMetadata.put_consumer_group_coordinator(
+              cluster_metadata,
+              consumer_group,
+              coordinator_node_id
+            )
       }
     end
   end
@@ -169,10 +183,8 @@ defmodule KafkaEx.ServerKayrock do
     end
 
     # TODO: intend to not just tie the worker to a single consumer group
-    consumer_group_metadata = consumer_group
 
     state = %State{
-      consumer_group_metadata: consumer_group_metadata,
       metadata_update_interval: metadata_update_interval,
       consumer_group_update_interval: consumer_group_update_interval,
       worker_name: name,
@@ -322,6 +334,21 @@ defmodule KafkaEx.ServerKayrock do
      %{updated_state | allow_auto_topic_creation: allow_auto_topic_creation}}
   end
 
+  def handle_call({:join_group, request, network_timeout}, _from, state) do
+    {request, consumer_group} = Adapter.join_group_request(request)
+
+    {response, updated_state} =
+      kayrock_network_request(request, {:consumer_group, consumer_group}, state)
+
+    case response do
+      {:ok, resp} ->
+        {:reply, Adapter.join_group_response(resp), updated_state}
+
+      _ ->
+        {:reply, response, updated_state}
+    end
+  end
+
   #  def handle_call(:consumer_group, _from, state) do
   #    kafka_server_consumer_group(state)
   #  end
@@ -342,9 +369,6 @@ defmodule KafkaEx.ServerKayrock do
   #  end
   #
   #
-  #  def handle_call({:join_group, request, network_timeout}, _from, state) do
-  #    kafka_server_join_group(request, network_timeout, state)
-  #  end
   #
   #  def handle_call({:sync_group, request, network_timeout}, _from, state) do
   #    kafka_server_sync_group(request, network_timeout, state)
@@ -800,6 +824,58 @@ defmodule KafkaEx.ServerKayrock do
     end
   end
 
+  defp broker_for_consumer_group_with_update(state, consumer_group) do
+    case State.select_broker(state, {:consumer_group, consumer_group}) do
+      {:error, _} ->
+        updated_state = update_consumer_group_coordinator(state, consumer_group)
+
+        case State.select_broker(
+               updated_state,
+               {:consumer_group, consumer_group}
+             ) do
+          {:error, _} ->
+            {nil, updated_state}
+
+          {:ok, broker} ->
+            {broker, updated_state}
+        end
+
+      {:ok, broker} ->
+        {broker, state}
+    end
+  end
+
+  def update_consumer_group_coordinator(state, consumer_group) do
+    request = %Kayrock.FindCoordinator.V1.Request{
+      coordinator_key: consumer_group,
+      coordinator_type: 0
+    }
+
+    {response, updated_state} = kayrock_network_request(request, :any, state)
+
+    case response do
+      {:ok,
+       %Kayrock.FindCoordinator.V1.Response{
+         error_code: 0,
+         coordinator: coordinator
+       }} ->
+        State.put_consumer_group_coordinator(
+          updated_state,
+          consumer_group,
+          coordinator.node_id
+        )
+
+      error ->
+        Logger.warn(
+          "Unable to find consumer group coordinator for " <>
+            "#{inspect(consumer_group)}: Error " <>
+            "#{Kayrock.ErrorCode.code_to_atom(error)}"
+        )
+
+        updated_state
+    end
+  end
+
   defp first_broker_response(request, brokers, timeout) do
     Enum.find_value(brokers, fn {_node_id, broker} ->
       if Broker.connected?(broker) do
@@ -833,7 +909,7 @@ defmodule KafkaEx.ServerKayrock do
   # note within the genserver state, we've already validated the
   # consumer group, so it can only be either :no_consumer_group or a
   # valid binary consumer group name
-  def consumer_group?(%State{consumer_group_metadata: :no_consumer_group}) do
+  def consumer_group?(%State{consumer_group: :no_consumer_group}) do
     false
   end
 
@@ -940,6 +1016,27 @@ defmodule KafkaEx.ServerKayrock do
     else
       {:no_broker, updated_state}
     end
+  end
+
+  defp get_sender({:consumer_group, consumer_group}, state, _synchronous) do
+    Logger.debug("SELECT BROKER #{inspect(state)}")
+
+    {broker, updated_state} =
+      broker_for_consumer_group_with_update(
+        state,
+        consumer_group
+      )
+
+    # in case of rebalancing
+    timeout = trunc(2.5 * config_sync_timeout())
+
+    {fn wire_request ->
+       NetworkClient.send_sync_request(
+         broker,
+         wire_request,
+         timeout
+       )
+     end, updated_state}
   end
 
   defp deserialize(data, request) do

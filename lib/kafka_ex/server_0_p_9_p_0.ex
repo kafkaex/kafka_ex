@@ -100,12 +100,14 @@ defmodule KafkaEx.Server0P9P0 do
 
     check_brokers_sockets!(brokers)
 
-    {correlation_id, metadata} = try do
-      retrieve_metadata(brokers, 0, config_sync_timeout())
-    rescue e ->
-      sleep_for_reconnect()
-      Kernel.reraise(e, System.stacktrace())
-    end
+    {correlation_id, metadata} =
+      try do
+        retrieve_metadata(brokers, 0, config_sync_timeout())
+      rescue
+        e ->
+          sleep_for_reconnect()
+          Kernel.reraise(e, System.stacktrace())
+      end
 
     state = %State{
       metadata: metadata,

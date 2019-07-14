@@ -11,6 +11,7 @@ defmodule KafkaEx.New.Adapter do
   alias KafkaEx.Protocol.Metadata.TopicMetadata
   alias KafkaEx.Protocol.Metadata.PartitionMetadata
   alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
+  alias KafkaEx.Protocol.JoinGroup.Response, as: JoinGroupResponse
   alias KafkaEx.Protocol.Offset, as: Offset
   alias KafkaEx.Protocol.Offset.Response, as: OffsetResponse
   alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
@@ -163,6 +164,46 @@ defmodule KafkaEx.New.Adapter do
         ]
       }
     ]
+  end
+
+  def join_group_request(join_group_request) do
+    request = %Kayrock.JoinGroup.V0.Request{
+      group_id: join_group_request.group_name,
+      member_id: join_group_request.member_id,
+      session_timeout: join_group_request.session_timeout,
+      protocol_type: "consumer",
+      group_protocols: [
+        %{
+          protocol_name: "assign",
+          protocol_metadata:
+            build_group_protocol_metadata(join_group_request.topics)
+        }
+      ]
+    }
+
+    {request, request.group_id}
+  end
+
+  def join_group_response(%Kayrock.JoinGroup.V0.Response{
+        error_code: error_code,
+        generation_id: generation_id,
+        leader_id: leader_id,
+        member_id: member_id,
+        members: members
+      }) do
+    %JoinGroupResponse{
+      error_code: Kayrock.ErrorCode.code_to_atom(error_code),
+      generation_id: generation_id,
+      leader_id: leader_id,
+      member_id: member_id,
+      members: members
+    }
+  end
+
+  defp build_group_protocol_metadata(topics) do
+    # TODO this should be in Kayrock
+
+    IO.iodata_to_binary(Kayrock.Serialize.serialize_array(:string, topics))
   end
 
   defp kayrock_message_set_to_kafka_ex(%Kayrock.RecordBatch{} = record_batch) do

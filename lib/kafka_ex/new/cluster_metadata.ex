@@ -3,7 +3,10 @@ defmodule KafkaEx.New.ClusterMetadata do
   Encapsulates what we know about the state of a Kafka broker cluster
   """
 
-  defstruct brokers: %{}, controller_id: nil, topics: %{}
+  defstruct brokers: %{},
+            controller_id: nil,
+            topics: %{},
+            consumer_group_coordinators: %{}
 
   @type t :: %__MODULE__{}
 
@@ -41,6 +44,19 @@ defmodule KafkaEx.New.ClusterMetadata do
           :error -> {:error, :no_such_partition}
           {:ok, node_id} -> {:ok, node_id}
         end
+    end
+  end
+
+  def select_node(
+        %__MODULE__{} = cluster_metadata,
+        {:consumer_group, consumer_group}
+      ) do
+    case Map.fetch(cluster_metadata.consumer_group_coordinators, consumer_group) do
+      :error ->
+        {:error, :no_such_consumer_group}
+
+      {:ok, coordinator_node_id} ->
+        {:ok, coordinator_node_id}
     end
   end
 
@@ -148,5 +164,22 @@ defmodule KafkaEx.New.ClusterMetadata do
       end)
 
     %{cluster_metadata | brokers: updated_brokers}
+  end
+
+  def put_consumer_group_coordinator(
+        %__MODULE__{consumer_group_coordinators: consumer_group_coordinators} =
+          cluster_metadata,
+        consumer_group,
+        coordinator_node_id
+      ) do
+    %{
+      cluster_metadata
+      | consumer_group_coordinators:
+          Map.put(
+            consumer_group_coordinators,
+            consumer_group,
+            coordinator_node_id
+          )
+    }
   end
 end
