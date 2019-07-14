@@ -107,4 +107,44 @@ defmodule KafkaEx.KayrockCompatibilityTest do
     answer = KafkaEx.leave_group(request, worker_name: client)
     assert answer.error_code == :no_error
   end
+
+  test "can heartbeat", %{client: client} do
+    # See sync test. Removing repetition in the next iteration
+    random_group = TestHelper.generate_random_string()
+
+    request = %JoinGroupRequest{
+      group_name: random_group,
+      member_id: "",
+      topics: ["foo", "bar"],
+      session_timeout: 6000
+    }
+
+    answer = KafkaEx.join_group(request, worker_name: client, timeout: 10000)
+
+    assert answer.error_code == :no_error
+
+    member_id = answer.member_id
+    generation_id = answer.generation_id
+    my_assignments = [{"foo", [1]}, {"bar", [2]}]
+    assignments = [{member_id, my_assignments}]
+
+    request = %SyncGroupRequest{
+      group_name: random_group,
+      member_id: member_id,
+      generation_id: generation_id,
+      assignments: assignments
+    }
+
+    answer = KafkaEx.sync_group(request, worker_name: client)
+    assert answer.error_code == :no_error
+
+    request = %HeartbeatRequest{
+      group_name: random_group,
+      member_id: member_id,
+      generation_id: generation_id
+    }
+
+    answer = KafkaEx.heartbeat(request, worker_name: client)
+    assert answer.error_code == :no_error
+  end
 end

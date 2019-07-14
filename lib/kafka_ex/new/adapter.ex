@@ -7,6 +7,7 @@ defmodule KafkaEx.New.Adapter do
   the compatibility mode during transition to the new API.
   """
 
+  alias KafkaEx.Protocol.Heartbeat.Response, as: HeartbeatResponse
   alias KafkaEx.Protocol.Metadata.Broker
   alias KafkaEx.Protocol.Metadata.TopicMetadata
   alias KafkaEx.Protocol.Metadata.PartitionMetadata
@@ -18,7 +19,6 @@ defmodule KafkaEx.New.Adapter do
   alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
   alias KafkaEx.Protocol.SyncGroup
   alias KafkaEx.Protocol.SyncGroup.Response, as: SyncGroupResponse
-  alias KafkaEx.Protocol.SyncGroup.Assignment, as: SyncGroupAssignment
   alias KafkaEx.Protocol.Fetch.Response, as: FetchResponse
   alias KafkaEx.Protocol.Fetch.Message, as: FetchMessage
 
@@ -236,6 +236,18 @@ defmodule KafkaEx.New.Adapter do
         error_code: error_code
       }) do
     %LeaveGroupResponse{error_code: Kayrock.ErrorCode.code_to_atom(error_code)}
+  end
+
+  def heartbeat_request(request) do
+    {%Kayrock.Heartbeat.V0.Request{
+       group_id: request.group_name,
+       member_id: request.member_id,
+       generation_id: request.generation_id
+     }, request.group_name}
+  end
+
+  def heartbeat_response(%Kayrock.Heartbeat.V0.Response{error_code: error_code}) do
+    %HeartbeatResponse{error_code: Kayrock.ErrorCode.code_to_atom(error_code)}
   end
 
   defp kafka_ex_group_assignment_to_kayrock({member_id, member_assignments}) do

@@ -380,6 +380,21 @@ defmodule KafkaEx.ServerKayrock do
     end
   end
 
+  def handle_call({:heartbeat, request, network_timeout}, _from, state) do
+    {request, consumer_group} = Adapter.heartbeat_request(request)
+
+    {response, updated_state} =
+      kayrock_network_request(request, {:consumer_group, consumer_group}, state)
+
+    case response do
+      {:ok, resp} ->
+        {:reply, Adapter.heartbeat_response(resp), updated_state}
+
+      _ ->
+        {:reply, response, updated_state}
+    end
+  end
+
   #  def handle_call(:consumer_group, _from, state) do
   #    kafka_server_consumer_group(state)
   #  end
@@ -402,10 +417,6 @@ defmodule KafkaEx.ServerKayrock do
   #
   #
   #
-  #
-  #  def handle_call({:heartbeat, request, network_timeout}, _from, state) do
-  #    kafka_server_heartbeat(request, network_timeout, state)
-  #  end
   #
   #  def handle_call({:create_topics, requests, network_timeout}, _from, state) do
   #    kafka_server_create_topics(requests, network_timeout, state)
