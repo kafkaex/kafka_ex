@@ -12,6 +12,7 @@ defmodule KafkaEx.New.Adapter do
   alias KafkaEx.Protocol.Metadata.PartitionMetadata
   alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
   alias KafkaEx.Protocol.JoinGroup.Response, as: JoinGroupResponse
+  alias KafkaEx.Protocol.LeaveGroup.Response, as: LeaveGroupResponse
   alias KafkaEx.Protocol.Offset, as: Offset
   alias KafkaEx.Protocol.Offset.Response, as: OffsetResponse
   alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
@@ -222,6 +223,19 @@ defmodule KafkaEx.New.Adapter do
       error_code: Kayrock.ErrorCode.code_to_atom(error_code),
       assignments: SyncGroup.parse_member_assignment(member_assignment)
     }
+  end
+
+  def leave_group_request(request) do
+    {%Kayrock.LeaveGroup.V0.Request{
+       group_id: request.group_name,
+       member_id: request.member_id
+     }, request.group_name}
+  end
+
+  def leave_group_response(%Kayrock.LeaveGroup.V0.Response{
+        error_code: error_code
+      }) do
+    %LeaveGroupResponse{error_code: Kayrock.ErrorCode.code_to_atom(error_code)}
   end
 
   defp kafka_ex_group_assignment_to_kayrock({member_id, member_assignments}) do

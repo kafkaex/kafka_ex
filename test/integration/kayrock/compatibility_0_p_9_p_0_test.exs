@@ -80,4 +80,31 @@ defmodule KafkaEx.KayrockCompatibilityTest do
     # ordering. Just reverse what we expect to match
     assert answer.assignments == Enum.reverse(my_assignments)
   end
+
+  test "can leave a consumer group", %{client: client} do
+    # A lot of repetition with the previous tests. Leaving it in now, waiting for
+    # how this pans out eventually as we add more and more 0.9 consumer group code
+    random_group = TestHelper.generate_random_string()
+
+    request = %JoinGroupRequest{
+      group_name: random_group,
+      member_id: "",
+      topics: ["foo", "bar"],
+      session_timeout: 6000
+    }
+
+    answer = KafkaEx.join_group(request, worker_name: client, timeout: 10000)
+
+    assert answer.error_code == :no_error
+
+    member_id = answer.member_id
+
+    request = %LeaveGroupRequest{
+      group_name: random_group,
+      member_id: member_id
+    }
+
+    answer = KafkaEx.leave_group(request, worker_name: client)
+    assert answer.error_code == :no_error
+  end
 end
