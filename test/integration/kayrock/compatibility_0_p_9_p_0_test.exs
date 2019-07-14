@@ -44,4 +44,40 @@ defmodule KafkaEx.KayrockCompatibilityTest do
     # We should be the leader
     assert answer.member_id == answer.leader_id
   end
+
+  test "can send a simple leader sync for a consumer group", %{client: client} do
+    # A lot of repetition with the previous test. Leaving it in now, waiting for
+    # how this pans out eventually as we add more and more 0.9 consumer group code
+    random_group = TestHelper.generate_random_string()
+
+    request = %JoinGroupRequest{
+      group_name: random_group,
+      member_id: "",
+      topics: ["foo", "bar"],
+      session_timeout: 6000
+    }
+
+    answer = KafkaEx.join_group(request, timeout: 10000, worker_name: client)
+
+    assert answer.error_code == :no_error
+
+    member_id = answer.member_id
+    generation_id = answer.generation_id
+    my_assignments = [{"foo", [1]}, {"bar", [2]}]
+    assignments = [{member_id, my_assignments}]
+
+    request = %SyncGroupRequest{
+      group_name: random_group,
+      member_id: member_id,
+      generation_id: generation_id,
+      assignments: assignments
+    }
+
+    answer = KafkaEx.sync_group(request, worker_name: client)
+    assert answer.error_code == :no_error
+
+    # Parsing happens to return the assignments reversed, which is fine as there's no
+    # ordering. Just reverse what we expect to match
+    assert answer.assignments == Enum.reverse(my_assignments)
+  end
 end

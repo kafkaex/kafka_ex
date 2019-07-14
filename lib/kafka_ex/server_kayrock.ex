@@ -335,6 +335,7 @@ defmodule KafkaEx.ServerKayrock do
   end
 
   def handle_call({:join_group, request, network_timeout}, _from, state) do
+    # TODO not honoring timeout
     {request, consumer_group} = Adapter.join_group_request(request)
 
     {response, updated_state} =
@@ -343,6 +344,21 @@ defmodule KafkaEx.ServerKayrock do
     case response do
       {:ok, resp} ->
         {:reply, Adapter.join_group_response(resp), updated_state}
+
+      _ ->
+        {:reply, response, updated_state}
+    end
+  end
+
+  def handle_call({:sync_group, request, network_timeout}, _from, state) do
+    {request, consumer_group} = Adapter.sync_group_request(request)
+
+    {response, updated_state} =
+      kayrock_network_request(request, {:consumer_group, consumer_group}, state)
+
+    case response do
+      {:ok, resp} ->
+        {:reply, Adapter.sync_group_response(resp), updated_state}
 
       _ ->
         {:reply, response, updated_state}
@@ -370,9 +386,6 @@ defmodule KafkaEx.ServerKayrock do
   #
   #
   #
-  #  def handle_call({:sync_group, request, network_timeout}, _from, state) do
-  #    kafka_server_sync_group(request, network_timeout, state)
-  #  end
   #
   #  def handle_call({:leave_group, request, network_timeout}, _from, state) do
   #    kafka_server_leave_group(request, network_timeout, state)

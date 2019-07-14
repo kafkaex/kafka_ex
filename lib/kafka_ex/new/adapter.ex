@@ -15,6 +15,9 @@ defmodule KafkaEx.New.Adapter do
   alias KafkaEx.Protocol.Offset, as: Offset
   alias KafkaEx.Protocol.Offset.Response, as: OffsetResponse
   alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
+  alias KafkaEx.Protocol.SyncGroup
+  alias KafkaEx.Protocol.SyncGroup.Response, as: SyncGroupResponse
+  alias KafkaEx.Protocol.SyncGroup.Assignment, as: SyncGroupAssignment
   alias KafkaEx.Protocol.Fetch.Response, as: FetchResponse
   alias KafkaEx.Protocol.Fetch.Message, as: FetchMessage
 
@@ -198,6 +201,53 @@ defmodule KafkaEx.New.Adapter do
       member_id: member_id,
       members: members
     }
+  end
+
+  def sync_group_request(request) do
+    {%Kayrock.SyncGroup.V0.Request{
+       group_id: request.group_name,
+       generation_id: request.generation_id,
+       member_id: request.member_id,
+       group_assignment:
+         Enum.map(request.assignments, &kafka_ex_group_assignment_to_kayrock/1)
+     }, request.group_name}
+  end
+
+  def sync_group_response(%Kayrock.SyncGroup.V0.Response{
+        error_code: error_code,
+        member_assignment: member_assignment
+      }) do
+    # TODO kayrock should parse member assignment
+    %SyncGroupResponse{
+      error_code: Kayrock.ErrorCode.code_to_atom(error_code),
+      assignments: SyncGroup.parse_member_assignment(member_assignment)
+    }
+  end
+
+  defp kafka_ex_group_assignment_to_kayrock({member_id, member_assignments}) do
+    %{
+      member_id: member_id,
+      member_assignment: member_assignment_data(member_assignments)
+    }
+  end
+
+  defp member_assignment_data(member_assignments) do
+    # TODO should go in Kayrock
+    data = [
+      <<0::16-signed>>,
+      <<length(member_assignments)::32-signed>>,
+      Enum.map(member_assignments, &topic_assignment_data/1),
+      <<0::32-signed>>
+    ]
+
+    IO.iodata_to_binary(data)
+  end
+
+  defp topic_assignment_data({topic_name, partition_ids}) do
+    [
+      Kayrock.Serialize.serialize(:string, topic_name),
+      Kayrock.Serialize.serialize_array(:int32, partition_ids)
+    ]
   end
 
   defp build_group_protocol_metadata(topics) do
