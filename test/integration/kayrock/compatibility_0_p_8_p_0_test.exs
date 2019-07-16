@@ -1,4 +1,4 @@
-defmodule KafkaEx.KayrockCompatibilityTest do
+defmodule KafkaEx.KayrockCompatibility0p8p0Test do
   @moduledoc """
   These are tests using the original KafkaEx API with the kayrock server
 

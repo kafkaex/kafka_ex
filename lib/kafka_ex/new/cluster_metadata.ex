@@ -31,6 +31,10 @@ defmodule KafkaEx.New.ClusterMetadata do
     {:ok, node_id}
   end
 
+  def select_node(%__MODULE__{controller_id: controller_id}, :controller) do
+    {:ok, controller_id}
+  end
+
   def select_node(
         %__MODULE__{} = cluster_metadata,
         {:topic_partition, topic, partition}
@@ -181,5 +185,12 @@ defmodule KafkaEx.New.ClusterMetadata do
             coordinator_node_id
           )
     }
+  end
+
+  def remove_topics(
+        %__MODULE__{topics: topics} = cluster_metadata,
+        topics_to_remove
+      ) do
+    %{cluster_metadata | topics: Map.drop(topics, topics_to_remove)}
   end
 end

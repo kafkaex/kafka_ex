@@ -7,6 +7,11 @@ defmodule KafkaEx.New.Adapter do
   the compatibility mode during transition to the new API.
   """
 
+  alias KafkaEx.Protocol.ApiVersions.ApiVersion
+  alias KafkaEx.Protocol.CreateTopics.Response, as: CreateTopicsResponse
+  alias KafkaEx.Protocol.CreateTopics.TopicError, as: CreateTopicError
+  alias KafkaEx.Protocol.DeleteTopics.Response, as: DeleteTopicsResponse
+  alias KafkaEx.Protocol.DeleteTopics.TopicError, as: DeleteTopicError
   alias KafkaEx.Protocol.Heartbeat.Response, as: HeartbeatResponse
   alias KafkaEx.Protocol.Metadata.Broker
   alias KafkaEx.Protocol.Metadata.TopicMetadata
@@ -248,6 +253,82 @@ defmodule KafkaEx.New.Adapter do
 
   def heartbeat_response(%Kayrock.Heartbeat.V0.Response{error_code: error_code}) do
     %HeartbeatResponse{error_code: Kayrock.ErrorCode.code_to_atom(error_code)}
+  end
+
+  def create_topics_request(requests, timeout) do
+    %Kayrock.CreateTopics.V0.Request{
+      timeout: timeout,
+      create_topic_requests:
+        Enum.map(requests, &kafka_ex_to_kayrock_create_topics/1)
+    }
+  end
+
+  def create_topics_response(%Kayrock.CreateTopics.V0.Response{
+        topic_errors: topic_errors
+      }) do
+    %CreateTopicsResponse{
+      topic_errors:
+        Enum.map(topic_errors, fn e ->
+          %CreateTopicError{
+            topic_name: e.topic,
+            error_code: Kayrock.ErrorCode.code_to_atom(e.error_code)
+          }
+        end)
+    }
+  end
+
+  def delete_topics_request(topics, timeout) do
+    %Kayrock.DeleteTopics.V0.Request{
+      topics: topics,
+      timeout: timeout
+    }
+  end
+
+  def delete_topics_response(%Kayrock.DeleteTopics.V0.Response{
+        topic_error_codes: topic_error_codes
+      }) do
+    %DeleteTopicsResponse{
+      topic_errors:
+        Enum.map(topic_error_codes, fn ec ->
+          %DeleteTopicError{
+            topic_name: ec.topic,
+            error_code: Kayrock.ErrorCode.code_to_atom(ec.error_code)
+          }
+        end)
+    }
+  end
+
+  def api_versions(versions_map) do
+    api_versions =
+      versions_map
+      |> Enum.sort_by(fn {k, _} -> k end)
+      |> Enum.map(fn {api_key, {min_version, max_version}} ->
+        %ApiVersion{
+          api_key: api_key,
+          min_version: min_version,
+          max_version: max_version
+        }
+      end)
+
+    %KafkaEx.Protocol.ApiVersions.Response{
+      api_versions: api_versions,
+      error_code: :no_error,
+      throttle_time_ms: 0
+    }
+  end
+
+  defp kafka_ex_to_kayrock_create_topics(request) do
+    %{
+      topic: request.topic,
+      num_partitions: request.num_partitions,
+      replication_factor: request.replication_factor,
+      replica_assignment:
+        Enum.map(request.replica_assignment, &Map.from_struct/1),
+      config_entries:
+        Enum.map(request.config_entries, fn ce ->
+          %{config_name: ce.config_name, config_value: ce.config_value}
+        end)
+    }
   end
 
   defp kafka_ex_group_assignment_to_kayrock({member_id, member_assignments}) do

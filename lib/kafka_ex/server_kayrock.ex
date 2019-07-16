@@ -17,7 +17,6 @@ defmodule KafkaEx.ServerKayrock do
     @moduledoc false
 
     alias KafkaEx.New.ClusterMetadata
-    alias KafkaEx.New.ConsumerGroupMetadata
 
     defstruct(
       cluster_metadata: %ClusterMetadata{},
@@ -77,6 +76,17 @@ defmodule KafkaEx.ServerKayrock do
               consumer_group,
               coordinator_node_id
             )
+      }
+    end
+
+    def remove_topics(
+          %State{cluster_metadata: cluster_metadata} = state,
+          topics
+        ) do
+      %{
+        state
+        | cluster_metadata:
+            ClusterMetadata.remove_topics(cluster_metadata, topics)
       }
     end
   end
@@ -238,15 +248,23 @@ defmodule KafkaEx.ServerKayrock do
     {:reply, {:ok, updated_state.cluster_metadata}, updated_state}
   end
 
-  def handle_call({:topic_metadata, topics}, _from, state) do
-    updated_state = update_metadata(state, topics)
+  def handle_call({:topic_metadata, topics, allow_topic_creation}, _from, state) do
+    allow_auto_topic_creation = state.allow_auto_topic_creation
+
+    updated_state =
+      update_metadata(
+        %{state | allow_auto_topic_creation: allow_topic_creation},
+        topics
+      )
+
     # todo should live in clustermetadata
     topic_metadata =
       updated_state.cluster_metadata.topics
       |> Map.take(topics)
       |> Map.values()
 
-    {:reply, {:ok, topic_metadata}, updated_state}
+    {:reply, {:ok, topic_metadata},
+     %{updated_state | allow_auto_topic_creation: allow_auto_topic_creation}}
   end
 
   def handle_call({:offset, topic, partition, time}, _from, state) do
@@ -395,6 +413,49 @@ defmodule KafkaEx.ServerKayrock do
     end
   end
 
+  def handle_call({:create_topics, requests, network_timeout}, _from, state) do
+    request =
+      Adapter.create_topics_request(
+        requests,
+        config_sync_timeout(network_timeout)
+      )
+
+    {response, updated_state} =
+      kayrock_network_request(request, :controller, state)
+
+    case response do
+      {:ok, resp} ->
+        {:reply, Adapter.create_topics_response(resp), updated_state}
+
+      _ ->
+        {:reply, response, updated_state}
+    end
+  end
+
+  def handle_call({:delete_topics, topics, network_timeout}, _from, state) do
+    request =
+      Adapter.delete_topics_request(
+        topics,
+        config_sync_timeout(network_timeout)
+      )
+
+    {response, updated_state} =
+      kayrock_network_request(request, :controller, state)
+
+    case response do
+      {:ok, resp} ->
+        {:reply, Adapter.delete_topics_response(resp),
+         State.remove_topics(updated_state, topics)}
+
+      _ ->
+        {:reply, response, updated_state}
+    end
+  end
+
+  def handle_call({:api_versions}, _from, state) do
+    {:reply, Adapter.api_versions(state.api_versions), state}
+  end
+
   #  def handle_call(:consumer_group, _from, state) do
   #    kafka_server_consumer_group(state)
   #  end
@@ -418,16 +479,9 @@ defmodule KafkaEx.ServerKayrock do
   #
   #
   #
-  #  def handle_call({:create_topics, requests, network_timeout}, _from, state) do
-  #    kafka_server_create_topics(requests, network_timeout, state)
-  #  end
   #
   #  def handle_call({:delete_topics, topics, network_timeout}, _from, state) do
   #    kafka_server_delete_topics(topics, network_timeout, state)
-  #  end
-  #
-  #  def handle_call({:api_versions}, _from, state) do
-  #    kafka_server_api_versions(state)
   #  end
   #
   def handle_info(:update_metadata, state) do
@@ -1014,6 +1068,18 @@ defmodule KafkaEx.ServerKayrock do
        first_broker_response(
          wire_request,
          state.cluster_metadata.brokers,
+         config_sync_timeout()
+       )
+     end, state}
+  end
+
+  defp get_sender(:controller, state, _synchronous) do
+    {:ok, broker} = State.select_broker(state, :controller)
+
+    {fn wire_request ->
+       NetworkClient.send_sync_request(
+         broker,
+         wire_request,
          config_sync_timeout()
        )
      end, state}

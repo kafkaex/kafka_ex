@@ -29,6 +29,10 @@ defmodule KafkaEx.New.KafkaExAPI do
     end
   end
 
+  def topics_metadata(client, topics, allow_topic_creation \\ false) do
+    GenServer.call(client, {:topic_metadata, topics, allow_topic_creation})
+  end
+
   def cluster_metadata(client) do
     GenServer.call(client, :cluster_metadata)
   end
