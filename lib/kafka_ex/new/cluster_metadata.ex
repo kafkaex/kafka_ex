@@ -13,11 +13,16 @@ defmodule KafkaEx.New.ClusterMetadata do
   alias KafkaEx.New.Broker
   alias KafkaEx.New.Topic
 
+  @type node_selector ::
+          :controller
+          | :random
+          | {:topic_partition, binary, integer}
+          | {:consumer_group, binary}
   @type node_select_error :: :no_such_node | :no_such_topic | :no_such_partition
 
   def known_topics(%__MODULE__{topics: topics}), do: Map.keys(topics)
 
-  @spec select_node(t, Kayrock.node_selector()) ::
+  @spec select_node(t, node_selector) ::
           {:ok, Kayrock.node_id()} | {:error, node_select_error}
   def select_node(
         %__MODULE__{controller_id: controller_id} = cluster_metadata,
@@ -29,10 +34,6 @@ defmodule KafkaEx.New.ClusterMetadata do
   def select_node(%__MODULE__{brokers: brokers}, :random) do
     [node_id] = Enum.take_random(Map.keys(brokers), 1)
     {:ok, node_id}
-  end
-
-  def select_node(%__MODULE__{controller_id: controller_id}, :controller) do
-    {:ok, controller_id}
   end
 
   def select_node(

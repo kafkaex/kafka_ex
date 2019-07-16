@@ -4,9 +4,6 @@ defmodule KafkaEx.ServerKayrock do
   """
 
   alias KafkaEx.NetworkClient
-  alias KafkaEx.Protocol.Metadata
-  alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
-  alias KafkaEx.Socket
 
   alias KafkaEx.New.Adapter
   alias KafkaEx.New.ApiVersions
@@ -142,17 +139,12 @@ defmodule KafkaEx.ServerKayrock do
   # credo:disable-for-next-line Credo.Check.Refactor.LongQuoteBlocks
   require Logger
   alias KafkaEx.NetworkClient
-  alias KafkaEx.Protocol.Offset
 
   @client_id "kafka_ex"
   @retry_count 3
-  @wait_time 10
-  @min_bytes 1
-  @max_bytes 1_000_000
   @metadata_update_interval 30_000
   @consumer_group_update_interval 30_000
   @sync_timeout 1_000
-  @ssl_options []
 
   def init([args]) do
     init([args, self()])
@@ -189,7 +181,7 @@ defmodule KafkaEx.ServerKayrock do
     consumer_group = Keyword.get(args, :consumer_group)
 
     unless KafkaEx.valid_consumer_group?(consumer_group) do
-      raise InvalidConsumerGroupError, consumer_group
+      raise KafkaEx.InvalidConsumerGroupError, consumer_group
     end
 
     # TODO: intend to not just tie the worker to a single consumer group
@@ -873,14 +865,6 @@ defmodule KafkaEx.ServerKayrock do
       sleep_for_reconnect()
       raise "Brokers sockets are not opened"
     end
-  end
-
-  defp connect_broker(host, port, ssl_opts, use_ssl) do
-    %Broker{
-      host: host,
-      port: port,
-      socket: NetworkClient.create_socket(host, port, ssl_opts, use_ssl)
-    }
   end
 
   defp client_request(request, state) do
