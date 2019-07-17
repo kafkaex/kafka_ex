@@ -283,6 +283,12 @@ defmodule KafkaEx.ServerKayrock do
 
   def handle_call({:produce, produce_request}, _from, state) do
     # TODO handle partition assignment
+    produce_request =
+      default_partitioner().assign_partition(
+        produce_request,
+        Adapter.metadata_response(state.cluster_metadata)
+      )
+
     {topic, partition, request} = Adapter.produce_request(produce_request)
 
     {response, updated_state} =
@@ -345,11 +351,16 @@ defmodule KafkaEx.ServerKayrock do
   end
 
   def handle_call({:join_group, request, network_timeout}, _from, state) do
-    # TODO not honoring timeout
+    sync_timeout = config_sync_timeout(network_timeout)
     {request, consumer_group} = Adapter.join_group_request(request)
 
     {response, updated_state} =
-      kayrock_network_request(request, {:consumer_group, consumer_group}, state)
+      kayrock_network_request(
+        request,
+        {:consumer_group, consumer_group},
+        state,
+        sync_timeout
+      )
 
     case response do
       {:ok, resp} ->
@@ -361,10 +372,16 @@ defmodule KafkaEx.ServerKayrock do
   end
 
   def handle_call({:sync_group, request, network_timeout}, _from, state) do
+    sync_timeout = config_sync_timeout(network_timeout)
     {request, consumer_group} = Adapter.sync_group_request(request)
 
     {response, updated_state} =
-      kayrock_network_request(request, {:consumer_group, consumer_group}, state)
+      kayrock_network_request(
+        request,
+        {:consumer_group, consumer_group},
+        state,
+        sync_timeout
+      )
 
     case response do
       {:ok, resp} ->
@@ -376,10 +393,16 @@ defmodule KafkaEx.ServerKayrock do
   end
 
   def handle_call({:leave_group, request, network_timeout}, _from, state) do
+    sync_timeout = config_sync_timeout(network_timeout)
     {request, consumer_group} = Adapter.leave_group_request(request)
 
     {response, updated_state} =
-      kayrock_network_request(request, {:consumer_group, consumer_group}, state)
+      kayrock_network_request(
+        request,
+        {:consumer_group, consumer_group},
+        state,
+        sync_timeout
+      )
 
     case response do
       {:ok, resp} ->
@@ -391,10 +414,16 @@ defmodule KafkaEx.ServerKayrock do
   end
 
   def handle_call({:heartbeat, request, network_timeout}, _from, state) do
+    sync_timeout = config_sync_timeout(network_timeout)
     {request, consumer_group} = Adapter.heartbeat_request(request)
 
     {response, updated_state} =
-      kayrock_network_request(request, {:consumer_group, consumer_group}, state)
+      kayrock_network_request(
+        request,
+        {:consumer_group, consumer_group},
+        state,
+        sync_timeout
+      )
 
     case response do
       {:ok, resp} ->
@@ -1003,7 +1032,8 @@ defmodule KafkaEx.ServerKayrock do
   defp kayrock_network_request(
          request,
          node_selector,
-         state
+         state,
+         network_timeout \\ nil
        ) do
     # produce request have an acks field and if this is 0 then we do not want to
     # wait for a response from the broker
@@ -1013,7 +1043,10 @@ defmodule KafkaEx.ServerKayrock do
         _ -> true
       end
 
-    {sender, updated_state} = get_sender(node_selector, state, synchronous)
+    network_timeout = config_sync_timeout(network_timeout)
+
+    {sender, updated_state} =
+      get_sender(node_selector, state, network_timeout, synchronous)
 
     case sender do
       :no_broker ->
@@ -1047,24 +1080,24 @@ defmodule KafkaEx.ServerKayrock do
     end
   end
 
-  defp get_sender(:any, state, _synchronous) do
+  defp get_sender(:any, state, network_timeout, _synchronous) do
     {fn wire_request ->
        first_broker_response(
          wire_request,
          state.cluster_metadata.brokers,
-         config_sync_timeout()
+         network_timeout
        )
      end, state}
   end
 
-  defp get_sender(:controller, state, _synchronous) do
+  defp get_sender(:controller, state, network_timeout, _synchronous) do
     {:ok, broker} = State.select_broker(state, :controller)
 
     {fn wire_request ->
        NetworkClient.send_sync_request(
          broker,
          wire_request,
-         config_sync_timeout()
+         network_timeout
        )
      end, state}
   end
@@ -1072,6 +1105,7 @@ defmodule KafkaEx.ServerKayrock do
   defp get_sender(
          {:topic_partition, topic, partition},
          state,
+         network_timeout,
          synchronous
        ) do
     Logger.debug("SELECT BROKER #{inspect(state)}")
@@ -1091,7 +1125,7 @@ defmodule KafkaEx.ServerKayrock do
            NetworkClient.send_sync_request(
              broker,
              wire_request,
-             config_sync_timeout()
+             network_timeout
            )
          end, updated_state}
       else
@@ -1104,7 +1138,12 @@ defmodule KafkaEx.ServerKayrock do
     end
   end
 
-  defp get_sender({:consumer_group, consumer_group}, state, _synchronous) do
+  defp get_sender(
+         {:consumer_group, consumer_group},
+         state,
+         network_timeout,
+         _synchronous
+       ) do
     Logger.debug("SELECT BROKER #{inspect(state)}")
 
     {broker, updated_state} =
@@ -1113,14 +1152,11 @@ defmodule KafkaEx.ServerKayrock do
         consumer_group
       )
 
-    # in case of rebalancing
-    timeout = trunc(2.5 * config_sync_timeout())
-
     {fn wire_request ->
        NetworkClient.send_sync_request(
          broker,
          wire_request,
-         timeout
+         network_timeout
        )
      end, updated_state}
   end
