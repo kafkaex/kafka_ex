@@ -19,7 +19,7 @@ defmodule KafkaEx.ServerKayrock do
       cluster_metadata: %ClusterMetadata{},
       event_pid: nil,
       correlation_id: 0,
-      consumer_group: nil,
+      consumer_group_for_auto_commit: nil,
       metadata_update_interval: nil,
       consumer_group_update_interval: nil,
       worker_name: KafkaEx.Server,
@@ -189,6 +189,7 @@ defmodule KafkaEx.ServerKayrock do
     state = %State{
       metadata_update_interval: metadata_update_interval,
       consumer_group_update_interval: consumer_group_update_interval,
+      consumer_group_for_auto_commit: consumer_group,
       worker_name: name,
       ssl_options: ssl_options,
       use_ssl: use_ssl,
@@ -238,6 +239,18 @@ defmodule KafkaEx.ServerKayrock do
   def handle_call(:update_metadata, _from, state) do
     updated_state = update_metadata(state)
     {:reply, {:ok, updated_state.cluster_metadata}, updated_state}
+  end
+
+  def handle_call(
+        {:set_consumer_group_for_auto_commit, consumer_group},
+        _from,
+        state
+      ) do
+    if KafkaEx.valid_consumer_group?(consumer_group) do
+      {:reply, :ok, %{state | consumer_group_for_auto_commit: consumer_group}}
+    else
+      {:reply, {:error, :invalid_consumer_group}, state}
+    end
   end
 
   def handle_call({:topic_metadata, topics, allow_topic_creation}, _from, state) do
@@ -334,20 +347,50 @@ defmodule KafkaEx.ServerKayrock do
         %{state | allow_auto_topic_creation: false}
       )
 
-    response =
+    {response, state_out} =
       case response do
         {:ok, resp} ->
-          Adapter.fetch_response(resp)
+          {adapted_resp, last_offset} = Adapter.fetch_response(resp)
+
+          state_out =
+            if fetch_request.auto_commit do
+              consumer_group = state.consumer_group_for_auto_commit
+
+              commit_request = %Kayrock.OffsetCommit.V0.Request{
+                group_id: consumer_group,
+                topics: [
+                  %{
+                    topic: topic,
+                    partitions: [
+                      %{partition: partition, offset: last_offset, metadata: ""}
+                    ]
+                  }
+                ]
+              }
+
+              {_, updated_state} =
+                kayrock_network_request(
+                  commit_request,
+                  {:consumer_group, consumer_group},
+                  updated_state
+                )
+
+              updated_state
+            else
+              updated_state
+            end
+
+          {adapted_resp, state_out}
 
         {:error, :no_broker} ->
-          :topic_not_found
+          {:topic_not_found, updated_state}
 
         _ ->
-          response
+          {response, updated_state}
       end
 
     {:reply, response,
-     %{updated_state | allow_auto_topic_creation: allow_auto_topic_creation}}
+     %{state_out | allow_auto_topic_creation: allow_auto_topic_creation}}
   end
 
   def handle_call({:join_group, request, network_timeout}, _from, state) do
@@ -477,17 +520,33 @@ defmodule KafkaEx.ServerKayrock do
     {:reply, Adapter.api_versions(state.api_versions), state}
   end
 
-  #  def handle_call(:consumer_group, _from, state) do
-  #    kafka_server_consumer_group(state)
-  #  end
-  #
-  #
-  #
-  #
-  #  def handle_call({:offset_fetch, offset_fetch}, _from, state) do
-  #    kafka_server_offset_fetch(offset_fetch, state)
-  #  end
-  #
+  def handle_call(:consumer_group, _from, state) do
+    {:reply, state.consumer_group_for_auto_commit, state}
+  end
+
+  def handle_call({:offset_fetch, offset_fetch}, _from, state) do
+    unless consumer_group?(state) do
+      raise KafkaEx.ConsumerGroupRequiredError, offset_fetch
+    end
+
+    {request, consumer_group} =
+      Adapter.offset_fetch_request(
+        offset_fetch,
+        state.consumer_group_for_auto_commit
+      )
+
+    {response, updated_state} =
+      kayrock_network_request(request, {:consumer_group, consumer_group}, state)
+
+    response =
+      case response do
+        {:ok, resp} -> Adapter.offset_fetch_response(resp)
+        _ -> response
+      end
+
+    {:reply, response, updated_state}
+  end
+
   #  def handle_call({:offset_commit, offset_commit_request}, _from, state) do
   #    kafka_server_offset_commit(offset_commit_request, state)
   #  end
@@ -1012,7 +1071,7 @@ defmodule KafkaEx.ServerKayrock do
   # note within the genserver state, we've already validated the
   # consumer group, so it can only be either :no_consumer_group or a
   # valid binary consumer group name
-  def consumer_group?(%State{consumer_group: :no_consumer_group}) do
+  def consumer_group?(%State{consumer_group_for_auto_commit: :no_consumer_group}) do
     false
   end
 

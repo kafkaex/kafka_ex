@@ -40,4 +40,11 @@ defmodule KafkaEx.New.KafkaExAPI do
   def correlation_id(client) do
     GenServer.call(client, :correlation_id)
   end
+
+  def set_consumer_group_for_auto_commit(client, consumer_group) do
+    GenServer.call(
+      client,
+      {:set_consumer_group_for_auto_commit, consumer_group}
+    )
+  end
 end

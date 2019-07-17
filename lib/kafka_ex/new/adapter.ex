@@ -21,6 +21,7 @@ defmodule KafkaEx.New.Adapter do
   alias KafkaEx.Protocol.LeaveGroup.Response, as: LeaveGroupResponse
   alias KafkaEx.Protocol.Offset, as: Offset
   alias KafkaEx.Protocol.Offset.Response, as: OffsetResponse
+  alias KafkaEx.Protocol.OffsetFetch.Response, as: OffsetFetchResponse
   alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
   alias KafkaEx.Protocol.SyncGroup
   alias KafkaEx.Protocol.SyncGroup.Response, as: SyncGroupResponse
@@ -155,24 +156,24 @@ defmodule KafkaEx.New.Adapter do
     {message_set, last_offset} =
       kayrock_message_set_to_kafka_ex(partition_response.record_set)
 
-    [
-      %FetchResponse{
-        topic: topic_response.topic,
-        partitions: [
-          %{
-            partition: partition_response.partition_header.partition,
-            error_code:
-              KafkaEx.Protocol.error(
-                partition_response.partition_header.error_code
-              ),
-            hw_mark_offset: partition_response.partition_header.high_watermark,
-            message_set: message_set,
-            last_offset:
-              last_offset || partition_response.partition_header.high_watermark
-          }
-        ]
-      }
-    ]
+    {[
+       %FetchResponse{
+         topic: topic_response.topic,
+         partitions: [
+           %{
+             partition: partition_response.partition_header.partition,
+             error_code:
+               KafkaEx.Protocol.error(
+                 partition_response.partition_header.error_code
+               ),
+             hw_mark_offset: partition_response.partition_header.high_watermark,
+             message_set: message_set,
+             last_offset:
+               last_offset || partition_response.partition_header.high_watermark
+           }
+         ]
+       }
+     ], last_offset}
   end
 
   def join_group_request(join_group_request) do
@@ -315,6 +316,47 @@ defmodule KafkaEx.New.Adapter do
       error_code: :no_error,
       throttle_time_ms: 0
     }
+  end
+
+  def offset_fetch_request(request, client_consumer_group) do
+    consumer_group = request.consumer_group || client_consumer_group
+
+    {%Kayrock.OffsetFetch.V0.Request{
+       group_id: consumer_group,
+       topics: [
+         %{topic: request.topic, partitions: [%{partition: request.partition}]}
+       ]
+     }, consumer_group}
+  end
+
+  def offset_fetch_response(%Kayrock.OffsetFetch.V0.Response{
+        responses: [
+          %{
+            topic: topic,
+            partition_responses: [
+              %{
+                partition: partition,
+                offset: offset,
+                metadata: metadata,
+                error_code: error_code
+              }
+            ]
+          }
+        ]
+      }) do
+    [
+      %OffsetFetchResponse{
+        topic: topic,
+        partitions: [
+          %{
+            partition: partition,
+            offset: offset,
+            metadata: metadata,
+            error_code: Kayrock.ErrorCode.code_to_atom(error_code)
+          }
+        ]
+      }
+    ]
   end
 
   defp kafka_ex_to_kayrock_create_topics(request) do
