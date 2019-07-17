@@ -529,6 +529,8 @@ defmodule KafkaEx.ServerKayrock do
       raise KafkaEx.ConsumerGroupRequiredError, offset_fetch
     end
 
+    Logger.debug("AM OFFSET FETCH")
+
     {request, consumer_group} =
       Adapter.offset_fetch_request(
         offset_fetch,
@@ -547,10 +549,29 @@ defmodule KafkaEx.ServerKayrock do
     {:reply, response, updated_state}
   end
 
-  #  def handle_call({:offset_commit, offset_commit_request}, _from, state) do
-  #    kafka_server_offset_commit(offset_commit_request, state)
-  #  end
-  #
+  def handle_call({:offset_commit, offset_commit_request}, _from, state) do
+    unless consumer_group?(state) do
+      raise KafkaEx.ConsumerGroupRequiredError, offset_commit_request
+    end
+
+    {request, consumer_group} =
+      Adapter.offset_commit_request(
+        offset_commit_request,
+        state.consumer_group_for_auto_commit
+      )
+
+    {response, updated_state} =
+      kayrock_network_request(request, {:consumer_group, consumer_group}, state)
+
+    response =
+      case response do
+        {:ok, resp} -> Adapter.offset_commit_response(resp)
+        _ -> response
+      end
+
+    {:reply, response, updated_state}
+  end
+
   #  def handle_call({:consumer_group_metadata, _consumer_group}, _from, state) do
   #    kafka_server_consumer_group_metadata(state)
   #  end

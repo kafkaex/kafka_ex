@@ -84,4 +84,36 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupTest do
     assert error_code == :no_error
     assert offset_of_last_message == offset_fetch_response_offset
   end
+
+  test "fetch starts consuming from last committed offset", %{client: client} do
+    random_string = TestHelper.generate_random_string()
+    consumer_group = "auto_commit_consumer_group"
+    KafkaExAPI.set_consumer_group_for_auto_commit(client, consumer_group)
+
+    Enum.each(1..10, fn _ ->
+      KafkaEx.produce(%Proto.Produce.Request{
+        topic: random_string,
+        partition: 0,
+        required_acks: 1,
+        messages: [%Proto.Produce.Message{value: "hey"}]
+      })
+    end)
+
+    KafkaEx.offset_commit(
+      client,
+      %Proto.OffsetCommit.Request{topic: random_string, offset: 3, partition: 0}
+    )
+
+    logs =
+      KafkaEx.fetch(random_string, 0, worker_name: client)
+      |> hd
+      |> Map.get(:partitions)
+      |> hd
+      |> Map.get(:message_set)
+
+    first_message = logs |> hd
+
+    assert first_message.offset == 4
+    assert length(logs) == 6
+  end
 end

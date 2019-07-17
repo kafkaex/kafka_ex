@@ -22,6 +22,7 @@ defmodule KafkaEx.New.Adapter do
   alias KafkaEx.Protocol.Offset, as: Offset
   alias KafkaEx.Protocol.Offset.Response, as: OffsetResponse
   alias KafkaEx.Protocol.OffsetFetch.Response, as: OffsetFetchResponse
+  alias KafkaEx.Protocol.OffsetCommit.Response, as: OffsetCommitResponse
   alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
   alias KafkaEx.Protocol.SyncGroup
   alias KafkaEx.Protocol.SyncGroup.Response, as: SyncGroupResponse
@@ -357,6 +358,43 @@ defmodule KafkaEx.New.Adapter do
         ]
       }
     ]
+  end
+
+  def offset_commit_request(request, client_consumer_group) do
+    consumer_group = request.consumer_group || client_consumer_group
+
+    {%Kayrock.OffsetCommit.V0.Request{
+       group_id: consumer_group,
+       topics: [
+         %{
+           topic: request.topic,
+           partitions: [
+             %{
+               partition: request.partition,
+               offset: request.offset,
+               metadata: ""
+             }
+           ]
+         }
+       ]
+     }, consumer_group}
+  end
+
+  def offset_commit_response(%Kayrock.OffsetCommit.V0.Response{
+        responses: [
+          %{
+            topic: topic,
+            partition_responses: [
+              %{partition: partition}
+            ]
+          }
+        ]
+      }) do
+    # NOTE kafkaex protocol ignores error code here
+    %OffsetCommitResponse{
+      topic: topic,
+      partitions: [partition]
+    }
   end
 
   defp kafka_ex_to_kayrock_create_topics(request) do
