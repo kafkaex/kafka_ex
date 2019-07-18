@@ -529,8 +529,6 @@ defmodule KafkaEx.ServerKayrock do
       raise KafkaEx.ConsumerGroupRequiredError, offset_fetch
     end
 
-    Logger.debug("AM OFFSET FETCH")
-
     {request, consumer_group} =
       Adapter.offset_fetch_request(
         offset_fetch,

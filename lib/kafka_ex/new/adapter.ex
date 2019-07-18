@@ -391,10 +391,12 @@ defmodule KafkaEx.New.Adapter do
         ]
       }) do
     # NOTE kafkaex protocol ignores error code here
-    %OffsetCommitResponse{
-      topic: topic,
-      partitions: [partition]
-    }
+    [
+      %OffsetCommitResponse{
+        topic: topic,
+        partitions: [partition]
+      }
+    ]
   end
 
   defp kafka_ex_to_kayrock_create_topics(request) do
