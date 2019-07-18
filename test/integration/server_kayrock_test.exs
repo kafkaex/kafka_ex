@@ -26,7 +26,7 @@ defmodule KafkaEx.ServerKayrock.Test do
     assert topics == %{}
 
     {:ok, [topic_metadata]} =
-      ServerKayrock.call(client, {:topic_metadata, ["test0p8p0"]})
+      ServerKayrock.call(client, {:topic_metadata, ["test0p8p0"], false})
 
     assert %Topic{name: "test0p8p0"} = topic_metadata
   end
