@@ -207,7 +207,7 @@ defmodule KafkaEx.New.Adapter do
       generation_id: generation_id,
       leader_id: leader_id,
       member_id: member_id,
-      members: members
+      members: Enum.map(members, fn m -> m.member_id end)
     }
   end
 
