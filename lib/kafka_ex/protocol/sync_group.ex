@@ -98,12 +98,12 @@ defmodule KafkaEx.Protocol.SyncGroup do
 
   # Helper functions to parse assignments
 
-  def parse_member_assignment(<<>>), do: []
+  defp parse_member_assignment(<<>>), do: []
 
-  def parse_member_assignment(
-        <<@member_assignment_version::16-signed, assignments_size::32-signed,
-          rest::binary>>
-      ) do
+  defp parse_member_assignment(
+         <<@member_assignment_version::16-signed, assignments_size::32-signed,
+           rest::binary>>
+       ) do
     parse_assignments(assignments_size, rest, [])
   end
 

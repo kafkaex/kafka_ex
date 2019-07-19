@@ -223,12 +223,14 @@ defmodule KafkaEx.New.Adapter do
 
   def sync_group_response(%Kayrock.SyncGroup.V0.Response{
         error_code: error_code,
-        member_assignment: member_assignment
+        member_assignment: %Kayrock.MemberAssignment{
+          partition_assignments: partition_assignments
+        }
       }) do
-    # TODO kayrock should parse member assignment
     %SyncGroupResponse{
       error_code: Kayrock.ErrorCode.code_to_atom(error_code),
-      assignments: SyncGroup.parse_member_assignment(member_assignment)
+      assignments:
+        Enum.map(partition_assignments, fn p -> {p.topic, p.partitions} end)
     }
   end
 
