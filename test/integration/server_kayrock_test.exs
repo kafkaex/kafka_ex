@@ -70,7 +70,7 @@ defmodule KafkaEx.ServerKayrock.Test do
     record_batch = RecordBatch.from_binary_list(["foo", "bar", "baz"])
 
     request = %Kayrock.Produce.V1.Request{
-      acks: 1,
+      acks: -1,
       timeout: 1000,
       topic_data: [
         %{
