@@ -86,6 +86,13 @@ defmodule KafkaEx.ServerKayrock do
             ClusterMetadata.remove_topics(cluster_metadata, topics)
       }
     end
+
+    def topics_metadata(
+          %State{cluster_metadata: cluster_metadata},
+          wanted_topics
+        ) do
+      ClusterMetadata.topics_metadata(cluster_metadata, wanted_topics)
+    end
   end
 
   use GenServer
@@ -260,11 +267,7 @@ defmodule KafkaEx.ServerKayrock do
         topics
       )
 
-    # todo should live in clustermetadata
-    topic_metadata =
-      updated_state.cluster_metadata.topics
-      |> Map.take(topics)
-      |> Map.values()
+    topic_metadata = State.topics_metadata(state, topics)
 
     {:reply, {:ok, topic_metadata},
      %{updated_state | allow_auto_topic_creation: allow_auto_topic_creation}}
@@ -567,195 +570,25 @@ defmodule KafkaEx.ServerKayrock do
     {:reply, response, updated_state}
   end
 
-  #  def handle_call({:consumer_group_metadata, _consumer_group}, _from, state) do
-  #    kafka_server_consumer_group_metadata(state)
-  #  end
-  #
-  #
-  #
-  #
-  #
-  #
-  #  def handle_call({:delete_topics, topics, network_timeout}, _from, state) do
-  #    kafka_server_delete_topics(topics, network_timeout, state)
-  #  end
-  #
   def handle_info(:update_metadata, state) do
     {:noreply, update_metadata(state)}
   end
 
-  #
-  #  def handle_info(:update_consumer_metadata, state) do
-  #    kafka_server_update_consumer_metadata(state)
-  #  end
-  #
-  #  def handle_info(_, state) do
-  #    {:noreply, state}
-  #  end
-  #
-  #  def terminate(reason, state) do
-  #    Logger.log(
-  #      :debug,
-  #      "Shutting down worker #{inspect(state.worker_name)}, reason: #{
-  #        inspect(reason)
-  #      }"
-  #    )
-  #
-  #    if state.event_pid do
-  #      :gen_event.stop(state.event_pid)
-  #    end
-  #
-  #    Enum.each(state.brokers, fn broker ->
-  #      NetworkClient.close_socket(broker.socket)
-  #    end)
-  #  end
-  #
-  #  # KakfaEx.Server behavior default implementations
-  #  # This needs a refactor, but for now make credo pass:
-  #  # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
-  #  def kafka_server_produce(
-  #        produce_request,
-  #        %State{metadata: metadata} = state
-  #      ) do
-  #    correlation_id = state.correlation_id + 1
-  #
-  #    produce_request =
-  #      default_partitioner().assign_partition(produce_request, metadata)
-  #
-  #    produce_request_data =
-  #      try do
-  #        Produce.create_request(correlation_id, @client_id, produce_request)
-  #      rescue
-  #        e in FunctionClauseError -> nil
-  #      end
-  #
-  #    case produce_request_data do
-  #      nil ->
-  #        {:reply, {:error, "Invalid produce request"}, state}
-  #
-  #      _ ->
-  #        kafka_server_produce_send_request(
-  #          correlation_id,
-  #          produce_request,
-  #          produce_request_data,
-  #          state
-  #        )
-  #    end
-  #  end
-  #
-  #  # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
-  #  def kafka_server_produce_send_request(
-  #        correlation_id,
-  #        produce_request,
-  #        produce_request_data,
-  #        state
-  #      ) do
-  #    {broker, state, corr_id} =
-  #      case MetadataResponse.broker_for_topic(
-  #             state.metadata,
-  #             state.brokers,
-  #             produce_request.topic,
-  #             produce_request.partition
-  #           ) do
-  #        nil ->
-  #          {retrieved_corr_id, _} =
-  #            retrieve_metadata(
-  #              state.brokers,
-  #              state.correlation_id,
-  #              config_sync_timeout(),
-  #              produce_request.topic,
-  #              state.api_versions
-  #            )
-  #
-  #          state = update_metadata(%{state | correlation_id: retrieved_corr_id})
-  #
-  #          {
-  #            MetadataResponse.broker_for_topic(
-  #              state.metadata,
-  #              state.brokers,
-  #              produce_request.topic,
-  #              produce_request.partition
-  #            ),
-  #            state,
-  #            retrieved_corr_id
-  #          }
-  #
-  #        broker ->
-  #          {broker, state, correlation_id}
-  #      end
-  #
-  #    response =
-  #      case broker do
-  #        nil ->
-  #          Logger.log(
-  #            :error,
-  #            "kafka_server_produce_send_request: leader for topic #{
-  #              produce_request.topic
-  #            }/#{produce_request.partition} is not available"
-  #          )
-  #
-  #          :leader_not_available
-  #
-  #        broker ->
-  #          case produce_request.required_acks do
-  #            0 ->
-  #              NetworkClient.send_async_request(broker, produce_request_data)
-  #
-  #            _ ->
-  #              response =
-  #                broker
-  #                |> NetworkClient.send_sync_request(
-  #                  produce_request_data,
-  #                  config_sync_timeout()
-  #                )
-  #                |> case do
-  #                  {:error, reason} -> reason
-  #                  response -> Produce.parse_response(response)
-  #                end
-  #
-  #              # credo:disable-for-next-line Credo.Check.Refactor.Nesting
-  #              case response do
-  #                [
-  #                  %KafkaEx.Protocol.Produce.Response{
-  #                    partitions: [%{error_code: :no_error, offset: offset}],
-  #                    topic: topic
-  #                  }
-  #                ]
-  #                when offset != nil ->
-  #                  {:ok, offset}
-  #
-  #                _ ->
-  #                  {:error, response}
-  #              end
-  #          end
-  #      end
-  #
-  #    state = %{state | correlation_id: corr_id + 1}
-  #    {:reply, response, state}
-  #  end
-  #
-  #  def kafka_server_metadata(topic, state) do
-  #    {correlation_id, metadata} =
-  #      retrieve_metadata(
-  #        state.brokers,
-  #        state.correlation_id,
-  #        config_sync_timeout(),
-  #        topic,
-  #        state.api_versions
-  #      )
-  #
-  #    updated_state = %{
-  #      state
-  #      | metadata: metadata,
-  #        correlation_id: correlation_id
-  #    }
-  #
-  #    {:reply, metadata, updated_state}
-  #  end
-  #
-  #  def kafka_server_update_metadata(state) do
-  #    {:noreply, update_metadata(state)}
-  #  end
+  def terminate(reason, state) do
+    Logger.log(
+      :debug,
+      "Shutting down worker #{inspect(state.worker_name)}, " <>
+        "reason: #{inspect(reason)}"
+    )
+
+    if state.event_pid do
+      :gen_event.stop(state.event_pid)
+    end
+
+    Enum.each(state.brokers, fn broker ->
+      NetworkClient.close_socket(broker.socket)
+    end)
+  end
 
   def update_metadata(state, topics \\ []) do
     # make sure we update metadata about known topics
@@ -771,7 +604,6 @@ defmodule KafkaEx.ServerKayrock do
 
     case response do
       nil ->
-        Logger.debug("WAS NIL")
         updated_state
 
       _ ->
@@ -783,8 +615,6 @@ defmodule KafkaEx.ServerKayrock do
             updated_state.cluster_metadata,
             new_cluster_metadata
           )
-
-        Logger.debug("BROKERS TO CLOSE: #{inspect(brokers_to_close)}")
 
         for broker <- brokers_to_close do
           Logger.log(
@@ -819,8 +649,6 @@ defmodule KafkaEx.ServerKayrock do
               end
             end
           )
-
-        Logger.debug("UPDATED METADATA #{inspect(updated_state)}")
 
         updated_state
     end
@@ -916,8 +744,6 @@ defmodule KafkaEx.ServerKayrock do
 
     {{ok_or_err, response}, state_out} =
       kayrock_network_request(metadata_request, :any, state)
-
-    Logger.debug("RETRIEVE METADATA #{inspect(ok_or_err)} #{inspect(response)}")
 
     case ok_or_err do
       :ok ->
@@ -1056,16 +882,14 @@ defmodule KafkaEx.ServerKayrock do
   defp first_broker_response(request, brokers, timeout) do
     Enum.find_value(brokers, fn {_node_id, broker} ->
       if Broker.connected?(broker) do
-        # credo:disable-for-next-line Credo.Check.Refactor.Nesting
-        Logger.debug("SENDING TO #{inspect(broker)}")
+        Logger.debug(fn -> "SENDING TO #{inspect(broker)}" end)
 
         case NetworkClient.send_sync_request(broker, request, timeout) do
           {:error, error} ->
-            Logger.debug("GOT ERROR #{inspect(error)}")
+            Logger.debug(fn -> "GOT ERROR #{inspect(error)}" end)
             nil
 
           response ->
-            Logger.debug("GOT RESPONSE #{inspect(response)}")
             response
         end
       end
@@ -1127,8 +951,8 @@ defmodule KafkaEx.ServerKayrock do
         {{:error, :no_broker}, updated_state}
 
       _ ->
-        Logger.debug("SEND: " <> inspect(request, limit: :infinity))
-        Logger.debug(inspect(updated_state))
+        Logger.debug(fn -> "SEND: " <> inspect(request, limit: :infinity) end)
+        Logger.debug(fn -> inspect(updated_state) end)
 
         wire_request =
           request
@@ -1148,7 +972,7 @@ defmodule KafkaEx.ServerKayrock do
               end
           end
 
-        Logger.debug("RECV: " <> inspect(response, limit: :infinity))
+        Logger.debug(fn -> "RECV: " <> inspect(response, limit: :infinity) end)
         state_out = %{updated_state | correlation_id: state.correlation_id + 1}
         {response, state_out}
     end
@@ -1182,16 +1006,12 @@ defmodule KafkaEx.ServerKayrock do
          network_timeout,
          synchronous
        ) do
-    Logger.debug("SELECT BROKER #{inspect(state)}")
-
     {broker, updated_state} =
       broker_for_partition_with_update(
         state,
         topic,
         partition
       )
-
-    Logger.debug("SHOULD SEND TO BROKER #{inspect(broker)}")
 
     if broker do
       if synchronous do
@@ -1218,8 +1038,6 @@ defmodule KafkaEx.ServerKayrock do
          network_timeout,
          _synchronous
        ) do
-    Logger.debug("SELECT BROKER #{inspect(state)}")
-
     {broker, updated_state} =
       broker_for_consumer_group_with_update(
         state,

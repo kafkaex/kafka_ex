@@ -146,13 +146,9 @@ defmodule KafkaEx.Stream do
     defp fetch_response(data, offset) do
       req = data.fetch_request
 
-      r =
-        data.worker_name
-        |> Server.call({:fetch, %{req | offset: offset}})
-        |> FetchResponse.partition_messages(req.topic, req.partition)
-
-      Logger.debug("ASDF #{inspect(r)}")
-      r
+      data.worker_name
+      |> Server.call({:fetch, %{req | offset: offset}})
+      |> FetchResponse.partition_messages(req.topic, req.partition)
     end
   end
 end

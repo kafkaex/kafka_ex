@@ -111,10 +111,6 @@ defmodule KafkaEx.New.ClusterMetadata do
       ) do
     old_brokers = Map.values(old_cluster_metadata.brokers)
 
-    Logger.debug(
-      "MERGE #{inspect(old_brokers)} #{inspect(new_cluster_metadata)}"
-    )
-
     new_brokers =
       Enum.into(new_cluster_metadata.brokers, %{}, fn {node_id, new_broker} ->
         case Enum.find(old_brokers, fn b ->
@@ -193,5 +189,11 @@ defmodule KafkaEx.New.ClusterMetadata do
         topics_to_remove
       ) do
     %{cluster_metadata | topics: Map.drop(topics, topics_to_remove)}
+  end
+
+  def topics_metadata(%__MODULE__{topics: topics}, wanted_topics) do
+    topics
+    |> Map.take(wanted_topics)
+    |> Map.values()
   end
 end
