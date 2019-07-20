@@ -10,6 +10,8 @@ defmodule KafkaEx.New.Broker do
             rack: nil,
             socket: nil
 
+  @type t :: %__MODULE__{}
+
   def put_socket(%__MODULE__{} = broker, socket), do: %{broker | socket: socket}
 
   def connected?(%__MODULE__{} = broker) do
