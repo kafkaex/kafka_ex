@@ -630,45 +630,30 @@ defmodule KafkaEx.ServerKayrock do
         updated_state =
           State.update_brokers(
             %{updated_state | cluster_metadata: updated_cluster_metadata},
-            fn b ->
-              case Broker.connected?(b) do
-                true ->
-                  b
-
-                false ->
-                  %{
-                    b
-                    | socket:
-                        NetworkClient.create_socket(
-                          b.host,
-                          b.port,
-                          state.ssl_options,
-                          state.use_ssl
-                        )
-                  }
-              end
-            end
+            &maybe_connect_broker(&1, state)
           )
 
         updated_state
     end
+  end
 
-    ## this will probably also not work
-    # metadata_brokers =
-    #  metadata.brokers
-    #  |> Enum.map(&%{&1 | is_controller: &1.node_id == metadata.controller_id})
+  defp maybe_connect_broker(broker, state) do
+    case Broker.connected?(broker) do
+      true ->
+        broker
 
-    # brokers =
-    #  state.brokers
-    #  |> remove_stale_brokers(metadata_brokers)
-    #  |> add_new_brokers(metadata_brokers, state.ssl_options, state.use_ssl)
-
-    # %{
-    #  state
-    #  | metadata: metadata,
-    #    brokers: brokers,
-    #    correlation_id: correlation_id + 1
-    # }
+      false ->
+        %{
+          broker
+          | socket:
+              NetworkClient.create_socket(
+                broker.host,
+                broker.port,
+                state.ssl_options,
+                state.use_ssl
+              )
+        }
+    end
   end
 
   # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
@@ -882,18 +867,22 @@ defmodule KafkaEx.ServerKayrock do
   defp first_broker_response(request, brokers, timeout) do
     Enum.find_value(brokers, fn {_node_id, broker} ->
       if Broker.connected?(broker) do
-        Logger.debug(fn -> "SENDING TO #{inspect(broker)}" end)
-
-        case NetworkClient.send_sync_request(broker, request, timeout) do
-          {:error, error} ->
-            Logger.debug(fn -> "GOT ERROR #{inspect(error)}" end)
-            nil
-
-          response ->
-            response
-        end
+        try_broker(broker, request, timeout)
       end
     end)
+  end
+
+  defp try_broker(broker, request, timeout) do
+    Logger.debug(fn -> "SENDING TO #{inspect(broker)}" end)
+
+    case NetworkClient.send_sync_request(broker, request, timeout) do
+      {:error, error} ->
+        Logger.debug(fn -> "GOT ERROR #{inspect(error)}" end)
+        nil
+
+      response ->
+        response
+    end
   end
 
   defp config_sync_timeout(timeout \\ nil) do
@@ -954,27 +943,38 @@ defmodule KafkaEx.ServerKayrock do
         Logger.debug(fn -> "SEND: " <> inspect(request, limit: :infinity) end)
         Logger.debug(fn -> inspect(updated_state) end)
 
-        wire_request =
-          request
-          |> client_request(updated_state)
-          |> Kayrock.Request.serialize()
-
         response =
-          case(sender.(wire_request)) do
-            {:error, reason} ->
-              {:error, reason}
-
-            data ->
-              if synchronous do
-                {:ok, deserialize(data, request)}
-              else
-                data
-              end
-          end
+          run_client_request(
+            client_request(request, updated_state),
+            sender,
+            synchronous
+          )
 
         Logger.debug(fn -> "RECV: " <> inspect(response, limit: :infinity) end)
         state_out = %{updated_state | correlation_id: state.correlation_id + 1}
         {response, state_out}
+    end
+  end
+
+  defp run_client_request(
+         %{client_id: client_id, correlation_id: correlation_id} =
+           client_request,
+         sender,
+         synchronous
+       )
+       when not is_nil(client_id) and not is_nil(correlation_id) do
+    wire_request = Kayrock.Request.serialize(client_request)
+
+    case(sender.(wire_request)) do
+      {:error, reason} ->
+        {:error, reason}
+
+      data ->
+        if synchronous do
+          {:ok, deserialize(data, client_request)}
+        else
+          data
+        end
     end
   end
 
