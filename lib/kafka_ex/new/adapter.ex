@@ -68,8 +68,6 @@ defmodule KafkaEx.New.Adapter do
       messages: messages
     } = kafka_ex_produce_request
 
-    # TODO should make it optional to convert to record batches?
-    #   or maybe it's better to force people to update to the new api?
     message_set = %MessageSet{
       messages:
         Enum.map(

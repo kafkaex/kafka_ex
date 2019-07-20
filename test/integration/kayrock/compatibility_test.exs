@@ -157,8 +157,6 @@ defmodule KafkaEx.KayrockCompatibilityTest do
              :topic_not_found
   end
 
-  # TODO test fetch empty topic
-
   test "fetch works", %{client: client} do
     random_string = TestHelper.generate_random_string()
 
@@ -186,6 +184,69 @@ defmodule KafkaEx.KayrockCompatibilityTest do
 
     assert message.value == "hey foo"
     assert message.offset == offset
+  end
+
+  test "fetch with empty topic", %{client: client} do
+    random_string = TestHelper.generate_random_string()
+
+    response =
+      KafkaEx.fetch(random_string, 0,
+        offset: 0,
+        auto_commit: false,
+        worker_name: client
+      )
+
+    assert response == :topic_not_found
+  end
+
+  test "fetch nonexistent offset", %{client: client} do
+    random_string = TestHelper.generate_random_string()
+
+    {:ok, offset} =
+      KafkaEx.produce(
+        %Proto.Produce.Request{
+          topic: random_string,
+          partition: 0,
+          required_acks: 1,
+          messages: [%Proto.Produce.Message{value: "hey foo"}]
+        },
+        worker_name: client
+      )
+
+    fetch_responses =
+      KafkaEx.fetch(random_string, 0,
+        offset: offset + 5,
+        auto_commit: false,
+        worker_name: client
+      )
+
+    [fetch_response | _] = fetch_responses
+    [partition | _] = fetch_response.partitions
+    assert partition.error_code == :offset_out_of_range
+  end
+
+  test "fetch nonexistent partition", %{client: client} do
+    random_string = TestHelper.generate_random_string()
+
+    {:ok, offset} =
+      KafkaEx.produce(
+        %Proto.Produce.Request{
+          topic: random_string,
+          partition: 0,
+          required_acks: 1,
+          messages: [%Proto.Produce.Message{value: "hey foo"}]
+        },
+        worker_name: client
+      )
+
+    fetch_responses =
+      KafkaEx.fetch(random_string, 99,
+        offset: offset + 5,
+        auto_commit: false,
+        worker_name: client
+      )
+
+    assert fetch_responses == :topic_not_found
   end
 
   test "earliest_offset retrieves offset of 0", %{client: client} do

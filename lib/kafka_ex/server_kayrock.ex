@@ -163,6 +163,9 @@ defmodule KafkaEx.ServerKayrock do
         @consumer_group_update_interval
       )
 
+    allow_auto_topic_creation =
+      Keyword.get(args, :allow_auto_topic_creation, true)
+
     use_ssl = Keyword.get(args, :use_ssl, false)
     ssl_options = Keyword.get(args, :ssl_options, [])
 
@@ -184,8 +187,6 @@ defmodule KafkaEx.ServerKayrock do
       raise KafkaEx.InvalidConsumerGroupError, consumer_group
     end
 
-    # TODO: intend to not just tie the worker to a single consumer group
-
     state = %State{
       metadata_update_interval: metadata_update_interval,
       consumer_group_update_interval: consumer_group_update_interval,
@@ -194,7 +195,8 @@ defmodule KafkaEx.ServerKayrock do
       ssl_options: ssl_options,
       use_ssl: use_ssl,
       api_versions: %{},
-      cluster_metadata: %ClusterMetadata{brokers: brokers}
+      cluster_metadata: %ClusterMetadata{brokers: brokers},
+      allow_auto_topic_creation: allow_auto_topic_creation
     }
 
     {ok_or_err, api_versions, state} = get_api_versions(state)
@@ -217,10 +219,6 @@ defmodule KafkaEx.ServerKayrock do
           sleep_for_reconnect()
           Kernel.reraise(e, System.stacktrace())
       end
-
-    # Get the initial "real" broker list and start a regular refresh cycle.
-    # TODO might not need to do this still
-    state = update_metadata(state)
 
     {:ok, _} =
       :timer.send_interval(state.metadata_update_interval, :update_metadata)
@@ -295,7 +293,6 @@ defmodule KafkaEx.ServerKayrock do
   end
 
   def handle_call({:produce, produce_request}, _from, state) do
-    # TODO handle partition assignment
     produce_request =
       default_partitioner().assign_partition(
         produce_request,
@@ -911,7 +908,6 @@ defmodule KafkaEx.ServerKayrock do
         _error_code,
         api_version
       ) do
-    # TODO auto topic creation should be configurable
     metadata_request = %{
       Kayrock.Metadata.get_request_struct(api_version)
       | topics: topics,
@@ -1187,7 +1183,7 @@ defmodule KafkaEx.ServerKayrock do
          synchronous
        ) do
     Logger.debug("SELECT BROKER #{inspect(state)}")
-    # TODO can be cleaned up with select_broker
+
     {broker, updated_state} =
       broker_for_partition_with_update(
         state,
