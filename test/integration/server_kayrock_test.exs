@@ -14,7 +14,7 @@ defmodule KafkaEx.ServerKayrock.Test do
   setup do
     {:ok, args} = KafkaEx.build_worker_options([])
 
-    {:ok, pid} = ServerKayrock.start_link(args)
+    {:ok, pid} = ServerKayrock.start_link(args, :no_name)
 
     {:ok, %{client: pid}}
   end
