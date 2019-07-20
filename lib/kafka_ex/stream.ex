@@ -141,7 +141,6 @@ defmodule KafkaEx.Stream do
 
     ######################################################################
 
-    require Logger
     # make the actual fetch request
     defp fetch_response(data, offset) do
       req = data.fetch_request
