@@ -44,12 +44,11 @@ defmodule KafkaEx.Protocol.Offset do
       ),
       do: parse_topics(num_topics, rest)
 
-  defp parse_time(:latest), do: -1
+  def parse_time(:latest), do: -1
 
-  defp parse_time(:earliest), do: -2
+  def parse_time(:earliest), do: -2
 
-  @spec parse_time(:calendar.datetime()) :: integer
-  defp parse_time(time) do
+  def parse_time(time) do
     current_time_in_seconds = :calendar.datetime_to_gregorian_seconds(time)
 
     unix_epoch_in_seconds =

@@ -93,6 +93,10 @@ defmodule KafkaEx.ServerKayrock do
         ) do
       ClusterMetadata.topics_metadata(cluster_metadata, wanted_topics)
     end
+
+    def brokers(%State{cluster_metadata: cluster_metadata}) do
+      ClusterMetadata.brokers(cluster_metadata)
+    end
   end
 
   use GenServer
@@ -585,7 +589,7 @@ defmodule KafkaEx.ServerKayrock do
       :gen_event.stop(state.event_pid)
     end
 
-    Enum.each(state.brokers, fn broker ->
+    Enum.each(State.brokers(state), fn broker ->
       NetworkClient.close_socket(broker.socket)
     end)
   end

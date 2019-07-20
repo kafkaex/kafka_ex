@@ -196,4 +196,6 @@ defmodule KafkaEx.New.ClusterMetadata do
     |> Map.take(wanted_topics)
     |> Map.values()
   end
+
+  def brokers(%__MODULE__{brokers: brokers}), do: Map.values(brokers)
 end
