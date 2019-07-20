@@ -267,7 +267,7 @@ defmodule KafkaEx.ServerKayrock do
         topics
       )
 
-    topic_metadata = State.topics_metadata(state, topics)
+    topic_metadata = State.topics_metadata(updated_state, topics)
 
     {:reply, {:ok, topic_metadata},
      %{updated_state | allow_auto_topic_creation: allow_auto_topic_creation}}
