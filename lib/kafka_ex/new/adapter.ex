@@ -418,27 +418,20 @@ defmodule KafkaEx.New.Adapter do
   defp kafka_ex_group_assignment_to_kayrock({member_id, member_assignments}) do
     %{
       member_id: member_id,
-      member_assignment: member_assignment_data(member_assignments)
+      member_assignment: %Kayrock.MemberAssignment{
+        version: 0,
+        partition_assignments:
+          Enum.map(member_assignments, &member_to_partition_assignments/1),
+        user_data: ""
+      }
     }
   end
 
-  defp member_assignment_data(member_assignments) do
-    # TODO should go in Kayrock
-    data = [
-      <<0::16-signed>>,
-      <<length(member_assignments)::32-signed>>,
-      Enum.map(member_assignments, &topic_assignment_data/1),
-      <<0::32-signed>>
-    ]
-
-    IO.iodata_to_binary(data)
-  end
-
-  defp topic_assignment_data({topic_name, partition_ids}) do
-    [
-      Kayrock.Serialize.serialize(:string, topic_name),
-      Kayrock.Serialize.serialize_array(:int32, partition_ids)
-    ]
+  defp member_to_partition_assignments({topic, partitions}) do
+    %Kayrock.MemberAssignment.PartitionAssignment{
+      topic: topic,
+      partitions: partitions
+    }
   end
 
   defp build_group_protocol_metadata(topics) do
