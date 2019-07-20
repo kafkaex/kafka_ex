@@ -24,7 +24,6 @@ defmodule KafkaEx.New.Adapter do
   alias KafkaEx.Protocol.OffsetFetch.Response, as: OffsetFetchResponse
   alias KafkaEx.Protocol.OffsetCommit.Response, as: OffsetCommitResponse
   alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
-  alias KafkaEx.Protocol.SyncGroup
   alias KafkaEx.Protocol.SyncGroup.Response, as: SyncGroupResponse
   alias KafkaEx.Protocol.Fetch.Response, as: FetchResponse
   alias KafkaEx.Protocol.Fetch.Message, as: FetchMessage
@@ -186,8 +185,9 @@ defmodule KafkaEx.New.Adapter do
       group_protocols: [
         %{
           protocol_name: "assign",
-          protocol_metadata:
-            build_group_protocol_metadata(join_group_request.topics)
+          protocol_metadata: %Kayrock.GroupProtocolMetadata{
+            topics: join_group_request.topics
+          }
         }
       ]
     }
@@ -432,12 +432,6 @@ defmodule KafkaEx.New.Adapter do
       topic: topic,
       partitions: partitions
     }
-  end
-
-  defp build_group_protocol_metadata(topics) do
-    # TODO this should be in Kayrock
-
-    IO.iodata_to_binary(Kayrock.Serialize.serialize_array(:string, topics))
   end
 
   defp kayrock_message_set_to_kafka_ex(%Kayrock.RecordBatch{} = record_batch) do
