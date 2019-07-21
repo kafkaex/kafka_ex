@@ -1,11 +1,12 @@
 defmodule KafkaEx.New.Adapter do
-  @moduledoc """
-  Code that converts old-style KafkaEx request structures to and from Kayrock
-  structures
+  @moduledoc false
+  # this should not be considered part of the public API
 
-  No new code should rely on this code.  This should only be around to support
-  the compatibility mode during transition to the new API.
-  """
+  # Code that converts old-style KafkaEx request structures to and from Kayrock
+  # structures
+
+  # No new code should rely on this code.  This should only be around to support
+  # the compatibility mode during transition to the new API.
 
   alias KafkaEx.Protocol.ApiVersions.ApiVersion
   alias KafkaEx.Protocol.CreateTopics.Response, as: CreateTopicsResponse
@@ -23,7 +24,6 @@ defmodule KafkaEx.New.Adapter do
   alias KafkaEx.Protocol.Offset.Response, as: OffsetResponse
   alias KafkaEx.Protocol.OffsetFetch.Response, as: OffsetFetchResponse
   alias KafkaEx.Protocol.OffsetCommit.Response, as: OffsetCommitResponse
-  alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
   alias KafkaEx.Protocol.SyncGroup.Response, as: SyncGroupResponse
   alias KafkaEx.Protocol.Fetch.Response, as: FetchResponse
   alias KafkaEx.Protocol.Fetch.Message, as: FetchMessage
@@ -58,41 +58,39 @@ defmodule KafkaEx.New.Adapter do
     end)
   end
 
-  def produce_request(kafka_ex_produce_request) do
-    %ProduceRequest{
-      topic: topic,
-      partition: partition,
-      required_acks: required_acks,
-      timeout: timeout,
-      compression: compression,
-      messages: messages
-    } = kafka_ex_produce_request
+  def produce_request(request) do
+    topic = request.topic
+    partition = request.partition
 
     message_set = %MessageSet{
       messages:
         Enum.map(
-          messages,
-          &kafka_ex_message_to_kayrock_message(&1, compression)
+          request.messages,
+          fn msg ->
+            %Message{
+              key: msg.key,
+              value: msg.value,
+              compression: request.compression
+            }
+          end
         )
     }
 
     request = %Kayrock.Produce.V0.Request{
-      acks: required_acks,
-      timeout: timeout,
+      acks: request.required_acks,
+      timeout: request.timeout,
       topic_data: [
         %{
-          topic: topic,
+          topic: request.topic,
           data: [
-            %{partition: partition, record_set: message_set}
+            %{partition: request.partition, record_set: message_set}
           ]
         }
       ]
     }
 
-    {topic, partition, request}
+    {request, topic, partition}
   end
-
-  def produce_response(:ok), do: :ok
 
   def produce_response(%Kayrock.Produce.V0.Response{
         responses: [
@@ -127,8 +125,7 @@ defmodule KafkaEx.New.Adapter do
   end
 
   def fetch_request(fetch_request) do
-    {fetch_request.topic, fetch_request.partition,
-     %Kayrock.Fetch.V0.Request{
+    {%Kayrock.Fetch.V0.Request{
        max_wait_time: fetch_request.wait_time,
        min_bytes: fetch_request.min_bytes,
        replica_id: -1,
@@ -144,7 +141,7 @@ defmodule KafkaEx.New.Adapter do
            ]
          }
        ]
-     }}
+     }, fetch_request.topic, fetch_request.partition}
   end
 
   def fetch_response(fetch_response) do
@@ -419,16 +416,14 @@ defmodule KafkaEx.New.Adapter do
       member_assignment: %Kayrock.MemberAssignment{
         version: 0,
         partition_assignments:
-          Enum.map(member_assignments, &member_to_partition_assignments/1),
+          Enum.map(member_assignments, fn {topic, partitions} ->
+            %Kayrock.MemberAssignment.PartitionAssignment{
+              topic: topic,
+              partitions: partitions
+            }
+          end),
         user_data: ""
       }
-    }
-  end
-
-  defp member_to_partition_assignments({topic, partitions}) do
-    %Kayrock.MemberAssignment.PartitionAssignment{
-      topic: topic,
-      partitions: partitions
     }
   end
 
@@ -474,10 +469,6 @@ defmodule KafkaEx.New.Adapter do
         last_offset_message = Enum.max_by(messages, fn m -> m.offset end)
         {messages, last_offset_message.offset}
     end
-  end
-
-  defp kafka_ex_message_to_kayrock_message(msg, compression) do
-    %Message{key: msg.key, value: msg.value, compression: compression}
   end
 
   defp kayrock_broker_to_kafka_ex_broker({node_id, broker}, is_controller) do

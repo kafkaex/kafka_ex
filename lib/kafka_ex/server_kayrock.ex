@@ -306,7 +306,7 @@ defmodule KafkaEx.ServerKayrock do
         Adapter.metadata_response(state.cluster_metadata)
       )
 
-    {topic, partition, request} = Adapter.produce_request(produce_request)
+    {request, topic, partition} = Adapter.produce_request(produce_request)
 
     {response, updated_state} =
       kayrock_network_request(
@@ -317,6 +317,7 @@ defmodule KafkaEx.ServerKayrock do
 
     response =
       case response do
+        {:ok, :ok} -> {:ok, :ok}
         {:ok, val} -> {:ok, Adapter.produce_response(val)}
         _ -> response
       end
@@ -342,7 +343,7 @@ defmodule KafkaEx.ServerKayrock do
     allow_auto_topic_creation = state.allow_auto_topic_creation
 
     true = consumer_group_if_auto_commit?(fetch_request.auto_commit, state)
-    {topic, partition, request} = Adapter.fetch_request(fetch_request)
+    {request, topic, partition} = Adapter.fetch_request(fetch_request)
 
     {response, updated_state} =
       kayrock_network_request(
