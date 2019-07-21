@@ -10,94 +10,7 @@ defmodule KafkaEx.ServerKayrock do
   alias KafkaEx.New.Broker
   alias KafkaEx.New.ClusterMetadata
 
-  defmodule State do
-    @moduledoc false
-
-    alias KafkaEx.New.ClusterMetadata
-
-    defstruct(
-      cluster_metadata: %ClusterMetadata{},
-      event_pid: nil,
-      correlation_id: 0,
-      consumer_group_for_auto_commit: nil,
-      metadata_update_interval: nil,
-      consumer_group_update_interval: nil,
-      worker_name: KafkaEx.Server,
-      ssl_options: [],
-      use_ssl: false,
-      api_versions: %{},
-      allow_auto_topic_creation: true
-    )
-
-    @type t :: %__MODULE__{}
-
-    @spec increment_correlation_id(t) :: t
-    def increment_correlation_id(%State{correlation_id: cid} = state) do
-      %{state | correlation_id: cid + 1}
-    end
-
-    require Logger
-
-    def select_broker(
-          %State{cluster_metadata: cluster_metadata},
-          selector
-        ) do
-      with {:ok, node_id} <-
-             ClusterMetadata.select_node(cluster_metadata, selector),
-           broker <-
-             ClusterMetadata.broker_by_node_id(cluster_metadata, node_id) do
-        {:ok, broker}
-      else
-        err -> err
-      end
-    end
-
-    def update_brokers(%State{cluster_metadata: cluster_metadata} = state, cb)
-        when is_function(cb, 1) do
-      %{
-        state
-        | cluster_metadata: ClusterMetadata.update_brokers(cluster_metadata, cb)
-      }
-    end
-
-    def put_consumer_group_coordinator(
-          %State{cluster_metadata: cluster_metadata} = state,
-          consumer_group,
-          coordinator_node_id
-        ) do
-      %{
-        state
-        | cluster_metadata:
-            ClusterMetadata.put_consumer_group_coordinator(
-              cluster_metadata,
-              consumer_group,
-              coordinator_node_id
-            )
-      }
-    end
-
-    def remove_topics(
-          %State{cluster_metadata: cluster_metadata} = state,
-          topics
-        ) do
-      %{
-        state
-        | cluster_metadata:
-            ClusterMetadata.remove_topics(cluster_metadata, topics)
-      }
-    end
-
-    def topics_metadata(
-          %State{cluster_metadata: cluster_metadata},
-          wanted_topics
-        ) do
-      ClusterMetadata.topics_metadata(cluster_metadata, wanted_topics)
-    end
-
-    def brokers(%State{cluster_metadata: cluster_metadata}) do
-      ClusterMetadata.brokers(cluster_metadata)
-    end
-  end
+  alias KafkaEx.ServerKayrock.State
 
   use GenServer
 
@@ -586,10 +499,6 @@ defmodule KafkaEx.ServerKayrock do
         "reason: #{inspect(reason)}"
     )
 
-    if state.event_pid do
-      :gen_event.stop(state.event_pid)
-    end
-
     Enum.each(State.brokers(state), fn broker ->
       NetworkClient.close_socket(broker.socket)
     end)
@@ -870,7 +779,7 @@ defmodule KafkaEx.ServerKayrock do
   end
 
   defp first_broker_response(request, brokers, timeout) do
-    Enum.find_value(brokers, fn {_node_id, broker} ->
+    Enum.find_value(brokers, fn broker ->
       if Broker.connected?(broker) do
         try_broker(broker, request, timeout)
       end
@@ -956,8 +865,7 @@ defmodule KafkaEx.ServerKayrock do
           )
 
         Logger.debug(fn -> "RECV: " <> inspect(response, limit: :infinity) end)
-        state_out = %{updated_state | correlation_id: state.correlation_id + 1}
-        {response, state_out}
+        {response, State.increment_correlation_id(updated_state)}
     end
   end
 
@@ -987,7 +895,7 @@ defmodule KafkaEx.ServerKayrock do
     {fn wire_request ->
        first_broker_response(
          wire_request,
-         state.cluster_metadata.brokers,
+         State.brokers(state),
          network_timeout
        )
      end, state}

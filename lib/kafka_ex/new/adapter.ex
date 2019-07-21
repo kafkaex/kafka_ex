@@ -2,8 +2,8 @@ defmodule KafkaEx.New.Adapter do
   @moduledoc false
   # this should not be considered part of the public API
 
-  # Code that converts old-style KafkaEx request structures to and from Kayrock
-  # structures
+  # Code that converts old-style KafkaEx request/response structures to and
+  # from Kayrock structures
 
   # No new code should rely on this code.  This should only be around to support
   # the compatibility mode during transition to the new API.
