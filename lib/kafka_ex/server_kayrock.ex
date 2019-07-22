@@ -6,7 +6,6 @@ defmodule KafkaEx.ServerKayrock do
   alias KafkaEx.NetworkClient
 
   alias KafkaEx.New.Adapter
-  alias KafkaEx.New.ApiVersions
   alias KafkaEx.New.Broker
   alias KafkaEx.New.ClusterMetadata
 
@@ -132,8 +131,7 @@ defmodule KafkaEx.ServerKayrock do
 
     :no_error = Kayrock.ErrorCode.code_to_atom(api_versions.error_code)
 
-    api_versions = ApiVersions.from_response(api_versions)
-    state = %{state | api_versions: api_versions}
+    state = State.ingest_api_versions(state, api_versions)
 
     state =
       try do
@@ -595,8 +593,7 @@ defmodule KafkaEx.ServerKayrock do
       ) do
     # default to version 4 of the metdata protocol because this one treats an
     # empty list of topics as 'no topics'.  note this limits us to kafka 0.11+
-    api_version =
-      ApiVersions.max_supported_version(state.api_versions, :metadata, 4)
+    api_version = State.max_supported_api_version(state, :metadata, 4)
 
     retrieve_metadata_with_version(
       state,
