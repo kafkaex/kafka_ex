@@ -20,7 +20,6 @@ defmodule KafkaEx.ServerKayrock.State do
 
   @type t :: %__MODULE__{}
 
-  @spec increment_correlation_id(t) :: t
   def increment_correlation_id(%__MODULE__{correlation_id: cid} = state) do
     %{state | correlation_id: cid + 1}
   end
