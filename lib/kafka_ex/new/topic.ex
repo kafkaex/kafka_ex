@@ -8,6 +8,8 @@ defmodule KafkaEx.New.Topic do
             is_internal: false,
             partitions: []
 
+  @type t :: %__MODULE__{}
+
   def from_topic_metadata(%{
         topic: name,
         partition_metadata: partition_metadata,

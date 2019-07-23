@@ -5,6 +5,11 @@ defmodule KafkaEx.New.KafkaExAPI do
 
   require Logger
 
+  @type node_id :: non_neg_integer
+  @type topic_name :: binary
+  @type partition_id :: non_neg_integer
+  @type consumer_group_name :: binary
+
   def latest_offset(client, topic, partition) do
     request = %Kayrock.ListOffsets.V1.Request{
       replica_id: -1,

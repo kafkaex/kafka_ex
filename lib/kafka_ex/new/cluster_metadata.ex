@@ -1,29 +1,92 @@
 defmodule KafkaEx.New.ClusterMetadata do
   @moduledoc """
   Encapsulates what we know about the state of a Kafka broker cluster
+
+  This module is mainly used internally in ServerKayrock, but some of its
+  functions may be useful for extracting metadata information
   """
+
+  alias KafkaEx.New.Broker
+  alias KafkaEx.New.Topic
+  alias KafkaEx.New.KafkaExAPI
 
   defstruct brokers: %{},
             controller_id: nil,
             topics: %{},
             consumer_group_coordinators: %{}
 
-  @type t :: %__MODULE__{}
+  @type t :: %__MODULE__{
+          brokers: %{KafkaExAPI.node_id() => Broker.t()},
+          controller_id: KafkaExAPI.node_id(),
+          topics: %{KafkaExAPI.topic_name() => Topic.t()},
+          consumer_group_coordinators: %{
+            KafkaExAPI.consumer_group_name() => KafkaExAPI.node_id()
+          }
+        }
 
-  alias KafkaEx.New.Broker
-  alias KafkaEx.New.Topic
+  @typedoc """
+  Specifies for selecting a node in `select_node/2`
 
+  Selectors:
+
+    * `KafkaExAPI.node_id()` - A specific node (verifies that we know about the node)
+    * `:controller` - The cluster's controller node id
+    * `:random` - Selects a randon node
+    * `{:topic_partition, topic_name, partition_id}` - The controller for a
+      given partition
+    * `{:consumer_group, consumer_group_name}` - the controller for a given
+      consumer group
+  """
   @type node_selector ::
-          :controller
+          KafkaExAPI.node_id()
+          | :controller
           | :random
-          | {:topic_partition, binary, integer}
-          | {:consumer_group, binary}
-  @type node_select_error :: :no_such_node | :no_such_topic | :no_such_partition
+          | {:topic_partition, KafkaExAPI.topic_name(),
+             KafkaExAPI.partition_id()}
+          | {:consumer_group, KafkaExAPI.consumer_group_name()}
+  @typedoc """
+  Possible errors given by `select_node/2`
+  """
+  @type node_select_error ::
+          :no_such_node
+          | :no_such_topic
+          | :no_such_partition
+          | :no_such_consumer_group
 
+  @doc """
+  List names of topics known by the cluster metadata
+
+  NOTE this is a subset of the topics in the cluster - it will only contain
+  topics for which we have fetched metadata
+  """
+  @spec known_topics(t) :: [KafkaExAPI.topic_name()]
   def known_topics(%__MODULE__{topics: topics}), do: Map.keys(topics)
 
+  @doc """
+  Return the metadata for the given topics
+  """
+  @spec topics_metadata(t, [KafkaExAPI.topic_name()]) :: [Topic.t()]
+  def topics_metadata(%__MODULE__{topics: topics}, wanted_topics) do
+    topics
+    |> Map.take(wanted_topics)
+    |> Map.values()
+  end
+
+  @doc """
+  Return a list of the known brokers
+  """
+  @spec brokers(t) :: [Broker.t()]
+  def brokers(%__MODULE__{brokers: brokers}), do: Map.values(brokers)
+
+  @doc """
+  Find the node id for a given selector
+
+  Note this will not update the metadata, only select a node given the current metadata.
+
+  See `t:node_selector/0`
+  """
   @spec select_node(t, node_selector) ::
-          {:ok, Kayrock.node_id()} | {:error, node_select_error}
+          {:ok, KafkaExAPI.node_id()} | {:error, node_select_error}
   def select_node(
         %__MODULE__{controller_id: controller_id} = cluster_metadata,
         :controller
@@ -73,6 +136,13 @@ defmodule KafkaEx.New.ClusterMetadata do
     end
   end
 
+  @doc """
+  Constructs a `t:t/0` from a `Kayrock.Metadata.V1.Response` struct.
+
+  The `V1` here is a minimum - this should work with higher versions of the
+  metadata response struct.
+  """
+  @spec from_metadata_v1_response(map) :: t
   def from_metadata_v1_response(metadata) do
     brokers =
       metadata.brokers
@@ -103,8 +173,13 @@ defmodule KafkaEx.New.ClusterMetadata do
     }
   end
 
-  require Logger
-
+  @doc false
+  # Merge two sets of cluster metadata wrt their brokers.  Returns the merged
+  # metadata and a list of brokers that should have their connections closed
+  # because they are not present in the new metadata
+  #
+  # should not be used externally
+  @spec merge_brokers(t, t) :: {t, [Broker.t()]}
   def merge_brokers(
         %__MODULE__{} = old_cluster_metadata,
         %__MODULE__{} = new_cluster_metadata
@@ -132,31 +207,21 @@ defmodule KafkaEx.New.ClusterMetadata do
         end)
       end)
 
-    Logger.debug(
-      "MERGED BROKERS #{inspect(new_brokers)}, " <>
-        "TO CLOSE: #{inspect(brokers_to_close)}"
-    )
-
     {%{new_cluster_metadata | brokers: new_brokers}, brokers_to_close}
   end
 
+  @doc """
+  Returns a `t:Broker.t/0` for the given `t:KafkaExAPI.node_id/0` or `nil` if
+  there is no known broker with that node id
+  """
+  @spec broker_by_node_id(t, KafkaExAPI.node_id()) :: Broker.t()
   def broker_by_node_id(%__MODULE__{brokers: brokers}, node_id) do
     Map.get(brokers, node_id)
   end
 
-  def get_and_update_broker(
-        %__MODULE__{brokers: brokers} = cluster_metadata,
-        node_id,
-        cb
-      )
-      when is_function(cb, 1) do
-    broker = broker_by_node_id(cluster_metadata, node_id)
-    {val, updated_broker} = cb.(broker)
-
-    {val,
-     %{cluster_metadata | brokers: Map.put(brokers, node_id, updated_broker)}}
-  end
-
+  @doc false
+  # execute an update callback on each broker
+  @spec update_brokers(t, (Broker.t() -> Broker.t())) :: t
   def update_brokers(%__MODULE__{brokers: brokers} = cluster_metadata, cb)
       when is_function(cb, 1) do
     updated_brokers =
@@ -167,6 +232,13 @@ defmodule KafkaEx.New.ClusterMetadata do
     %{cluster_metadata | brokers: updated_brokers}
   end
 
+  @doc false
+  # update a consumer group coordinator node id
+  @spec put_consumer_group_coordinator(
+          t,
+          KafkaExAPI.consumer_group_name(),
+          KafkaExAPI.node_id()
+        ) :: t
   def put_consumer_group_coordinator(
         %__MODULE__{consumer_group_coordinators: consumer_group_coordinators} =
           cluster_metadata,
@@ -184,18 +256,13 @@ defmodule KafkaEx.New.ClusterMetadata do
     }
   end
 
+  @doc false
+  # remove the given topics (e.g., when they are deleted)
+  @spec remove_topics(t, [KafkaExAPI.topic_name()]) :: t
   def remove_topics(
         %__MODULE__{topics: topics} = cluster_metadata,
         topics_to_remove
       ) do
     %{cluster_metadata | topics: Map.drop(topics, topics_to_remove)}
   end
-
-  def topics_metadata(%__MODULE__{topics: topics}, wanted_topics) do
-    topics
-    |> Map.take(wanted_topics)
-    |> Map.values()
-  end
-
-  def brokers(%__MODULE__{brokers: brokers}), do: Map.values(brokers)
 end
