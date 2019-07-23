@@ -1,5 +1,7 @@
 defmodule KafkaEx.New.Topic do
-  @moduledoc false
+  @moduledoc """
+  Encapsulates what we know about a topic
+  """
 
   alias KafkaEx.New.Partition
 
@@ -10,6 +12,7 @@ defmodule KafkaEx.New.Topic do
 
   @type t :: %__MODULE__{}
 
+  @doc false
   def from_topic_metadata(%{
         topic: name,
         partition_metadata: partition_metadata,

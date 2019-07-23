@@ -1,5 +1,7 @@
 defmodule KafkaEx.New.Broker do
-  @moduledoc false
+  @moduledoc """
+  Encapsulates what we know about a broker
+  """
 
   alias KafkaEx.Socket
 
@@ -12,8 +14,10 @@ defmodule KafkaEx.New.Broker do
 
   @type t :: %__MODULE__{}
 
+  @doc false
   def put_socket(%__MODULE__{} = broker, socket), do: %{broker | socket: socket}
 
+  @doc false
   def connected?(%__MODULE__{} = broker) do
     broker.socket != nil && Socket.open?(broker.socket)
   end
