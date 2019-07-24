@@ -6,6 +6,7 @@ defmodule KafkaEx.ServerKayrock.State do
   alias KafkaEx.New.ClusterMetadata
 
   defstruct(
+    bootstrap_uris: [],
     cluster_metadata: %ClusterMetadata{},
     correlation_id: 0,
     consumer_group_for_auto_commit: nil,
@@ -19,6 +20,34 @@ defmodule KafkaEx.ServerKayrock.State do
   )
 
   @type t :: %__MODULE__{}
+
+  @default_metadata_update_interval 30_000
+  @default_consumer_group_update_interval 30_000
+
+  # initialize static parts of the state from args
+  def static_init(args, worker_name) do
+    %__MODULE__{
+      bootstrap_uris: Keyword.get(args, :uris, []),
+      worker_name: worker_name,
+      metadata_update_interval:
+        Keyword.get(
+          args,
+          :metadata_update_interval,
+          @default_metadata_update_interval
+        ),
+      consumer_group_update_interval:
+        Keyword.get(
+          args,
+          :consumer_group_update_interval,
+          @default_consumer_group_update_interval
+        ),
+      allow_auto_topic_creation:
+        Keyword.get(args, :allow_auto_topic_creation, true),
+      use_ssl: Keyword.get(args, :use_ssl, false),
+      ssl_options: Keyword.get(args, :ssl_options, []),
+      consumer_group_for_auto_commit: Keyword.get(args, :consumer_group)
+    }
+  end
 
   def increment_correlation_id(%__MODULE__{correlation_id: cid} = state) do
     %{state | correlation_id: cid + 1}

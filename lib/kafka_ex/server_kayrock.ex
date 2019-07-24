@@ -21,10 +21,14 @@ defmodule KafkaEx.ServerKayrock do
 
   use GenServer
 
+  @type args :: [
+          KafkaEx.worker_setting() | {:allow_auto_topic_creation, boolean}
+        ]
+
   @doc """
   Start the server in a supervision tree
   """
-  @spec start_link(KafkaEx.worker_init(), atom) :: GenServer.on_start()
+  @spec start_link(args, atom) :: GenServer.on_start()
   def start_link(args, name \\ __MODULE__)
 
   def start_link(args, :no_name) do
@@ -64,60 +68,38 @@ defmodule KafkaEx.ServerKayrock do
   @default_call_timeout 5_000
   @client_id "kafka_ex"
   @retry_count 3
-  @metadata_update_interval 30_000
-  @consumer_group_update_interval 30_000
   @sync_timeout 1_000
 
   @impl true
   def init([args, name]) do
-    name = name || self()
-    uris = Keyword.get(args, :uris, [])
+    state = State.static_init(args, name || self())
 
-    metadata_update_interval =
-      Keyword.get(args, :metadata_update_interval, @metadata_update_interval)
-
-    consumer_group_update_interval =
-      Keyword.get(
-        args,
-        :consumer_group_update_interval,
-        @consumer_group_update_interval
-      )
-
-    allow_auto_topic_creation =
-      Keyword.get(args, :allow_auto_topic_creation, true)
-
-    use_ssl = Keyword.get(args, :use_ssl, false)
-    ssl_options = Keyword.get(args, :ssl_options, [])
+    unless KafkaEx.valid_consumer_group?(state.consumer_group_for_auto_commit) do
+      raise KafkaEx.InvalidConsumerGroupError,
+            state.consumer_group_for_auto_commit
+    end
 
     brokers =
-      Enum.into(Enum.with_index(uris), %{}, fn {{host, port}, ix} ->
+      state.bootstrap_uris
+      |> Enum.with_index()
+      |> Enum.into(%{}, fn {{host, port}, ix} ->
         {ix + 1,
          %Broker{
            host: host,
            port: port,
-           socket: NetworkClient.create_socket(host, port, ssl_options, use_ssl)
+           socket:
+             NetworkClient.create_socket(
+               host,
+               port,
+               state.ssl_options,
+               state.use_ssl
+             )
          }}
       end)
 
     check_brokers_sockets!(brokers)
 
-    consumer_group = Keyword.get(args, :consumer_group)
-
-    unless KafkaEx.valid_consumer_group?(consumer_group) do
-      raise KafkaEx.InvalidConsumerGroupError, consumer_group
-    end
-
-    state = %State{
-      metadata_update_interval: metadata_update_interval,
-      consumer_group_update_interval: consumer_group_update_interval,
-      consumer_group_for_auto_commit: consumer_group,
-      worker_name: name,
-      ssl_options: ssl_options,
-      use_ssl: use_ssl,
-      api_versions: %{},
-      cluster_metadata: %ClusterMetadata{brokers: brokers},
-      allow_auto_topic_creation: allow_auto_topic_creation
-    }
+    state = %{state | cluster_metadata: %ClusterMetadata{brokers: brokers}}
 
     {ok_or_err, api_versions, state} = get_api_versions(state)
 
@@ -186,6 +168,28 @@ defmodule KafkaEx.ServerKayrock do
      %{updated_state | allow_auto_topic_creation: allow_auto_topic_creation}}
   end
 
+  def handle_call({:kayrock_request, request, node_selector}, _from, state) do
+    {response, updated_state} =
+      kayrock_network_request(request, node_selector, state)
+
+    {:reply, response, updated_state}
+  end
+
+  def handle_call({:metadata, topic}, _from, state) do
+    updated_state = update_metadata(state, [topic])
+
+    {:reply, Adapter.metadata_response(updated_state.cluster_metadata),
+     updated_state}
+  end
+
+  ######################################################################
+  # compatibility handle_call messages
+  #
+  # these all follow the same basic pattern of accepting a message in the format
+  # that is expected from the legacy KafkaEx API, using `Adapter` to adapt that
+  # request to the format matching the actual Kafka API, performing the request,
+  # and then using `Adapter` to map back to the format that the legacy KafkaEx
+  # API expects to return to the user
   def handle_call({:offset, topic, partition, time}, _from, state) do
     request = Adapter.list_offsets_request(topic, partition, time)
 
@@ -232,20 +236,6 @@ defmodule KafkaEx.ServerKayrock do
       end
 
     {:reply, response, updated_state}
-  end
-
-  def handle_call({:kayrock_request, request, node_selector}, _from, state) do
-    {response, updated_state} =
-      kayrock_network_request(request, node_selector, state)
-
-    {:reply, response, updated_state}
-  end
-
-  def handle_call({:metadata, topic}, _from, state) do
-    updated_state = update_metadata(state, [topic])
-
-    {:reply, Adapter.metadata_response(updated_state.cluster_metadata),
-     updated_state}
   end
 
   def handle_call({:fetch, fetch_request}, _from, state) do
@@ -483,6 +473,8 @@ defmodule KafkaEx.ServerKayrock do
 
     {:reply, response, updated_state}
   end
+
+  ######################################################################
 
   @impl true
   def handle_info(:update_metadata, state) do
