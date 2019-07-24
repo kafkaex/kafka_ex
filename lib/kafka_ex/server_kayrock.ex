@@ -1,6 +1,14 @@
 defmodule KafkaEx.ServerKayrock do
   @moduledoc """
-  Defines the KafkaEx.Server behavior that all Kafka API servers must implement, this module also provides some common callback functions that are injected into the servers that `use` it.
+  Kayrock-compatible KafkaEx.Server implementation
+
+  This implementation attemps to keep as much Kafka 'business logic' as possible
+  out of the server implementation, with the motivation that this should make
+  the client easier to maintain as the Kafka protocol evolves.
+
+  This implementation does, however, include implementations of all of the
+  legacy KafkaEx.Server `handle_call` clauses so that it can be compatible with
+  the legacy KafkaEx API.
   """
 
   alias KafkaEx.NetworkClient
@@ -13,67 +21,56 @@ defmodule KafkaEx.ServerKayrock do
 
   use GenServer
 
-  # Default from GenServer
-  @default_call_timeout 5_000
-
+  @doc """
+  Start the server in a supervision tree
+  """
+  @spec start_link(KafkaEx.worker_init(), atom) :: GenServer.on_start()
   def start_link(args, name \\ __MODULE__)
 
   def start_link(args, :no_name) do
-    GenServer.start_link(__MODULE__, [args])
+    GenServer.start_link(__MODULE__, [args, nil])
   end
 
   def start_link(args, name) do
     GenServer.start_link(__MODULE__, [args, name], name: name)
   end
 
-  def kayrock_call(server, request, node_selector, opts \\ []) do
-    call(server, {:kayrock_request, request, node_selector}, opts)
+  @doc """
+  Make a
+  """
+  @spec kayrock_call(
+          KafkaEx.New.KafkaExAPI.client(),
+          map,
+          KafkaEx.New.ClusterMetadata.node_selector(),
+          pos_integer | nil
+        ) :: {:ok, term} | {:error, term}
+  def kayrock_call(
+        server,
+        request,
+        node_selector,
+        timeout \\ nil
+      ) do
+    GenServer.call(
+      server,
+      {:kayrock_request, request, node_selector},
+      timeout_val(timeout)
+    )
   end
 
-  @doc false
-  @spec call(
-          GenServer.server(),
-          atom | tuple,
-          nil | number | (opts :: Keyword.t())
-        ) :: term
-  def call(server, request, opts \\ [])
-
-  def call(server, request, opts) when is_list(opts) do
-    call(server, request, opts[:timeout])
-  end
-
-  def call(server, request, nil) do
-    # If using the configured sync_timeout that is less than the default
-    # GenServer.call timeout, use the larger value unless explicitly set
-    # using opts[:timeout].
-    timeout =
-      max(
-        @default_call_timeout,
-        Application.get_env(:kafka_ex, :sync_timeout, @default_call_timeout)
-      )
-
-    call(server, request, timeout)
-  end
-
-  def call(server, request, timeout) when is_integer(timeout) do
-    GenServer.call(server, request, timeout)
-  end
-
-  # credo:disable-for-next-line Credo.Check.Refactor.LongQuoteBlocks
   require Logger
   alias KafkaEx.NetworkClient
 
+  # Default from GenServer
+  @default_call_timeout 5_000
   @client_id "kafka_ex"
   @retry_count 3
   @metadata_update_interval 30_000
   @consumer_group_update_interval 30_000
   @sync_timeout 1_000
 
-  def init([args]) do
-    init([args, self()])
-  end
-
+  @impl true
   def init([args, name]) do
+    name = name || self()
     uris = Keyword.get(args, :uris, [])
 
     metadata_update_interval =
@@ -148,6 +145,7 @@ defmodule KafkaEx.ServerKayrock do
     {:ok, state}
   end
 
+  @impl true
   def handle_call(:cluster_metadata, _from, state) do
     {:reply, {:ok, state.cluster_metadata}, state}
   end
@@ -486,10 +484,12 @@ defmodule KafkaEx.ServerKayrock do
     {:reply, response, updated_state}
   end
 
+  @impl true
   def handle_info(:update_metadata, state) do
     {:noreply, update_metadata(state)}
   end
 
+  @impl true
   def terminate(reason, state) do
     Logger.log(
       :debug,
@@ -502,7 +502,7 @@ defmodule KafkaEx.ServerKayrock do
     end)
   end
 
-  def update_metadata(state, topics \\ []) do
+  defp update_metadata(state, topics \\ []) do
     # make sure we update metadata about known topics
     known_topics = ClusterMetadata.known_topics(state.cluster_metadata)
     topics = Enum.uniq(known_topics ++ topics)
@@ -568,12 +568,11 @@ defmodule KafkaEx.ServerKayrock do
     end
   end
 
-  # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
-  def retrieve_metadata(
-        state,
-        sync_timeout,
-        topics \\ []
-      ) do
+  defp retrieve_metadata(
+         state,
+         sync_timeout,
+         topics
+       ) do
     retrieve_metadata(
       state,
       sync_timeout,
@@ -583,37 +582,13 @@ defmodule KafkaEx.ServerKayrock do
     )
   end
 
-  # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
-  def retrieve_metadata(
-        state,
-        sync_timeout,
-        topics,
-        retry,
-        error_code
-      ) do
-    # default to version 4 of the metdata protocol because this one treats an
-    # empty list of topics as 'no topics'.  note this limits us to kafka 0.11+
-    api_version = State.max_supported_api_version(state, :metadata, 4)
-
-    retrieve_metadata_with_version(
-      state,
-      sync_timeout,
-      topics,
-      retry,
-      error_code,
-      api_version
-    )
-  end
-
-  # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
-  def retrieve_metadata_with_version(
-        state,
-        _sync_timeout,
-        topics,
-        0,
-        error_code,
-        _api_version
-      ) do
+  defp retrieve_metadata(
+         state,
+         _sync_timeout,
+         topics,
+         0,
+         error_code
+       ) do
     Logger.log(
       :error,
       "Metadata request for topics #{inspect(topics)} failed " <>
@@ -623,15 +598,17 @@ defmodule KafkaEx.ServerKayrock do
     {state, nil}
   end
 
-  # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
-  def retrieve_metadata_with_version(
-        state,
-        sync_timeout,
-        topics,
-        retry,
-        _error_code,
-        api_version
-      ) do
+  defp retrieve_metadata(
+         state,
+         sync_timeout,
+         topics,
+         retry,
+         _error_code
+       ) do
+    # default to version 4 of the metdata protocol because this one treats an
+    # empty list of topics as 'no topics'.  note this limits us to kafka 0.11+
+    api_version = State.max_supported_api_version(state, :metadata, 4)
+
     metadata_request = %{
       Kayrock.Metadata.get_request_struct(api_version)
       | topics: topics,
@@ -656,13 +633,12 @@ defmodule KafkaEx.ServerKayrock do
           topic_metadata ->
             :timer.sleep(300)
 
-            retrieve_metadata_with_version(
+            retrieve_metadata(
               state,
               sync_timeout,
               topics,
               retry - 1,
-              topic_metadata.error_code,
-              api_version
+              topic_metadata.error_code
             )
         end
 
@@ -744,7 +720,7 @@ defmodule KafkaEx.ServerKayrock do
     end
   end
 
-  def update_consumer_group_coordinator(state, consumer_group) do
+  defp update_consumer_group_coordinator(state, consumer_group) do
     request = %Kayrock.FindCoordinator.V1.Request{
       coordinator_key: consumer_group,
       coordinator_type: 0
@@ -796,6 +772,12 @@ defmodule KafkaEx.ServerKayrock do
     end
   end
 
+  defp timeout_val(nil) do
+    Application.get_env(:kafka_ex, :sync_timeout, @default_call_timeout)
+  end
+
+  defp timeout_val(timeout) when is_integer(timeout), do: timeout
+
   defp config_sync_timeout(timeout \\ nil) do
     timeout || Application.get_env(:kafka_ex, :sync_timeout, @sync_timeout)
   end
@@ -804,19 +786,19 @@ defmodule KafkaEx.ServerKayrock do
     Application.get_env(:kafka_ex, :partitioner, KafkaEx.DefaultPartitioner)
   end
 
-  def consumer_group_if_auto_commit?(true, state), do: consumer_group?(state)
-  def consumer_group_if_auto_commit?(false, _state), do: true
+  defp consumer_group_if_auto_commit?(true, state), do: consumer_group?(state)
+  defp consumer_group_if_auto_commit?(false, _state), do: true
 
   # note within the genserver state, we've already validated the
   # consumer group, so it can only be either :no_consumer_group or a
   # valid binary consumer group name
-  def consumer_group?(%State{consumer_group_for_auto_commit: :no_consumer_group}) do
+  defp consumer_group?(%State{
+         consumer_group_for_auto_commit: :no_consumer_group
+       }) do
     false
   end
 
-  def consumer_group?(_), do: true
-
-  ##### NEW CODE
+  defp consumer_group?(_), do: true
 
   defp get_api_versions(state, request_version \\ 0) do
     request = Kayrock.ApiVersions.get_request_struct(request_version)

@@ -20,13 +20,13 @@ defmodule KafkaEx.ServerKayrock.Test do
   end
 
   test "update metadata", %{client: client} do
-    {:ok, updated_metadata} = ServerKayrock.call(client, :update_metadata)
+    {:ok, updated_metadata} = GenServer.call(client, :update_metadata)
     %ClusterMetadata{topics: topics} = updated_metadata
     # we don't fetch any topics on startup
     assert topics == %{}
 
     {:ok, [topic_metadata]} =
-      ServerKayrock.call(client, {:topic_metadata, ["test0p8p0"], false})
+      GenServer.call(client, {:topic_metadata, ["test0p8p0"], false})
 
     assert %Topic{name: "test0p8p0"} = topic_metadata
   end
