@@ -668,17 +668,14 @@ defmodule KafkaEx.ServerKayrock do
     }
   end
 
-  # gets the broker for a given partition, updating metadata if necessary
-  # returns {broker, maybe_updated_state}
-  defp broker_for_partition_with_update(state, topic, partition) do
-    case State.select_broker(state, {:topic_partition, topic, partition}) do
+  # select a broker, updating state if necessary (e.g., metadata or consumer group)
+  # returns {broker, maybe_updated_state} - broker will be nil in case of failure
+  defp select_broker_with_update(state, selector, state_updater) do
+    case State.select_broker(state, selector) do
       {:error, _} ->
-        updated_state = update_metadata(state, [topic])
+        updated_state = state_updater.(state)
 
-        case State.select_broker(
-               updated_state,
-               {:topic_partition, topic, partition}
-             ) do
+        case State.select_broker(updated_state, selector) do
           {:error, _} ->
             {nil, updated_state}
 
@@ -691,25 +688,20 @@ defmodule KafkaEx.ServerKayrock do
     end
   end
 
+  defp broker_for_partition_with_update(state, topic, partition) do
+    select_broker_with_update(
+      state,
+      {:topic_partition, topic, partition},
+      &update_metadata(&1, [topic])
+    )
+  end
+
   defp broker_for_consumer_group_with_update(state, consumer_group) do
-    case State.select_broker(state, {:consumer_group, consumer_group}) do
-      {:error, _} ->
-        updated_state = update_consumer_group_coordinator(state, consumer_group)
-
-        case State.select_broker(
-               updated_state,
-               {:consumer_group, consumer_group}
-             ) do
-          {:error, _} ->
-            {nil, updated_state}
-
-          {:ok, broker} ->
-            {broker, updated_state}
-        end
-
-      {:ok, broker} ->
-        {broker, state}
-    end
+    select_broker_with_update(
+      state,
+      {:consumer_group, consumer_group},
+      &update_consumer_group_coordinator(&1, consumer_group)
+    )
   end
 
   defp update_consumer_group_coordinator(state, consumer_group) do
@@ -752,11 +744,9 @@ defmodule KafkaEx.ServerKayrock do
   end
 
   defp try_broker(broker, request, timeout) do
-    Logger.debug(fn -> "SENDING TO #{inspect(broker)}" end)
-
     case NetworkClient.send_sync_request(broker, request, timeout) do
       {:error, error} ->
-        Logger.debug(fn -> "GOT ERROR #{inspect(error)}" end)
+        Logger.warn("Network call resulted in error: #{inspect(error)}")
         nil
 
       response ->
@@ -825,9 +815,6 @@ defmodule KafkaEx.ServerKayrock do
         {{:error, :no_broker}, updated_state}
 
       _ ->
-        Logger.debug(fn -> "SEND: " <> inspect(request, limit: :infinity) end)
-        Logger.debug(fn -> inspect(updated_state) end)
-
         response =
           run_client_request(
             client_request(request, updated_state),
@@ -835,7 +822,6 @@ defmodule KafkaEx.ServerKayrock do
             synchronous
           )
 
-        Logger.debug(fn -> "RECV: " <> inspect(response, limit: :infinity) end)
         {response, State.increment_correlation_id(updated_state)}
     end
   end
