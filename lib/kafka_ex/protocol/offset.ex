@@ -44,6 +44,7 @@ defmodule KafkaEx.Protocol.Offset do
       ),
       do: parse_topics(num_topics, rest)
 
+  @spec parse_time(:latest | :earliest | :calendar.datetime()) :: integer
   def parse_time(:latest), do: -1
 
   def parse_time(:earliest), do: -2

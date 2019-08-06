@@ -2,7 +2,7 @@ defmodule KafkaEx.ServerKayrock do
   @moduledoc """
   Kayrock-compatible KafkaEx.Server implementation
 
-  This implementation attemps to keep as much Kafka 'business logic' as possible
+  This implementation attempts to keep as much Kafka 'business logic' as possible
   out of the server implementation, with the motivation that this should make
   the client easier to maintain as the Kafka protocol evolves.
 
