@@ -43,7 +43,7 @@ defmodule KafkaEx.ServerKayrock.Test do
       }
 
       {:ok, resp} =
-        ServerKayrock.kayrock_call(
+        ServerKayrock.send_request(
           client,
           request,
           {:topic_partition, topic, partition}
@@ -83,7 +83,7 @@ defmodule KafkaEx.ServerKayrock.Test do
     }
 
     {:ok, response} =
-      ServerKayrock.kayrock_call(
+      ServerKayrock.send_request(
         client,
         request,
         {:topic_partition, topic, partition}

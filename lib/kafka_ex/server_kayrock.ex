@@ -40,15 +40,17 @@ defmodule KafkaEx.ServerKayrock do
   end
 
   @doc """
-  Make a
+  Send a Kayrock request to the appropriate broker
+
+  Broker metadata will be updated if necessary
   """
-  @spec kayrock_call(
+  @spec send_request(
           KafkaEx.New.KafkaExAPI.client(),
           map,
           KafkaEx.New.ClusterMetadata.node_selector(),
           pos_integer | nil
         ) :: {:ok, term} | {:error, term}
-  def kayrock_call(
+  def send_request(
         server,
         request,
         node_selector,

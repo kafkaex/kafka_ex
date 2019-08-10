@@ -32,7 +32,7 @@ defmodule KafkaEx.New.KafkaExAPI do
     }
 
     {:ok, resp} =
-      ServerKayrock.kayrock_call(
+      ServerKayrock.send_request(
         client,
         request,
         {:topic_partition, topic, partition}
@@ -50,8 +50,10 @@ defmodule KafkaEx.New.KafkaExAPI do
   @doc """
   Get topic metadata for the given topics
 
-  Fetches metadata from the server if necessary.  Set allow_topic_creation to
-  true to allow the topics to be created if they don't exist
+  Always calls out to the broker to get the most up-to-date metadata (and
+  subsequently updates the client's state with the updated metadata). Set
+  allow_topic_creation to true to allow the topics to be created if they
+  don't exist
   """
   @spec topics_metadata(client, [topic_name], boolean) :: {:ok, [Topic.t()]}
   def topics_metadata(client, topics, allow_topic_creation \\ false) do
