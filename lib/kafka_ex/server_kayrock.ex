@@ -627,14 +627,12 @@ defmodule KafkaEx.ServerKayrock do
 
     case ok_or_err do
       :ok ->
-        # THIS WILL PROBABLY NOT WORK
         case Enum.find(
                response.topic_metadata,
                &(&1.error_code ==
                    Kayrock.ErrorCode.atom_to_code!(:leader_not_available))
              ) do
           nil ->
-            # HERE update state
             {state_out, response}
 
           topic_metadata ->
