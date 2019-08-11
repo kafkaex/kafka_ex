@@ -44,7 +44,7 @@ defmodule KafkaEx.New.Client.Test do
       }
 
       {:ok, resp} =
-        New.Client.send_request(
+        Client.send_request(
           client,
           request,
           NodeSelector.topic_partition(topic, partition)
@@ -84,7 +84,7 @@ defmodule KafkaEx.New.Client.Test do
     }
 
     {:ok, response} =
-      New.Client.send_request(
+      Client.send_request(
         client,
         request,
         NodeSelector.topic_partition(topic, partition)
