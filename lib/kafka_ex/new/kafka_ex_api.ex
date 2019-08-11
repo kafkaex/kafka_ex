@@ -8,6 +8,7 @@ defmodule KafkaEx.New.KafkaExAPI do
   alias KafkaEx.ServerKayrock
   alias KafkaEx.New.ClusterMetadata
   alias KafkaEx.New.Topic
+  alias KafkaEx.New.NodeSelector
 
   @type node_id :: non_neg_integer
   @type topic_name :: binary
@@ -35,7 +36,7 @@ defmodule KafkaEx.New.KafkaExAPI do
       ServerKayrock.send_request(
         client,
         request,
-        {:topic_partition, topic, partition}
+        NodeSelector.topic_partition(topic, partition)
       )
 
     [topic_resp] = resp.responses

@@ -9,6 +9,7 @@ defmodule KafkaEx.New.ClusterMetadata do
   alias KafkaEx.New.Broker
   alias KafkaEx.New.Topic
   alias KafkaEx.New.KafkaExAPI
+  alias KafkaEx.New.NodeSelector
 
   defstruct brokers: %{},
             controller_id: nil,
@@ -24,26 +25,6 @@ defmodule KafkaEx.New.ClusterMetadata do
           }
         }
 
-  @typedoc """
-  Specifies for selecting a node in `select_node/2`
-
-  Selectors:
-
-    * `KafkaExAPI.node_id()` - A specific node (verifies that we know about the node)
-    * `:controller` - The cluster's controller node id
-    * `:random` - Selects a randon node
-    * `{:topic_partition, topic_name, partition_id}` - The controller for a
-      given partition
-    * `{:consumer_group, consumer_group_name}` - the controller for a given
-      consumer group
-  """
-  @type node_selector ::
-          KafkaExAPI.node_id()
-          | :controller
-          | :random
-          | {:topic_partition, KafkaExAPI.topic_name(),
-             KafkaExAPI.partition_id()}
-          | {:consumer_group, KafkaExAPI.consumer_group_name()}
   @typedoc """
   Possible errors given by `select_node/2`
   """
@@ -83,25 +64,34 @@ defmodule KafkaEx.New.ClusterMetadata do
 
   Note this will not update the metadata, only select a node given the current metadata.
 
-  See `t:node_selector/0`
+  See `t:KafkaEx.New.NodeSelector.t/0`
   """
-  @spec select_node(t, node_selector) ::
+  @spec select_node(t, NodeSelector.t()) ::
           {:ok, KafkaExAPI.node_id()} | {:error, node_select_error}
   def select_node(
         %__MODULE__{controller_id: controller_id} = cluster_metadata,
-        :controller
+        %NodeSelector{strategy: :controller}
       ) do
-    select_node(cluster_metadata, controller_id)
+    select_node(cluster_metadata, NodeSelector.node_id(controller_id))
   end
 
-  def select_node(%__MODULE__{brokers: brokers}, :random) do
+  def select_node(
+        %__MODULE__{brokers: brokers},
+        %NodeSelector{
+          strategy: :random
+        }
+      ) do
     [node_id] = Enum.take_random(Map.keys(brokers), 1)
     {:ok, node_id}
   end
 
   def select_node(
         %__MODULE__{} = cluster_metadata,
-        {:topic_partition, topic, partition}
+        %NodeSelector{
+          strategy: :topic_partition,
+          topic: topic,
+          partition: partition
+        }
       ) do
     case Map.fetch(cluster_metadata.topics, topic) do
       :error ->
@@ -117,7 +107,10 @@ defmodule KafkaEx.New.ClusterMetadata do
 
   def select_node(
         %__MODULE__{} = cluster_metadata,
-        {:consumer_group, consumer_group}
+        %NodeSelector{
+          strategy: :consumer_group,
+          consumer_group_name: consumer_group
+        }
       ) do
     case Map.fetch(cluster_metadata.consumer_group_coordinators, consumer_group) do
       :error ->
@@ -128,7 +121,13 @@ defmodule KafkaEx.New.ClusterMetadata do
     end
   end
 
-  def select_node(%__MODULE__{} = cluster_metadata, node_id)
+  def select_node(
+        %__MODULE__{} = cluster_metadata,
+        %NodeSelector{
+          strategy: :node_id,
+          node_id: node_id
+        }
+      )
       when is_integer(node_id) do
     case Map.fetch(cluster_metadata.brokers, node_id) do
       {:ok, _broker} -> {:ok, node_id}

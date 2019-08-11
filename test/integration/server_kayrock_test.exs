@@ -6,6 +6,7 @@ defmodule KafkaEx.ServerKayrock.Test do
   alias KafkaEx.New.ClusterMetadata
   alias KafkaEx.New.KafkaExAPI
   alias KafkaEx.New.Topic
+  alias KafkaEx.New.NodeSelector
 
   alias Kayrock.RecordBatch
 
@@ -46,7 +47,7 @@ defmodule KafkaEx.ServerKayrock.Test do
         ServerKayrock.send_request(
           client,
           request,
-          {:topic_partition, topic, partition}
+          NodeSelector.topic_partition(topic, partition)
         )
 
       %Kayrock.ListOffsets.V1.Response{responses: responses} = resp
@@ -86,7 +87,7 @@ defmodule KafkaEx.ServerKayrock.Test do
       ServerKayrock.send_request(
         client,
         request,
-        {:topic_partition, topic, partition}
+        NodeSelector.topic_partition(topic, partition)
       )
 
     %Kayrock.Produce.V1.Response{responses: [topic_response]} = response

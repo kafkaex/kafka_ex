@@ -16,6 +16,7 @@ defmodule KafkaEx.ServerKayrock do
   alias KafkaEx.New.Adapter
   alias KafkaEx.New.Broker
   alias KafkaEx.New.ClusterMetadata
+  alias KafkaEx.New.NodeSelector
 
   alias KafkaEx.ServerKayrock.State
 
@@ -47,7 +48,7 @@ defmodule KafkaEx.ServerKayrock do
   @spec send_request(
           KafkaEx.New.KafkaExAPI.client(),
           map,
-          KafkaEx.New.ClusterMetadata.node_selector(),
+          KafkaEx.New.NodeSelector.t(),
           pos_integer | nil
         ) :: {:ok, term} | {:error, term}
   def send_request(
@@ -198,7 +199,7 @@ defmodule KafkaEx.ServerKayrock do
     {response, updated_state} =
       kayrock_network_request(
         request,
-        {:topic_partition, topic, partition},
+        NodeSelector.topic_partition(topic, partition),
         state
       )
 
@@ -226,7 +227,7 @@ defmodule KafkaEx.ServerKayrock do
     {response, updated_state} =
       kayrock_network_request(
         request,
-        {:topic_partition, topic, partition},
+        NodeSelector.topic_partition(topic, partition),
         state
       )
 
@@ -249,7 +250,7 @@ defmodule KafkaEx.ServerKayrock do
     {response, updated_state} =
       kayrock_network_request(
         request,
-        {:topic_partition, topic, partition},
+        NodeSelector.topic_partition(topic, partition),
         %{state | allow_auto_topic_creation: false}
       )
 
@@ -277,7 +278,7 @@ defmodule KafkaEx.ServerKayrock do
               {_, updated_state} =
                 kayrock_network_request(
                   commit_request,
-                  {:consumer_group, consumer_group},
+                  NodeSelector.consumer_group(consumer_group),
                   updated_state
                 )
 
@@ -306,7 +307,7 @@ defmodule KafkaEx.ServerKayrock do
     {response, updated_state} =
       kayrock_network_request(
         request,
-        {:consumer_group, consumer_group},
+        NodeSelector.consumer_group(consumer_group),
         state,
         sync_timeout
       )
@@ -327,7 +328,7 @@ defmodule KafkaEx.ServerKayrock do
     {response, updated_state} =
       kayrock_network_request(
         request,
-        {:consumer_group, consumer_group},
+        NodeSelector.consumer_group(consumer_group),
         state,
         sync_timeout
       )
@@ -348,7 +349,7 @@ defmodule KafkaEx.ServerKayrock do
     {response, updated_state} =
       kayrock_network_request(
         request,
-        {:consumer_group, consumer_group},
+        NodeSelector.consumer_group(consumer_group),
         state,
         sync_timeout
       )
@@ -369,7 +370,7 @@ defmodule KafkaEx.ServerKayrock do
     {response, updated_state} =
       kayrock_network_request(
         request,
-        {:consumer_group, consumer_group},
+        NodeSelector.consumer_group(consumer_group),
         state,
         sync_timeout
       )
@@ -391,7 +392,7 @@ defmodule KafkaEx.ServerKayrock do
       )
 
     {response, updated_state} =
-      kayrock_network_request(request, :controller, state)
+      kayrock_network_request(request, NodeSelector.controller(), state)
 
     case response do
       {:ok, resp} ->
@@ -410,7 +411,7 @@ defmodule KafkaEx.ServerKayrock do
       )
 
     {response, updated_state} =
-      kayrock_network_request(request, :controller, state)
+      kayrock_network_request(request, NodeSelector.controller(), state)
 
     case response do
       {:ok, resp} ->
@@ -442,7 +443,11 @@ defmodule KafkaEx.ServerKayrock do
       )
 
     {response, updated_state} =
-      kayrock_network_request(request, {:consumer_group, consumer_group}, state)
+      kayrock_network_request(
+        request,
+        NodeSelector.consumer_group(consumer_group),
+        state
+      )
 
     response =
       case response do
@@ -465,7 +470,11 @@ defmodule KafkaEx.ServerKayrock do
       )
 
     {response, updated_state} =
-      kayrock_network_request(request, {:consumer_group, consumer_group}, state)
+      kayrock_network_request(
+        request,
+        NodeSelector.consumer_group(consumer_group),
+        state
+      )
 
     response =
       case response do
@@ -610,7 +619,11 @@ defmodule KafkaEx.ServerKayrock do
     }
 
     {{ok_or_err, response}, state_out} =
-      kayrock_network_request(metadata_request, :any, state)
+      kayrock_network_request(
+        metadata_request,
+        NodeSelector.first_available(),
+        state
+      )
 
     case ok_or_err do
       :ok ->
@@ -671,7 +684,8 @@ defmodule KafkaEx.ServerKayrock do
   end
 
   # select a broker, updating state if necessary (e.g., metadata or consumer group)
-  # returns {broker, maybe_updated_state} - broker will be nil in case of failure
+  # returns {broker, maybe_updated_state} - broker will be nil in case of
+  # failure
   defp select_broker_with_update(state, selector, state_updater) do
     case State.select_broker(state, selector) do
       {:error, _} ->
@@ -693,7 +707,7 @@ defmodule KafkaEx.ServerKayrock do
   defp broker_for_partition_with_update(state, topic, partition) do
     select_broker_with_update(
       state,
-      {:topic_partition, topic, partition},
+      NodeSelector.topic_partition(topic, partition),
       &update_metadata(&1, [topic])
     )
   end
@@ -701,7 +715,7 @@ defmodule KafkaEx.ServerKayrock do
   defp broker_for_consumer_group_with_update(state, consumer_group) do
     select_broker_with_update(
       state,
-      {:consumer_group, consumer_group},
+      NodeSelector.consumer_group(consumer_group),
       &update_consumer_group_coordinator(&1, consumer_group)
     )
   end
@@ -712,7 +726,8 @@ defmodule KafkaEx.ServerKayrock do
       coordinator_type: 0
     }
 
-    {response, updated_state} = kayrock_network_request(request, :any, state)
+    {response, updated_state} =
+      kayrock_network_request(request, NodeSelector.first_available(), state)
 
     case response do
       {:ok,
@@ -788,7 +803,7 @@ defmodule KafkaEx.ServerKayrock do
     request = Kayrock.ApiVersions.get_request_struct(request_version)
 
     {{ok_or_error, response}, state_out} =
-      kayrock_network_request(request, :any, state)
+      kayrock_network_request(request, NodeSelector.first_available(), state)
 
     {ok_or_error, response, state_out}
   end
@@ -850,7 +865,12 @@ defmodule KafkaEx.ServerKayrock do
     end
   end
 
-  defp get_sender(:any, state, network_timeout, _synchronous) do
+  defp get_sender(
+         %NodeSelector{strategy: :first_available},
+         state,
+         network_timeout,
+         _synchronous
+       ) do
     {fn wire_request ->
        first_broker_response(
          wire_request,
@@ -860,8 +880,13 @@ defmodule KafkaEx.ServerKayrock do
      end, state}
   end
 
-  defp get_sender(:controller, state, network_timeout, _synchronous) do
-    {:ok, broker} = State.select_broker(state, :controller)
+  defp get_sender(
+         %NodeSelector{strategy: :controller},
+         state,
+         network_timeout,
+         _synchronous
+       ) do
+    {:ok, broker} = State.select_broker(state, NodeSelector.controller())
 
     {fn wire_request ->
        NetworkClient.send_sync_request(
@@ -873,7 +898,11 @@ defmodule KafkaEx.ServerKayrock do
   end
 
   defp get_sender(
-         {:topic_partition, topic, partition},
+         %NodeSelector{
+           strategy: :topic_partition,
+           topic: topic,
+           partition: partition
+         },
          state,
          network_timeout,
          synchronous
@@ -905,7 +934,10 @@ defmodule KafkaEx.ServerKayrock do
   end
 
   defp get_sender(
-         {:consumer_group, consumer_group},
+         %NodeSelector{
+           strategy: :consumer_group,
+           consumer_group_name: consumer_group
+         },
          state,
          network_timeout,
          _synchronous
