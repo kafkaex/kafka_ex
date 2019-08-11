@@ -20,7 +20,7 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupTest do
   setup do
     {:ok, args} = KafkaEx.build_worker_options([])
 
-    {:ok, pid} = New.Client.start_link(args, :no_name)
+    {:ok, pid} = Client.start_link(args, :no_name)
 
     {:ok, %{client: pid}}
   end
