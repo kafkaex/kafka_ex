@@ -7,9 +7,9 @@ defmodule KafkaEx.KayrockCompatibilityTest do
 
   use ExUnit.Case
 
-  @moduletag :server_kayrock
+  @moduletag :new_client
 
-  alias KafkaEx.ServerKayrock
+  alias KafkaEx.New.Client
   alias KafkaEx.Protocol, as: Proto
   alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
   alias KafkaEx.Protocol.Metadata.Broker
@@ -22,7 +22,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   setup do
     {:ok, args} = KafkaEx.build_worker_options([])
 
-    {:ok, pid} = ServerKayrock.start_link(args, :no_name)
+    {:ok, pid} = New.Client.start_link(args, :no_name)
 
     {:ok, %{client: pid}}
   end
@@ -31,14 +31,14 @@ defmodule KafkaEx.KayrockCompatibilityTest do
     uris = Application.get_env(:kafka_ex, :brokers) ++ [{"bad_host", 9000}]
     {:ok, args} = KafkaEx.build_worker_options(uris: uris)
 
-    {:ok, pid} = ServerKayrock.start_link(args, :no_name)
+    {:ok, pid} = New.Client.start_link(args, :no_name)
 
     assert Process.alive?(pid)
   end
 
   test "worker updates metadata after specified interval" do
     {:ok, args} = KafkaEx.build_worker_options(metadata_update_interval: 100)
-    {:ok, pid} = ServerKayrock.start_link(args, :no_name)
+    {:ok, pid} = New.Client.start_link(args, :no_name)
     previous_corr_id = KafkaExAPI.correlation_id(pid)
 
     :timer.sleep(105)

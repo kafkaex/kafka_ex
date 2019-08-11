@@ -9,7 +9,7 @@ defmodule KafkaEx.New.ClientCompatibility do
   alias KafkaEx.New.Adapter
   alias KafkaEx.New.NodeSelector
 
-  alias KafkaEx.ServerKayrock.State
+  alias KafkaEx.New.Client.State
 
   # it's a mixin module...
   # credo:disable-for-this-file Credo.Check.Refactor.LongQuoteBlocks

@@ -10,19 +10,19 @@ defmodule KafkaEx.KayrockCompatibility0p9p0Test do
 
   use ExUnit.Case
 
-  @moduletag :server_kayrock
+  @moduletag :new_client
 
   alias KafkaEx.Protocol.Heartbeat.Request, as: HeartbeatRequest
   alias KafkaEx.Protocol.JoinGroup.Request, as: JoinGroupRequest
   alias KafkaEx.Protocol.LeaveGroup.Request, as: LeaveGroupRequest
   alias KafkaEx.Protocol.SyncGroup.Request, as: SyncGroupRequest
 
-  alias KafkaEx.ServerKayrock
+  alias KafkaEx.New.Client
 
   setup do
     {:ok, args} = KafkaEx.build_worker_options([])
 
-    {:ok, pid} = ServerKayrock.start_link(args, :no_name)
+    {:ok, pid} = New.Client.start_link(args, :no_name)
 
     {:ok, %{client: pid}}
   end

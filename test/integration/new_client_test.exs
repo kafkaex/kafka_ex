@@ -1,7 +1,7 @@
-defmodule KafkaEx.ServerKayrock.Test do
+defmodule KafkaEx.New.Client.Test do
   use ExUnit.Case
 
-  alias KafkaEx.ServerKayrock
+  alias KafkaEx.New.Client
 
   alias KafkaEx.New.ClusterMetadata
   alias KafkaEx.New.KafkaExAPI
@@ -10,12 +10,12 @@ defmodule KafkaEx.ServerKayrock.Test do
 
   alias Kayrock.RecordBatch
 
-  @moduletag :server_kayrock
+  @moduletag :new_client
 
   setup do
     {:ok, args} = KafkaEx.build_worker_options([])
 
-    {:ok, pid} = ServerKayrock.start_link(args, :no_name)
+    {:ok, pid} = New.Client.start_link(args, :no_name)
 
     {:ok, %{client: pid}}
   end
@@ -44,7 +44,7 @@ defmodule KafkaEx.ServerKayrock.Test do
       }
 
       {:ok, resp} =
-        ServerKayrock.send_request(
+        New.Client.send_request(
           client,
           request,
           NodeSelector.topic_partition(topic, partition)
@@ -84,7 +84,7 @@ defmodule KafkaEx.ServerKayrock.Test do
     }
 
     {:ok, response} =
-      ServerKayrock.send_request(
+      New.Client.send_request(
         client,
         request,
         NodeSelector.topic_partition(topic, partition)

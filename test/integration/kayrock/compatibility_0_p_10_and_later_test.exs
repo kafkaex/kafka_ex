@@ -10,16 +10,16 @@ defmodule KafkaEx.KayrockCompatibility0p10AndLaterTest do
 
   use ExUnit.Case
 
-  @moduletag :server_kayrock
+  @moduletag :new_client
   @num_partitions 10
 
-  alias KafkaEx.ServerKayrock
+  alias KafkaEx.New.Client
   alias KafkaEx.New.KafkaExAPI
 
   setup do
     {:ok, args} = KafkaEx.build_worker_options([])
 
-    {:ok, pid} = ServerKayrock.start_link(args, :no_name)
+    {:ok, pid} = New.Client.start_link(args, :no_name)
 
     {:ok, %{client: pid}}
   end

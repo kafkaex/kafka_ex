@@ -1,11 +1,11 @@
 defmodule KafkaEx.New.KafkaExAPI do
   @moduledoc """
-  This module interfaces Kafka through the ServerKayrock implementation
+  This module interfaces Kafka through the New.Client implementation
 
   This is intended to become the future KafkaEx API
   """
 
-  alias KafkaEx.ServerKayrock
+  alias KafkaEx.New.Client
   alias KafkaEx.New.ClusterMetadata
   alias KafkaEx.New.Topic
   alias KafkaEx.New.NodeSelector
@@ -33,7 +33,7 @@ defmodule KafkaEx.New.KafkaExAPI do
     }
 
     {:ok, resp} =
-      ServerKayrock.send_request(
+      Client.send_request(
         client,
         request,
         NodeSelector.topic_partition(topic, partition)

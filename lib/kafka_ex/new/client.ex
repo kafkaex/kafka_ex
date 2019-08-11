@@ -1,4 +1,4 @@
-defmodule KafkaEx.New.Client do
+defmodule KafkaEx.Client do
   @moduledoc """
   Kayrock-compatible KafkaEx.Server implementation
 

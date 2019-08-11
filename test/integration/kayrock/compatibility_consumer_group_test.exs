@@ -10,17 +10,17 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupTest do
 
   use ExUnit.Case
 
-  @moduletag :server_kayrock
+  @moduletag :new_client
 
   alias KafkaEx.Protocol, as: Proto
 
-  alias KafkaEx.ServerKayrock
+  alias KafkaEx.New.Client
   alias KafkaEx.New.KafkaExAPI
 
   setup do
     {:ok, args} = KafkaEx.build_worker_options([])
 
-    {:ok, pid} = ServerKayrock.start_link(args, :no_name)
+    {:ok, pid} = New.Client.start_link(args, :no_name)
 
     {:ok, %{client: pid}}
   end

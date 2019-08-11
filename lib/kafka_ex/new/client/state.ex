@@ -1,7 +1,7 @@
-defmodule KafkaEx.ServerKayrock.State do
+defmodule KafkaEx.New.Client.State do
   @moduledoc false
 
-  # state struct for ServerKayrock
+  # state struct for New.Client
 
   alias KafkaEx.New.ClusterMetadata
 

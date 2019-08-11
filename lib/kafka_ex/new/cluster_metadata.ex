@@ -2,7 +2,7 @@ defmodule KafkaEx.New.ClusterMetadata do
   @moduledoc """
   Encapsulates what we know about the state of a Kafka broker cluster
 
-  This module is mainly used internally in ServerKayrock, but some of its
+  This module is mainly used internally in New.Client, but some of its
   functions may be useful for extracting metadata information
   """
 
