@@ -824,10 +824,15 @@ defmodule KafkaEx.ServerKayrock do
 
     network_timeout = config_sync_timeout(network_timeout)
 
-    {sender, updated_state} =
-      get_sender(node_selector, state, network_timeout, synchronous)
+    {send_request, updated_state} =
+      get_send_request_function(
+        node_selector,
+        state,
+        network_timeout,
+        synchronous
+      )
 
-    case sender do
+    case send_request do
       :no_broker ->
         {{:error, :no_broker}, updated_state}
 
@@ -835,7 +840,7 @@ defmodule KafkaEx.ServerKayrock do
         response =
           run_client_request(
             client_request(request, updated_state),
-            sender,
+            send_request,
             synchronous
           )
 
@@ -846,13 +851,13 @@ defmodule KafkaEx.ServerKayrock do
   defp run_client_request(
          %{client_id: client_id, correlation_id: correlation_id} =
            client_request,
-         sender,
+         send_request,
          synchronous
        )
        when not is_nil(client_id) and not is_nil(correlation_id) do
     wire_request = Kayrock.Request.serialize(client_request)
 
-    case(sender.(wire_request)) do
+    case(send_request.(wire_request)) do
       {:error, reason} ->
         {:error, reason}
 
@@ -865,7 +870,7 @@ defmodule KafkaEx.ServerKayrock do
     end
   end
 
-  defp get_sender(
+  defp get_send_request_function(
          %NodeSelector{strategy: :first_available},
          state,
          network_timeout,
@@ -880,7 +885,7 @@ defmodule KafkaEx.ServerKayrock do
      end, state}
   end
 
-  defp get_sender(
+  defp get_send_request_function(
          %NodeSelector{strategy: :controller},
          state,
          network_timeout,
@@ -897,7 +902,7 @@ defmodule KafkaEx.ServerKayrock do
      end, state}
   end
 
-  defp get_sender(
+  defp get_send_request_function(
          %NodeSelector{
            strategy: :topic_partition,
            topic: topic,
@@ -933,7 +938,7 @@ defmodule KafkaEx.ServerKayrock do
     end
   end
 
-  defp get_sender(
+  defp get_send_request_function(
          %NodeSelector{
            strategy: :consumer_group,
            consumer_group_name: consumer_group
