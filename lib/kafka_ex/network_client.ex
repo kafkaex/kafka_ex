@@ -1,5 +1,6 @@
 defmodule KafkaEx.NetworkClient do
   require Logger
+  alias KafkaEx.New
   alias KafkaEx.Protocol.Metadata.Broker
   alias KafkaEx.Socket
 
@@ -37,7 +38,7 @@ defmodule KafkaEx.NetworkClient do
   def close_socket(nil), do: :ok
   def close_socket(socket), do: Socket.close(socket)
 
-  @spec send_async_request(Broker.t(), iodata) ::
+  @spec send_async_request(Broker.t() | New.Broker.t(), iodata) ::
           :ok | {:error, :closed | :inet.posix()}
   def send_async_request(broker, data) do
     socket = broker.socket
@@ -58,7 +59,7 @@ defmodule KafkaEx.NetworkClient do
     end
   end
 
-  @spec send_sync_request(Broker.t(), iodata, timeout) ::
+  @spec send_sync_request(Broker.t() | New.Broker.t(), iodata, timeout) ::
           iodata | {:error, any()}
   def send_sync_request(%{:socket => socket} = broker, data, timeout) do
     :ok = Socket.setopts(socket, [:binary, {:packet, 4}, {:active, false}])
@@ -68,7 +69,9 @@ defmodule KafkaEx.NetworkClient do
         :ok ->
           case Socket.recv(socket, 0, timeout) do
             {:ok, data} ->
-              :ok = Socket.setopts(socket, [:binary, {:packet, 4}, {:active, true}])
+              :ok =
+                Socket.setopts(socket, [:binary, {:packet, 4}, {:active, true}])
+
               data
 
             {:error, reason} ->
@@ -91,7 +94,7 @@ defmodule KafkaEx.NetworkClient do
               inspect(broker.port)
             } failed with #{inspect(reason)}"
           )
-          
+
           Socket.close(socket)
 
           {:error, reason}
