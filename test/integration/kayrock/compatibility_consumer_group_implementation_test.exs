@@ -200,7 +200,6 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
   end
 
   test "basic startup, consume, and shutdown test", context do
-    Logger.debug("XXXXX START")
     assert num_open_ports() > context[:ports_before]
 
     assert TestPartitioner.calls() > 0
@@ -237,7 +236,6 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
     assignments2 = ConsumerGroup.assignments(context[:consumer_group_pid2])
     assert 2 == length(assignments1)
     assert 2 == length(assignments2)
-    Logger.debug("XXXXX BOO")
 
     assert MapSet.disjoint?(
              Enum.into(assignments1, MapSet.new()),
@@ -266,7 +264,6 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
 
     assert consumer2_assignments == Enum.sort(assignments2)
 
-    Logger.debug("XXXXX YAH")
     # all of the partitions should be accounted for
     assert @partition_count == length(Enum.uniq(assignments1 ++ assignments2))
 
@@ -332,6 +329,5 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
 
     # ports should be released
     assert context[:ports_before] == num_open_ports()
-    Logger.debug("XXXXX END")
   end
 end
