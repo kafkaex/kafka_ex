@@ -254,8 +254,7 @@ defmodule KafkaEx.GenConsumer do
               topic :: binary,
               partition :: non_neg_integer,
               extra_args :: map()
-            ) ::
-              {:ok, state :: term}
+            ) :: {:ok, state :: term}
 
   @doc """
   Invoked for each message set consumed from a Kafka topic partition.
@@ -630,6 +629,7 @@ defmodule KafkaEx.GenConsumer do
     case consume(state) do
       {:error, reason} ->
         {:stop, reason, state}
+
       new_state ->
         {:noreply, new_state, 0}
     end
@@ -671,23 +671,28 @@ defmodule KafkaEx.GenConsumer do
            fetch_options: fetch_options
          } = state
        ) do
-    response = KafkaEx.fetch(
-      topic,
-      partition,
-      Keyword.merge(fetch_options, offset: offset)
-    )
+    response =
+      KafkaEx.fetch(
+        topic,
+        partition,
+        Keyword.merge(fetch_options, offset: offset)
+      )
+
     response
     |> handle_fetch_response(state)
   end
 
-  defp handle_fetch_response([
-    %FetchResponse{
-      topic: _topic,
-      partitions: [
-        response = %{error_code: error_code, partition: _partition}
-      ]
-    }
-  ], state) do
+  defp handle_fetch_response(
+         [
+           %FetchResponse{
+             topic: _topic,
+             partitions: [
+               response = %{error_code: error_code, partition: _partition}
+             ]
+           }
+         ],
+         state
+       ) do
     state =
       case error_code do
         :offset_out_of_range ->
@@ -698,7 +703,7 @@ defmodule KafkaEx.GenConsumer do
       end
 
     case response do
-      %{last_offset: nil, message_set: []} ->
+      %{message_set: []} ->
         handle_commit(:async_commit, state)
 
       %{last_offset: _, message_set: message_set} ->
