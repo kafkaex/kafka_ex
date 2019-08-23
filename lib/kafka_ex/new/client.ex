@@ -24,7 +24,6 @@ defmodule KafkaEx.New.Client do
   @type args :: [
           KafkaEx.worker_setting()
           | {:allow_auto_topic_creation, boolean}
-          | {:iniital_topics, [binary]}
         ]
 
   @doc """
