@@ -119,7 +119,6 @@ defmodule KafkaEx.Protocol.Fetch do
           topic
        ) do
     {:ok, message} = parse_message(%Message{offset: offset, topic: topic}, msg_data)
-    IO.inspect(message)
     parse_message_set(append_messages(message, list), rest, topic)
   end
 
