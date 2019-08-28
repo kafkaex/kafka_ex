@@ -45,7 +45,7 @@ defmodule KafkaEx.Protocol.Fetch do
 
   defmodule Message do
     @moduledoc false
-    defstruct attributes: 0, crc: nil, offset: nil, key: nil, value: nil, topic: nil
+    defstruct attributes: 0, crc: nil, offset: nil, key: nil, value: nil, topic: nil, partition: nil
 
     @type t :: %Message{
             attributes: integer,
@@ -53,7 +53,8 @@ defmodule KafkaEx.Protocol.Fetch do
             offset: integer,
             key: binary,
             value: binary,
-            topic: binary
+            topic: binary,
+            partition: integer
           }
   end
 
@@ -94,7 +95,7 @@ defmodule KafkaEx.Protocol.Fetch do
         partitions,
         topic
       ) do
-    {:ok, message_set, last_offset} = parse_message_set([], msg_set_data, topic)
+    {:ok, message_set, last_offset} = parse_message_set([], msg_set_data, topic, partition)
 
     parse_partitions(partitions_size - 1, rest, [
       %{
@@ -108,7 +109,7 @@ defmodule KafkaEx.Protocol.Fetch do
     ], topic)
   end
 
-  defp parse_message_set([], <<>>, _topic) do
+  defp parse_message_set([], <<>>, _topic, _partition) do
     {:ok, [], nil}
   end
 
@@ -116,20 +117,22 @@ defmodule KafkaEx.Protocol.Fetch do
          list,
          <<offset::64, msg_size::32, msg_data::size(msg_size)-binary,
            rest::binary>>,
-          topic
+          topic,
+          partition
        ) do
-    {:ok, message} = parse_message(%Message{offset: offset, topic: topic}, msg_data)
-    parse_message_set(append_messages(message, list), rest, topic)
+    {:ok, message} = parse_message(%Message{offset: offset, topic: topic, partition: partition}, msg_data)
+    parse_message_set(append_messages(message, list), rest, topic, partition)
   end
 
-  defp parse_message_set([last | _] = list, _, _topic) do
+  defp parse_message_set([last | _] = list, _, _topic, _partition) do
     {:ok, Enum.reverse(list), last.offset}
   end
 
   defp parse_message_set(
          _,
          <<offset::64, msg_size::32, partial_message_data::binary>>,
-         _topic
+         _topic,
+         _partition
        )
        when byte_size(partial_message_data) < msg_size do
     raise RuntimeError,
@@ -162,10 +165,10 @@ defmodule KafkaEx.Protocol.Fetch do
     parse_key(message, rest)
   end
 
-  defp maybe_decompress(%Message{attributes: attributes, topic: topic}, rest) do
+  defp maybe_decompress(%Message{attributes: attributes, topic: topic, partition: partition}, rest) do
     <<-1::32-signed, value_size::32, value::size(value_size)-binary>> = rest
     decompressed = Compression.decompress(attributes, value)
-    {:ok, msg_set, _offset} = parse_message_set([], decompressed, topic)
+    {:ok, msg_set, _offset} = parse_message_set([], decompressed, topic, partition)
     {:ok, msg_set}
   end
 

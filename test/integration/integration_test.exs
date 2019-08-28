@@ -283,6 +283,7 @@ defmodule KafkaEx.Integration.Test do
 
     message = fetch_response.partitions |> hd |> Map.get(:message_set) |> hd
 
+    assert message.partition == 0
     assert message.topic == topic_name
     assert message.value == "hey foo"
     assert message.offset == offset
