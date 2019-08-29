@@ -231,6 +231,11 @@ defmodule KafkaEx.ConsumerGroup do
     call_manager(supervisor_pid, :am_leader, timeout)
   end
 
+  @spec rebalance(Supervisor.supervisor(), timeout) :: boolean
+  def rebalance(supervisor_pid, timeout \\ 5000) do
+    call_manager(supervisor_pid, :relance, timeout)
+  end
+
   @doc """
   Returns a list of topic and partition assignments for which this consumer is
   responsible.

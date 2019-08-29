@@ -181,6 +181,11 @@ defmodule KafkaEx.ConsumerGroup.Manager do
     {:reply, state.group_name, state}
   end
 
+  def handle_call(:rebalance, _from, state) do
+    {:ok, state} = rebalance(state)
+    {:reply, :ok, state}
+  end
+
   ######################################################################
 
   # If `member_id` and `generation_id` aren't set, we haven't yet joined the
