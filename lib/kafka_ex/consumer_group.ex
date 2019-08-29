@@ -233,7 +233,7 @@ defmodule KafkaEx.ConsumerGroup do
 
   @spec rebalance(Supervisor.supervisor(), timeout) :: boolean
   def rebalance(supervisor_pid, timeout \\ 5000) do
-    call_manager(supervisor_pid, :relance, timeout)
+    call_manager(supervisor_pid, :rebalance, timeout)
   end
 
   @doc """
