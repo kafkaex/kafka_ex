@@ -217,6 +217,10 @@ defmodule KafkaEx.ConsumerGroup.Manager do
     {:stop, {:shutdown, {:error, reason}}, state}
   end
 
+  def handle_info({:EXIT, _from, :normal}, state) do
+    {:stop, :normal, state}
+  end
+
   # When terminating, inform the group coordinator that this member is leaving
   # the group so that the group can rebalance without waiting for a session
   # timeout.
