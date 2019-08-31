@@ -17,7 +17,8 @@ defmodule KafkaEx.Protocol.Fetch do
               wait_time: nil,
               min_bytes: nil,
               max_bytes: nil,
-              auto_commit: nil
+              auto_commit: nil,
+              protocol_version: 0
 
     @type t :: %Request{
             correlation_id: integer,
@@ -27,7 +28,8 @@ defmodule KafkaEx.Protocol.Fetch do
             offset: integer,
             wait_time: integer,
             min_bytes: integer,
-            max_bytes: integer
+            max_bytes: integer,
+            protocol_version: integer
           }
   end
 

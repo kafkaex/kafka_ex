@@ -125,23 +125,49 @@ defmodule KafkaEx.New.Adapter do
   end
 
   def fetch_request(fetch_request) do
-    {%Kayrock.Fetch.V0.Request{
-       max_wait_time: fetch_request.wait_time,
-       min_bytes: fetch_request.min_bytes,
-       replica_id: -1,
-       topics: [
-         %{
-           topic: fetch_request.topic,
-           partitions: [
-             %{
-               partition: fetch_request.partition,
-               fetch_offset: fetch_request.offset,
-               max_bytes: fetch_request.max_bytes
-             }
-           ]
-         }
-       ]
-     }, fetch_request.topic, fetch_request.partition}
+    request = Kayrock.Fetch.get_request_struct(fetch_request.protocol_version)
+
+    partition_request = %{
+      partition: fetch_request.partition,
+      fetch_offset: fetch_request.offset,
+      max_bytes: fetch_request.max_bytes
+    }
+
+    partition_request =
+      if fetch_request.protocol_version >= 5 do
+        Map.put(partition_request, :log_start_offset, 0)
+      else
+        partition_request
+      end
+
+    request = %{
+      request
+      | max_wait_time: fetch_request.wait_time,
+        min_bytes: fetch_request.min_bytes,
+        replica_id: -1,
+        topics: [
+          %{
+            topic: fetch_request.topic,
+            partitions: [partition_request]
+          }
+        ]
+    }
+
+    request =
+      if fetch_request.protocol_version >= 3 do
+        %{request | max_bytes: fetch_request.max_bytes}
+      else
+        request
+      end
+
+    request =
+      if fetch_request.protocol_version >= 4 do
+        %{request | isolation_level: 0}
+      else
+        request
+      end
+
+    {request, fetch_request.topic, fetch_request.partition}
   end
 
   def fetch_response(fetch_response) do
@@ -434,22 +460,21 @@ defmodule KafkaEx.New.Adapter do
     }
   end
 
-  defp kayrock_message_set_to_kafka_ex(
-         %Kayrock.RecordBatch{} = record_batch,
-         topic,
-         partition
-       ) do
+  defp kayrock_message_set_to_kafka_ex(record_batches, topic, partition)
+       when is_list(record_batches) do
     messages =
-      Enum.map(record_batch.records, fn record ->
-        %FetchMessage{
-          attributes: record.attributes,
-          crc: nil,
-          key: record.key,
-          value: record.value,
-          offset: record.offset,
-          topic: topic,
-          partition: partition
-        }
+      Enum.flat_map(record_batches, fn record_batch ->
+        Enum.map(record_batch.records, fn record ->
+          %FetchMessage{
+            attributes: record.attributes,
+            crc: nil,
+            key: record.key,
+            value: record.value,
+            offset: record.offset,
+            topic: topic,
+            partition: partition
+          }
+        end)
       end)
 
     case messages do

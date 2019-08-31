@@ -270,6 +270,11 @@ defmodule KafkaEx do
     max_bytes = Keyword.get(opts, :max_bytes, @max_bytes)
     auto_commit = Keyword.get(opts, :auto_commit, true)
 
+    # NOTE protocol_version is used by the new client to allow
+    # compatibility with newer message formats and is ignored by the legacy
+    # server implementations.
+    protocol_version = Keyword.get(opts, :protocol_version, 0)
+
     retrieved_offset =
       current_offset(supplied_offset, partition, topic, worker_name)
 
@@ -283,7 +288,8 @@ defmodule KafkaEx do
          offset: retrieved_offset,
          wait_time: wait_time,
          min_bytes: min_bytes,
-         max_bytes: max_bytes
+         max_bytes: max_bytes,
+         protocol_version: protocol_version
        }},
       opts
     )
