@@ -58,14 +58,15 @@ defmodule KafkaEx.Protocol.OffsetFetch do
     parse_topics(topics_size, topics_data, __MODULE__)
   end
 
-  def parse_partitions(0, rest, partitions), do: {partitions, rest}
+  def parse_partitions(0, rest, partitions, _topic), do: {partitions, rest}
 
   def parse_partitions(
         partitions_size,
         <<partition::32-signed, offset::64-signed, metadata_size::16-signed,
           metadata::size(metadata_size)-binary, error_code::16-signed,
           rest::binary>>,
-        partitions
+        partitions,
+        topic
       ) do
     parse_partitions(partitions_size - 1, rest, [
       %{
@@ -75,6 +76,6 @@ defmodule KafkaEx.Protocol.OffsetFetch do
         error_code: Protocol.error(error_code)
       }
       | partitions
-    ])
+    ], topic)
   end
 end
