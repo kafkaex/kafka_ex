@@ -124,13 +124,14 @@ defmodule KafkaEx.Protocol.Produce do
     end
   end
 
-  def parse_partitions(0, rest, partitions), do: {partitions, rest}
+  def parse_partitions(0, rest, partitions, _topic), do: {partitions, rest}
 
   def parse_partitions(
         partitions_size,
         <<partition::32-signed, error_code::16-signed, offset::64,
           rest::binary>>,
-        partitions
+        partitions,
+        topic
       ) do
     parse_partitions(partitions_size - 1, rest, [
       %{
@@ -139,6 +140,6 @@ defmodule KafkaEx.Protocol.Produce do
         offset: offset
       }
       | partitions
-    ])
+    ], topic)
   end
 end

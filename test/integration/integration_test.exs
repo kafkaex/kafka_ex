@@ -268,21 +268,23 @@ defmodule KafkaEx.Integration.Test do
   end
 
   test "fetch works" do
-    random_string = generate_random_string()
+    topic_name = generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(%Proto.Produce.Request{
-        topic: random_string,
+        topic: topic_name,
         partition: 0,
         required_acks: 1,
         messages: [%Proto.Produce.Message{value: "hey foo"}]
       })
 
     fetch_response =
-      KafkaEx.fetch(random_string, 0, offset: 0, auto_commit: false) |> hd
+      KafkaEx.fetch(topic_name, 0, offset: 0, auto_commit: false) |> hd
 
     message = fetch_response.partitions |> hd |> Map.get(:message_set) |> hd
 
+    assert message.partition == 0
+    assert message.topic == topic_name
     assert message.value == "hey foo"
     assert message.offset == offset
   end
