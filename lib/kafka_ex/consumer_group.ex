@@ -231,7 +231,11 @@ defmodule KafkaEx.ConsumerGroup do
     call_manager(supervisor_pid, :am_leader, timeout)
   end
 
-  @spec rebalance(Supervisor.supervisor(), timeout) :: boolean
+  @doc """
+  Rebalance the consumer group partitions.
+  This is useful to update the partitions been consumed after partitioning changes.
+  """
+  @spec rebalance(Supervisor.supervisor(), timeout) :: :ok
   def rebalance(supervisor_pid, timeout \\ 5000) do
     call_manager(supervisor_pid, :rebalance, timeout)
   end
