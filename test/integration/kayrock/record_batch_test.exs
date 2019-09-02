@@ -46,6 +46,32 @@ defmodule KafkaEx.KayrockRecordBatchTest do
     assert message.offset == offset
   end
 
+  test "empty message set - v3", %{client: client} do
+    topic = "food"
+    msg = TestHelper.generate_random_string()
+
+    {:ok, offset} =
+      KafkaEx.produce(
+        topic,
+        0,
+        msg,
+        worker_name: client,
+        required_acks: 1
+      )
+
+    fetch_responses =
+      KafkaEx.fetch(topic, 0,
+        offset: offset + 5,
+        auto_commit: false,
+        worker_name: client,
+        protocol_version: 3
+      )
+
+    [fetch_response | _] = fetch_responses
+    [partition_response | _] = fetch_response.partitions
+    assert partition_response.message_set == []
+  end
+
   test "can specify protocol version for fetch - v5", %{client: client} do
     topic = "food"
     msg = TestHelper.generate_random_string()
@@ -73,5 +99,31 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     assert message.offset == offset
     assert message.value == msg
+  end
+
+  test "empty message set - v5", %{client: client} do
+    topic = "food"
+    msg = TestHelper.generate_random_string()
+
+    {:ok, offset} =
+      KafkaEx.produce(
+        topic,
+        0,
+        msg,
+        worker_name: client,
+        required_acks: 1
+      )
+
+    fetch_responses =
+      KafkaEx.fetch(topic, 0,
+        offset: offset + 5,
+        auto_commit: false,
+        worker_name: client,
+        protocol_version: 5
+      )
+
+    [fetch_response | _] = fetch_responses
+    [partition_response | _] = fetch_response.partitions
+    assert partition_response.message_set == []
   end
 end
