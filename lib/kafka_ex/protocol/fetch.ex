@@ -18,6 +18,7 @@ defmodule KafkaEx.Protocol.Fetch do
               min_bytes: nil,
               max_bytes: nil,
               auto_commit: nil,
+              # NOTE protocol_version only used in new client
               protocol_version: 0
 
     @type t :: %Request{

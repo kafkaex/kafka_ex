@@ -375,7 +375,8 @@ defmodule KafkaEx do
       required_acks: required_acks,
       timeout: timeout,
       compression: :none,
-      messages: [%Message{key: key, value: value}]
+      messages: [%Message{key: key, value: value}],
+      protocol_version: Keyword.get(opts, :protocol_version, 0)
     }
 
     produce(produce_request, opts)

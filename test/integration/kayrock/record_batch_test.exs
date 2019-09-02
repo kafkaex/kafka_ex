@@ -46,7 +46,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
     assert message.offset == offset
   end
 
-  test "empty message set - v3", %{client: client} do
+  test "fetch empty message set - v3", %{client: client} do
     topic = "food"
     msg = TestHelper.generate_random_string()
 
@@ -70,6 +70,37 @@ defmodule KafkaEx.KayrockRecordBatchTest do
     [fetch_response | _] = fetch_responses
     [partition_response | _] = fetch_response.partitions
     assert partition_response.message_set == []
+  end
+
+  # v2 is the highest that will accept the MessageSet format
+  test "can specify protocol version for produce - v2", %{client: client} do
+    topic = "food"
+    msg = TestHelper.generate_random_string()
+
+    {:ok, offset} =
+      KafkaEx.produce(
+        topic,
+        0,
+        msg,
+        worker_name: client,
+        required_acks: 1,
+        protocol_version: 3
+      )
+
+    fetch_responses =
+      KafkaEx.fetch(topic, 0,
+        offset: 0,
+        auto_commit: false,
+        worker_name: client,
+        protocol_version: 2
+      )
+
+    [fetch_response | _] = fetch_responses
+    [partition_response | _] = fetch_response.partitions
+    message = List.last(partition_response.message_set)
+
+    assert message.value == msg
+    assert message.offset == offset
   end
 
   test "can specify protocol version for fetch - v5", %{client: client} do
@@ -101,7 +132,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
     assert message.value == msg
   end
 
-  test "empty message set - v5", %{client: client} do
+  test "fetch empty message set - v5", %{client: client} do
     topic = "food"
     msg = TestHelper.generate_random_string()
 
@@ -125,5 +156,36 @@ defmodule KafkaEx.KayrockRecordBatchTest do
     [fetch_response | _] = fetch_responses
     [partition_response | _] = fetch_response.partitions
     assert partition_response.message_set == []
+  end
+
+  # v3 is the lowest that requires the RecordBatch format
+  test "can specify protocol version for produce - v3", %{client: client} do
+    topic = "food"
+    msg = TestHelper.generate_random_string()
+
+    {:ok, offset} =
+      KafkaEx.produce(
+        topic,
+        0,
+        msg,
+        worker_name: client,
+        required_acks: 1,
+        protocol_version: 3
+      )
+
+    fetch_responses =
+      KafkaEx.fetch(topic, 0,
+        offset: 0,
+        auto_commit: false,
+        worker_name: client,
+        protocol_version: 3
+      )
+
+    [fetch_response | _] = fetch_responses
+    [partition_response | _] = fetch_response.partitions
+    message = List.last(partition_response.message_set)
+
+    assert message.value == msg
+    assert message.offset == offset
   end
 end

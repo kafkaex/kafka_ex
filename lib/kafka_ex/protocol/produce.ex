@@ -27,7 +27,9 @@ defmodule KafkaEx.Protocol.Produce do
               required_acks: 0,
               timeout: 0,
               compression: :none,
-              messages: []
+              messages: [],
+              # NOTE protocol_version only used in new client
+              protocol_version: 0
 
     @type t :: %Request{
             topic: binary,
@@ -35,7 +37,8 @@ defmodule KafkaEx.Protocol.Produce do
             required_acks: integer,
             timeout: integer,
             compression: atom,
-            messages: list
+            messages: list,
+            protocol_version: integer
           }
   end
 

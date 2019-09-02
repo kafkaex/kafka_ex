@@ -30,6 +30,8 @@ defmodule KafkaEx.New.Adapter do
 
   alias Kayrock.MessageSet
   alias Kayrock.MessageSet.Message
+  alias Kayrock.RecordBatch
+  alias Kayrock.RecordBatch.Record
 
   def list_offsets_request(topic, partition, time) do
     time = Offset.parse_time(time)
@@ -58,41 +60,66 @@ defmodule KafkaEx.New.Adapter do
     end)
   end
 
-  def produce_request(request) do
-    topic = request.topic
-    partition = request.partition
+  def produce_request(produce_request) do
+    topic = produce_request.topic
+    partition = produce_request.partition
 
-    message_set = %MessageSet{
-      messages:
-        Enum.map(
-          request.messages,
-          fn msg ->
-            %Message{
-              key: msg.key,
-              value: msg.value,
-              compression: request.compression
-            }
-          end
-        )
-    }
+    # TODO HERE need to write tests and probably change how messages are created
+    # to be per version
+    message_set =
+      case produce_request.protocol_version do
+        v when v <= 2 ->
+          %MessageSet{
+            messages:
+              Enum.map(
+                produce_request.messages,
+                fn msg ->
+                  %Message{
+                    key: msg.key,
+                    value: msg.value,
+                    compression: produce_request.compression
+                  }
+                end
+              )
+          }
 
-    request = %Kayrock.Produce.V0.Request{
-      acks: request.required_acks,
-      timeout: request.timeout,
-      topic_data: [
-        %{
-          topic: request.topic,
-          data: [
-            %{partition: request.partition, record_set: message_set}
-          ]
-        }
-      ]
+        _ ->
+          %RecordBatch{
+            attributes: produce_attributes(produce_request),
+            records:
+              Enum.map(
+                produce_request.messages,
+                fn msg ->
+                  %Record{
+                    key: msg.key,
+                    value: msg.value
+                  }
+                end
+              )
+          }
+      end
+
+    request =
+      Kayrock.Produce.get_request_struct(produce_request.protocol_version)
+
+    request = %{
+      request
+      | acks: produce_request.required_acks,
+        timeout: produce_request.timeout,
+        topic_data: [
+          %{
+            topic: produce_request.topic,
+            data: [
+              %{partition: produce_request.partition, record_set: message_set}
+            ]
+          }
+        ]
     }
 
     {request, topic, partition}
   end
 
-  def produce_response(%Kayrock.Produce.V0.Response{
+  def produce_response(%{
         responses: [
           %{
             partition_responses: [
@@ -549,4 +576,9 @@ defmodule KafkaEx.New.Adapter do
       isrs: partition.isr
     }
   end
+
+  # NOTE we don't handle any other attributes here
+  defp produce_attributes(%{compression: :none}), do: 0
+  defp produce_attributes(%{compression: :gzip}), do: 1
+  defp produce_attributes(%{compression: :snappy}), do: 2
 end
