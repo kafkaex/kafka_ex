@@ -128,7 +128,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
     {:ok, worker_name} =
       KafkaEx.create_worker(
         :no_name,
-        [consumer_group: group_name] ++ worker_opts
+        [consumer_group: group_name, initial_topics: topics] ++ worker_opts
       )
 
     state = %State{

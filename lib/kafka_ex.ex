@@ -43,6 +43,7 @@ defmodule KafkaEx do
           | {:metadata_update_interval, non_neg_integer}
           | {:consumer_group_update_interval, non_neg_integer}
           | {:ssl_options, ssl_options}
+          | {:initial_topics, [binary]}
 
   @doc """
   create_worker creates KafkaEx workers
@@ -622,8 +623,7 @@ defmodule KafkaEx do
   @doc """
   Delete topics. Must provide a list of topic names.
   """
-  @spec delete_topics([String.t()], Keyword.t()) ::
-          DeleteTopicsResponse.t()
+  @spec delete_topics([String.t()], Keyword.t()) :: DeleteTopicsResponse.t()
   def delete_topics(topics, opts \\ []) do
     worker_name = Keyword.get(opts, :worker_name, Config.default_worker())
     timeout = Keyword.get(opts, :timeout)

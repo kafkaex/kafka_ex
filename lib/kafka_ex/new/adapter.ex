@@ -148,8 +148,15 @@ defmodule KafkaEx.New.Adapter do
     [topic_response | _] = fetch_response.responses
     [partition_response | _] = topic_response.partition_responses
 
+    topic = topic_response.topic
+    partition = partition_response.partition_header.partition
+
     {message_set, last_offset} =
-      kayrock_message_set_to_kafka_ex(partition_response.record_set)
+      kayrock_message_set_to_kafka_ex(
+        partition_response.record_set,
+        topic,
+        partition
+      )
 
     {[
        %FetchResponse{
@@ -427,7 +434,11 @@ defmodule KafkaEx.New.Adapter do
     }
   end
 
-  defp kayrock_message_set_to_kafka_ex(%Kayrock.RecordBatch{} = record_batch) do
+  defp kayrock_message_set_to_kafka_ex(
+         %Kayrock.RecordBatch{} = record_batch,
+         topic,
+         partition
+       ) do
     messages =
       Enum.map(record_batch.records, fn record ->
         %FetchMessage{
@@ -435,7 +446,9 @@ defmodule KafkaEx.New.Adapter do
           crc: nil,
           key: record.key,
           value: record.value,
-          offset: record.offset
+          offset: record.offset,
+          topic: topic,
+          partition: partition
         }
       end)
 
@@ -449,7 +462,11 @@ defmodule KafkaEx.New.Adapter do
     end
   end
 
-  defp kayrock_message_set_to_kafka_ex(%Kayrock.MessageSet{} = message_set) do
+  defp kayrock_message_set_to_kafka_ex(
+         %Kayrock.MessageSet{} = message_set,
+         topic,
+         partition
+       ) do
     messages =
       Enum.map(message_set.messages, fn message ->
         %FetchMessage{
@@ -457,7 +474,9 @@ defmodule KafkaEx.New.Adapter do
           crc: message.crc,
           key: message.key,
           value: message.value,
-          offset: message.offset
+          offset: message.offset,
+          topic: topic,
+          partition: partition
         }
       end)
 

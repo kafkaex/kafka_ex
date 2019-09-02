@@ -22,7 +22,8 @@ defmodule KafkaEx.New.Client do
   use GenServer
 
   @type args :: [
-          KafkaEx.worker_setting() | {:allow_auto_topic_creation, boolean}
+          KafkaEx.worker_setting()
+          | {:allow_auto_topic_creation, boolean}
         ]
 
   @doc """
@@ -112,11 +113,13 @@ defmodule KafkaEx.New.Client do
 
     :no_error = Kayrock.ErrorCode.code_to_atom(api_versions.error_code)
 
+    initial_topics = Keyword.get(args, :initial_topics, [])
+
     state = State.ingest_api_versions(state, api_versions)
 
     state =
       try do
-        update_metadata(state)
+        update_metadata(state, initial_topics)
       rescue
         e ->
           sleep_for_reconnect()
