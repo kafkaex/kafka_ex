@@ -149,13 +149,13 @@ defmodule KafkaEx.New.Adapter do
     [partition_response | _] = topic_response.partition_responses
 
     topic = topic_response.topic
-    partition = partition_response.partition
+    partition = partition_response.partition_header.partition
 
     {message_set, last_offset} =
       kayrock_message_set_to_kafka_ex(
+        partition_response.record_set,
         topic,
-        partition,
-        partition_response.record_set
+        partition
       )
 
     {[
