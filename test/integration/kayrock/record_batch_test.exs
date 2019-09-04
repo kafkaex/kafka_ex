@@ -32,7 +32,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     fetch_responses =
       KafkaEx.fetch(topic, 0,
-        offset: 0,
+        offset: offset,
         auto_commit: false,
         worker_name: client,
         protocol_version: 3
@@ -89,7 +89,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     fetch_responses =
       KafkaEx.fetch(topic, 0,
-        offset: 0,
+        offset: offset,
         auto_commit: false,
         worker_name: client,
         protocol_version: 2
@@ -118,7 +118,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     fetch_responses =
       KafkaEx.fetch(topic, 0,
-        offset: 0,
+        offset: offset,
         auto_commit: false,
         worker_name: client,
         protocol_version: 5
@@ -175,10 +175,72 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     fetch_responses =
       KafkaEx.fetch(topic, 0,
-        offset: 0,
+        offset: offset,
         auto_commit: false,
         worker_name: client,
         protocol_version: 3
+      )
+
+    [fetch_response | _] = fetch_responses
+    [partition_response | _] = fetch_response.partitions
+    message = List.last(partition_response.message_set)
+
+    assert message.value == msg
+    assert message.offset == offset
+  end
+
+  test "compression - produce v0, read v3", %{client: client} do
+    topic = "food"
+    msg = TestHelper.generate_random_string()
+
+    {:ok, offset} =
+      KafkaEx.produce(
+        topic,
+        0,
+        msg,
+        worker_name: client,
+        required_acks: 1,
+        compression: :gzip,
+        protocol_version: 0
+      )
+
+    fetch_responses =
+      KafkaEx.fetch(topic, 0,
+        offset: offset - 2,
+        auto_commit: false,
+        worker_name: client,
+        protocol_version: 3
+      )
+
+    [fetch_response | _] = fetch_responses
+    [partition_response | _] = fetch_response.partitions
+    message = List.last(partition_response.message_set)
+
+    assert message.value == msg
+    assert message.offset == offset
+  end
+
+  test "compression - produce v0, read v5", %{client: client} do
+    topic = "food"
+    msg = TestHelper.generate_random_string()
+
+    {:ok, offset} =
+      KafkaEx.produce(
+        topic,
+        0,
+        msg,
+        worker_name: client,
+        required_acks: 1,
+        compression: :gzip,
+        protocol_version: 0
+      )
+
+    fetch_responses =
+      KafkaEx.fetch(topic, 0,
+        offset: offset - 2,
+        auto_commit: false,
+        worker_name: client,
+        protocol_version: 5
       )
 
     [fetch_response | _] = fetch_responses

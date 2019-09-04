@@ -35,7 +35,7 @@ defmodule KafkaEx.Mixfile do
 
   defp deps do
     [
-      {:kayrock, "~> 0.1.3"},
+      {:kayrock, "~> 0.1.5"},
       {:credo, "~> 0.8.10", only: :dev},
       {:dialyxir, "~> 1.0.0-rc.3", only: :dev},
       {:excoveralls, "~> 0.7", only: :test},
