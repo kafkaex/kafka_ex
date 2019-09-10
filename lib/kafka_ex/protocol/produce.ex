@@ -28,8 +28,8 @@ defmodule KafkaEx.Protocol.Produce do
               timeout: 0,
               compression: :none,
               messages: [],
-              # NOTE protocol_version only used in new client
-              protocol_version: 0
+              # NOTE api_version only used in new client
+              api_version: 0
 
     @type t :: %Request{
             topic: binary,
@@ -38,7 +38,7 @@ defmodule KafkaEx.Protocol.Produce do
             timeout: integer,
             compression: atom,
             messages: list,
-            protocol_version: integer
+            api_version: integer
           }
   end
 
@@ -136,13 +136,18 @@ defmodule KafkaEx.Protocol.Produce do
         partitions,
         topic
       ) do
-    parse_partitions(partitions_size - 1, rest, [
-      %{
-        partition: partition,
-        error_code: Protocol.error(error_code),
-        offset: offset
-      }
-      | partitions
-    ], topic)
+    parse_partitions(
+      partitions_size - 1,
+      rest,
+      [
+        %{
+          partition: partition,
+          error_code: Protocol.error(error_code),
+          offset: offset
+        }
+        | partitions
+      ],
+      topic
+    )
   end
 end

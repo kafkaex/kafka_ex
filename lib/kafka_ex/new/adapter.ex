@@ -64,10 +64,9 @@ defmodule KafkaEx.New.Adapter do
     topic = produce_request.topic
     partition = produce_request.partition
 
-    # TODO HERE need to write tests and probably change how messages are created
-    # to be per version
+    # TODO refactor, add timestamp tests
     message_set =
-      case produce_request.protocol_version do
+      case produce_request.api_version do
         v when v <= 2 ->
           %MessageSet{
             messages:
@@ -99,8 +98,7 @@ defmodule KafkaEx.New.Adapter do
           }
       end
 
-    request =
-      Kayrock.Produce.get_request_struct(produce_request.protocol_version)
+    request = Kayrock.Produce.get_request_struct(produce_request.api_version)
 
     request = %{
       request
@@ -152,7 +150,7 @@ defmodule KafkaEx.New.Adapter do
   end
 
   def fetch_request(fetch_request) do
-    request = Kayrock.Fetch.get_request_struct(fetch_request.protocol_version)
+    request = Kayrock.Fetch.get_request_struct(fetch_request.api_version)
 
     partition_request = %{
       partition: fetch_request.partition,
@@ -161,7 +159,7 @@ defmodule KafkaEx.New.Adapter do
     }
 
     partition_request =
-      if fetch_request.protocol_version >= 5 do
+      if fetch_request.api_version >= 5 do
         Map.put(partition_request, :log_start_offset, 0)
       else
         partition_request
@@ -181,14 +179,14 @@ defmodule KafkaEx.New.Adapter do
     }
 
     request =
-      if fetch_request.protocol_version >= 3 do
+      if fetch_request.api_version >= 3 do
         %{request | max_bytes: fetch_request.max_bytes}
       else
         request
       end
 
     request =
-      if fetch_request.protocol_version >= 4 do
+      if fetch_request.api_version >= 4 do
         %{request | isolation_level: 0}
       else
         request

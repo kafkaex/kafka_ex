@@ -35,7 +35,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         offset: offset,
         auto_commit: false,
         worker_name: client,
-        protocol_version: 3
+        api_version: 3
       )
 
     [fetch_response | _] = fetch_responses
@@ -64,7 +64,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         offset: offset + 5,
         auto_commit: false,
         worker_name: client,
-        protocol_version: 3
+        api_version: 3
       )
 
     [fetch_response | _] = fetch_responses
@@ -84,7 +84,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         msg,
         worker_name: client,
         required_acks: 1,
-        protocol_version: 3
+        api_version: 3
       )
 
     fetch_responses =
@@ -92,7 +92,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         offset: offset,
         auto_commit: false,
         worker_name: client,
-        protocol_version: 2
+        api_version: 2
       )
 
     [fetch_response | _] = fetch_responses
@@ -121,7 +121,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         offset: offset,
         auto_commit: false,
         worker_name: client,
-        protocol_version: 5
+        api_version: 5
       )
 
     [fetch_response | _] = fetch_responses
@@ -150,7 +150,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         offset: offset + 5,
         auto_commit: false,
         worker_name: client,
-        protocol_version: 5
+        api_version: 5
       )
 
     [fetch_response | _] = fetch_responses
@@ -170,7 +170,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         msg,
         worker_name: client,
         required_acks: 1,
-        protocol_version: 3
+        api_version: 3
       )
 
     fetch_responses =
@@ -178,7 +178,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         offset: offset,
         auto_commit: false,
         worker_name: client,
-        protocol_version: 3
+        api_version: 3
       )
 
     [fetch_response | _] = fetch_responses
@@ -201,7 +201,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         worker_name: client,
         required_acks: 1,
         compression: :gzip,
-        protocol_version: 0
+        api_version: 0
       )
 
     fetch_responses =
@@ -209,7 +209,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         offset: max(offset - 2, 0),
         auto_commit: false,
         worker_name: client,
-        protocol_version: 3
+        api_version: 3
       )
 
     [fetch_response | _] = fetch_responses
@@ -232,7 +232,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         worker_name: client,
         required_acks: 1,
         compression: :gzip,
-        protocol_version: 0
+        api_version: 0
       )
 
     fetch_responses =
@@ -240,7 +240,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         offset: max(offset - 2, 0),
         auto_commit: false,
         worker_name: client,
-        protocol_version: 5
+        api_version: 5
       )
 
     [fetch_response | _] = fetch_responses
@@ -263,7 +263,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         worker_name: client,
         required_acks: 1,
         compression: :gzip,
-        protocol_version: 3
+        api_version: 3
       )
 
     fetch_responses =
@@ -271,7 +271,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         offset: max(offset - 2, 0),
         auto_commit: false,
         worker_name: client,
-        protocol_version: 0
+        api_version: 0
       )
 
     [fetch_response | _] = fetch_responses
@@ -294,7 +294,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         worker_name: client,
         required_acks: 1,
         compression: :gzip,
-        protocol_version: 3
+        api_version: 3
       )
 
     fetch_responses =
@@ -302,7 +302,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         offset: max(offset - 2, 0),
         auto_commit: false,
         worker_name: client,
-        protocol_version: 0
+        api_version: 0
       )
 
     [fetch_response | _] = fetch_responses
@@ -325,7 +325,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         worker_name: client,
         required_acks: 1,
         compression: :gzip,
-        protocol_version: 3
+        api_version: 3
       )
 
     fetch_responses =
@@ -333,7 +333,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         offset: max(offset - 2, 0),
         auto_commit: false,
         worker_name: client,
-        protocol_version: 0
+        api_version: 0
       )
 
     [fetch_response | _] = fetch_responses
@@ -356,7 +356,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         worker_name: client,
         required_acks: 1,
         compression: :snappy,
-        protocol_version: 0
+        api_version: 0
       )
 
     fetch_responses =
@@ -364,7 +364,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         offset: max(offset - 2, 0),
         auto_commit: false,
         worker_name: client,
-        protocol_version: 3
+        api_version: 3
       )
 
     [fetch_response | _] = fetch_responses
@@ -387,7 +387,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         worker_name: client,
         required_acks: 1,
         compression: :snappy,
-        protocol_version: 0
+        api_version: 0
       )
 
     fetch_responses =
@@ -395,7 +395,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         offset: max(offset - 2, 0),
         auto_commit: false,
         worker_name: client,
-        protocol_version: 5
+        api_version: 5
       )
 
     [fetch_response | _] = fetch_responses
@@ -418,7 +418,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         worker_name: client,
         required_acks: 1,
         compression: :snappy,
-        protocol_version: 3
+        api_version: 3
       )
 
     fetch_responses =
@@ -426,7 +426,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         offset: max(offset - 2, 0),
         auto_commit: false,
         worker_name: client,
-        protocol_version: 0
+        api_version: 0
       )
 
     [fetch_response | _] = fetch_responses
@@ -449,7 +449,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         worker_name: client,
         required_acks: 1,
         compression: :snappy,
-        protocol_version: 3
+        api_version: 3
       )
 
     fetch_responses =
@@ -457,7 +457,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         offset: max(offset - 2, 0),
         auto_commit: false,
         worker_name: client,
-        protocol_version: 0
+        api_version: 0
       )
 
     [fetch_response | _] = fetch_responses
@@ -480,7 +480,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         worker_name: client,
         required_acks: 1,
         compression: :snappy,
-        protocol_version: 3
+        api_version: 3
       )
 
     fetch_responses =
@@ -488,7 +488,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
         offset: max(offset - 2, 0),
         auto_commit: false,
         worker_name: client,
-        protocol_version: 0
+        api_version: 0
       )
 
     [fetch_response | _] = fetch_responses

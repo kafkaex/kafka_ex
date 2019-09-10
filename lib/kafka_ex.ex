@@ -270,10 +270,10 @@ defmodule KafkaEx do
     max_bytes = Keyword.get(opts, :max_bytes, @max_bytes)
     auto_commit = Keyword.get(opts, :auto_commit, true)
 
-    # NOTE protocol_version is used by the new client to allow
+    # NOTE api_version is used by the new client to allow
     # compatibility with newer message formats and is ignored by the legacy
     # server implementations.
-    protocol_version = Keyword.get(opts, :protocol_version, 0)
+    api_version = Keyword.get(opts, :api_version, 0)
 
     retrieved_offset =
       current_offset(supplied_offset, partition, topic, worker_name)
@@ -289,7 +289,7 @@ defmodule KafkaEx do
          wait_time: wait_time,
          min_bytes: min_bytes,
          max_bytes: max_bytes,
-         protocol_version: protocol_version
+         api_version: api_version
        }},
       opts
     )
@@ -377,7 +377,7 @@ defmodule KafkaEx do
       timeout: timeout,
       compression: compression,
       messages: [%Message{key: key, value: value}],
-      protocol_version: Keyword.get(opts, :protocol_version, 0)
+      api_version: Keyword.get(opts, :api_version, 0)
     }
 
     produce(produce_request, opts)
