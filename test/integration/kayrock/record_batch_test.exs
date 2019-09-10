@@ -189,7 +189,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
     assert message.offset == offset
   end
 
-  test "compression - produce v0, read v3", %{client: client} do
+  test "gzip compression - produce v0, fetch v3", %{client: client} do
     topic = "food"
     msg = TestHelper.generate_random_string()
 
@@ -206,7 +206,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     fetch_responses =
       KafkaEx.fetch(topic, 0,
-        offset: offset - 2,
+        offset: max(offset - 2, 0),
         auto_commit: false,
         worker_name: client,
         protocol_version: 3
@@ -220,7 +220,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
     assert message.offset == offset
   end
 
-  test "compression - produce v0, read v5", %{client: client} do
+  test "gzip compression - produce v0, fetch v5", %{client: client} do
     topic = "food"
     msg = TestHelper.generate_random_string()
 
@@ -237,10 +237,258 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     fetch_responses =
       KafkaEx.fetch(topic, 0,
-        offset: offset - 2,
+        offset: max(offset - 2, 0),
         auto_commit: false,
         worker_name: client,
         protocol_version: 5
+      )
+
+    [fetch_response | _] = fetch_responses
+    [partition_response | _] = fetch_response.partitions
+    message = List.last(partition_response.message_set)
+
+    assert message.value == msg
+    assert message.offset == offset
+  end
+
+  test "gzip compression - produce v3, fetch v0", %{client: client} do
+    topic = "food"
+    msg = TestHelper.generate_random_string()
+
+    {:ok, offset} =
+      KafkaEx.produce(
+        topic,
+        0,
+        msg,
+        worker_name: client,
+        required_acks: 1,
+        compression: :gzip,
+        protocol_version: 3
+      )
+
+    fetch_responses =
+      KafkaEx.fetch(topic, 0,
+        offset: max(offset - 2, 0),
+        auto_commit: false,
+        worker_name: client,
+        protocol_version: 0
+      )
+
+    [fetch_response | _] = fetch_responses
+    [partition_response | _] = fetch_response.partitions
+    message = List.last(partition_response.message_set)
+
+    assert message.value == msg
+    assert message.offset == offset
+  end
+
+  test "gzip compression - produce v3, fetch v3", %{client: client} do
+    topic = "food"
+    msg = TestHelper.generate_random_string()
+
+    {:ok, offset} =
+      KafkaEx.produce(
+        topic,
+        0,
+        msg,
+        worker_name: client,
+        required_acks: 1,
+        compression: :gzip,
+        protocol_version: 3
+      )
+
+    fetch_responses =
+      KafkaEx.fetch(topic, 0,
+        offset: max(offset - 2, 0),
+        auto_commit: false,
+        worker_name: client,
+        protocol_version: 0
+      )
+
+    [fetch_response | _] = fetch_responses
+    [partition_response | _] = fetch_response.partitions
+    message = List.last(partition_response.message_set)
+
+    assert message.value == msg
+    assert message.offset == offset
+  end
+
+  test "gzip compression - produce v3, fetch v5", %{client: client} do
+    topic = "food"
+    msg = TestHelper.generate_random_string()
+
+    {:ok, offset} =
+      KafkaEx.produce(
+        topic,
+        0,
+        msg,
+        worker_name: client,
+        required_acks: 1,
+        compression: :gzip,
+        protocol_version: 3
+      )
+
+    fetch_responses =
+      KafkaEx.fetch(topic, 0,
+        offset: max(offset - 2, 0),
+        auto_commit: false,
+        worker_name: client,
+        protocol_version: 0
+      )
+
+    [fetch_response | _] = fetch_responses
+    [partition_response | _] = fetch_response.partitions
+    message = List.last(partition_response.message_set)
+
+    assert message.value == msg
+    assert message.offset == offset
+  end
+
+  test "snappy compression - produce v0, fetch v3", %{client: client} do
+    topic = "food"
+    msg = TestHelper.generate_random_string()
+
+    {:ok, offset} =
+      KafkaEx.produce(
+        topic,
+        0,
+        msg,
+        worker_name: client,
+        required_acks: 1,
+        compression: :snappy,
+        protocol_version: 0
+      )
+
+    fetch_responses =
+      KafkaEx.fetch(topic, 0,
+        offset: max(offset - 2, 0),
+        auto_commit: false,
+        worker_name: client,
+        protocol_version: 3
+      )
+
+    [fetch_response | _] = fetch_responses
+    [partition_response | _] = fetch_response.partitions
+    message = List.last(partition_response.message_set)
+
+    assert message.value == msg
+    assert message.offset == offset
+  end
+
+  test "snappy compression - produce v0, fetch v5", %{client: client} do
+    topic = "food"
+    msg = TestHelper.generate_random_string()
+
+    {:ok, offset} =
+      KafkaEx.produce(
+        topic,
+        0,
+        msg,
+        worker_name: client,
+        required_acks: 1,
+        compression: :snappy,
+        protocol_version: 0
+      )
+
+    fetch_responses =
+      KafkaEx.fetch(topic, 0,
+        offset: max(offset - 2, 0),
+        auto_commit: false,
+        worker_name: client,
+        protocol_version: 5
+      )
+
+    [fetch_response | _] = fetch_responses
+    [partition_response | _] = fetch_response.partitions
+    message = List.last(partition_response.message_set)
+
+    assert message.value == msg
+    assert message.offset == offset
+  end
+
+  test "snappy compression - produce v3, fetch v0", %{client: client} do
+    topic = "food"
+    msg = TestHelper.generate_random_string()
+
+    {:ok, offset} =
+      KafkaEx.produce(
+        topic,
+        0,
+        msg,
+        worker_name: client,
+        required_acks: 1,
+        compression: :snappy,
+        protocol_version: 3
+      )
+
+    fetch_responses =
+      KafkaEx.fetch(topic, 0,
+        offset: max(offset - 2, 0),
+        auto_commit: false,
+        worker_name: client,
+        protocol_version: 0
+      )
+
+    [fetch_response | _] = fetch_responses
+    [partition_response | _] = fetch_response.partitions
+    message = List.last(partition_response.message_set)
+
+    assert message.value == msg
+    assert message.offset == offset
+  end
+
+  test "snappy compression - produce v3, fetch v3", %{client: client} do
+    topic = "food"
+    msg = TestHelper.generate_random_string()
+
+    {:ok, offset} =
+      KafkaEx.produce(
+        topic,
+        0,
+        msg,
+        worker_name: client,
+        required_acks: 1,
+        compression: :snappy,
+        protocol_version: 3
+      )
+
+    fetch_responses =
+      KafkaEx.fetch(topic, 0,
+        offset: max(offset - 2, 0),
+        auto_commit: false,
+        worker_name: client,
+        protocol_version: 0
+      )
+
+    [fetch_response | _] = fetch_responses
+    [partition_response | _] = fetch_response.partitions
+    message = List.last(partition_response.message_set)
+
+    assert message.value == msg
+    assert message.offset == offset
+  end
+
+  test "snappy compression - produce v3, fetch v5", %{client: client} do
+    topic = "food"
+    msg = TestHelper.generate_random_string()
+
+    {:ok, offset} =
+      KafkaEx.produce(
+        topic,
+        0,
+        msg,
+        worker_name: client,
+        required_acks: 1,
+        compression: :snappy,
+        protocol_version: 3
+      )
+
+    fetch_responses =
+      KafkaEx.fetch(topic, 0,
+        offset: max(offset - 2, 0),
+        auto_commit: false,
+        worker_name: client,
+        protocol_version: 0
       )
 
     [fetch_response | _] = fetch_responses
