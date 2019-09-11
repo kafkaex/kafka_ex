@@ -54,7 +54,8 @@ defmodule KafkaEx.Protocol.Fetch do
               key: nil,
               value: nil,
               topic: nil,
-              partition: nil
+              partition: nil,
+              timestamp: nil
 
     @type t :: %Message{
             attributes: integer,
@@ -63,7 +64,9 @@ defmodule KafkaEx.Protocol.Fetch do
             key: binary,
             value: binary,
             topic: binary,
-            partition: integer
+            partition: integer,
+            # timestamp supported for `kafka_version: "kayrock"` ONLY
+            timestamp: integer
           }
   end
 

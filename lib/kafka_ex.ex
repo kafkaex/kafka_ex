@@ -347,6 +347,8 @@ defmodule KafkaEx do
   - timeout: provides a maximum time in milliseconds the server can await the receipt of the number of acknowledgements in RequiredAcks, default is 100 milliseconds
   - compression: specifies the compression type (:none, :snappy, :gzip)
   - api_version: Version of the Fetch API message to send (Kayrock client only, default: 0)
+  - timestamp: unix epoch timestamp in milliseconds for the message
+      (Kayrock client only, default: nil, must be using api_version >= 3)
 
   ## Example
 
@@ -371,6 +373,7 @@ defmodule KafkaEx do
     required_acks = Keyword.get(opts, :required_acks, 0)
     timeout = Keyword.get(opts, :timeout, 100)
     compression = Keyword.get(opts, :compression, :none)
+    timestamp = Keyword.get(opts, :timestamp)
 
     produce_request = %ProduceRequest{
       topic: topic,
@@ -378,7 +381,7 @@ defmodule KafkaEx do
       required_acks: required_acks,
       timeout: timeout,
       compression: compression,
-      messages: [%Message{key: key, value: value}],
+      messages: [%Message{key: key, value: value, timestamp: timestamp}],
       api_version: Keyword.get(opts, :api_version, 0)
     }
 

@@ -27,6 +27,7 @@ defmodule KafkaEx.New.Adapter do
   alias KafkaEx.Protocol.SyncGroup.Response, as: SyncGroupResponse
   alias KafkaEx.Protocol.Fetch.Response, as: FetchResponse
   alias KafkaEx.Protocol.Fetch.Message, as: FetchMessage
+  alias KafkaEx.TimestampNotSupportedError
 
   alias Kayrock.MessageSet
   alias Kayrock.MessageSet.Message
@@ -64,39 +65,7 @@ defmodule KafkaEx.New.Adapter do
     topic = produce_request.topic
     partition = produce_request.partition
 
-    # TODO refactor, add timestamp tests
-    message_set =
-      case produce_request.api_version do
-        v when v <= 2 ->
-          %MessageSet{
-            messages:
-              Enum.map(
-                produce_request.messages,
-                fn msg ->
-                  %Message{
-                    key: msg.key,
-                    value: msg.value,
-                    compression: produce_request.compression
-                  }
-                end
-              )
-          }
-
-        _ ->
-          %RecordBatch{
-            attributes: produce_attributes(produce_request),
-            records:
-              Enum.map(
-                produce_request.messages,
-                fn msg ->
-                  %Record{
-                    key: msg.key,
-                    value: msg.value
-                  }
-                end
-              )
-          }
-      end
+    message_set = build_produce_messages(produce_request)
 
     request = Kayrock.Produce.get_request_struct(produce_request.api_version)
 
@@ -501,7 +470,8 @@ defmodule KafkaEx.New.Adapter do
             value: record.value,
             offset: record.offset,
             topic: topic,
-            partition: partition
+            partition: partition,
+            timestamp: record.timestamp
           }
         end)
       end)
@@ -530,7 +500,8 @@ defmodule KafkaEx.New.Adapter do
           value: message.value,
           offset: message.offset,
           topic: topic,
-          partition: partition
+          partition: partition,
+          timestamp: message.timestamp
         }
       end)
 
@@ -579,4 +550,45 @@ defmodule KafkaEx.New.Adapter do
   defp produce_attributes(%{compression: :none}), do: 0
   defp produce_attributes(%{compression: :gzip}), do: 1
   defp produce_attributes(%{compression: :snappy}), do: 2
+
+  defp build_produce_messages(%{api_version: v} = produce_request)
+       when v <= 2 do
+    %MessageSet{
+      messages:
+        Enum.map(
+          produce_request.messages,
+          fn msg ->
+            if msg.timestamp do
+              raise TimestampNotSupportedError
+            end
+
+            %Message{
+              key: msg.key,
+              value: msg.value,
+              compression: produce_request.compression
+            }
+          end
+        )
+    }
+  end
+
+  defp build_produce_messages(produce_request) do
+    %RecordBatch{
+      attributes: produce_attributes(produce_request),
+      records:
+        Enum.map(
+          produce_request.messages,
+          fn msg ->
+            %Record{
+              key: msg.key,
+              value: msg.value,
+              timestamp: minus_one_if_nil(msg.timestamp)
+            }
+          end
+        )
+    }
+  end
+
+  defp minus_one_if_nil(nil), do: -1
+  defp minus_one_if_nil(x), do: x
 end
