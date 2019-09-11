@@ -373,10 +373,7 @@ defmodule KafkaEx do
     required_acks = Keyword.get(opts, :required_acks, 0)
     timeout = Keyword.get(opts, :timeout, 100)
     compression = Keyword.get(opts, :compression, :none)
-<<<<<<< HEAD
     timestamp = Keyword.get(opts, :timestamp)
-=======
->>>>>>> master
 
     produce_request = %ProduceRequest{
       topic: topic,
@@ -384,12 +381,8 @@ defmodule KafkaEx do
       required_acks: required_acks,
       timeout: timeout,
       compression: compression,
-<<<<<<< HEAD
       messages: [%Message{key: key, value: value, timestamp: timestamp}],
       api_version: Keyword.get(opts, :api_version, 0)
-=======
-      messages: [%Message{key: key, value: value}]
->>>>>>> master
     }
 
     produce(produce_request, opts)
