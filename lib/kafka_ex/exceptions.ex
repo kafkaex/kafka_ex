@@ -26,3 +26,7 @@ defmodule KafkaEx.InvalidConsumerGroupError do
     %__MODULE__{message: message}
   end
 end
+
+defmodule KafkaEx.TimestampNotSupportedError do
+  defexception message: "Timestamp requires produce api_version >= 3"
+end

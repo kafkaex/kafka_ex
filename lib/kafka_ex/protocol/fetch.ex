@@ -17,7 +17,9 @@ defmodule KafkaEx.Protocol.Fetch do
               wait_time: nil,
               min_bytes: nil,
               max_bytes: nil,
-              auto_commit: nil
+              auto_commit: nil,
+              # NOTE api_version only used in new client
+              api_version: 0
 
     @type t :: %Request{
             correlation_id: integer,
@@ -27,7 +29,8 @@ defmodule KafkaEx.Protocol.Fetch do
             offset: integer,
             wait_time: integer,
             min_bytes: integer,
-            max_bytes: integer
+            max_bytes: integer,
+            api_version: integer
           }
   end
 
@@ -45,7 +48,14 @@ defmodule KafkaEx.Protocol.Fetch do
 
   defmodule Message do
     @moduledoc false
-    defstruct attributes: 0, crc: nil, offset: nil, key: nil, value: nil, topic: nil, partition: nil
+    defstruct attributes: 0,
+              crc: nil,
+              offset: nil,
+              key: nil,
+              value: nil,
+              topic: nil,
+              partition: nil,
+              timestamp: nil
 
     @type t :: %Message{
             attributes: integer,
@@ -54,7 +64,9 @@ defmodule KafkaEx.Protocol.Fetch do
             key: binary,
             value: binary,
             topic: binary,
-            partition: integer
+            partition: integer,
+            # timestamp supported for `kafka_version: "kayrock"` ONLY
+            timestamp: integer
           }
   end
 
@@ -95,18 +107,24 @@ defmodule KafkaEx.Protocol.Fetch do
         partitions,
         topic
       ) do
-    {:ok, message_set, last_offset} = parse_message_set([], msg_set_data, topic, partition)
+    {:ok, message_set, last_offset} =
+      parse_message_set([], msg_set_data, topic, partition)
 
-    parse_partitions(partitions_size - 1, rest, [
-      %{
-        partition: partition,
-        error_code: Protocol.error(error_code),
-        hw_mark_offset: hw_mark_offset,
-        message_set: message_set,
-        last_offset: last_offset
-      }
-      | partitions
-    ], topic)
+    parse_partitions(
+      partitions_size - 1,
+      rest,
+      [
+        %{
+          partition: partition,
+          error_code: Protocol.error(error_code),
+          hw_mark_offset: hw_mark_offset,
+          message_set: message_set,
+          last_offset: last_offset
+        }
+        | partitions
+      ],
+      topic
+    )
   end
 
   defp parse_message_set([], <<>>, _topic, _partition) do
@@ -117,10 +135,15 @@ defmodule KafkaEx.Protocol.Fetch do
          list,
          <<offset::64, msg_size::32, msg_data::size(msg_size)-binary,
            rest::binary>>,
-          topic,
-          partition
+         topic,
+         partition
        ) do
-    {:ok, message} = parse_message(%Message{offset: offset, topic: topic, partition: partition}, msg_data)
+    {:ok, message} =
+      parse_message(
+        %Message{offset: offset, topic: topic, partition: partition},
+        msg_data
+      )
+
     parse_message_set(append_messages(message, list), rest, topic, partition)
   end
 
@@ -165,10 +188,16 @@ defmodule KafkaEx.Protocol.Fetch do
     parse_key(message, rest)
   end
 
-  defp maybe_decompress(%Message{attributes: attributes, topic: topic, partition: partition}, rest) do
+  defp maybe_decompress(
+         %Message{attributes: attributes, topic: topic, partition: partition},
+         rest
+       ) do
     <<-1::32-signed, value_size::32, value::size(value_size)-binary>> = rest
     decompressed = Compression.decompress(attributes, value)
-    {:ok, msg_set, _offset} = parse_message_set([], decompressed, topic, partition)
+
+    {:ok, msg_set, _offset} =
+      parse_message_set([], decompressed, topic, partition)
+
     {:ok, msg_set}
   end
 

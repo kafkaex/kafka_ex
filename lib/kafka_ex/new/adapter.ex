@@ -27,9 +27,12 @@ defmodule KafkaEx.New.Adapter do
   alias KafkaEx.Protocol.SyncGroup.Response, as: SyncGroupResponse
   alias KafkaEx.Protocol.Fetch.Response, as: FetchResponse
   alias KafkaEx.Protocol.Fetch.Message, as: FetchMessage
+  alias KafkaEx.TimestampNotSupportedError
 
   alias Kayrock.MessageSet
   alias Kayrock.MessageSet.Message
+  alias Kayrock.RecordBatch
+  alias Kayrock.RecordBatch.Record
 
   def list_offsets_request(topic, partition, time) do
     time = Offset.parse_time(time)
@@ -58,41 +61,32 @@ defmodule KafkaEx.New.Adapter do
     end)
   end
 
-  def produce_request(request) do
-    topic = request.topic
-    partition = request.partition
+  def produce_request(produce_request) do
+    topic = produce_request.topic
+    partition = produce_request.partition
 
-    message_set = %MessageSet{
-      messages:
-        Enum.map(
-          request.messages,
-          fn msg ->
-            %Message{
-              key: msg.key,
-              value: msg.value,
-              compression: request.compression
-            }
-          end
-        )
-    }
+    message_set = build_produce_messages(produce_request)
 
-    request = %Kayrock.Produce.V0.Request{
-      acks: request.required_acks,
-      timeout: request.timeout,
-      topic_data: [
-        %{
-          topic: request.topic,
-          data: [
-            %{partition: request.partition, record_set: message_set}
-          ]
-        }
-      ]
+    request = Kayrock.Produce.get_request_struct(produce_request.api_version)
+
+    request = %{
+      request
+      | acks: produce_request.required_acks,
+        timeout: produce_request.timeout,
+        topic_data: [
+          %{
+            topic: produce_request.topic,
+            data: [
+              %{partition: produce_request.partition, record_set: message_set}
+            ]
+          }
+        ]
     }
 
     {request, topic, partition}
   end
 
-  def produce_response(%Kayrock.Produce.V0.Response{
+  def produce_response(%{
         responses: [
           %{
             partition_responses: [
@@ -125,23 +119,49 @@ defmodule KafkaEx.New.Adapter do
   end
 
   def fetch_request(fetch_request) do
-    {%Kayrock.Fetch.V0.Request{
-       max_wait_time: fetch_request.wait_time,
-       min_bytes: fetch_request.min_bytes,
-       replica_id: -1,
-       topics: [
-         %{
-           topic: fetch_request.topic,
-           partitions: [
-             %{
-               partition: fetch_request.partition,
-               fetch_offset: fetch_request.offset,
-               max_bytes: fetch_request.max_bytes
-             }
-           ]
-         }
-       ]
-     }, fetch_request.topic, fetch_request.partition}
+    request = Kayrock.Fetch.get_request_struct(fetch_request.api_version)
+
+    partition_request = %{
+      partition: fetch_request.partition,
+      fetch_offset: fetch_request.offset,
+      max_bytes: fetch_request.max_bytes
+    }
+
+    partition_request =
+      if fetch_request.api_version >= 5 do
+        Map.put(partition_request, :log_start_offset, 0)
+      else
+        partition_request
+      end
+
+    request = %{
+      request
+      | max_wait_time: fetch_request.wait_time,
+        min_bytes: fetch_request.min_bytes,
+        replica_id: -1,
+        topics: [
+          %{
+            topic: fetch_request.topic,
+            partitions: [partition_request]
+          }
+        ]
+    }
+
+    request =
+      if fetch_request.api_version >= 3 do
+        %{request | max_bytes: fetch_request.max_bytes}
+      else
+        request
+      end
+
+    request =
+      if fetch_request.api_version >= 4 do
+        %{request | isolation_level: 0}
+      else
+        request
+      end
+
+    {request, fetch_request.topic, fetch_request.partition}
   end
 
   def fetch_response(fetch_response) do
@@ -434,22 +454,26 @@ defmodule KafkaEx.New.Adapter do
     }
   end
 
-  defp kayrock_message_set_to_kafka_ex(
-         %Kayrock.RecordBatch{} = record_batch,
-         topic,
-         partition
-       ) do
+  defp kayrock_message_set_to_kafka_ex(nil, _topic, _partition) do
+    {[], nil}
+  end
+
+  defp kayrock_message_set_to_kafka_ex(record_batches, topic, partition)
+       when is_list(record_batches) do
     messages =
-      Enum.map(record_batch.records, fn record ->
-        %FetchMessage{
-          attributes: record.attributes,
-          crc: nil,
-          key: record.key,
-          value: record.value,
-          offset: record.offset,
-          topic: topic,
-          partition: partition
-        }
+      Enum.flat_map(record_batches, fn record_batch ->
+        Enum.map(record_batch.records, fn record ->
+          %FetchMessage{
+            attributes: record.attributes,
+            crc: nil,
+            key: record.key,
+            value: record.value,
+            offset: record.offset,
+            topic: topic,
+            partition: partition,
+            timestamp: record.timestamp
+          }
+        end)
       end)
 
     case messages do
@@ -476,7 +500,8 @@ defmodule KafkaEx.New.Adapter do
           value: message.value,
           offset: message.offset,
           topic: topic,
-          partition: partition
+          partition: partition,
+          timestamp: message.timestamp
         }
       end)
 
@@ -520,4 +545,50 @@ defmodule KafkaEx.New.Adapter do
       isrs: partition.isr
     }
   end
+
+  # NOTE we don't handle any other attributes here
+  defp produce_attributes(%{compression: :none}), do: 0
+  defp produce_attributes(%{compression: :gzip}), do: 1
+  defp produce_attributes(%{compression: :snappy}), do: 2
+
+  defp build_produce_messages(%{api_version: v} = produce_request)
+       when v <= 2 do
+    %MessageSet{
+      messages:
+        Enum.map(
+          produce_request.messages,
+          fn msg ->
+            if msg.timestamp do
+              raise TimestampNotSupportedError
+            end
+
+            %Message{
+              key: msg.key,
+              value: msg.value,
+              compression: produce_request.compression
+            }
+          end
+        )
+    }
+  end
+
+  defp build_produce_messages(produce_request) do
+    %RecordBatch{
+      attributes: produce_attributes(produce_request),
+      records:
+        Enum.map(
+          produce_request.messages,
+          fn msg ->
+            %Record{
+              key: msg.key,
+              value: msg.value,
+              timestamp: minus_one_if_nil(msg.timestamp)
+            }
+          end
+        )
+    }
+  end
+
+  defp minus_one_if_nil(nil), do: -1
+  defp minus_one_if_nil(x), do: x
 end

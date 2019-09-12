@@ -27,7 +27,9 @@ defmodule KafkaEx.Protocol.Produce do
               required_acks: 0,
               timeout: 0,
               compression: :none,
-              messages: []
+              messages: [],
+              # NOTE api_version only used in new client
+              api_version: 0
 
     @type t :: %Request{
             topic: binary,
@@ -35,7 +37,8 @@ defmodule KafkaEx.Protocol.Produce do
             required_acks: integer,
             timeout: integer,
             compression: atom,
-            messages: list
+            messages: list,
+            api_version: integer
           }
   end
 
@@ -44,9 +47,10 @@ defmodule KafkaEx.Protocol.Produce do
     - key: is used for partition assignment, can be nil, when none is provided
     it is defaulted to nil
     - value: is the message to be written to kafka logs.
+    - timestamp: timestamp (`kafka_version: "kayrock"` ONLY)
     """
-    defstruct key: nil, value: nil
-    @type t :: %Message{key: binary, value: binary}
+    defstruct key: nil, value: nil, timestamp: nil
+    @type t :: %Message{key: binary, value: binary, timestamp: integer}
   end
 
   defmodule Response do
@@ -133,13 +137,18 @@ defmodule KafkaEx.Protocol.Produce do
         partitions,
         topic
       ) do
-    parse_partitions(partitions_size - 1, rest, [
-      %{
-        partition: partition,
-        error_code: Protocol.error(error_code),
-        offset: offset
-      }
-      | partitions
-    ], topic)
+    parse_partitions(
+      partitions_size - 1,
+      rest,
+      [
+        %{
+          partition: partition,
+          error_code: Protocol.error(error_code),
+          offset: offset
+        }
+        | partitions
+      ],
+      topic
+    )
   end
 end
