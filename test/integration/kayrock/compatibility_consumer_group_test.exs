@@ -219,7 +219,7 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupTest do
            ) ==
              [
                %Proto.OffsetCommit.Response{
-                 partitions: [0],
+                 partitions: [%{error_code: :no_error, partition: 0}],
                  topic: random_string
                }
              ]

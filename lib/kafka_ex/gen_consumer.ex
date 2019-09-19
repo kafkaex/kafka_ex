@@ -822,8 +822,16 @@ defmodule KafkaEx.GenConsumer do
       offset: offset
     }
 
-    [%OffsetCommitResponse{topic: ^topic, partitions: [^partition]}] =
+    [%OffsetCommitResponse{topic: ^topic, partitions: [partition_response]}] =
       KafkaEx.offset_commit(worker_name, request)
+
+    # one of these needs to match, depending on which client
+    case partition_response do
+      # old client
+      [^partition] -> :ok
+      # new client
+      %{error_code: :no_error, partition: ^partition} -> :ok
+    end
 
     Logger.debug(fn ->
       "Committed offset #{topic}/#{partition}@#{offset} for #{group}"
