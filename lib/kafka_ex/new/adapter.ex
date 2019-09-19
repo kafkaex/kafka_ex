@@ -651,10 +651,6 @@ defmodule KafkaEx.New.Adapter do
   defp minus_one_if_nil(x), do: x
 
   defp millis_timestamp_now do
-    NaiveDateTime.diff(
-      NaiveDateTime.utc_now(),
-      ~N[1970-01-01 00:00:00],
-      :millisecond
-    )
+    :os.system_time(:millisecond)
   end
 end
