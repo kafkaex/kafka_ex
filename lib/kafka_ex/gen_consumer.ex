@@ -828,7 +828,7 @@ defmodule KafkaEx.GenConsumer do
     # one of these needs to match, depending on which client
     case partition_response do
       # old client
-      [^partition] -> :ok
+      ^partition -> :ok
       # new client
       %{error_code: :no_error, partition: ^partition} -> :ok
     end
