@@ -343,18 +343,26 @@ defmodule KafkaEx.New.Adapter do
     }
   end
 
-  def offset_fetch_request(request, client_consumer_group) do
-    consumer_group = request.consumer_group || client_consumer_group
+  def offset_fetch_request(offset_fetch_request, client_consumer_group) do
+    consumer_group =
+      offset_fetch_request.consumer_group || client_consumer_group
 
-    {%Kayrock.OffsetFetch.V0.Request{
-       group_id: consumer_group,
-       topics: [
-         %{topic: request.topic, partitions: [%{partition: request.partition}]}
-       ]
+    request =
+      Kayrock.OffsetFetch.get_request_struct(offset_fetch_request.api_version)
+
+    {%{
+       request
+       | group_id: consumer_group,
+         topics: [
+           %{
+             topic: offset_fetch_request.topic,
+             partitions: [%{partition: offset_fetch_request.partition}]
+           }
+         ]
      }, consumer_group}
   end
 
-  def offset_fetch_response(%Kayrock.OffsetFetch.V0.Response{
+  def offset_fetch_response(%{
         responses: [
           %{
             topic: topic,
@@ -384,41 +392,95 @@ defmodule KafkaEx.New.Adapter do
     ]
   end
 
-  def offset_commit_request(request, client_consumer_group) do
-    consumer_group = request.consumer_group || client_consumer_group
+  def offset_commit_request(offset_commit_request, client_consumer_group) do
+    consumer_group =
+      offset_commit_request.consumer_group || client_consumer_group
 
-    {%Kayrock.OffsetCommit.V0.Request{
-       group_id: consumer_group,
-       topics: [
-         %{
-           topic: request.topic,
-           partitions: [
-             %{
-               partition: request.partition,
-               offset: request.offset,
-               metadata: ""
-             }
-           ]
-         }
-       ]
-     }, consumer_group}
-  end
+    request =
+      Kayrock.OffsetCommit.get_request_struct(offset_commit_request.api_version)
 
-  def offset_commit_response(%Kayrock.OffsetCommit.V0.Response{
-        responses: [
+    request = %{
+      request
+      | group_id: consumer_group,
+        topics: [
           %{
-            topic: topic,
-            partition_responses: [
-              %{partition: partition}
+            topic: offset_commit_request.topic,
+            partitions: [
+              %{
+                partition: offset_commit_request.partition,
+                offset: offset_commit_request.offset,
+                metadata: ""
+              }
             ]
           }
         ]
-      }) do
+    }
+
+    request =
+      case offset_commit_request.api_version do
+        1 ->
+          timestamp =
+            case offset_commit_request.timestamp do
+              t when t > 0 -> t
+              _ -> millis_timestamp_now()
+            end
+
+          timestamp = -1
+
+          [topic] = request.topics
+          [partition] = topic.partitions
+
+          %{
+            request
+            | # offset_commit_request.generation_id,
+              generation_id: -1,
+              # offset_commit_request.member_id,
+              member_id: "",
+              topics: [
+                %{
+                  topic
+                  | partitions: [
+                      Map.put_new(partition, :timestamp, timestamp)
+                    ]
+                }
+              ]
+          }
+
+        v when v >= 2 ->
+          %{request | generation_id: -1, member_id: "", retention_time: -1}
+
+        _ ->
+          request
+      end
+
+    {request, consumer_group}
+  end
+
+  @spec offset_commit_response(%{
+          responses: [%{partition_responses: [...], topic: any}, ...]
+        }) :: [KafkaEx.Protocol.OffsetCommit.Response.t(), ...]
+  def offset_commit_response(
+        %{
+          responses: [
+            %{
+              topic: topic,
+              partition_responses: [
+                %{partition: partition, error_code: error_code}
+              ]
+            }
+          ]
+        }
+      ) do
     # NOTE kafkaex protocol ignores error code here
     [
       %OffsetCommitResponse{
         topic: topic,
-        partitions: [partition]
+        partitions: [
+          %{
+            partition: partition,
+            error_code: Kayrock.ErrorCode.code_to_atom(error_code)
+          }
+        ]
       }
     ]
   end
@@ -591,4 +653,12 @@ defmodule KafkaEx.New.Adapter do
 
   defp minus_one_if_nil(nil), do: -1
   defp minus_one_if_nil(x), do: x
+
+  defp millis_timestamp_now do
+    NaiveDateTime.diff(
+      NaiveDateTime.utc_now(),
+      ~N[1970-01-01 00:00:00],
+      :millisecond
+    )
+  end
 end
