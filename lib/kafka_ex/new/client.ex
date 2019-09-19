@@ -640,7 +640,7 @@ defmodule KafkaEx.New.Client do
   end
 
   defp get_send_request_function(
-         node_selector = %NodeSelector{},
+         %NodeSelector{} = node_selector,
          state,
          network_timeout,
          _synchronous
