@@ -425,8 +425,6 @@ defmodule KafkaEx.New.Adapter do
               _ -> millis_timestamp_now()
             end
 
-          timestamp = -1
-
           [topic] = request.topics
           [partition] = topic.partitions
 
@@ -459,18 +457,16 @@ defmodule KafkaEx.New.Adapter do
   @spec offset_commit_response(%{
           responses: [%{partition_responses: [...], topic: any}, ...]
         }) :: [KafkaEx.Protocol.OffsetCommit.Response.t(), ...]
-  def offset_commit_response(
-        %{
-          responses: [
-            %{
-              topic: topic,
-              partition_responses: [
-                %{partition: partition, error_code: error_code}
-              ]
-            }
-          ]
-        }
-      ) do
+  def offset_commit_response(%{
+        responses: [
+          %{
+            topic: topic,
+            partition_responses: [
+              %{partition: partition, error_code: error_code}
+            ]
+          }
+        ]
+      }) do
     # NOTE kafkaex protocol ignores error code here
     [
       %OffsetCommitResponse{
