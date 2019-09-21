@@ -11,20 +11,29 @@ defmodule KafkaEx.Protocol.OffsetCommit do
               topic: nil,
               partition: nil,
               offset: nil,
-              metadata: ""
+              metadata: "",
+              # NOTE api_version, generation_id, member_id, and timestamp only used in new client
+              api_version: 0,
+              generation_id: -1,
+              member_id: "kafkaex",
+              timestamp: 0
 
     @type t :: %Request{
             consumer_group: binary,
             topic: binary,
             partition: integer,
-            offset: integer
+            offset: integer,
+            api_version: integer,
+            generation_id: integer,
+            member_id: binary,
+            timestamp: integer
           }
   end
 
   defmodule Response do
     @moduledoc false
     defstruct partitions: [], topic: nil
-    @type t :: %Response{partitions: [] | [integer], topic: binary}
+    @type t :: %Response{partitions: [] | [integer] | [map], topic: binary}
   end
 
   @spec create_request(integer, binary, Request.t()) :: binary

@@ -580,23 +580,6 @@ defmodule KafkaEx.New.Client do
   end
 
   defp get_send_request_function(
-         %NodeSelector{strategy: :controller},
-         state,
-         network_timeout,
-         _synchronous
-       ) do
-    {:ok, broker} = State.select_broker(state, NodeSelector.controller())
-
-    {fn wire_request ->
-       NetworkClient.send_sync_request(
-         broker,
-         wire_request,
-         network_timeout
-       )
-     end, state}
-  end
-
-  defp get_send_request_function(
          %NodeSelector{
            strategy: :topic_partition,
            topic: topic,
@@ -654,6 +637,23 @@ defmodule KafkaEx.New.Client do
          network_timeout
        )
      end, updated_state}
+  end
+
+  defp get_send_request_function(
+         %NodeSelector{} = node_selector,
+         state,
+         network_timeout,
+         _synchronous
+       ) do
+    {:ok, broker} = State.select_broker(state, node_selector)
+
+    {fn wire_request ->
+       NetworkClient.send_sync_request(
+         broker,
+         wire_request,
+         network_timeout
+       )
+     end, state}
   end
 
   defp deserialize(data, request) do
