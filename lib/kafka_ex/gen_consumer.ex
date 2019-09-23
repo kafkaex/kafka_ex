@@ -538,7 +538,7 @@ defmodule KafkaEx.GenConsumer do
     member_id = Keyword.get(opts, :member_id)
 
     default_api_versions = %{fetch: 0, offset_fetch: 0, offset_commit: 0}
-    api_versions = Keyword.get(opts, :api_versions)
+    api_versions = Keyword.get(opts, :api_versions, %{})
     api_versions = Map.merge(default_api_versions, api_versions)
 
     {:ok, consumer_state} =
