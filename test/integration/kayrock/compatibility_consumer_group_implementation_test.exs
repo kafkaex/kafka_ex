@@ -16,9 +16,11 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
 
   alias KafkaEx.ConsumerGroup
   alias KafkaEx.GenConsumer
+  alias KafkaEx.New.Client
+  alias KafkaEx.Protocol.OffsetFetch
 
   # note this topic is created by docker_up.sh
-  @topic_name "consumer_group_implementation_test"
+  @topic_name "consumer_group_implementation_test_kayrock"
   @partition_count 4
   @consumer_group_name "consumer_group_implementation"
 
@@ -106,7 +108,7 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
   end
 
   def produce(message, partition) do
-    KafkaEx.produce(@topic_name, partition, message)
+    :ok = KafkaEx.produce(@topic_name, partition, message)
     message
   end
 
@@ -121,6 +123,10 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
 
     message = List.last(message_set)
     message.value == expected_message && message.offset == expected_offset
+  end
+
+  def has_timestamp?(message) do
+    is_integer(message.timestamp) && message.timestamp > 0
   end
 
   def sync_stop(pid) when is_pid(pid) do
@@ -157,8 +163,17 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
   end
 
   setup do
-    ports_before = num_open_ports()
     {:ok, _} = TestPartitioner.start_link()
+
+    {:ok, client_args} = KafkaEx.build_worker_options([])
+
+    {:ok, client_pid} = Client.start_link(client_args, :no_name)
+
+    # the client will die on its own, so don't count that
+    ports_before = num_open_ports()
+
+    {:ok, @topic_name} =
+      TestHelper.ensure_append_timestamp_topic(client_pid, @topic_name)
 
     {:ok, consumer_group_pid1} =
       ConsumerGroup.start_link(
@@ -167,7 +182,8 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
         [@topic_name],
         heartbeat_interval: 100,
         partition_assignment_callback: &TestPartitioner.assign_partitions/2,
-        session_timeout_padding: 30000
+        session_timeout_padding: 30000,
+        api_versions: %{fetch: 3, offset_fetch: 3, offset_commit: 3}
       )
 
     {:ok, consumer_group_pid2} =
@@ -177,7 +193,8 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
         [@topic_name],
         heartbeat_interval: 100,
         partition_assignment_callback: &TestPartitioner.assign_partitions/2,
-        session_timeout_padding: 30000
+        session_timeout_padding: 30000,
+        api_versions: %{fetch: 3, offset_fetch: 3, offset_commit: 3}
       )
 
     # wait for both consumer groups to join
@@ -195,7 +212,8 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
       :ok,
       consumer_group_pid1: consumer_group_pid1,
       consumer_group_pid2: consumer_group_pid2,
-      ports_before: ports_before
+      ports_before: ports_before,
+      client: client_pid
     }
   end
 
@@ -302,6 +320,8 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
         end)
 
         last_message = List.last(TestConsumer.last_message_set(consumer_pid))
+        # should have a timestamp because we're using fetch v3
+        assert has_timestamp?(last_message)
         {px, last_message.offset}
       end)
       |> Enum.into(%{})
@@ -319,7 +339,9 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
           TestHelper.latest_consumer_offset_number(
             @topic_name,
             px,
-            @consumer_group_name
+            @consumer_group_name,
+            context[:client],
+            3
           )
 
         last_offset = Map.get(last_offsets, px)
@@ -329,5 +351,18 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
 
     # ports should be released
     assert context[:ports_before] == num_open_ports()
+
+    # since we're using v3 for OffsetCommit, we should get an error if we try to
+    # fetch with v0
+    [resp] =
+      KafkaEx.offset_fetch(context[:client], %OffsetFetch.Request{
+        topic: @topic_name,
+        consumer_group: @consumer_group_name,
+        partition: 0,
+        api_version: 0
+      })
+
+    [partition_resp] = resp.partitions
+    assert partition_resp.error_code == :unknown_topic_or_partition
   end
 end

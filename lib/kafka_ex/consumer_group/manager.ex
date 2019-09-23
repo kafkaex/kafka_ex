@@ -285,7 +285,10 @@ defmodule KafkaEx.ConsumerGroup.Manager do
                 "#{inspect(reason)}"
     end
 
-    Logger.debug(fn -> "Joined consumer group #{group_name}" end)
+    Logger.debug(fn ->
+      "Joined consumer group #{group_name} generation " <>
+        "#{join_response.generation_id} as #{join_response.member_id}"
+    end)
 
     new_state = %State{
       state
@@ -439,10 +442,19 @@ defmodule KafkaEx.ConsumerGroup.Manager do
            gen_consumer_module: gen_consumer_module,
            consumer_opts: consumer_opts,
            group_name: group_name,
+           member_id: member_id,
+           generation_id: generation_id,
            supervisor_pid: pid
          } = state,
          assignments
        ) do
+    # add member_id and generation_id to the consumer opts
+    consumer_opts =
+      Keyword.merge(consumer_opts,
+        generation_id: generation_id,
+        member_id: member_id
+      )
+
     {:ok, consumer_supervisor_pid} =
       ConsumerGroup.start_consumer(
         pid,

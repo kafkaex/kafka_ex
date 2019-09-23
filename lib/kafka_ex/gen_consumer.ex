@@ -208,6 +208,7 @@ defmodule KafkaEx.GenConsumer do
           {:commit_interval, non_neg_integer}
           | {:commit_threshold, non_neg_integer}
           | {:auto_offset_reset, :none | :earliest | :latest}
+          | {:api_versions, map()}
           | {:extra_consumer_args, map()}
 
   @typedoc """
@@ -388,12 +389,15 @@ defmodule KafkaEx.GenConsumer do
       :group,
       :topic,
       :partition,
+      :member_id,
+      :generation_id,
       :current_offset,
       :committed_offset,
       :acked_offset,
       :last_commit,
       :auto_offset_reset,
-      :fetch_options
+      :fetch_options,
+      :api_versions
     ]
   end
 
@@ -530,6 +534,13 @@ defmodule KafkaEx.GenConsumer do
         :extra_consumer_args
       )
 
+    generation_id = Keyword.get(opts, :generation_id)
+    member_id = Keyword.get(opts, :member_id)
+
+    default_api_versions = %{fetch: 0, offset_fetch: 0, offset_commit: 0}
+    api_versions = Keyword.get(opts, :api_versions)
+    api_versions = Map.merge(default_api_versions, api_versions)
+
     {:ok, consumer_state} =
       consumer_module.init(topic, partition, extra_consumer_args)
 
@@ -559,7 +570,10 @@ defmodule KafkaEx.GenConsumer do
       group: group_name,
       topic: topic,
       partition: partition,
-      fetch_options: fetch_options
+      generation_id: generation_id,
+      member_id: member_id,
+      fetch_options: fetch_options,
+      api_versions: api_versions
     }
 
     Process.flag(:trap_exit, true)
@@ -675,7 +689,10 @@ defmodule KafkaEx.GenConsumer do
       KafkaEx.fetch(
         topic,
         partition,
-        Keyword.merge(fetch_options, offset: offset)
+        Keyword.merge(fetch_options,
+          offset: offset,
+          api_version: Map.fetch!(state.api_versions, :fetch)
+        )
       )
 
     response
@@ -812,6 +829,8 @@ defmodule KafkaEx.GenConsumer do
            group: group,
            topic: topic,
            partition: partition,
+           member_id: member_id,
+           generation_id: generation_id,
            acked_offset: offset
          } = state
        ) do
@@ -819,7 +838,10 @@ defmodule KafkaEx.GenConsumer do
       consumer_group: group,
       topic: topic,
       partition: partition,
-      offset: offset
+      offset: offset,
+      member_id: member_id,
+      generation_id: generation_id,
+      api_version: Map.fetch!(state.api_versions, :offset_fetch)
     }
 
     [%OffsetCommitResponse{topic: ^topic, partitions: [partition_response]}] =
@@ -855,7 +877,8 @@ defmodule KafkaEx.GenConsumer do
     request = %OffsetFetchRequest{
       consumer_group: group,
       topic: topic,
-      partition: partition
+      partition: partition,
+      api_version: Map.fetch!(state.api_versions, :offset_fetch)
     }
 
     [
@@ -866,6 +889,9 @@ defmodule KafkaEx.GenConsumer do
         ]
       }
     ] = KafkaEx.offset_fetch(worker_name, request)
+
+    # newer api versions will return -1 if the consumer group does not exist
+    offset = max(offset, 0)
 
     case error_code do
       :no_error ->
