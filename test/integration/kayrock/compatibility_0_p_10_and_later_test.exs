@@ -48,7 +48,7 @@ defmodule KafkaEx.KayrockCompatibility0p10AndLaterTest do
     resp = create_topic(name, [], client)
     assert {:no_error, name} == parse_create_topic_resp(resp)
 
-    {:ok, [_metadata]} = KafkaExAPI.topics_metadata(client, [name])
+    {:ok, _metadata} = KafkaExAPI.topics_metadata(client, [name])
 
     resp = KafkaEx.delete_topics([name], timeout: 5_000, worker_name: client)
     assert {:no_error, name} = parse_delete_topic_resp(resp)
