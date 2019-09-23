@@ -38,6 +38,11 @@ defmodule KafkaEx.KayrockCompatibility0p10AndLaterTest do
     resp = create_topic(name, config, client)
     assert {:topic_already_exists, name} == parse_create_topic_resp(resp)
 
+    TestHelper.wait_for(fn ->
+      {:ok, metadatas} = KafkaExAPI.topics_metadata(client, [name])
+      length(metadatas) > 0
+    end)
+
     {:ok, [metadata]} = KafkaExAPI.topics_metadata(client, [name])
     assert @num_partitions == length(metadata.partitions)
   end
