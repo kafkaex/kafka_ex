@@ -13,6 +13,10 @@ ExUnit.configure(
 )
 
 defmodule TestHelper do
+  alias KafkaEx.New.Client
+  alias KafkaEx.New.NodeSelector
+  require Logger
+
   def generate_random_string(string_length \\ 20) do
     1..string_length
     |> Enum.map(fn _ -> round(:rand.uniform() * 25 + 65) end)
@@ -69,16 +73,55 @@ defmodule TestHelper do
         topic,
         partition,
         consumer_group,
-        worker \\ :kafka_ex
+        worker \\ :kafka_ex,
+        api_version \\ 0
       ) do
     request = %KafkaEx.Protocol.OffsetFetch.Request{
       topic: topic,
       partition: partition,
-      consumer_group: consumer_group
+      consumer_group: consumer_group,
+      api_version: api_version
     }
 
-    KafkaEx.offset_fetch(worker, request)
-    |> KafkaEx.Protocol.OffsetFetch.Response.last_offset()
+    resp = KafkaEx.offset_fetch(worker, request)
+    resp |> KafkaEx.Protocol.OffsetFetch.Response.last_offset()
+  end
+
+  def ensure_append_timestamp_topic(client, topic_name) do
+    resp =
+      Client.send_request(
+        client,
+        %Kayrock.CreateTopics.V0.Request{
+          create_topic_requests: [
+            %{
+              topic: topic_name,
+              num_partitions: 4,
+              replication_factor: 1,
+              replica_assignment: [],
+              config_entries: [
+                %{
+                  config_name: "message.timestamp.type",
+                  config_value: "LogAppendTime"
+                }
+              ]
+            }
+          ],
+          timeout: 1000
+        },
+        NodeSelector.controller()
+      )
+
+    {:ok,
+     %Kayrock.CreateTopics.V0.Response{
+       topic_errors: [%{error_code: error_code}]
+     }} = resp
+
+    if error_code in [0, 36] do
+      {:ok, topic_name}
+    else
+      Logger.error("Unable to create topic #{topic_name}: #{inspect(resp)}")
+      {:error, topic_name}
+    end
   end
 
   defp first_partition_offset(:topic_not_found) do

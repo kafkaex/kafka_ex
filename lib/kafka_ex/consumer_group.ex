@@ -27,6 +27,17 @@ defmodule KafkaEx.ConsumerGroup do
   implements the `KafkaEx.GenConsumer` behaviour and start a
   `KafkaEx.ConsumerGroup` configured to use that module.
 
+  The api versions of some of the underlying messages can be specified in the
+  `:api_versions` option.  Note that these will be ignored (api version 0 used)
+  unless you have `kafka_version: "kayrock"` set in the KafkaEx application
+  config.  The following versions can be specified:
+
+  * `:fetch` - Fetch requests - use v2+ for newer versions of Kafka
+  * `:offset_fetch` - Offset fetch requests - use v1+ for offsets stored in
+    Kafka (as opposed to zookeeper)
+  * `:offset_commit` - Offset commit requests - use v1+ to store offsets in
+    Kafka (as opposed to zookeeper)
+
   ## Example
 
   Suppose we want to consume from a topic called `"example_topic"` with a

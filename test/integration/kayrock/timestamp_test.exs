@@ -6,7 +6,6 @@ defmodule KafkaEx.KayrockTimestampTest do
   use ExUnit.Case
 
   alias KafkaEx.New.Client
-  alias KafkaEx.New.NodeSelector
   alias KafkaEx.TimestampNotSupportedError
 
   require Logger
@@ -19,45 +18,6 @@ defmodule KafkaEx.KayrockTimestampTest do
     {:ok, pid} = Client.start_link(args, :no_name)
 
     {:ok, %{client: pid}}
-  end
-
-  defp ensure_append_timestamp_topic(client) do
-    topic_name = "test_log_append_timestamp"
-
-    resp =
-      Client.send_request(
-        client,
-        %Kayrock.CreateTopics.V0.Request{
-          create_topic_requests: [
-            %{
-              topic: topic_name,
-              num_partitions: 4,
-              replication_factor: 1,
-              replica_assignment: [],
-              config_entries: [
-                %{
-                  config_name: "message.timestamp.type",
-                  config_value: "LogAppendTime"
-                }
-              ]
-            }
-          ],
-          timeout: 1000
-        },
-        NodeSelector.controller()
-      )
-
-    {:ok,
-     %Kayrock.CreateTopics.V0.Response{
-       topic_errors: [%{error_code: error_code}]
-     }} = resp
-
-    unless error_code in [0, 36] do
-      Logger.error("Unable to create topic #{topic_name}: #{inspect(resp)}")
-      assert false
-    end
-
-    topic_name
   end
 
   test "fetch timestamp is nil by default on v0 messages", %{client: client} do
@@ -151,7 +111,11 @@ defmodule KafkaEx.KayrockTimestampTest do
   end
 
   test "log with append time - v0", %{client: client} do
-    topic = ensure_append_timestamp_topic(client)
+    {:ok, topic} =
+      TestHelper.ensure_append_timestamp_topic(
+        client,
+        "test_log_append_timestamp"
+      )
 
     msg = TestHelper.generate_random_string()
 
@@ -182,7 +146,11 @@ defmodule KafkaEx.KayrockTimestampTest do
   end
 
   test "log with append time - v3", %{client: client} do
-    topic = ensure_append_timestamp_topic(client)
+    {:ok, topic} =
+      TestHelper.ensure_append_timestamp_topic(
+        client,
+        "test_log_append_timestamp"
+      )
 
     msg = TestHelper.generate_random_string()
 
@@ -214,7 +182,11 @@ defmodule KafkaEx.KayrockTimestampTest do
   end
 
   test "log with append time - v5", %{client: client} do
-    topic = ensure_append_timestamp_topic(client)
+    {:ok, topic} =
+      TestHelper.ensure_append_timestamp_topic(
+        client,
+        "test_log_append_timestamp"
+      )
 
     msg = TestHelper.generate_random_string()
 

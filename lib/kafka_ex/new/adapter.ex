@@ -430,10 +430,8 @@ defmodule KafkaEx.New.Adapter do
 
           %{
             request
-            | # offset_commit_request.generation_id,
-              generation_id: -1,
-              # offset_commit_request.member_id,
-              member_id: "",
+            | generation_id: offset_commit_request.generation_id,
+              member_id: offset_commit_request.member_id,
               topics: [
                 %{
                   topic
@@ -445,7 +443,12 @@ defmodule KafkaEx.New.Adapter do
           }
 
         v when v >= 2 ->
-          %{request | generation_id: -1, member_id: "", retention_time: -1}
+          %{
+            request
+            | generation_id: offset_commit_request.generation_id,
+              member_id: offset_commit_request.member_id,
+              retention_time: -1
+          }
 
         _ ->
           request

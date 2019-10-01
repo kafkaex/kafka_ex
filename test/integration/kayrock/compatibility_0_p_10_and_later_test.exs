@@ -38,6 +38,11 @@ defmodule KafkaEx.KayrockCompatibility0p10AndLaterTest do
     resp = create_topic(name, config, client)
     assert {:topic_already_exists, name} == parse_create_topic_resp(resp)
 
+    TestHelper.wait_for(fn ->
+      {:ok, metadatas} = KafkaExAPI.topics_metadata(client, [name])
+      length(metadatas) > 0
+    end)
+
     {:ok, [metadata]} = KafkaExAPI.topics_metadata(client, [name])
     assert @num_partitions == length(metadata.partitions)
   end
@@ -48,7 +53,7 @@ defmodule KafkaEx.KayrockCompatibility0p10AndLaterTest do
     resp = create_topic(name, [], client)
     assert {:no_error, name} == parse_create_topic_resp(resp)
 
-    {:ok, [_metadata]} = KafkaExAPI.topics_metadata(client, [name])
+    {:ok, _metadata} = KafkaExAPI.topics_metadata(client, [name])
 
     resp = KafkaEx.delete_topics([name], timeout: 5_000, worker_name: client)
     assert {:no_error, name} = parse_delete_topic_resp(resp)
