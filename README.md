@@ -164,6 +164,12 @@ GenServer.start_link(KafkaEx.Config.server_impl,
 )
 ```
 
+Alternatively, you can call
+
+```
+KafkaEx.start_link_worker(:no_name)
+```
+
 ### Retrieve kafka metadata
 For all metadata
 

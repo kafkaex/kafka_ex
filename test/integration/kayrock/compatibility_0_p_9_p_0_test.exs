@@ -17,12 +17,9 @@ defmodule KafkaEx.KayrockCompatibility0p9p0Test do
   alias KafkaEx.Protocol.LeaveGroup.Request, as: LeaveGroupRequest
   alias KafkaEx.Protocol.SyncGroup.Request, as: SyncGroupRequest
 
-  alias KafkaEx.New.Client
-
   setup do
-    {:ok, args} = KafkaEx.build_worker_options([])
-
-    {:ok, pid} = Client.start_link(args, :no_name)
+    {:ok, pid} =
+      KafkaEx.start_link_worker(:no_name, server_impl: KafkaEx.New.Client)
 
     {:ok, %{client: pid}}
   end

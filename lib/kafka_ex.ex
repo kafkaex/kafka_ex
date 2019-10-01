@@ -551,6 +551,28 @@ defmodule KafkaEx do
   end
 
   @doc """
+  Start and link a worker outside of a supervision tree
+
+  This takes the same arguments as `create_worker/2` except that it adds
+
+  - `server_impl` - This is the GenServer that will be used for the
+    client genserver implementation - e.g., `KafkaEx.Server0P8P0`,
+    `KafkaEx.Server0P10AndLater`, `KafkaEx.New.Client`.  Defaults to the value
+    of `KafkaEx.Config.server_impl/0` which is determined by the `kafka_version`
+    setting.
+  """
+  @spec start_link_worker(atom, [
+          KafkaEx.worker_setting() | {:server_impl, module}
+        ]) :: GenServer.on_start()
+  def start_link_worker(name, worker_init \\ []) do
+    {server_impl, worker_init} =
+      Keyword.pop(worker_init, :server_impl, Config.server_impl())
+
+    {:ok, full_worker_init} = build_worker_options(worker_init)
+    server_impl.start_link(full_worker_init, name)
+  end
+
+  @doc """
   Builds options to be used with workers
 
   Merges the given options with defaults from the application env config.
