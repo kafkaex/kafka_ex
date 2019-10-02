@@ -1,0 +1,79 @@
+defmodule KafkaEx.KayrockCompatibilityStreamingTest do
+  @moduledoc """
+  Tests for streaming using Kayrock for client implementation
+  """
+
+  use ExUnit.Case
+
+  alias KafkaEx.New.Client
+  alias KafkaEx.Protocol.OffsetFetch.Request, as: OffsetFetchRequest
+  alias KafkaEx.Protocol.OffsetFetch.Response, as: OffsetFetchResponse
+
+  @moduletag :new_client
+
+  setup do
+    {:ok, args} = KafkaEx.build_worker_options([])
+
+    {:ok, pid} = Client.start_link(args, :no_name)
+
+    {:ok, %{client: pid}}
+  end
+
+  test "stream with kafka offset storage and timestamps", %{client: client} do
+    topic = "kayrock_stream_test"
+    partition = 0
+    consumer_group = "streamers"
+
+    {:ok, topic} = TestHelper.ensure_append_timestamp_topic(client, topic)
+
+    KafkaEx.produce(topic, partition, "foo 1", api_version: 3)
+    KafkaEx.produce(topic, partition, "foo 2", api_version: 3)
+    KafkaEx.produce(topic, partition, "foo 3", api_version: 3)
+
+    stream =
+      KafkaEx.stream(topic, partition,
+        worker_name: client,
+        auto_commit: true,
+        no_wait_at_logend: true,
+        consumer_group: consumer_group,
+        api_versions: %{
+          fetch: 3,
+          offset_fetch: 3,
+          offset_commit: 3
+        }
+      )
+
+    TestHelper.wait_for(fn ->
+      length(Enum.take(stream, 3)) == 3
+    end)
+
+    [msg1, msg2, msg3] = Enum.take(stream, 3)
+
+    assert msg1.value == "foo 1"
+    assert msg2.value == "foo 2"
+    assert msg3.value == "foo 3"
+    assert is_integer(msg1.timestamp)
+    assert msg1.timestamp > 0
+    assert is_integer(msg2.timestamp)
+    assert msg2.timestamp > 0
+    assert is_integer(msg3.timestamp)
+    assert msg3.timestamp > 0
+
+    [
+      %OffsetFetchResponse{
+        partitions: [
+          %{error_code: :no_error, offset: offset}
+        ]
+      }
+    ] =
+      KafkaEx.offset_fetch(client, %OffsetFetchRequest{
+        topic: topic,
+        partition: partition,
+        consumer_group: consumer_group,
+        api_version: 3
+      })
+
+    assert is_integer(offset)
+    assert offset > 0
+  end
+end

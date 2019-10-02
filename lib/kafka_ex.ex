@@ -502,6 +502,13 @@ defmodule KafkaEx do
 
   - `auto_commit` (boolean): If true, the stream automatically commits offsets
   of fetched messages.  See discussion above.
+
+  - `api_versions` (map): Allows overriding api versions for `:fetch`,
+  `:offset_fetch`, and `:offset_commit` when using the Kayrock client.  Defaults to
+  `%{fetch: 0, offset_fetch: 0, offset_commit: 0}`.  Use
+  `%{fetch: 3, offset_fetch: 3, offset_commit: 3}` with the kayrock client to
+  achieve offsets stored in kafka (instead of zookeeper) and messages fetched
+  with timestamps.
   """
   @spec stream(binary, integer, Keyword.t()) :: KafkaEx.Stream.t()
   def stream(topic, partition, opts \\ []) do
@@ -514,12 +521,17 @@ defmodule KafkaEx do
     no_wait_at_logend = Keyword.get(opts, :no_wait_at_logend, false)
     wait_time = Keyword.get(opts, :wait_time, @wait_time)
 
+    default_api_versions = %{fetch: 0, offset_fetch: 0, offset_commit: 0}
+    api_versions = Keyword.get(opts, :api_versions, %{})
+    api_versions = Map.merge(default_api_versions, api_versions)
+
     retrieved_offset =
       if consumer_group && !supplied_offset do
         request = %OffsetFetchRequest{
           topic: topic,
           partition: partition,
-          consumer_group: consumer_group
+          consumer_group: consumer_group,
+          api_version: Map.fetch!(api_versions, :offset_fetch)
         }
 
         fetched_offset =
@@ -539,14 +551,16 @@ defmodule KafkaEx do
       offset: retrieved_offset,
       wait_time: wait_time,
       min_bytes: min_bytes,
-      max_bytes: max_bytes
+      max_bytes: max_bytes,
+      api_version: Map.fetch!(api_versions, :fetch)
     }
 
     %Stream{
       worker_name: worker_name,
       fetch_request: fetch_request,
       consumer_group: consumer_group,
-      no_wait_at_logend: no_wait_at_logend
+      no_wait_at_logend: no_wait_at_logend,
+      api_versions: api_versions
     }
   end
 
