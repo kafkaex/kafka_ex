@@ -16,7 +16,6 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
 
   alias KafkaEx.ConsumerGroup
   alias KafkaEx.GenConsumer
-  alias KafkaEx.New.Client
   alias KafkaEx.Protocol.OffsetFetch
 
   # note this topic is created by docker_up.sh
@@ -165,9 +164,8 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
   setup do
     {:ok, _} = TestPartitioner.start_link()
 
-    {:ok, client_args} = KafkaEx.build_worker_options([])
-
-    {:ok, client_pid} = Client.start_link(client_args, :no_name)
+    {:ok, client_pid} =
+      KafkaEx.start_link_worker(:no_name, server_impl: KafkaEx.New.Client)
 
     # the client will die on its own, so don't count that
     ports_before = num_open_ports()
