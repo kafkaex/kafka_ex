@@ -5,14 +5,11 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
   use ExUnit.Case
 
-  alias KafkaEx.New.Client
-
   @moduletag :new_client
 
   setup do
-    {:ok, args} = KafkaEx.build_worker_options([])
-
-    {:ok, pid} = Client.start_link(args, :no_name)
+    {:ok, pid} =
+      KafkaEx.start_link_worker(:no_name, server_impl: KafkaEx.New.Client)
 
     {:ok, %{client: pid}}
   end
