@@ -19,7 +19,9 @@ defmodule KafkaEx.Protocol.Fetch do
               max_bytes: nil,
               auto_commit: nil,
               # NOTE api_version only used in new client
-              api_version: 0
+              api_version: 0,
+              # NOTE offset_commit_api_version only used in new client with auto_commit
+              offset_commit_api_version: 0
 
     @type t :: %Request{
             correlation_id: integer,
@@ -30,7 +32,8 @@ defmodule KafkaEx.Protocol.Fetch do
             wait_time: integer,
             min_bytes: integer,
             max_bytes: integer,
-            api_version: integer
+            api_version: integer,
+            offset_commit_api_version: integer
           }
   end
 

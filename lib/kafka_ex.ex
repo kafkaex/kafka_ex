@@ -247,6 +247,9 @@ defmodule KafkaEx do
   - max_bytes: maximum bytes to include in the message set for this partition. This helps bound the size of the response. Default is 1,000,000
   - auto_commit: specifies if the last offset should be commited or not. Default is true. You must set this to false when using Kafka < 0.8.2 or `:no_consumer_group`.
   - api_version: Version of the Fetch API message to send (Kayrock client only, default: 0)
+  - offset_commit_api_version: Version of the OffsetCommit API message to send
+    (Kayrock client only, only relevant for auto commit, default: 0, use 2+ to
+    store offsets in Kafka instead of Zookeeper)
 
   ## Example
 
@@ -275,6 +278,8 @@ defmodule KafkaEx do
     # compatibility with newer message formats and is ignored by the legacy
     # server implementations.
     api_version = Keyword.get(opts, :api_version, 0)
+    # same for offset_commit_api_version
+    offset_commit_api_version = Keyword.get(opts, :offset_commit_api_version, 0)
 
     retrieved_offset =
       current_offset(supplied_offset, partition, topic, worker_name)
@@ -290,7 +295,8 @@ defmodule KafkaEx do
          wait_time: wait_time,
          min_bytes: min_bytes,
          max_bytes: max_bytes,
-         api_version: api_version
+         api_version: api_version,
+         offset_commit_api_version: offset_commit_api_version
        }},
       opts
     )
@@ -552,7 +558,8 @@ defmodule KafkaEx do
       wait_time: wait_time,
       min_bytes: min_bytes,
       max_bytes: max_bytes,
-      api_version: Map.fetch!(api_versions, :fetch)
+      api_version: Map.fetch!(api_versions, :fetch),
+      offset_commit_api_version: Map.fetch!(api_versions, :offset_commit)
     }
 
     %Stream{
