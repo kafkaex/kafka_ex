@@ -9,7 +9,8 @@ defmodule KafkaEx.Stream do
   defstruct worker_name: nil,
             fetch_request: %FetchRequest{},
             consumer_group: nil,
-            no_wait_at_logend: false
+            no_wait_at_logend: false,
+            api_versions: %{fetch: 0, offset_fetch: 0, offset_commit: 0}
 
   @type t :: %__MODULE__{}
 
@@ -134,7 +135,8 @@ defmodule KafkaEx.Stream do
           topic: stream_data.fetch_request.topic,
           partition: stream_data.fetch_request.partition,
           offset: offset,
-          metadata: ""
+          metadata: "",
+          api_version: Map.fetch!(stream_data.api_versions, :offset_commit)
         }
       })
     end
@@ -145,8 +147,10 @@ defmodule KafkaEx.Stream do
     defp fetch_response(data, offset) do
       req = data.fetch_request
 
+      # note we set auto_commit: false in the actual request because the stream
+      # processor handles commits on its own
       data.worker_name
-      |> Server.call({:fetch, %{req | offset: offset}})
+      |> Server.call({:fetch, %{req | offset: offset, auto_commit: false}})
       |> FetchResponse.partition_messages(req.topic, req.partition)
     end
   end
