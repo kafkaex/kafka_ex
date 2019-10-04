@@ -57,7 +57,7 @@ end
 
 Then run `mix deps.get` to fetch dependencies.
 
-### Adding kafka_ex application
+### Adding the kafka_ex application
 
 When using elixir < 1.4, you will need to add kafka_ex to the applications list of your mix.exs file.
 

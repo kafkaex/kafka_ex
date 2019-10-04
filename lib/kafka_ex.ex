@@ -579,8 +579,7 @@ defmodule KafkaEx do
   - `server_impl` - This is the GenServer that will be used for the
     client genserver implementation - e.g., `KafkaEx.Server0P8P0`,
     `KafkaEx.Server0P10AndLater`, `KafkaEx.New.Client`.  Defaults to the value
-    of `KafkaEx.Config.server_impl/0` which is determined by the `kafka_version`
-    setting.
+    determined by the `kafka_version` setting.
   """
   @spec start_link_worker(atom, [
           KafkaEx.worker_setting() | {:server_impl, module}
