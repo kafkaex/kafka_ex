@@ -11,6 +11,8 @@ defmodule KafkaEx.New.ClientCompatibility do
 
   alias KafkaEx.New.Client.State
 
+  alias KafkaEx.Protocol.OffsetCommit.Request, as: OffsetCommitRequest
+
   # it's a mixin module...
   # credo:disable-for-this-file Credo.Check.Refactor.LongQuoteBlocks
 
@@ -101,21 +103,18 @@ defmodule KafkaEx.New.ClientCompatibility do
                 if fetch_request.auto_commit do
                   consumer_group = state.consumer_group_for_auto_commit
 
-                  commit_request = %Kayrock.OffsetCommit.V0.Request{
-                    group_id: consumer_group,
-                    topics: [
-                      %{
-                        topic: topic,
-                        partitions: [
-                          %{
-                            partition: partition,
-                            offset: last_offset,
-                            metadata: ""
-                          }
-                        ]
-                      }
-                    ]
+                  commit_request = %OffsetCommitRequest{
+                    topic: topic,
+                    partition: partition,
+                    offset: last_offset,
+                    api_version: fetch_request.offset_commit_api_version
                   }
+
+                  {commit_request, ^consumer_group} =
+                    Adapter.offset_commit_request(
+                      commit_request,
+                      consumer_group
+                    )
 
                   {_, updated_state} =
                     kayrock_network_request(
