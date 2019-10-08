@@ -13,10 +13,10 @@ the desired outcomes.  The new API will be designed to handle newer versions.
 
 Contents:
 
-* [Using the New Client](#using-the-new-client)
-* [Common Use Case - Store Offsets In
-  Kafka](#common-use-case-store-offsets-in-kafka)
-* [Common Use Case - Message Timestamps / New Storage Format](#common-use-case-message-timestamps-new-storage-format)
+*   [Using the New Client](#using-the-new-client)
+*   [Common Use Case - Store Offsets In
+     Kafka](#common-use-case-store-offsets-in-kafka)
+*   [Common Use Case - Message Timestamps / New Storage Format](#common-use-case-message-timestamps-new-storage-format)
 
 ## Using the New Client
 

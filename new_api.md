@@ -19,28 +19,28 @@ this section up-to-date with respect to what features have been implemented.
 
 Features implemented:
 
-* Get latest offset for a partition as `{:ok, offset}` or `{:error, error_code}`
-  (no more fishing through the response structs).
-* Get metadata for an arbitrary list of topics
+*   Get latest offset for a partition as `{:ok, offset}` or `{:error, error_code}`
+    (no more fishing through the response structs).
+*   Get metadata for an arbitrary list of topics
 
 ## Major Differences from the Legacy API
 
-* There is currently no supervisor for clients.  It is assumed that the user
-  will manage these when not used in a consumer group.  (This does not apply to
-  clients started via the legacy `create_worker` API, which are started under the standard
-  supervision tree.)
-* The client does not automatically fetch metadata for all topics as this can
-  lead to timeouts on large clusters.  There should be no observable impact here
-  because the client fetches metadata for specific topics on-demand.
-* A client is no longer "attached" to a specific consumer group.  In the legacy
-  implementation this was a consequence of the way autocommit was handled.
+*   There is currently no supervisor for clients.  It is assumed that the user
+    will manage these when not used in a consumer group.  (This does not apply to
+    clients started via the legacy `create_worker` API, which are started under the standard
+    supervision tree.)
+*   The client does not automatically fetch metadata for all topics as this can
+    lead to timeouts on large clusters.  There should be no observable impact here
+    because the client fetches metadata for specific topics on-demand.
+*   A client is no longer "attached" to a specific consumer group.  In the legacy
+    implementation this was a consequence of the way autocommit was handled.
 
 ## Design Philosophy
 
 Two main design principles in the new client are driven by factors that made
 maintenance of the legacy API difficult:
 
-1. Delegate and genericize API message version handling
+1.  Delegate and genericize API message version handling
 
     Kafka API message serialization and deserialization has been externalized to
     a library ([Kayrock](https://github.com/dantswain/kayrock)) that can easily
@@ -49,7 +49,7 @@ maintenance of the legacy API difficult:
     to handle specific versions of specific messages at a low level in KafkaEx.
 
 
-2. Separation of connection state management and API logic
+2.  Separation of connection state management and API logic
 
     As much as possible, we avoid putting API logic inside the client GenServer.
     Instead, we write functions that form Kayrock request structs based on user

@@ -19,13 +19,13 @@ documentation,
 
 KakfaEx supports the following Kafka features:
 
-* Broker and Topic Metadata
-* Produce Messages
-* Fetch Messages
-* Message Compression with Snappy and gzip
-* Offset Management (fetch / commit / autocommit)
-* Consumer Groups
-* Topics Management (create / delete)
+*   Broker and Topic Metadata
+*   Produce Messages
+*   Fetch Messages
+*   Message Compression with Snappy and gzip
+*   Offset Management (fetch / commit / autocommit)
+*   Consumer Groups
+*   Topics Management (create / delete)
 
 See [Kafka Protocol Documentation](http://kafka.apache.org/protocol.html) and
  [A Guide to the Kafka Protocol](https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol)
@@ -35,14 +35,14 @@ for details of these features.
 
 TL;DR:
 
-* This is new implementation and we need people to test it!
-* Set `kafka_version: "kayrock"` to use the new client implementation.
-* The new client should be compatible with existing code when used this way.
-* Many functions now suppoert an `api_version` parameter, see below for details,
-  e.g., how to store offsets in Kafka instead of Zookeeper.
-* Version 1.0 of KafkaEx will be based on Kayrock and have a cleaner API - you
-  can start testing this API by using modules from the `KafkaEx.New` namespace.
-  See below for details.
+*   This is new implementation and we need people to test it!
+*   Set `kafka_version: "kayrock"` to use the new client implementation.
+*   The new client should be compatible with existing code when used this way.
+*   Many functions now suppoert an `api_version` parameter, see below for details,
+    e.g., how to store offsets in Kafka instead of Zookeeper.
+*   Version 1.0 of KafkaEx will be based on Kayrock and have a cleaner API - you
+    can start testing this API by using modules from the `KafkaEx.New` namespace.
+    See below for details.
 
 To support some oft-requested features (offset storage in Kafka, message
 timestamps), we have integrated KafkaEx with
@@ -57,17 +57,17 @@ should have a new and cleaner API.
 
 The path we have planned to get to v1.0 is:
 
-1. Add a Kayrock compatibility layer for the existing KafkaEx API (DONE, not released).
-2. Expose Kayrock's API versioning through a select handful of KafkaEx API
-   functions so that users can get access to the most-requested features (e.g.,
-   offset storage in Kafka and message timestamps) (DONE, not released).
-3. Begin designing and implementing the new API in parallel in the `KafkaEx.New`
-   namespace (EARLY PROGRESS).
-4. Incrementally release the new API alongside the legacy API so that early
-   adopters can test it.
-5. Once the new API is complete and stable, move it to the `KafkaEx` namespace
-   (i.e., drop the `New` part) and it will replace the legacy API.  This will be
-   released as v1.0.
+1.  Add a Kayrock compatibility layer for the existing KafkaEx API (DONE, not released).
+2.  Expose Kayrock's API versioning through a select handful of KafkaEx API
+    functions so that users can get access to the most-requested features (e.g.,
+    offset storage in Kafka and message timestamps) (DONE, not released).
+3.  Begin designing and implementing the new API in parallel in the `KafkaEx.New`
+    namespace (EARLY PROGRESS).
+4.  Incrementally release the new API alongside the legacy API so that early
+    adopters can test it.
+5.  Once the new API is complete and stable, move it to the `KafkaEx` namespace
+    (i.e., drop the `New` part) and it will replace the legacy API.  This will be
+    released as v1.0.
 
 Users of KafkaEx can help a lot by testing the new code. At first, we need
 people to test the Kayrock-based client using compatibility mode. You can do
@@ -80,14 +80,14 @@ test out the new API as it becomes available.
 
 For more information on using the Kayrock-based client, see
 
-* Github: [kayrock.md](https://github.com/kafka_ex/kafkaex/blob/master/kayrock.md)
-* HexDocs: [kayrock-based client](kayrock.html)
-
+*   Github: [kayrock.md](https://github.com/kafka_ex/kafkaex/blob/master/kayrock.md)
+*   HexDocs: [kayrock-based client](kayrock.html)
+ 
 For more information on the v1.0 API, see 
 
-* Github:
-  [new_api.md](https://github.com/kafka_ex/kafkaex/blob/master/new_api.md)
-* HexDocs: [New API](new_api.html)
+*   Github:
+    [new_api.md](https://github.com/kafka_ex/kafkaex/blob/master/new_api.md)
+*   HexDocs: [New API](new_api.html)
 
 ## Using KafkaEx in an Elixir project
 
