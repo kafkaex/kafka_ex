@@ -3,6 +3,14 @@ defmodule KafkaEx.New.KafkaExAPI do
   This module interfaces Kafka through the New.Client implementation
 
   This is intended to become the future KafkaEx API
+
+  Most functions here take a client pid as the first argument.
+
+  ```
+  {:ok, client} = KafkaEx.New.Client.start_link()
+
+  KafkaEx.New.KafkaExAPI.latest_offset(client, "some_topic", 0)
+  ```
   """
 
   alias KafkaEx.New.Client
@@ -78,7 +86,10 @@ defmodule KafkaEx.New.KafkaExAPI do
   end
 
   @doc """
-  Set the consumer group name that will be used by the given client for autocommit
+  Set the consumer group name that will be used by the given client for
+  autocommit
+
+  NOTE this function will not be supported after the legacy API is removed
   """
   @spec set_consumer_group_for_auto_commit(client, consumer_group_name) ::
           :ok | {:error, :invalid_consumer_group}

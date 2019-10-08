@@ -1,5 +1,20 @@
 defmodule KafkaEx do
-  @moduledoc File.read!(Path.expand("../README.md", __DIR__))
+  @moduledoc """
+  Kafka API
+
+  This module is the main API for users of the KafkaEx library.
+
+  Most of these functions either use the default worker (registered as
+  `:kafka_ex`) by default or can take a registered name or pid via a
+  `worker_name` option.
+
+  ```
+  # create an unnamed worker
+  {:ok, pid} = KafkaEx.create_worker(:no_name)
+
+  KafkaEx.fetch("some_topic", 0, worker_name: pid)
+  ```
+  """
 
   use Application
   alias KafkaEx.Config
