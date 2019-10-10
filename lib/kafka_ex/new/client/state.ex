@@ -139,9 +139,10 @@ defmodule KafkaEx.New.Client.State do
       )
       when is_atom(api) do
     api_key = Kayrock.KafkaSchemaMetadata.api_key(api)
+    {_, max_kayrock_version} = Kayrock.KafkaSchemaMetadata.version_range(api)
 
     case Map.get(api_versions, api_key) do
-      {_, vsn} -> vsn
+      {_, vsn} -> min(vsn, max_kayrock_version)
       nil -> default
     end
   end
