@@ -435,11 +435,14 @@ defmodule KafkaEx.New.Client do
           coordinator.node_id
         )
 
-      error ->
+      {:ok,
+       %Kayrock.FindCoordinator.V1.Response{
+         error_code: error_code
+       }} ->
         Logger.warn(
           "Unable to find consumer group coordinator for " <>
             "#{inspect(consumer_group)}: Error " <>
-            "#{Kayrock.ErrorCode.code_to_atom(error)}"
+            "#{Kayrock.ErrorCode.code_to_atom(error_code)}"
         )
 
         updated_state

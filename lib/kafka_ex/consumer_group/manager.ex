@@ -45,6 +45,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   @heartbeat_interval 5_000
   @session_timeout 30_000
   @session_timeout_padding 10_000
+  @max_join_retries 6
 
   @type assignments :: [{binary(), integer()}]
 
@@ -246,6 +247,8 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   # the leader, which is reponsible for assigning partitions to all of the
   # group members. Once a `JoinGroupResponse` is received, all group members
   # must send a `SyncGroupRequest` (see sync/2).
+  defp join(state), do: join(state, 1)
+
   defp join(
          %State{
            worker_name: worker_name,
@@ -254,7 +257,8 @@ defmodule KafkaEx.ConsumerGroup.Manager do
            group_name: group_name,
            topics: topics,
            member_id: member_id
-         } = state
+         } = state,
+         attempt_number
        ) do
     join_request = %JoinGroupRequest{
       group_name: group_name,
@@ -274,7 +278,21 @@ defmodule KafkaEx.ConsumerGroup.Manager do
     # error message
     case join_response do
       %{error_code: :no_error} ->
-        :ok
+        on_successful_join(state, join_response)
+
+      {:error, :no_broker} ->
+        if attempt_number == @max_join_retries do
+          raise "Unable to join consumer group #{state.group_name} after " <>
+                  "#{@max_join_retries} attempts"
+        end
+
+        Logger.warn(
+          "Unable to join consumer group #{inspect(group_name)}.  " <>
+            "Will sleep 1 second and try again (attempt number #{attempt_number})"
+        )
+
+        :timer.sleep(1000)
+        join(state, attempt_number - 1)
 
       %{error_code: error_code} ->
         raise "Error joining consumer group #{group_name}: " <>
@@ -284,9 +302,11 @@ defmodule KafkaEx.ConsumerGroup.Manager do
         raise "Error joining consumer group #{group_name}: " <>
                 "#{inspect(reason)}"
     end
+  end
 
+  defp on_successful_join(state, join_response) do
     Logger.debug(fn ->
-      "Joined consumer group #{group_name} generation " <>
+      "Joined consumer group #{state.group_name} generation " <>
         "#{join_response.generation_id} as #{join_response.member_id}"
     end)
 
