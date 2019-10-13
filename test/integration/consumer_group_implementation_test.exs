@@ -141,6 +141,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
         [@topic_name],
         heartbeat_interval: 100,
         partition_assignment_callback: &TestPartitioner.assign_partitions/2,
+        dwell_on_empty: 10,
         session_timeout_padding: 30000
       )
 
@@ -151,6 +152,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
         [@topic_name],
         heartbeat_interval: 100,
         partition_assignment_callback: &TestPartitioner.assign_partitions/2,
+        dwell_on_empty: 10,
         session_timeout_padding: 30000
       )
 

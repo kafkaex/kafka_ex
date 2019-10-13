@@ -181,6 +181,7 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
         heartbeat_interval: 100,
         partition_assignment_callback: &TestPartitioner.assign_partitions/2,
         session_timeout_padding: 30000,
+        dwell_on_empty: 10,
         api_versions: %{fetch: 3, offset_fetch: 3, offset_commit: 3}
       )
 
@@ -192,6 +193,7 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
         heartbeat_interval: 100,
         partition_assignment_callback: &TestPartitioner.assign_partitions/2,
         session_timeout_padding: 30000,
+        dwell_on_empty: 10,
         api_versions: %{fetch: 3, offset_fetch: 3, offset_commit: 3}
       )
 

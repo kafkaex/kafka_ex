@@ -397,6 +397,7 @@ defmodule KafkaEx.GenConsumer do
       :last_commit,
       :auto_offset_reset,
       :fetch_options,
+      :dwell_on_empty,
       :api_versions
     ]
   end
@@ -432,6 +433,11 @@ defmodule KafkaEx.GenConsumer do
 
   * `:fetch_options` - Optional keyword list that is passed along to the
     `KafkaEx.fetch` call.
+
+  * `:dwell_on_empty` - Optional parameter determining how long we wait, in
+    milliseconds, before performing another fetch if the previous response was
+    empty.  This is zero by default; set it > 0 if you find that KafkaEx is
+    polling Kafka too frequently.
 
   * `:extra_consumer_args` - Optional parameter that is passed along to the
     `GenConsumer.init` call in the consumer module. Note that if `init/3` is not
@@ -534,6 +540,8 @@ defmodule KafkaEx.GenConsumer do
         :extra_consumer_args
       )
 
+    dwell_on_empty = Keyword.get(opts, :dwell_on_empty, 0)
+
     generation_id = Keyword.get(opts, :generation_id)
     member_id = Keyword.get(opts, :member_id)
 
@@ -573,6 +581,7 @@ defmodule KafkaEx.GenConsumer do
       generation_id: generation_id,
       member_id: member_id,
       fetch_options: fetch_options,
+      dwell_on_empty: dwell_on_empty,
       api_versions: api_versions
     }
 
@@ -640,11 +649,17 @@ defmodule KafkaEx.GenConsumer do
   end
 
   def handle_info(:timeout, %State{} = state) do
+    # HERE
     case consume(state) do
       {:error, reason} ->
         {:stop, reason, state}
 
-      new_state ->
+      {new_state, num_messages_handled} when num_messages_handled == 0 ->
+        # if the message set was empty, we may want to dwell to avoid
+        # overwhelming the broker
+        {:noreply, new_state, new_state.dwell_on_empty}
+
+      {new_state, _} ->
         {:noreply, new_state, 0}
     end
   end
@@ -721,10 +736,10 @@ defmodule KafkaEx.GenConsumer do
 
     case response do
       %{message_set: []} ->
-        handle_commit(:async_commit, state)
+        {handle_commit(:async_commit, state), 0}
 
       %{last_offset: _, message_set: message_set} ->
-        handle_message_set(message_set, state)
+        {handle_message_set(message_set, state), length(message_set)}
     end
   end
 
