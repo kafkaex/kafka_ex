@@ -21,7 +21,7 @@ then
   IP_IFACE=$(ifconfig | ./scripts/active_ifaces.sh | head -n 1 | cut -d ':' -f1)
 fi
 
-export DOCKER_IP=$(ifconfig ${IP_IFACE} | grep 'inet ' | awk '{print $2}' | cut -d ':' -f2)
+export DOCKER_IP=$(ifconfig ${IP_IFACE} | grep 'inet ' | awk '{print $2}' | cut -d ':' -f2 | grep -v '127.0.0.1')
 
 # for debugging purposes
 echo Detected active network interface ${IP_IFACE} with ip ${DOCKER_IP}
