@@ -617,4 +617,9 @@ defmodule KafkaEx.KayrockCompatibilityTest do
     KafkaEx.stream(random_string, 0, offset: 0, worker_name: client)
     KafkaEx.stream(random_string, 0, offset: 0, worker_name: client)
   end
+
+  test "produce with the default partitioner works", %{client: client} do
+    topic = TestHelper.generate_random_string()
+    :ok = KafkaEx.produce(topic, nil, "hello", worker_name: client)
+  end
 end

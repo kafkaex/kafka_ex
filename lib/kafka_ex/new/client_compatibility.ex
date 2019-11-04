@@ -56,6 +56,10 @@ defmodule KafkaEx.New.ClientCompatibility do
       end
 
       def handle_call({:produce, produce_request}, _from, state) do
+        # the partitioner will need to know the topic's metadata
+        #   note we also try to create the topic if it does not exist
+        state = ensure_topics_metadata(state, [produce_request.topic], true)
+
         produce_request =
           default_partitioner().assign_partition(
             produce_request,
@@ -324,6 +328,22 @@ defmodule KafkaEx.New.ClientCompatibility do
           end
 
         {:reply, response, updated_state}
+      end
+
+      ######################################################################
+      # helper functions only used for compatibility
+
+      defp ensure_topics_metadata(state, topics, allow_topic_creation) do
+        case State.topics_metadata(state, topics) do
+          metadata when length(metadata) == length(topics) ->
+            state
+
+          _ ->
+            {_, updated_state} =
+              fetch_topics_metadata(state, topics, allow_topic_creation)
+
+            updated_state
+        end
       end
 
       ######################################################################

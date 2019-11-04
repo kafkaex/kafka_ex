@@ -159,18 +159,10 @@ defmodule KafkaEx.New.Client do
   end
 
   def handle_call({:topic_metadata, topics, allow_topic_creation}, _from, state) do
-    allow_auto_topic_creation = state.allow_auto_topic_creation
+    {topic_metadata, updated_state} =
+      fetch_topics_metadata(state, topics, allow_topic_creation)
 
-    updated_state =
-      update_metadata(
-        %{state | allow_auto_topic_creation: allow_topic_creation},
-        topics
-      )
-
-    topic_metadata = State.topics_metadata(updated_state, topics)
-
-    {:reply, {:ok, topic_metadata},
-     %{updated_state | allow_auto_topic_creation: allow_auto_topic_creation}}
+    {:reply, {:ok, topic_metadata}, updated_state}
   end
 
   def handle_call({:kayrock_request, request, node_selector}, _from, state) do
@@ -678,5 +670,20 @@ defmodule KafkaEx.New.Client do
           System.stacktrace()
         )
     end
+  end
+
+  defp fetch_topics_metadata(state, topics, allow_topic_creation) do
+    allow_auto_topic_creation = state.allow_auto_topic_creation
+
+    updated_state =
+      update_metadata(
+        %{state | allow_auto_topic_creation: allow_topic_creation},
+        topics
+      )
+
+    topic_metadata = State.topics_metadata(updated_state, topics)
+
+    {topic_metadata,
+     %{updated_state | allow_auto_topic_creation: allow_auto_topic_creation}}
   end
 end
