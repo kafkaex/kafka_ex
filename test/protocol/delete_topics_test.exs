@@ -28,8 +28,4 @@ defmodule KafkaEx.Protocol.DeleteTopicsTest do
         fn -> KafkaEx.Protocol.DeleteTopics.create_request(999, "the-client-id", delete_request, 1) end
     end
   end
-
-  describe "api_version/1" do
-
-  end
 end
