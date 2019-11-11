@@ -1,5 +1,4 @@
-KafkaEx
-========
+# KafkaEx
 
 [![Build Status](https://travis-ci.org/kafkaex/kafka_ex.svg?branch=master)](https://travis-ci.org/kafkaex/kafka_ex)
 [![Coverage Status](https://coveralls.io/repos/github/kafkaex/kafka_ex/badge.svg?branch=master)](https://coveralls.io/github/kafkaex/kafka_ex?branch=master)
@@ -9,40 +8,40 @@ KafkaEx
 [![API Docs](https://img.shields.io/badge/api-docs-yellow.svg?style=flat)](http://hexdocs.pm/kafka_ex/)
 
 KafkaEx is an Elixir client for [Apache Kafka](http://kafka.apache.org/) with
-support for Kafka versions 0.8.0 and newer.  KafkaEx requires Elixir 1.1.1+ and
+support for Kafka versions 0.8.0 and newer. KafkaEx requires Elixir 1.1.1+ and
 Erlang OTP 18+.
 
 See [http://hexdocs.pm/kafka_ex/](http://hexdocs.pm/kafka_ex/) for
 documentation,
- [https://github.com/kafkaex/kafka_ex/](https://github.com/kafkaex/kafka_ex/)
- for code.
+[https://github.com/kafkaex/kafka_ex/](https://github.com/kafkaex/kafka_ex/)
+for code.
 
 KakfaEx supports the following Kafka features:
 
-*   Broker and Topic Metadata
-*   Produce Messages
-*   Fetch Messages
-*   Message Compression with Snappy and gzip
-*   Offset Management (fetch / commit / autocommit)
-*   Consumer Groups
-*   Topics Management (create / delete)
+- Broker and Topic Metadata
+- Produce Messages
+- Fetch Messages
+- Message Compression with Snappy and gzip
+- Offset Management (fetch / commit / autocommit)
+- Consumer Groups
+- Topics Management (create / delete)
 
 See [Kafka Protocol Documentation](http://kafka.apache.org/protocol.html) and
- [A Guide to the Kafka Protocol](https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol)
+[A Guide to the Kafka Protocol](https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol)
 for details of these features.
 
 ## IMPORTANT - Kayrock and The Future of KafkaEx
 
 TL;DR:
 
-*   This is new implementation and we need people to test it!
-*   Set `kafka_version: "kayrock"` to use the new client implementation.
-*   The new client should be compatible with existing code when used this way.
-*   Many functions now suppoert an `api_version` parameter, see below for details,
-    e.g., how to store offsets in Kafka instead of Zookeeper.
-*   Version 1.0 of KafkaEx will be based on Kayrock and have a cleaner API - you
-    can start testing this API by using modules from the `KafkaEx.New` namespace.
-    See below for details.
+- This is new implementation and we need people to test it!
+- Set `kafka_version: "kayrock"` to use the new client implementation.
+- The new client should be compatible with existing code when used this way.
+- Many functions now suppoert an `api_version` parameter, see below for details,
+  e.g., how to store offsets in Kafka instead of Zookeeper.
+- Version 1.0 of KafkaEx will be based on Kayrock and have a cleaner API - you
+  can start testing this API by using modules from the `KafkaEx.New` namespace.
+  See below for details.
 
 To support some oft-requested features (offset storage in Kafka, message
 timestamps), we have integrated KafkaEx with
@@ -51,7 +50,7 @@ serialization and deserialization of the Kafka message protocol in a way that
 can grow as Kafka does.
 
 Unfortunately, the existing KafkaEx API is built in such a way that it doesn't
-easily support this growth.  This, combined with a number of other existing
+easily support this growth. This, combined with a number of other existing
 warts in the current API, has led us to the conclusion that v1.0 of KafkaEx
 should have a new and cleaner API.
 
@@ -66,7 +65,7 @@ The path we have planned to get to v1.0 is:
 4.  Incrementally release the new API alongside the legacy API so that early
     adopters can test it.
 5.  Once the new API is complete and stable, move it to the `KafkaEx` namespace
-    (i.e., drop the `New` part) and it will replace the legacy API.  This will be
+    (i.e., drop the `New` part) and it will replace the legacy API. This will be
     released as v1.0.
 
 Users of KafkaEx can help a lot by testing the new code. At first, we need
@@ -80,14 +79,14 @@ test out the new API as it becomes available.
 
 For more information on using the Kayrock-based client, see
 
-*   Github: [kayrock.md](https://github.com/kafka_ex/kafkaex/blob/master/kayrock.md)
-*   HexDocs: [kayrock-based client](kayrock.html)
- 
-For more information on the v1.0 API, see 
+- Github: [kayrock.md](https://github.com/kafka_ex/kafkaex/blob/master/kayrock.md)
+- HexDocs: [kayrock-based client](kayrock.html)
 
-*   Github:
-    [new_api.md](https://github.com/kafka_ex/kafkaex/blob/master/new_api.md)
-*   HexDocs: [New API](new_api.html)
+For more information on the v1.0 API, see
+
+- Github:
+  [new_api.md](https://github.com/kafka_ex/kafkaex/blob/master/new_api.md)
+- HexDocs: [New API](new_api.html)
 
 ## Using KafkaEx in an Elixir project
 
@@ -142,7 +141,7 @@ end
 See [config/config.exs](https://github.com/kafkaex/kafka_ex/blob/master/config/config.exs)
 or [KafkaEx.Config](https://hexdocs.pm/kafka_ex/KafkaEx.Config.html)
 for a description of configuration variables, including the Kafka broker list
- and default consumer group.
+and default consumer group.
 
 You can also override options when creating a worker, see below.
 
@@ -201,6 +200,7 @@ You may find you want to create many workers, say in conjunction with
 a `poolboy` pool. In this scenario you usually won't want to name these worker processes.
 
 To create an unnamed worked with `create_worker`:
+
 ```elixir
 iex> KafkaEx.create_worker(:no_name) # indicates to the server process not to name the process
 {:ok, #PID<0.171.0>}
@@ -229,6 +229,7 @@ KafkaEx.start_link_worker(:no_name)
 ```
 
 ### Retrieve kafka metadata
+
 For all metadata
 
 ```elixir
@@ -277,7 +278,7 @@ iex> KafkaEx.offset("foo", 0, {{2015, 3, 29}, {23, 56, 40}}) # Note that the tim
 
 ```elixir
 iex> KafkaEx.latest_offset("foo", 0) # where 0 is the partition
-[%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: :no_error, offsets: [16], partition: 0}], topic: "foo"}]
+[%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: :no_error, offset: [16], partition: 0}], topic: "foo"}]
 ```
 
 ### Retrieve the earliest offset
@@ -333,7 +334,7 @@ iex> KafkaEx.stream("foo", 0, offset: 0, auto_commit: false) |> Enum.take(2)
 
 ### Compression
 
-Snappy and gzip compression is supported.  Example usage for producing compressed messages:
+Snappy and gzip compression is supported. Example usage for producing compressed messages:
 
 ```elixir
 message1 = %KafkaEx.Protocol.Produce.Message{value: "value 1"}
@@ -364,19 +365,19 @@ Compression is handled automatically on the consuming/fetching end.
 ## Testing
 
 It is strongly recommended to test using the Dockerized test cluster described
-below.  This is required for contributions to KafkaEx.
+below. This is required for contributions to KafkaEx.
 
-**NOTE** You may have to run the test suite twice to get tests to pass.  Due to
+**NOTE** You may have to run the test suite twice to get tests to pass. Due to
 asynchronous issues, the test suite sometimes fails on the first try.
 
 ### Dockerized Test Cluster
 
 Testing KafkaEx requires a local SSL-enabled Kafka cluster with 3 nodes: one
-node listening on each port 9092, 9093, and 9093.  The easiest way to do this
+node listening on each port 9092, 9093, and 9093. The easiest way to do this
 is using the scripts in
 this repository that utilize [Docker](https://www.docker.com) and
 [Docker Compose](https://www.docker.com/products/docker-compose) (both of which
-are freely available).  This is the method we use for our CI testing of
+are freely available). This is the method we use for our CI testing of
 KafkaEx.
 
 To launch the included test cluster, run
@@ -386,7 +387,7 @@ To launch the included test cluster, run
 ```
 
 The `docker_up.sh` script will attempt to determine an IP address for your
-computer on an active network interface.  If it has trouble with this, you can
+computer on an active network interface. If it has trouble with this, you can
 try manually specifying a network interface in the `IP_IFACE` environment
 variable:
 
@@ -465,12 +466,12 @@ All contributions are managed through the
 
 If you find a bug or would like to contribute, please open an
 [issue](https://github.com/kafkaex/kafka_ex/issues) or submit a pull
-request.  Please refer to [CONTRIBUTING.md](CONTRIBUTING.md) for our
+request. Please refer to [CONTRIBUTING.md](CONTRIBUTING.md) for our
 contribution process.
 
 KafkaEx has a Slack channel: #kafkaex on
 [elixir-lang.slack.com](http://elixir-lang.slack.com). You can request
 an invite via [http://bit.ly/slackelixir](http://bit.ly/slackelixir).
 The Slack channel is appropriate for quick questions or general design
-discussions.  The Slack discussion is archived at
+discussions. The Slack discussion is archived at
 [http://slack.elixirhq.com/kafkaex](http://slack.elixirhq.com/kafkaex).
