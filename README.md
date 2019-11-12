@@ -277,7 +277,7 @@ iex> KafkaEx.offset("foo", 0, {{2015, 3, 29}, {23, 56, 40}}) # Note that the tim
 
 ```elixir
 iex> KafkaEx.latest_offset("foo", 0) # where 0 is the partition
-[%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: :no_error, offsets: [16], partition: 0}], topic: "foo"}]
+[%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: :no_error, offset: [16], partition: 0}], topic: "foo"}]
 ```
 
 ### Retrieve the earliest offset
