@@ -80,13 +80,13 @@ test out the new API as it becomes available.
 
 For more information on using the Kayrock-based client, see
 
-*   Github: [kayrock.md](https://github.com/kafka_ex/kafkaex/blob/master/kayrock.md)
+*   Github: [kayrock.md](https://github.com/kafkaex/kafka_ex/blob/master/kayrock.md)
 *   HexDocs: [kayrock-based client](kayrock.html)
  
 For more information on the v1.0 API, see 
 
 *   Github:
-    [new_api.md](https://github.com/kafka_ex/kafkaex/blob/master/new_api.md)
+    [new_api.md](https://github.com/kafkaex/kafka_ex/blob/master/new_api.md)
 *   HexDocs: [New API](new_api.html)
 
 ## Using KafkaEx in an Elixir project
