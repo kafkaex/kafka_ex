@@ -3,6 +3,10 @@ defmodule KafkaEx.Protocol.Produce do
   alias KafkaEx.Compression
   import KafkaEx.Protocol.Common
 
+  @int8_size 1
+  @int32_size 4
+  @int64_size 8
+
   @moduledoc """
   Implementation of the Kafka Produce request and response APIs
   """
@@ -99,7 +103,7 @@ defmodule KafkaEx.Protocol.Produce do
 
     {message, msize} = create_message(compressed_message_set, nil, attribute)
 
-    {[<<0::64-signed>>, <<msize::32-signed>>, message], 8 + 4 + msize}
+    {[<<0::64-signed>>, <<msize::32-signed>>, message], @int64_size + @int32_size + msize}
   end
 
   defp create_message_set_uncompressed([
@@ -108,7 +112,7 @@ defmodule KafkaEx.Protocol.Produce do
     {message, msize} = create_message(value, key)
     message_set = [<<0::64-signed>>, <<msize::32-signed>>, message]
     {message_set2, ms2size} = create_message_set(messages, :none)
-    {[message_set, message_set2], 8 + 4 + msize + ms2size}
+    {[message_set, message_set2], @int64_size + @int32_size + msize + ms2size}
   end
 
   defp create_message(value, key, attributes \\ 0) do
@@ -116,15 +120,15 @@ defmodule KafkaEx.Protocol.Produce do
     {bvalue, svalue} = bytes(value)
     sub = [<<0::8, attributes::8-signed>>, bkey, bvalue]
     crc = :erlang.crc32(sub)
-    {[<<crc::32>>, sub], 4 + 2 + skey + svalue}
+    {[<<crc::32>>, sub], @int32_size + @int8_size + @int8_size + skey + svalue}
   end
 
-  defp bytes(nil), do: {<<-1::32-signed>>, 4}
+  defp bytes(nil), do: {<<-1::32-signed>>, @int32_size}
 
   defp bytes(data) do
     case :erlang.iolist_size(data) do
-      0 -> {<<0::32>>, 4}
-      size -> {[<<size::32>>, data], 4 + size}
+      0 -> {<<0::32>>, @int32_size}
+      size -> {[<<size::32>>, data], @int32_size + size}
     end
   end
 
