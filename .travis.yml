@@ -26,7 +26,7 @@ env:
     - COVERALLS=false
     - CREDO=false
 before_script:
-  - IP_IFACE=eth0 ./scripts/docker_up.sh
+  - ./scripts/docker_up.sh
 script:
   - MIX_ENV=test mix deps.compile
   - MIX_ENV=test mix compile --warnings-as-errors
