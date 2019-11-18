@@ -386,15 +386,9 @@ To launch the included test cluster, run
 ```
 
 The `docker_up.sh` script will attempt to determine an IP address for your
-computer on an active network interface.  If it has trouble with this, you can
-try manually specifying a network interface in the `IP_IFACE` environment
-variable:
+computer on an active network interface.
 
-```
-IP_IFACE=eth0 ./scripts/docker_up.sh
-```
-
-The test cluster runs Kafka 0.10.1.0.
+The test cluster runs Kafka 0.11.0.1.
 
 ### Running the KafkaEx Tests
 
@@ -452,7 +446,7 @@ mix test --include integration --include server_0_p_8_p_0
 
 ### Static analysis
 
-This requires Elixir 1.3.2+.
+This requires Elixir 1.5+.
 
 ```
 mix dialyzer
