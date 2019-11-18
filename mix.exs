@@ -5,7 +5,7 @@ defmodule KafkaEx.Mixfile do
     [
       app: :kafka_ex,
       version: "0.10.0",
-      elixir: "~> 1.1",
+      elixir: "~> 1.5",
       dialyzer: [
         plt_add_deps: :transitive,
         flags: [
@@ -33,7 +33,7 @@ defmodule KafkaEx.Mixfile do
   def application do
     [
       mod: {KafkaEx, []},
-      applications: [:logger, :ssl]
+      extra_applications: [:logger]
     ]
   end
 
