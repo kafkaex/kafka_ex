@@ -104,7 +104,7 @@ defmodule KafkaEx.New.ClientCompatibility do
               {adapted_resp, last_offset} = Adapter.fetch_response(resp)
 
               state_out =
-                if fetch_request.auto_commit do
+                if last_offset && fetch_request.auto_commit do
                   consumer_group = state.consumer_group_for_auto_commit
 
                   commit_request = %OffsetCommitRequest{
