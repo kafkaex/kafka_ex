@@ -28,6 +28,29 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupTest do
              KafkaEx.consumer_group(client)
   end
 
+  test "fetch with auto_commit doesn't blow up on no messages", %{
+    client: client
+  } do
+    topic = TestHelper.generate_random_string()
+    consumer_group = "auto_commit_consumer_group"
+
+    KafkaExAPI.set_consumer_group_for_auto_commit(client, consumer_group)
+
+    {:ok, offset_before} = KafkaExAPI.latest_offset(client, topic, 0)
+    assert offset_before == 0
+
+    [logs] =
+      KafkaEx.fetch(
+        topic,
+        0,
+        offset: offset_before,
+        worker_name: client
+      )
+
+    [partition] = logs.partitions
+    assert partition.message_set == []
+  end
+
   test "fetch auto_commits offset by default", %{client: client} do
     topic = "kafka_ex_consumer_group_test"
     consumer_group = "auto_commit_consumer_group"
