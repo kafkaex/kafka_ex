@@ -15,6 +15,7 @@ defmodule KafkaEx.Server0P8P2 do
   ]
 
   use KafkaEx.Server
+  alias KafkaEx.Config
   alias KafkaEx.ConsumerGroupRequiredError
   alias KafkaEx.InvalidConsumerGroupError
   alias KafkaEx.Protocol.ConsumerMetadata
@@ -138,7 +139,7 @@ defmodule KafkaEx.Server0P8P2 do
     offset_fetch = %{offset_fetch | consumer_group: consumer_group}
 
     offset_fetch_request =
-      OffsetFetch.create_request(state.correlation_id, @client_id, offset_fetch)
+      OffsetFetch.create_request(state.correlation_id, Config.client_id(), offset_fetch)
 
     {response, state} =
       case broker do
@@ -235,7 +236,7 @@ defmodule KafkaEx.Server0P8P2 do
        ) do
     response =
       correlation_id
-      |> ConsumerMetadata.create_request(@client_id, consumer_group)
+      |> ConsumerMetadata.create_request(Config.client_id(), consumer_group)
       |> first_broker_response(state)
       |> ConsumerMetadata.parse_response()
 
@@ -302,7 +303,7 @@ defmodule KafkaEx.Server0P8P2 do
     offset_commit_request_payload =
       OffsetCommit.create_request(
         state.correlation_id,
-        @client_id,
+        Config.client_id(),
         offset_commit_request
       )
 

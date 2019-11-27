@@ -17,6 +17,11 @@ defmodule KafkaEx.Config do
   end
 
   @doc false
+  def client_id do
+    Application.get_env(:kafka_ex, :client_id, "kafka_ex")
+  end
+
+  @doc false
   def consumer_group do
     Application.get_env(:kafka_ex, :consumer_group, "kafka_ex")
   end
