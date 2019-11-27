@@ -33,6 +33,8 @@ config :kafka_ex,
   #    consumer groups, set this to :no_consumer_group (this is the
   #    only exception to the requirement that this value be a binary)
   consumer_group: "kafka_ex",
+  # The client_id is the logical grouping of a set of kafka clients.
+  client_id: "kafka_ex",
   # Set this value to true if you do not want the default
   # `KafkaEx.Server` worker to start during application start-up -
   # i.e., if you want to start your own set of named workers
