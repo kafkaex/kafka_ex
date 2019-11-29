@@ -3,6 +3,7 @@ defmodule KafkaEx.Server0P10AndLater do
   Implements kafkaEx.Server behaviors for kafka 0.10.1 API.
   """
   use KafkaEx.Server
+  alias KafkaEx.Config
   alias KafkaEx.Protocol.CreateTopics
   alias KafkaEx.Protocol.DeleteTopics
   alias KafkaEx.Protocol.ApiVersions
@@ -185,7 +186,7 @@ defmodule KafkaEx.Server0P10AndLater do
   def kafka_server_api_versions(state) do
     response =
       state.correlation_id
-      |> ApiVersions.create_request(@client_id)
+      |> ApiVersions.create_request(Config.client_id())
       |> first_broker_response(state)
       |> ApiVersions.parse_response()
 
@@ -205,7 +206,7 @@ defmodule KafkaEx.Server0P10AndLater do
     main_request =
       DeleteTopics.create_request(
         state.correlation_id,
-        @client_id,
+        Config.client_id(),
         %DeleteTopics.Request{
           topics: topics,
           timeout: config_sync_timeout(network_timeout)
@@ -259,7 +260,7 @@ defmodule KafkaEx.Server0P10AndLater do
     main_request =
       CreateTopics.create_request(
         state.correlation_id,
-        @client_id,
+        Config.client_id(),
         create_topics_request,
         api_version
       )
@@ -318,7 +319,7 @@ defmodule KafkaEx.Server0P10AndLater do
        ) do
     response =
       correlation_id
-      |> ConsumerMetadata.create_request(@client_id, consumer_group)
+      |> ConsumerMetadata.create_request(Config.client_id(), consumer_group)
       |> first_broker_response(state)
       |> ConsumerMetadata.parse_response()
 

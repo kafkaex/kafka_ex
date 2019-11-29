@@ -12,6 +12,7 @@ defmodule KafkaEx.Server0P9P0 do
   ]
 
   use KafkaEx.Server
+  alias KafkaEx.Config
   alias KafkaEx.ConsumerGroupRequiredError
   alias KafkaEx.InvalidConsumerGroupError
   alias KafkaEx.Protocol.ConsumerMetadata
@@ -212,7 +213,7 @@ defmodule KafkaEx.Server0P9P0 do
     wire_request =
       protocol_module.create_request(
         state.correlation_id,
-        @client_id,
+        Config.client_id(),
         request
       )
 
@@ -271,7 +272,7 @@ defmodule KafkaEx.Server0P9P0 do
        ) do
     response =
       correlation_id
-      |> ConsumerMetadata.create_request(@client_id, consumer_group)
+      |> ConsumerMetadata.create_request(Config.client_id(), consumer_group)
       |> first_broker_response(state)
       |> ConsumerMetadata.parse_response()
 

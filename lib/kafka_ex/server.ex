@@ -3,6 +3,7 @@ defmodule KafkaEx.Server do
   Defines the KafkaEx.Server behavior that all Kafka API servers must implement, this module also provides some common callback functions that are injected into the servers that `use` it.
   """
 
+  alias KafkaEx.Config
   alias KafkaEx.NetworkClient
   alias KafkaEx.Protocol.ConsumerMetadata
   alias KafkaEx.Protocol.Heartbeat.Request, as: HeartbeatRequest
@@ -272,7 +273,6 @@ defmodule KafkaEx.Server do
       alias KafkaEx.NetworkClient
       alias KafkaEx.Protocol.Offset
 
-      @client_id "kafka_ex"
       @retry_count 3
       @wait_time 10
       @min_bytes 1
@@ -392,7 +392,7 @@ defmodule KafkaEx.Server do
 
         produce_request_data =
           try do
-            Produce.create_request(correlation_id, @client_id, produce_request)
+            Produce.create_request(correlation_id, Config.client_id(), produce_request)
           rescue
             e in FunctionClauseError -> nil
           end
@@ -507,7 +507,7 @@ defmodule KafkaEx.Server do
         offset_request =
           Offset.create_request(
             state.correlation_id,
-            @client_id,
+            Config.client_id(),
             topic,
             partition,
             time
@@ -690,7 +690,7 @@ defmodule KafkaEx.Server do
         metadata_request =
           Metadata.create_request(
             correlation_id,
-            @client_id,
+            Config.client_id(),
             topic,
             api_version
           )
@@ -815,7 +815,7 @@ defmodule KafkaEx.Server do
       defp client_request(request, state) do
         %{
           request
-          | client_id: @client_id,
+          | client_id: Config.client_id(),
             correlation_id: state.correlation_id
         }
       end

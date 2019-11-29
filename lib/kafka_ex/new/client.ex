@@ -11,6 +11,7 @@ defmodule KafkaEx.New.Client do
   the legacy KafkaEx API.
   """
 
+  alias KafkaEx.Config
   alias KafkaEx.NetworkClient
 
   alias KafkaEx.New.Broker
@@ -69,7 +70,6 @@ defmodule KafkaEx.New.Client do
 
   # Default from GenServer
   @default_call_timeout 5_000
-  @client_id "kafka_ex"
   @retry_count 3
   @sync_timeout 1_000
 
@@ -364,7 +364,7 @@ defmodule KafkaEx.New.Client do
   defp client_request(request, state) do
     %{
       request
-      | client_id: @client_id,
+      | client_id: Config.client_id(),
         correlation_id: state.correlation_id
     }
   end
