@@ -95,7 +95,7 @@ For more information on the v1.0 API, see
 The standard approach for adding dependencies to an Elixir application applies:
 add KafkaEx to the deps list in your project's mix.exs file.
 You may also optionally add
-[snappy-erlang-nif](https://github.com/fdmanana/snappy-erlang-nif) (required
+[snappyer](https://hex.pm/packages/snappyer) (required
 only if you want to use snappy compression).
 
 ```elixir
@@ -108,13 +108,35 @@ defmodule MyApp.Mixfile do
       # add to your existing deps
       {:kafka_ex, "~> 0.11"},
       # if using snappy compression
-      {:snappy, git: "https://github.com/fdmanana/snappy-erlang-nif"}
+      {:snappyer, "~> 1.2"}
     ]
   end
 end
 ```
 
 Then run `mix deps.get` to fetch dependencies.
+
+### Adding the kafka_ex application
+
+When using elixir < 1.4, you will need to add kafka_ex to the applications list of your mix.exs file.
+
+```elixir
+# mix.exs
+defmodule MyApp.Mixfile do
+  # ...
+
+  def application do
+    [
+      mod: {MyApp, []},
+      applications: [
+        # add to existing apps - :logger, etc..
+        :kafka_ex,
+        :snappyer # if using snappy compression
+      ]
+    ]
+  end
+end
+```
 
 ## Configuration
 
@@ -336,7 +358,7 @@ produce_request = %KafkaEx.Protocol.Produce.Request{
   topic: "test_topic",
   partition: 0,
   required_acks: 1,
-  compression: :snappy,
+  compression: :snappyer,
   messages: messages}
 KafkaEx.produce(produce_request)
 
@@ -457,3 +479,10 @@ an invite via [http://bit.ly/slackelixir](http://bit.ly/slackelixir).
 The Slack channel is appropriate for quick questions or general design
 discussions.  The Slack discussion is archived at
 [http://slack.elixirhq.com/kafkaex](http://slack.elixirhq.com/kafkaex).
+
+## default snappy algorithm use snappyer package
+It can be changed by using this:
+
+``` elixir
+config :kafka_ex, snappy_module: :snappy
+```
