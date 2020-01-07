@@ -15,7 +15,6 @@ defmodule KafkaEx.Server0P9P0 do
   alias KafkaEx.Config
   alias KafkaEx.ConsumerGroupRequiredError
   alias KafkaEx.InvalidConsumerGroupError
-  alias KafkaEx.Protocol.ConsumerMetadata
   alias KafkaEx.Protocol.ConsumerMetadata.Response, as: ConsumerMetadataResponse
   alias KafkaEx.Protocol.Heartbeat
   alias KafkaEx.Protocol.JoinGroup
@@ -52,6 +51,7 @@ defmodule KafkaEx.Server0P9P0 do
 
   defdelegate kafka_server_consumer_group_metadata(state), to: Server0P8P2
   defdelegate kafka_server_update_consumer_metadata(state), to: Server0P8P2
+  defdelegate update_consumer_metadata(state, num, error_code), to: Server0P8P2
 
   def kafka_server_api_versions(_state),
     do: raise("ApiVersions is not supported in 0.9.0 version of kafka")
@@ -249,55 +249,6 @@ defmodule KafkaEx.Server0P9P0 do
   defp update_consumer_metadata(state),
     do: update_consumer_metadata(state, @retry_count, 0)
 
-  defp update_consumer_metadata(
-         %State{consumer_group: consumer_group} = state,
-         0,
-         error_code
-       ) do
-    Logger.log(
-      :error,
-      "Fetching consumer_group #{consumer_group} metadata failed with error_code #{
-        inspect(error_code)
-      }"
-    )
-
-    {%ConsumerMetadataResponse{error_code: error_code}, state}
-  end
-
-  defp update_consumer_metadata(
-         %State{consumer_group: consumer_group, correlation_id: correlation_id} =
-           state,
-         retry,
-         _error_code
-       ) do
-    response =
-      correlation_id
-      |> ConsumerMetadata.create_request(Config.client_id(), consumer_group)
-      |> first_broker_response(state)
-      |> ConsumerMetadata.parse_response()
-
-    case response.error_code do
-      :no_error ->
-        {
-          response,
-          %{
-            state
-            | consumer_metadata: response,
-              correlation_id: state.correlation_id + 1
-          }
-        }
-
-      _ ->
-        :timer.sleep(400)
-
-        update_consumer_metadata(
-          %{state | correlation_id: state.correlation_id + 1},
-          retry - 1,
-          response.error_code
-        )
-    end
-  end
-
   defp broker_for_consumer_group(state) do
     ConsumerMetadataResponse.broker_for_consumer_group(
       state.brokers,
@@ -332,8 +283,4 @@ defmodule KafkaEx.Server0P9P0 do
   # valid binary consumer group name
   def consumer_group?(%State{consumer_group: :no_consumer_group}), do: false
   def consumer_group?(_), do: true
-
-  defp first_broker_response(request, state) do
-    first_broker_response(request, state.brokers, config_sync_timeout())
-  end
 end
