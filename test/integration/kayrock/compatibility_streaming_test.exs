@@ -75,4 +75,53 @@ defmodule KafkaEx.KayrockCompatibilityStreamingTest do
     assert is_integer(offset)
     assert offset > 0
   end
+
+  test "streams doesn't skip first message, with an initially empty log", %{
+    client: client
+  } do
+    topic_name = "kayrock_stream_with_empty_log"
+    consumer_group = "streamers_with_empty_log"
+
+    {:ok, topic} = TestHelper.ensure_append_timestamp_topic(client, topic_name)
+
+    {:ok, agent} = Agent.start(fn -> [] end)
+
+    stream =
+      KafkaEx.stream(
+        topic_name,
+        0,
+        worker_name: client,
+        no_wait_at_logend: false,
+        auto_commit: true,
+        consumer_group: consumer_group,
+        api_versions: %{
+          fetch: 3,
+          offset_fetch: 3,
+          offset_commit: 3
+        }
+      )
+
+    streamer =
+      Task.async(fn ->
+        stream
+        |> Stream.map(&Agent.update(agent, fn messages -> [&1 | messages] end))
+        |> Stream.run()
+      end)
+
+    Process.sleep(100)
+
+    KafkaEx.produce(topic, 0, "Msg 1", api_version: 3)
+    KafkaEx.produce(topic, 0, "Msg 2", api_version: 3)
+    KafkaEx.produce(topic, 0, "Msg 3", api_version: 3)
+
+    Process.sleep(100)
+
+    assert ["Msg 1", "Msg 2", "Msg 3"] ==
+             agent
+             |> Agent.get(&Enum.reverse/1)
+             |> Enum.map(fn message -> message.value end)
+
+    Task.shutdown(streamer)
+    Agent.stop(agent)
+  end
 end
