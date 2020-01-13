@@ -53,6 +53,22 @@ defmodule KafkaEx.Stream do
     ######################################################################
     # Main stream flow control
 
+    # if we get an empty response, we block until messages are ready
+    defp stream_control(
+           %{
+             error_code: :no_error,
+             last_offset: last_offset,
+             message_set: []
+           },
+           %KafkaEx.Stream{
+             no_wait_at_logend: false
+           },
+           _offset
+         )
+         when is_integer(last_offset) do
+      {[], last_offset}
+    end
+
     # if we get a response, we return the message set and point at the next
     # offset after the last message
     defp stream_control(
