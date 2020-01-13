@@ -11,7 +11,6 @@ defmodule KafkaEx.Server0P10AndLater do
   alias KafkaEx.Server0P9P0
 
   alias KafkaEx.InvalidConsumerGroupError
-  alias KafkaEx.Protocol.ConsumerMetadata
   alias KafkaEx.Protocol.ConsumerMetadata.Response, as: ConsumerMetadataResponse
   alias KafkaEx.Protocol.Metadata.Broker
   alias KafkaEx.Server.State
@@ -40,6 +39,7 @@ defmodule KafkaEx.Server0P10AndLater do
 
   defdelegate kafka_server_consumer_group_metadata(state), to: Server0P8P2
   defdelegate kafka_server_update_consumer_metadata(state), to: Server0P8P2
+  defdelegate update_consumer_metadata(state, num, error_code), to: Server0P8P2
 
   # The functions below are all defined in KafkaEx.Server0P9P0
   defdelegate kafka_server_join_group(request, network_timeout, state_in),
@@ -295,55 +295,6 @@ defmodule KafkaEx.Server0P10AndLater do
 
   defp update_consumer_metadata(state),
     do: update_consumer_metadata(state, @retry_count, 0)
-
-  defp update_consumer_metadata(
-         %State{consumer_group: consumer_group} = state,
-         0,
-         error_code
-       ) do
-    Logger.log(
-      :error,
-      "Fetching consumer_group #{consumer_group} metadata failed with error_code #{
-        inspect(error_code)
-      }"
-    )
-
-    {%ConsumerMetadataResponse{error_code: error_code}, state}
-  end
-
-  defp update_consumer_metadata(
-         %State{consumer_group: consumer_group, correlation_id: correlation_id} =
-           state,
-         retry,
-         _error_code
-       ) do
-    response =
-      correlation_id
-      |> ConsumerMetadata.create_request(Config.client_id(), consumer_group)
-      |> first_broker_response(state)
-      |> ConsumerMetadata.parse_response()
-
-    case response.error_code do
-      :no_error ->
-        {
-          response,
-          %{
-            state
-            | consumer_metadata: response,
-              correlation_id: state.correlation_id + 1
-          }
-        }
-
-      _ ->
-        :timer.sleep(400)
-
-        update_consumer_metadata(
-          %{state | correlation_id: state.correlation_id + 1},
-          retry - 1,
-          response.error_code
-        )
-    end
-  end
 
   defp broker_for_consumer_group(state) do
     ConsumerMetadataResponse.broker_for_consumer_group(

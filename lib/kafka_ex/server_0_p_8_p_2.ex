@@ -213,7 +213,7 @@ defmodule KafkaEx.Server0P8P2 do
   defp update_consumer_metadata(state),
     do: update_consumer_metadata(state, @retry_count, 0)
 
-  defp update_consumer_metadata(
+  def update_consumer_metadata(
          %State{consumer_group: consumer_group} = state,
          0,
          error_code
@@ -228,7 +228,7 @@ defmodule KafkaEx.Server0P8P2 do
     {%ConsumerMetadataResponse{error_code: error_code}, state}
   end
 
-  defp update_consumer_metadata(
+  def update_consumer_metadata(
          %State{consumer_group: consumer_group, correlation_id: correlation_id} =
            state,
          retry,

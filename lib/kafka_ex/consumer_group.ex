@@ -282,10 +282,9 @@ defmodule KafkaEx.ConsumerGroup do
   def partition_consumer_map(supervisor_pid) do
     supervisor_pid
     |> consumer_pids
-    |> Enum.map(fn pid ->
+    |> Enum.into(%{}, fn pid ->
       {GenConsumer.partition(pid), pid}
     end)
-    |> Enum.into(%{})
   end
 
   @doc """
