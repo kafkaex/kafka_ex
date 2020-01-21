@@ -974,7 +974,9 @@ defmodule KafkaEx.Server do
       end
 
       defp first_broker_response(request, brokers, timeout) do
-        Enum.find_value(brokers, fn broker ->
+        brokers
+        |> Enum.shuffle()
+        |> Enum.find_value(fn broker ->
           if Broker.connected?(broker) do
             # credo:disable-for-next-line Credo.Check.Refactor.Nesting
             case NetworkClient.send_sync_request(broker, request, timeout) do
