@@ -442,7 +442,9 @@ defmodule KafkaEx.New.Client do
   end
 
   defp first_broker_response(request, brokers, timeout) do
-    Enum.find_value(brokers, fn broker ->
+    brokers
+    |> Enum.shuffle()
+    |> Enum.find_value(brokers, fn broker ->
       if Broker.connected?(broker) do
         try_broker(broker, request, timeout)
       end
