@@ -29,7 +29,7 @@ defmodule KafkaEx.Utils.Murmur do
   """
   @spec umurmur2(key :: binary) :: integer
   def umurmur2(key) do
-    key |> murmur2() |> band(0xFFFFFFFF)
+    key |> murmur2() |> band(0x7FFFFFFF)
   end
 
   defp mask32(num) do
