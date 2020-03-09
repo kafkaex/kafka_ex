@@ -91,7 +91,7 @@ defmodule KafkaEx do
   def create_worker(name, worker_init \\ []) do
     case build_worker_options(worker_init) do
       {:ok, worker_init} ->
-        KafkaEx.Supervisor.start_child([worker_init, name])
+        KafkaEx.Supervisor.start_child([{:name, name} | worker_init])
 
       {:error, error} ->
         {:error, error}
@@ -707,7 +707,6 @@ defmodule KafkaEx do
 
     {:ok, pid} =
       KafkaEx.Supervisor.start_link(
-        Config.server_impl(),
         max_restarts,
         max_seconds
       )

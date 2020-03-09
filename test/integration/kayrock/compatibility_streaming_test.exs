@@ -5,7 +5,6 @@ defmodule KafkaEx.KayrockCompatibilityStreamingTest do
 
   use ExUnit.Case
 
-  alias KafkaEx.New.Client
   alias KafkaEx.Protocol.OffsetFetch.Request, as: OffsetFetchRequest
   alias KafkaEx.Protocol.OffsetFetch.Response, as: OffsetFetchResponse
 

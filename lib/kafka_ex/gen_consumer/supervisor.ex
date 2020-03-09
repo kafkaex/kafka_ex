@@ -13,7 +13,7 @@ defmodule KafkaEx.GenConsumer.Supervisor do
   `KafkaEx.ConsumerGroup`.
   """
 
-  use Elixir.Supervisor
+  use DynamicSupervisor
 
   @doc """
   Starts a `GenConsumer.Supervisor` process linked to the current process.
@@ -39,7 +39,7 @@ defmodule KafkaEx.GenConsumer.Supervisor do
             {topic_name :: binary, partition_id :: non_neg_integer}
           ],
           KafkaEx.GenConsumer.options()
-        ) :: Elixir.Supervisor.on_start()
+        ) :: Elixir.DynamicSupervisor.on_start()
   def start_link(
         {gen_consumer_module, consumer_module},
         group_name,
@@ -47,19 +47,32 @@ defmodule KafkaEx.GenConsumer.Supervisor do
         opts \\ []
       ) do
     start_link_result =
-      Elixir.Supervisor.start_link(
+      DynamicSupervisor.start_link(
         __MODULE__,
         {{gen_consumer_module, consumer_module}, group_name, assignments, opts}
       )
 
     case start_link_result do
       {:ok, pid} ->
-        :ok = start_workers(pid, assignments, opts)
+        :ok =
+          start_workers(
+            gen_consumer_module,
+            consumer_module,
+            group_name,
+            pid,
+            assignments,
+            opts
+          )
+
         {:ok, pid}
 
       error ->
         error
     end
+  end
+
+  def init(_init_args) do
+    DynamicSupervisor.init(strategy: :one_for_one)
   end
 
   @doc """
@@ -70,7 +83,7 @@ defmodule KafkaEx.GenConsumer.Supervisor do
   @spec child_pids(pid | atom) :: [pid]
   def child_pids(supervisor_pid) do
     supervisor_pid
-    |> Supervisor.which_children()
+    |> Elixir.DynamicSupervisor.which_children()
     |> Enum.map(fn {_, pid, _, _} -> pid end)
   end
 
@@ -84,20 +97,20 @@ defmodule KafkaEx.GenConsumer.Supervisor do
     |> Enum.any?(&Process.alive?/1)
   end
 
-  def init(
-        {{gen_consumer_module, consumer_module}, group_name, _assignments,
-         _opts}
-      ) do
-    children = [
-      worker(gen_consumer_module, [consumer_module, group_name])
-    ]
-
-    supervise(children, strategy: :simple_one_for_one)
-  end
-
-  defp start_workers(pid, assignments, opts) do
+  defp start_workers(
+         gen_consumer_module,
+         consumer_module,
+         group_name,
+         pid,
+         assignments,
+         opts
+       ) do
     Enum.each(assignments, fn {topic, partition} ->
-      case Elixir.Supervisor.start_child(pid, [topic, partition, opts]) do
+      case Elixir.DynamicSupervisor.start_child(
+             pid,
+             {gen_consumer_module,
+             %{id: gen_consumer_module, start: {gen_consumer_module, :start_link, [consumer_module, group_name]}}}
+           ) do
         {:ok, _child} -> nil
         {:ok, _child, _info} -> nil
       end

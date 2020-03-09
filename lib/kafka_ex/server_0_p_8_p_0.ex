@@ -40,16 +40,6 @@ defmodule KafkaEx.Server0P8P0 do
     {:ok, state}
   end
 
-  def start_link(args, name \\ __MODULE__)
-
-  def start_link(args, :no_name) do
-    GenServer.start_link(__MODULE__, [args])
-  end
-
-  def start_link(args, name) do
-    GenServer.start_link(__MODULE__, [args, name], name: name)
-  end
-
   def kafka_server_fetch(fetch_request, state) do
     {response, state} = fetch(fetch_request, state)
 

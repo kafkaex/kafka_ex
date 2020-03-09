@@ -10,7 +10,7 @@ defmodule KafkaEx.Server0P8P0.Test do
 
   setup do
     {:ok, args} = KafkaEx.build_worker_options([])
-    {:ok, worker} = Server.start_link(args, :no_name)
+    {:ok, worker} = Server.start_link([{:name, :no_name} | args])
 
     # we don't want to crash if the worker crashes
     Process.unlink(worker)

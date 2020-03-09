@@ -29,16 +29,6 @@ defmodule KafkaEx.Server0P9P0 do
 
   @consumer_group_update_interval 30_000
 
-  def start_link(args, name \\ __MODULE__)
-
-  def start_link(args, :no_name) do
-    GenServer.start_link(__MODULE__, [args])
-  end
-
-  def start_link(args, name) do
-    GenServer.start_link(__MODULE__, [args, name], name: name)
-  end
-
   # The functions below are all defined in KafkaEx.Server0P8P2 and their
   # implementation is exactly same across both versions of kafka.
 
