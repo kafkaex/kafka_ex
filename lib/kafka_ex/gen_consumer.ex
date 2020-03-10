@@ -471,8 +471,8 @@ defmodule KafkaEx.GenConsumer do
   """
   @spec partition(GenServer.server()) ::
           {topic :: binary, partition_id :: non_neg_integer}
-  def partition(gen_consumer) do
-    GenServer.call(gen_consumer, :partition)
+  def partition(gen_consumer, timeout \\ 5000) do
+    GenServer.call(gen_consumer, :partition, timeout)
   end
 
   @doc """

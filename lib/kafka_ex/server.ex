@@ -796,9 +796,9 @@ defmodule KafkaEx.Server do
 
       defp check_brokers_sockets!(brokers) do
         any_socket_opened = brokers
-        |> Enum.map(fn %Broker{socket: socket} -> !is_nil(socket) end)
-        |> Enum.reduce(&(&1 || &2))
-        if !any_socket_opened do
+        |> Enum.any?(fn %Broker{socket: socket} -> not is_nil(socket) end)
+
+        if not any_socket_opened do
           sleep_for_reconnect()
           raise "Brokers sockets are not opened"
         end
