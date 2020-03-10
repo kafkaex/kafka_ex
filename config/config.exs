@@ -14,9 +14,9 @@ config :kafka_ex,
   # server.properties file.
   # In the case below you would set "advertised.host.name=localhost"
   brokers: [
-    {"localhost", 9092},
     {"localhost", 9093},
-    {"localhost", 9094}
+    {"localhost", 9094},
+    {"localhost", 9095}
   ],
   #
   # OR:
