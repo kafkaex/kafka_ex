@@ -116,11 +116,30 @@ defmodule TestHelper do
        topic_errors: [%{error_code: error_code}]
      }} = resp
 
+     wait_for_topic_to_appear(client, topic_name)
+
     if error_code in [0, 36] do
       {:ok, topic_name}
     else
       Logger.error("Unable to create topic #{topic_name}: #{inspect(resp)}")
       {:error, topic_name}
+    end
+  end
+
+  defp wait_for_topic_to_appear(_client, _topic_name, attempts \\ 10)
+
+  defp wait_for_topic_to_appear(_client, _topic_name, attempts) when attempts <= 0 do
+    raise "Timeout while waiting for topic to appear"
+  end
+
+  defp wait_for_topic_to_appear(client, topic_name, attempts) do
+    {:ok, %{topic_metadata: topic_metadata}} =
+      Client.send_request(client, %Kayrock.Metadata.V0.Request{}, NodeSelector.controller())
+
+    topics = topic_metadata |> Enum.map(&(&1.topic))
+
+    unless topic_name in topics do
+      wait_for_topic_to_appear(client, topic_name, attempts - 1)
     end
   end
 

@@ -14,7 +14,6 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
   @partition_count 4
   @consumer_group_name "consumer_group_implementation"
 
-
   defmodule TestPartitioner do
     # wraps an Agent that we use to capture the fact that the partitioner was
     # called - normally one would not really need to do this
@@ -223,7 +222,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     consumer1_assignments =
       consumer1_pid
       |> GenConsumer.Supervisor.child_pids()
-      |> Enum.map(&(GenConsumer.partition(&1, 30_000)))
+      |> Enum.map(&GenConsumer.partition(&1, 30_000))
       |> Enum.sort()
 
     assert consumer1_assignments == Enum.sort(assignments1)
@@ -234,7 +233,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     consumer2_assignments =
       consumer2_pid
       |> GenConsumer.Supervisor.child_pids()
-      |> Enum.map(&(GenConsumer.partition(&1, 30_000)))
+      |> Enum.map(&GenConsumer.partition(&1, 30_000))
       |> Enum.sort()
 
     assert consumer2_assignments == Enum.sort(assignments2)

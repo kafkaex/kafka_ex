@@ -27,7 +27,7 @@ else
   TEST_COMMAND=test
 fi
 
-export ${TEST_COMMAND}
+export TEST_COMMAND
 
 ALL_TESTS=${PROJECT_DIR}/scripts/all_tests.sh
 

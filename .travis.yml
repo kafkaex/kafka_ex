@@ -9,7 +9,10 @@ cache:
 matrix:
   include:
     - elixir: 1.9.4
-      otp_release: 22.1
+      # stick to OTP release 21.3 for now.
+      # We have problems with SSL and OTP 22
+      # https://github.com/kafkaex/kafka_ex/issues/389
+      otp_release: 21.3
       env: COVERALLS=true CREDO=true
     - elixir: 1.8.2
       otp_release: 21.3

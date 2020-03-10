@@ -19,7 +19,7 @@ defmodule KafkaEx.KayrockCompatibilityStreamingTest do
   end
 
   test "stream with kafka offset storage and timestamps", %{client: client} do
-    topic = "kayrock_stream_test"
+    topic = "kayrock_stream_test_#{:rand.uniform(2_000_000)}"
     partition = 0
     consumer_group = "streamers"
 

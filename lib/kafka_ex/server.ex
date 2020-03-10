@@ -236,6 +236,15 @@ defmodule KafkaEx.Server do
   # Default from GenServer
   @default_call_timeout 5_000
 
+  # the timeout parameter is  used also for network requests, which
+  # means that if we set the same value for the GenServer timeout,
+  # it will always timeout first => we won't get the expected behaviour,
+  # which is to have the GenServer.call answer with the timeout reply.
+  # Instead, we get a GenServer timeout error.
+  # To avoid this, we add here an "buffer" time that covers the time
+  # needed to process the logic until the network request, and back from it.
+  @overhead_timeout 2_000
+
   @doc false
   @spec call(
           GenServer.server(),
@@ -262,7 +271,7 @@ defmodule KafkaEx.Server do
   end
 
   def call(server, request, timeout) when is_integer(timeout) do
-    GenServer.call(server, request, timeout)
+    GenServer.call(server, request, timeout + @overhead_timeout)
   end
 
   defmacro __using__(_) do
@@ -556,7 +565,7 @@ defmodule KafkaEx.Server do
                   response -> Offset.parse_response(response)
                 end
 
-              state = %{state | correlation_id: state.correlation_id + 1}
+              state = increment_state_correlation_id(state)
               {response, state}
           end
 
@@ -993,6 +1002,10 @@ defmodule KafkaEx.Server do
 
       defp default_partitioner do
         Application.get_env(:kafka_ex, :partitioner, KafkaEx.DefaultPartitioner)
+      end
+
+      defp increment_state_correlation_id(%_{correlation_id: correlation_id} = state) do
+        %{state | correlation_id: correlation_id + 1}
       end
     end
   end
