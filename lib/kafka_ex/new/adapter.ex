@@ -1,5 +1,6 @@
 defmodule KafkaEx.New.Adapter do
   @moduledoc false
+
   # this should not be considered part of the public API
 
   # Code that converts old-style KafkaEx request/response structures to and
@@ -7,6 +8,8 @@ defmodule KafkaEx.New.Adapter do
 
   # No new code should rely on this code.  This should only be around to support
   # the compatibility mode during transition to the new API.
+
+  require Logger
 
   alias KafkaEx.Protocol.ApiVersions.ApiVersion
   alias KafkaEx.Protocol.CreateTopics.Response, as: CreateTopicsResponse
@@ -164,38 +167,52 @@ defmodule KafkaEx.New.Adapter do
     {request, fetch_request.topic, fetch_request.partition}
   end
 
-  def fetch_response(fetch_response) do
-    [topic_response | _] = fetch_response.responses
-    [partition_response | _] = topic_response.partition_responses
-
-    topic = topic_response.topic
-    partition = partition_response.partition_header.partition
-
+  def fetch_response(%{
+        responses: [
+          %{
+            topic: topic,
+            partition_responses: [
+              %{
+                record_set: record_set,
+                partition_header: %{
+                  partition: partition,
+                  error_code: error_code,
+                  high_watermark: high_watermark
+                }
+              }
+              | _
+            ]
+          }
+          | _
+        ]
+      }) do
     {message_set, last_offset} =
-      kayrock_message_set_to_kafka_ex(
-        partition_response.record_set,
-        topic,
-        partition
-      )
+      kayrock_message_set_to_kafka_ex(record_set, topic, partition)
 
     {[
        %FetchResponse{
-         topic: topic_response.topic,
+         topic: topic,
          partitions: [
            %{
-             partition: partition_response.partition_header.partition,
-             error_code:
-               KafkaEx.Protocol.error(
-                 partition_response.partition_header.error_code
-               ),
-             hw_mark_offset: partition_response.partition_header.high_watermark,
+             partition: partition,
+             error_code: KafkaEx.Protocol.error(error_code),
+             hw_mark_offset: high_watermark,
              message_set: message_set,
-             last_offset:
-               last_offset || partition_response.partition_header.high_watermark
+             last_offset: last_offset || high_watermark
            }
          ]
        }
      ], last_offset}
+  end
+
+  def fetch_response(bad_response) do
+    Logger.log(
+      :error,
+      "Not able to retrieve the last offset, the kafka server is probably throttling your requests, got response: " <>
+        inspect(bad_response)
+    )
+
+    {[], nil}
   end
 
   def join_group_request(join_group_request) do

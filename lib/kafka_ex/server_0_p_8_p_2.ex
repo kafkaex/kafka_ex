@@ -75,12 +75,14 @@ defmodule KafkaEx.Server0P8P2 do
 
     check_brokers_sockets!(brokers)
 
-    {correlation_id, metadata} = try do
-      retrieve_metadata(brokers, 0, config_sync_timeout())
-    rescue e ->
-      sleep_for_reconnect()
-      Kernel.reraise(e, System.stacktrace())
-    end
+    {correlation_id, metadata} =
+      try do
+        retrieve_metadata(brokers, 0, config_sync_timeout())
+      rescue
+        e ->
+          sleep_for_reconnect()
+          Kernel.reraise(e, System.stacktrace())
+      end
 
     state = %State{
       metadata: metadata,
@@ -139,7 +141,11 @@ defmodule KafkaEx.Server0P8P2 do
     offset_fetch = %{offset_fetch | consumer_group: consumer_group}
 
     offset_fetch_request =
-      OffsetFetch.create_request(state.correlation_id, Config.client_id(), offset_fetch)
+      OffsetFetch.create_request(
+        state.correlation_id,
+        Config.client_id(),
+        offset_fetch
+      )
 
     {response, state} =
       case broker do
@@ -214,10 +220,10 @@ defmodule KafkaEx.Server0P8P2 do
     do: update_consumer_metadata(state, @retry_count, 0)
 
   def update_consumer_metadata(
-         %State{consumer_group: consumer_group} = state,
-         0,
-         error_code
-       ) do
+        %State{consumer_group: consumer_group} = state,
+        0,
+        error_code
+      ) do
     Logger.log(
       :error,
       "Fetching consumer_group #{consumer_group} metadata failed with error_code #{
@@ -229,11 +235,11 @@ defmodule KafkaEx.Server0P8P2 do
   end
 
   def update_consumer_metadata(
-         %State{consumer_group: consumer_group, correlation_id: correlation_id} =
-           state,
-         retry,
-         _error_code
-       ) do
+        %State{consumer_group: consumer_group, correlation_id: correlation_id} =
+          state,
+        retry,
+        _error_code
+      ) do
     response =
       correlation_id
       |> ConsumerMetadata.create_request(Config.client_id(), consumer_group)
@@ -269,7 +275,19 @@ defmodule KafkaEx.Server0P8P2 do
 
       {response, state_out} ->
         last_offset =
-          response |> hd |> Map.get(:partitions) |> hd |> Map.get(:last_offset)
+          case response do
+            [%{partitions: [%{last_offset: last_offset} | _]} | _] ->
+              last_offset
+
+            bad_response ->
+              Logger.log(
+                :error,
+                "Not able to retrieve the last offset, the kafka server is probably throttling your requests, got response: " <>
+                  inspect(bad_response)
+              )
+
+              nil
+          end
 
         if last_offset != nil && request.auto_commit do
           offset_commit_request = %OffsetCommit.Request{
