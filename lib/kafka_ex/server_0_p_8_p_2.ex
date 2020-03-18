@@ -279,11 +279,10 @@ defmodule KafkaEx.Server0P8P2 do
             [%{partitions: [%{last_offset: last_offset} | _]} | _] ->
               last_offset
 
-            bad_response ->
+            [] ->
               Logger.log(
                 :error,
-                "Not able to retrieve the last offset, the kafka server is probably throttling your requests, got response: " <>
-                  inspect(bad_response)
+                "Not able to retrieve the last offset, the kafka server is probably throttling your requests"
               )
 
               nil
