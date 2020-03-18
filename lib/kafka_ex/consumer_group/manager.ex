@@ -292,7 +292,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
         )
 
         :timer.sleep(1000)
-        join(state, attempt_number - 1)
+        join(state, attempt_number + 1)
 
       %{error_code: error_code} ->
         raise "Error joining consumer group #{group_name}: " <>
