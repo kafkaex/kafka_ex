@@ -24,6 +24,7 @@ defmodule KafkaEx.LegacyPartitioner do
     request
   end
 
+  # credo:disable-for-lines:50 Credo.Check.Design.DuplicatedCode
   def assign_partition(%ProduceRequest{partition: nil} = request, metadata) do
     case Partitioner.get_key(request) do
       {:ok, nil} ->
