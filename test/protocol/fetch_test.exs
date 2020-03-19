@@ -19,7 +19,7 @@ defmodule KafkaEx.Protocol.Fetch.Test do
     }
 
     request = KafkaEx.Protocol.Fetch.create_request(fetch_request)
-    assert request == good_request
+    assert :erlang.iolist_to_binary(request) == good_request
   end
 
   test "parse_response correctly parses a valid response with a key and a value" do

@@ -8,7 +8,7 @@ defmodule KafkaEx.Protocol.DeleteTopicsTest do
 
       delete_response = KafkaEx.Protocol.DeleteTopics.create_request(999, "the-client-id", delete_request, 0)
 
-      assert expected_request == delete_response
+      assert expected_request == :erlang.iolist_to_binary(delete_response)
     end
 
     test "creates a request to delete a multiple topic" do
@@ -17,7 +17,7 @@ defmodule KafkaEx.Protocol.DeleteTopicsTest do
       delete_request = %KafkaEx.Protocol.DeleteTopics.Request{topics: ["topic1", "topic2", "topic3"], timeout: 100}
       delete_response = KafkaEx.Protocol.DeleteTopics.create_request(999, "the-client-id", delete_request, 0)
 
-      assert expected_response == delete_response
+      assert expected_response == :erlang.iolist_to_binary(delete_response)
     end
 
     test "raise error when non-zero api_version is sent" do

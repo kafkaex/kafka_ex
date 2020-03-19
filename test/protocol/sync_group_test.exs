@@ -77,7 +77,7 @@ defmodule KafkaEx.Protocol.SyncGroup.Test do
     request =
       KafkaEx.Protocol.SyncGroup.create_request(42, "client_id", sync_request)
 
-    assert request == good_request
+    assert :erlang.iolist_to_binary(request) == good_request
   end
 
   test "parse success response correctly" do
