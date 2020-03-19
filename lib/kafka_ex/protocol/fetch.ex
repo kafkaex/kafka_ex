@@ -77,11 +77,12 @@ defmodule KafkaEx.Protocol.Fetch do
 
   @spec create_request(Request.t()) :: binary
   def create_request(fetch_request) do
-    KafkaEx.Protocol.create_request(
-      :fetch,
-      fetch_request.correlation_id,
-      fetch_request.client_id
-    ) <>
+    [
+      KafkaEx.Protocol.create_request(
+        :fetch,
+        fetch_request.correlation_id,
+        fetch_request.client_id
+      ),
       <<
         -1::32-signed,
         fetch_request.wait_time::32-signed,
@@ -94,6 +95,7 @@ defmodule KafkaEx.Protocol.Fetch do
         fetch_request.offset::64,
         fetch_request.max_bytes::32
       >>
+    ]
   end
 
   def parse_response(

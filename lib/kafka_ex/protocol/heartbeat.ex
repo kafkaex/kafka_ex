@@ -24,10 +24,12 @@ defmodule KafkaEx.Protocol.Heartbeat do
 
   @spec create_request(integer, binary, Request.t()) :: binary
   def create_request(correlation_id, client_id, request) do
-    KafkaEx.Protocol.create_request(:heartbeat, correlation_id, client_id) <>
+    [
+      KafkaEx.Protocol.create_request(:heartbeat, correlation_id, client_id),
       <<byte_size(request.group_name)::16-signed, request.group_name::binary,
         request.generation_id::32-signed,
         byte_size(request.member_id)::16-signed, request.member_id::binary>>
+    ]
   end
 
   @spec parse_response(binary) :: Response.t()

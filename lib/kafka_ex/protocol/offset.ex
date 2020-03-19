@@ -34,9 +34,11 @@ defmodule KafkaEx.Protocol.Offset do
   end
 
   def create_request(correlation_id, client_id, topic, partition, time) do
-    KafkaEx.Protocol.create_request(:offset, correlation_id, client_id) <>
+    [
+      KafkaEx.Protocol.create_request(:offset, correlation_id, client_id),
       <<-1::32-signed, 1::32-signed, byte_size(topic)::16-signed, topic::binary,
         1::32-signed, partition::32-signed, parse_time(time)::64, 1::32>>
+    ]
   end
 
   def parse_response(

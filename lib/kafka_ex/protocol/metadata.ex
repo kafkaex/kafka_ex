@@ -159,12 +159,15 @@ defmodule KafkaEx.Protocol.Metadata do
   def create_request(correlation_id, client_id, "", api_version) do
     topic_count = if 0 == api_version, do: 0, else: -1
 
-    KafkaEx.Protocol.create_request(
-      :metadata,
-      correlation_id,
-      client_id,
-      api_version
-    ) <> <<topic_count::32-signed>>
+    [
+      KafkaEx.Protocol.create_request(
+        :metadata,
+        correlation_id,
+        client_id,
+        api_version
+      ),
+      <<topic_count::32-signed>>
+    ]
   end
 
   def create_request(correlation_id, client_id, topic, api_version)
@@ -174,12 +177,16 @@ defmodule KafkaEx.Protocol.Metadata do
 
   def create_request(correlation_id, client_id, topics, api_version)
       when is_list(topics) do
-    KafkaEx.Protocol.create_request(
-      :metadata,
-      correlation_id,
-      client_id,
-      api_version
-    ) <> <<length(topics)::32-signed, topic_data(topics)::binary>>
+    [
+      KafkaEx.Protocol.create_request(
+        :metadata,
+        correlation_id,
+        client_id,
+        api_version
+      ),
+      <<length(topics)::32-signed>>,
+      topic_data(topics)
+    ]
   end
 
   def parse_response(data), do: parse_response(data, @default_api_version)
