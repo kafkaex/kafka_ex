@@ -1,11 +1,12 @@
-defmodule KafkaEx.DefaultPartitioner do
+defmodule KafkaEx.LegacyPartitioner do
   @moduledoc """
-  Default partitioner implementation.
+  Legacy default partitioner implementation.
 
-  When message key is set and partition isn't, partition is decided based
-  on murmur2 hash of a key to provide Java implementation consistency. When
-  message key and partition is missing, partition is selected randomly.
-  When partition is provided nothing changes.
+  This "legacy partitioner" used to be the default partitioner for KafkaEx
+  when a message key is set and a partition isn't. This was intended to match
+  the behaviour of the default Java client, however there was some small
+  differences. This legacy partitioner keeps the previous behaviour, and the
+  current default partitioner now correctly matches the Java client.
   """
   use KafkaEx.Partitioner
   alias KafkaEx.Partitioner
@@ -68,7 +69,7 @@ defmodule KafkaEx.DefaultPartitioner do
          metadata,
          key
        ) do
-    hash = Murmur.umurmur2(key)
+    hash = Murmur.umurmur2_legacy(key)
 
     partitions_count =
       metadata |> MetadataResponse.partitions_for_topic(topic) |> length()

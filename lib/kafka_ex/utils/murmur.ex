@@ -25,10 +25,20 @@ defmodule KafkaEx.Utils.Murmur do
   end
 
   @doc """
-    Calculates murmur2 hash for given binary as unsigned 32-bit integer
+  Calculates murmur2 hash for given binary as unsigned 32-bit integer
   """
   @spec umurmur2(key :: binary) :: integer
   def umurmur2(key) do
+    key |> murmur2() |> band(0x7FFFFFFF)
+  end
+
+  @doc """
+  Calculates murmur2 hash for given binary as unsigned 32-bit integer
+
+  This is to support the legacy default partitioner implementation.
+  """
+  @spec umurmur2_legacy(key :: binary) :: integer
+  def umurmur2_legacy(key) do
     key |> murmur2() |> band(0xFFFFFFFF)
   end
 

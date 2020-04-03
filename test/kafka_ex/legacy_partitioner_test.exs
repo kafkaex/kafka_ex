@@ -1,5 +1,5 @@
-defmodule KafkaEx.DefaultPartitionerTest do
-  alias KafkaEx.DefaultPartitioner
+defmodule KafkaEx.LegacyPartitionerTest do
+  alias KafkaEx.LegacyPartitioner
 
   alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
   alias KafkaEx.Protocol.Produce.Message, as: ProduceMessage
@@ -36,7 +36,7 @@ defmodule KafkaEx.DefaultPartitionerTest do
       ]
     }
 
-    %{partition: 2} = DefaultPartitioner.assign_partition(request, metadata(5))
+    %{partition: 2} = LegacyPartitioner.assign_partition(request, metadata(5))
   end
 
   test "random assignment" do
@@ -49,7 +49,7 @@ defmodule KafkaEx.DefaultPartitionerTest do
     }
 
     %{partition: partition} =
-      DefaultPartitioner.assign_partition(request, metadata(5))
+      LegacyPartitioner.assign_partition(request, metadata(5))
 
     assert partition >= 0 and partition < 5
   end
@@ -63,8 +63,8 @@ defmodule KafkaEx.DefaultPartitionerTest do
       ]
     }
 
-    %{partition: 1} = DefaultPartitioner.assign_partition(request, metadata(5))
-    %{partition: 1} = DefaultPartitioner.assign_partition(request, metadata(6))
+    %{partition: 4} = LegacyPartitioner.assign_partition(request, metadata(5))
+    %{partition: 3} = LegacyPartitioner.assign_partition(request, metadata(6))
 
     second_request = %ProduceRequest{
       topic: "test_topic",
@@ -75,10 +75,10 @@ defmodule KafkaEx.DefaultPartitionerTest do
     }
 
     %{partition: 1} =
-      DefaultPartitioner.assign_partition(second_request, metadata(5))
+      LegacyPartitioner.assign_partition(second_request, metadata(5))
 
     %{partition: 5} =
-      DefaultPartitioner.assign_partition(second_request, metadata(6))
+      LegacyPartitioner.assign_partition(second_request, metadata(6))
   end
 
   test "produce request with inconsistent keys" do
@@ -92,8 +92,8 @@ defmodule KafkaEx.DefaultPartitionerTest do
     }
 
     assert capture_log(fn ->
-             DefaultPartitioner.assign_partition(request, metadata(5))
+             LegacyPartitioner.assign_partition(request, metadata(5))
            end) =~
-             "KafkaEx.DefaultPartitioner: couldn't assign partition due to :inconsistent_keys"
+             "KafkaEx.LegacyPartitioner: couldn't assign partition due to :inconsistent_keys"
   end
 end
