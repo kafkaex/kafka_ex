@@ -206,7 +206,7 @@ defmodule KafkaEx.Server0P9P0 do
 
     {broker, state} = broker_for_consumer_group_with_update(state)
 
-    state_out = %{state | correlation_id: state.correlation_id + 1}
+    state_out = increment_state_correlation_id(state)
 
     sync_timeout = config_sync_timeout(network_timeout)
 

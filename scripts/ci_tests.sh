@@ -8,14 +8,18 @@
 
 set -ex
 
+cd $(dirname $0)/..
+PROJECT_DIR=$(pwd)
+
 export MIX_ENV=test
 
-if [ "$CREDO" = true ]
+if [ "${CREDO}" = true ]
 then
+  cd ${PROJECT_DIR}
   MIX_ENV=dev mix credo
 fi
 
-if [ "$COVERALLS" = true ]
+if [ "${COVERALLS}" = true ]
 then
   echo "Coveralls will be reported"
   TEST_COMMAND=coveralls.travis
@@ -23,7 +27,9 @@ else
   TEST_COMMAND=test
 fi
 
-INCLUDED_TESTS="--include integration --include consumer_group --include server_0_p_10_and_later --include server_0_p_9_p_0 --include server_0_p_8_p_0 --include new_client"
+export TEST_COMMAND
+
+ALL_TESTS=${PROJECT_DIR}/scripts/all_tests.sh
 
 # Retry if it doesn't work the first time
-mix "$TEST_COMMAND" $INCLUDED_TESTS || mix "$TEST_COMMAND" $INCLUDED_TESTS
+${ALL_TESTS} || ${ALL_TESTS}

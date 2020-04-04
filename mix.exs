@@ -5,7 +5,7 @@ defmodule KafkaEx.Mixfile do
     [
       app: :kafka_ex,
       version: "0.10.0",
-      elixir: "~> 1.1",
+      elixir: "~> 1.5",
       dialyzer: [
         plt_add_deps: :transitive,
         flags: [
@@ -33,16 +33,16 @@ defmodule KafkaEx.Mixfile do
   def application do
     [
       mod: {KafkaEx, []},
-      applications: [:logger, :ssl]
+      extra_applications: [:logger]
     ]
   end
 
   defp deps do
     main_deps = [
       {:kayrock, "~> 0.1.9"},
-      {:credo, "~> 1.1", only: :dev},
-      {:dialyxir, "~> 1.0.0-rc.3", only: :dev},
-      {:excoveralls, "~> 0.7", only: :test},
+      {:credo, "~> 1.1", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.0.0-rc.3", only: :dev, runtime: false},
+      {:excoveralls, "~> 0.7", only: :test, runtime: false},
       {:snappy,
        git: "https://github.com/fdmanana/snappy-erlang-nif", only: [:dev, :test]}
     ]

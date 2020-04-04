@@ -9,22 +9,19 @@ cache:
 matrix:
   include:
     - elixir: 1.9.4
-      otp_release: 21.1
-    - elixir: 1.8.1
-      otp_release: 21.1
-    - elixir: 1.7.4
-      otp_release: 21.1
-    - elixir: 1.6.6
-      otp_release: 20.2
-    - elixir: 1.5.3
-      otp_release: 20.2
-    - elixir: 1.4.5
-      otp_release: 19.3
+      # stick to OTP release 21.3 for now.
+      # We have problems with SSL and OTP 22
+      # https://github.com/kafkaex/kafka_ex/issues/389
+      otp_release: 21.3
       env: COVERALLS=true CREDO=true
-    - elixir: 1.3.4
+    - elixir: 1.8.2
+      otp_release: 21.3
+    - elixir: 1.7.4
+      otp_release: 21.3
+    - elixir: 1.6.6
+      otp_release: 20.3
+    - elixir: 1.5.3
       otp_release: 19.3
-dist: trusty
-sudo: required
 services:
   - docker
 env:
@@ -32,7 +29,7 @@ env:
     - COVERALLS=false
     - CREDO=false
 before_script:
-  - IP_IFACE=eth0 ./scripts/docker_up.sh
+  - ./scripts/docker_up.sh
 script:
   - MIX_ENV=test mix deps.compile
   - MIX_ENV=test mix compile --warnings-as-errors

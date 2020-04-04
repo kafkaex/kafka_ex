@@ -190,7 +190,7 @@ defmodule KafkaEx.Server0P10AndLater do
       |> first_broker_response(state)
       |> ApiVersions.parse_response()
 
-    {:reply, response, %{state | correlation_id: state.correlation_id + 1}}
+    {:reply, response, increment_state_correlation_id(state)}
   end
 
   def kafka_server_delete_topics(topics, network_timeout, state) do
@@ -214,27 +214,13 @@ defmodule KafkaEx.Server0P10AndLater do
         api_version
       )
 
-    broker = state.brokers |> Enum.find(& &1.is_controller)
-
     {response, state} =
-      case broker do
-        nil ->
-          Logger.log(:error, "Coordinator for topic is not available")
-          {:topic_not_found, state}
+      case request_to_controller(main_request, state) do
+        {{:ok, response}, state} ->
+          {DeleteTopics.parse_response(response, api_version), state}
 
-        _ ->
-          response =
-            broker
-            |> NetworkClient.send_sync_request(
-              main_request,
-              config_sync_timeout()
-            )
-            |> case do
-              {:error, reason} -> {:error, reason}
-              response -> DeleteTopics.parse_response(response, api_version)
-            end
-
-          {response, %{state | correlation_id: state.correlation_id + 1}}
+        other ->
+          other
       end
 
     state = update_metadata(state)
@@ -265,32 +251,42 @@ defmodule KafkaEx.Server0P10AndLater do
         api_version
       )
 
-    broker = state.brokers |> Enum.find(& &1.is_controller)
-
     {response, state} =
-      case broker do
-        nil ->
-          Logger.log(:error, "Coordinator for topic is not available")
-          {:topic_not_found, state}
+      case request_to_controller(main_request, state) do
+        {{:ok, response}, state} ->
+          {CreateTopics.parse_response(response, api_version), state}
 
-        _ ->
-          response =
-            broker
-            |> NetworkClient.send_sync_request(
-              main_request,
-              config_sync_timeout()
-            )
-            |> case do
-              {:error, reason} -> {:error, reason}
-              response -> CreateTopics.parse_response(response, api_version)
-            end
-
-          {response, %{state | correlation_id: state.correlation_id + 1}}
+        other ->
+          other
       end
 
     state = update_metadata(state)
 
     {:reply, response, state}
+  end
+
+  defp request_to_controller(main_request, state) do
+    broker = state.brokers |> Enum.find(& &1.is_controller)
+
+    case broker do
+      nil ->
+        Logger.log(:error, "Coordinator for topic is not available")
+        {:topic_not_found, state}
+
+      _ ->
+          broker
+          |> NetworkClient.send_sync_request(
+            main_request,
+            config_sync_timeout()
+          )
+          |> case do
+            {:error, reason} ->
+              {{:error, reason}, increment_state_correlation_id(state)}
+
+            response ->
+              {{:ok, response}, increment_state_correlation_id(state)}
+          end
+    end
   end
 
   defp update_consumer_metadata(state),
