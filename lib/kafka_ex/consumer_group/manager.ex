@@ -281,7 +281,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
         on_successful_join(state, join_response)
 
       {:error, :no_broker} ->
-        if attempt_number == @max_join_retries do
+        if attempt_number >= @max_join_retries do
           raise "Unable to join consumer group #{state.group_name} after " <>
                   "#{@max_join_retries} attempts"
         end
