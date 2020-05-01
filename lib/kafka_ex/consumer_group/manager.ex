@@ -124,7 +124,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
         ]
       )
 
-    worker_opts = Keyword.take(opts, [:uris])
+    worker_opts = Keyword.take(opts, [:uris, :use_ssl, :ssl_options])
 
     {:ok, worker_name} =
       KafkaEx.create_worker(
