@@ -180,6 +180,16 @@ defmodule KafkaEx.New.Client do
     {:noreply, update_metadata(state)}
   end
 
+  def handle_info({:tcp_closed, socket}, state) do
+    state_out = close_broker_by_socket(state, socket)
+    {:noreply, state_out}
+  end
+
+  def handle_info({:ssl_closed, socket}, state) do
+    state_out = close_broker_by_socket(state, socket)
+    {:noreply, state_out}
+  end
+
   @impl true
   def terminate(reason, state) do
     Logger.log(
@@ -222,9 +232,8 @@ defmodule KafkaEx.New.Client do
         for broker <- brokers_to_close do
           Logger.log(
             :debug,
-            "Closing connection to broker #{broker.node_id}: #{
-              inspect(broker.host)
-            } on port #{inspect(broker.port)}"
+            "Closing connection to broker #{broker.node_id}: " <>
+              "#{inspect(broker.host)} on port #{inspect(broker.port)}"
           )
 
           NetworkClient.close_socket(broker.socket)
@@ -687,5 +696,20 @@ defmodule KafkaEx.New.Client do
 
     {topic_metadata,
      %{updated_state | allow_auto_topic_creation: allow_auto_topic_creation}}
+  end
+
+  defp close_broker_by_socket(state, socket) do
+    State.update_brokers(state, fn broker ->
+      if broker.socket.socket == socket do
+        Logger.log(
+          :debug,
+          "Broker #{inspect(broker.host)}:#{inspect(broker.port)} closed connection"
+        )
+
+        Broker.put_socket(broker, nil)
+      else
+        broker
+      end
+    end)
   end
 end

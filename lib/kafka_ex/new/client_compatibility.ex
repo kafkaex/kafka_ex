@@ -78,7 +78,7 @@ defmodule KafkaEx.New.ClientCompatibility do
         response =
           case response do
             {:ok, :ok} -> {:ok, :ok}
-            {:ok, val} -> {:ok, Adapter.produce_response(val)}
+            {:ok, val} -> Adapter.produce_response(val)
             _ -> response
           end
 

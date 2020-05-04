@@ -9,8 +9,7 @@ defmodule KafkaEx.New.Broker do
             host: nil,
             port: nil,
             socket: nil,
-            rack: nil,
-            socket: nil
+            rack: nil
 
   @type t :: %__MODULE__{}
 

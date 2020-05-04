@@ -98,7 +98,19 @@ defmodule KafkaEx.New.Adapter do
           }
         ]
       }) do
-    base_offset
+    {:ok, base_offset}
+  end
+
+  def produce_response(%{
+        responses: [
+          %{
+            partition_responses: [
+              %{error_code: error_code}
+            ]
+          }
+        ]
+      }) do
+    {:error, Kayrock.ErrorCode.code_to_atom(error_code)}
   end
 
   def metadata_response(cluster_metadata) do
