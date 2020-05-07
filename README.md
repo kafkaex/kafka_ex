@@ -82,8 +82,8 @@ For more information on using the Kayrock-based client, see
 
 *   Github: [kayrock.md](https://github.com/kafkaex/kafka_ex/blob/master/kayrock.md)
 *   HexDocs: [kayrock-based client](kayrock.html)
- 
-For more information on the v1.0 API, see 
+
+For more information on the v1.0 API, see
 
 *   Github:
     [new_api.md](https://github.com/kafkaex/kafka_ex/blob/master/new_api.md)
@@ -145,6 +145,18 @@ for a description of configuration variables, including the Kafka broker list
  and default consumer group.
 
 You can also override options when creating a worker, see below.
+
+## Timeouts with SSL
+
+When using certain versions of OTP,
+[random timeouts can occur if using SSL](https://github.com/kafkaex/kafka_ex/issues/389).
+
+Impacted versions:
+
+*   OTP 21.3.8.1 -> 21.3.8.14
+*   OTP 22.1 -> 22.3.1
+
+Upgrade respectively to 21.3.8.15 or 22.3.2 to solve this.
 
 ## Usage Examples
 
