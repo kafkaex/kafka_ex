@@ -700,7 +700,7 @@ defmodule KafkaEx.New.Client do
 
   defp close_broker_by_socket(state, socket) do
     State.update_brokers(state, fn broker ->
-      if Broker.has_socket?(socket) do
+      if Broker.has_socket?(broker, socket) do
         Logger.log(
           :debug,
           "Broker #{inspect(broker.host)}:#{inspect(broker.port)} closed connection"

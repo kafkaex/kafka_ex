@@ -22,5 +22,5 @@ defmodule KafkaEx.New.Broker do
   end
 
   def has_socket?(%__MODULE__{socket: %Socket{socket: socket}}, socket), do: true
-  def has_socket?(_), do: false
+  def has_socket?(_, _), do: false
 end
