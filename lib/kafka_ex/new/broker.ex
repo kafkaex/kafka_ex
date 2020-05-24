@@ -20,4 +20,7 @@ defmodule KafkaEx.New.Broker do
   def connected?(%__MODULE__{} = broker) do
     broker.socket != nil && Socket.open?(broker.socket)
   end
+
+  def has_socket?(%__MODULE__{socket: %Socket{socket: socket}}, socket), do: true
+  def has_socket?(_), do: false
 end
