@@ -1,0 +1,21 @@
+#! /bin/bash
+
+cd $(dirname $0)
+
+broker_ready() {
+  # Inspired by: https://github.com/wurstmeister/kafka-docker/issues/167#issuecomment-439849789
+  current_broker=$(cat $KAFKA_HOME/config/server.properties | awk 'BEGIN{FS="="}/^broker.id=/{print $2}')
+  brokers=$($KAFKA_HOME/bin/zookeeper-shell.sh zookeeper:2181 <<< "ls /brokers/ids" | tail -1)
+
+  echo "brokers: $brokers"
+  echo "current_broker: $current_broker"
+
+  echo "${brokers}" | jq '.[]' | grep -q "^${current_broker}$";
+  return $?
+}
+
+#######################
+
+broker_ready
+
+#######################
