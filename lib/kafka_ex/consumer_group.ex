@@ -84,10 +84,11 @@ defmodule KafkaEx.ConsumerGroup do
   See `start_link/4` for configuration details.
   """
 
-  use Supervisor
-
   alias KafkaEx.ConsumerGroup.PartitionAssignment
   alias KafkaEx.GenConsumer
+
+  use GenServer
+  require Logger
 
   @typedoc """
   Option values used when starting a consumer group
@@ -177,13 +178,9 @@ defmodule KafkaEx.ConsumerGroup do
         topics,
         opts
       ) do
-    {supervisor_opts, module_opts} =
-      Keyword.split(opts, [:name, :strategy, :max_restarts, :max_seconds])
-
-    Supervisor.start_link(
+    GenServer.start_link(
       __MODULE__,
-      {{gen_consumer_module, consumer_module}, group_name, topics, module_opts},
-      supervisor_opts
+      {{gen_consumer_module, consumer_module}, group_name, topics, opts}
     )
   end
 
@@ -311,9 +308,9 @@ defmodule KafkaEx.ConsumerGroup do
   def get_manager_pid(supervisor_pid) do
     {_, pid, _, _} =
       Enum.find(
-        Supervisor.which_children(supervisor_pid),
+        DynamicSupervisor.which_children(supervisor_pid),
         fn
-          {KafkaEx.ConsumerGroup.Manager, _, _, _} -> true
+          {_, _, _, [KafkaEx.ConsumerGroup.Manager]} -> true
           {_, _, _, _} -> false
         end
       )
@@ -330,15 +327,14 @@ defmodule KafkaEx.ConsumerGroup do
         assignments,
         opts
       ) do
-        # TODO change this
-    child =
-      supervisor(
-        KafkaEx.GenConsumer.Supervisor,
-        [{gen_consumer_module, consumer_module}, group_name, assignments, opts],
-        id: :consumer
-      )
+    child = %{
+      id: :consumer,
+      start:
+        {KafkaEx.GenConsumer.Supervisor, :start_link,
+         [{gen_consumer_module, consumer_module}, group_name, assignments, opts]}
+    }
 
-    case Supervisor.start_child(pid, child) do
+    case DynamicSupervisor.start_child(pid, child) do
       {:ok, consumer_pid} -> {:ok, consumer_pid}
       {:ok, consumer_pid, _info} -> {:ok, consumer_pid}
     end
@@ -356,18 +352,47 @@ defmodule KafkaEx.ConsumerGroup do
     end
   end
 
-  @doc false
+  # def init(_init_args) do
   def init({{gen_consumer_module, consumer_module}, group_name, topics, opts}) do
-    opts = Keyword.put(opts, :supervisor_pid, self())
+    Process.flag(:trap_exit, true)
 
-    children = [
-      worker(
-        KafkaEx.ConsumerGroup.Manager,
-        [{gen_consumer_module, consumer_module}, group_name, topics, opts]
+    {supervisor_opts, module_opts} =
+      Keyword.split(opts, [:name, :strategy, :max_restarts, :max_seconds])
+
+    supervisor_name = supervisor_opts |> Keyword.get(:name)
+
+    {:ok, supervisor_pid} =
+      DynamicSupervisor.start_link(
+        Keyword.merge([strategy: :one_for_one], supervisor_opts)
       )
-    ]
 
-    supervise(children, strategy: :one_for_all, max_restarts: 0, max_seconds: 1)
+    opts = Keyword.put(opts, :supervisor_pid, supervisor_pid)
+
+    Elixir.DynamicSupervisor.start_child(
+      supervisor_pid,
+      %{
+        id: KafkaEx.ConsumerGroup.Manager,
+        start:
+          {KafkaEx.ConsumerGroup.Manager, :start_link,
+           [
+             {gen_consumer_module, consumer_module},
+             group_name,
+             topics,
+             opts
+           ]}
+      }
+    )
+
+    {:ok, %{supervisor_pid: supervisor_pid}}
+  end
+
+  def handle_call(
+        :which_children,
+        {_from_pid, _ref},
+        %{supervisor_pid: supervisor_pid} = state
+      ) do
+    res = DynamicSupervisor.which_children(supervisor_pid)
+    {:reply, res, state}
   end
 
   defp call_manager(supervisor_pid, call, timeout) do

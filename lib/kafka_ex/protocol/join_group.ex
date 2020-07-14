@@ -29,13 +29,15 @@ defmodule KafkaEx.Protocol.JoinGroup do
               member_id: nil,
               members: []
 
-    @type t :: %Response{
-            error_code: atom | integer,
-            generation_id: integer,
-            leader_id: binary,
-            member_id: binary,
-            members: [binary]
-          } | {:error, atom}
+    @type t ::
+            %Response{
+              error_code: atom | integer,
+              generation_id: integer,
+              leader_id: binary,
+              member_id: binary,
+              members: [binary]
+            }
+            | {:error, atom}
 
     def leader?(%__MODULE__{member_id: member_id, leader_id: leader_id}) do
       member_id == leader_id

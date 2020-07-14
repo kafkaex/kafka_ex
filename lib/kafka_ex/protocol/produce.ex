@@ -103,7 +103,8 @@ defmodule KafkaEx.Protocol.Produce do
 
     {message, msize} = create_message(compressed_message_set, nil, attribute)
 
-    {[<<0::64-signed>>, <<msize::32-signed>>, message], @int64_size + @int32_size + msize}
+    {[<<0::64-signed>>, <<msize::32-signed>>, message],
+     @int64_size + @int32_size + msize}
   end
 
   defp create_message_set_uncompressed([

@@ -79,6 +79,8 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   # GenServer callbacks
 
   def init({{gen_consumer_module, consumer_module}, group_name, topics, opts}) do
+    Logger.debug("Manager init start")
+
     heartbeat_interval =
       Keyword.get(
         opts,
@@ -148,6 +150,8 @@ defmodule KafkaEx.ConsumerGroup.Manager do
     }
 
     Process.flag(:trap_exit, true)
+
+    Logger.debug("Manager ready: #{inspect(self())}")
 
     {:ok, state, 0}
   end

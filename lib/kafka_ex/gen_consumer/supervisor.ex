@@ -108,8 +108,12 @@ defmodule KafkaEx.GenConsumer.Supervisor do
     Enum.each(assignments, fn {topic, partition} ->
       case Elixir.DynamicSupervisor.start_child(
              pid,
-             {gen_consumer_module,
-             %{id: gen_consumer_module, start: {gen_consumer_module, :start_link, [consumer_module, group_name]}}}
+             %{
+               id: gen_consumer_module,
+               start:
+                 {gen_consumer_module, :start_link,
+                  [consumer_module, group_name, topic, partition, opts]}
+             }
            ) do
         {:ok, _child} -> nil
         {:ok, _child, _info} -> nil

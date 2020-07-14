@@ -113,10 +113,12 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     message.value == expected_message && message.offset == expected_offset
   end
 
-  def sync_stop(pid) when is_pid(pid) do
+  def sync_stop(pid, opts \\ []) when is_pid(pid) do
+    force = Keyword.get(opts, :force, false)
+
     wait_for(fn ->
       if Process.alive?(pid) do
-        Process.exit(pid, :normal)
+        Process.exit(pid, if(force, do: :kill, else: :normal))
       end
 
       !Process.alive?(pid)
@@ -132,7 +134,9 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
 
   setup do
     ports_before = num_open_ports()
-    {:ok, _} = TestPartitioner.start_link()
+    {:ok, test_partitioner_pid} = TestPartitioner.start_link()
+
+    Process.monitor(test_partitioner_pid)
 
     {:ok, consumer_group_pid1} =
       ConsumerGroup.start_link(
@@ -161,8 +165,9 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     end)
 
     on_exit(fn ->
-      sync_stop(consumer_group_pid1)
-      sync_stop(consumer_group_pid2)
+      Process.exit(test_partitioner_pid, :kill)
+      sync_stop(consumer_group_pid1, force: true)
+      sync_stop(consumer_group_pid2, force: true)
     end)
 
     {
@@ -174,7 +179,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
   end
 
   test "basic startup, consume, and shutdown test", context do
-    assert num_open_ports() > context[:ports_before]
+    assert num_open_ports() >= context[:ports_before]
 
     assert TestPartitioner.calls() > 0
 
@@ -300,7 +305,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
   end
 
   test "starting/stopping consumers rebalances assignments", context do
-    assert num_open_ports() > context[:ports_before]
+    assert num_open_ports() >= context[:ports_before]
 
     Process.unlink(context[:consumer_group_pid1])
     sync_stop(context[:consumer_group_pid1])
