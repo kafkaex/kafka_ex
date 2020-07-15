@@ -43,6 +43,7 @@ TL;DR:
 *   Version 1.0 of KafkaEx will be based on Kayrock and have a cleaner API - you
     can start testing this API by using modules from the `KafkaEx.New` namespace.
     See below for details.
+*   Version 0.11.0+ of KafkaEx is required to use Kayrock.
 
 To support some oft-requested features (offset storage in Kafka, message
 timestamps), we have integrated KafkaEx with
@@ -105,7 +106,7 @@ defmodule MyApp.Mixfile do
   defp deps do
     [
       # add to your existing deps
-      {:kafka_ex, "~> 0.10"},
+      {:kafka_ex, "~> 0.11"},
       # if using snappy compression
       {:snappy, git: "https://github.com/fdmanana/snappy-erlang-nif"}
     ]
@@ -114,28 +115,6 @@ end
 ```
 
 Then run `mix deps.get` to fetch dependencies.
-
-### Adding the kafka_ex application
-
-When using elixir < 1.4, you will need to add kafka_ex to the applications list of your mix.exs file.
-
-```elixir
-# mix.exs
-defmodule MyApp.Mixfile do
-  # ...
-
-  def application do
-    [
-      mod: {MyApp, []},
-      applications: [
-        # add to existing apps - :logger, etc..
-        :kafka_ex,
-        :snappy # if using snappy compression
-      ]
-    ]
-  end
-end
-```
 
 ## Configuration
 
@@ -457,8 +436,6 @@ mix test --include integration --include server_0_p_8_p_0
 ```
 
 ### Static analysis
-
-This requires Elixir 1.5+.
 
 ```
 mix dialyzer

@@ -111,7 +111,7 @@ defmodule KafkaEx.KayrockTimestampTest do
   test "log with append time - v0", %{client: client} do
     topic = "test_log_append_timestamp_#{:rand.uniform(2_000_000)}"
 
-    {:ok, topic} =
+    {:ok, ^topic} =
       TestHelper.ensure_append_timestamp_topic(
         client,
         topic
@@ -148,7 +148,7 @@ defmodule KafkaEx.KayrockTimestampTest do
   test "log with append time - v3", %{client: client} do
     topic = "test_log_append_timestamp_#{:rand.uniform(2_000_000)}"
 
-    {:ok, topic} =
+    {:ok, ^topic} =
       TestHelper.ensure_append_timestamp_topic(
         client,
         topic
@@ -186,7 +186,7 @@ defmodule KafkaEx.KayrockTimestampTest do
   test "log with append time - v5", %{client: client} do
     topic = "test_log_append_timestamp_#{:rand.uniform(2_000_000)}"
 
-    {:ok, topic} =
+    {:ok, ^topic} =
       TestHelper.ensure_append_timestamp_topic(
         client,
         topic
