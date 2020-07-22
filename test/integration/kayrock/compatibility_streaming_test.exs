@@ -13,7 +13,7 @@ defmodule KafkaEx.KayrockCompatibilityStreamingTest do
 
   setup do
     {:ok, pid} =
-      KafkaEx.start_link_worker(:no_name, server_impl: KafkaEx.New.Client)
+      KafkaEx.start_link_worker(:no_name, server_impl: Client)
 
     {:ok, %{client: pid}}
   end
