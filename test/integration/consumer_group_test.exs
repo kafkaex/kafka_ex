@@ -24,6 +24,26 @@ defmodule KafkaEx.ConsumerGroup.Test do
     assert consumer_group == :no_consumer_group
   end
 
+  test "create_worker allows us to pass in use_ssl and ssl_options options" do
+    Application.put_env(:kafka_ex, :use_ssl, true)
+    ssl_options = Application.get_env(:kafka_ex, :ssl_options)
+    assert ssl_options == Config.ssl_options()
+
+    custom_ssl_options = [
+      cacertfile: File.cwd!() <> "/ssl/ca-cert-custom",
+      certfile: File.cwd!() <> "/ssl/cert-custom.pem",
+      keyfile: File.cwd!() <> "/ssl/key-custom.pem"
+    ]
+
+    {:ok, pid} =
+      KafkaEx.create_worker(:real, use_ssl: true, ssl_options: custom_ssl_options)
+
+    consumer_group = :sys.get_state(pid)
+    assert consumer_group.ssl_options == custom_ssl_options
+    refute consumer_group.ssl_options == ssl_options
+    assert consumer_group.use_ssl == true
+  end
+
   test "create_worker allows us to provide a consumer group" do
     {:ok, pid} =
       KafkaEx.create_worker(:bah, consumer_group: "my_consumer_group")
