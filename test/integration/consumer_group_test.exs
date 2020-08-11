@@ -24,24 +24,45 @@ defmodule KafkaEx.ConsumerGroup.Test do
     assert consumer_group == :no_consumer_group
   end
 
-  test "create_worker allows us to pass in use_ssl and ssl_options options" do
-    Application.put_env(:kafka_ex, :use_ssl, true)
-    ssl_options = Application.get_env(:kafka_ex, :ssl_options)
-    assert ssl_options == Config.ssl_options()
+  describe "custom ssl options" do
+    setup do
+      # reset application env after each test
+      env_before = Application.get_all_env(:kafka_ex)
 
-    custom_ssl_options = [
-      cacertfile: File.cwd!() <> "/ssl/ca-cert-custom",
-      certfile: File.cwd!() <> "/ssl/cert-custom.pem",
-      keyfile: File.cwd!() <> "/ssl/key-custom.pem"
-    ]
+      on_exit(fn ->
+        # this is basically Application.put_all_env
+        for {k, v} <- env_before do
+          Application.put_env(:kafka_ex, k, v)
+        end
 
-    {:ok, pid} =
-      KafkaEx.create_worker(:real, use_ssl: true, ssl_options: custom_ssl_options)
+        :ok
+      end)
 
-    consumer_group = :sys.get_state(pid)
-    assert consumer_group.ssl_options == custom_ssl_options
-    refute consumer_group.ssl_options == ssl_options
-    assert consumer_group.use_ssl == true
+      :ok
+    end
+
+    test "create_worker allows us to pass in use_ssl and ssl_options options" do
+
+      Application.put_env(:kafka_ex, :use_ssl, true)
+      ssl_options = Application.get_env(:kafka_ex, :ssl_options)
+      assert ssl_options == Config.ssl_options()
+
+      ## These reference symbolic links to the original files in order to validate
+      ## that custom SSL filepaths can specified
+      custom_ssl_options = [
+        cacertfile: File.cwd!() <> "/ssl/ca-cert-custom",
+        certfile: File.cwd!() <> "/ssl/cert-custom.pem",
+        keyfile: File.cwd!() <> "/ssl/key-custom.pem"
+      ]
+
+      {:ok, pid} =
+        KafkaEx.create_worker(:real, use_ssl: true, ssl_options: custom_ssl_options)
+
+      consumer_group = :sys.get_state(pid)
+      assert consumer_group.ssl_options == custom_ssl_options
+      refute consumer_group.ssl_options == ssl_options
+      assert consumer_group.use_ssl == true
+    end
   end
 
   test "create_worker allows us to provide a consumer group" do
