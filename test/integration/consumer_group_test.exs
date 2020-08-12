@@ -29,11 +29,31 @@ defmodule KafkaEx.ConsumerGroup.Test do
       # reset application env after each test
       env_before = Application.get_all_env(:kafka_ex)
 
+      ssl_option_filenames = ["ca-cert", "cert.pem", "key.pem"]
+      {:ok, cwd} = File.cwd()
+
+      original_filenames =
+        ssl_option_filenames
+        |> Enum.map(fn filename -> Path.join([cwd, "ssl", filename]) end)
+
+      target_filenames =
+        ssl_option_filenames
+        |> Enum.map(fn filename ->
+          Path.rootname(filename) <> "-custom" <> Path.extname(filename)
+        end)
+        |> Enum.map(fn filename -> Path.join([cwd, "ssl", filename]) end)
+
+      List.zip([original_filenames, target_filenames])
+      |> Enum.map(fn {original, target} -> File.copy(original, target) end)
+
       on_exit(fn ->
         # this is basically Application.put_all_env
         for {k, v} <- env_before do
           Application.put_env(:kafka_ex, k, v)
         end
+
+        target_filenames
+        |> Enum.map(fn filename -> File.rm(filename) end)
 
         :ok
       end)
@@ -42,7 +62,6 @@ defmodule KafkaEx.ConsumerGroup.Test do
     end
 
     test "create_worker allows us to pass in use_ssl and ssl_options options" do
-
       Application.put_env(:kafka_ex, :use_ssl, true)
       ssl_options = Application.get_env(:kafka_ex, :ssl_options)
       assert ssl_options == Config.ssl_options()
@@ -56,7 +75,10 @@ defmodule KafkaEx.ConsumerGroup.Test do
       ]
 
       {:ok, pid} =
-        KafkaEx.create_worker(:real, use_ssl: true, ssl_options: custom_ssl_options)
+        KafkaEx.create_worker(:real,
+          use_ssl: true,
+          ssl_options: custom_ssl_options
+        )
 
       consumer_group = :sys.get_state(pid)
       assert consumer_group.ssl_options == custom_ssl_options
