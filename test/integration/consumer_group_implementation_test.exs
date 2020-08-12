@@ -132,7 +132,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
 
   setup do
     ports_before = num_open_ports()
-    {:ok, _} = TestPartitioner.start_link()
+    {:ok, test_partitioner_pid} = TestPartitioner.start_link()
 
     {:ok, consumer_group_pid1} =
       ConsumerGroup.start_link(
@@ -163,6 +163,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     on_exit(fn ->
       sync_stop(consumer_group_pid1)
       sync_stop(consumer_group_pid2)
+      sync_stop(test_partitioner_pid)
     end)
 
     {
