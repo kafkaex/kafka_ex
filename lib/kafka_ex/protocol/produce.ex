@@ -53,8 +53,8 @@ defmodule KafkaEx.Protocol.Produce do
     - value: is the message to be written to Kafka logs.
     - timestamp: timestamp (`kafka_version: "kayrock"` ONLY)
     """
-    defstruct key: nil, value: nil, timestamp: nil
-    @type t :: %Message{key: binary, value: binary, timestamp: integer}
+    defstruct key: nil, value: nil, headers: nil, timestamp: nil
+    @type t :: %Message{ key: binary, value: binary, headers: list(), timestamp: integer }
   end
 
   defmodule Response do
