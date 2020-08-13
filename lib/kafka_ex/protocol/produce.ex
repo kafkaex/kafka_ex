@@ -54,7 +54,13 @@ defmodule KafkaEx.Protocol.Produce do
     - timestamp: timestamp (`kafka_version: "kayrock"` ONLY)
     """
     defstruct key: nil, value: nil, headers: nil, timestamp: nil
-    @type t :: %Message{ key: binary, value: binary, headers: list(), timestamp: integer }
+
+    @type t :: %Message{
+            key: binary,
+            value: binary,
+            headers: list(),
+            timestamp: integer
+          }
   end
 
   defmodule Response do
