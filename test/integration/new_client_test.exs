@@ -115,7 +115,13 @@ defmodule KafkaEx.New.Client.Test do
       %RecordHeader{key: "type", value: "HeaderCreatedEvent"}
     ]
 
-    records = [%Record{headers: headers, key: "key-0001", value: "msg value for key 0001"}]
+    records = [
+      %Record{
+        headers: headers,
+        key: "key-0001",
+        value: "msg value for key 0001"
+      }
+    ]
 
     record_batch = %RecordBatch{
       attributes: 0,
