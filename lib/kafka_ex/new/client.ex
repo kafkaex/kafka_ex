@@ -31,7 +31,12 @@ defmodule KafkaEx.New.Client do
   Start the server in a supervision tree
   """
   @spec start_link(args, atom) :: GenServer.on_start()
-  def start_link(args, name \\ __MODULE__)
+  def start_link(args)
+
+  def start_link(args) do
+    name = Keyword.get(args, :name, __MODULE__)
+    start_link(args, name)
+  end
 
   def start_link(args, :no_name) do
     GenServer.start_link(__MODULE__, [args, nil])

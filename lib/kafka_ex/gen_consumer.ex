@@ -853,6 +853,10 @@ defmodule KafkaEx.GenConsumer do
       ^partition -> :ok
       # new client
       %{error_code: :no_error, partition: ^partition} -> :ok
+      %{error_code: error, partition: ^partition} ->
+        message = "Error while trying to commit offset of group #{group}, member #{member_id} for partition #{partition} of topic #{topic}: #{inspect error}"
+        Logger.error(message)
+        raise message
     end
 
     Logger.debug(fn ->

@@ -13,6 +13,7 @@ services:
       start_period: 10s
 
   kafka1:
+    hostname: kafka1
     image: wurstmeister/kafka:0.11.0.1
     ports:
       - "9093:9093"
@@ -25,6 +26,8 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ADVERTISED_PORT: 9093
+      KAFKA_PORT: 9092
+      KAFKA_HOST_NAME: kafka1
     healthcheck:
       test: /kafka_check_health
       interval: 10s
@@ -36,6 +39,7 @@ services:
         condition: service_healthy
 
   kafka2:
+    hostname: kafka2
     image: wurstmeister/kafka:0.11.0.1
     ports:
       - "9094:9094"
@@ -48,6 +52,8 @@ services:
     environment:
       KAFKA_BROKER_ID: 2
       KAFKA_ADVERTISED_PORT: 9094
+      KAFKA_PORT: 9092
+      KAFKA_HOST_NAME: kafka2
     healthcheck:
       test: /kafka_check_health
       interval: 10s
@@ -59,6 +65,7 @@ services:
         condition: service_healthy
 
   kafka3:
+    hostname: kafka3
     image: wurstmeister/kafka:0.11.0.1
     ports:
       - "9095:9095"
@@ -71,6 +78,8 @@ services:
     environment:
       KAFKA_BROKER_ID: 3
       KAFKA_ADVERTISED_PORT: 9095
+      KAFKA_PORT: 9092
+      KAFKA_HOST_NAME: kafka3
     healthcheck:
       test: /kafka_check_health
       interval: 10s
