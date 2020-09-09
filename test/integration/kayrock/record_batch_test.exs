@@ -199,15 +199,18 @@ defmodule KafkaEx.KayrockRecordBatchTest do
     msg = %KafkaEx.Protocol.Produce.Message{
       key: "theKey",
       value: "theValue",
-      headers: record_headers
+      headers: record_headers,
+      timestamp: nil
     }
 
     request = %KafkaEx.Protocol.Produce.Request{
       topic: topic,
       partition: 0,
       required_acks: 1,
-      api_version: 3,
-      messages: [msg]
+      timeout: 100,
+      compression: :none,
+      messages: [msg],
+      api_version: 3
     }
 
     {:ok, offset} =
