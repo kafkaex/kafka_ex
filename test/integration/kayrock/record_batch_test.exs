@@ -256,7 +256,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     fetch_responses =
       KafkaEx.fetch(topic, 0,
-        offset: max(offset - 2, 0),
+        offset: offset,
         auto_commit: false,
         worker_name: client,
         api_version: 3
@@ -287,7 +287,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     fetch_responses =
       KafkaEx.fetch(topic, 0,
-        offset: max(offset - 2, 0),
+        offset: offset,
         auto_commit: false,
         worker_name: client,
         api_version: 5
@@ -318,7 +318,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     fetch_responses =
       KafkaEx.fetch(topic, 0,
-        offset: max(offset - 2, 0),
+        offset: offset,
         auto_commit: false,
         worker_name: client,
         api_version: 0
@@ -349,7 +349,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     fetch_responses =
       KafkaEx.fetch(topic, 0,
-        offset: max(offset - 2, 0),
+        offset: offset,
         auto_commit: false,
         worker_name: client,
         api_version: 0
@@ -380,7 +380,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     fetch_responses =
       KafkaEx.fetch(topic, 0,
-        offset: max(offset - 2, 0),
+        offset: offset,
         auto_commit: false,
         worker_name: client,
         api_version: 0
@@ -411,7 +411,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     fetch_responses =
       KafkaEx.fetch(topic, 0,
-        offset: max(offset - 2, 0),
+        offset: offset,
         auto_commit: false,
         worker_name: client,
         api_version: 3
@@ -442,7 +442,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     fetch_responses =
       KafkaEx.fetch(topic, 0,
-        offset: max(offset - 2, 0),
+        offset: offset,
         auto_commit: false,
         worker_name: client,
         api_version: 5
@@ -473,7 +473,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     fetch_responses =
       KafkaEx.fetch(topic, 0,
-        offset: max(offset - 2, 0),
+        offset: offset,
         auto_commit: false,
         worker_name: client,
         api_version: 0
@@ -504,7 +504,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     fetch_responses =
       KafkaEx.fetch(topic, 0,
-        offset: max(offset - 2, 0),
+        offset: offset,
         auto_commit: false,
         worker_name: client,
         api_version: 0
@@ -535,7 +535,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     fetch_responses =
       KafkaEx.fetch(topic, 0,
-        offset: max(offset - 2, 0),
+        offset: offset,
         auto_commit: false,
         worker_name: client,
         api_version: 0
