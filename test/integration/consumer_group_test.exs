@@ -24,6 +24,69 @@ defmodule KafkaEx.ConsumerGroup.Test do
     assert consumer_group == :no_consumer_group
   end
 
+  describe "custom ssl options" do
+    setup do
+      # reset application env after each test
+      env_before = Application.get_all_env(:kafka_ex)
+
+      ssl_option_filenames = ["ca-cert", "cert.pem", "key.pem"]
+      {:ok, cwd} = File.cwd()
+
+      original_filenames =
+        ssl_option_filenames
+        |> Enum.map(fn filename -> Path.join([cwd, "ssl", filename]) end)
+
+      target_filenames =
+        ssl_option_filenames
+        |> Enum.map(fn filename ->
+          Path.rootname(filename) <> "-custom" <> Path.extname(filename)
+        end)
+        |> Enum.map(fn filename -> Path.join([cwd, "ssl", filename]) end)
+
+      List.zip([original_filenames, target_filenames])
+      |> Enum.map(fn {original, target} -> File.copy(original, target) end)
+
+      on_exit(fn ->
+        # this is basically Application.put_all_env
+        for {k, v} <- env_before do
+          Application.put_env(:kafka_ex, k, v)
+        end
+
+        target_filenames
+        |> Enum.map(fn filename -> File.rm(filename) end)
+
+        :ok
+      end)
+
+      :ok
+    end
+
+    test "create_worker allows us to pass in use_ssl and ssl_options options" do
+      Application.put_env(:kafka_ex, :use_ssl, true)
+      ssl_options = Application.get_env(:kafka_ex, :ssl_options)
+      assert ssl_options == Config.ssl_options()
+
+      ## These reference symbolic links to the original files in order to validate
+      ## that custom SSL filepaths can specified
+      custom_ssl_options = [
+        cacertfile: File.cwd!() <> "/ssl/ca-cert-custom",
+        certfile: File.cwd!() <> "/ssl/cert-custom.pem",
+        keyfile: File.cwd!() <> "/ssl/key-custom.pem"
+      ]
+
+      {:ok, pid} =
+        KafkaEx.create_worker(:real,
+          use_ssl: true,
+          ssl_options: custom_ssl_options
+        )
+
+      consumer_group = :sys.get_state(pid)
+      assert consumer_group.ssl_options == custom_ssl_options
+      refute consumer_group.ssl_options == ssl_options
+      assert consumer_group.use_ssl == true
+    end
+  end
+
   test "create_worker allows us to provide a consumer group" do
     {:ok, pid} =
       KafkaEx.create_worker(:bah, consumer_group: "my_consumer_group")

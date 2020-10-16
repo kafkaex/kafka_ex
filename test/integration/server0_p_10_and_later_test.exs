@@ -24,12 +24,14 @@ defmodule KafkaEx.Server0P10P1AndLater.Test do
       Enum.member?(existing_topics(), name)
     end)
 
-    assert @num_partitions ==
-             KafkaEx.Protocol.Metadata.Response.partitions_for_topic(
-               KafkaEx.metadata(),
-               name
-             )
-             |> Enum.count()
+    wait_for(fn ->
+      @num_partitions ==
+        KafkaEx.Protocol.Metadata.Response.partitions_for_topic(
+          KafkaEx.metadata(),
+          name
+        )
+        |> Enum.count()
+    end)
   end
 
   @tag :delete_topic
