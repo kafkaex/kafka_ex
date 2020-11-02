@@ -401,7 +401,11 @@ defmodule KafkaEx.Server do
 
         produce_request_data =
           try do
-            Produce.create_request(correlation_id, Config.client_id(), produce_request)
+            Produce.create_request(
+              correlation_id,
+              Config.client_id(),
+              produce_request
+            )
           rescue
             e in FunctionClauseError -> nil
           end
@@ -762,16 +766,18 @@ defmodule KafkaEx.Server do
 
         check_brokers_sockets!(brokers)
 
-        {correlation_id, metadata} = try do
-          retrieve_metadata(
-            brokers,
-            0,
-            config_sync_timeout()
-          )
-        rescue e ->
-          sleep_for_reconnect()
-          Kernel.reraise(e, System.stacktrace())
-        end
+        {correlation_id, metadata} =
+          try do
+            retrieve_metadata(
+              brokers,
+              0,
+              config_sync_timeout()
+            )
+          rescue
+            e ->
+              sleep_for_reconnect()
+              Kernel.reraise(e, System.stacktrace())
+          end
 
         state = %State{
           metadata: metadata,
@@ -800,8 +806,9 @@ defmodule KafkaEx.Server do
       end
 
       defp check_brokers_sockets!(brokers) do
-        any_socket_opened = brokers
-        |> Enum.any?(fn %Broker{socket: socket} -> not is_nil(socket) end)
+        any_socket_opened =
+          brokers
+          |> Enum.any?(fn %Broker{socket: socket} -> not is_nil(socket) end)
 
         if not any_socket_opened do
           sleep_for_reconnect()
@@ -1000,7 +1007,9 @@ defmodule KafkaEx.Server do
         Application.get_env(:kafka_ex, :partitioner, KafkaEx.DefaultPartitioner)
       end
 
-      defp increment_state_correlation_id(%_{correlation_id: correlation_id} = state) do
+      defp increment_state_correlation_id(
+             %_{correlation_id: correlation_id} = state
+           ) do
         %{state | correlation_id: correlation_id + 1}
       end
     end

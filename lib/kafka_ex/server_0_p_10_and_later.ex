@@ -96,31 +96,34 @@ defmodule KafkaEx.Server0P10AndLater do
     check_brokers_sockets!(brokers)
 
     {_,
+     %KafkaEx.Protocol.ApiVersions.Response{
+       api_versions: api_versions,
+       error_code: error_code
+     }, state} = kafka_server_api_versions(%State{brokers: brokers})
 
-    %KafkaEx.Protocol.ApiVersions.Response{
-      api_versions: api_versions,
-      error_code: error_code
-    }, state} = kafka_server_api_versions(%State{brokers: brokers})
     if error_code == :no_response do
       sleep_for_reconnect()
       raise "Brokers sockets are closed"
     end
+
     :no_error = error_code
 
     api_versions = KafkaEx.ApiVersions.api_versions_map(api_versions)
 
-    {correlation_id, metadata} = try do
-      retrieve_metadata(
-        brokers,
-        state.correlation_id,
-        config_sync_timeout(),
-        [],
-        api_versions
-      )
-    rescue e ->
-      sleep_for_reconnect()
-      Kernel.reraise(e, System.stacktrace())
-    end
+    {correlation_id, metadata} =
+      try do
+        retrieve_metadata(
+          brokers,
+          state.correlation_id,
+          config_sync_timeout(),
+          [],
+          api_versions
+        )
+      rescue
+        e ->
+          sleep_for_reconnect()
+          Kernel.reraise(e, System.stacktrace())
+      end
 
     state = %State{
       metadata: metadata,
@@ -274,18 +277,18 @@ defmodule KafkaEx.Server0P10AndLater do
         {:topic_not_found, state}
 
       _ ->
-          broker
-          |> NetworkClient.send_sync_request(
-            main_request,
-            config_sync_timeout()
-          )
-          |> case do
-            {:error, reason} ->
-              {{:error, reason}, increment_state_correlation_id(state)}
+        broker
+        |> NetworkClient.send_sync_request(
+          main_request,
+          config_sync_timeout()
+        )
+        |> case do
+          {:error, reason} ->
+            {{:error, reason}, increment_state_correlation_id(state)}
 
-            response ->
-              {{:ok, response}, increment_state_correlation_id(state)}
-          end
+          response ->
+            {{:ok, response}, increment_state_correlation_id(state)}
+        end
     end
   end
 

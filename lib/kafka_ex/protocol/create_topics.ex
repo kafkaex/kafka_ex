@@ -54,7 +54,11 @@ defmodule KafkaEx.Protocol.CreateTopics do
   defmodule Request do
     @moduledoc false
     defstruct create_topic_requests: nil, timeout: nil
-    @type t :: %Request{create_topic_requests: [TopicRequest.t()], timeout: integer}
+
+    @type t :: %Request{
+            create_topic_requests: [TopicRequest.t()],
+            timeout: integer
+          }
   end
 
   defmodule TopicError do
