@@ -1,11 +1,19 @@
-version: '3.2'
+version: '2.4'
 
 services:
   zookeeper:
     image: wurstmeister/zookeeper:3.4.6
     ports:
       - "2181:2181"
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc -w 2 127.0.0.1 2181 | grep -q imok"]
+      interval: 5s
+      timeout: 10s
+      retries: 15
+      start_period: 10s
+
   kafka1:
+    hostname: kafka1
     image: wurstmeister/kafka:0.11.0.1
     ports:
       - "9093:9093"
@@ -13,12 +21,25 @@ services:
       - zookeeper
     volumes:
       - ./ssl:/ssl
+      - ./scripts/kafka_check_health:/kafka_check_health
     env_file: docker-compose-kafka.env
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ADVERTISED_PORT: 9093
+      KAFKA_PORT: 9092
+      KAFKA_HOST_NAME: kafka1
+    healthcheck:
+      test: /kafka_check_health
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 10s
+    depends_on:
+      zookeeper:
+        condition: service_healthy
 
   kafka2:
+    hostname: kafka2
     image: wurstmeister/kafka:0.11.0.1
     ports:
       - "9094:9094"
@@ -26,12 +47,25 @@ services:
       - zookeeper
     volumes:
       - ./ssl:/ssl
+      - ./scripts/kafka_check_health:/kafka_check_health
     env_file: docker-compose-kafka.env
     environment:
       KAFKA_BROKER_ID: 2
       KAFKA_ADVERTISED_PORT: 9094
+      KAFKA_PORT: 9092
+      KAFKA_HOST_NAME: kafka2
+    healthcheck:
+      test: /kafka_check_health
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 10s
+    depends_on:
+      zookeeper:
+        condition: service_healthy
 
   kafka3:
+    hostname: kafka3
     image: wurstmeister/kafka:0.11.0.1
     ports:
       - "9095:9095"
@@ -39,7 +73,32 @@ services:
       - zookeeper
     volumes:
       - ./ssl:/ssl
+      - ./scripts/kafka_check_health:/kafka_check_health
     env_file: docker-compose-kafka.env
     environment:
       KAFKA_BROKER_ID: 3
       KAFKA_ADVERTISED_PORT: 9095
+      KAFKA_PORT: 9092
+      KAFKA_HOST_NAME: kafka3
+    healthcheck:
+      test: /kafka_check_health
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 10s
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+
+  # This is a dummy service that forces all other services to be healthy before
+  # docker-compose up can be considered successful.
+  ready:
+    image: busybox:1.31-musl
+    command: tail -f /dev/null
+    depends_on:
+      kafka1:
+        condition: service_healthy
+      kafka2:
+        condition: service_healthy
+      kafka3:
+        condition: service_healthy
