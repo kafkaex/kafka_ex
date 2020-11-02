@@ -366,7 +366,11 @@ defmodule KafkaEx.ConsumerGroup do
       )
     ]
 
-    supervise(children, strategy: :one_for_all, max_restarts: 0, max_seconds: 1)
+    Supervisor.init(children,
+      strategy: :one_for_all,
+      max_restarts: 0,
+      max_seconds: 1
+    )
   end
 
   defp call_manager(supervisor_pid, call, timeout) do
