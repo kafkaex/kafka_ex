@@ -1,35 +1,31 @@
 defmodule KafkaEx.Supervisor do
   @moduledoc false
 
-  use Supervisor
+  use DynamicSupervisor
 
-  def start_link(server, max_restarts, max_seconds) do
+  def start_link(max_restarts, max_seconds) do
     {:ok, pid} =
-      Supervisor.start_link(
+      DynamicSupervisor.start_link(
         __MODULE__,
-        [server, max_restarts, max_seconds],
+        [max_restarts, max_seconds],
         name: __MODULE__
       )
 
     {:ok, pid}
   end
 
-  def start_child(opts) do
-    Supervisor.start_child(__MODULE__, opts)
+  def start_child(impl, args) when is_atom(impl) and is_list(args) do
+    spec = %{id: impl, start: {impl, :start_link, args}}
+    DynamicSupervisor.start_child(__MODULE__, spec)
   end
 
   def stop_child(child) do
     Supervisor.terminate_child(__MODULE__, child)
   end
 
-  def init([server, max_restarts, max_seconds]) do
-    children = [
-      worker(server, [])
-    ]
-
-    supervise(
-      children,
-      strategy: :simple_one_for_one,
+  def init([max_restarts, max_seconds]) do
+    DynamicSupervisor.init(
+      strategy: :one_for_one,
       max_restarts: max_restarts,
       max_seconds: max_seconds
     )
