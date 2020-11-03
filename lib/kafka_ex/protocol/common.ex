@@ -22,7 +22,9 @@ defmodule KafkaEx.Protocol.Common do
         mod
       ) do
     struct_module = Module.concat(mod, Response)
-    {partitions, topics_data} = mod.parse_partitions(partitions_size, rest, [], topic)
+
+    {partitions, topics_data} =
+      mod.parse_partitions(partitions_size, rest, [], topic)
 
     [
       %{

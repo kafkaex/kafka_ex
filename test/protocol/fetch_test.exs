@@ -169,7 +169,15 @@ defmodule KafkaEx.Protocol.Fetch.Test do
             hw_mark_offset: 10,
             last_offset: 1,
             message_set: [
-              %Message{attributes: 0, crc: 0, key: key, offset: 1, value: nil, topic: topic, partition: 0}
+              %Message{
+                attributes: 0,
+                crc: 0,
+                key: key,
+                offset: 1,
+                value: nil,
+                topic: topic,
+                partition: 0
+              }
             ],
             partition: 0
           }
@@ -241,7 +249,15 @@ defmodule KafkaEx.Protocol.Fetch.Test do
             hw_mark_offset: 10,
             last_offset: 1,
             message_set: [
-              %Message{attributes: 0, crc: 0, key: nil, offset: 1, value: "baz", topic: topic, partition: 1}
+              %Message{
+                attributes: 0,
+                crc: 0,
+                key: nil,
+                offset: 1,
+                value: "baz",
+                topic: topic,
+                partition: 1
+              }
             ],
             partition: 1
           },
@@ -250,7 +266,15 @@ defmodule KafkaEx.Protocol.Fetch.Test do
             hw_mark_offset: 10,
             last_offset: 1,
             message_set: [
-              %Message{attributes: 0, crc: 0, key: nil, offset: 1, value: "bar", topic: topic, partition: 0}
+              %Message{
+                attributes: 0,
+                crc: 0,
+                key: nil,
+                offset: 1,
+                value: "bar",
+                topic: topic,
+                partition: 0
+              }
             ],
             partition: 0
           }
@@ -479,6 +503,7 @@ defmodule KafkaEx.Protocol.Fetch.Test do
 
   test "parse_response correctly parses a valid response with batched snappy-encoded messages" do
     partition_id = 0
+
     response =
       <<0, 0, 0, 14, 0, 0, 0, 1, 0, 17, 115, 110, 97, 112, 112, 121, 95, 98, 97,
         116, 99, 104, 95, 116, 101, 115, 116, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,

@@ -14,9 +14,11 @@ defmodule KafkaEx.Protocol.LeaveGroup do
 
     defstruct error_code: nil
 
-    @type t :: %Response{
-            error_code: atom | integer
-          } | {:error, atom}
+    @type t ::
+            %Response{
+              error_code: atom | integer
+            }
+            | {:error, atom}
   end
 
   @spec create_request(integer, binary, Request.t()) :: binary

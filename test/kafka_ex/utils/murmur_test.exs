@@ -5,12 +5,15 @@ defmodule KafkaEx.Utils.MurmurTest do
 
   test "murmur2 correctly encodes strings" do
     # Taken from https://github.com/apache/kafka/blob/8ab0994919752cd4870e771221ba934a6a539a67/clients/src/test/java/org/apache/kafka/common/utils/UtilsTest.java#L66-L78
-    assert Murmur.murmur2("21") == -973932308
-    assert Murmur.murmur2("foobar") == -790332482
-    assert Murmur.murmur2("a-little-bit-long-string") == -985981536
-    assert Murmur.murmur2("a-little-bit-longer-string") == -1486304829
-    assert Murmur.murmur2("lkjh234lh9fiuh90y23oiuhsafujhadof229phr9h19h89h8") == -58897971
-    assert Murmur.murmur2("abc") == 479470107
+    assert Murmur.murmur2("21") == -973_932_308
+    assert Murmur.murmur2("foobar") == -790_332_482
+    assert Murmur.murmur2("a-little-bit-long-string") == -985_981_536
+    assert Murmur.murmur2("a-little-bit-longer-string") == -1_486_304_829
+
+    assert Murmur.murmur2("lkjh234lh9fiuh90y23oiuhsafujhadof229phr9h19h89h8") ==
+             -58_897_971
+
+    assert Murmur.murmur2("abc") == 479_470_107
   end
 
   test "umurmur2 correctly encodes strings" do

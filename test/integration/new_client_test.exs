@@ -104,19 +104,23 @@ defmodule KafkaEx.New.Client.Test do
 
   test "client can receive {:ssl_closed, _}", %{client: client} do
     send(client, {:ssl_closed, :unused})
+
     TestHelper.wait_for(fn ->
       {:message_queue_len, m} = Process.info(client, :message_queue_len)
       m == 0
     end)
+
     assert Process.alive?(client)
   end
 
   test "client can receive {:tcp_closed, _}", %{client: client} do
     send(client, {:tcp_closed, :unused})
+
     TestHelper.wait_for(fn ->
       {:message_queue_len, m} = Process.info(client, :message_queue_len)
       m == 0
     end)
+
     assert Process.alive?(client)
   end
 end
