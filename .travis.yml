@@ -10,7 +10,7 @@ matrix:
   include:
     - elixir: 1.9.4
       otp_release: 22.3.3
-      env: COVERALLS=true CREDO=true
+      env: CREDO=true
     - elixir: 1.8.2
       otp_release: 22.3.3
     - elixir: 1.7.4
@@ -21,7 +21,6 @@ services:
   - docker
 env:
   global:
-    - COVERALLS=false
     - CREDO=false
 before_script:
   - ./scripts/docker_up.sh
