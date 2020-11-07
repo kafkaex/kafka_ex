@@ -35,5 +35,7 @@ jobs:
       run: mix deps.compile
     - name: Compile
       run: mix compile --warnings-as-errors
+    - name: Docker ps
+      run: docker ps
     - name: Run Tests
       run: ./scripts/ci_tests.sh
