@@ -4,8 +4,12 @@ jobs:
     machine:
       image: ubuntu-2004:202010-01
     working_directory: ~/kafkaex
+    environment:
+      OTP_VERSION: 22.1
+      ELIXIR_VERSION: 1.10.2
     steps:
       - checkout
+      - run: ./scripts/setup_circle_ci_elixir.sh
       - run: ./scripts/docker_up.sh
 
       # specify any bash command here prefixed with `run: `
