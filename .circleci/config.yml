@@ -38,6 +38,8 @@ jobs:
       - checkout
 
       # specify any bash command here prefixed with `run: `
+      - run: mix local.hex --force
+      - run: mix local.rebar --force
       - run: mix deps.get
       - run: mix compile --warnings-as-errors
       - run: mix test
