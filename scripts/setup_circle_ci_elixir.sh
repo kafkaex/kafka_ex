@@ -2,11 +2,8 @@
 
 set -ex
 
-curl -O https://raw.githubusercontent.com/kerl/kerl/master/kerl
-chmod +x kerl
-\curl -sSL https://raw.githubusercontent.com/taylor/kiex/master/install | bash -s
-
-./kerl build $OTP_VERSION
-./kerl install $OTP_VERSION
-
-kiex install $ELIXIR_VERSION
+wget https://packages.erlang-solutions.com/erlang-solutions_1.0_all.deb
+sudo dpkg -i erlang-solutions_1.0_all.deb
+sudo apt-get update
+sudo apt-get install esl-erlang=1:$OTP_VERSION
+sudo apt-get install elixir=1:$ELIXIR_VERSION
