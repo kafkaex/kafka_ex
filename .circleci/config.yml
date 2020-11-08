@@ -1,41 +1,12 @@
-# Elixir CircleCI 2.0 configuration file
-#
-# Check https://circleci.com/docs/2.0/language-elixir/ for more details
-version: 2
+version: 2.1
 jobs:
   build:
-    docker:
-      # specify the version here
-      - image: circleci/elixir:1.10.2
-        environment:
-          MIX_ENV: test
-
-      - image: wurstmeister/zookeeper
-      - image: wurstmeister/kafka:2.11-0.11.0.3
-        environment:
-          KAFKA_ADVERTISED_HOST_NAME: localhost
-          KAFKA_ADVERTISED_PORT: 9092
-          KAFKA_PORT: 9092
-          KAFKA_ZOOKEEPER_CONNECT: localhost:2181
-          KAFKA_DELETE_TOPIC_ENABLE: true
-      - image: wurstmeister/kafka:2.11-0.11.0.3
-        environment:
-          KAFKA_ADVERTISED_HOST_NAME: localhost
-          KAFKA_ADVERTISED_PORT: 9093
-          KAFKA_PORT: 9093
-          KAFKA_ZOOKEEPER_CONNECT: localhost:2181
-          KAFKA_DELETE_TOPIC_ENABLE: true
-      - image: wurstmeister/kafka:2.11-0.11.0.3
-        environment:
-          KAFKA_ADVERTISED_HOST_NAME: localhost
-          KAFKA_ADVERTISED_PORT: 9094
-          KAFKA_PORT: 9094
-          KAFKA_ZOOKEEPER_CONNECT: localhost:2181
-          KAFKA_DELETE_TOPIC_ENABLE: true
-
+    machine:
+      image: ubuntu-2004:202010-01
     working_directory: ~/kafkaex
     steps:
       - checkout
+      - run: ./scripts/docker_up.sh
 
       # specify any bash command here prefixed with `run: `
       - run: mix local.hex --force
