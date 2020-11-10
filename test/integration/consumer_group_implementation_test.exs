@@ -1,5 +1,5 @@
 defmodule KafkaEx.ConsumerGroupImplementationTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
 
   alias KafkaEx.ConsumerGroup
   alias KafkaEx.GenConsumer
@@ -75,12 +75,28 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       {:reply, Map.get(state, key), state}
     end
 
+    def handle_call({:stop, msg}, _from, state) do
+      {:stop, :test_stop, msg, state}
+    end
+
+    def handle_call(:stop, _from, state) do
+      {:stop, :test_stop, state}
+    end
+
     def handle_cast({:set, key, value}, state) do
       {:noreply, Map.put_new(state, key, value)}
     end
 
+    def handle_cast(:stop, state) do
+      {:stop, :test_stop, state}
+    end
+
     def handle_info({:set, key, value}, state) do
       {:noreply, Map.put_new(state, key, value)}
+    end
+
+    def handle_info(:stop, state) do
+      {:stop, :test_stop, state}
     end
 
     def handle_message_set(message_set, state) do
@@ -373,5 +389,57 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
 
       assert :value == TestConsumer.get(consumer_pid, :test_info)
     end
+  end
+
+  test "handle call stop returns from callbacks", context do
+    consumer_group_pid =
+      ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid1])
+
+    [c1, c2] = GenConsumer.Supervisor.child_pids(consumer_group_pid)
+    assert :foo = GenConsumer.call(c1, {:stop, :foo})
+
+    try do
+      GenConsumer.call(c2, :stop)
+    catch
+      _, err ->
+        assert {:test_stop, _} = err
+    end
+
+    assert nil == Process.info(c1)
+    assert nil == Process.info(c2)
+  end
+
+  test "handle cast stop returns from callbacks", context do
+    consumer_group_pid =
+      ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid1])
+
+    [c1, _c2] = GenConsumer.Supervisor.child_pids(consumer_group_pid)
+    GenConsumer.cast(c1, :stop)
+
+    try do
+      :sys.get_state(c1)
+    catch
+      _, err ->
+        assert {:test_stop, _} = err
+    end
+
+    assert nil == Process.info(c1)
+  end
+
+  test "handle info stop returns from callbacks", context do
+    consumer_group_pid =
+      ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid1])
+
+    [c1, _c2] = GenConsumer.Supervisor.child_pids(consumer_group_pid)
+    send(c1, :stop)
+
+    try do
+      :sys.get_state(c1)
+    catch
+      _, err ->
+        assert {:test_stop, _} = err
+    end
+
+    assert nil == Process.info(c1)
   end
 end
