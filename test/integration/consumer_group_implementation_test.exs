@@ -146,14 +146,14 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     |> length
   end
 
-  setup do
+  setup context do
     ports_before = num_open_ports()
     {:ok, test_partitioner_pid} = TestPartitioner.start_link()
 
     {:ok, consumer_group_pid1} =
       ConsumerGroup.start_link(
         TestConsumer,
-        @consumer_group_name,
+        consumer_group_name(context),
         [@topic_name],
         heartbeat_interval: 100,
         partition_assignment_callback: &TestPartitioner.assign_partitions/2,
@@ -163,7 +163,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     {:ok, consumer_group_pid2} =
       ConsumerGroup.start_link(
         TestConsumer,
-        @consumer_group_name,
+        consumer_group_name(context),
         [@topic_name],
         heartbeat_interval: 100,
         partition_assignment_callback: &TestPartitioner.assign_partitions/2,
@@ -199,7 +199,9 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     generation_id2 = ConsumerGroup.generation_id(context[:consumer_group_pid2])
     assert generation_id1 == generation_id2
 
-    assert @consumer_group_name ==
+    consumer_group_name = consumer_group_name(context)
+
+    assert consumer_group_name ==
              ConsumerGroup.group_name(context[:consumer_group_pid1])
 
     member1 = ConsumerGroup.member_id(context[:consumer_group_pid1])
@@ -305,7 +307,11 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     for px <- partition_range do
       wait_for(fn ->
         ending_offset =
-          latest_consumer_offset_number(@topic_name, px, @consumer_group_name)
+          latest_consumer_offset_number(
+            @topic_name,
+            px,
+            consumer_group_name(context)
+          )
 
         last_offset = Map.get(last_offsets, px)
         ending_offset == last_offset + 1
@@ -334,7 +340,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     {:ok, consumer_group_pid3} =
       ConsumerGroup.start_link(
         TestConsumer,
-        @consumer_group_name,
+        consumer_group_name(context),
         [@topic_name],
         heartbeat_interval: 100,
         partition_assignment_callback: &TestPartitioner.assign_partitions/2
@@ -441,5 +447,10 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     end
 
     assert nil == Process.info(c1)
+  end
+
+  def consumer_group_name(context) do
+    test_name = context[:test] |> to_string() |> String.replace(" ", "_")
+    @consumer_group_name <> test_name
   end
 end
