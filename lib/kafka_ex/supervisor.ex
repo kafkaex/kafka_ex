@@ -20,7 +20,7 @@ defmodule KafkaEx.Supervisor do
   end
 
   def stop_child(child) do
-    Supervisor.terminate_child(__MODULE__, child)
+    DynamicSupervisor.terminate_child(__MODULE__, child)
   end
 
   def init([max_restarts, max_seconds]) do
