@@ -1,18 +1,18 @@
 name: Elixir CI
 
-on:
-  push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
+on: [push, pull_request]
+  # push:
+  #   branches: [ master ]
+  # pull_request:
+  #   branches: [ master ]
 
-env:
-  MIX_ENV: test
 
 jobs:
   build:
 
     runs-on: ubuntu-18.04
+    env:
+      MIX_ENV: test
 
     strategy:
       matrix:
