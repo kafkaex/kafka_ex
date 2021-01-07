@@ -1,6 +1,7 @@
 name: Test Runner
 
-on: [push, pull_request]
+on:
+  [push, pull_request]
   # push:
   #   branches: [master]
   # pull_request:
@@ -58,17 +59,18 @@ jobs:
       MIX_ENV: test
 
     strategy:
+      fail-fast: false
       matrix:
-        test_args: [
-          "--include integration",
-          "--include consumer_group",
-          "--include server_0_p_10_and_later",
-          "--include server_0_p_10_p_1",
-          "--include server_0_p_9_p_0",
-          "--include server_0_p_8_p_0",
-          "--include new_client",
-          ""
-        ]
+        test_args:
+          - "--include integration"
+          - "--include consumer_group"
+          - "--include server_0_p_10_and_later"
+          - "--include server_0_p_10_p_1"
+          - "--include server_0_p_9_p_0"
+          - "--include server_0_p_8_p_0"
+          - "--include new_client"
+          - ""
+
         include:
           - elixir: 1.10.2
             erlang: 22.3
@@ -101,21 +103,17 @@ jobs:
         run: docker ps
       - name: Run Tests
         run: mix test ${{ matrix.test_args }}
-
   # test-consumer_group:
   #   name: runner / Test consumer_group
-
   #   runs-on: ubuntu-latest
   #   env:
   #     MIX_ENV: test
   #   needs: [setup]
-
   #   strategy:
   #     matrix:
   #       include:
   #         - elixir: 1.10.2
   #           erlang: 22.3
-
   #   steps:
   #     - uses: actions/checkout@v2
   #     - name: Docker-compose up
@@ -125,21 +123,18 @@ jobs:
   #       with:
   #         elixir-version: ${{matrix.elixir}} # Define the elixir version [required]
   #         otp-version: ${{matrix.erlang}} # Define the OTP version [required]
-
   #     - name: Retrieve Mix Dependencies Cache
   #       uses: actions/cache@v2
   #       id: mix-cache # id to use in retrieve action
   #       with:
   #         path: deps
   #         key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
-
   #     - name: Retrieve Mix Dependencies Compilation Cache
   #       uses: actions/cache@v2
   #       id: mix-deps-compile-cache # id to use in retrieve action
   #       with:
   #         path: _build
   #         key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-deps-compile-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
-
   #     - name: Docker ps
   #       run: docker ps
   #     - name: Run Tests
@@ -147,17 +142,14 @@ jobs:
   # test-server_0_p_10_and_later:
   #   name: runner / Test server_0_p_10_and_later
   #   needs: [setup]
-
   #   runs-on: ubuntu-latest
   #   env:
   #     MIX_ENV: test
-
   #   strategy:
   #     matrix:
   #       include:
   #         - elixir: 1.10.2
   #           erlang: 22.3
-
   #   steps:
   #     - uses: actions/checkout@v2
   #     - name: Docker-compose up
@@ -167,21 +159,18 @@ jobs:
   #       with:
   #         elixir-version: ${{matrix.elixir}} # Define the elixir version [required]
   #         otp-version: ${{matrix.erlang}} # Define the OTP version [required]
-
   #     - name: Retrieve Mix Dependencies Cache
   #       uses: actions/cache@v2
   #       id: mix-cache # id to use in retrieve action
   #       with:
   #         path: deps
   #         key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
-
   #     - name: Retrieve Mix Dependencies Compilation Cache
   #       uses: actions/cache@v2
   #       id: mix-deps-compile-cache # id to use in retrieve action
   #       with:
   #         path: _build
   #         key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-deps-compile-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
-
   #     - name: Docker ps
   #       run: docker ps
   #     - name: Run Tests
@@ -189,17 +178,14 @@ jobs:
   # test-server_0_p_10_p_1:
   #   name: runner / Test server_0_p_10_p_1
   #   needs: [setup]
-
   #   runs-on: ubuntu-latest
   #   env:
   #     MIX_ENV: test
-
   #   strategy:
   #     matrix:
   #       include:
   #         - elixir: 1.10.2
   #           erlang: 22.3
-
   #   steps:
   #     - uses: actions/checkout@v2
   #     - name: Docker-compose up
@@ -209,21 +195,18 @@ jobs:
   #       with:
   #         elixir-version: ${{matrix.elixir}} # Define the elixir version [required]
   #         otp-version: ${{matrix.erlang}} # Define the OTP version [required]
-
   #     - name: Retrieve Mix Dependencies Cache
   #       uses: actions/cache@v2
   #       id: mix-cache # id to use in retrieve action
   #       with:
   #         path: deps
   #         key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
-
   #     - name: Retrieve Mix Dependencies Compilation Cache
   #       uses: actions/cache@v2
   #       id: mix-deps-compile-cache # id to use in retrieve action
   #       with:
   #         path: _build
   #         key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-deps-compile-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
-
   #     - name: Docker ps
   #       run: docker ps
   #     - name: Run Tests
@@ -231,17 +214,14 @@ jobs:
   # test-server_0_p_9_p_0:
   #   name: runner / Test server_0_p_9_p_0
   #   needs: [setup]
-
   #   runs-on: ubuntu-latest
   #   env:
   #     MIX_ENV: test
-
   #   strategy:
   #     matrix:
   #       include:
   #         - elixir: 1.10.2
   #           erlang: 22.3
-
   #   steps:
   #     - uses: actions/checkout@v2
   #     - name: Docker-compose up
@@ -251,21 +231,18 @@ jobs:
   #       with:
   #         elixir-version: ${{matrix.elixir}} # Define the elixir version [required]
   #         otp-version: ${{matrix.erlang}} # Define the OTP version [required]
-
   #     - name: Retrieve Mix Dependencies Cache
   #       uses: actions/cache@v2
   #       id: mix-cache # id to use in retrieve action
   #       with:
   #         path: deps
   #         key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
-
   #     - name: Retrieve Mix Dependencies Compilation Cache
   #       uses: actions/cache@v2
   #       id: mix-deps-compile-cache # id to use in retrieve action
   #       with:
   #         path: _build
   #         key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-deps-compile-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
-
   #     - name: Docker ps
   #       run: docker ps
   #     - name: Run Tests
@@ -273,17 +250,14 @@ jobs:
   # test-server_0_p_8_p_0:
   #   name: runner / Test server_0_p_8_p_0
   #   needs: [setup]
-
   #   runs-on: ubuntu-latest
   #   env:
   #     MIX_ENV: test
-
   #   strategy:
   #     matrix:
   #       include:
   #         - elixir: 1.10.2
   #           erlang: 22.3
-
   #   steps:
   #     - uses: actions/checkout@v2
   #     - name: Docker-compose up
@@ -293,21 +267,18 @@ jobs:
   #       with:
   #         elixir-version: ${{matrix.elixir}} # Define the elixir version [required]
   #         otp-version: ${{matrix.erlang}} # Define the OTP version [required]
-
   #     - name: Retrieve Mix Dependencies Cache
   #       uses: actions/cache@v2
   #       id: mix-cache # id to use in retrieve action
   #       with:
   #         path: deps
   #         key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
-
   #     - name: Retrieve Mix Dependencies Compilation Cache
   #       uses: actions/cache@v2
   #       id: mix-deps-compile-cache # id to use in retrieve action
   #       with:
   #         path: _build
   #         key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-deps-compile-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
-
   #     - name: Docker ps
   #       run: docker ps
   #     - name: Run Tests
@@ -315,17 +286,14 @@ jobs:
   # test-new_client:
   #   name: runner / Test new_client
   #   needs: [setup]
-
   #   runs-on: ubuntu-latest
   #   env:
   #     MIX_ENV: test
-
   #   strategy:
   #     matrix:
   #       include:
   #         - elixir: 1.10.2
   #           erlang: 22.3
-
   #   steps:
   #     - uses: actions/checkout@v2
   #     - name: Docker-compose up
@@ -335,21 +303,18 @@ jobs:
   #       with:
   #         elixir-version: ${{matrix.elixir}} # Define the elixir version [required]
   #         otp-version: ${{matrix.erlang}} # Define the OTP version [required]
-
   #     - name: Retrieve Mix Dependencies Cache
   #       uses: actions/cache@v2
   #       id: mix-cache # id to use in retrieve action
   #       with:
   #         path: deps
   #         key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
-
   #     - name: Retrieve Mix Dependencies Compilation Cache
   #       uses: actions/cache@v2
   #       id: mix-deps-compile-cache # id to use in retrieve action
   #       with:
   #         path: _build
   #         key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-deps-compile-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
-
   #     - name: Docker ps
   #       run: docker ps
   #     - name: Run Tests
@@ -357,17 +322,14 @@ jobs:
   # test:
   #   name: runner / Test new_client
   #   needs: [setup]
-
   #   runs-on: ubuntu-latest
   #   env:
   #     MIX_ENV: test
-
   #   strategy:
   #     matrix:
   #       include:
   #         - elixir: 1.10.2
   #           erlang: 22.3
-
   #   steps:
   #     - uses: actions/checkout@v2
   #     - name: Docker-compose up
@@ -377,21 +339,18 @@ jobs:
   #       with:
   #         elixir-version: ${{matrix.elixir}} # Define the elixir version [required]
   #         otp-version: ${{matrix.erlang}} # Define the OTP version [required]
-
   #     - name: Retrieve Mix Dependencies Cache
   #       uses: actions/cache@v2
   #       id: mix-cache # id to use in retrieve action
   #       with:
   #         path: deps
   #         key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
-
   #     - name: Retrieve Mix Dependencies Compilation Cache
   #       uses: actions/cache@v2
   #       id: mix-deps-compile-cache # id to use in retrieve action
   #       with:
   #         path: _build
   #         key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-deps-compile-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
-
   #     - name: Docker ps
   #       run: docker ps
   #     - name: Run Tests
