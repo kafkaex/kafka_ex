@@ -51,6 +51,7 @@ jobs:
 
   test-integration:
     name: runner / Test Integration
+    needs: [setup]
 
     runs-on: ubuntu-latest
     env:
@@ -97,6 +98,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       MIX_ENV: test
+    needs: [setup]
 
     strategy:
       matrix:
@@ -134,6 +136,7 @@ jobs:
         run: mix test --include consumer_group
   test-server_0_p_10_and_later:
     name: runner / Test server_0_p_10_and_later
+    needs: [setup]
 
     runs-on: ubuntu-latest
     env:
@@ -175,6 +178,7 @@ jobs:
         run: mix test --include server_0_p_10_and_later
   test-server_0_p_10_p_1:
     name: runner / Test server_0_p_10_p_1
+    needs: [setup]
 
     runs-on: ubuntu-latest
     env:
@@ -216,6 +220,7 @@ jobs:
         run: mix test --include server_0_p_10_p_1
   test-server_0_p_9_p_0:
     name: runner / Test server_0_p_9_p_0
+    needs: [setup]
 
     runs-on: ubuntu-latest
     env:
@@ -257,6 +262,7 @@ jobs:
         run: mix test --include server_0_p_9_p_0
   test-server_0_p_8_p_0:
     name: runner / Test server_0_p_8_p_0
+    needs: [setup]
 
     runs-on: ubuntu-latest
     env:
@@ -298,6 +304,7 @@ jobs:
         run: mix test --include server_0_p_8_p_0
   test-new_client:
     name: runner / Test new_client
+    needs: [setup]
 
     runs-on: ubuntu-latest
     env:
@@ -339,6 +346,7 @@ jobs:
         run: mix test --include new_client
   test:
     name: runner / Test new_client
+    needs: [setup]
 
     runs-on: ubuntu-latest
     env:
