@@ -32,82 +32,82 @@ jobs:
           retries: 15
           start_period: 10s
         
-    kafka1:
-      hostname: kafka1
-      image: wurstmeister/kafka:0.11.0.1
-      ports:
-        - "9093:9093"
-      volumes:
-        - ./ssl:/ssl
-        - ./scripts/kafka_check_health:/kafka_check_health
-      env_file: docker-compose-kafka.env
-      environment:
-        KAFKA_BROKER_ID: 1
-        KAFKA_ADVERTISED_PORT: 9093
-        KAFKA_PORT: 9092
-        KAFKA_HOST_NAME: kafka1
-      healthcheck:
-        test: /kafka_check_health
-        interval: 10s
-        timeout: 10s
-        retries: 30
-        start_period: 10s
-      depends_on:
-        zookeeper:
-          condition: service_healthy
+      kafka1:
+        hostname: kafka1
+        image: wurstmeister/kafka:0.11.0.1
+        ports:
+          - "9093:9093"
+        volumes:
+          - ./ssl:/ssl
+          - ./scripts/kafka_check_health:/kafka_check_health
+        env_file: docker-compose-kafka.env
+        environment:
+          KAFKA_BROKER_ID: 1
+          KAFKA_ADVERTISED_PORT: 9093
+          KAFKA_PORT: 9092
+          KAFKA_HOST_NAME: kafka1
+        healthcheck:
+          test: /kafka_check_health
+          interval: 10s
+          timeout: 10s
+          retries: 30
+          start_period: 10s
+        depends_on:
+          zookeeper:
+            condition: service_healthy
 
-    kafka2:
-      hostname: kafka2
-      image: wurstmeister/kafka:0.11.0.1
-      ports:
-        - "9094:9094"
-      volumes:
-        - ./ssl:/ssl
-        - ./scripts/kafka_check_health:/kafka_check_health
-      env_file: docker-compose-kafka.env
-      environment:
-        KAFKA_BROKER_ID: 2
-        KAFKA_ADVERTISED_PORT: 9094
-        KAFKA_PORT: 9092
-        KAFKA_HOST_NAME: kafka2
-      healthcheck:
-        test: /kafka_check_health
-        interval: 10s
-        timeout: 10s
-        retries: 30
-        start_period: 10s
-      depends_on:
-        zookeeper:
-          condition: service_healthy
+      kafka2:
+        hostname: kafka2
+        image: wurstmeister/kafka:0.11.0.1
+        ports:
+          - "9094:9094"
+        volumes:
+          - ./ssl:/ssl
+          - ./scripts/kafka_check_health:/kafka_check_health
+        env_file: docker-compose-kafka.env
+        environment:
+          KAFKA_BROKER_ID: 2
+          KAFKA_ADVERTISED_PORT: 9094
+          KAFKA_PORT: 9092
+          KAFKA_HOST_NAME: kafka2
+        healthcheck:
+          test: /kafka_check_health
+          interval: 10s
+          timeout: 10s
+          retries: 30
+          start_period: 10s
+        depends_on:
+          zookeeper:
+            condition: service_healthy
 
-    kafka3:
-      hostname: kafka3
-      image: wurstmeister/kafka:0.11.0.1
-      ports:
-        - "9095:9095"
-      volumes:
-        - ./ssl:/ssl
-        - ./scripts/kafka_check_health:/kafka_check_health
-      env_file: docker-compose-kafka.env
-      environment:
-        KAFKA_BROKER_ID: 3
-        KAFKA_ADVERTISED_PORT: 9095
-        KAFKA_PORT: 9092
-        KAFKA_HOST_NAME: kafka3
-      healthcheck:
-        test: /kafka_check_health
-        interval: 10s
-        timeout: 10s
-        retries: 30
-        start_period: 10s
-      depends_on:
-        zookeeper:
-          condition: service_healthy
+      kafka3:
+        hostname: kafka3
+        image: wurstmeister/kafka:0.11.0.1
+        ports:
+          - "9095:9095"
+        volumes:
+          - ./ssl:/ssl
+          - ./scripts/kafka_check_health:/kafka_check_health
+        env_file: docker-compose-kafka.env
+        environment:
+          KAFKA_BROKER_ID: 3
+          KAFKA_ADVERTISED_PORT: 9095
+          KAFKA_PORT: 9092
+          KAFKA_HOST_NAME: kafka3
+        healthcheck:
+          test: /kafka_check_health
+          interval: 10s
+          timeout: 10s
+          retries: 30
+          start_period: 10s
+        depends_on:
+          zookeeper:
+            condition: service_healthy
 
     steps:
     - uses: actions/checkout@v2
-    - name: Docker-compose up
-      run: ./scripts/docker_up.sh
+    # - name: Docker-compose up
+    #   run: ./scripts/docker_up.sh
     - name: Setup elixir
       uses: actions/setup-elixir@v1
       with:
@@ -119,7 +119,7 @@ jobs:
       run: mix deps.compile
     - name: Compile
       run: mix compile --warnings-as-errors
-    - name: Docker ps
-      run: docker ps
+    # - name: Docker ps
+    #   run: docker ps
     - name: Run Tests
       run: ./scripts/ci_tests.sh
