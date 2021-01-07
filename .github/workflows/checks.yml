@@ -54,7 +54,7 @@ jobs:
 
 
   compile:
-    name: check / compile
+    name: check 
     runs-on: ubuntu-latest
     needs: [setup]
     env:
@@ -65,6 +65,10 @@ jobs:
         include:
           - elixir: 1.10.2
             erlang: 22.3
+        checks:
+          - credo --struct
+          - compile --warnings-as-errors --force
+          - format --check-formatted
 
     steps:
       - uses: actions/checkout@v2
@@ -87,83 +91,8 @@ jobs:
           path: _build
           key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-deps-compile-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
      
-      - name: Compile
-        run: mix compile --warnings-as-errors --force
-      
-  credo:
-    name: check / credo
-    runs-on: ubuntu-latest
-    needs: [setup]
-    env:
-      MIX_ENV: dev
-
-    strategy:
-      matrix:
-        include:
-          - elixir: 1.10.2
-            erlang: 22.3
-
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-elixir@v1
-        with:
-          elixir-version: ${{matrix.elixir}} # Define the elixir version [required]
-          otp-version: ${{matrix.erlang}} # Define the OTP version [required]
-
-      - name: Retrieve Mix Dependencies Cache
-        uses: actions/cache@v2
-        id: mix-cache # id to use in retrieve action
-        with:
-          path: deps
-          key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
-  
-      - name: Retrieve Mix Dependencies Compilation Cache
-        uses: actions/cache@v2
-        id: mix-deps-compile-cache # id to use in retrieve action
-        with:
-          path: _build
-          key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-deps-compile-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
-     
-      - name: Credo
-        run: mix credo --strict
-
-  formatter:
-    name: check / formatter
-    runs-on: ubuntu-latest
-    needs: [setup]
-    env:
-      MIX_ENV: dev
-
-    strategy:
-      matrix:
-        include:
-          - elixir: 1.10.2
-            erlang: 22.3
-
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-elixir@v1
-        with:
-          elixir-version: ${{matrix.elixir}} # Define the elixir version [required]
-          otp-version: ${{matrix.erlang}} # Define the OTP version [required]
-
-      - name: Retrieve Mix Dependencies Cache
-        uses: actions/cache@v2
-        id: mix-cache # id to use in retrieve action
-        with:
-          path: deps
-          key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
-  
-      - name: Retrieve Mix Dependencies Compilation Cache
-        uses: actions/cache@v2
-        id: mix-deps-compile-cache # id to use in retrieve action
-        with:
-          path: _build
-          key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-deps-compile-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
-     
-      - name: Check Formatting
-        run: mix format --check-formatted
-
+      - run: mix ${{ matrix.checks }}
+    
   dialyzer:
     name: check / dialyzer
     needs: [setup]
