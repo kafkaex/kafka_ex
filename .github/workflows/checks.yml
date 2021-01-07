@@ -1,11 +1,10 @@
-name: Elixir Checks
+name: CI Checks
 
-on: [push, pull_request]
-  # push:
-  #   branches: [ master ]
-  # pull_request:
-  #   branches: [ master ]
-
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
 
 jobs:
   setup:
@@ -33,7 +32,7 @@ jobs:
         with:
           path: deps
           key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
-  
+
       - name: Retrieve Mix Dependencies Compilation Cache
         uses: actions/cache@v2
         id: mix-deps-compile-cache # id to use in retrieve action
@@ -51,10 +50,8 @@ jobs:
         if: steps.mix-deps-compile-cache.outputs.cache-hit != 'true'
         run: mix deps.compile
 
-
-
-  compile:
-    name: checks
+  run-checks:
+    name: check 
     runs-on: ubuntu-latest
     needs: [setup]
     env:
@@ -67,9 +64,9 @@ jobs:
           - elixir: 1.10.2
             erlang: 22.3
         checks:
-          - credo
-          - compile --warnings-as-errors --force
-          - format --check-formatted
+          - mix credo
+          - mix compile --warnings-as-errors --force
+          - mix format --check-formatted
 
     steps:
       - uses: actions/checkout@v2
@@ -84,16 +81,16 @@ jobs:
         with:
           path: deps
           key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
-  
+
       - name: Retrieve Mix Dependencies Compilation Cache
         uses: actions/cache@v2
         id: mix-deps-compile-cache # id to use in retrieve action
         with:
           path: _build
           key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-deps-compile-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
-     
-      - run: mix ${{ matrix.checks }}
-    
+
+      - run: ${{ matrix.checks }}
+
   dialyzer:
     name: check / dialyzer
     needs: [setup]
@@ -120,14 +117,14 @@ jobs:
         with:
           path: deps
           key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
-  
+
       - name: Retrieve Mix Dependencies Compilation Cache
         uses: actions/cache@v2
         id: mix-deps-compile-cache # id to use in retrieve action
         with:
           path: _build
           key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-deps-compile-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
-     
+
       - name: Retrieve PLT Cache
         uses: actions/cache@v1
         id: plt-cache
@@ -143,8 +140,3 @@ jobs:
 
       - name: Run dialyzer
         run: mix dialyzer --no-check --halt-exit-status
-
-
-
-
-      
