@@ -54,7 +54,7 @@ jobs:
 
 
   compile:
-    name: check 
+    name: checks
     runs-on: ubuntu-latest
     needs: [setup]
     env:
@@ -67,7 +67,7 @@ jobs:
           - elixir: 1.10.2
             erlang: 22.3
         checks:
-          - credo --struct
+          - credo
           - compile --warnings-as-errors --force
           - format --check-formatted
 
