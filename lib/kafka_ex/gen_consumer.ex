@@ -232,6 +232,7 @@ defmodule KafkaEx.GenConsumer do
   """
   @callback init(topic :: binary, partition :: non_neg_integer) ::
               {:ok, state :: term}
+              | {:stop, reason :: term}
 
   @doc """
   Invoked when the server is started. `start_link/5` will block until it
@@ -255,7 +256,7 @@ defmodule KafkaEx.GenConsumer do
               topic :: binary,
               partition :: non_neg_integer,
               extra_args :: map()
-            ) :: {:ok, state :: term}
+            ) :: {:ok, state :: term} | {:stop, reason :: term}
 
   @doc """
   Invoked for each message set consumed from a Kafka topic partition.
@@ -287,6 +288,8 @@ defmodule KafkaEx.GenConsumer do
   """
   @callback handle_call(call :: term, from :: GenServer.from(), state :: term) ::
               {:reply, reply_value :: term, new_state :: term}
+              | {:stop, reason :: term, reply_value :: term, new_state :: term}
+              | {:stop, reason :: term, new_state :: term}
 
   @doc """
   Invoked by `KafkaEx.GenConsumer.cast/2`.
@@ -296,6 +299,7 @@ defmodule KafkaEx.GenConsumer do
   """
   @callback handle_cast(cast :: term, state :: term) ::
               {:noreply, new_state :: term}
+              | {:stop, reason :: term, new_state :: term}
 
   @doc """
   Invoked by sending messages to the consumer.
@@ -305,6 +309,7 @@ defmodule KafkaEx.GenConsumer do
   """
   @callback handle_info(info :: term, state :: term) ::
               {:noreply, new_state :: term}
+              | {:stop, reason :: term, new_state :: term}
 
   defmacro __using__(_opts) do
     quote do
@@ -541,44 +546,49 @@ defmodule KafkaEx.GenConsumer do
     api_versions = Keyword.get(opts, :api_versions, %{})
     api_versions = Map.merge(default_api_versions, api_versions)
 
-    {:ok, consumer_state} =
-      consumer_module.init(topic, partition, extra_consumer_args)
+    case consumer_module.init(topic, partition, extra_consumer_args) do
+      {:ok, consumer_state} ->
+        worker_opts = Keyword.take(opts, [:uris, :use_ssl, :ssl_options])
 
-    worker_opts = Keyword.take(opts, [:uris, :use_ssl, :ssl_options])
+        {:ok, worker_name} =
+          KafkaEx.create_worker(
+            :no_name,
+            [consumer_group: group_name] ++ worker_opts
+          )
 
-    {:ok, worker_name} =
-      KafkaEx.create_worker(
-        :no_name,
-        [consumer_group: group_name] ++ worker_opts
-      )
+        default_fetch_options = [
+          auto_commit: false,
+          worker_name: worker_name
+        ]
 
-    default_fetch_options = [
-      auto_commit: false,
-      worker_name: worker_name
-    ]
+        given_fetch_options = Keyword.get(opts, :fetch_options, [])
 
-    given_fetch_options = Keyword.get(opts, :fetch_options, [])
-    fetch_options = Keyword.merge(default_fetch_options, given_fetch_options)
+        fetch_options =
+          Keyword.merge(default_fetch_options, given_fetch_options)
 
-    state = %State{
-      consumer_module: consumer_module,
-      consumer_state: consumer_state,
-      commit_interval: commit_interval,
-      commit_threshold: commit_threshold,
-      auto_offset_reset: auto_offset_reset,
-      worker_name: worker_name,
-      group: group_name,
-      topic: topic,
-      partition: partition,
-      generation_id: generation_id,
-      member_id: member_id,
-      fetch_options: fetch_options,
-      api_versions: api_versions
-    }
+        state = %State{
+          consumer_module: consumer_module,
+          consumer_state: consumer_state,
+          commit_interval: commit_interval,
+          commit_threshold: commit_threshold,
+          auto_offset_reset: auto_offset_reset,
+          worker_name: worker_name,
+          group: group_name,
+          topic: topic,
+          partition: partition,
+          generation_id: generation_id,
+          member_id: member_id,
+          fetch_options: fetch_options,
+          api_versions: api_versions
+        }
 
-    Process.flag(:trap_exit, true)
+        Process.flag(:trap_exit, true)
 
-    {:ok, state, 0}
+        {:ok, state, 0}
+
+      {:stop, reason} ->
+        {:stop, reason}
+    end
   end
 
   def handle_call(:partition, _from, state) do
@@ -597,14 +607,23 @@ defmodule KafkaEx.GenConsumer do
     #   which we turn into a timeout = 0 clause so that we continue to consume.
     #   any other GenServer flow control could have unintended consequences,
     #   so we leave that for later consideration
-    {:reply, reply, new_consumer_state} =
+    consumer_reply =
       consumer_module.handle_call(
         message,
         from,
         consumer_state
       )
 
-    {:reply, reply, %{state | consumer_state: new_consumer_state}, 0}
+    case consumer_reply do
+      {:reply, reply, new_consumer_state} ->
+        {:reply, reply, %{state | consumer_state: new_consumer_state}, 0}
+
+      {:stop, reason, new_consumer_state} ->
+        {:stop, reason, %{state | consumer_state: new_consumer_state}}
+
+      {:stop, reason, reply, new_consumer_state} ->
+        {:stop, reason, reply, %{state | consumer_state: new_consumer_state}}
+    end
   end
 
   def handle_cast(
@@ -618,13 +637,19 @@ defmodule KafkaEx.GenConsumer do
     #   which we turn into a timeout = 0 clause so that we continue to consume.
     #   any other GenServer flow control could have unintended consequences,
     #   so we leave that for later consideration
-    {:noreply, new_consumer_state} =
+    consumer_reply =
       consumer_module.handle_cast(
         message,
         consumer_state
       )
 
-    {:noreply, %{state | consumer_state: new_consumer_state}, 0}
+    case consumer_reply do
+      {:noreply, new_consumer_state} ->
+        {:noreply, %{state | consumer_state: new_consumer_state}, 0}
+
+      {:stop, reason, new_consumer_state} ->
+        {:stop, reason, %{state | consumer_state: new_consumer_state}}
+    end
   end
 
   def handle_info(
@@ -660,13 +685,19 @@ defmodule KafkaEx.GenConsumer do
     #   which we turn into a timeout = 0 clause so that we continue to consume.
     #   any other GenServer flow control could have unintended consequences,
     #   so we leave that for later consideration
-    {:noreply, new_consumer_state} =
+    consumer_reply =
       consumer_module.handle_info(
         message,
         consumer_state
       )
 
-    {:noreply, %{state | consumer_state: new_consumer_state}, 0}
+    case consumer_reply do
+      {:noreply, new_consumer_state} ->
+        {:noreply, %{state | consumer_state: new_consumer_state}, 0}
+
+      {:stop, reason, new_consumer_state} ->
+        {:stop, reason, %{state | consumer_state: new_consumer_state}}
+    end
   end
 
   def terminate(_reason, %State{} = state) do
@@ -689,7 +720,8 @@ defmodule KafkaEx.GenConsumer do
       KafkaEx.fetch(
         topic,
         partition,
-        Keyword.merge(fetch_options,
+        Keyword.merge(
+          fetch_options,
           offset: offset,
           api_version: Map.fetch!(state.api_versions, :fetch)
         )
@@ -850,9 +882,12 @@ defmodule KafkaEx.GenConsumer do
     # one of these needs to match, depending on which client
     case partition_response do
       # old client
-      ^partition -> :ok
+      ^partition ->
+        :ok
+
       # new client
-      %{error_code: :no_error, partition: ^partition} -> :ok
+      %{error_code: :no_error, partition: ^partition} ->
+        :ok
     end
 
     Logger.debug(fn ->

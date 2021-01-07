@@ -1,5 +1,5 @@
 defmodule KafkaEx.ConsumerGroupImplementationTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
 
   alias KafkaEx.ConsumerGroup
   alias KafkaEx.GenConsumer
@@ -75,12 +75,28 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
       {:reply, Map.get(state, key), state}
     end
 
+    def handle_call({:stop, msg}, _from, state) do
+      {:stop, :test_stop, msg, state}
+    end
+
+    def handle_call(:stop, _from, state) do
+      {:stop, :test_stop, state}
+    end
+
     def handle_cast({:set, key, value}, state) do
       {:noreply, Map.put_new(state, key, value)}
     end
 
+    def handle_cast(:stop, state) do
+      {:stop, :test_stop, state}
+    end
+
     def handle_info({:set, key, value}, state) do
       {:noreply, Map.put_new(state, key, value)}
+    end
+
+    def handle_info(:stop, state) do
+      {:stop, :test_stop, state}
     end
 
     def handle_message_set(message_set, state) do
@@ -130,14 +146,14 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     |> length
   end
 
-  setup do
+  setup context do
     ports_before = num_open_ports()
     {:ok, test_partitioner_pid} = TestPartitioner.start_link()
 
     {:ok, consumer_group_pid1} =
       ConsumerGroup.start_link(
         TestConsumer,
-        @consumer_group_name,
+        consumer_group_name(context),
         [@topic_name],
         heartbeat_interval: 100,
         partition_assignment_callback: &TestPartitioner.assign_partitions/2,
@@ -147,7 +163,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     {:ok, consumer_group_pid2} =
       ConsumerGroup.start_link(
         TestConsumer,
-        @consumer_group_name,
+        consumer_group_name(context),
         [@topic_name],
         heartbeat_interval: 100,
         partition_assignment_callback: &TestPartitioner.assign_partitions/2,
@@ -183,7 +199,9 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     generation_id2 = ConsumerGroup.generation_id(context[:consumer_group_pid2])
     assert generation_id1 == generation_id2
 
-    assert @consumer_group_name ==
+    consumer_group_name = consumer_group_name(context)
+
+    assert consumer_group_name ==
              ConsumerGroup.group_name(context[:consumer_group_pid1])
 
     member1 = ConsumerGroup.member_id(context[:consumer_group_pid1])
@@ -289,7 +307,11 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     for px <- partition_range do
       wait_for(fn ->
         ending_offset =
-          latest_consumer_offset_number(@topic_name, px, @consumer_group_name)
+          latest_consumer_offset_number(
+            @topic_name,
+            px,
+            consumer_group_name(context)
+          )
 
         last_offset = Map.get(last_offsets, px)
         ending_offset == last_offset + 1
@@ -318,7 +340,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
     {:ok, consumer_group_pid3} =
       ConsumerGroup.start_link(
         TestConsumer,
-        @consumer_group_name,
+        consumer_group_name(context),
         [@topic_name],
         heartbeat_interval: 100,
         partition_assignment_callback: &TestPartitioner.assign_partitions/2
@@ -373,5 +395,62 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
 
       assert :value == TestConsumer.get(consumer_pid, :test_info)
     end
+  end
+
+  test "handle call stop returns from callbacks", context do
+    consumer_group_pid =
+      ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid1])
+
+    [c1, c2] = GenConsumer.Supervisor.child_pids(consumer_group_pid)
+    assert :foo = GenConsumer.call(c1, {:stop, :foo})
+
+    try do
+      GenConsumer.call(c2, :stop)
+    catch
+      _, err ->
+        assert {:test_stop, _} = err
+    end
+
+    assert nil == Process.info(c1)
+    assert nil == Process.info(c2)
+  end
+
+  test "handle cast stop returns from callbacks", context do
+    consumer_group_pid =
+      ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid1])
+
+    [c1, _c2] = GenConsumer.Supervisor.child_pids(consumer_group_pid)
+    GenConsumer.cast(c1, :stop)
+
+    try do
+      :sys.get_state(c1)
+    catch
+      _, err ->
+        assert {:test_stop, _} = err
+    end
+
+    assert nil == Process.info(c1)
+  end
+
+  test "handle info stop returns from callbacks", context do
+    consumer_group_pid =
+      ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid1])
+
+    [c1, _c2] = GenConsumer.Supervisor.child_pids(consumer_group_pid)
+    send(c1, :stop)
+
+    try do
+      :sys.get_state(c1)
+    catch
+      _, err ->
+        assert {:test_stop, _} = err
+    end
+
+    assert nil == Process.info(c1)
+  end
+
+  def consumer_group_name(context) do
+    test_name = context[:test] |> to_string() |> String.replace(" ", "_")
+    @consumer_group_name <> test_name
   end
 end

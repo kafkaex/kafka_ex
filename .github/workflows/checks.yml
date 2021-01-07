@@ -9,7 +9,7 @@ on: [push, pull_request]
 
 jobs:
   setup:
-    name: runner / cache dependencies
+    name: check / setup
     runs-on: ubuntu-latest
     env:
       MIX_ENV: dev
@@ -54,7 +54,7 @@ jobs:
 
 
   compile:
-    name: runner / Compiler warnings as errors
+    name: check / compile
     runs-on: ubuntu-latest
     needs: [setup]
     env:

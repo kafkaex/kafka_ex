@@ -19,13 +19,7 @@ then
   MIX_ENV=dev mix credo
 fi
 
-if [ "${COVERALLS}" = true ]
-then
-  echo "Coveralls will be reported"
-  TEST_COMMAND=coveralls.travis
-else
-  TEST_COMMAND=test
-fi
+TEST_COMMAND=test
 
 export TEST_COMMAND
 
