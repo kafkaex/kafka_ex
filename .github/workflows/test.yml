@@ -1,0 +1,40 @@
+name: Elixir CI
+
+on: 
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+
+jobs:
+  test-dockerized:
+    name: runner / Test Suite
+
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: test
+
+    strategy:
+      matrix:
+        include:
+          - elixir: 1.10.2
+            erlang: 22.3
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Docker-compose up
+      run: ./scripts/docker_up.sh
+    - name: Setup elixir
+      uses: actions/setup-elixir@v1
+      with:
+        elixir-version: ${{matrix.elixir}} # Define the elixir version [required]
+        otp-version: ${{matrix.erlang}} # Define the OTP version [required]
+    - name: Install Dependencies
+      run: mix deps.get
+    - name: Build Dependencies
+      run: mix deps.compile
+    - name: Docker ps
+      run: docker ps
+    - name: Run Tests
+      run: ./scripts/ci_tests.sh
