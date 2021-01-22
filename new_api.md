@@ -40,7 +40,7 @@ Features implemented:
 Two main design principles in the new client are driven by factors that made
 maintenance of the legacy API difficult:
 
-1.  Delegate and genericize API message version handling
+1.  Delegate and generalize API message version handling
 
     Kafka API message serialization and deserialization has been externalized to
     a library ([Kayrock](https://github.com/dantswain/kayrock)) that can easily

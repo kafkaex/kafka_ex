@@ -2,10 +2,13 @@ defmodule KafkaEx.Mixfile do
   @moduledoc false
   use Mix.Project
 
+  @source_url "https://github.com/kafkaex/kafka_ex"
+  @version "0.12.1"
+
   def project do
     [
       app: :kafka_ex,
-      version: "0.12.1",
+      version: @version,
       elixir: "~> 1.6",
       dialyzer: [
         plt_add_deps: :transitive,
@@ -24,9 +27,11 @@ defmodule KafkaEx.Mixfile do
         extras: [
           "README.md",
           "kayrock.md",
-          "new_api.md"
+          "new_api.md",
+          "CONTRIBUTING.md"
         ],
-        source_url: "https://github.com/kafkaex/kafka_ex"
+        source_url: @source_url,
+        source_ref: @version
       ]
     ]
   end
@@ -66,7 +71,7 @@ defmodule KafkaEx.Mixfile do
       maintainers: ["Abejide Ayodele", "Dan Swain", "Jack Lund", "Joshua Scott"],
       files: ["lib", "config/config.exs", "mix.exs", "README.md"],
       licenses: ["MIT"],
-      links: %{"Github" => "https://github.com/kafkaex/kafka_ex"}
+      links: %{"GitHub" => @source_url}
     ]
   end
 end

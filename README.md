@@ -38,7 +38,7 @@ TL;DR:
 *   This is new implementation and we need people to test it!
 *   Set `kafka_version: "kayrock"` to use the new client implementation.
 *   The new client should be compatible with existing code when used this way.
-*   Many functions now suppoert an `api_version` parameter, see below for details,
+*   Many functions now support an `api_version` parameter, see below for details,
     e.g., how to store offsets in Kafka instead of Zookeeper.
 *   Version 1.0 of KafkaEx will be based on Kayrock and have a cleaner API - you
     can start testing this API by using modules from the `KafkaEx.New` namespace.
@@ -407,7 +407,7 @@ The 0.9 client includes functionality that cannot be tested with older
 clusters.
 
 ```
-./all_tests.sh
+./scripts/all_tests.sh
 ```
 
 ##### Kafka = 0.9.0

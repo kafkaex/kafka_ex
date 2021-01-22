@@ -1,6 +1,6 @@
 defmodule KafkaEx.Server0P9P0 do
   @moduledoc """
-    Implements kafkaEx.Server behaviors for kafka >= 0.9.0 < 0.10.1 API.
+    Implements KafkaEx.Server behaviors for Kafka >= 0.9.0 < 0.10.1 API.
 
   """
 
@@ -40,7 +40,7 @@ defmodule KafkaEx.Server0P9P0 do
   end
 
   # The functions below are all defined in KafkaEx.Server0P8P2 and their
-  # implementation is exactly same across both versions of kafka.
+  # implementation is exactly same across both versions of Kafka.
 
   defdelegate kafka_server_consumer_group(state), to: Server0P8P2
   defdelegate kafka_server_fetch(fetch_request, state), to: Server0P8P2
@@ -57,10 +57,10 @@ defmodule KafkaEx.Server0P9P0 do
     do: raise("ApiVersions is not supported in 0.9.0 version of kafka")
 
   def kafka_server_create_topics(_, _, _state),
-    do: raise("CreateTopic is not supported in 0.9.0 version of kafka")
+    do: raise("CreateTopic is not supported in 0.9.0 version of Kafka")
 
   def kafka_server_delete_topics(_, _, _state),
-    do: raise("DeleteTopic is not supported in 0.9.0 version of kafka")
+    do: raise("DeleteTopic is not supported in 0.9.0 version of Kafka")
 
   def kafka_server_init([args]) do
     kafka_server_init([args, self()])
@@ -280,7 +280,7 @@ defmodule KafkaEx.Server0P9P0 do
     end
   end
 
-  # note within the genserver state, we've already validated the
+  # note within the GenServer state, we've already validated the
   # consumer group, so it can only be either :no_consumer_group or a
   # valid binary consumer group name
   def consumer_group?(%State{consumer_group: :no_consumer_group}), do: false

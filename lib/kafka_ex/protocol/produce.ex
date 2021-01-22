@@ -50,7 +50,7 @@ defmodule KafkaEx.Protocol.Produce do
     @moduledoc """
     - key: is used for partition assignment, can be nil, when none is provided
     it is defaulted to nil
-    - value: is the message to be written to kafka logs.
+    - value: is the message to be written to Kafka logs.
     - timestamp: timestamp (`kafka_version: "kayrock"` ONLY)
     """
     defstruct key: nil, value: nil, timestamp: nil

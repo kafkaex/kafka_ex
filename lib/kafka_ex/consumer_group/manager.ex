@@ -244,7 +244,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   #
   # `JoinGroupResponse` tells each member its unique member ID as well as the
   # group's current generation ID. The broker will pick one group member to be
-  # the leader, which is reponsible for assigning partitions to all of the
+  # the leader, which is responsible for assigning partitions to all of the
   # group members. Once a `JoinGroupResponse` is received, all group members
   # must send a `SyncGroupRequest` (see sync/2).
   defp join(state), do: join(state, 1)
