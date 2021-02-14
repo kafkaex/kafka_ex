@@ -1,11 +1,12 @@
 defmodule KafkaEx.Mixfile do
+  @moduledoc false
   use Mix.Project
 
   def project do
     [
       app: :kafka_ex,
-      version: "0.11.0",
-      elixir: "~> 1.5",
+      version: "0.12.0",
+      elixir: "~> 1.6",
       dialyzer: [
         plt_add_deps: :transitive,
         flags: [
