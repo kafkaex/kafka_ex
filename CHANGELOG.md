@@ -1,6 +1,14 @@
 # KafkaEx Changelog
 
+## 0.12.1
+
+Increases the version of ex_doc to allow publishing
+
+Includes all the 0.12.0 changes.
+
 ## 0.12.0
+
+NOTE: not released due to issues with ex_doc.
 
 ### Breaking Changes
 
