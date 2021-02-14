@@ -51,7 +51,7 @@ defmodule KafkaEx.Mixfile do
     # we need a newer version of ex_doc, but it will cause problems on older
     # versions of elixir
     if Version.match?(System.version(), ">= 1.7.0") do
-      main_deps ++ [{:ex_doc, "~> 0.19", only: :dev}]
+      main_deps ++ [{:ex_doc, "~> 0.23", only: :dev, runtime: false}]
     else
       main_deps
     end
