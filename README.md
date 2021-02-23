@@ -107,7 +107,9 @@ defmodule MyApp.Mixfile do
     [
       # add to your existing deps
       {:kafka_ex, "~> 0.11"},
-      # if using snappy compression
+      # If using snappy-erlang-nif (snappy) compression
+      {:snappy, git: "https://github.com/fdmanana/snappy-erlang-nif"}
+      # if using snappyer (snappy) compression
       {:snappyer, "~> 1.2"}
     ]
   end
@@ -131,7 +133,7 @@ defmodule MyApp.Mixfile do
       applications: [
         # add to existing apps - :logger, etc..
         :kafka_ex,
-        :snappyer # if using snappy compression
+        :snappyer # if using snappyer compression
       ]
     ]
   end
@@ -358,7 +360,7 @@ produce_request = %KafkaEx.Protocol.Produce.Request{
   topic: "test_topic",
   partition: 0,
   required_acks: 1,
-  compression: :snappyer,
+  compression: :snappy,
   messages: messages}
 KafkaEx.produce(produce_request)
 
@@ -480,9 +482,12 @@ The Slack channel is appropriate for quick questions or general design
 discussions.  The Slack discussion is archived at
 [http://slack.elixirhq.com/kafkaex](http://slack.elixirhq.com/kafkaex).
 
-## default snappy algorithm use snappyer package
-It can be changed by using this:
+## default snappy algorithm use snappy-erlang-nif package
+
+It can be changed to snappyer by using this:
 
 ``` elixir
-config :kafka_ex, snappy_module: :snappy
+config :kafka_ex, snappy_module: :snappyer
 ```
+
+Snappy erlang nif is deprecated and will be changed to :snappyer in 1.0.0 release.
