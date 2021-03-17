@@ -118,28 +118,6 @@ end
 
 Then run `mix deps.get` to fetch dependencies.
 
-### Adding the kafka_ex application
-
-When using elixir < 1.4, you will need to add kafka_ex to the applications list of your mix.exs file.
-
-```elixir
-# mix.exs
-defmodule MyApp.Mixfile do
-  # ...
-
-  def application do
-    [
-      mod: {MyApp, []},
-      applications: [
-        # add to existing apps - :logger, etc..
-        :kafka_ex,
-        :snappyer # if using snappyer compression
-      ]
-    ]
-  end
-end
-```
-
 ## Configuration
 
 See [config/config.exs](https://github.com/kafkaex/kafka_ex/blob/master/config/config.exs)
