@@ -63,6 +63,6 @@ defmodule KafkaEx.Compression do
   end
 
   defp snappy_module do
-    Application.get_env(:kafka_ex, :snappy_module, :snappyer)
+    Application.get_env(:kafka_ex, :snappy_module, :snappy)
   end
 end
