@@ -1,5 +1,6 @@
 defmodule KafkaEx.ConsumerGroup.Heartbeat do
   @moduledoc false
+
   # GenServer to send heartbeats to the broker
   #
   # A `HeartbeatRequest` is sent periodically by each active group member (after
