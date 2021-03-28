@@ -15,50 +15,17 @@ defmodule KafkaEx do
   KafkaEx.fetch("some_topic", 0, worker_name: pid)
   ```
   """
+  @behaviour KafkaEx.Behaviour
 
   use Application
   alias KafkaEx.Config
-  alias KafkaEx.Protocol.ConsumerMetadata.Response, as: ConsumerMetadataResponse
-  alias KafkaEx.Protocol.Fetch.Response, as: FetchResponse
   alias KafkaEx.Protocol.Fetch.Request, as: FetchRequest
-  alias KafkaEx.Protocol.Heartbeat.Request, as: HeartbeatRequest
-  alias KafkaEx.Protocol.Heartbeat.Response, as: HeartbeatResponse
-  alias KafkaEx.Protocol.JoinGroup.Request, as: JoinGroupRequest
-  alias KafkaEx.Protocol.JoinGroup.Response, as: JoinGroupResponse
-  alias KafkaEx.Protocol.LeaveGroup.Request, as: LeaveGroupRequest
-  alias KafkaEx.Protocol.LeaveGroup.Response, as: LeaveGroupResponse
-  alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
   alias KafkaEx.Protocol.Offset.Response, as: OffsetResponse
-  alias KafkaEx.Protocol.OffsetCommit.Request, as: OffsetCommitRequest
-  alias KafkaEx.Protocol.OffsetCommit.Response, as: OffsetCommitResponse
   alias KafkaEx.Protocol.OffsetFetch.Response, as: OffsetFetchResponse
   alias KafkaEx.Protocol.OffsetFetch.Request, as: OffsetFetchRequest
   alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
   alias KafkaEx.Protocol.Produce.Message
-  alias KafkaEx.Protocol.SyncGroup.Request, as: SyncGroupRequest
-  alias KafkaEx.Protocol.SyncGroup.Response, as: SyncGroupResponse
-  alias KafkaEx.Protocol.CreateTopics.TopicRequest, as: CreateTopicsRequest
-  alias KafkaEx.Protocol.CreateTopics.Response, as: CreateTopicsResponse
-  alias KafkaEx.Protocol.DeleteTopics.Response, as: DeleteTopicsResponse
-  alias KafkaEx.Protocol.ApiVersions.Response, as: ApiVersionsResponse
   alias KafkaEx.Server
-  alias KafkaEx.Stream
-
-  @type uri() :: [{binary | [char], number}]
-  @type worker_init :: [worker_setting]
-  @type ssl_options :: [
-          {:cacertfile, binary}
-          | {:certfile, binary}
-          | {:keyfile, binary}
-          | {:password, binary}
-        ]
-  @type worker_setting ::
-          {:uris, uri}
-          | {:consumer_group, binary | :no_consumer_group}
-          | {:metadata_update_interval, non_neg_integer}
-          | {:consumer_group_update_interval, non_neg_integer}
-          | {:ssl_options, ssl_options}
-          | {:initial_topics, [binary]}
 
   @doc """
   create_worker creates KafkaEx workers
@@ -86,8 +53,7 @@ defmodule KafkaEx do
   {:error, :invalid_consumer_group}
   ```
   """
-  @spec create_worker(atom, KafkaEx.worker_init()) ::
-          Supervisor.on_start_child()
+  @impl true
   def create_worker(name, worker_init \\ []) do
     server_impl = Config.server_impl()
 
@@ -105,10 +71,7 @@ defmodule KafkaEx do
 
   Returns `:ok` on success or `:error` if `worker` is not a valid worker
   """
-  @spec stop_worker(atom | pid) ::
-          :ok
-          | {:error, :not_found}
-          | {:error, :simple_one_for_one}
+  @impl true
   def stop_worker(worker) do
     KafkaEx.Supervisor.stop_child(worker)
   end
@@ -118,7 +81,7 @@ defmodule KafkaEx do
 
   Worker may be an atom or pid.  The default worker is used by default.
   """
-  @spec consumer_group(atom | pid) :: binary | :no_consumer_group
+  @impl true
   def consumer_group(worker \\ Config.default_worker()) do
     Server.call(worker, :consumer_group)
   end
@@ -126,7 +89,7 @@ defmodule KafkaEx do
   @doc """
   Sends a request to join a consumer group.
   """
-  @spec join_group(JoinGroupRequest.t(), Keyword.t()) :: JoinGroupResponse.t()
+  @impl true
   def join_group(request, opts \\ []) do
     worker_name = Keyword.get(opts, :worker_name, Config.default_worker())
     timeout = Keyword.get(opts, :timeout)
@@ -136,7 +99,7 @@ defmodule KafkaEx do
   @doc """
   Sends a request to synchronize with a consumer group.
   """
-  @spec sync_group(SyncGroupRequest.t(), Keyword.t()) :: SyncGroupResponse.t()
+  @impl true
   def sync_group(request, opts \\ []) do
     worker_name = Keyword.get(opts, :worker_name, Config.default_worker())
     timeout = Keyword.get(opts, :timeout)
@@ -146,8 +109,7 @@ defmodule KafkaEx do
   @doc """
   Sends a request to leave a consumer group.
   """
-  @spec leave_group(LeaveGroupRequest.t(), Keyword.t()) ::
-          LeaveGroupResponse.t()
+  @impl true
   def leave_group(request, opts \\ []) do
     worker_name = Keyword.get(opts, :worker_name, Config.default_worker())
     timeout = Keyword.get(opts, :timeout)
@@ -157,7 +119,7 @@ defmodule KafkaEx do
   @doc """
   Sends a heartbeat to maintain membership in a consumer group.
   """
-  @spec heartbeat(HeartbeatRequest.t(), Keyword.t()) :: HeartbeatResponse.t()
+  @impl true
   def heartbeat(request, opts \\ []) do
     worker_name = Keyword.get(opts, :worker_name, Config.default_worker())
     timeout = Keyword.get(opts, :timeout)
@@ -184,14 +146,14 @@ defmodule KafkaEx do
      topic: "foo"}]}
   ```
   """
-  @spec metadata(Keyword.t()) :: MetadataResponse.t()
+  @impl true
   def metadata(opts \\ []) do
     worker_name = Keyword.get(opts, :worker_name, Config.default_worker())
     topic = Keyword.get(opts, :topic, "")
     Server.call(worker_name, {:metadata, topic}, opts)
   end
 
-  @spec consumer_group_metadata(atom, binary) :: ConsumerMetadataResponse.t()
+  @impl true
   def consumer_group_metadata(worker_name, supplied_consumer_group) do
     Server.call(
       worker_name,
@@ -209,8 +171,7 @@ defmodule KafkaEx do
   [%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offsets: [16], partition: 0}], topic: "foo"}]
   ```
   """
-  @spec latest_offset(binary, integer, atom | pid) ::
-          [OffsetResponse.t()] | :topic_not_found
+  @impl true
   def latest_offset(topic, partition, name \\ Config.default_worker()),
     do: offset(topic, partition, :latest, name)
 
@@ -224,8 +185,7 @@ defmodule KafkaEx do
   [%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offset: [0], partition: 0}], topic: "foo"}]
   ```
   """
-  @spec earliest_offset(binary, integer, atom | pid) ::
-          [OffsetResponse.t()] | :topic_not_found
+  @impl true
   def earliest_offset(topic, partition, name \\ Config.default_worker()),
     do: offset(topic, partition, :earliest, name)
 
@@ -239,12 +199,7 @@ defmodule KafkaEx do
   [%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offset: [256], partition: 0}], topic: "foo"}]
   ```
   """
-  @spec offset(
-          binary,
-          number,
-          :calendar.datetime() | :earliest | :latest,
-          atom | pid
-        ) :: [OffsetResponse.t()] | :topic_not_found
+  @impl true
   def offset(topic, partition, time, name \\ Config.default_worker()) do
     Server.call(name, {:offset, topic, partition, time})
   end
@@ -281,8 +236,7 @@ defmodule KafkaEx do
   ]
   ```
   """
-  @spec fetch(binary, number, Keyword.t()) ::
-          [FetchResponse.t()] | :topic_not_found
+  @impl true
   def fetch(topic, partition, opts \\ []) do
     worker_name = Keyword.get(opts, :worker_name, Config.default_worker())
     supplied_offset = Keyword.get(opts, :offset)
@@ -319,15 +273,12 @@ defmodule KafkaEx do
     )
   end
 
-  @spec offset_commit(atom, OffsetCommitRequest.t()) :: [
-          OffsetCommitResponse.t()
-        ]
+  @impl true
   def offset_commit(worker_name, offset_commit_request) do
     Server.call(worker_name, {:offset_commit, offset_commit_request})
   end
 
-  @spec offset_fetch(atom, OffsetFetchRequest.t()) ::
-          [OffsetFetchResponse.t()] | :topic_not_found
+  @impl true
   def offset_fetch(worker_name, offset_fetch_request) do
     Server.call(worker_name, {:offset_fetch, offset_fetch_request})
   end
@@ -347,15 +298,7 @@ defmodule KafkaEx do
   {:ok, 9773}
   ```
   """
-  @spec produce(ProduceRequest.t(), Keyword.t()) ::
-          nil
-          | :ok
-          | {:ok, integer}
-          | {:error, :closed}
-          | {:error, :inet.posix()}
-          | {:error, any}
-          | iodata
-          | :leader_not_available
+  @impl true
   def produce(produce_request, opts \\ []) do
     worker_name = Keyword.get(opts, :worker_name, Config.default_worker())
     Server.call(worker_name, {:produce, produce_request}, opts)
@@ -382,15 +325,7 @@ defmodule KafkaEx do
   {:ok, 9771}
   ```
   """
-  @spec produce(binary, number, binary, Keyword.t()) ::
-          nil
-          | :ok
-          | {:ok, integer}
-          | {:error, :closed}
-          | {:error, :inet.posix()}
-          | {:error, any}
-          | iodata
-          | :leader_not_available
+  @impl true
   def produce(topic, partition, value, opts \\ []) do
     key = Keyword.get(opts, :key, "")
     required_acks = Keyword.get(opts, :required_acks, 0)
@@ -533,7 +468,7 @@ defmodule KafkaEx do
   achieve offsets stored in kafka (instead of zookeeper) and messages fetched
   with timestamps.
   """
-  @spec stream(binary, integer, Keyword.t()) :: KafkaEx.Stream.t()
+  @impl true
   def stream(topic, partition, opts \\ []) do
     auto_commit = Keyword.get(opts, :auto_commit, true)
     consumer_group = Keyword.get(opts, :consumer_group)
@@ -598,9 +533,7 @@ defmodule KafkaEx do
     `KafkaEx.Server0P10AndLater`, `KafkaEx.New.Client`.  Defaults to the value
     determined by the `kafka_version` setting.
   """
-  @spec start_link_worker(atom, [
-          KafkaEx.worker_setting() | {:server_impl, module}
-        ]) :: GenServer.on_start()
+  @impl true
   def start_link_worker(name, worker_init \\ []) do
     {server_impl, worker_init} =
       Keyword.pop(worker_init, :server_impl, Config.server_impl())
@@ -618,8 +551,7 @@ defmodule KafkaEx do
 
   Note this happens automatically when using `KafkaEx.create_worker`.
   """
-  @spec build_worker_options(worker_init) ::
-          {:ok, worker_init} | {:error, :invalid_consumer_group}
+  @impl true
   def build_worker_options(worker_init) do
     defaults = [
       uris: Config.brokers(),
@@ -666,7 +598,7 @@ defmodule KafkaEx do
   @doc """
   Returns true if the input is a valid consumer group or :no_consumer_group
   """
-  @spec valid_consumer_group?(any) :: boolean
+  @impl true
   def valid_consumer_group?(:no_consumer_group), do: true
   def valid_consumer_group?(b) when is_binary(b), do: byte_size(b) > 0
   def valid_consumer_group?(_), do: false
@@ -674,7 +606,7 @@ defmodule KafkaEx do
   @doc """
   Retrieve supported api versions for each api key.
   """
-  @spec api_versions(Keyword.t()) :: ApiVersionsResponse.t()
+  @impl true
   def api_versions(opts \\ []) do
     worker_name = Keyword.get(opts, :worker_name, Config.default_worker())
     Server.call(worker_name, {:api_versions})
@@ -684,8 +616,7 @@ defmodule KafkaEx do
   Create topics. Must provide a list of CreateTopicsRequest, each containing
   all the information needed for the creation of a new topic.
   """
-  @spec create_topics([CreateTopicsRequest.t()], Keyword.t()) ::
-          CreateTopicsResponse.t()
+  @impl true
   def create_topics(requests, opts \\ []) do
     worker_name = Keyword.get(opts, :worker_name, Config.default_worker())
     timeout = Keyword.get(opts, :timeout)
@@ -695,7 +626,7 @@ defmodule KafkaEx do
   @doc """
   Delete topics. Must provide a list of topic names.
   """
-  @spec delete_topics([String.t()], Keyword.t()) :: DeleteTopicsResponse.t()
+  @impl true
   def delete_topics(topics, opts \\ []) do
     worker_name = Keyword.get(opts, :worker_name, Config.default_worker())
     timeout = Keyword.get(opts, :timeout)
