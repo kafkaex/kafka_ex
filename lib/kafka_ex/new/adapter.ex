@@ -220,7 +220,7 @@ defmodule KafkaEx.New.Adapter do
   def fetch_response(%{responses: []}) do
     Logger.log(
       :error,
-      "Not able to retrieve the last offset, the kafka server is probably throttling your requests"
+      "Not able to retrieve the last offset, the Kafka server is probably throttling your requests"
     )
 
     {[], nil}

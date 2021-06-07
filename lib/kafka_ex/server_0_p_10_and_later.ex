@@ -1,6 +1,6 @@
 defmodule KafkaEx.Server0P10AndLater do
   @moduledoc """
-  Implements kafkaEx.Server behaviors for kafka 0.10.1 API.
+  Implements KafkaEx.Server behaviors for Kafka 0.10.1 API.
   """
   use KafkaEx.Server
   alias KafkaEx.Config

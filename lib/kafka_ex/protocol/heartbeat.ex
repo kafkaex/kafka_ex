@@ -1,6 +1,6 @@
 defmodule KafkaEx.Protocol.Heartbeat do
   @moduledoc """
-  Implementation of the Kafka Hearbeat request and response APIs
+  Implementation of the Kafka Heartbeat request and response APIs
   """
 
   defmodule Request do

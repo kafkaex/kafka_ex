@@ -1,6 +1,6 @@
 defmodule KafkaEx.Server0P8P2 do
   @moduledoc """
-  Implements kafkaEx.Server behaviors for kafka >= 0.8.2 < 0.9.0 API.
+  Implements KafkaEx.Server behaviors for kafka >= 0.8.2 < 0.9.0 API.
   """
 
   # these functions aren't implemented for 0.8.2

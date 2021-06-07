@@ -224,7 +224,7 @@ defmodule KafkaEx.ConsumerGroup do
   Returns true if this consumer is the leader of the consumer group
 
   Leaders are elected by the broker and are responsible for assigning
-  partitions.  Returns false if queried before the intiial sync has completed.
+  partitions.  Returns false if queried before the initial sync has completed.
   """
   @spec leader?(Supervisor.supervisor(), timeout) :: boolean
   def leader?(supervisor_pid, timeout \\ 5000) do

@@ -19,7 +19,7 @@ defmodule KafkaEx.GenConsumer.Supervisor do
   Starts a `GenConsumer.Supervisor` process linked to the current process.
 
   `gen_consumer_module` is a module that implements the `GenServer` behaviour
-  which consumes events from kafka.
+  which consumes events from Kafka.
   `consumer_module` is a module that implements the `GenConsumer` behaviour.
   `group_name` is the name of a consumer group, and `assignments` is a list of
   partitions for the `GenConsumer`s to consume.  `opts` accepts the same

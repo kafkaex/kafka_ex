@@ -65,7 +65,7 @@ defmodule KafkaEx.Config do
     for line <- String.split(csv, ","), into: [] do
       case line |> trim() |> String.split(":") do
         [host] ->
-          msg = "Port not set for kafka broker #{host}"
+          msg = "Port not set for Kafka broker #{host}"
           Logger.warn(msg)
           raise msg
 

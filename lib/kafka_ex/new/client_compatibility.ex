@@ -3,7 +3,7 @@ defmodule KafkaEx.New.ClientCompatibility do
 
   # this module gets injected into the new client to ensure compatibility with
   # old "KafkaEx.Server" API - any work that is done to support that
-  # compatibilshould be limited to this module, with the intention that this
+  # compatibility should be limited to this module, with the intention that this
   # module can be removed once we drop compatibility for the old API
 
   alias KafkaEx.New.Adapter

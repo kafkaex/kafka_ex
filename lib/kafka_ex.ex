@@ -68,7 +68,7 @@ defmodule KafkaEx do
   - uris: List of brokers in `{"host", port}` or comma separated value `"host:port,host:port"` form, defaults to `Application.get_env(:kafka_ex, :brokers)`
   - metadata_update_interval: How often `kafka_ex` would update the Kafka cluster metadata information in milliseconds, default is 30000
   - consumer_group_update_interval: How often `kafka_ex` would update the Kafka cluster consumer_groups information in milliseconds, default is 30000
-  - use_ssl: Boolean flag specifying if ssl should be used for the connection by the worker to kafka, default is false
+  - use_ssl: Boolean flag specifying if ssl should be used for the connection by the worker to Kafka, default is false
   - ssl_options: see SSL OPTION DESCRIPTIONS - CLIENT SIDE at http://erlang.org/doc/man/ssl.html, default is []
 
   Returns `{:error, error_description}` on invalid arguments
@@ -262,7 +262,7 @@ defmodule KafkaEx do
   - wait_time: maximum amount of time in milliseconds to block waiting if insufficient data is available at the time the request is issued. Default is 10
   - min_bytes: minimum number of bytes of messages that must be available to give a response. If the client sets this to 0 the server will always respond immediately, however if there is no new data since their last request they will just get back empty message sets. If this is set to 1, the server will respond as soon as at least one partition has at least 1 byte of data or the specified timeout occurs. By setting higher values in combination with the timeout the consumer can tune for throughput and trade a little additional latency for reading only large chunks of data (e.g. setting wait_time to 100 and setting min_bytes 64000 would allow the server to wait up to 100ms to try to accumulate 64k of data before responding). Default is 1
   - max_bytes: maximum bytes to include in the message set for this partition. This helps bound the size of the response. Default is 1,000,000
-  - auto_commit: specifies if the last offset should be commited or not. Default is true. You must set this to false when using Kafka < 0.8.2 or `:no_consumer_group`.
+  - auto_commit: specifies if the last offset should be committed or not. Default is true. You must set this to false when using Kafka < 0.8.2 or `:no_consumer_group`.
   - api_version: Version of the Fetch API message to send (Kayrock client only, default: 0)
   - offset_commit_api_version: Version of the OffsetCommit API message to send
     (Kayrock client only, only relevant for auto commit, default: 0, use 2+ to
@@ -362,7 +362,7 @@ defmodule KafkaEx do
   end
 
   @doc """
-  Produces messages to kafka logs (this is deprecated, use KafkaEx.produce/2 instead)
+  Produces messages to Kafka logs (this is deprecated, use KafkaEx.produce/2 instead)
   Optional arguments(KeywordList)
   - worker_name: the worker we want to run this metadata request through, when none is provided the default worker `:kafka_ex` is used
   - key: is used for partition assignment, can be nil, when none is provided it is defaulted to nil
@@ -530,7 +530,7 @@ defmodule KafkaEx do
   `:offset_fetch`, and `:offset_commit` when using the Kayrock client.  Defaults to
   `%{fetch: 0, offset_fetch: 0, offset_commit: 0}`.  Use
   `%{fetch: 3, offset_fetch: 3, offset_commit: 3}` with the kayrock client to
-  achieve offsets stored in kafka (instead of zookeeper) and messages fetched
+  achieve offsets stored in Kafka (instead of zookeeper) and messages fetched
   with timestamps.
   """
   @spec stream(binary, integer, Keyword.t()) :: KafkaEx.Stream.t()

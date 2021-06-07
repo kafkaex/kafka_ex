@@ -64,7 +64,7 @@ or using KafkaEx by fetching the offsets using v0 and then committing them using
 v1.  We may provide a tool for this in the future.
 
 Likewise, once you store offsets in Kafka, they cannot be fetched using v0 of
-the offet fetch message.  If you need to "roll back" storage from Kafka to
+the offset fetch message.  If you need to "roll back" storage from Kafka to
 Zookeeper, you will need to convert the offsets first.
 
 ### Examples
@@ -192,7 +192,7 @@ message.timestamp # => log append timestamp in milliseconds
 ```
 
 Note that the `KafkaEx.ConsumerGroup` `api_versions` option also supports
-setting a versino for `fetch`:
+setting a version for `fetch`:
 
 ```
 # use new record batch format AND kafka offset storage with consumer groups
