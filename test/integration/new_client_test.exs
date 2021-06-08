@@ -9,6 +9,8 @@ defmodule KafkaEx.New.Client.Test do
   alias KafkaEx.New.NodeSelector
 
   alias Kayrock.RecordBatch
+  alias Kayrock.RecordBatch.Record
+  alias Kayrock.RecordBatch.RecordHeader
 
   @moduletag :new_client
 
@@ -100,6 +102,62 @@ defmodule KafkaEx.New.Client.Test do
 
     {:ok, offset_after} = KafkaExAPI.latest_offset(client, topic, partition)
     assert offset_after == offset_before + 3
+  end
+
+  test "produce with record headers (new message format)", %{client: client} do
+    topic = "test0p8p0"
+    partition = 1
+
+    {:ok, offset_before} = KafkaExAPI.latest_offset(client, topic, partition)
+
+    headers = [
+      %RecordHeader{key: "source", value: "System-X"},
+      %RecordHeader{key: "type", value: "HeaderCreatedEvent"}
+    ]
+
+    records = [
+      %Record{
+        headers: headers,
+        key: "key-0001",
+        value: "msg value for key 0001"
+      }
+    ]
+
+    record_batch = %RecordBatch{
+      attributes: 0,
+      records: records
+    }
+
+    request = %Kayrock.Produce.V1.Request{
+      acks: -1,
+      timeout: 1000,
+      topic_data: [
+        %{
+          topic: topic,
+          data: [
+            %{partition: partition, record_set: record_batch}
+          ]
+        }
+      ]
+    }
+
+    {:ok, response} =
+      Client.send_request(
+        client,
+        request,
+        NodeSelector.topic_partition(topic, partition)
+      )
+
+    %Kayrock.Produce.V1.Response{responses: [topic_response]} = response
+    assert topic_response.topic == topic
+
+    [%{partition: ^partition, error_code: error_code}] =
+      topic_response.partition_responses
+
+    assert error_code == 0
+
+    {:ok, offset_after} = KafkaExAPI.latest_offset(client, topic, partition)
+    assert offset_after == offset_before + 1
   end
 
   test "client can receive {:ssl_closed, _}", %{client: client} do

@@ -186,6 +186,59 @@ defmodule KafkaEx.KayrockRecordBatchTest do
     assert message.offset == offset
   end
 
+  test "can specify protocol version for produce - v5 with headers", %{
+    client: client
+  } do
+    topic = "food"
+
+    record_headers = [
+      {"theHeaderKeyI", "theHeaderValueI"},
+      {"theHeaderKeyII", "theHeaderValueII"}
+    ]
+
+    msg = %KafkaEx.Protocol.Produce.Message{
+      key: "theKey",
+      value: "theValue",
+      headers: record_headers,
+      timestamp: nil
+    }
+
+    request = %KafkaEx.Protocol.Produce.Request{
+      topic: topic,
+      partition: 0,
+      required_acks: 1,
+      timeout: 100,
+      compression: :none,
+      messages: [msg],
+      api_version: 3
+    }
+
+    {:ok, offset} =
+      KafkaEx.produce(
+        request,
+        worker_name: client,
+        required_acks: 1,
+        api_version: 3
+      )
+
+    fetch_responses =
+      KafkaEx.fetch(topic, 0,
+        offset: offset,
+        auto_commit: false,
+        worker_name: client,
+        api_version: 5
+      )
+
+    [fetch_response | _] = fetch_responses
+    [partition_response | _] = fetch_response.partitions
+    message = List.last(partition_response.message_set)
+
+    assert message.key == "theKey"
+    assert message.value == "theValue"
+    assert message.headers == record_headers
+    assert message.offset == offset
+  end
+
   test "gzip compression - produce v0, fetch v3", %{client: client} do
     topic = "food"
     msg = TestHelper.generate_random_string()
@@ -203,7 +256,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     fetch_responses =
       KafkaEx.fetch(topic, 0,
-        offset: max(offset - 2, 0),
+        offset: offset,
         auto_commit: false,
         worker_name: client,
         api_version: 3
@@ -234,7 +287,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     fetch_responses =
       KafkaEx.fetch(topic, 0,
-        offset: max(offset - 2, 0),
+        offset: offset,
         auto_commit: false,
         worker_name: client,
         api_version: 5
@@ -265,7 +318,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     fetch_responses =
       KafkaEx.fetch(topic, 0,
-        offset: max(offset - 2, 0),
+        offset: offset,
         auto_commit: false,
         worker_name: client,
         api_version: 0
@@ -296,7 +349,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     fetch_responses =
       KafkaEx.fetch(topic, 0,
-        offset: max(offset - 2, 0),
+        offset: offset,
         auto_commit: false,
         worker_name: client,
         api_version: 0
@@ -327,7 +380,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     fetch_responses =
       KafkaEx.fetch(topic, 0,
-        offset: max(offset - 2, 0),
+        offset: offset,
         auto_commit: false,
         worker_name: client,
         api_version: 0
@@ -358,7 +411,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     fetch_responses =
       KafkaEx.fetch(topic, 0,
-        offset: max(offset - 2, 0),
+        offset: offset,
         auto_commit: false,
         worker_name: client,
         api_version: 3
@@ -389,7 +442,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     fetch_responses =
       KafkaEx.fetch(topic, 0,
-        offset: max(offset - 2, 0),
+        offset: offset,
         auto_commit: false,
         worker_name: client,
         api_version: 5
@@ -420,7 +473,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     fetch_responses =
       KafkaEx.fetch(topic, 0,
-        offset: max(offset - 2, 0),
+        offset: offset,
         auto_commit: false,
         worker_name: client,
         api_version: 0
@@ -451,7 +504,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     fetch_responses =
       KafkaEx.fetch(topic, 0,
-        offset: max(offset - 2, 0),
+        offset: offset,
         auto_commit: false,
         worker_name: client,
         api_version: 0
@@ -482,7 +535,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
     fetch_responses =
       KafkaEx.fetch(topic, 0,
-        offset: max(offset - 2, 0),
+        offset: offset,
         auto_commit: false,
         worker_name: client,
         api_version: 0
