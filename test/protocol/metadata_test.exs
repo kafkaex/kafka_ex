@@ -4,7 +4,7 @@ defmodule KafkaEx.Protocol.Metadata.Test do
   test "create_request with no topics creates a valid metadata request" do
     good_request = <<3::16, 0::16, 1::32, 3::16, "foo"::binary, 0::32>>
     request = KafkaEx.Protocol.Metadata.create_request(1, "foo", [])
-    assert request == good_request
+    assert :erlang.iolist_to_binary(request) == good_request
   end
 
   test "create_request with a single topic creates a valid metadata request" do
@@ -12,7 +12,7 @@ defmodule KafkaEx.Protocol.Metadata.Test do
       <<3::16, 0::16, 1::32, 3::16, "foo"::binary, 1::32, 3::16, "bar"::binary>>
 
     request = KafkaEx.Protocol.Metadata.create_request(1, "foo", ["bar"])
-    assert request == good_request
+    assert :erlang.iolist_to_binary(request) == good_request
   end
 
   test "create_request with a multiple topics creates a valid metadata request" do
@@ -23,7 +23,7 @@ defmodule KafkaEx.Protocol.Metadata.Test do
     request =
       KafkaEx.Protocol.Metadata.create_request(1, "foo", ["bar", "baz", "food"])
 
-    assert request == good_request
+    assert :erlang.iolist_to_binary(request) == good_request
   end
 
   test "parse_response correctly parses a valid response" do

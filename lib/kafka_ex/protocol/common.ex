@@ -7,10 +7,10 @@ defmodule KafkaEx.Protocol.Common do
   @doc """
   Generate the wire representation for a list of topics.
   """
-  def topic_data([]), do: <<>>
+  def topic_data([]), do: []
 
   def topic_data([topic | topics]) do
-    <<byte_size(topic)::16-signed, topic::binary>> <> topic_data(topics)
+    [<<byte_size(topic)::16-signed, topic::binary>> | topic_data(topics)]
   end
 
   def parse_topics(0, _, _), do: []

@@ -31,7 +31,7 @@ defmodule KafkaEx.Protocol.Heartbeat.Test do
         heartbeat_request
       )
 
-    assert request == good_request
+    assert :erlang.iolist_to_binary(request) == good_request
   end
 
   test "parse success response correctly" do

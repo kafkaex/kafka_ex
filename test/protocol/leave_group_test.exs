@@ -25,7 +25,7 @@ defmodule KafkaEx.Protocol.LeaveGroup.Test do
     request =
       KafkaEx.Protocol.LeaveGroup.create_request(42, "client_id", leave_request)
 
-    assert request == good_request
+    assert :erlang.iolist_to_binary(request) == good_request
   end
 
   test "parse_response parses successful response correctly" do

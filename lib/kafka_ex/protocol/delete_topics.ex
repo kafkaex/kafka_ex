@@ -53,9 +53,11 @@ defmodule KafkaEx.Protocol.DeleteTopics do
       )
 
   def create_request(correlation_id, client_id, delete_topics_request, 0) do
-    Protocol.create_request(:delete_topics, correlation_id, client_id) <>
-      encode_topics(delete_topics_request.topics) <>
+    [
+      Protocol.create_request(:delete_topics, correlation_id, client_id),
+      encode_topics(delete_topics_request.topics),
       <<delete_topics_request.timeout::32-signed>>
+    ]
   end
 
   @spec encode_topics([String.t()]) :: binary

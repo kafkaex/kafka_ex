@@ -4,7 +4,7 @@ defmodule KafkaEx.Protocol.ConsumerMetadata.Test do
   test "create_request creates a valid consumer metadata request" do
     good_request = <<10::16, 0::16, 1::32, 3::16, "foo", 2::16, "we">>
     request = KafkaEx.Protocol.ConsumerMetadata.create_request(1, "foo", "we")
-    assert request == good_request
+    assert :erlang.iolist_to_binary(request) == good_request
   end
 
   test "parse_response correctly parses a valid response" do
