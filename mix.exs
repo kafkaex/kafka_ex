@@ -22,6 +22,7 @@ defmodule KafkaEx.Mixfile do
       description: description(),
       package: package(),
       deps: deps(),
+      dialyzer: dialyzer(),
       docs: [
         main: "readme",
         extras: [
@@ -73,6 +74,13 @@ defmodule KafkaEx.Mixfile do
       files: ["lib", "config/config.exs", "mix.exs", "README.md"],
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url}
+    ]
+  end
+
+  defp dialyzer do
+    [
+      plt_core_path: "priv/plts",
+      plt_file: {:no_warn, "priv/plts/dialyzer.plt"}
     ]
   end
 end

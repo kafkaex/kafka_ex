@@ -17,8 +17,6 @@ services:
     image: wurstmeister/kafka:0.11.0.1
     ports:
       - "9093:9093"
-    depends_on:
-      - zookeeper
     volumes:
       - ./ssl:/ssl
       - ./scripts/kafka_check_health:/kafka_check_health
@@ -43,8 +41,6 @@ services:
     image: wurstmeister/kafka:0.11.0.1
     ports:
       - "9094:9094"
-    depends_on:
-      - zookeeper
     volumes:
       - ./ssl:/ssl
       - ./scripts/kafka_check_health:/kafka_check_health
@@ -69,8 +65,6 @@ services:
     image: wurstmeister/kafka:0.11.0.1
     ports:
       - "9095:9095"
-    depends_on:
-      - zookeeper
     volumes:
       - ./ssl:/ssl
       - ./scripts/kafka_check_health:/kafka_check_health
