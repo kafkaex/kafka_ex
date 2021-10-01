@@ -274,7 +274,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
         timeout: session_timeout + session_timeout_padding
       )
 
-    # crash the worker if we recieve an error, but do it with a meaningful
+    # crash the worker if we receive an error, but do it with a meaningful
     # error message
     case join_response do
       %{error_code: :no_error} ->
