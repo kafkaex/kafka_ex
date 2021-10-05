@@ -145,7 +145,7 @@ and some code to handle `api_version` in the opts:
 
 ```
 def get_broker_config_values(client, config_names, broker_id, opts \\ []) do
-  api_version = Keywork.get(opts, :api_version, 0)
+  api_version = Keyword.get(opts, :api_version, 0)
   # a setting in v1+
   include_synonyms = Keyword.get(opts, :include_synonyms, false)
 
