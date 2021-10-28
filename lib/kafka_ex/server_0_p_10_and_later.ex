@@ -163,29 +163,6 @@ defmodule KafkaEx.Server0P10AndLater do
     {:ok, state}
   end
 
-  def kafka_server_metadata(topic, state) do
-    {correlation_id, metadata} =
-      retrieve_metadata(
-        state.brokers,
-        state.correlation_id,
-        config_sync_timeout(),
-        topic,
-        state.api_versions
-      )
-
-    updated_state = %{
-      state
-      | metadata: metadata,
-        correlation_id: correlation_id
-    }
-
-    {:reply, metadata, updated_state}
-  end
-
-  def kafka_server_update_metadata(state) do
-    {:noreply, update_metadata(state)}
-  end
-
   def kafka_server_api_versions(state) do
     response =
       state.correlation_id
