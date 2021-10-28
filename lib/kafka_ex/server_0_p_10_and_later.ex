@@ -268,13 +268,17 @@ defmodule KafkaEx.Server0P10AndLater do
     {:reply, response, state}
   end
 
-  defp request_to_controller(main_request, state) do
+  defp request_to_controller(main_request, stale_state) do
+    # We need to make sure that the metadata is up to date,
+    # to maximize the chance that the controller hasn't switched
+    # to another broker.
+    state = update_metadata(stale_state)
     broker = state.brokers |> Enum.find(& &1.is_controller)
 
     case broker do
       nil ->
-        Logger.log(:error, "Coordinator for topic is not available")
-        {:topic_not_found, state}
+        Logger.log(:error, "Can't find the controller broker")
+        {:controller_broker_not_found, state}
 
       _ ->
         broker
