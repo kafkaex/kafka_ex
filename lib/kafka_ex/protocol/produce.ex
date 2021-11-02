@@ -58,7 +58,7 @@ defmodule KafkaEx.Protocol.Produce do
     @type t :: %Message{
             key: binary,
             value: binary,
-            headers: list(),
+            headers: [{key::binary, value::binary}],
             timestamp: integer
           }
   end
