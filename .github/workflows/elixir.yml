@@ -17,8 +17,8 @@ jobs:
       MIX_ENV: dev
     strategy:
       matrix:
-        elixir: [ 1.12.3 ]
-        otp: [ 23.3.4 ]
+        elixir: [ 1.9.4 ]
+        otp: [ 22.3.3]
     steps:
       - uses: actions/checkout@v2
       - uses: erlef/setup-beam@v1
