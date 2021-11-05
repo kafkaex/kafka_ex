@@ -10,13 +10,7 @@ defmodule KafkaEx.Mixfile do
       app: :kafka_ex,
       version: @version,
       elixir: "~> 1.6",
-      dialyzer: [
-        plt_add_deps: :transitive,
-        flags: [
-          :error_handling,
-          :race_conditions
-        ]
-      ],
+      dialyzer: dialyzer(),
       test_coverage: [tool: ExCoveralls],
       preferred_cli_env: [coveralls: :test],
       description: description(),
@@ -61,6 +55,18 @@ defmodule KafkaEx.Mixfile do
     else
       main_deps
     end
+  end
+
+  def dialyzer do
+    [
+      plt_add_deps: :transitive,
+      plt_core_path: "priv/plts",
+      plt_file: {:no_warn, "priv/plts/dialyzer.plt"},
+      flags: [
+        :error_handling,
+        :race_conditions
+      ]
+    ]
   end
 
   defp description do
