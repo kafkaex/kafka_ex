@@ -297,9 +297,21 @@ defmodule KafkaEx do
     api_version = Keyword.get(opts, :api_version, 0)
     # same for offset_commit_api_version
     offset_commit_api_version = Keyword.get(opts, :offset_commit_api_version, 0)
+    # By default, it makes sense to synchronize the API version of the offset_commit and the offset_fetch
+    # operations, otherwise we might commit the offsets in zookeeper and read them from Kafka, meaning
+    # that the value would be incorrect.
+    offset_fetch_api_version = Keyword.get(opts, :offset_fetch_api_version, offset_commit_api_version)
+
 
     retrieved_offset =
-      current_offset(supplied_offset, partition, topic, worker_name)
+      current_offset(
+        supplied_offset,
+        partition,
+        topic,
+        worker_name,
+        offset_fetch_api_version,
+        nil
+      )
 
     Server.call(
       worker_name,
@@ -547,25 +559,17 @@ defmodule KafkaEx do
     default_api_versions = %{fetch: 0, offset_fetch: 0, offset_commit: 0}
     api_versions = Keyword.get(opts, :api_versions, %{})
     api_versions = Map.merge(default_api_versions, api_versions)
+    offset_fetch_api_version = Map.fetch!(api_versions, :offset_fetch)
 
     retrieved_offset =
-      if consumer_group && !supplied_offset do
-        request = %OffsetFetchRequest{
-          topic: topic,
-          partition: partition,
-          consumer_group: consumer_group,
-          api_version: Map.fetch!(api_versions, :offset_fetch)
-        }
-
-        fetched_offset =
-          worker_name
-          |> KafkaEx.offset_fetch(request)
-          |> KafkaEx.Protocol.OffsetFetch.Response.last_offset()
-
-        fetched_offset + 1
-      else
-        current_offset(supplied_offset, partition, topic, worker_name)
-      end
+      current_offset(
+        supplied_offset,
+        partition,
+        topic,
+        worker_name,
+        offset_fetch_api_version,
+        consumer_group
+      )
 
     fetch_request = %FetchRequest{
       auto_commit: auto_commit,
@@ -639,27 +643,50 @@ defmodule KafkaEx do
     end
   end
 
-  defp current_offset(supplied_offset, partition, topic, worker_name) do
-    case supplied_offset do
-      nil ->
-        last_offset =
-          worker_name
-          |> offset_fetch(%OffsetFetchRequest{
-            topic: topic,
-            partition: partition
-          })
-          |> OffsetFetchResponse.last_offset()
+  defp current_offset(
+         supplied_offset,
+         partition,
+         topic,
+         worker_name,
+         api_version,
+         consumer_group \\ nil
+       )
 
-        if last_offset < 0 do
-          topic
-          |> earliest_offset(partition, worker_name)
-          |> OffsetResponse.extract_offset()
-        else
-          last_offset + 1
-        end
+  defp current_offset(
+         supplied_offset,
+         _partition,
+         _topic,
+         _worker_name,
+         _api_version,
+         _consumer_group
+       )
+       when not is_nil(supplied_offset),
+       do: supplied_offset
 
-      _ ->
-        supplied_offset
+  defp current_offset(
+         nil,
+         partition,
+         topic,
+         worker_name,
+         api_version,
+         consumer_group
+       ) do
+    last_offset =
+      worker_name
+      |> offset_fetch(%OffsetFetchRequest{
+        topic: topic,
+        partition: partition,
+        api_version: api_version,
+        consumer_group: consumer_group
+      })
+      |> OffsetFetchResponse.last_offset()
+
+    if last_offset < 0 do
+      topic
+      |> earliest_offset(partition, worker_name)
+      |> OffsetResponse.extract_offset()
+    else
+      last_offset + 1
     end
   end
 
