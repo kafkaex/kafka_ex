@@ -51,8 +51,6 @@ defmodule KafkaEx.ConsumerGroup do
     use Application
 
     def start(_type, _args) do
-      import Supervisor.Spec
-
       consumer_group_opts = [
         # setting for the ConsumerGroup
         heartbeat_interval: 1_000,
@@ -66,10 +64,15 @@ defmodule KafkaEx.ConsumerGroup do
 
       children = [
         # ... other children
-        supervisor(
-          KafkaEx.ConsumerGroup,
-          [gen_consumer_impl, consumer_group_name, topic_names, consumer_group_opts]
-        )
+        %{
+          id: KafkaEx.ConsumerGroup,
+          start: {
+            KafkaEx.ConsumerGroup,
+            :start_link,
+            [gen_consumer_impl, consumer_group_name, topic_names, consumer_group_opts]
+          }
+        }
+        # ... other children
       ]
 
       Supervisor.start_link(children, strategy: :one_for_one)
