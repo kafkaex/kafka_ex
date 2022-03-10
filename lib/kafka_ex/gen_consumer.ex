@@ -443,9 +443,9 @@ defmodule KafkaEx.GenConsumer do
     implemented, the default implementation calls to `init/2`, dropping the extra
     arguments.
 
-  Both `:commit_interval` and `:commit_threshold` default to the application
-  config (e.g., `Application.get_env/2`) if that value is present, or the
-  stated default if the application config is not present.
+  **NOTE** `:commit_interval`, `auto_commit_reset` and `:commit_threshold` default to the
+  application config (e.g., `Application.get_env/2`) if that value is present, or the stated
+  default if the application config is not present.
 
   Any valid options for `GenServer.start_link/3` can also be specified.
 
