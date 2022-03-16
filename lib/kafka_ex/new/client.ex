@@ -165,6 +165,13 @@ defmodule KafkaEx.New.Client do
     {:reply, {:ok, topic_metadata}, updated_state}
   end
 
+  def handle_call({:describe_group, consumer_group_name}, _from, state) do
+    {response, updated_state} =
+      describe_group(state, consumer_group_name)
+
+    {:reply, {:ok, response}, updated_state}
+  end
+
   def handle_call({:kayrock_request, request, node_selector}, _from, state) do
     {response, updated_state} =
       kayrock_network_request(request, node_selector, state)
@@ -696,6 +703,121 @@ defmodule KafkaEx.New.Client do
 
     {topic_metadata,
      %{updated_state | allow_auto_topic_creation: allow_auto_topic_creation}}
+  end
+
+  defp describe_group(state, consumer_group_name) do
+    api_version = State.max_supported_api_version(state, :describe_groups, 1)
+
+    node_selector = NodeSelector.consumer_group(consumer_group_name)
+
+    {updated_state, response} =
+      handle_describe_group_request(
+        state,
+        consumer_group_name,
+        api_version,
+        node_selector
+      )
+
+    {response, updated_state}
+  end
+
+  def handle_describe_group_request(
+        state,
+        consumer_group_name,
+        api_version,
+        node_selector
+      ) do
+    handle_describe_group_request(
+      state,
+      consumer_group_name,
+      api_version,
+      node_selector,
+      @retry_count
+    )
+  end
+
+  defp handle_describe_group_request(
+         state,
+         consumer_group_name,
+         api_version,
+         node_selector,
+         retry_count
+       ) do
+    handle_describe_group_request(
+      state,
+      consumer_group_name,
+      api_version,
+      node_selector,
+      retry_count,
+      []
+    )
+  end
+
+  defp handle_describe_group_request(
+         state,
+         consumer_group_name,
+         api_version,
+         node_selector,
+         0,
+         error_list
+       ) do
+    Logger.log(
+      :error,
+      "Describe consumer groups request for #{consumer_group_name} failed with #{inspect(error_list)}"
+    )
+
+    {state, nil}
+  end
+
+  defp handle_describe_group_request(
+         state,
+         consumer_group_name,
+         api_version,
+         node_selector,
+         retry_count,
+         error_list
+       ) do
+    metadata_request = %{
+      Kayrock.DescribeGroups.get_request_struct(api_version)
+      | group_ids: [consumer_group_name]
+    }
+
+    {{ok_or_err, response}, state_out} =
+      kayrock_network_request(
+        metadata_request,
+        node_selector,
+        state
+      )
+
+    case ok_or_err do
+      :ok ->
+        error_list =
+          response.groups
+          |> Enum.filter(&(&1.error_code != 0))
+          |> Enum.map(&Kayrock.ErrorCode.code_to_atom!(&1.error_code))
+
+        if error_list == [] do
+          {state_out, response}
+        else
+          :timer.sleep(300)
+
+          handle_describe_group_request(
+            state,
+            consumer_group_name,
+            api_version,
+            node_selector,
+            retry_count,
+            error_list
+          )
+        end
+
+      other ->
+        Logger.error(
+          "Unable to fetch consumer group metadata for #{consumer_group_name} from any brokers."
+        )
+
+        {state, nil}
+    end
   end
 
   defp close_broker_by_socket(state, socket) do
