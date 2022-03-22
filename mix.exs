@@ -69,6 +69,7 @@ defmodule KafkaEx.Mixfile do
 
   defp package do
     [
+      name: :kafka_ex_fresha,
       maintainers: ["Abejide Ayodele", "Dan Swain", "Jack Lund", "Joshua Scott"],
       files: ["lib", "config/config.exs", "mix.exs", "README.md"],
       licenses: ["MIT"],
