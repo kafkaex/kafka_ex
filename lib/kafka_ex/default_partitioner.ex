@@ -70,10 +70,19 @@ defmodule KafkaEx.DefaultPartitioner do
        ) do
     hash = Murmur.umurmur2(key)
 
-    partitions_count =
-      metadata |> MetadataResponse.partitions_for_topic(topic) |> length()
+    partitions = metadata |> MetadataResponse.partitions_for_topic(topic)
 
-    partition_id = rem(hash, partitions_count)
+    partition_id =
+      case partitions do
+        # Topic doesn't exist yet, no partitions
+        [] ->
+          0
+
+        xs ->
+          partitions_count = xs |> length()
+          rem(hash, partitions_count)
+      end
+
     %{request | partition: partition_id}
   end
 end

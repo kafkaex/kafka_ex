@@ -54,6 +54,18 @@ defmodule KafkaEx.DefaultPartitionerTest do
     assert partition >= 0 and partition < 5
   end
 
+  test "key based assignment when topic does not exist yet" do
+    request = %ProduceRequest{
+      topic: "other_topic",
+      partition: nil,
+      messages: [
+        %ProduceMessage{key: "key", value: "message"}
+      ]
+    }
+
+    %{partition: 0} = DefaultPartitioner.assign_partition(request, metadata(0))
+  end
+
   test "key based assignment" do
     request = %ProduceRequest{
       topic: "test_topic",
