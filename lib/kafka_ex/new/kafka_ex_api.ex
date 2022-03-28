@@ -73,8 +73,16 @@ defmodule KafkaEx.New.KafkaExAPI do
   Returns the cluster metadata from the given client
   """
   @spec cluster_metadata(client) :: {:ok, ClusterMetadata.t()}
-  def(cluster_metadata(client)) do
+  def cluster_metadata(client) do
     GenServer.call(client, :cluster_metadata)
+  end
+
+  @doc """
+  Sends a request to describe a group identified by its name.
+  """
+  @spec describe_group(binary, Keyword.t()) :: term
+  def describe_group(client, consumer_group_name) do
+    GenServer.call(client, {:describe_group, consumer_group_name})
   end
 
   @doc """

@@ -166,8 +166,7 @@ defmodule KafkaEx.New.Client do
   end
 
   def handle_call({:describe_group, consumer_group_name}, _from, state) do
-    {response, updated_state} =
-      describe_group(state, consumer_group_name)
+    {response, updated_state} = describe_group(state, consumer_group_name)
 
     {:reply, {:ok, response}, updated_state}
   end

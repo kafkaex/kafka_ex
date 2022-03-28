@@ -22,6 +22,7 @@ defmodule KafkaEx.Mixfile do
       description: description(),
       package: package(),
       deps: deps(),
+      elixirc_paths: elixirc_paths(Mix.env()),
       docs: [
         main: "readme",
         extras: [
@@ -75,4 +76,7 @@ defmodule KafkaEx.Mixfile do
       links: %{"GitHub" => @source_url}
     ]
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
 end

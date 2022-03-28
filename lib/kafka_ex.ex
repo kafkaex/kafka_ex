@@ -200,19 +200,6 @@ defmodule KafkaEx do
   end
 
   @doc """
-  Sends a request to describe a group identified by its name.
-  """
-  @spec describe_group(binary, Keyword.t()) :: term
-  def describe_group(consumer_group_name, opts \\ []) do
-    worker_name = Keyword.get(opts, :worker_name, Config.default_worker())
-    describe_group(worker_name, consumer_group_name, opts)
-  end
-
-  def describe_group(worker_name, consumer_group_name, opts) do
-    Server.call(worker_name, {:describe_group, consumer_group_name}, opts)
-  end
-
-  @doc """
   Get the offset of the latest message written to Kafka
 
   ## Example
@@ -310,11 +297,12 @@ defmodule KafkaEx do
     api_version = Keyword.get(opts, :api_version, 0)
     # same for offset_commit_api_version
     offset_commit_api_version = Keyword.get(opts, :offset_commit_api_version, 0)
+
     # By default, it makes sense to synchronize the API version of the offset_commit and the offset_fetch
     # operations, otherwise we might commit the offsets in zookeeper and read them from Kafka, meaning
     # that the value would be incorrect.
-    offset_fetch_api_version = Keyword.get(opts, :offset_fetch_api_version, offset_commit_api_version)
-
+    offset_fetch_api_version =
+      Keyword.get(opts, :offset_fetch_api_version, offset_commit_api_version)
 
     retrieved_offset =
       current_offset(
