@@ -2,14 +2,16 @@ name: CI Checks
 
 on:
   push:
-    branches: [master]
+    branches:
+      - '*'
   pull_request:
-    branches: [master]
+    branches:
+      - master
 
 jobs:
   setup:
     name: check / setup
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     env:
       MIX_ENV: dev
       ACTIONS_ALLOW_UNSECURE_COMMANDS: true
@@ -17,15 +19,15 @@ jobs:
     strategy:
       matrix:
         include:
-          - elixir: 1.10.2
-            erlang: 22.3
+          - elixir: 1.12.3
+            erlang: 24.3
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-elixir@v1
         with:
           elixir-version: ${{matrix.elixir}} # Define the elixir version [required]
           otp-version: ${{matrix.erlang}} # Define the OTP version [required]
-
+          experimental-otp: true # More info https://github.com/actions/setup-elixir/issues/31
       - name: Retrieve Mix Dependencies Cache
         uses: actions/cache@v2
         id: mix-cache # id to use in retrieve action
@@ -51,8 +53,8 @@ jobs:
         run: mix deps.compile
 
   run-checks:
-    name: check 
-    runs-on: ubuntu-latest
+    name: check
+    runs-on: ubuntu-20.04
     needs: [setup]
     env:
       MIX_ENV: dev

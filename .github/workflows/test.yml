@@ -2,29 +2,31 @@ name: CI Tests
 
 on:
   push:
-    branches: [master]
+    branches:
+      - '*'
   pull_request:
-    branches: [master]
+    branches:
+      - master
 
 jobs:
   setup:
-    name: runner / setup
-    runs-on: ubuntu-latest
+    name: test / setup
+    runs-on: ubuntu-20.04
+    strategy:
+      fail-fast: false
+      matrix:
+        elixir: ['1.8.2', '1.9.4', '1.12.3']
+        otp: ['20.3', '22.3', '24.3']
     env:
       MIX_ENV: test
 
-    strategy:
-      matrix:
-        include:
-          - elixir: 1.10.2
-            erlang: 22.3
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-elixir@v1
         with:
           elixir-version: ${{matrix.elixir}} # Define the elixir version [required]
           otp-version: ${{matrix.erlang}} # Define the OTP version [required]
-
+          experimental-otp: true # More info https://github.com/actions/setup-elixir/issues/31
       - name: Retrieve Mix Dependencies Cache
         uses: actions/cache@v2
         id: mix-cache # id to use in retrieve action
@@ -53,7 +55,7 @@ jobs:
     name: runner / Test
     needs: [setup]
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     env:
       MIX_ENV: test
 
