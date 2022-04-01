@@ -2,10 +2,12 @@ version: '2.4'
 
 services:
   zookeeper:
-    image: zookeeper:3.4
+    image: zookeeper
     restart: on-failure
     ports:
       - "2181:2181"
+    environment:
+      - ZOO_4LW_COMMANDS_WHITELIST=ruok
     healthcheck:
       test: ["CMD-SHELL", "echo ruok | nc -w 2 127.0.0.1 2181 | grep -q imok"]
       interval: 5s
