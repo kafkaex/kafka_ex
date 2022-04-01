@@ -1,11 +1,15 @@
 defmodule KafkaEx.Mixfile do
+  @moduledoc false
   use Mix.Project
+
+  @source_url "https://github.com/kafkaex/kafka_ex"
+  @version "0.12.1"
 
   def project do
     [
       app: :kafka_ex,
-      version: "0.11.0",
-      elixir: "~> 1.5",
+      version: @version,
+      elixir: "~> 1.6",
       dialyzer: [
         plt_add_deps: :transitive,
         flags: [
@@ -24,9 +28,11 @@ defmodule KafkaEx.Mixfile do
         extras: [
           "README.md",
           "kayrock.md",
-          "new_api.md"
+          "new_api.md",
+          "CONTRIBUTING.md"
         ],
-        source_url: "https://github.com/kafkaex/kafka_ex"
+        source_url: @source_url,
+        source_ref: @version
       ]
     ]
   end
@@ -45,13 +51,14 @@ defmodule KafkaEx.Mixfile do
       {:dialyxir, "~> 1.0", only: :dev, runtime: false},
       {:excoveralls, "~> 0.7", only: :test, runtime: false},
       {:snappy,
-       git: "https://github.com/fdmanana/snappy-erlang-nif", only: [:dev, :test]}
+       git: "https://github.com/fdmanana/snappy-erlang-nif", only: [:dev, :test]},
+      {:snappyer, "~> 1.2", only: [:dev, :test]}
     ]
 
     # we need a newer version of ex_doc, but it will cause problems on older
     # versions of elixir
     if Version.match?(System.version(), ">= 1.7.0") do
-      main_deps ++ [{:ex_doc, "~> 0.19", only: :dev}]
+      main_deps ++ [{:ex_doc, "~> 0.23", only: :dev, runtime: false}]
     else
       main_deps
     end
@@ -66,7 +73,7 @@ defmodule KafkaEx.Mixfile do
       maintainers: ["Abejide Ayodele", "Dan Swain", "Jack Lund", "Joshua Scott"],
       files: ["lib", "config/config.exs", "mix.exs", "README.md"],
       licenses: ["MIT"],
-      links: %{"Github" => "https://github.com/kafkaex/kafka_ex"}
+      links: %{"GitHub" => @source_url}
     ]
   end
 

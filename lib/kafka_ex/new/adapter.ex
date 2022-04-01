@@ -36,6 +36,7 @@ defmodule KafkaEx.New.Adapter do
   alias Kayrock.MessageSet.Message
   alias Kayrock.RecordBatch
   alias Kayrock.RecordBatch.Record
+  alias Kayrock.RecordBatch.RecordHeader
 
   def list_offsets_request(topic, partition, time) do
     time = Offset.parse_time(time)
@@ -220,7 +221,7 @@ defmodule KafkaEx.New.Adapter do
   def fetch_response(%{responses: []}) do
     Logger.log(
       :error,
-      "Not able to retrieve the last offset, the kafka server is probably throttling your requests"
+      "Not able to retrieve the last offset, the Kafka server is probably throttling your requests"
     )
 
     {[], nil}
@@ -557,6 +558,7 @@ defmodule KafkaEx.New.Adapter do
             crc: nil,
             key: record.key,
             value: record.value,
+            headers: build_fetch_message_headers(record.headers),
             offset: record.offset,
             topic: topic,
             partition: partition,
@@ -671,6 +673,7 @@ defmodule KafkaEx.New.Adapter do
             %Record{
               key: msg.key,
               value: msg.value,
+              headers: build_record_headers(msg.headers),
               timestamp: minus_one_if_nil(msg.timestamp)
             }
           end
@@ -683,5 +686,22 @@ defmodule KafkaEx.New.Adapter do
 
   defp millis_timestamp_now do
     :os.system_time(:millisecond)
+  end
+
+  defp build_record_headers(nil), do: []
+
+  defp build_record_headers(headers) when is_list(headers) do
+    Enum.map(headers, fn header ->
+      {key, value} = header
+      %RecordHeader{key: key, value: value}
+    end)
+  end
+
+  defp build_fetch_message_headers(nil), do: []
+
+  defp build_fetch_message_headers(record_headers) do
+    Enum.map(record_headers, fn header ->
+      {header.key, header.value}
+    end)
   end
 end

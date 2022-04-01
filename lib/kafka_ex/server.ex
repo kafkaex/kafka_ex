@@ -110,7 +110,7 @@ defmodule KafkaEx.Server do
             when reply: term, new_state: term, reason: term
   @callback kafka_server_offset(
               topic :: binary,
-              parition :: integer,
+              partition :: integer,
               time :: :calendar.datetime() | :latest | :earliest,
               state :: State.t()
             ) ::

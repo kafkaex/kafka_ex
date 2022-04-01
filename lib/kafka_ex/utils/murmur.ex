@@ -47,7 +47,7 @@ defmodule KafkaEx.Utils.Murmur do
     signed
   end
 
-  # Unsigned bitwise right shift on 32 bits
+  # Unsigned Bitwise right shift on 32 bits
   defp ubsr32(num, shift) do
     (num &&& 0xFFFFFFFF) >>> shift
   end

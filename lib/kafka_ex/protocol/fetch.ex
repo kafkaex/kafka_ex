@@ -56,6 +56,7 @@ defmodule KafkaEx.Protocol.Fetch do
               offset: nil,
               key: nil,
               value: nil,
+              headers: nil,
               topic: nil,
               partition: nil,
               timestamp: nil
@@ -66,6 +67,7 @@ defmodule KafkaEx.Protocol.Fetch do
             offset: integer,
             key: binary,
             value: binary,
+            headers: [{key::binary, value::binary}],
             topic: binary,
             partition: integer,
             # timestamp supported for `kafka_version: "kayrock"` ONLY
