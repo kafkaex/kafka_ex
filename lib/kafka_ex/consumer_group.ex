@@ -330,12 +330,17 @@ defmodule KafkaEx.ConsumerGroup do
         assignments,
         opts
       ) do
-    child =
-      supervisor(
+    child = %{
+      id: :consumer,
+      start: {
         KafkaEx.GenConsumer.Supervisor,
-        [{gen_consumer_module, consumer_module}, group_name, assignments, opts],
-        id: :consumer
-      )
+        :start_link,
+        [{gen_consumer_module, consumer_module}, group_name, assignments, opts]
+      },
+      restart: :permanent,
+      shutdown: :infinity,
+      type: :supervisor
+    }
 
     case Supervisor.start_child(pid, child) do
       {:ok, consumer_pid} -> {:ok, consumer_pid}
@@ -360,10 +365,17 @@ defmodule KafkaEx.ConsumerGroup do
     opts = Keyword.put(opts, :supervisor_pid, self())
 
     children = [
-      worker(
-        KafkaEx.ConsumerGroup.Manager,
-        [{gen_consumer_module, consumer_module}, group_name, topics, opts]
-      )
+      %{
+        id: KafkaEx.ConsumerGroup.Manager,
+        start: {
+          KafkaEx.ConsumerGroup.Manager,
+          :start_link,
+          [{gen_consumer_module, consumer_module}, group_name, topics, opts]
+        },
+        restart: :permanent,
+        shutdown: 5000,
+        type: :worker
+      }
     ]
 
     Supervisor.init(children,
