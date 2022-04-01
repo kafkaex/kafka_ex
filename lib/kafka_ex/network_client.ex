@@ -25,9 +25,7 @@ defmodule KafkaEx.NetworkClient do
       err ->
         Logger.log(
           :error,
-          "Could not connect to broker #{inspect(host)}:#{inspect(port)} because of error #{
-            inspect(err)
-          }"
+          "Could not connect to broker #{inspect(host)}:#{inspect(port)} because of error #{inspect(err)}"
         )
 
         nil
@@ -50,9 +48,7 @@ defmodule KafkaEx.NetworkClient do
       {_, reason} ->
         Logger.log(
           :error,
-          "Asynchronously sending data to broker #{inspect(broker.host)}:#{
-            inspect(broker.port)
-          } failed with #{inspect(reason)}"
+          "Asynchronously sending data to broker #{inspect(broker.host)}:#{inspect(broker.port)} failed with #{inspect(reason)}"
         )
 
         reason
@@ -77,9 +73,7 @@ defmodule KafkaEx.NetworkClient do
             {:error, reason} ->
               Logger.log(
                 :error,
-                "Receiving data from broker #{inspect(broker.host)}:#{
-                  inspect(broker.port)
-                } failed with #{inspect(reason)}"
+                "Receiving data from broker #{inspect(broker.host)}:#{inspect(broker.port)} failed with #{inspect(reason)}"
               )
 
               Socket.close(socket)
@@ -90,9 +84,7 @@ defmodule KafkaEx.NetworkClient do
         {_, reason} ->
           Logger.log(
             :error,
-            "Sending data to broker #{inspect(broker.host)}:#{
-              inspect(broker.port)
-            } failed with #{inspect(reason)}"
+            "Sending data to broker #{inspect(broker.host)}:#{inspect(broker.port)} failed with #{inspect(reason)}"
           )
 
           Socket.close(socket)

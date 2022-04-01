@@ -162,9 +162,7 @@ defmodule KafkaEx.Protocol.Fetch do
        )
        when byte_size(partial_message_data) < msg_size do
     raise RuntimeError,
-          "Insufficient data fetched at offset #{offset}. Message size is #{
-            msg_size
-          } but only received #{byte_size(partial_message_data)} bytes. Try increasing max_bytes."
+          "Insufficient data fetched at offset #{offset}. Message size is #{msg_size} but only received #{byte_size(partial_message_data)} bytes. Try increasing max_bytes."
   end
 
   # handles the single message case and the batch (compression) case

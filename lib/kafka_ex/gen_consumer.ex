@@ -810,9 +810,7 @@ defmodule KafkaEx.GenConsumer do
           KafkaEx.latest_offset(topic, partition, worker_name)
 
         _ ->
-          raise "Offset out of range while consuming topic #{topic}, partition #{
-                  partition
-                }."
+          raise "Offset out of range while consuming topic #{topic}, partition #{partition}."
       end
 
     %State{
