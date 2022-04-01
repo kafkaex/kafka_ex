@@ -22,7 +22,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/setup-elixir@v1
+      - uses: erlef/setup-beam@v1
         with:
           elixir-version: ${{matrix.elixir}} # Define the elixir version [required]
           otp-version: ${{matrix.erlang}} # Define the OTP version [required]
@@ -81,7 +81,7 @@ jobs:
       - name: Docker-compose up
         run: ./scripts/docker_up.sh
       - name: Setup elixir
-        uses: actions/setup-elixir@v1
+        uses: erlef/setup-beam@v1
         with:
           elixir-version: ${{matrix.elixir}} # Define the elixir version [required]
           otp-version: ${{matrix.erlang}} # Define the OTP version [required]
