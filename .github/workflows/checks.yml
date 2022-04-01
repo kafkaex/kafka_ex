@@ -19,8 +19,8 @@ jobs:
     strategy:
       matrix:
         include:
-          - elixir: 1.12.3
-            otp: 24.3
+          - elixir: "v1.12"
+            otp: "24"
     steps:
       - uses: actions/checkout@v2
       - uses: erlef/setup-beam@v1
@@ -62,8 +62,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - elixir: 1.10.2
-            otp: 22.3
+          - elixir: "v1.12"
+            otp: "24"
         checks:
           - mix credo
           - mix compile --warnings-as-errors --force
@@ -102,8 +102,8 @@ jobs:
     strategy:
       matrix:
         include:
-          - elixir: 1.10.2
-            otp: 22.3
+          - elixir: "v1.12"
+            otp: "24"
 
     steps:
       - uses: actions/checkout@v2

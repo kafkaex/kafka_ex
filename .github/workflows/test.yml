@@ -3,7 +3,7 @@ name: CI Tests
 on:
   push:
     branches:
-      - '*'
+      - "*"
   pull_request:
     branches:
       - master
@@ -15,8 +15,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        elixir: ['1.8.2', '1.9.4', '1.12.3']
-        otp: ['20.3', '22.3', '24.3']
+        include:
+          - elixir: "v1.9"
+            otp: "22"
+          - elixir: "v1.10"
+            otp: "23"
+          - elixir: "v1.12"
+            otp: "24"
     env:
       MIX_ENV: test
 
@@ -72,8 +77,12 @@ jobs:
           - mix test
 
         include:
-          - elixir: 1.10.2
-            erlang: 22.3
+          - elixir: "v1.9"
+            otp: "22"
+          - elixir: "v1.10"
+            otp: "23"
+          - elixir: "v1.12"
+            otp: "24"
 
     steps:
       - uses: actions/checkout@v2
