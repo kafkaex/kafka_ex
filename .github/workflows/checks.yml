@@ -19,51 +19,55 @@ jobs:
         erlang: ['24.3']
 
     steps:
-      - name: Cancel previous runs
-        uses: styfle/cancel-workflow-action@0.9.0
-        with:
-          access_token: ${{ github.token }}
-      - name: Checkout Github repo
-        uses: actions/checkout@v2
-      - name: Setup elixir & erlang enviroment
-        uses: actions/setup-elixir@v1
-        with:
-          elixir-version: ${{matrix.elixir}} # Define the elixir version [required]
-          otp-version: ${{matrix.erlang}} # Define the OTP version [required]
-          experimental-otp: true # More info https://github.com/actions/setup-elixir/issues/31
-      - name: Retrieve cached dependencies
-        uses: actions/cache@v2
-        id: mix-cache
-        with:
-          path: |
-            deps
-            _build
-          key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-${{ hashFiles('mix.lock') }}
-      - name: Install dependencies
-        if: steps.mix-cache.outputs.cache-hit != 'true'
-        run: |
-          mix local.rebar --force
-          mix local.hex --force
-          mix deps.get
-          mix deps.compile
+        - name: Cancel previous runs
+          uses: styfle/cancel-workflow-action@0.9.0
+          with:
+            access_token: ${{ github.token }}
+        - name: Checkout Github repo
+          uses: actions/checkout@v2
+        - name: Setup elixir & erlang enviroment
+          uses: actions/setup-elixir@v1
+          with:
+            elixir-version: ${{matrix.elixir}} # Define the elixir version [required]
+            otp-version: ${{matrix.erlang}} # Define the OTP version [required]
+            experimental-otp: true # More info https://github.com/actions/setup-elixir/issues/31
+
+        - name: Retrieve Mix Dependencies Cache
+          uses: actions/cache@v2
+          id: mix-cache # id to use in retrieve action
+          with:
+            path: deps
+            key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
+
+        - name: Retrieve Mix Dependencies Compilation Cache
+          uses: actions/cache@v2
+          id: mix-deps-compile-cache # id to use in retrieve action
+          with:
+            path: _build
+            key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-deps-compile-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
+        - name: Install Mix Dependencies
+          if: steps.mix-cache.outputs.cache-hit != 'true'
+          run: |
+            mix local.rebar --force
+            mix local.hex --force
+            mix deps.get
+
+        - name: Compile Mix Dependencies
+          if: steps.mix-deps-compile-cache.outputs.cache-hit != 'true'
+          run: mix deps.compile
 
   run-checks:
     name: check
     runs-on: ubuntu-20.04
-    needs: [setup]
+    needs: [dependencies]
     env:
       MIX_ENV: dev
 
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - elixir: 1.10.2
-            erlang: 22.3
-        checks:
-          - mix credo
-          - mix compile --warnings-as-errors --force
-          - mix format --check-formatted
+        elixir: ['1.12.3']
+        erlang: ['24.3']
 
     steps:
       - uses: actions/checkout@v2
@@ -88,20 +92,22 @@ jobs:
           path: _build
           key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-mix-deps-compile-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
 
-      - run: ${{ matrix.checks }}
+      - run: |
+          mix compile --force
+          mix credo
+          mix format --check-formatted
 
   dialyzer:
     name: check / dialyzer
-    needs: [setup]
+    needs: [dependencies]
     runs-on: ubuntu-latest
     env:
       MIX_ENV: dev
 
     strategy:
       matrix:
-        include:
-          - elixir: 1.10.2
-            erlang: 22.3
+        elixir: ['1.12.3']
+        erlang: ['24.3']
 
     steps:
       - uses: actions/checkout@v2

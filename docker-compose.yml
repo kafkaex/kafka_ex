@@ -69,9 +69,8 @@ services:
       - ./ssl/kafka.server.keystore.jks:/etc/kafka/secrets/kafka.server.keystore.jks:ro,z
       - ./ssl/kafka.server.truststore.jks:/etc/kafka/secrets/kafka.server.truststore.jks:ro,z
 
-  ready:
-    image: busybox:1.31-musl
-    command: tail -f /dev/null
+  kafka_setup:
+    image: confluentinc/cp-kafka:5.5.1
     depends_on:
       kafka-1:
         condition: service_healthy
@@ -79,3 +78,6 @@ services:
         condition: service_healthy
       kafka-3:
         condition: service_healthy
+    command: "bash -c 'kafka-topics --zookeeper zookeeper:32181 --create --if-not-exists --partitions 4 --replication-factor 2 --topic consumer_group_implementation_test && \
+                       kafka-topics --zookeeper zookeeper:32181 --create --if-not-exists --partitions 4 --replication-factor 2 --topic test0p8p0 && \
+                       kafka-topics --zookeeper zookeeper:32181 --list'"
