@@ -1,98 +1,81 @@
-version: '2.4'
+version: "3.8"
 
 services:
   zookeeper:
-    image: wurstmeister/zookeeper:3.4.6
+    image: confluentinc/cp-zookeeper:5.5.1
     ports:
-      - "2181:2181"
-    healthcheck:
-      test: ["CMD-SHELL", "echo ruok | nc -w 2 127.0.0.1 2181 | grep -q imok"]
-      interval: 5s
-      timeout: 10s
-      retries: 15
-      start_period: 10s
+      - '32181:32181'
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 32181
+      ZOOKEEPER_TICK_TIME: 2000
 
-  kafka1:
-    hostname: kafka1
-    image: wurstmeister/kafka:0.11.0.1
+  kafka-1:
+    image: confluentinc/cp-kafka:5.5.1
     ports:
-      - "9093:9093"
-    volumes:
-      - ./ssl:/ssl
-      - ./scripts/kafka_check_health:/kafka_check_health
+      - '9092:9092'
+    depends_on:
+      - zookeeper
     env_file: docker-compose-kafka.env
     environment:
       KAFKA_BROKER_ID: 1
-      KAFKA_ADVERTISED_PORT: 9093
-      KAFKA_PORT: 9092
-      KAFKA_HOST_NAME: kafka1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:32181
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-1:29092,EXTERNAL://localhost:9092
     healthcheck:
-      test: /kafka_check_health
-      interval: 10s
+      test: kafka-topics --bootstrap-server kafka-1:29092 --list
+      interval: 30s
       timeout: 10s
-      retries: 30
-      start_period: 10s
-    depends_on:
-      zookeeper:
-        condition: service_healthy
-
-  kafka2:
-    hostname: kafka2
-    image: wurstmeister/kafka:0.11.0.1
-    ports:
-      - "9094:9094"
+      retries: 4
     volumes:
-      - ./ssl:/ssl
-      - ./scripts/kafka_check_health:/kafka_check_health
+      - ./ssl/kafka.server.keystore.jks:/etc/kafka/secrets/kafka.server.keystore.jks:ro,z
+      - ./ssl/kafka.server.truststore.jks:/etc/kafka/secrets/kafka.server.truststore.jks:ro,z
+
+  kafka-2:
+    image: confluentinc/cp-kafka:5.5.1
+    ports:
+      - '9093:9093'
+    depends_on:
+      - zookeeper
     env_file: docker-compose-kafka.env
     environment:
       KAFKA_BROKER_ID: 2
-      KAFKA_ADVERTISED_PORT: 9094
-      KAFKA_PORT: 9092
-      KAFKA_HOST_NAME: kafka2
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:32181
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-2:29093,EXTERNAL://localhost:9093
     healthcheck:
-      test: /kafka_check_health
-      interval: 10s
+      test: kafka-topics --bootstrap-server kafka-2:29093 --list
+      interval: 30s
       timeout: 10s
-      retries: 30
-      start_period: 10s
-    depends_on:
-      zookeeper:
-        condition: service_healthy
-
-  kafka3:
-    hostname: kafka3
-    image: wurstmeister/kafka:0.11.0.1
-    ports:
-      - "9095:9095"
+      retries: 4
     volumes:
-      - ./ssl:/ssl
-      - ./scripts/kafka_check_health:/kafka_check_health
+      - ./ssl/kafka.server.keystore.jks:/etc/kafka/secrets/kafka.server.keystore.jks:ro,z
+      - ./ssl/kafka.server.truststore.jks:/etc/kafka/secrets/kafka.server.truststore.jks:ro,z
+
+  kafka-3:
+    image: confluentinc/cp-kafka:5.5.1
+    ports:
+      - '9094:9094'
+    depends_on:
+      - zookeeper
     env_file: docker-compose-kafka.env
     environment:
       KAFKA_BROKER_ID: 3
-      KAFKA_ADVERTISED_PORT: 9095
-      KAFKA_PORT: 9092
-      KAFKA_HOST_NAME: kafka3
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:32181
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-3:29094,EXTERNAL://localhost:9094
     healthcheck:
-      test: /kafka_check_health
-      interval: 10s
+      test: kafka-topics --bootstrap-server kafka-2:29093 --list
+      interval: 30s
       timeout: 10s
-      retries: 30
-      start_period: 10s
-    depends_on:
-      zookeeper:
-        condition: service_healthy
+      retries: 4
+    volumes:
+      - ./ssl/kafka.server.keystore.jks:/etc/kafka/secrets/kafka.server.keystore.jks:ro,z
+      - ./ssl/kafka.server.truststore.jks:/etc/kafka/secrets/kafka.server.truststore.jks:ro,z
 
-  # This is a dummy service that forces all other services to be healthy before
-  # docker-compose up can be considered successful.
   ready:
     image: busybox:1.31-musl
     command: tail -f /dev/null
     depends_on:
-      kafka1:
+      kafka-1:
         condition: service_healthy
-      kafka2:
+      kafka-2:
         condition: service_healthy
-      kafka3:
+      kafka-3:
         condition: service_healthy

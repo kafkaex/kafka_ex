@@ -14,9 +14,9 @@ config :kafka_ex,
   # server.properties file.
   # In the case below you would set "advertised.host.name=localhost"
   brokers: [
+    {"localhost", 9092},
     {"localhost", 9093},
-    {"localhost", 9094},
-    {"localhost", 9095}
+    {"localhost", 9094}
   ],
   #
   # OR:
@@ -61,6 +61,8 @@ config :kafka_ex,
   # see SSL OPTION DESCRIPTIONS - CLIENT SIDE at http://erlang.org/doc/man/ssl.html
   # for supported options
   ssl_options: [
+    # Fix warnings. More at https://github.com/erlang/otp/issues/5352
+    verify: :verify_none,
     cacertfile: File.cwd!() <> "/ssl/ca-cert",
     certfile: File.cwd!() <> "/ssl/cert.pem",
     keyfile: File.cwd!() <> "/ssl/key.pem"
