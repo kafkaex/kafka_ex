@@ -38,7 +38,7 @@ TL;DR:
 *   This is new implementation and we need people to test it!
 *   Set `kafka_version: "kayrock"` to use the new client implementation.
 *   The new client should be compatible with existing code when used this way.
-*   Many functions now suppoert an `api_version` parameter, see below for details,
+*   Many functions now support an `api_version` parameter, see below for details,
     e.g., how to store offsets in Kafka instead of Zookeeper.
 *   Version 1.0 of KafkaEx will be based on Kayrock and have a cleaner API - you
     can start testing this API by using modules from the `KafkaEx.New` namespace.
@@ -95,7 +95,7 @@ For more information on the v1.0 API, see
 The standard approach for adding dependencies to an Elixir application applies:
 add KafkaEx to the deps list in your project's mix.exs file.
 You may also optionally add
-[snappy-erlang-nif](https://github.com/fdmanana/snappy-erlang-nif) (required
+[snappyer](https://hex.pm/packages/snappyer) (required
 only if you want to use snappy compression).
 
 ```elixir
@@ -107,8 +107,10 @@ defmodule MyApp.Mixfile do
     [
       # add to your existing deps
       {:kafka_ex, "~> 0.11"},
-      # if using snappy compression
+      # If using snappy-erlang-nif (snappy) compression
       {:snappy, git: "https://github.com/fdmanana/snappy-erlang-nif"}
+      # if using snappyer (snappy) compression
+      {:snappyer, "~> 1.2"}
     ]
   end
 end
@@ -407,7 +409,7 @@ The 0.9 client includes functionality that cannot be tested with older
 clusters.
 
 ```
-./all_tests.sh
+./scripts/all_tests.sh
 ```
 
 ##### Kafka = 0.9.0
@@ -457,3 +459,13 @@ an invite via [http://bit.ly/slackelixir](http://bit.ly/slackelixir).
 The Slack channel is appropriate for quick questions or general design
 discussions.  The Slack discussion is archived at
 [http://slack.elixirhq.com/kafkaex](http://slack.elixirhq.com/kafkaex).
+
+## default snappy algorithm use snappy-erlang-nif package
+
+It can be changed to snappyer by using this:
+
+``` elixir
+config :kafka_ex, snappy_module: :snappyer
+```
+
+Snappy erlang nif is deprecated and will be changed to :snappyer in 1.0.0 release.

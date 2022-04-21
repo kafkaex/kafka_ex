@@ -68,7 +68,7 @@ defmodule KafkaEx do
   - uris: List of brokers in `{"host", port}` or comma separated value `"host:port,host:port"` form, defaults to `Application.get_env(:kafka_ex, :brokers)`
   - metadata_update_interval: How often `kafka_ex` would update the Kafka cluster metadata information in milliseconds, default is 30000
   - consumer_group_update_interval: How often `kafka_ex` would update the Kafka cluster consumer_groups information in milliseconds, default is 30000
-  - use_ssl: Boolean flag specifying if ssl should be used for the connection by the worker to kafka, default is false
+  - use_ssl: Boolean flag specifying if ssl should be used for the connection by the worker to Kafka, default is false
   - ssl_options: see SSL OPTION DESCRIPTIONS - CLIENT SIDE at http://erlang.org/doc/man/ssl.html, default is []
 
   Returns `{:error, error_description}` on invalid arguments
@@ -262,7 +262,7 @@ defmodule KafkaEx do
   - wait_time: maximum amount of time in milliseconds to block waiting if insufficient data is available at the time the request is issued. Default is 10
   - min_bytes: minimum number of bytes of messages that must be available to give a response. If the client sets this to 0 the server will always respond immediately, however if there is no new data since their last request they will just get back empty message sets. If this is set to 1, the server will respond as soon as at least one partition has at least 1 byte of data or the specified timeout occurs. By setting higher values in combination with the timeout the consumer can tune for throughput and trade a little additional latency for reading only large chunks of data (e.g. setting wait_time to 100 and setting min_bytes 64000 would allow the server to wait up to 100ms to try to accumulate 64k of data before responding). Default is 1
   - max_bytes: maximum bytes to include in the message set for this partition. This helps bound the size of the response. Default is 1,000,000
-  - auto_commit: specifies if the last offset should be commited or not. Default is true. You must set this to false when using Kafka < 0.8.2 or `:no_consumer_group`.
+  - auto_commit: specifies if the last offset should be committed or not. Default is true. You must set this to false when using Kafka < 0.8.2 or `:no_consumer_group`.
   - api_version: Version of the Fetch API message to send (Kayrock client only, default: 0)
   - offset_commit_api_version: Version of the OffsetCommit API message to send
     (Kayrock client only, only relevant for auto commit, default: 0, use 2+ to
@@ -297,9 +297,21 @@ defmodule KafkaEx do
     api_version = Keyword.get(opts, :api_version, 0)
     # same for offset_commit_api_version
     offset_commit_api_version = Keyword.get(opts, :offset_commit_api_version, 0)
+    # By default, it makes sense to synchronize the API version of the offset_commit and the offset_fetch
+    # operations, otherwise we might commit the offsets in zookeeper and read them from Kafka, meaning
+    # that the value would be incorrect.
+    offset_fetch_api_version = Keyword.get(opts, :offset_fetch_api_version, offset_commit_api_version)
+
 
     retrieved_offset =
-      current_offset(supplied_offset, partition, topic, worker_name)
+      current_offset(
+        supplied_offset,
+        partition,
+        topic,
+        worker_name,
+        offset_fetch_api_version,
+        nil
+      )
 
     Server.call(
       worker_name,
@@ -362,7 +374,7 @@ defmodule KafkaEx do
   end
 
   @doc """
-  Produces messages to kafka logs (this is deprecated, use KafkaEx.produce/2 instead)
+  Produces messages to Kafka logs (this is deprecated, use KafkaEx.produce/2 instead)
   Optional arguments(KeywordList)
   - worker_name: the worker we want to run this metadata request through, when none is provided the default worker `:kafka_ex` is used
   - key: is used for partition assignment, can be nil, when none is provided it is defaulted to nil
@@ -530,7 +542,7 @@ defmodule KafkaEx do
   `:offset_fetch`, and `:offset_commit` when using the Kayrock client.  Defaults to
   `%{fetch: 0, offset_fetch: 0, offset_commit: 0}`.  Use
   `%{fetch: 3, offset_fetch: 3, offset_commit: 3}` with the kayrock client to
-  achieve offsets stored in kafka (instead of zookeeper) and messages fetched
+  achieve offsets stored in Kafka (instead of zookeeper) and messages fetched
   with timestamps.
   """
   @spec stream(binary, integer, Keyword.t()) :: KafkaEx.Stream.t()
@@ -547,25 +559,17 @@ defmodule KafkaEx do
     default_api_versions = %{fetch: 0, offset_fetch: 0, offset_commit: 0}
     api_versions = Keyword.get(opts, :api_versions, %{})
     api_versions = Map.merge(default_api_versions, api_versions)
+    offset_fetch_api_version = Map.fetch!(api_versions, :offset_fetch)
 
     retrieved_offset =
-      if consumer_group && !supplied_offset do
-        request = %OffsetFetchRequest{
-          topic: topic,
-          partition: partition,
-          consumer_group: consumer_group,
-          api_version: Map.fetch!(api_versions, :offset_fetch)
-        }
-
-        fetched_offset =
-          worker_name
-          |> KafkaEx.offset_fetch(request)
-          |> KafkaEx.Protocol.OffsetFetch.Response.last_offset()
-
-        fetched_offset + 1
-      else
-        current_offset(supplied_offset, partition, topic, worker_name)
-      end
+      current_offset(
+        supplied_offset,
+        partition,
+        topic,
+        worker_name,
+        offset_fetch_api_version,
+        consumer_group
+      )
 
     fetch_request = %FetchRequest{
       auto_commit: auto_commit,
@@ -639,27 +643,50 @@ defmodule KafkaEx do
     end
   end
 
-  defp current_offset(supplied_offset, partition, topic, worker_name) do
-    case supplied_offset do
-      nil ->
-        last_offset =
-          worker_name
-          |> offset_fetch(%OffsetFetchRequest{
-            topic: topic,
-            partition: partition
-          })
-          |> OffsetFetchResponse.last_offset()
+  defp current_offset(
+         supplied_offset,
+         partition,
+         topic,
+         worker_name,
+         api_version,
+         consumer_group \\ nil
+       )
 
-        if last_offset < 0 do
-          topic
-          |> earliest_offset(partition, worker_name)
-          |> OffsetResponse.extract_offset()
-        else
-          last_offset + 1
-        end
+  defp current_offset(
+         supplied_offset,
+         _partition,
+         _topic,
+         _worker_name,
+         _api_version,
+         _consumer_group
+       )
+       when not is_nil(supplied_offset),
+       do: supplied_offset
 
-      _ ->
-        supplied_offset
+  defp current_offset(
+         nil,
+         partition,
+         topic,
+         worker_name,
+         api_version,
+         consumer_group
+       ) do
+    last_offset =
+      worker_name
+      |> offset_fetch(%OffsetFetchRequest{
+        topic: topic,
+        partition: partition,
+        api_version: api_version,
+        consumer_group: consumer_group
+      })
+      |> OffsetFetchResponse.last_offset()
+
+    if last_offset < 0 do
+      topic
+      |> earliest_offset(partition, worker_name)
+      |> OffsetResponse.extract_offset()
+    else
+      last_offset + 1
     end
   end
 

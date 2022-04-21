@@ -305,8 +305,8 @@ defmodule KafkaEx.New.Client do
          retry,
          _error_code
        ) do
-    # default to version 4 of the metdata protocol because this one treats an
-    # empty list of topics as 'no topics'.  note this limits us to kafka 0.11+
+    # default to version 4 of the metadata protocol because this one treats an
+    # empty list of topics as 'no topics'.  note this limits us to Kafka 0.11+
     api_version = State.max_supported_api_version(state, :metadata, 4)
 
     metadata_request = %{
@@ -488,7 +488,7 @@ defmodule KafkaEx.New.Client do
   defp consumer_group_if_auto_commit?(true, state), do: consumer_group?(state)
   defp consumer_group_if_auto_commit?(false, _state), do: true
 
-  # note within the genserver state, we've already validated the
+  # note within the GenServer state, we've already validated the
   # consumer group, so it can only be either :no_consumer_group or a
   # valid binary consumer group name
   defp consumer_group?(%State{

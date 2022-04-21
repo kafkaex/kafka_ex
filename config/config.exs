@@ -54,6 +54,12 @@ config :kafka_ex,
   # Threshold number of messages consumed for GenConsumer to commit offsets
   # to the broker.
   commit_threshold: 100,
+  # The policy for resetting offsets when an :offset_out_of_range error occurs
+  # Options:
+  # - `:earliest` - Will move to the offset to the oldest available
+  # - `:latest` - Will move the offset to the most recent.
+  # - `:none` - The error will simply be raised
+  auto_offset_reset: :none,
   # Interval in milliseconds to wait before reconnect to kafka
   sleep_for_reconnect: 400,
   # This is the flag that enables use of ssl
@@ -67,6 +73,7 @@ config :kafka_ex,
     certfile: File.cwd!() <> "/ssl/cert.pem",
     keyfile: File.cwd!() <> "/ssl/key.pem"
   ],
+  snappy_module: :snappy,
   # set this to the version of the kafka broker that you are using
   # include only major.minor.patch versions.  must be at least 0.8.0
   # use "kayrock" for the new client

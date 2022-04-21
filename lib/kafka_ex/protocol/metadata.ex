@@ -6,7 +6,7 @@ defmodule KafkaEx.Protocol.Metadata do
   @default_api_version 0
 
   @moduledoc """
-  Implementation of the Kafka Hearbeat request and response APIs
+  Implementation of the Kafka Heartbeat request and response APIs
   """
   defmodule Request do
     @moduledoc false

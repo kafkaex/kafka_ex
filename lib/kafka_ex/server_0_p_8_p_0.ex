@@ -1,6 +1,6 @@
 defmodule KafkaEx.Server0P8P0 do
   @moduledoc """
-  Implements kafkaEx.Server behaviors for kafka >= 0.8.0 < 0.8.2 API.
+  Implements KafkaEx.Server behaviors for Kafka >= 0.8.0 < 0.8.2 API.
   """
 
   # these functions aren't implemented for 0.8.0
@@ -57,46 +57,46 @@ defmodule KafkaEx.Server0P8P0 do
   end
 
   def kafka_server_offset_fetch(_, _state),
-    do: raise("Offset Fetch is not supported in 0.8.0 version of kafka")
+    do: raise("Offset Fetch is not supported in 0.8.0 version of Kafka")
 
   def kafka_server_offset_commit(_, _state),
-    do: raise("Offset Commit is not supported in 0.8.0 version of kafka")
+    do: raise("Offset Commit is not supported in 0.8.0 version of Kafka")
 
   def kafka_server_consumer_group(_state),
-    do: raise("Consumer Group is not supported in 0.8.0 version of kafka")
+    do: raise("Consumer Group is not supported in 0.8.0 version of Kafka")
 
   def kafka_server_consumer_group_metadata(_state),
     do:
       raise(
-        "Consumer Group Metadata is not supported in 0.8.0 version of kafka"
+        "Consumer Group Metadata is not supported in 0.8.0 version of Kafka"
       )
 
   def kafka_server_join_group(_, _, _state),
-    do: raise("Join Group is not supported in 0.8.0 version of kafka")
+    do: raise("Join Group is not supported in 0.8.0 version of Kafka")
 
   def kafka_server_sync_group(_, _, _state),
-    do: raise("Sync Group is not supported in 0.8.0 version of kafka")
+    do: raise("Sync Group is not supported in 0.8.0 version of Kafka")
 
   def kafka_server_leave_group(_, _, _state),
     do: raise("Leave Group is not supported in 0.8.0 version of Kafka")
 
   def kafka_server_heartbeat(_, _, _state),
-    do: raise("Heartbeat is not supported in 0.8.0 version of kafka")
+    do: raise("Heartbeat is not supported in 0.8.0 version of Kafka")
 
   def kafka_server_update_consumer_metadata(_state),
     do:
       raise(
-        "Consumer Group Metadata is not supported in 0.8.0 version of kafka"
+        "Consumer Group Metadata is not supported in 0.8.0 version of Kafka"
       )
 
   def kafka_server_api_versions(_state),
-    do: raise("ApiVersions is not supported in 0.8.0 version of kafka")
+    do: raise("ApiVersions is not supported in 0.8.0 version of Kafka")
 
   def kafka_server_create_topics(_, _, _state),
-    do: raise("CreateTopic is not supported in 0.8.0 version of kafka")
+    do: raise("CreateTopic is not supported in 0.8.0 version of Kafka")
 
   def kafka_server_delete_topics(_, _, _state),
-    do: raise("DeleteTopic is not supported in 0.8.0 version of kafka")
+    do: raise("DeleteTopic is not supported in 0.8.0 version of Kafka")
 
   defp fetch(request, state) do
     case network_request(request, Fetch, state) do

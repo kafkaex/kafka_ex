@@ -50,11 +50,18 @@ defmodule KafkaEx.Protocol.Produce do
     @moduledoc """
     - key: is used for partition assignment, can be nil, when none is provided
     it is defaulted to nil
-    - value: is the message to be written to kafka logs.
+    - value: is the message to be written to Kafka logs.
+    - headers: is a list of keys and values that adds metadata to messages
     - timestamp: timestamp (`kafka_version: "kayrock"` ONLY)
     """
-    defstruct key: nil, value: nil, timestamp: nil
-    @type t :: %Message{key: binary, value: binary, timestamp: integer}
+    defstruct key: nil, value: nil, headers: nil, timestamp: nil
+
+    @type t :: %Message{
+            key: binary,
+            value: binary,
+            headers: [{key::binary, value::binary}],
+            timestamp: integer
+          }
   end
 
   defmodule Response do

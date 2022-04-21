@@ -110,7 +110,7 @@ defmodule KafkaEx.Server do
             when reply: term, new_state: term, reason: term
   @callback kafka_server_offset(
               topic :: binary,
-              parition :: integer,
+              partition :: integer,
               time :: :calendar.datetime() | :latest | :earliest,
               state :: State.t()
             ) ::
@@ -582,7 +582,11 @@ defmodule KafkaEx.Server do
             state.api_versions
           )
 
-        updated_state = %{state | correlation_id: correlation_id}
+          updated_state = %{
+            state
+            | metadata: metadata,
+              correlation_id: correlation_id
+          }
 
         {:reply, metadata, updated_state}
       end

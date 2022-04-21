@@ -1,6 +1,6 @@
 defmodule KafkaEx.Server0P10AndLater do
   @moduledoc """
-  Implements kafkaEx.Server behaviors for kafka 0.10.1 API.
+  Implements KafkaEx.Server behaviors for Kafka 0.10.1 API.
   """
   use KafkaEx.Server
   alias KafkaEx.Config
@@ -163,29 +163,6 @@ defmodule KafkaEx.Server0P10AndLater do
     {:ok, state}
   end
 
-  def kafka_server_metadata(topic, state) do
-    {correlation_id, metadata} =
-      retrieve_metadata(
-        state.brokers,
-        state.correlation_id,
-        config_sync_timeout(),
-        topic,
-        state.api_versions
-      )
-
-    updated_state = %{
-      state
-      | metadata: metadata,
-        correlation_id: correlation_id
-    }
-
-    {:reply, metadata, updated_state}
-  end
-
-  def kafka_server_update_metadata(state) do
-    {:noreply, update_metadata(state)}
-  end
-
   def kafka_server_api_versions(state) do
     response =
       state.correlation_id
@@ -268,13 +245,17 @@ defmodule KafkaEx.Server0P10AndLater do
     {:reply, response, state}
   end
 
-  defp request_to_controller(main_request, state) do
+  defp request_to_controller(main_request, stale_state) do
+    # We need to make sure that the metadata is up to date,
+    # to maximize the chance that the controller hasn't switched
+    # to another broker.
+    state = update_metadata(stale_state)
     broker = state.brokers |> Enum.find(& &1.is_controller)
 
     case broker do
       nil ->
-        Logger.log(:error, "Coordinator for topic is not available")
-        {:topic_not_found, state}
+        Logger.log(:error, "Can't find the controller broker")
+        {:controller_broker_not_found, state}
 
       _ ->
         broker
