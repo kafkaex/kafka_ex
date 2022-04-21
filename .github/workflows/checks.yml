@@ -116,6 +116,8 @@ jobs:
         with:
           elixir-version: ${{matrix.elixir}} # Define the elixir version [required]
           otp-version: ${{matrix.erlang}} # Define the OTP version [required]
+          experimental-otp: true # More info https://github.com/actions/setup-elixir/issues/31
+
       - name: Retrieve Mix Dependencies Cache
         uses: actions/cache@v2
         id: mix-cache # id to use in retrieve action

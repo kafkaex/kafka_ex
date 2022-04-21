@@ -297,11 +297,12 @@ defmodule KafkaEx do
     api_version = Keyword.get(opts, :api_version, 0)
     # same for offset_commit_api_version
     offset_commit_api_version = Keyword.get(opts, :offset_commit_api_version, 0)
+
     # By default, it makes sense to synchronize the API version of the offset_commit and the offset_fetch
     # operations, otherwise we might commit the offsets in zookeeper and read them from Kafka, meaning
     # that the value would be incorrect.
-    offset_fetch_api_version = Keyword.get(opts, :offset_fetch_api_version, offset_commit_api_version)
-
+    offset_fetch_api_version =
+      Keyword.get(opts, :offset_fetch_api_version, offset_commit_api_version)
 
     retrieved_offset =
       current_offset(

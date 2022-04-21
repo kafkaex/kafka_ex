@@ -582,11 +582,11 @@ defmodule KafkaEx.Server do
             state.api_versions
           )
 
-          updated_state = %{
-            state
-            | metadata: metadata,
-              correlation_id: correlation_id
-          }
+        updated_state = %{
+          state
+          | metadata: metadata,
+            correlation_id: correlation_id
+        }
 
         {:reply, metadata, updated_state}
       end
