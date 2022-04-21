@@ -98,4 +98,4 @@ jobs:
       - name: Docker ps
         run: docker ps -a
       - name: Run Tests
-        run: ./scripts/all_tests.sh
+        run: ./scripts/ci_tests.sh

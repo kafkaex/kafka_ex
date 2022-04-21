@@ -12,6 +12,8 @@ defmodule KafkaEx.Mixfile do
       elixir: "~> 1.6",
       dialyzer: [
         plt_add_deps: :transitive,
+        plt_add_apps: [:ssl],
+        plt_file: {:no_warn, "priv/plts/dialyzer.plt"},
         flags: [
           :error_handling,
           :race_conditions
