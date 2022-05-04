@@ -226,9 +226,7 @@ defmodule KafkaEx.Server0P8P2 do
       ) do
     Logger.log(
       :error,
-      "Fetching consumer_group #{consumer_group} metadata failed with error_code #{
-        inspect(error_code)
-      }"
+      "Fetching consumer_group #{consumer_group} metadata failed with error_code #{inspect(error_code)}"
     )
 
     {%ConsumerMetadataResponse{error_code: error_code}, state}
