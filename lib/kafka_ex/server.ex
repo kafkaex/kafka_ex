@@ -373,9 +373,7 @@ defmodule KafkaEx.Server do
       def terminate(reason, state) do
         Logger.log(
           :debug,
-          "Shutting down worker #{inspect(state.worker_name)}, reason: #{
-            inspect(reason)
-          }"
+          "Shutting down worker #{inspect(state.worker_name)}, reason: #{inspect(reason)}"
         )
 
         if state.event_pid do
@@ -471,9 +469,7 @@ defmodule KafkaEx.Server do
             nil ->
               Logger.log(
                 :error,
-                "kafka_server_produce_send_request: leader for topic #{
-                  produce_request.topic
-                }/#{produce_request.partition} is not available"
+                "kafka_server_produce_send_request: leader for topic #{produce_request.topic}/#{produce_request.partition} is not available"
               )
 
               :leader_not_available
@@ -586,11 +582,11 @@ defmodule KafkaEx.Server do
             state.api_versions
           )
 
-          updated_state = %{
-            state
-            | metadata: metadata,
-              correlation_id: correlation_id
-          }
+        updated_state = %{
+          state
+          | metadata: metadata,
+            correlation_id: correlation_id
+        }
 
         {:reply, metadata, updated_state}
       end
@@ -682,9 +678,7 @@ defmodule KafkaEx.Server do
           ) do
         Logger.log(
           :error,
-          "Metadata request for topic #{inspect(topic)} failed with error_code #{
-            inspect(error_code)
-          }"
+          "Metadata request for topic #{inspect(topic)} failed with error_code #{inspect(error_code)}"
         )
 
         {correlation_id, %Metadata.Response{}}
@@ -735,9 +729,7 @@ defmodule KafkaEx.Server do
           end
         else
           message =
-            "Unable to fetch metadata from any brokers. Timeout is #{
-              sync_timeout
-            }."
+            "Unable to fetch metadata from any brokers. Timeout is #{sync_timeout}."
 
           Logger.log(:error, message)
           raise message
@@ -866,9 +858,7 @@ defmodule KafkaEx.Server do
         case broker do
           nil ->
             Logger.error(fn ->
-              "network_request: leader for topic #{request.topic}/#{
-                request.partition
-              } is not available"
+              "network_request: leader for topic #{request.topic}/#{request.partition} is not available"
             end)
 
             {{:error, :topic_not_found}, updated_state}
@@ -895,15 +885,11 @@ defmodule KafkaEx.Server do
                   rescue
                     _ ->
                       Logger.error(
-                        "Failed to parse a response from the server: #{
-                          inspect(response)
-                        }"
+                        "Failed to parse a response from the server: #{inspect(response)}"
                       )
 
                       Kernel.reraise(
-                        "Parse error during #{inspect(module)}.parse_response. Couldn't parse: #{
-                          inspect(response)
-                        }",
+                        "Parse error during #{inspect(module)}.parse_response. Couldn't parse: #{inspect(response)}",
                         System.stacktrace()
                       )
                   end
@@ -936,9 +922,7 @@ defmodule KafkaEx.Server do
             Enum.each(brokers_to_remove, fn broker ->
               Logger.log(
                 :debug,
-                "Closing connection to broker #{broker.node_id}: #{
-                  inspect(broker.host)
-                } on port #{inspect(broker.port)}"
+                "Closing connection to broker #{broker.node_id}: #{inspect(broker.host)} on port #{inspect(broker.port)}"
               )
 
               NetworkClient.close_socket(broker.socket)
@@ -960,9 +944,7 @@ defmodule KafkaEx.Server do
           nil ->
             Logger.log(
               :debug,
-              "Establishing connection to broker #{metadata_broker.node_id}: #{
-                inspect(metadata_broker.host)
-              } on port #{inspect(metadata_broker.port)}"
+              "Establishing connection to broker #{metadata_broker.node_id}: #{inspect(metadata_broker.host)} on port #{inspect(metadata_broker.port)}"
             )
 
             add_new_brokers(
