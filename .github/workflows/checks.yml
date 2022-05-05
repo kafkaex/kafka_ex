@@ -15,8 +15,8 @@ jobs:
       ACTIONS_ALLOW_UNSECURE_COMMANDS: true
     strategy:
       matrix:
-        elixir: ['1.12.3']
-        erlang: ['24.3']
+        elixir: ['1.12']
+        otp: ['24.3']
 
     steps:
         - name: Cancel previous runs
@@ -31,7 +31,7 @@ jobs:
           uses: actions/setup-elixir@v1
           with:
             elixir-version: ${{matrix.elixir}} # Define the elixir version [required]
-            otp-version: ${{matrix.erlang}} # Define the OTP version [required]
+            otp-version: ${{matrix.otp}} # Define the OTP version [required]
             experimental-otp: true # More info https://github.com/actions/setup-elixir/issues/31
 
         - name: Retrieve Cached Dependencies
@@ -64,8 +64,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        elixir: ['1.12.3']
-        erlang: ['24.3']
+        elixir: ['1.12']
+        otp: ['24.3']
 
     steps:
       - name: Cancel Previous Runs
@@ -82,7 +82,7 @@ jobs:
         uses: actions/setup-elixir@v1
         with:
           elixir-version: ${{matrix.elixir}} # Define the elixir version [required]
-          otp-version: ${{matrix.erlang}} # Define the OTP version [required]
+          otp-version: ${{matrix.otp}} # Define the OTP version [required]
           experimental-otp: true # More info https://github.com/actions/setup-elixir/issues/31
 
       - name: Retrieve Cached Dependencies

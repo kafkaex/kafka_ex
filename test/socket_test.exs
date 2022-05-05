@@ -50,7 +50,12 @@ defmodule KafkaEx.Socket.Test do
     defp listen(socket) do
       case :ssl.transport_accept(socket) do
         {:ok, conn} ->
-          {:ok, _socket} = :ssl.handshake(conn)
+          if opt_version_21_plus? do
+            {:ok, _socket} = :ssl.handshake(conn)
+          else
+            :ok = :ssl.ssl_accept(conn)
+          end
+
           pid = spawn_link(fn -> recv(conn) end)
           :ssl.controlling_process(socket, pid)
 
@@ -69,6 +74,11 @@ defmodule KafkaEx.Socket.Test do
         {:error, :closed} ->
           :ok
       end
+    end
+
+    defp opt_version_21_plus? do
+      {version, _} = System.otp_release() |> Float.parse()
+      version >= 21
     end
   end
 
