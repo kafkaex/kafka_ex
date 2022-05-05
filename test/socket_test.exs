@@ -50,7 +50,7 @@ defmodule KafkaEx.Socket.Test do
     defp listen(socket) do
       case :ssl.transport_accept(socket) do
         {:ok, conn} ->
-          if opt_version_21_plus? do
+          if opt_version_21_plus?() do
             {:ok, _socket} = :ssl.handshake(conn)
           else
             :ok = :ssl.ssl_accept(conn)
