@@ -402,7 +402,7 @@ mix test --no-start
 If you are not using the Docker test cluster, you may need to modify
 `config/config.exs` for your set up.
 
-The full test suite requires Kafka 0.10.1.0+.
+The full test suite requires Kafka 2.1.0+.
 
 ##### Kafka >= 0.9.0
 

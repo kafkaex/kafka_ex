@@ -10,7 +10,7 @@ defmodule KafkaEx.Server0P10P1.Test do
   test "can retrieve api versions" do
     # note this checks against the version of broker we're running in test
     # api_key, max_version, min_version
-    api_versions_kafka_0_11_0_1 = [
+    api_versions_kafka_2_1_0 = [
       [0, 8, 0],
       [1, 11, 0],
       [2, 5, 0],
@@ -69,7 +69,7 @@ defmodule KafkaEx.Server0P10P1.Test do
       throttle_time_ms: _
     } = response
 
-    assert api_versions_kafka_0_11_0_1 ==
+    assert api_versions_kafka_2_1_0 ==
              api_versions
              |> Enum.map(&[&1.api_key, &1.max_version, &1.min_version])
   end
