@@ -1,0 +1,108 @@
+name: CI Checks
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  dependencies:
+    name: check | setup dependencies
+    runs-on: ubuntu-20.04
+    env:
+      MIX_ENV: dev
+      ACTIONS_ALLOW_UNSECURE_COMMANDS: true
+    strategy:
+      matrix:
+        elixir: ['1.12']
+        otp: ['24.3']
+
+    steps:
+        - name: Cancel previous runs
+          uses: styfle/cancel-workflow-action@0.9.0
+          with:
+            access_token: ${{ github.token }}
+
+        - name: Checkout Github repo
+          uses: actions/checkout@v2
+
+        - name: Setup elixir & erlang enviroment
+          uses: actions/setup-elixir@v1
+          with:
+            elixir-version: ${{matrix.elixir}} # Define the elixir version [required]
+            otp-version: ${{matrix.otp}} # Define the OTP version [required]
+            experimental-otp: true # More info https://github.com/actions/setup-elixir/issues/31
+
+        - name: Retrieve Cached Dependencies
+          uses: actions/cache@v2
+          id: mix-cache
+          with:
+            path: |
+              deps
+              _build
+              priv/plts
+            key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-${{ hashFiles('mix.lock') }}
+
+        - name: Install Dependencies
+          if: steps.mix-cache.outputs.cache-hit != 'true'
+          run: |
+            mkdir -p priv/plts
+            mix local.rebar --force
+            mix local.hex --force
+            mix deps.get
+            mix deps.compile
+            mix dialyzer --plt
+
+  static_code_analysis:
+    name: Static Code Analysis
+    runs-on: ubuntu-20.04
+    needs: [dependencies]
+    env:
+      MIX_ENV: dev
+
+    strategy:
+      fail-fast: false
+      matrix:
+        elixir: ['1.12']
+        otp: ['24.3']
+
+    steps:
+      - name: Cancel Previous Runs
+        uses: styfle/cancel-workflow-action@0.6.0
+        with:
+          access_token: ${{ github.token }}
+
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Setup elixir & erlang enviroment
+        uses: actions/setup-elixir@v1
+        with:
+          elixir-version: ${{matrix.elixir}} # Define the elixir version [required]
+          otp-version: ${{matrix.otp}} # Define the OTP version [required]
+          experimental-otp: true # More info https://github.com/actions/setup-elixir/issues/31
+
+      - name: Retrieve Cached Dependencies
+        uses: actions/cache@v2
+        id: mix-cache
+        with:
+          path: |
+            deps
+            _build
+            priv/plts
+          key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-${{ hashFiles('mix.lock') }}
+
+      - name: Compile
+        run: mix compile --force
+
+      - name: Check Code Format
+        run: mix format --check-formatted
+
+      - name: Run Credo
+        run: mix credo
+
+      - name: Run Dialyzer
+        run: mix dialyzer --no-check

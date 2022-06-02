@@ -1,0 +1,110 @@
+name: CI Tests
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  setup:
+    name: test / setup
+    runs-on: ubuntu-20.04
+    env:
+      MIX_ENV: test
+    strategy:
+      matrix:
+        pair:
+          - elixir: 1.13
+            otp: 24.3
+          - elixir: 1.11
+            otp: 21.3
+          - elixir: 1.6
+            otp: 20.3
+
+    steps:
+      - name: Cancel previous runs
+        uses: styfle/cancel-workflow-action@0.9.0
+        with:
+          access_token: ${{ github.token }}
+      - name: Checkout Github repo
+        uses: actions/checkout@v2
+      - name: Setup elixir & erlang enviroment
+        uses: actions/setup-elixir@v1
+        with:
+          elixir-version: ${{matrix.pair.elixir}} # Define the elixir version [required]
+          otp-version: ${{matrix.pair.otp}} # Define the OTP version [required]
+          experimental-otp: true # More info https://github.com/actions/setup-elixir/issues/31
+
+      - name: Retrieve Mix Dependencies Cache
+        uses: actions/cache@v2
+        id: mix-cache # id to use in retrieve action
+        with:
+          path: deps
+          key: ${{ runner.os }}-${{ matrix.pair.otp }}-${{ matrix.pair.elixir }}-mix-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
+
+      - name: Retrieve Mix Dependencies Compilation Cache
+        uses: actions/cache@v2
+        id: mix-deps-compile-cache # id to use in retrieve action
+        with:
+          path: _build
+          key: ${{ runner.os }}-${{ matrix.pair.otp }}-${{ matrix.pair.elixir }}-mix-deps-compile-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
+      - name: Install Mix Dependencies
+        if: steps.mix-cache.outputs.cache-hit != 'true'
+        run: |
+          mix local.rebar --force
+          mix local.hex --force
+          mix deps.get
+
+      - name: Compile Mix Dependencies
+        if: steps.mix-deps-compile-cache.outputs.cache-hit != 'true'
+        run: mix deps.compile
+
+  test:
+    name: runner / Test
+    needs: [setup]
+
+    runs-on: ubuntu-20.04
+    env:
+      MIX_ENV: test
+
+    strategy:
+      fail-fast: false
+      matrix:
+        pair:
+          - elixir: 1.13
+            otp: 24.3
+          - elixir: 1.11
+            otp: 21.3
+          - elixir: 1.6
+            otp: 20.3
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Setup elixir & erlang enviroment
+        uses: actions/setup-elixir@v1
+        with:
+          elixir-version: ${{matrix.pair.elixir}} # Define the elixir version [required]
+          otp-version: ${{matrix.pair.otp}} # Define the OTP version [required]
+          experimental-otp: true # More info https://github.com/actions/setup-elixir/issues/31
+
+      - name: Retrieve Mix Dependencies Cache
+        uses: actions/cache@v2
+        id: mix-cache # id to use in retrieve action
+        with:
+          path: deps
+          key: ${{ runner.os }}-${{ matrix.pair.otp }}-${{ matrix.pair.elixir }}-mix-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
+
+      - name: Retrieve Mix Dependencies Compilation Cache
+        uses: actions/cache@v2
+        id: mix-deps-compile-cache # id to use in retrieve action
+        with:
+          path: _build
+          key: ${{ runner.os }}-${{ matrix.pair.otp }}-${{ matrix.pair.elixir }}-mix-deps-compile-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
+
+      - name: Docker-compose up
+        run: ./scripts/docker_up.sh
+      - name: Docker ps
+        run: docker ps -a
+      - name: Run Tests
+        run: ./scripts/ci_tests.sh

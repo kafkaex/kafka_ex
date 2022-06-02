@@ -12,6 +12,8 @@ defmodule KafkaEx.Mixfile do
       elixir: "~> 1.6",
       dialyzer: [
         plt_add_deps: :transitive,
+        plt_add_apps: [:ssl],
+        plt_file: {:no_warn, "priv/plts/dialyzer.plt"},
         flags: [
           :error_handling,
           :race_conditions
@@ -22,6 +24,7 @@ defmodule KafkaEx.Mixfile do
       description: description(),
       package: package(),
       deps: deps(),
+      dialyzer: dialyzer(),
       docs: [
         main: "readme",
         extras: [
@@ -47,7 +50,7 @@ defmodule KafkaEx.Mixfile do
     main_deps = [
       {:kayrock, "~> 0.1.12"},
       {:credo, "~> 1.1", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.0.0-rc.3", only: :dev, runtime: false},
+      {:dialyxir, "~> 1.0", only: :dev, runtime: false},
       {:excoveralls, "~> 0.7", only: :test, runtime: false},
       {:snappy,
        git: "https://github.com/fdmanana/snappy-erlang-nif", only: [:dev, :test]},
@@ -73,6 +76,13 @@ defmodule KafkaEx.Mixfile do
       files: ["lib", "config/config.exs", "mix.exs", "README.md"],
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url}
+    ]
+  end
+
+  defp dialyzer do
+    [
+      plt_core_path: "priv/plts",
+      plt_file: {:no_warn, "priv/plts/dialyzer.plt"}
     ]
   end
 end

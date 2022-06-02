@@ -36,6 +36,7 @@ defmodule KafkaEx.Socket.Test do
       {:ok, listen_socket} =
         :ssl.listen(port, [
           :binary,
+          {:verify, :verify_none},
           {:active, false},
           {:reuseaddr, true},
           {:packet, 0},
@@ -49,7 +50,12 @@ defmodule KafkaEx.Socket.Test do
     defp listen(socket) do
       case :ssl.transport_accept(socket) do
         {:ok, conn} ->
-          :ok = :ssl.ssl_accept(conn)
+          if otp_version_21_plus?() do
+            {:ok, _socket} = :ssl.handshake(conn)
+          else
+            :ok = :ssl.ssl_accept(conn)
+          end
+
           pid = spawn_link(fn -> recv(conn) end)
           :ssl.controlling_process(socket, pid)
 
@@ -69,96 +75,112 @@ defmodule KafkaEx.Socket.Test do
           :ok
       end
     end
+
+    defp otp_version_21_plus? do
+      {version, _} = System.otp_release() |> Float.parse()
+      version >= 21
+    end
   end
 
   setup_all do
     :ssl.start()
-    SSLServer.start(3030)
-    Server.start(3040)
-    {:ok, [ssl_port: 3030, port: 3040]}
   end
 
-  test "create a non SSL socket", context do
-    {:ok, socket} =
-      KafkaEx.Socket.create(
-        'localhost',
-        context[:port],
-        [:binary, {:packet, 0}],
-        false
-      )
+  describe "without SSL socket" do
+    setup do
+      Server.start(3040)
+      {:ok, [port: 3040]}
+    end
 
-    assert socket.ssl == false
-    KafkaEx.Socket.close(socket)
+    test "create a non SSL socket", context do
+      {:ok, socket} =
+        KafkaEx.Socket.create(
+          'localhost',
+          context[:port],
+          [:binary, {:packet, 0}],
+          false
+        )
+
+      assert socket.ssl == false
+      KafkaEx.Socket.close(socket)
+    end
+
+    test "send and receive using a non SSL socket", context do
+      {:ok, socket} =
+        KafkaEx.Socket.create(
+          'localhost',
+          context[:port],
+          [:binary, {:packet, 0}, {:active, false}],
+          false
+        )
+
+      KafkaEx.Socket.send(socket, 'ping')
+      assert {:ok, "ping"} == KafkaEx.Socket.recv(socket, 0)
+      KafkaEx.Socket.close(socket)
+    end
+
+    test "retrieve info from a non SSL socket", context do
+      {:ok, socket} =
+        KafkaEx.Socket.create(
+          'localhost',
+          context[:port],
+          [:binary, {:packet, 0}, {:active, false}],
+          false
+        )
+
+      info = KafkaEx.Socket.info(socket)
+      assert info[:name] == 'tcp_inet'
+      KafkaEx.Socket.close(socket)
+      assert {:error, :closed} == KafkaEx.Socket.send(socket, 'ping')
+    end
   end
 
-  test "send and receive using a non SSL socket", context do
-    {:ok, socket} =
-      KafkaEx.Socket.create(
-        'localhost',
-        context[:port],
-        [:binary, {:packet, 0}, {:active, false}],
-        false
-      )
+  describe "with ssl socket" do
+    setup do
+      SSLServer.start(3030)
+      {:ok, [ssl_port: 3030]}
+    end
 
-    KafkaEx.Socket.send(socket, 'ping')
-    assert {:ok, "ping"} == KafkaEx.Socket.recv(socket, 0)
-    KafkaEx.Socket.close(socket)
-  end
+    test "create a SSL socket", context do
+      {:ok, socket} =
+        KafkaEx.Socket.create(
+          'localhost',
+          context[:ssl_port],
+          [:binary, {:packet, 0}],
+          true
+        )
 
-  test "retrieve info from a non SSL socket", context do
-    {:ok, socket} =
-      KafkaEx.Socket.create(
-        'localhost',
-        context[:port],
-        [:binary, {:packet, 0}, {:active, false}],
-        false
-      )
+      assert socket.ssl == true
+      KafkaEx.Socket.close(socket)
+    end
 
-    info = KafkaEx.Socket.info(socket)
-    assert info[:name] == 'tcp_inet'
-    KafkaEx.Socket.close(socket)
-    assert {:error, :closed} == KafkaEx.Socket.send(socket, 'ping')
-  end
+    test "send and receive using a SSL socket", context do
+      {:ok, socket} =
+        KafkaEx.Socket.create(
+          'localhost',
+          context[:ssl_port],
+          [:binary, {:packet, 0}, {:active, false}],
+          true
+        )
 
-  test "create a SSL socket", context do
-    {:ok, socket} =
-      KafkaEx.Socket.create(
-        'localhost',
-        context[:ssl_port],
-        [:binary, {:packet, 0}],
-        true
-      )
+      KafkaEx.Socket.send(socket, 'ping')
+      assert {:ok, "ping"} == KafkaEx.Socket.recv(socket, 0)
+      KafkaEx.Socket.close(socket)
+    end
 
-    assert socket.ssl == true
-    KafkaEx.Socket.close(socket)
-  end
+    test "retrieve info from a SSL socket", context do
+      {:ok, socket} =
+        KafkaEx.Socket.create(
+          'localhost',
+          context[:ssl_port],
+          [:binary, {:packet, 0}, {:active, false}],
+          true
+        )
 
-  test "send and receive using a SSL socket", context do
-    {:ok, socket} =
-      KafkaEx.Socket.create(
-        'localhost',
-        context[:ssl_port],
-        [:binary, {:packet, 0}, {:active, false}],
-        true
-      )
-
-    KafkaEx.Socket.send(socket, 'ping')
-    assert {:ok, "ping"} == KafkaEx.Socket.recv(socket, 0)
-    KafkaEx.Socket.close(socket)
-  end
-
-  test "retrieve info from a SSL socket", context do
-    {:ok, socket} =
-      KafkaEx.Socket.create(
-        'localhost',
-        context[:ssl_port],
-        [:binary, {:packet, 0}, {:active, false}],
-        true
-      )
-
-    info = KafkaEx.Socket.info(socket)
-    assert info[:name] == 'tcp_inet'
-    KafkaEx.Socket.close(socket)
-    assert {:error, :closed} == KafkaEx.Socket.send(socket, 'ping')
+      info = KafkaEx.Socket.info(socket)
+      assert info[:name] == 'tcp_inet'
+      KafkaEx.Socket.close(socket)
+      assert {:error, :closed} == KafkaEx.Socket.send(socket, 'ping')
+    end
   end
 end
