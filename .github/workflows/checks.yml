@@ -15,8 +15,8 @@ jobs:
       ACTIONS_ALLOW_UNSECURE_COMMANDS: true
     strategy:
       matrix:
-        elixir: ['1.12']
-        otp: ['24.3']
+        elixir: ['1.12.3']
+        otp: ['24.3.4']
 
     steps:
         - name: Cancel previous runs
@@ -64,8 +64,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        elixir: ['1.12']
-        otp: ['24.3']
+        elixir: ['1.12.3']
+        otp: ['24.3.4']
 
     steps:
       - name: Cancel Previous Runs
