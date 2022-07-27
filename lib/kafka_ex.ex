@@ -711,6 +711,39 @@ defmodule KafkaEx do
   @doc """
   Create topics. Must provide a list of CreateTopicsRequest, each containing
   all the information needed for the creation of a new topic.
+
+  See available topic configuration options at https://docs.confluent.io/platform/current/installation/configuration/topic-configs.html
+
+  ## Example
+
+  ```elixir
+  iex> KafkaEx.start_link_worker(:my_kafka_worker)
+  {:ok, #PID<0.659.0>}
+  iex> KafkaEx.create_topics(
+  ...>  [
+  ...>   %KafkaEx.Protocol.CreateTopics.TopicRequest{
+  ...>     topic: "my_topic_name",
+  ...>      num_partitions: 1,
+  ...>      replication_factor: 1,
+  ...>      replica_assignment: [],
+  ...>      config_entries: [
+  ...>        %{config_name: "cleanup.policy", config_value: "delete"},
+  ...>        %{config_name: "delete.retention.ms", config_value: "864000000"} # 1 day
+  ...>      ]
+  ...>    }
+  ...>  ],
+  ...>  timeout: 10_000,
+  ...>  worker_name: :my_kafka_worker
+  ...> )
+  %KafkaEx.Protocol.CreateTopics.Response{
+    topic_errors: [
+      %KafkaEx.Protocol.CreateTopics.TopicError{
+        error_code: :no_error,
+        topic_name: "my_topic_name"
+      }
+    ]
+  }
+  ```
   """
   @spec create_topics([CreateTopicsRequest.t()], Keyword.t()) ::
           CreateTopicsResponse.t()
@@ -722,6 +755,20 @@ defmodule KafkaEx do
 
   @doc """
   Delete topics. Must provide a list of topic names.
+
+  ## Example
+
+  ```elixir
+  iex> KafkaEx.delete_topics(["my_topic_name"], [])
+  %KafkaEx.Protocol.DeleteTopics.Response{
+    topic_errors: [
+      %KafkaEx.Protocol.DeleteTopics.TopicError{
+        error_code: :no_error,
+        topic_name: "my_topic_name"
+      }
+    ]
+  }
+  ```
   """
   @spec delete_topics([String.t()], Keyword.t()) :: DeleteTopicsResponse.t()
   def delete_topics(topics, opts \\ []) do
