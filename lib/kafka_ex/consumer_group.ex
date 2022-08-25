@@ -363,10 +363,8 @@ defmodule KafkaEx.ConsumerGroup do
     opts = Keyword.put(opts, :supervisor_pid, self())
 
     children = [
-      worker(
-        KafkaEx.ConsumerGroup.Manager,
-        [{gen_consumer_module, consumer_module}, group_name, topics, opts]
-      )
+      {KafkaEx.ConsumerGroup.Manager,
+       {{gen_consumer_module, consumer_module}, group_name, topics, opts}}
     ]
 
     Supervisor.init(children,
