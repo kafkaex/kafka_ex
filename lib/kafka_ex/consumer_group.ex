@@ -334,9 +334,17 @@ defmodule KafkaEx.ConsumerGroup do
         opts
       ) do
     child =
-      supervisor(
-        KafkaEx.GenConsumer.Supervisor,
-        [{gen_consumer_module, consumer_module}, group_name, assignments, opts],
+      Supervisor.child_spec(
+        {
+          KafkaEx.GenConsumer.Supervisor,
+          %{
+            gen_consumer_module: gen_consumer_module,
+            consumer_module: consumer_module,
+            group_name: group_name,
+            assignments: assignments,
+            opts: opts
+          }
+        },
         id: :consumer
       )
 
