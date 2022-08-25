@@ -297,11 +297,9 @@ defmodule KafkaEx.ConsumerGroup do
   def active?(supervisor_pid, timeout \\ 5000) do
     consumer_supervisor = consumer_supervisor_pid(supervisor_pid, timeout)
 
-    if consumer_supervisor && Process.alive?(consumer_supervisor) do
+    consumer_supervisor &&
+      Process.alive?(consumer_supervisor) &&
       GenConsumer.Supervisor.active?(consumer_supervisor)
-    else
-      false
-    end
   end
 
   @doc """
