@@ -11,3 +11,6 @@ doc
 
 .elixir_ls
 cover
+
+# Dialyzer's Persistent Lookup Table
+priv/plts/
