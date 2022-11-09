@@ -1,20 +1,27 @@
-version: "3.8"
+version: '3.9'
 
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:5.5.1
+    restart: unless-stopped
     ports:
       - '32181:32181'
     environment:
       ZOOKEEPER_CLIENT_PORT: 32181
       ZOOKEEPER_TICK_TIME: 2000
+    healthcheck:
+      test: "zookeeper-shell 127.0.01:32181 ls /"
+      interval: 10s
+      timeout: 10s
+      retries: 5
 
   kafka-1:
     image: confluentinc/cp-kafka:5.5.1
     ports:
       - '9092:9092'
     depends_on:
-      - zookeeper
+      zookeeper:
+        condition: service_healthy
     env_file: docker-compose-kafka.env
     environment:
       KAFKA_BROKER_ID: 1
@@ -34,7 +41,8 @@ services:
     ports:
       - '9093:9093'
     depends_on:
-      - zookeeper
+      zookeeper:
+        condition: service_healthy
     env_file: docker-compose-kafka.env
     environment:
       KAFKA_BROKER_ID: 2
@@ -54,7 +62,8 @@ services:
     ports:
       - '9094:9094'
     depends_on:
-      - zookeeper
+      zookeeper:
+        condition: service_healthy
     env_file: docker-compose-kafka.env
     environment:
       KAFKA_BROKER_ID: 3
@@ -72,6 +81,8 @@ services:
   kafka_setup:
     image: confluentinc/cp-kafka:5.5.1
     depends_on:
+      zookeeper:
+        condition: service_healthy
       kafka-1:
         condition: service_healthy
       kafka-2:
