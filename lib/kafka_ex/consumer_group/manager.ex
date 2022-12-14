@@ -53,18 +53,18 @@ defmodule KafkaEx.ConsumerGroup.Manager do
 
   @doc false
   # use `KafkaEx.ConsumerGroup.start_link/4` instead
-  @spec start_link(
+  @spec start_link({
           {module, module},
           binary,
           [binary],
           KafkaEx.GenConsumer.options()
-        ) :: GenServer.on_start()
-  def start_link(
+        }) :: GenServer.on_start()
+  def start_link({
         {gen_consumer_module, consumer_module},
         group_name,
         topics,
-        opts \\ []
-      ) do
+        opts
+      }) do
     gen_server_opts = Keyword.get(opts, :gen_server_opts, [])
     consumer_opts = Keyword.drop(opts, [:gen_server_opts])
 

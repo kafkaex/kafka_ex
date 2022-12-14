@@ -297,11 +297,9 @@ defmodule KafkaEx.ConsumerGroup do
   def active?(supervisor_pid, timeout \\ 5000) do
     consumer_supervisor = consumer_supervisor_pid(supervisor_pid, timeout)
 
-    if consumer_supervisor && Process.alive?(consumer_supervisor) do
+    consumer_supervisor &&
+      Process.alive?(consumer_supervisor) &&
       GenConsumer.Supervisor.active?(consumer_supervisor)
-    else
-      false
-    end
   end
 
   @doc """
@@ -334,9 +332,17 @@ defmodule KafkaEx.ConsumerGroup do
         opts
       ) do
     child =
-      supervisor(
-        KafkaEx.GenConsumer.Supervisor,
-        [{gen_consumer_module, consumer_module}, group_name, assignments, opts],
+      Supervisor.child_spec(
+        {
+          KafkaEx.GenConsumer.Supervisor,
+          %{
+            gen_consumer_module: gen_consumer_module,
+            consumer_module: consumer_module,
+            group_name: group_name,
+            assignments: assignments,
+            opts: opts
+          }
+        },
         id: :consumer
       )
 
@@ -363,10 +369,8 @@ defmodule KafkaEx.ConsumerGroup do
     opts = Keyword.put(opts, :supervisor_pid, self())
 
     children = [
-      worker(
-        KafkaEx.ConsumerGroup.Manager,
-        [{gen_consumer_module, consumer_module}, group_name, topics, opts]
-      )
+      {KafkaEx.ConsumerGroup.Manager,
+       {{gen_consumer_module, consumer_module}, group_name, topics, opts}}
     ]
 
     Supervisor.init(children,
