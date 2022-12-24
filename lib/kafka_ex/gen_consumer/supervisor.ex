@@ -18,7 +18,7 @@ defmodule KafkaEx.GenConsumer.Supervisor do
   @default_worker_shutdown 5_000
 
   if Version.match?(System.version(), ">= 1.7.0") do
-    @doc since: "0.14.0"
+    @doc since: "0.13.0"
   end
 
   @doc """
