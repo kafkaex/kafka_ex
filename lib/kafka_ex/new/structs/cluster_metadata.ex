@@ -231,8 +231,9 @@ defmodule KafkaEx.New.ClusterMetadata do
     %{cluster_metadata | brokers: updated_brokers}
   end
 
-  @doc false
-  # update a consumer group coordinator node id
+  @doc """
+  update a consumer group coordinator node id
+  """
   @spec put_consumer_group_coordinator(
           t,
           KafkaExAPI.consumer_group_name(),
@@ -255,8 +256,9 @@ defmodule KafkaEx.New.ClusterMetadata do
     }
   end
 
-  @doc false
-  # remove the given topics (e.g., when they are deleted)
+  @doc """
+  remove the given topics (e.g., when they are deleted)
+  """
   @spec remove_topics(t, [KafkaExAPI.topic_name()]) :: t
   def remove_topics(
         %__MODULE__{topics: topics} = cluster_metadata,
