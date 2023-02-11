@@ -141,7 +141,7 @@ defmodule KafkaEx.New.ClusterMetadataTest do
 
       cluster = %ClusterMetadata{
         topics: %{
-          topic.name => topic,
+          topic.name => topic
         }
       }
 
@@ -163,7 +163,7 @@ defmodule KafkaEx.New.ClusterMetadataTest do
 
       cluster = %ClusterMetadata{
         topics: %{
-          topic.name => topic,
+          topic.name => topic
         }
       }
 
@@ -226,9 +226,10 @@ defmodule KafkaEx.New.ClusterMetadataTest do
       broker = %KafkaEx.New.Broker{node_id: 1, socket: socket}
       cluster = %ClusterMetadata{brokers: %{1 => broker}}
 
-      updated_cluster = ClusterMetadata.update_brokers(cluster, fn broker_to_update ->
-        KafkaEx.New.Broker.put_socket(broker_to_update, nil)
-      end)
+      updated_cluster =
+        ClusterMetadata.update_brokers(cluster, fn broker_to_update ->
+          KafkaEx.New.Broker.put_socket(broker_to_update, nil)
+        end)
 
       updated_broker = ClusterMetadata.broker_by_node_id(updated_cluster, 1)
       refute updated_broker.socket

@@ -36,11 +36,11 @@ defmodule KafkaEx.New.Protocols.DescribeGroupsTest do
           client_id: "client_id",
           client_host: "client_host",
           member_metadata: "member_metadata",
-          member_assignment: %KafkaEx.New.ConsumerGroup.Member.MemberAssigment{
+          member_assignment: %KafkaEx.New.ConsumerGroup.Member.MemberAssignment{
             version: 0,
             user_data: "user_data",
             partition_assignments: [
-              %KafkaEx.New.ConsumerGroup.Member.MemberAssigment.PartitionAssignment{
+              %KafkaEx.New.ConsumerGroup.Member.MemberAssignment.PartitionAssignment{
                 topic: "test-topic",
                 partitions: [1, 2, 3]
               }
