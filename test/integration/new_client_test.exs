@@ -16,51 +16,94 @@ defmodule KafkaEx.New.Client.Test do
 
   setup do
     {:ok, args} = KafkaEx.build_worker_options([])
-
     {:ok, pid} = Client.start_link(args, :no_name)
 
     {:ok, %{client: pid}}
   end
 
-  test "update metadata", %{client: client} do
-    {:ok, updated_metadata} = GenServer.call(client, :update_metadata)
-    %ClusterMetadata{topics: topics} = updated_metadata
-    # we don't fetch any topics on startup
-    assert topics == %{}
+  describe "update_metadata/0" do
+    test "we don't fetch any topics on startup", %{client: client} do
+      {:ok, updated_metadata} = GenServer.call(client, :update_metadata)
+      %ClusterMetadata{topics: topics} = updated_metadata
 
-    {:ok, [topic_metadata]} =
-      GenServer.call(client, {:topic_metadata, ["test0p8p0"], false})
-
-    assert %Topic{name: "test0p8p0"} = topic_metadata
+      assert topics == %{}
+    end
   end
 
-  test "list offsets", %{client: client} do
-    topic = "test0p8p0"
+  describe "topic_metadata/1" do
+    test "returns topic metadata", %{client: client} do
+      {:ok, [topic_metadata]} =
+        GenServer.call(client, {:topic_metadata, ["test0p8p0"], false})
 
-    for partition <- 0..3 do
-      request = %Kayrock.ListOffsets.V1.Request{
-        replica_id: -1,
-        topics: [
-          %{topic: topic, partitions: [%{partition: partition, timestamp: -1}]}
-        ]
-      }
+      assert %Topic{name: "test0p8p0"} = topic_metadata
+    end
+  end
 
-      {:ok, resp} =
-        Client.send_request(
-          client,
-          request,
-          NodeSelector.topic_partition(topic, partition)
-        )
+  describe "list_offset/3" do
+    test "list offset", %{client: client} do
+      topic = "test0p8p0"
 
-      %Kayrock.ListOffsets.V1.Response{responses: responses} = resp
-      [main_resp] = responses
+      for partition <- 0..3 do
+        request = %Kayrock.ListOffsets.V1.Request{
+          replica_id: -1,
+          topics: [
+            %{
+              topic: topic,
+              partitions: [%{partition: partition, timestamp: -1}]
+            }
+          ]
+        }
 
-      [%{error_code: error_code, offset: offset}] =
-        main_resp.partition_responses
+        {:ok, resp} =
+          Client.send_request(
+            client,
+            request,
+            NodeSelector.topic_partition(topic, partition)
+          )
 
-      assert error_code == 0
-      {:ok, latest_offset} = KafkaExAPI.latest_offset(client, topic, partition)
-      assert latest_offset == offset
+        %Kayrock.ListOffsets.V1.Response{responses: responses} = resp
+        [main_resp] = responses
+
+        [%{error_code: error_code, offset: offset}] =
+          main_resp.partition_responses
+
+        assert error_code == 0
+
+        {:ok, latest_offset} =
+          KafkaExAPI.latest_offset(client, topic, partition)
+
+        assert latest_offset == offset
+      end
+    end
+  end
+
+  describe "describe_groups/1" do
+    setup do
+      consumer_group = Enum.map(0..10, &Enum.random(~w(0 1 2 3 4 5 6 7 8 9 a b c d e f))) |> Enum.join()
+      {:ok, pid} = KafkaEx.create_worker(:baz, uris: uris(), consumer_group: consumer_group)
+
+      on_exit(fn ->
+        KafkaEx.delete_worker(:baz)
+      end)
+
+      {:ok, %{consumer_group: consumer_group}}
+    end
+
+    test "returns group metadata for single consumer group", %{consumer_group: consumer_group} do
+      {:ok, [group_metadata]} =
+        GenServer.call(:baz, {:describe_groups, [consumer_group]})
+
+      assert group_metadata.group_id == consumer_group
+      assert group_metadata.protocol_type == "consumer"
+      assert group_metadata.protocol == "consumer"
+      assert group_metadata.members != []
+    end
+
+    test "returns error when consumer group request failed", %{consumer_group: consumer_group} do
+      {:ok, [group_metadata]} =
+        GenServer.call(:baz, {:describe_groups, ["non-existing-group"]})
+
+      assert group_metadata.error_code == 25
     end
   end
 

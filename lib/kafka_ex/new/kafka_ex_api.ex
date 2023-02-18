@@ -15,9 +15,10 @@ defmodule KafkaEx.New.KafkaExAPI do
 
   alias KafkaEx.New.Client
   alias KafkaEx.New.ClusterMetadata
+  alias KafkaEx.New.ConsumerGroup
   alias KafkaEx.New.Topic
-  alias KafkaEx.New.NodeSelector
 
+  @type api_version :: non_neg_integer
   @type node_id :: non_neg_integer
   @type topic_name :: binary
   @type partition_id :: non_neg_integer
@@ -29,31 +30,21 @@ defmodule KafkaEx.New.KafkaExAPI do
 
   @doc """
   Fetch the latest offset for a given partition
+  ToDo: Logic related to build & parse request currently requires client internals.
   """
   @spec latest_offset(client, topic_name, partition_id) ::
-          {:error, error_atom} | {:ok, offset}
+          {:ok, offset} | {:error, error_atom}
   def latest_offset(client, topic, partition) do
-    request = %Kayrock.ListOffsets.V1.Request{
-      replica_id: -1,
-      topics: [
-        %{topic: topic, partitions: [%{partition: partition, timestamp: -1}]}
-      ]
-    }
+    GenServer.call(client, {:latest_offset, topic, partition})
+  end
 
-    {:ok, resp} =
-      Client.send_request(
-        client,
-        request,
-        NodeSelector.topic_partition(topic, partition)
-      )
-
-    [topic_resp] = resp.responses
-    [%{error_code: error_code, offset: offset}] = topic_resp.partition_responses
-
-    case error_code do
-      0 -> {:ok, offset}
-      _ -> {:error, Kayrock.ErrorCode.code_to_atom(error_code)}
-    end
+  @doc """
+  Returns consumer group metadata
+  """
+  @spec describe_group(client, consumer_group_name) ::
+          {:ok, ConsumerGroup.t()} | {:error, error_atom}
+  def describe_group(client, consumer_group_name) do
+    GenServer.call(client, {:describe_groups, [consumer_group_name]})
   end
 
   @doc """
@@ -73,7 +64,7 @@ defmodule KafkaEx.New.KafkaExAPI do
   Returns the cluster metadata from the given client
   """
   @spec cluster_metadata(client) :: {:ok, ClusterMetadata.t()}
-  def(cluster_metadata(client)) do
+  def cluster_metadata(client) do
     GenServer.call(client, :cluster_metadata)
   end
 

@@ -14,10 +14,14 @@ defmodule KafkaEx.New.Client do
   alias KafkaEx.Config
   alias KafkaEx.NetworkClient
 
+  alias KafkaEx.New.Protocols.DescribeGroups
+  alias KafkaEx.New.Protocols.ListOffsets
+
   alias KafkaEx.New.Broker
   alias KafkaEx.New.ClusterMetadata
   alias KafkaEx.New.NodeSelector
 
+  alias KafkaEx.New.Client.RequestTemplates
   alias KafkaEx.New.Client.State
 
   use GenServer
@@ -42,7 +46,7 @@ defmodule KafkaEx.New.Client do
   end
 
   @doc """
-  Send a Kayrock request to the appropriate broker
+  Send a Kayrock request to the appropriate broker.
 
   Broker metadata will be updated if necessary
   """
@@ -73,7 +77,7 @@ defmodule KafkaEx.New.Client do
   @retry_count 3
   @sync_timeout 1_000
 
-  @impl true
+  @impl GenServer
   def init([args, name]) do
     state = State.static_init(args, name || self())
 
@@ -132,20 +136,23 @@ defmodule KafkaEx.New.Client do
     {:ok, state}
   end
 
-  @impl true
+  @impl GenServer
   def handle_call(:cluster_metadata, _from, state) do
     {:reply, {:ok, state.cluster_metadata}, state}
   end
 
+  @impl GenServer
   def handle_call(:correlation_id, _from, state) do
     {:reply, {:ok, state.correlation_id}, state}
   end
 
+  @impl GenServer
   def handle_call(:update_metadata, _from, state) do
     updated_state = update_metadata(state)
     {:reply, {:ok, updated_state.cluster_metadata}, updated_state}
   end
 
+  @impl GenServer
   def handle_call(
         {:set_consumer_group_for_auto_commit, consumer_group},
         _from,
@@ -158,6 +165,7 @@ defmodule KafkaEx.New.Client do
     end
   end
 
+  @impl GenServer
   def handle_call({:topic_metadata, topics, allow_topic_creation}, _from, state) do
     {topic_metadata, updated_state} =
       fetch_topics_metadata(state, topics, allow_topic_creation)
@@ -165,6 +173,113 @@ defmodule KafkaEx.New.Client do
     {:reply, {:ok, topic_metadata}, updated_state}
   end
 
+  @impl GenServer
+  def handle_call({:latest_offset, topic, partition}, _from, state) do
+    {response, updated_state} = list_offsets_request(topic, partition, state)
+    {:reply, response, updated_state}
+  end
+
+  @impl GenServer
+  def handle_call({:describe_groups, [consumer_group_name]}, _from, state) do
+    if KafkaEx.valid_consumer_group?(consumer_group_name) do
+      {response, updated_state} =
+        describe_group_request(consumer_group_name, state)
+
+      {:reply, response, updated_state}
+    else
+      {:reply, {:error, :invalid_consumer_group}, state}
+    end
+  end
+
+  defp list_offsets_request(topic, partition, state) do
+    node_selector = NodeSelector.topic_partition(topic, partition)
+    topic_partitions = [{topic, [partition]}]
+
+    :list_offsets
+    |> RequestTemplates.request_template(state)
+    |> ListOffsets.Request.build_request(topic_partitions)
+    |> handle_list_offsets_request(node_selector, state, topic, partition)
+  end
+
+  defp handle_list_offsets_request(
+         request,
+         node_selector,
+         state,
+         topic,
+         partition
+       ) do
+    case kayrock_network_request(request, node_selector, state) do
+      {{:ok, response}, state_out} ->
+        response =
+          ListOffsets.Response.get_partition_offset(response, topic, partition)
+
+        {response, state_out}
+
+      _ ->
+        {{:error, :unknown}, state}
+    end
+  end
+
+  defp describe_group_request(consumer_group_name, state) do
+    node_selector = NodeSelector.consumer_group(consumer_group_name)
+
+    :describe_groups
+    |> RequestTemplates.request_template(state)
+    |> DescribeGroups.Request.build_request([consumer_group_name])
+    |> handle_describe_group_request(node_selector, state)
+  end
+
+  defp handle_describe_group_request(_, _, state, 0, last_error) do
+    {{:error, last_error}, state}
+  end
+
+  defp handle_describe_group_request(
+         request,
+         node_selector,
+         state,
+         retry_count \\ @retry_count,
+         _last_error \\ nil
+       ) do
+    case kayrock_network_request(request, node_selector, state) do
+      {{:ok, response}, state_out} ->
+        case DescribeGroups.Response.parse_response(response) do
+          {:ok, [consumer_group]} ->
+            {{:ok, consumer_group}, state_out}
+
+          {:error, [error | _]} ->
+            consumer_group = request.groups[0]
+
+            Logger.warn(
+              "Unable to fetch consumer group metadata for #{consumer_group.group_id}"
+            )
+
+            handle_describe_group_request(
+              request,
+              node_selector,
+              state,
+              retry_count - 1,
+              error
+            )
+        end
+
+      {_, _state_out} ->
+        consumer_group = request.groups[0]
+
+        Logger.warn(
+          "Unable to fetch consumer group metadata for #{consumer_group.group_id}"
+        )
+
+        handle_describe_group_request(
+          request,
+          node_selector,
+          state,
+          retry_count - 1,
+          :unknown
+        )
+    end
+  end
+
+  @impl GenServer
   def handle_call({:kayrock_request, request, node_selector}, _from, state) do
     {response, updated_state} =
       kayrock_network_request(request, node_selector, state)
@@ -175,22 +290,24 @@ defmodule KafkaEx.New.Client do
   # injects backwards-compatible handle_call clauses
   use KafkaEx.New.ClientCompatibility
 
-  @impl true
+  @impl GenServer
   def handle_info(:update_metadata, state) do
     {:noreply, update_metadata(state)}
   end
 
+  @impl GenServer
   def handle_info({:tcp_closed, socket}, state) do
     state_out = close_broker_by_socket(state, socket)
     {:noreply, state_out}
   end
 
+  @impl GenServer
   def handle_info({:ssl_closed, socket}, state) do
     state_out = close_broker_by_socket(state, socket)
     {:noreply, state_out}
   end
 
-  @impl true
+  @impl GenServer
   def terminate(reason, state) do
     Logger.log(
       :debug,

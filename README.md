@@ -69,7 +69,7 @@ The path we have planned to get to v1.0 is:
     adopters can test it.
 5.  Once the new API is complete and stable, move it to the `KafkaEx` namespace
     (i.e., drop the `New` part) and it will replace the legacy API.  This will be
-    released as v1.0.
+    released as v1.0. Rename Client to Kayrock client to be able to easily implement new clients in future.
 
 Users of KafkaEx can help a lot by testing the new code. At first, we need
 people to test the Kayrock-based client using compatibility mode. You can do
