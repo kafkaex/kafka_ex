@@ -79,19 +79,22 @@ defmodule KafkaEx.New.Client.Test do
 
   describe "describe_groups/1" do
     setup do
-      consumer_group = Enum.map(0..10, &Enum.random(~w(0 1 2 3 4 5 6 7 8 9 a b c d e f))) |> Enum.join()
-      {:ok, pid} = KafkaEx.create_worker(:baz, uris: uris(), consumer_group: consumer_group)
+      consumer_group = generate_random_string()
+      topic = "test0p8p0"
+
+      {:ok, pid} = KafkaEx.create_worker(:describe_groups, uris: uris(), consumer_group: consumer_group)
 
       on_exit(fn ->
-        KafkaEx.delete_worker(:baz)
+        KafkaEx.delete_worker(:describe_groups)
       end)
 
-      {:ok, %{consumer_group: consumer_group}}
+      {:ok, %{consumer_group: consumer_group, topic: topic}}
     end
 
-    test "returns group metadata for single consumer group", %{consumer_group: consumer_group} do
-      {:ok, [group_metadata]} =
-        GenServer.call(:baz, {:describe_groups, [consumer_group]})
+    test "returns group metadata for single consumer group", %{consumer_group: consumer_group, topic: topic} do
+      KafkaEx.fetch(topic,0, offset: 0, worker_name: :describe_groups)
+
+      {:ok, [group_metadata]} = GenServer.call(:baz, {:describe_groups, [consumer_group]})
 
       assert group_metadata.group_id == consumer_group
       assert group_metadata.protocol_type == "consumer"
