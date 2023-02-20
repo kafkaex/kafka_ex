@@ -48,24 +48,17 @@ defmodule KafkaEx.Mixfile do
   end
 
   defp deps do
-    main_deps = [
+    [
       {:kayrock, "~> 0.1.12"},
       {:credo, "~> 1.1", only: [:dev, :test], runtime: false},
+      {:ex_doc, "~> 0.23", only: :dev, runtime: false},
       {:dialyxir, "~> 1.0", only: :dev, runtime: false},
       {:excoveralls, "~> 0.7", only: :test, runtime: false},
-      {:hammox, "~> 0.7", only: :test},
+      {:hammox, "~> 0.5.0", only: :test},
       {:snappy,
        git: "https://github.com/fdmanana/snappy-erlang-nif", only: [:dev, :test]},
       {:snappyer, "~> 1.2", only: [:dev, :test]}
     ]
-
-    # we need a newer version of ex_doc, but it will cause problems on older
-    # versions of elixir
-    if Version.match?(System.version(), ">= 1.7.0") do
-      main_deps ++ [{:ex_doc, "~> 0.23", only: :dev, runtime: false}]
-    else
-      main_deps
-    end
   end
 
   defp description do
