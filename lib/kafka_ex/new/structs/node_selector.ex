@@ -20,13 +20,16 @@ defmodule KafkaEx.New.NodeSelector do
           | :consumer_group
   @type t :: %__MODULE__{
           strategy: valid_strategy,
-          node_id: non_neg_integer
+          node_id: non_neg_integer | nil,
+          topic: binary | nil,
+          partition: non_neg_integer | nil,
+          consumer_group_name: binary | nil
         }
 
   @doc """
   Select a specific node
   """
-  @spec node_id(KafkaExAPI.node_id()) :: t
+  @spec node_id(KafkaExAPI.node_id()) :: __MODULE__.t()
   def node_id(node_id) when is_integer(node_id) do
     %__MODULE__{strategy: :node_id, node_id: node_id}
   end
@@ -34,25 +37,26 @@ defmodule KafkaEx.New.NodeSelector do
   @doc """
   Select a random node
   """
-  @spec random :: t
+  @spec random :: __MODULE__.t()
   def random, do: %__MODULE__{strategy: :random}
 
   @doc """
   Select first available node
   """
-  @spec first_available :: t
+  @spec first_available :: __MODULE__.t()
   def first_available, do: %__MODULE__{strategy: :first_available}
 
   @doc """
   Select the cluster's controller node
   """
-  @spec controller :: t
+  @spec controller :: __MODULE__.t()
   def controller, do: %__MODULE__{strategy: :controller}
 
   @doc """
   Select the controller for the given topic and partition
   """
-  @spec topic_partition(KafkaExAPI.topic_name(), KafkaExAPI.partition_id()) :: t
+  @spec topic_partition(KafkaExAPI.topic_name(), KafkaExAPI.partition_id()) ::
+          __MODULE__.t()
   def topic_partition(topic, partition)
       when is_binary(topic) and is_integer(partition) do
     %__MODULE__{
@@ -65,7 +69,7 @@ defmodule KafkaEx.New.NodeSelector do
   @doc """
   Select the controller for the given consumer group
   """
-  @spec consumer_group(KafkaExAPI.consumer_group_name()) :: t
+  @spec consumer_group(KafkaExAPI.consumer_group_name()) :: __MODULE__.t()
   def consumer_group(consumer_group_name) when is_binary(consumer_group_name) do
     %__MODULE__{
       strategy: :consumer_group,

@@ -77,7 +77,6 @@ defmodule KafkaEx.New.BrokerTest do
     end
 
     test "returns true if broker has same socket", %{socket: socket} do
-      socket = %KafkaEx.Socket{}
       broker = %Broker{socket: nil} |> Broker.put_socket(socket)
 
       assert Broker.has_socket?(broker, socket.socket)

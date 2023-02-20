@@ -191,6 +191,14 @@ defmodule KafkaEx.New.Client do
     end
   end
 
+  @impl GenServer
+  def handle_call({:kayrock_request, request, node_selector}, _from, state) do
+    {response, updated_state} =
+      kayrock_network_request(request, node_selector, state)
+
+    {:reply, response, updated_state}
+  end
+
   defp list_offsets_request(topic, partition, state) do
     node_selector = NodeSelector.topic_partition(topic, partition)
     topic_partitions = [{topic, [partition]}]
@@ -229,6 +237,14 @@ defmodule KafkaEx.New.Client do
     |> handle_describe_group_request(node_selector, state)
   end
 
+  defp handle_describe_group_request(
+         _,
+         _,
+         _,
+         retry_count \\ @retry_count,
+         _last_error \\ nil
+       )
+
   defp handle_describe_group_request(_, _, state, 0, last_error) do
     {{:error, last_error}, state}
   end
@@ -237,8 +253,8 @@ defmodule KafkaEx.New.Client do
          request,
          node_selector,
          state,
-         retry_count \\ @retry_count,
-         _last_error \\ nil
+         retry_count,
+         _last_error
        ) do
     case kayrock_network_request(request, node_selector, state) do
       {{:ok, response}, state_out} ->
@@ -277,14 +293,6 @@ defmodule KafkaEx.New.Client do
           :unknown
         )
     end
-  end
-
-  @impl GenServer
-  def handle_call({:kayrock_request, request, node_selector}, _from, state) do
-    {response, updated_state} =
-      kayrock_network_request(request, node_selector, state)
-
-    {:reply, response, updated_state}
   end
 
   # injects backwards-compatible handle_call clauses

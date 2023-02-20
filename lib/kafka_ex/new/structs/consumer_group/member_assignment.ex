@@ -4,7 +4,7 @@ defmodule KafkaEx.New.ConsumerGroup.Member.MemberAssignment do
   The current assignment provided by the group leader (will only be present if the group is stable).
   """
 
-  alias __MODULE__.PartitionAssignment
+  alias KafkaEx.New.ConsumerGroup.Member.MemberAssignment.PartitionAssignment
 
   @type t :: %__MODULE__{
           version: non_neg_integer,

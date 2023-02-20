@@ -3,14 +3,14 @@ defmodule KafkaEx.New.ConsumerGroup.Member do
   Encapsulates what we know about a consumer group member
   TODO: verify not stable group responses
   """
-  alias __MODULE__.MemberAssignment
+  alias KafkaEx.New.ConsumerGroup.Member.MemberAssignment
 
   @type t :: %__MODULE__{
           member_id: binary,
           client_id: binary,
           client_host: binary,
           member_metadata: term,
-          member_assignment: MemberAssigment.t() | nil
+          member_assignment: MemberAssignment.t() | nil
         }
 
   defstruct ~w(member_id client_id client_host member_metadata member_assignment)a

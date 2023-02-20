@@ -13,7 +13,6 @@ defmodule KafkaEx.New.KafkaExAPI do
   ```
   """
 
-  alias KafkaEx.New.Client
   alias KafkaEx.New.ClusterMetadata
   alias KafkaEx.New.ConsumerGroup
   alias KafkaEx.New.Topic

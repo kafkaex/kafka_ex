@@ -1,5 +1,6 @@
 defmodule KafkaEx.New.Client.Test do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
+  import TestHelper
 
   alias KafkaEx.New.Client
 
@@ -80,33 +81,33 @@ defmodule KafkaEx.New.Client.Test do
   describe "describe_groups/1" do
     setup do
       consumer_group = generate_random_string()
-      topic = "test0p8p0"
-
-      {:ok, pid} = KafkaEx.create_worker(:describe_groups, uris: uris(), consumer_group: consumer_group)
-
-      on_exit(fn ->
-        KafkaEx.delete_worker(:describe_groups)
-      end)
+      topic = "new_client_implementation"
 
       {:ok, %{consumer_group: consumer_group, topic: topic}}
     end
 
-    test "returns group metadata for single consumer group", %{consumer_group: consumer_group, topic: topic} do
-      KafkaEx.fetch(topic,0, offset: 0, worker_name: :describe_groups)
+    test "returns group metadata for single consumer group", %{
+      consumer_group: consumer_group,
+      topic: topic,
+      client: client
+    } do
+      join_to_group(client, topic, consumer_group)
 
-      {:ok, [group_metadata]} = GenServer.call(:baz, {:describe_groups, [consumer_group]})
+      {:ok, group_metadata} =
+        GenServer.call(client, {:describe_groups, [consumer_group]})
 
       assert group_metadata.group_id == consumer_group
       assert group_metadata.protocol_type == "consumer"
-      assert group_metadata.protocol == "consumer"
-      assert group_metadata.members != []
+      assert group_metadata.protocol == ""
+      assert length(group_metadata.members) == 1
     end
 
-    test "returns error when consumer group request failed", %{consumer_group: consumer_group} do
-      {:ok, [group_metadata]} =
-        GenServer.call(:baz, {:describe_groups, ["non-existing-group"]})
+    test "returns dead when consumer group does not exist", %{client: client} do
+      {:ok, group_metadata} =
+        GenServer.call(client, {:describe_groups, ["non-existing-group"]})
 
-      assert group_metadata.error_code == 25
+      assert group_metadata.group_id == "non-existing-group"
+      assert group_metadata.state == "Dead"
     end
   end
 
@@ -226,5 +227,16 @@ defmodule KafkaEx.New.Client.Test do
     end)
 
     assert Process.alive?(client)
+  end
+
+  defp join_to_group(client, topic, consumer_group) do
+    request = %KafkaEx.Protocol.JoinGroup.Request{
+      group_name: consumer_group,
+      member_id: "",
+      topics: [topic],
+      session_timeout: 6000
+    }
+
+    KafkaEx.join_group(request, worker_name: client, timeout: 10000)
   end
 end

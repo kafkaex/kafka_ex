@@ -5,8 +5,6 @@ defmodule KafkaEx.NetworkClientTest do
     module: KafkaEx.NetworkClient,
     behaviour: KafkaEx.NetworkClient.Behaviour
 
-  alias KafkaEx.NetworkClient
-
   describe "close_socket/1" do
     test "closes the socket" do
       {:ok, socket} =
