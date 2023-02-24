@@ -701,9 +701,13 @@ defmodule KafkaEx.GenConsumer do
   end
 
   def terminate(_reason, %State{} = state) do
+    Logger.debug(fn -> "### #{state.worker_name} commiting state" end)
     commit(state)
+    Logger.debug(fn -> "### #{state.worker_name} commited state, unlinking" end)
     Process.unlink(state.worker_name)
+    Logger.debug(fn -> "### #{state.worker_name} unlinked, stopping worker" end)
     KafkaEx.stop_worker(state.worker_name)
+    Logger.debug(fn -> "### #{state.worker_name} done stopping" end)
   end
 
   # Helpers
