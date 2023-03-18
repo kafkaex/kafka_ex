@@ -58,8 +58,17 @@ defmodule KafkaEx.New.Client.Test do
       [%{error_code: error_code, offset: offset}] =
         main_resp.partition_responses
 
+      %Kayrock.ListOffsets.V1.Response{responses: responses} = resp
+      [main_resp] = responses
+
+      [%{error_code: error_code, offset: offset}] =
+        main_resp.partition_responses
+
       assert error_code == 0
-      {:ok, latest_offset} = KafkaExAPI.latest_offset(client, topic, partition)
+
+      {:ok, latest_offset} =
+        KafkaExAPI.latest_offset(client, topic, partition)
+
       assert latest_offset == offset
     end
   end
