@@ -10,7 +10,12 @@ defmodule KafkaEx.New.Topic do
             is_internal: false,
             partitions: []
 
-  @type t :: %__MODULE__{}
+  @type t :: %__MODULE__{
+          name: String.t(),
+          partition_leaders: %{integer() => integer()},
+          is_internal: boolean(),
+          partitions: [Partition.t()]
+        }
 
   @doc false
   def from_topic_metadata(%{

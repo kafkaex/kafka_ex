@@ -1,5 +1,5 @@
-defmodule CompressionTest do
-  use ExUnit.Case
+defmodule KafkaEx.CompressionTest do
+  use ExUnit.Case, async: true
 
   test "snappy decompression works with chunked messages" do
     data =
