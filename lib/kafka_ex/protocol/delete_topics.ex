@@ -44,7 +44,7 @@ defmodule KafkaEx.Protocol.DeleteTopics do
     )
   end
 
-  @spec create_request(integer, binary, Request.t(), integer) :: binary
+  @spec create_request(integer, binary, Request.t(), integer) :: iodata
   def create_request(
         correlation_id,
         client_id,

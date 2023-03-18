@@ -21,7 +21,7 @@ defmodule KafkaEx.Protocol.LeaveGroup do
             | {:error, atom}
   end
 
-  @spec create_request(integer, binary, Request.t()) :: binary
+  @spec create_request(integer, binary, Request.t()) :: iodata
   def create_request(correlation_id, client_id, request) do
     [
       KafkaEx.Protocol.create_request(:leave_group, correlation_id, client_id),

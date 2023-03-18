@@ -170,6 +170,12 @@ defmodule KafkaEx.Protocol.Metadata do
     ]
   end
 
+  @spec create_request(
+          integer,
+          binary,
+          binary | [binary],
+          integer
+        ) :: iodata
   def create_request(correlation_id, client_id, topic, api_version)
       when is_binary(topic) do
     create_request(correlation_id, client_id, [topic], api_version)

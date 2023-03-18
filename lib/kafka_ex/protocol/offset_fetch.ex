@@ -47,6 +47,7 @@ defmodule KafkaEx.Protocol.OffsetFetch do
     end
   end
 
+  @spec create_request(integer, binary, Request.t()) :: iodata
   def create_request(correlation_id, client_id, offset_fetch_request) do
     [
       KafkaEx.Protocol.create_request(:offset_fetch, correlation_id, client_id),

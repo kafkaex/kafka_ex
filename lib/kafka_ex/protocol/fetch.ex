@@ -75,7 +75,7 @@ defmodule KafkaEx.Protocol.Fetch do
           }
   end
 
-  @spec create_request(Request.t()) :: binary
+  @spec create_request(Request.t()) :: iodata
   def create_request(fetch_request) do
     [
       KafkaEx.Protocol.create_request(

@@ -44,14 +44,14 @@ defmodule KafkaEx.Protocol.JoinGroup do
     end
   end
 
-  @spec create_request(integer, binary, Request.t()) :: binary
+  @spec create_request(integer, binary, Request.t()) :: iodata
   def create_request(correlation_id, client_id, %Request{} = join_group_req) do
-    metadata =
-      [
-        <<@metadata_version::16-signed, length(join_group_req.topics)::32-signed>>,
-        topic_data(join_group_req.topics),
-        <<0::32-signed>>
-      ]
+    metadata = [
+      <<@metadata_version::16-signed,
+        length(join_group_req.topics)::32-signed>>,
+      topic_data(join_group_req.topics),
+      <<0::32-signed>>
+    ]
 
     [
       KafkaEx.Protocol.create_request(:join_group, correlation_id, client_id),

@@ -36,7 +36,7 @@ defmodule KafkaEx.Protocol.OffsetCommit do
     @type t :: %Response{partitions: [] | [integer] | [map], topic: binary}
   end
 
-  @spec create_request(integer, binary, Request.t()) :: binary
+  @spec create_request(integer, binary, Request.t()) :: iodata
   def create_request(correlation_id, client_id, offset_commit_request) do
     [
       Protocol.create_request(:offset_commit, correlation_id, client_id),

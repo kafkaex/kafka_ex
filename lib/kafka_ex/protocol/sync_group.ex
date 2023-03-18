@@ -37,7 +37,7 @@ defmodule KafkaEx.Protocol.SyncGroup do
           }
   end
 
-  @spec create_request(integer, binary, Request.t()) :: binary
+  @spec create_request(integer, binary, Request.t()) :: iodata
   def create_request(correlation_id, client_id, %Request{} = request) do
     [
       KafkaEx.Protocol.create_request(:sync_group, correlation_id, client_id),

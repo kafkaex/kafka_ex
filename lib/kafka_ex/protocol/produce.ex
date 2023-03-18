@@ -70,6 +70,7 @@ defmodule KafkaEx.Protocol.Produce do
     @type t :: %Response{topic: binary, partitions: list}
   end
 
+  @spec create_request(integer, binary, Request.t()) :: iodata
   def create_request(correlation_id, client_id, %Request{
         topic: topic,
         partition: partition,

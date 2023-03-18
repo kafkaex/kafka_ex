@@ -39,7 +39,7 @@ defmodule KafkaEx.Protocol.ApiVersions do
           }
   end
 
-  @spec create_request(integer, binary, integer) :: binary
+  @spec create_request(integer, binary, integer) :: iodata
   def create_request(
         correlation_id,
         client_id,
@@ -53,7 +53,9 @@ defmodule KafkaEx.Protocol.ApiVersions do
     do: create_request(correlation_id, client_id, 0)
 
   def create_request(correlation_id, client_id, 0) do
-    Protocol.create_request(:api_versions, correlation_id, client_id)
+    [
+      Protocol.create_request(:api_versions, correlation_id, client_id)
+    ]
   end
 
   @spec parse_response(binary, integer) :: Response.t()
