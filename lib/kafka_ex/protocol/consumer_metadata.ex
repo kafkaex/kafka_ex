@@ -33,13 +33,16 @@ defmodule KafkaEx.Protocol.ConsumerMetadata do
     end
   end
 
-  @spec create_request(integer, binary, binary) :: binary
+  @spec create_request(integer, binary, binary) :: iodata
   def create_request(correlation_id, client_id, consumer_group) do
-    KafkaEx.Protocol.create_request(
-      :consumer_metadata,
-      correlation_id,
-      client_id
-    ) <> <<byte_size(consumer_group)::16-signed, consumer_group::binary>>
+    [
+      KafkaEx.Protocol.create_request(
+        :consumer_metadata,
+        correlation_id,
+        client_id
+      ),
+      <<byte_size(consumer_group)::16-signed, consumer_group::binary>>
+    ]
   end
 
   @spec parse_response(binary) :: Response.t()

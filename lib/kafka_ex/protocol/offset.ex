@@ -33,10 +33,13 @@ defmodule KafkaEx.Protocol.Offset do
     def extract_offset([%__MODULE__{partition_offsets: [%{offset: []}]}]), do: 0
   end
 
+  @spec create_request(integer, binary, binary, integer, term) :: iolist
   def create_request(correlation_id, client_id, topic, partition, time) do
-    KafkaEx.Protocol.create_request(:offset, correlation_id, client_id) <>
+    [
+      KafkaEx.Protocol.create_request(:offset, correlation_id, client_id),
       <<-1::32-signed, 1::32-signed, byte_size(topic)::16-signed, topic::binary,
         1::32-signed, partition::32-signed, parse_time(time)::64, 1::32>>
+    ]
   end
 
   def parse_response(

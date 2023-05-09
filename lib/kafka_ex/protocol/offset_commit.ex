@@ -36,9 +36,10 @@ defmodule KafkaEx.Protocol.OffsetCommit do
     @type t :: %Response{partitions: [] | [integer] | [map], topic: binary}
   end
 
-  @spec create_request(integer, binary, Request.t()) :: binary
+  @spec create_request(integer, binary, Request.t()) :: iodata
   def create_request(correlation_id, client_id, offset_commit_request) do
-    Protocol.create_request(:offset_commit, correlation_id, client_id) <>
+    [
+      Protocol.create_request(:offset_commit, correlation_id, client_id),
       <<byte_size(offset_commit_request.consumer_group)::16-signed,
         offset_commit_request.consumer_group::binary, 1::32-signed,
         byte_size(offset_commit_request.topic)::16-signed,
@@ -47,6 +48,7 @@ defmodule KafkaEx.Protocol.OffsetCommit do
         offset_commit_request.offset::64,
         byte_size(offset_commit_request.metadata)::16-signed,
         offset_commit_request.metadata::binary>>
+    ]
   end
 
   @spec parse_response(binary) :: [] | [Response.t()]

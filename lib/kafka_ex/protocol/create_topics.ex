@@ -81,7 +81,7 @@ defmodule KafkaEx.Protocol.CreateTopics do
     )
   end
 
-  @spec create_request(integer, binary, Request.t(), integer) :: binary
+  @spec create_request(integer, binary, Request.t(), integer) :: iodata
   def create_request(
         correlation_id,
         client_id,
@@ -90,9 +90,11 @@ defmodule KafkaEx.Protocol.CreateTopics do
       )
 
   def create_request(correlation_id, client_id, create_topics_request, 0) do
-    Protocol.create_request(:create_topics, correlation_id, client_id) <>
-      encode_topic_requests(create_topics_request.create_topic_requests) <>
+    [
+      Protocol.create_request(:create_topics, correlation_id, client_id),
+      encode_topic_requests(create_topics_request.create_topic_requests),
       <<create_topics_request.timeout::32-signed>>
+    ]
   end
 
   @spec encode_topic_requests([TopicRequest.t()]) :: binary
