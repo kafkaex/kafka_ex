@@ -14,6 +14,3 @@ cover
 
 # Dialyzer's Persistent Lookup Table
 priv/plts/
-
-# Asdf local setup
-.tool-versions
