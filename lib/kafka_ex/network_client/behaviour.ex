@@ -7,11 +7,18 @@ defmodule KafkaEx.NetworkClient.Behaviour do
   @type host :: binary
   @type host_port :: non_neg_integer
   @type use_ssl :: boolean
-  @type kafka_ex_socket :: KafkaEx.Socket.t()
   @type kafka_ex_broker ::
           KafkaEx.Protocol.Metadata.Broker.t() | KafkaEx.New.Broker.t()
   @type request_data :: iodata
   @type response_data :: iodata
+
+  # Dirty hack to allow mocking of socket in unit tests for elixir 1.8
+  # We should remove this when we drop support for elixir 1.8
+  if Version.match?(System.version(), ">= 1.10.0") do
+    @type kafka_ex_socket :: KafkaEx.Socket.t()
+  else
+    @type kafka_ex_socket :: any
+  end
 
   @doc """
   Creates a socket to the given host and port.
