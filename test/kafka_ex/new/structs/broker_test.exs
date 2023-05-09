@@ -4,7 +4,7 @@ defmodule KafkaEx.New.BrokerTest do
   alias KafkaEx.New.Broker
 
   setup do
-    pid = Server.start(3040)
+    pid = KafkaEx.TestSupport.Server.start(3040)
 
     {:ok, socket} =
       KafkaEx.Socket.create('localhost', 3040, [:binary, {:packet, 0}], false)
@@ -77,7 +77,6 @@ defmodule KafkaEx.New.BrokerTest do
     end
 
     test "returns true if broker has same socket", %{socket: socket} do
-      socket = %KafkaEx.Socket{}
       broker = %Broker{socket: nil} |> Broker.put_socket(socket)
 
       assert Broker.has_socket?(broker, socket.socket)

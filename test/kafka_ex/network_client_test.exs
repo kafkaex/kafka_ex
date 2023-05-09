@@ -5,8 +5,6 @@ defmodule KafkaEx.NetworkClientTest do
     module: KafkaEx.NetworkClient,
     behaviour: KafkaEx.NetworkClient.Behaviour
 
-  alias KafkaEx.NetworkClient
-
   describe "close_socket/1" do
     test "closes the socket" do
       {:ok, socket} =
@@ -30,7 +28,7 @@ defmodule KafkaEx.NetworkClientTest do
 
   describe "create_socket/3" do
     setup do
-      pid = Server.start(3040)
+      pid = KafkaEx.TestSupport.Server.start(3040)
 
       on_exit(fn ->
         Process.exit(pid, :normal)
