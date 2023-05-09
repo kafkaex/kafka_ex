@@ -1,5 +1,5 @@
 defmodule KafkaEx.New.BrokerTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias KafkaEx.New.Broker
 
