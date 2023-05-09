@@ -7,7 +7,7 @@ defmodule KafkaEx.Socket.Test do
 
   describe "without SSL socket" do
     setup do
-      Server.start(3040)
+      KafkaEx.TestSupport.Server.start(3040)
       {:ok, [port: 3040]}
     end
 
@@ -56,7 +56,7 @@ defmodule KafkaEx.Socket.Test do
 
   describe "with ssl socket" do
     setup do
-      SSLServer.start(3030)
+      KafkaEx.TestSupport.SSLServer.start(3030)
       {:ok, [ssl_port: 3030]}
     end
 
