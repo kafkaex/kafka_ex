@@ -739,7 +739,7 @@ defmodule KafkaEx.GenConsumer do
                response = %{error_code: error_code, partition: _partition}
              ]
            }
-         ],
+         ] = fetched_responses,
          state
        ) do
     state =
@@ -750,6 +750,8 @@ defmodule KafkaEx.GenConsumer do
         :no_error ->
           state
       end
+
+    produce_partition_offset_lag_telemetry(fetched_responses)
 
     case response do
       %{message_set: []} ->
@@ -952,5 +954,26 @@ defmodule KafkaEx.GenConsumer do
             acked_offset: offset
         }
     end
+  end
+
+  defp produce_partition_offset_lag_telemetry(fetched_responses) do
+    Enum.each(fetched_responses, fn fetched_response ->
+      fetched_response.partitions
+      |> Enum.filter(&(&1.last_offset && &1.hw_mark_offset))
+      |> Enum.each(fn partition ->
+        offset_lag = partition.hw_mark_offset - partition.last_offset
+
+        :telemetry.execute(
+          [:kafka_ex, :producer, :partition_offset_status],
+          %{offset_lag: offset_lag},
+          %{
+            partition: partition.partition,
+            topic: fetched_response.topic,
+            last_offset: partition.last_offset,
+            hw_mark_offset: partition.hw_mark_offset
+          }
+        )
+      end)
+    end)
   end
 end
