@@ -29,7 +29,7 @@ defmodule KafkaEx.New.NodeSelector do
   @doc """
   Select a specific node
   """
-  @spec node_id(KafkaExAPI.node_id()) :: __MODULE__.t()
+  @spec node_id(KafkaExAPI.node_id()) :: t()
   def node_id(node_id) when is_integer(node_id) do
     %__MODULE__{strategy: :node_id, node_id: node_id}
   end

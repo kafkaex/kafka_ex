@@ -51,7 +51,6 @@ defmodule KafkaEx.Mixfile do
     [
       {:kayrock, "~> 0.1.12"},
       {:credo, "~> 1.1", only: [:dev, :test], runtime: false},
-      {:ex_doc, "~> 0.23", only: :dev, runtime: false},
       {:dialyxir, "~> 1.0", only: :dev, runtime: false},
       {:excoveralls, "~> 0.7", only: :test, runtime: false},
       {:ex_doc, "~> 0.23", only: :dev, runtime: false},
