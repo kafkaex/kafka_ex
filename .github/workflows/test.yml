@@ -86,7 +86,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Setup elixir & erlang environment
-        uses: actions/setup-elixir@v1
+        uses: erlef/setup-beam@v1
         with:
           elixir-version: ${{matrix.pair.elixir}} # Define the elixir version [required]
           otp-version: ${{matrix.pair.otp}} # Define the OTP version [required]
