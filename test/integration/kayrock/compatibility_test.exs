@@ -16,7 +16,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   alias KafkaEx.Protocol.Metadata.TopicMetadata
   alias KafkaEx.Protocol.Offset.Response, as: OffsetResponse
 
-  alias KafkaEx.New.ClusterMetadata
+  alias KafkaEx.New.Structs.ClusterMetadata
   alias KafkaEx.New.KafkaExAPI
 
   setup do

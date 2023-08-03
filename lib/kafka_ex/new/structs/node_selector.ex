@@ -1,4 +1,4 @@
-defmodule KafkaEx.New.NodeSelector do
+defmodule KafkaEx.New.Structs.NodeSelector do
   @moduledoc """
   Defines node selector functions and macros
   """

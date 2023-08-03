@@ -8,7 +8,7 @@ defmodule KafkaEx.NetworkClient.Behaviour do
   @type host_port :: non_neg_integer
   @type use_ssl :: boolean
   @type kafka_ex_broker ::
-          KafkaEx.Protocol.Metadata.Broker.t() | KafkaEx.New.Broker.t()
+          KafkaEx.Protocol.Metadata.Broker.t() | KafkaEx.New.Structs.Broker.t()
   @type request_data :: iodata
   @type response_data :: iodata
 

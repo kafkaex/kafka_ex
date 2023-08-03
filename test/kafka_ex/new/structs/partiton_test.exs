@@ -1,7 +1,7 @@
-defmodule KafkaEx.New.PartitionTest do
+defmodule KafkaEx.New.Structs.PartitionTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Partition
+  alias KafkaEx.New.Structs.Partition
 
   describe "from_partition_metadata/1" do
     setup do

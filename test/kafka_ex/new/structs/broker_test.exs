@@ -1,7 +1,7 @@
-defmodule KafkaEx.New.BrokerTest do
+defmodule KafkaEx.New.Structs.BrokerTest do
   use ExUnit.Case, async: false
 
-  alias KafkaEx.New.Broker
+  alias KafkaEx.New.Structs.Broker
 
   setup do
     pid = KafkaEx.TestSupport.Server.start(3040)

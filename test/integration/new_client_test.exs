@@ -3,10 +3,10 @@ defmodule KafkaEx.New.Client.Test do
 
   alias KafkaEx.New.Client
 
-  alias KafkaEx.New.ClusterMetadata
+  alias KafkaEx.New.Structs.ClusterMetadata
   alias KafkaEx.New.KafkaExAPI
-  alias KafkaEx.New.Topic
-  alias KafkaEx.New.NodeSelector
+  alias KafkaEx.New.Structs.Topic
+  alias KafkaEx.New.Structs.NodeSelector
 
   alias Kayrock.RecordBatch
   alias Kayrock.RecordBatch.Record

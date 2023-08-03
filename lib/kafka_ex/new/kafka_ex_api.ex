@@ -14,9 +14,9 @@ defmodule KafkaEx.New.KafkaExAPI do
   """
 
   alias KafkaEx.New.Client
-  alias KafkaEx.New.ClusterMetadata
-  alias KafkaEx.New.Topic
-  alias KafkaEx.New.NodeSelector
+  alias KafkaEx.New.Structs.ClusterMetadata
+  alias KafkaEx.New.Structs.Topic
+  alias KafkaEx.New.Structs.NodeSelector
 
   @type node_id :: non_neg_integer
   @type topic_name :: binary

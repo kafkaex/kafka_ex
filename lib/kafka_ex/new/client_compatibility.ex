@@ -7,7 +7,7 @@ defmodule KafkaEx.New.ClientCompatibility do
   # module can be removed once we drop compatibility for the old API
 
   alias KafkaEx.New.Adapter
-  alias KafkaEx.New.NodeSelector
+  alias KafkaEx.New.Structs.NodeSelector
 
   alias KafkaEx.New.Client.State
 

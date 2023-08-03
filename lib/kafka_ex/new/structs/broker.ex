@@ -1,4 +1,4 @@
-defmodule KafkaEx.New.Broker do
+defmodule KafkaEx.New.Structs.Broker do
   @moduledoc """
   Encapsulates what we know about a broker and our connection
   """

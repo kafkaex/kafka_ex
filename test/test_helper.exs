@@ -15,7 +15,7 @@ ExUnit.configure(
 
 defmodule TestHelper do
   alias KafkaEx.New.Client
-  alias KafkaEx.New.NodeSelector
+  alias KafkaEx.New.Structs.NodeSelector
   require Logger
 
   def generate_random_string(string_length \\ 20) do

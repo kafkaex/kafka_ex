@@ -1,9 +1,9 @@
-defmodule KafkaEx.New.Topic do
+defmodule KafkaEx.New.Structs.Topic do
   @moduledoc """
   Encapsulates what we know about a topic
   """
 
-  alias KafkaEx.New.Partition
+  alias KafkaEx.New.Structs.Partition
 
   defstruct name: nil,
             partition_leaders: %{},

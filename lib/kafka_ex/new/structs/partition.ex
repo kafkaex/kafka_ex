@@ -1,4 +1,4 @@
-defmodule KafkaEx.New.Partition do
+defmodule KafkaEx.New.Structs.Partition do
   @moduledoc """
   Encapsulates what we know about a partition
   """
