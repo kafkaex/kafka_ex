@@ -1,6 +1,6 @@
-defmodule KafkaEx.New.Broker do
+defmodule KafkaEx.New.Structs.Broker do
   @moduledoc """
-  Encapsulates what we know about a broker
+  Encapsulates what we know about a broker and our connection
   """
 
   alias KafkaEx.Socket
@@ -11,7 +11,13 @@ defmodule KafkaEx.New.Broker do
             socket: nil,
             rack: nil
 
-  @type t :: %__MODULE__{}
+  @type t :: %__MODULE__{
+          node_id: non_neg_integer,
+          host: binary,
+          port: non_neg_integer,
+          socket: Socket.t() | nil,
+          rack: binary
+        }
 
   @doc false
   def put_socket(%__MODULE__{} = broker, socket), do: %{broker | socket: socket}

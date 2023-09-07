@@ -10,6 +10,7 @@ defmodule KafkaEx.Mixfile do
       app: :kafka_ex,
       version: @version,
       elixir: "~> 1.8",
+      elixirc_paths: elixirc_paths(Mix.env()),
       dialyzer: [
         plt_add_deps: :transitive,
         plt_add_apps: [:ssl],
@@ -47,12 +48,13 @@ defmodule KafkaEx.Mixfile do
   end
 
   defp deps do
-    main_deps = [
+    [
       {:kayrock, "~> 0.1.12"},
       {:credo, "~> 1.1", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.0", only: :dev, runtime: false},
       {:excoveralls, "~> 0.7", only: :test, runtime: false},
       {:ex_doc, "~> 0.23", only: :dev, runtime: false},
+      {:hammox, "~> 0.5.0", only: :test},
       {:snappy,
        git: "https://github.com/fdmanana/snappy-erlang-nif", only: [:dev, :test]},
       {:snappyer, "~> 1.2", only: [:dev, :test]}
@@ -62,6 +64,9 @@ defmodule KafkaEx.Mixfile do
   defp description do
     "Kafka client for Elixir/Erlang."
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
 
   defp package do
     [

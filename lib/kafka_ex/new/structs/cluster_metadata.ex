@@ -1,4 +1,4 @@
-defmodule KafkaEx.New.ClusterMetadata do
+defmodule KafkaEx.New.Structs.ClusterMetadata do
   @moduledoc """
   Encapsulates what we know about the state of a Kafka broker cluster
 
@@ -6,10 +6,10 @@ defmodule KafkaEx.New.ClusterMetadata do
   functions may be useful for extracting metadata information
   """
 
-  alias KafkaEx.New.Broker
-  alias KafkaEx.New.Topic
+  alias KafkaEx.New.Structs.Broker
+  alias KafkaEx.New.Structs.Topic
   alias KafkaEx.New.KafkaExAPI
-  alias KafkaEx.New.NodeSelector
+  alias KafkaEx.New.Structs.NodeSelector
 
   defstruct brokers: %{},
             controller_id: nil,
@@ -64,7 +64,7 @@ defmodule KafkaEx.New.ClusterMetadata do
 
   Note this will not update the metadata, only select a node given the current metadata.
 
-  See `t:KafkaEx.New.NodeSelector.t/0`
+  See `t:KafkaEx.New.Structs.NodeSelector.t/0`
   """
   @spec select_node(t, NodeSelector.t()) ::
           {:ok, KafkaExAPI.node_id()} | {:error, node_select_error}
@@ -231,8 +231,9 @@ defmodule KafkaEx.New.ClusterMetadata do
     %{cluster_metadata | brokers: updated_brokers}
   end
 
-  @doc false
-  # update a consumer group coordinator node id
+  @doc """
+  update a consumer group coordinator node id
+  """
   @spec put_consumer_group_coordinator(
           t,
           KafkaExAPI.consumer_group_name(),
@@ -255,8 +256,9 @@ defmodule KafkaEx.New.ClusterMetadata do
     }
   end
 
-  @doc false
-  # remove the given topics (e.g., when they are deleted)
+  @doc """
+  remove the given topics (e.g., when they are deleted)
+  """
   @spec remove_topics(t, [KafkaExAPI.topic_name()]) :: t
   def remove_topics(
         %__MODULE__{topics: topics} = cluster_metadata,

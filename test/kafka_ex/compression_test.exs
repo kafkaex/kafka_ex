@@ -1,5 +1,5 @@
-defmodule CompressionTest do
-  use ExUnit.Case
+defmodule KafkaEx.CompressionTest do
+  use ExUnit.Case, async: true
 
   test "snappy decompression works with chunked messages" do
     data =
@@ -12,7 +12,9 @@ defmodule CompressionTest do
 
     expected =
       <<0, 0, 0, 0, 0, 0, 0, 37, 0, 0, 3, 246, 10, 44, 16, 236, 0, 0, 255, 255,
-        255, 255, 0, 0, 3, 232>> <> String.duplicate("ABCDEFGHIJ", 100)
+        255, 255, 0, 0, 3,
+        232>> <>
+        String.duplicate("ABCDEFGHIJ", 100)
 
     ## enable :snappy module, and test it
     Application.put_env(:kafka_ex, :snappy_module, :snappy)

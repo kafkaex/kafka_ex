@@ -1,16 +1,21 @@
-defmodule KafkaEx.New.Topic do
+defmodule KafkaEx.New.Structs.Topic do
   @moduledoc """
   Encapsulates what we know about a topic
   """
 
-  alias KafkaEx.New.Partition
+  alias KafkaEx.New.Structs.Partition
 
   defstruct name: nil,
             partition_leaders: %{},
             is_internal: false,
             partitions: []
 
-  @type t :: %__MODULE__{}
+  @type t :: %__MODULE__{
+          name: String.t(),
+          partition_leaders: %{integer() => integer()},
+          is_internal: boolean(),
+          partitions: [Partition.t()]
+        }
 
   @doc false
   def from_topic_metadata(%{

@@ -1,12 +1,13 @@
 defmodule KafkaEx.NetworkClient do
+  @moduledoc """
+  KafkaEx implementation of Client used to connect to Kafka Broker
+  """
+  @behaviour KafkaEx.NetworkClient.Behaviour
+
   require Logger
-  alias KafkaEx.New
-  alias KafkaEx.Protocol.Metadata.Broker
   alias KafkaEx.Socket
 
-  @moduledoc false
-  @spec create_socket(binary, non_neg_integer, KafkaEx.ssl_options(), boolean) ::
-          nil | Socket.t()
+  @impl true
   def create_socket(host, port, ssl_options \\ [], use_ssl \\ false) do
     case Socket.create(
            format_host(host),
@@ -32,12 +33,11 @@ defmodule KafkaEx.NetworkClient do
     end
   end
 
-  @spec close_socket(nil | Socket.t()) :: :ok
+  @impl true
   def close_socket(nil), do: :ok
   def close_socket(socket), do: Socket.close(socket)
 
-  @spec send_async_request(Broker.t() | New.Broker.t(), iodata) ::
-          :ok | {:error, :closed | :inet.posix()}
+  @impl true
   def send_async_request(broker, data) do
     socket = broker.socket
 
@@ -55,8 +55,7 @@ defmodule KafkaEx.NetworkClient do
     end
   end
 
-  @spec send_sync_request(Broker.t() | New.Broker.t(), iodata, timeout) ::
-          iodata | {:error, any()}
+  @impl true
   def send_sync_request(%{:socket => socket} = broker, data, timeout) do
     :ok = Socket.setopts(socket, [:binary, {:packet, 4}, {:active, false}])
 
@@ -99,7 +98,7 @@ defmodule KafkaEx.NetworkClient do
     {:error, :no_broker}
   end
 
-  @spec format_host(binary) :: [char] | :inet.ip_address()
+  @impl true
   def format_host(host) do
     case Regex.scan(~r/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/, host) do
       [match_data] = [[_, _, _, _, _]] ->

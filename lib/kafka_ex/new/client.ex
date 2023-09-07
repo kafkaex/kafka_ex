@@ -14,9 +14,9 @@ defmodule KafkaEx.New.Client do
   alias KafkaEx.Config
   alias KafkaEx.NetworkClient
 
-  alias KafkaEx.New.Broker
-  alias KafkaEx.New.ClusterMetadata
-  alias KafkaEx.New.NodeSelector
+  alias KafkaEx.New.Structs.Broker
+  alias KafkaEx.New.Structs.ClusterMetadata
+  alias KafkaEx.New.Structs.NodeSelector
 
   alias KafkaEx.New.Client.State
 
@@ -49,7 +49,7 @@ defmodule KafkaEx.New.Client do
   @spec send_request(
           KafkaEx.New.KafkaExAPI.client(),
           map,
-          KafkaEx.New.NodeSelector.t(),
+          KafkaEx.New.Structs.NodeSelector.t(),
           pos_integer | nil
         ) :: {:ok, term} | {:error, term}
   def send_request(

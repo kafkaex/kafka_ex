@@ -3,7 +3,7 @@ defmodule KafkaEx.New.Client.State do
 
   # state struct for New.Client
 
-  alias KafkaEx.New.ClusterMetadata
+  alias KafkaEx.New.Structs.ClusterMetadata
 
   defstruct(
     bootstrap_uris: [],

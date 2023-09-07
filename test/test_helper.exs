@@ -1,4 +1,5 @@
 ExUnit.start()
+{:ok, _} = Application.ensure_all_started(:hammox)
 
 ExUnit.configure(
   timeout: 120 * 1000,
@@ -14,7 +15,7 @@ ExUnit.configure(
 
 defmodule TestHelper do
   alias KafkaEx.New.Client
-  alias KafkaEx.New.NodeSelector
+  alias KafkaEx.New.Structs.NodeSelector
   require Logger
 
   def generate_random_string(string_length \\ 20) do

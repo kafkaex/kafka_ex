@@ -1,11 +1,16 @@
-defmodule KafkaEx.New.Partition do
+defmodule KafkaEx.New.Structs.Partition do
   @moduledoc """
   Encapsulates what we know about a partition
   """
 
   defstruct partition_id: nil, leader: -1, replicas: [], isr: []
 
-  @type t :: %__MODULE__{}
+  @type t :: %__MODULE__{
+          partition_id: integer,
+          leader: integer,
+          replicas: list(integer),
+          isr: list(integer)
+        }
 
   @doc false
   def from_partition_metadata(%{
