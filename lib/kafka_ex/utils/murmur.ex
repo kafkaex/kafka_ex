@@ -21,7 +21,7 @@ defmodule KafkaEx.Utils.Murmur do
   def murmur2(key) do
     <<seed::signed-size(32)>> = <<@seed::size(32)>>
     len = byte_size(key)
-    _murmur2(key, seed ^^^ len)
+    _murmur2(key, bxor(seed, len))
   end
 
   @doc """
@@ -54,27 +54,27 @@ defmodule KafkaEx.Utils.Murmur do
 
   defp _murmur2(<<a::little-size(32), rest::binary>>, h) do
     k = mask32(a * @m)
-    k = k ^^^ ubsr32(k, @r)
+    k = bxor(k, ubsr32(k, @r))
     k = mask32(k * @m)
     h = mask32(h * @m)
-    _murmur2(rest, h ^^^ k)
+    _murmur2(rest, bxor(h, k))
   end
 
   defp _murmur2(<<a1::size(8), a2::size(8), a3::size(8)>>, h) do
-    _murmur2(<<a1, a2>>, h ^^^ mask32(a3 <<< 16))
+    _murmur2(<<a1, a2>>, bxor(h, mask32(a3 <<< 16)))
   end
 
   defp _murmur2(<<a1::size(8), a2::size(8)>>, h) do
-    _murmur2(<<a1>>, h ^^^ mask32(a2 <<< 8))
+    _murmur2(<<a1>>, bxor(h, mask32(a2 <<< 8)))
   end
 
   defp _murmur2(<<a1::size(8)>>, h) do
-    _murmur2("", mask32((h ^^^ a1) * @m))
+    _murmur2("", mask32(bxor(h, a1) * @m))
   end
 
   defp _murmur2("", h) do
-    h = h ^^^ ubsr32(h, 13)
+    h = bxor(h, ubsr32(h, 13))
     h = mask32(h * @m)
-    h ^^^ ubsr32(h, 15)
+    bxor(h, ubsr32(h, 15))
   end
 end
