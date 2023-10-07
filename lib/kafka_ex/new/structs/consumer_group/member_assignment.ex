@@ -1,10 +1,10 @@
-defmodule KafkaEx.New.ConsumerGroup.Member.MemberAssignment do
+defmodule KafkaEx.New.Structs.ConsumerGroup.Member.MemberAssignment do
   @moduledoc """
   Encapsulates what we know about a consumer group.
   The current assignment provided by the group leader (will only be present if the group is stable).
   """
 
-  alias KafkaEx.New.ConsumerGroup.Member.MemberAssignment.PartitionAssignment
+  alias KafkaEx.New.Structs.ConsumerGroup.Member.MemberAssignment.PartitionAssignment
 
   @type t :: %__MODULE__{
           version: non_neg_integer,

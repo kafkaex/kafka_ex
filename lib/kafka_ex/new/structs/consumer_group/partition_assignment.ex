@@ -1,4 +1,4 @@
-defmodule KafkaEx.New.ConsumerGroup.Member.MemberAssignment.PartitionAssignment do
+defmodule KafkaEx.New.Structs.ConsumerGroup.Member.MemberAssignment.PartitionAssignment do
   @moduledoc """
   Encapsulates what we know about a consumer group member partition assignment.
   Will only be present if the group is stable and is assigned to given topic.

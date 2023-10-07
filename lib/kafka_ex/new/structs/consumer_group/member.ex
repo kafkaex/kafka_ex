@@ -1,8 +1,8 @@
-defmodule KafkaEx.New.ConsumerGroup.Member do
+defmodule KafkaEx.New.Structs.ConsumerGroup.Member do
   @moduledoc """
   Encapsulates what we know about a consumer group member
   """
-  alias KafkaEx.New.ConsumerGroup.Member.MemberAssignment
+  alias KafkaEx.New.Structs.ConsumerGroup.Member.MemberAssignment
 
   @type t :: %__MODULE__{
           member_id: binary,
