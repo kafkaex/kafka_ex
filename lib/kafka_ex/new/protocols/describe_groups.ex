@@ -1,7 +1,15 @@
-defmodule KafkaEx.New.Protocols.DescribeGroups do
+defprotocol KafkaEx.New.Protocols.DescribeGroups do
   @moduledoc """
   This module handles Describe Groups request & response handling & parsing
   """
+
+  defprotocol Request do
+    @moduledoc """
+    This protocol is used to build Describe Groups request
+    """
+    @spec build_request(t(), [binary]) :: t()
+    def build_request(request, consumer_group_names)
+  end
 
   defprotocol Response do
     @moduledoc """

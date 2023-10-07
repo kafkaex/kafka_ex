@@ -1,4 +1,4 @@
-defmodule KafkaEx.New.Protocols.DescribeGroups.ResponseTest do
+defmodule KafkaEx.New.Protocols.Kayrock.DescribeGroups.ResponseTest do
   use ExUnit.Case, async: true
 
   alias KafkaEx.New.Protocols.DescribeGroups
@@ -32,7 +32,7 @@ defmodule KafkaEx.New.Protocols.DescribeGroups.ResponseTest do
       ]
     }
 
-    test "api version 0 - returns response if all groups succeeded" do
+    test "for api version 0 - returns response if all groups succeeded" do
       response = %V0.Response{
         groups: [
           %{
@@ -64,7 +64,7 @@ defmodule KafkaEx.New.Protocols.DescribeGroups.ResponseTest do
                DescribeGroups.Response.parse_response(response)
     end
 
-    test "api version 0 - returns error if any group failed" do
+    test "for api version 0 - returns error if any group failed" do
       response = %V0.Response{
         groups: [
           %{group_id: "succeeded", error_code: 0},
@@ -76,7 +76,7 @@ defmodule KafkaEx.New.Protocols.DescribeGroups.ResponseTest do
                DescribeGroups.Response.parse_response(response)
     end
 
-    test "api version 1 - returns response if all groups succeeded" do
+    test "for api version 1 - returns response if all groups succeeded" do
       response = %V1.Response{
         groups: [
           %{
@@ -108,7 +108,7 @@ defmodule KafkaEx.New.Protocols.DescribeGroups.ResponseTest do
                DescribeGroups.Response.parse_response(response)
     end
 
-    test "api version 1 - returns error if any group failed" do
+    test "for api version 1 - returns error if any group failed" do
       response = %V1.Response{
         groups: [
           %{group_id: "succeeded", error_code: 0},
