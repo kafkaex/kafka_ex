@@ -1,6 +1,8 @@
-defprotocol KafkaEx.New.Protocols.DescribeGroups do
+defprotocol KafkaEx.New.Protocols.Kayrock.DescribeGroups do
   @moduledoc """
-  This module handles Describe Groups request & response handling & parsing
+  This module handles Describe Groups request & response parsing.
+  Request is built using Kayrock protocol, response is parsed to
+  native KafkaEx structs.
   """
 
   defprotocol Request do

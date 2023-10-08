@@ -1,4 +1,4 @@
-defimpl KafkaEx.New.Protocols.DescribeGroups.Response,
+defimpl KafkaEx.New.Protocols.Kayrock.DescribeGroups.Response,
   for: [Kayrock.DescribeGroups.V0.Response, Kayrock.DescribeGroups.V1.Response] do
   def parse_response(%{groups: groups}) do
     case Enum.filter(groups, &(&1.error_code != 0)) do
