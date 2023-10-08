@@ -67,8 +67,7 @@ defmodule KafkaEx.Protocol.DeleteTopics do
 
   @spec parse_response(binary, integer) :: [] | Response.t()
   def parse_response(
-        <<_correlation_id::32-signed, topic_errors_count::32-signed,
-          topic_errors::binary>>,
+        <<_correlation_id::32-signed, topic_errors_count::32-signed, topic_errors::binary>>,
         0
       ) do
     %Response{

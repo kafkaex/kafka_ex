@@ -199,8 +199,7 @@ defmodule KafkaEx.New.Adapter do
           | _
         ]
       }) do
-    {message_set, last_offset} =
-      kayrock_message_set_to_kafka_ex(record_set, topic, partition)
+    {message_set, last_offset} = kayrock_message_set_to_kafka_ex(record_set, topic, partition)
 
     {[
        %FetchResponse{
@@ -267,8 +266,7 @@ defmodule KafkaEx.New.Adapter do
        group_id: request.group_name,
        generation_id: request.generation_id,
        member_id: request.member_id,
-       group_assignment:
-         Enum.map(request.assignments, &kafka_ex_group_assignment_to_kayrock/1)
+       group_assignment: Enum.map(request.assignments, &kafka_ex_group_assignment_to_kayrock/1)
      }, request.group_name}
   end
 
@@ -280,8 +278,7 @@ defmodule KafkaEx.New.Adapter do
       }) do
     %SyncGroupResponse{
       error_code: Kayrock.ErrorCode.code_to_atom(error_code),
-      assignments:
-        Enum.map(partition_assignments, fn p -> {p.topic, p.partitions} end)
+      assignments: Enum.map(partition_assignments, fn p -> {p.topic, p.partitions} end)
     }
   end
 
@@ -313,8 +310,7 @@ defmodule KafkaEx.New.Adapter do
   def create_topics_request(requests, timeout) do
     %Kayrock.CreateTopics.V0.Request{
       timeout: timeout,
-      create_topic_requests:
-        Enum.map(requests, &kafka_ex_to_kayrock_create_topics/1)
+      create_topic_requests: Enum.map(requests, &kafka_ex_to_kayrock_create_topics/1)
     }
   end
 
@@ -373,11 +369,9 @@ defmodule KafkaEx.New.Adapter do
   end
 
   def offset_fetch_request(offset_fetch_request, client_consumer_group) do
-    consumer_group =
-      offset_fetch_request.consumer_group || client_consumer_group
+    consumer_group = offset_fetch_request.consumer_group || client_consumer_group
 
-    request =
-      Kayrock.OffsetFetch.get_request_struct(offset_fetch_request.api_version)
+    request = Kayrock.OffsetFetch.get_request_struct(offset_fetch_request.api_version)
 
     {%{
        request
@@ -422,11 +416,9 @@ defmodule KafkaEx.New.Adapter do
   end
 
   def offset_commit_request(offset_commit_request, client_consumer_group) do
-    consumer_group =
-      offset_commit_request.consumer_group || client_consumer_group
+    consumer_group = offset_commit_request.consumer_group || client_consumer_group
 
-    request =
-      Kayrock.OffsetCommit.get_request_struct(offset_commit_request.api_version)
+    request = Kayrock.OffsetCommit.get_request_struct(offset_commit_request.api_version)
 
     request = %{
       request
@@ -518,8 +510,7 @@ defmodule KafkaEx.New.Adapter do
       topic: request.topic,
       num_partitions: request.num_partitions,
       replication_factor: request.replication_factor,
-      replica_assignment:
-        Enum.map(request.replica_assignment, &Map.from_struct/1),
+      replica_assignment: Enum.map(request.replica_assignment, &Map.from_struct/1),
       config_entries:
         Enum.map(request.config_entries, fn ce ->
           %{config_name: ce.config_name, config_value: ce.config_value}

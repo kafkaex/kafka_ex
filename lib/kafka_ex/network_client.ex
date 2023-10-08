@@ -64,8 +64,7 @@ defmodule KafkaEx.NetworkClient do
         :ok ->
           case Socket.recv(socket, 0, timeout) do
             {:ok, data} ->
-              :ok =
-                Socket.setopts(socket, [:binary, {:packet, 4}, {:active, true}])
+              :ok = Socket.setopts(socket, [:binary, {:packet, 4}, {:active, true}])
 
               data
 

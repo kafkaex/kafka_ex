@@ -37,15 +37,13 @@ defmodule KafkaEx.Protocol.Offset do
   def create_request(correlation_id, client_id, topic, partition, time) do
     [
       KafkaEx.Protocol.create_request(:offset, correlation_id, client_id),
-      <<-1::32-signed, 1::32-signed, byte_size(topic)::16-signed, topic::binary,
-        1::32-signed, partition::32-signed, parse_time(time)::64, 1::32>>
+      <<-1::32-signed, 1::32-signed, byte_size(topic)::16-signed, topic::binary, 1::32-signed,
+        partition::32-signed, parse_time(time)::64, 1::32>>
     ]
   end
 
-  def parse_response(
-        <<_correlation_id::32-signed, num_topics::32-signed, rest::binary>>
-      ),
-      do: parse_topics(num_topics, rest)
+  def parse_response(<<_correlation_id::32-signed, num_topics::32-signed, rest::binary>>),
+    do: parse_topics(num_topics, rest)
 
   @spec parse_time(:latest | :earliest | :calendar.datetime()) :: integer
   def parse_time(:latest), do: -1
@@ -55,8 +53,7 @@ defmodule KafkaEx.Protocol.Offset do
   def parse_time(time) do
     current_time_in_seconds = :calendar.datetime_to_gregorian_seconds(time)
 
-    unix_epoch_in_seconds =
-      :calendar.datetime_to_gregorian_seconds({{1970, 1, 1}, {0, 0, 0}})
+    unix_epoch_in_seconds = :calendar.datetime_to_gregorian_seconds({{1970, 1, 1}, {0, 0, 0}})
 
     (current_time_in_seconds - unix_epoch_in_seconds) * 1000
   end
@@ -65,8 +62,8 @@ defmodule KafkaEx.Protocol.Offset do
 
   defp parse_topics(
          topics_size,
-         <<topic_size::16-signed, topic::size(topic_size)-binary,
-           partitions_size::32-signed, rest::binary>>
+         <<topic_size::16-signed, topic::size(topic_size)-binary, partitions_size::32-signed,
+           rest::binary>>
        ) do
     {partitions, topics_data} = parse_partitions(partitions_size, rest)
 
@@ -82,8 +79,7 @@ defmodule KafkaEx.Protocol.Offset do
 
   defp parse_partitions(
          partitions_size,
-         <<partition::32-signed, error_code::16-signed, offsets_size::32-signed,
-           rest::binary>>,
+         <<partition::32-signed, error_code::16-signed, offsets_size::32-signed, rest::binary>>,
          partitions
        ) do
     {offsets, rest} = parse_offsets(offsets_size, rest)

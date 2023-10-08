@@ -230,8 +230,8 @@ defmodule KafkaEx.Protocol.Metadata do
   defp parse_brokers(
          0,
          brokers_size,
-         <<node_id::32-signed, host_len::16-signed, host::size(host_len)-binary,
-           port::32-signed, rest::binary>>,
+         <<node_id::32-signed, host_len::16-signed, host::size(host_len)-binary, port::32-signed,
+           rest::binary>>,
          brokers
        ) do
     parse_brokers(0, brokers_size - 1, rest, [
@@ -283,12 +283,10 @@ defmodule KafkaEx.Protocol.Metadata do
 
   defp parse_topic_metadatas(
          topic_metadatas_size,
-         <<error_code::16-signed, topic_len::16-signed,
-           topic::size(topic_len)-binary, partition_metadatas_size::32-signed,
-           rest::binary>>
+         <<error_code::16-signed, topic_len::16-signed, topic::size(topic_len)-binary,
+           partition_metadatas_size::32-signed, rest::binary>>
        ) do
-    {partition_metadatas, rest} =
-      parse_partition_metadatas(partition_metadatas_size, [], rest)
+    {partition_metadatas, rest} = parse_partition_metadatas(partition_metadatas_size, [], rest)
 
     [
       %TopicMetadata{
@@ -314,8 +312,7 @@ defmodule KafkaEx.Protocol.Metadata do
            rest::binary
          >>
        ) do
-    {partition_metadatas, rest} =
-      parse_partition_metadatas(partition_metadatas_size, [], rest)
+    {partition_metadatas, rest} = parse_partition_metadatas(partition_metadatas_size, [], rest)
 
     [
       %TopicMetadata{
@@ -334,8 +331,7 @@ defmodule KafkaEx.Protocol.Metadata do
   defp parse_partition_metadatas(
          partition_metadatas_size,
          partition_metadatas,
-         <<error_code::16-signed, partition_id::32-signed, leader::32-signed,
-           rest::binary>>
+         <<error_code::16-signed, partition_id::32-signed, leader::32-signed, rest::binary>>
        ) do
     {replicas, rest} = parse_replicas(rest)
     {isrs, rest} = parse_isrs(rest)

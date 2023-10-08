@@ -210,8 +210,7 @@ defmodule KafkaEx.Integration.Test do
         end
       )
 
-    random_topic_metadata =
-      Enum.find(metadata.topic_metadatas, &(&1.topic == random_string))
+    random_topic_metadata = Enum.find(metadata.topic_metadatas, &(&1.topic == random_string))
 
     refute random_topic_metadata.partition_metadatas == []
 
@@ -223,8 +222,7 @@ defmodule KafkaEx.Integration.Test do
     pid = Process.whereis(Config.default_worker())
     metadata = :sys.get_state(pid).metadata
 
-    random_topic_metadata =
-      Enum.find(metadata.topic_metadatas, &(&1.topic == random_string))
+    random_topic_metadata = Enum.find(metadata.topic_metadatas, &(&1.topic == random_string))
 
     refute random_topic_metadata.partition_metadatas == []
 
@@ -278,8 +276,7 @@ defmodule KafkaEx.Integration.Test do
         messages: [%Proto.Produce.Message{value: "hey foo"}]
       })
 
-    fetch_response =
-      KafkaEx.fetch(topic_name, 0, offset: 0, auto_commit: false) |> hd
+    fetch_response = KafkaEx.fetch(topic_name, 0, offset: 0, auto_commit: false) |> hd
 
     message = fetch_response.partitions |> hd |> Map.get(:message_set) |> hd
 
@@ -364,8 +361,7 @@ defmodule KafkaEx.Integration.Test do
       messages: [%Proto.Produce.Message{value: "foo"}]
     })
 
-    [offset_response] =
-      TestHelper.wait_for_any(fn -> KafkaEx.latest_offset(random_string, 0) end)
+    [offset_response] = TestHelper.wait_for_any(fn -> KafkaEx.latest_offset(random_string, 0) end)
 
     offset = offset_response.partition_offsets |> hd |> Map.get(:offset) |> hd
 
@@ -390,11 +386,9 @@ defmodule KafkaEx.Integration.Test do
 
     {:ok, offset} = KafkaEx.produce(produce_request)
 
-    fetch_response =
-      KafkaEx.fetch(random_string, 0, offset: 0, auto_commit: false) |> hd
+    fetch_response = KafkaEx.fetch(random_string, 0, offset: 0, auto_commit: false) |> hd
 
-    [got_message1, got_message2] =
-      fetch_response.partitions |> hd |> Map.get(:message_set)
+    [got_message1, got_message2] = fetch_response.partitions |> hd |> Map.get(:message_set)
 
     assert got_message1.key == message1.key
     assert got_message1.value == message1.value
@@ -421,11 +415,9 @@ defmodule KafkaEx.Integration.Test do
 
     {:ok, offset} = KafkaEx.produce(produce_request)
 
-    fetch_response =
-      KafkaEx.fetch(random_string, 0, offset: 0, auto_commit: false) |> hd
+    fetch_response = KafkaEx.fetch(random_string, 0, offset: 0, auto_commit: false) |> hd
 
-    [got_message1, got_message2] =
-      fetch_response.partitions |> hd |> Map.get(:message_set)
+    [got_message1, got_message2] = fetch_response.partitions |> hd |> Map.get(:message_set)
 
     assert got_message1.key == message1.key
     assert got_message1.value == message1.value

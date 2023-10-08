@@ -394,8 +394,7 @@ defmodule KafkaEx.Server do
           ) do
         correlation_id = state.correlation_id + 1
 
-        produce_request =
-          default_partitioner().assign_partition(produce_request, metadata)
+        produce_request = default_partitioner().assign_partition(produce_request, metadata)
 
         produce_request_data =
           try do
@@ -446,8 +445,7 @@ defmodule KafkaEx.Server do
                   state.api_versions
                 )
 
-              state =
-                update_metadata(%{state | correlation_id: retrieved_corr_id})
+              state = update_metadata(%{state | correlation_id: retrieved_corr_id})
 
               {
                 MetadataResponse.broker_for_topic(
@@ -607,9 +605,7 @@ defmodule KafkaEx.Server do
 
         metadata_brokers =
           metadata.brokers
-          |> Enum.map(
-            &%{&1 | is_controller: &1.node_id == metadata.controller_id}
-          )
+          |> Enum.map(&%{&1 | is_controller: &1.node_id == metadata.controller_id})
 
         brokers =
           state.brokers
@@ -728,8 +724,7 @@ defmodule KafkaEx.Server do
               )
           end
         else
-          message =
-            "Unable to fetch metadata from any brokers. Timeout is #{sync_timeout}."
+          message = "Unable to fetch metadata from any brokers. Timeout is #{sync_timeout}."
 
           Logger.log(:error, message)
           raise message
@@ -993,9 +988,7 @@ defmodule KafkaEx.Server do
         Application.get_env(:kafka_ex, :partitioner, KafkaEx.DefaultPartitioner)
       end
 
-      defp increment_state_correlation_id(
-             %_{correlation_id: correlation_id} = state
-           ) do
+      defp increment_state_correlation_id(%_{correlation_id: correlation_id} = state) do
         %{state | correlation_id: correlation_id + 1}
       end
     end

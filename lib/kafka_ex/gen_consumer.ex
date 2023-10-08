@@ -461,8 +461,7 @@ defmodule KafkaEx.GenConsumer do
           options
         ) :: GenServer.on_start()
   def start_link(consumer_module, group_name, topic, partition, opts \\ []) do
-    {server_opts, consumer_opts} =
-      Keyword.split(opts, [:debug, :name, :timeout, :spawn_opt])
+    {server_opts, consumer_opts} = Keyword.split(opts, [:debug, :name, :timeout, :spawn_opt])
 
     GenServer.start_link(
       __MODULE__,
@@ -563,8 +562,7 @@ defmodule KafkaEx.GenConsumer do
 
         given_fetch_options = Keyword.get(opts, :fetch_options, [])
 
-        fetch_options =
-          Keyword.merge(default_fetch_options, given_fetch_options)
+        fetch_options = Keyword.merge(default_fetch_options, given_fetch_options)
 
         state = %State{
           consumer_module: consumer_module,

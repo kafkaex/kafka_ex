@@ -163,16 +163,14 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
   setup do
     {:ok, _} = TestPartitioner.start_link()
 
-    {:ok, client_pid} =
-      KafkaEx.start_link_worker(:no_name, server_impl: KafkaEx.New.Client)
+    {:ok, client_pid} = KafkaEx.start_link_worker(:no_name, server_impl: KafkaEx.New.Client)
 
     # the client will die on its own, so don't count that
     ports_before = num_open_ports()
 
     topic_name = "#{@topic_name_prefix}#{:rand.uniform(2_000_000)}"
 
-    {:ok, topic_name} =
-      TestHelper.ensure_append_timestamp_topic(client_pid, topic_name)
+    {:ok, topic_name} = TestHelper.ensure_append_timestamp_topic(client_pid, topic_name)
 
     {:ok, consumer_group_pid1} =
       ConsumerGroup.start_link(
@@ -261,8 +259,7 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
              Enum.into(assignments2, MapSet.new())
            )
 
-    consumer1_pid =
-      ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid1])
+    consumer1_pid = ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid1])
 
     consumer1_assignments =
       consumer1_pid
@@ -272,8 +269,7 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
 
     assert consumer1_assignments == Enum.sort(assignments1)
 
-    consumer2_pid =
-      ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid2])
+    consumer2_pid = ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid2])
 
     consumer2_assignments =
       consumer2_pid

@@ -84,16 +84,14 @@ defmodule KafkaEx.Protocol.Produce do
     [
       KafkaEx.Protocol.create_request(:produce, correlation_id, client_id),
       <<required_acks::16-signed, timeout::32-signed, 1::32-signed>>,
-      <<byte_size(topic)::16-signed, topic::binary, 1::32-signed,
-        partition::32-signed, mssize::32-signed>>,
+      <<byte_size(topic)::16-signed, topic::binary, 1::32-signed, partition::32-signed,
+        mssize::32-signed>>,
       message_set
     ]
   end
 
-  def parse_response(
-        <<_correlation_id::32-signed, num_topics::32-signed, rest::binary>>
-      ),
-      do: parse_topics(num_topics, rest, __MODULE__)
+  def parse_response(<<_correlation_id::32-signed, num_topics::32-signed, rest::binary>>),
+    do: parse_topics(num_topics, rest, __MODULE__)
 
   def parse_response(unknown), do: unknown
 
@@ -106,13 +104,11 @@ defmodule KafkaEx.Protocol.Produce do
   defp create_message_set(messages, compression_type) do
     {message_set, _} = create_message_set(messages, :none)
 
-    {compressed_message_set, attribute} =
-      Compression.compress(compression_type, message_set)
+    {compressed_message_set, attribute} = Compression.compress(compression_type, message_set)
 
     {message, msize} = create_message(compressed_message_set, nil, attribute)
 
-    {[<<0::64-signed>>, <<msize::32-signed>>, message],
-     @int64_size + @int32_size + msize}
+    {[<<0::64-signed>>, <<msize::32-signed>>, message], @int64_size + @int32_size + msize}
   end
 
   defp create_message_set_uncompressed([
@@ -145,8 +141,7 @@ defmodule KafkaEx.Protocol.Produce do
 
   def parse_partitions(
         partitions_size,
-        <<partition::32-signed, error_code::16-signed, offset::64,
-          rest::binary>>,
+        <<partition::32-signed, error_code::16-signed, offset::64, rest::binary>>,
         partitions,
         topic
       ) do

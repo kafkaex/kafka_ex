@@ -66,10 +66,7 @@ defmodule KafkaEx.Server0P8P0 do
     do: raise("Consumer Group is not supported in 0.8.0 version of Kafka")
 
   def kafka_server_consumer_group_metadata(_state),
-    do:
-      raise(
-        "Consumer Group Metadata is not supported in 0.8.0 version of Kafka"
-      )
+    do: raise("Consumer Group Metadata is not supported in 0.8.0 version of Kafka")
 
   def kafka_server_join_group(_, _, _state),
     do: raise("Join Group is not supported in 0.8.0 version of Kafka")
@@ -84,10 +81,7 @@ defmodule KafkaEx.Server0P8P0 do
     do: raise("Heartbeat is not supported in 0.8.0 version of Kafka")
 
   def kafka_server_update_consumer_metadata(_state),
-    do:
-      raise(
-        "Consumer Group Metadata is not supported in 0.8.0 version of Kafka"
-      )
+    do: raise("Consumer Group Metadata is not supported in 0.8.0 version of Kafka")
 
   def kafka_server_api_versions(_state),
     do: raise("ApiVersions is not supported in 0.8.0 version of Kafka")

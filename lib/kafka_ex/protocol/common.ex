@@ -17,14 +17,13 @@ defmodule KafkaEx.Protocol.Common do
 
   def parse_topics(
         topics_size,
-        <<topic_size::16-signed, topic::size(topic_size)-binary,
-          partitions_size::32-signed, rest::binary>>,
+        <<topic_size::16-signed, topic::size(topic_size)-binary, partitions_size::32-signed,
+          rest::binary>>,
         mod
       ) do
     struct_module = Module.concat(mod, Response)
 
-    {partitions, topics_data} =
-      mod.parse_partitions(partitions_size, rest, [], topic)
+    {partitions, topics_data} = mod.parse_partitions(partitions_size, rest, [], topic)
 
     [
       %{

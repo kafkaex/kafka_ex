@@ -32,8 +32,7 @@ defmodule KafkaEx.New.Structs.Topic do
         end
       )
 
-    partitions =
-      Enum.map(partition_metadata, &Partition.from_partition_metadata/1)
+    partitions = Enum.map(partition_metadata, &Partition.from_partition_metadata/1)
 
     %__MODULE__{
       name: name,

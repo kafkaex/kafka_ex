@@ -235,8 +235,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
              Enum.into(assignments2, MapSet.new())
            )
 
-    consumer1_pid =
-      ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid1])
+    consumer1_pid = ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid1])
 
     consumer1_assignments =
       consumer1_pid
@@ -246,8 +245,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
 
     assert consumer1_assignments == Enum.sort(assignments1)
 
-    consumer2_pid =
-      ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid2])
+    consumer2_pid = ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid2])
 
     consumer2_assignments =
       consumer2_pid
@@ -370,8 +368,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
   end
 
   test "handle_cast and handle_info calls", context do
-    consumer_group_pid =
-      ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid1])
+    consumer_group_pid = ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid1])
 
     consumer_pids = GenConsumer.Supervisor.child_pids(consumer_group_pid)
 
@@ -398,8 +395,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
   end
 
   test "handle call stop returns from callbacks", context do
-    consumer_group_pid =
-      ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid1])
+    consumer_group_pid = ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid1])
 
     [c1, c2] = GenConsumer.Supervisor.child_pids(consumer_group_pid)
     assert :foo = GenConsumer.call(c1, {:stop, :foo})
@@ -416,8 +412,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
   end
 
   test "handle cast stop returns from callbacks", context do
-    consumer_group_pid =
-      ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid1])
+    consumer_group_pid = ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid1])
 
     [c1, _c2] = GenConsumer.Supervisor.child_pids(consumer_group_pid)
     GenConsumer.cast(c1, :stop)
@@ -433,8 +428,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
   end
 
   test "handle info stop returns from callbacks", context do
-    consumer_group_pid =
-      ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid1])
+    consumer_group_pid = ConsumerGroup.consumer_supervisor_pid(context[:consumer_group_pid1])
 
     [c1, _c2] = GenConsumer.Supervisor.child_pids(consumer_group_pid)
     send(c1, :stop)

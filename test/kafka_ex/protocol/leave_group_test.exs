@@ -22,8 +22,7 @@ defmodule KafkaEx.Protocol.LeaveGroup.Test do
       member_id: "member"
     }
 
-    request =
-      KafkaEx.Protocol.LeaveGroup.create_request(42, "client_id", leave_request)
+    request = KafkaEx.Protocol.LeaveGroup.create_request(42, "client_id", leave_request)
 
     assert :erlang.iolist_to_binary(request) == good_request
   end

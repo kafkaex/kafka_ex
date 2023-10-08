@@ -48,8 +48,7 @@ defmodule KafkaEx.LegacyPartitionerTest do
       ]
     }
 
-    %{partition: partition} =
-      LegacyPartitioner.assign_partition(request, metadata(5))
+    %{partition: partition} = LegacyPartitioner.assign_partition(request, metadata(5))
 
     assert partition >= 0 and partition < 5
   end
@@ -74,11 +73,9 @@ defmodule KafkaEx.LegacyPartitionerTest do
       ]
     }
 
-    %{partition: 1} =
-      LegacyPartitioner.assign_partition(second_request, metadata(5))
+    %{partition: 1} = LegacyPartitioner.assign_partition(second_request, metadata(5))
 
-    %{partition: 5} =
-      LegacyPartitioner.assign_partition(second_request, metadata(6))
+    %{partition: 5} = LegacyPartitioner.assign_partition(second_request, metadata(6))
   end
 
   test "produce request with inconsistent keys" do

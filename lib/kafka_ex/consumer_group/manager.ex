@@ -70,8 +70,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
 
     GenServer.start_link(
       __MODULE__,
-      {{gen_consumer_module, consumer_module}, group_name, topics,
-       consumer_opts},
+      {{gen_consumer_module, consumer_module}, group_name, topics, consumer_opts},
       gen_server_opts
     )
   end
@@ -396,8 +395,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
       member_id: member_id
     }
 
-    leave_group_response =
-      KafkaEx.leave_group(leave_request, worker_name: worker_name)
+    leave_group_response = KafkaEx.leave_group(leave_request, worker_name: worker_name)
 
     case leave_group_response do
       %{error_code: :no_error} ->

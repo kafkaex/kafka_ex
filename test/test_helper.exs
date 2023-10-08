@@ -154,8 +154,7 @@ defmodule TestHelper do
   end
 
   defp first_partition_offset(response) do
-    [%KafkaEx.Protocol.Offset.Response{partition_offsets: partition_offsets}] =
-      response
+    [%KafkaEx.Protocol.Offset.Response{partition_offsets: partition_offsets}] = response
 
     first_partition = hd(partition_offsets)
     first_partition.offset |> hd
@@ -183,8 +182,7 @@ defmodule TestHelper do
   end
 
   defp wait_for_accum(value_getter, acc, min_length, dwell, max_tries) do
-    value =
-      wait_for_value(value_getter, fn v -> length(v) > 0 end, dwell, max_tries)
+    value = wait_for_value(value_getter, fn v -> length(v) > 0 end, dwell, max_tries)
 
     wait_for_accum(value_getter, acc ++ value, min_length, dwell, max_tries)
   end

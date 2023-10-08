@@ -29,8 +29,7 @@ defmodule KafkaEx.New.ClientCompatibility do
       def handle_call({:metadata, topic}, _from, state) do
         updated_state = update_metadata(state, [topic])
 
-        {:reply, Adapter.metadata_response(updated_state.cluster_metadata),
-         updated_state}
+        {:reply, Adapter.metadata_response(updated_state.cluster_metadata), updated_state}
       end
 
       def handle_call({:offset, topic, partition, time}, _from, state) do
@@ -141,8 +140,7 @@ defmodule KafkaEx.New.ClientCompatibility do
               {response, updated_state}
           end
 
-        {:reply, response,
-         %{state_out | allow_auto_topic_creation: allow_auto_topic_creation}}
+        {:reply, response, %{state_out | allow_auto_topic_creation: allow_auto_topic_creation}}
       end
 
       def handle_call({:join_group, request, network_timeout}, _from, state) do
@@ -339,8 +337,7 @@ defmodule KafkaEx.New.ClientCompatibility do
             state
 
           _ ->
-            {_, updated_state} =
-              fetch_topics_metadata(state, topics, allow_topic_creation)
+            {_, updated_state} = fetch_topics_metadata(state, topics, allow_topic_creation)
 
             updated_state
         end

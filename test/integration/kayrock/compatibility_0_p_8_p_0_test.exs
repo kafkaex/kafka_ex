@@ -15,8 +15,7 @@ defmodule KafkaEx.KayrockCompatibility0p8p0Test do
   @topic "test0p8p0"
 
   setup do
-    {:ok, pid} =
-      KafkaEx.start_link_worker(:no_name, server_impl: KafkaEx.New.Client)
+    {:ok, pid} = KafkaEx.start_link_worker(:no_name, server_impl: KafkaEx.New.Client)
 
     {:ok, %{client: pid}}
   end

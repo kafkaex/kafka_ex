@@ -47,8 +47,7 @@ defmodule KafkaEx.Protocol.JoinGroup do
   @spec create_request(integer, binary, Request.t()) :: iodata
   def create_request(correlation_id, client_id, %Request{} = join_group_req) do
     metadata = [
-      <<@metadata_version::16-signed,
-        length(join_group_req.topics)::32-signed>>,
+      <<@metadata_version::16-signed, length(join_group_req.topics)::32-signed>>,
       topic_data(join_group_req.topics),
       <<0::32-signed>>
     ]
@@ -75,12 +74,10 @@ defmodule KafkaEx.Protocol.JoinGroup do
 
   @spec parse_response(binary) :: Response.t()
   def parse_response(
-        <<_correlation_id::32-signed, error_code::16-signed,
-          generation_id::32-signed, protocol_len::16-signed,
-          _protocol::size(protocol_len)-binary, leader_len::16-signed,
+        <<_correlation_id::32-signed, error_code::16-signed, generation_id::32-signed,
+          protocol_len::16-signed, _protocol::size(protocol_len)-binary, leader_len::16-signed,
           leader::size(leader_len)-binary, member_id_len::16-signed,
-          member_id::size(member_id_len)-binary, members_size::32-signed,
-          rest::binary>>
+          member_id::size(member_id_len)-binary, members_size::32-signed, rest::binary>>
       ) do
     members = parse_members(members_size, rest, [])
 
@@ -97,9 +94,8 @@ defmodule KafkaEx.Protocol.JoinGroup do
 
   defp parse_members(
          size,
-         <<member_len::16-signed, member::size(member_len)-binary,
-           meta_len::32-signed, _metadata::size(meta_len)-binary,
-           rest::binary>>,
+         <<member_len::16-signed, member::size(member_len)-binary, meta_len::32-signed,
+           _metadata::size(meta_len)-binary, rest::binary>>,
          members
        ) do
     parse_members(size - 1, rest, [member | members])
