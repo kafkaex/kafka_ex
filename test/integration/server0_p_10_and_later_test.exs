@@ -1,6 +1,6 @@
 defmodule KafkaEx.Server0P10P1AndLater.Test do
   use ExUnit.Case
-  import TestHelper
+  import KafkaEx.TestHelpers
 
   @moduletag :server_0_p_10_and_later
   @num_partitions 10

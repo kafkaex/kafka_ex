@@ -26,7 +26,7 @@ defmodule KafkaEx.KayrockCompatibility0p8p0Test do
     partition = 0
     :ok = KafkaEx.produce(@topic, partition, msg, worker_name: client)
 
-    TestHelper.wait_for(fn ->
+    KafkaEx.TestHelpers.wait_for(fn ->
       [got] =
         KafkaEx.fetch(
           @topic,

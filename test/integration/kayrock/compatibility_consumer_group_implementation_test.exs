@@ -128,7 +128,7 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
   end
 
   def sync_stop(pid) when is_pid(pid) do
-    TestHelper.wait_for(fn ->
+    KafkaEx.TestHelpers.wait_for(fn ->
       if Process.alive?(pid) do
         Process.exit(pid, :normal)
       end
@@ -170,7 +170,7 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
 
     topic_name = "#{@topic_name_prefix}#{:rand.uniform(2_000_000)}"
 
-    {:ok, topic_name} = TestHelper.ensure_append_timestamp_topic(client_pid, topic_name)
+    {:ok, topic_name} = KafkaEx.TestHelpers.ensure_append_timestamp_topic(client_pid, topic_name)
 
     {:ok, consumer_group_pid1} =
       ConsumerGroup.start_link(
@@ -195,7 +195,7 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
       )
 
     # wait for both consumer groups to join
-    TestHelper.wait_for(fn ->
+    KafkaEx.TestHelpers.wait_for(fn ->
       ConsumerGroup.active?(consumer_group_pid1, 30000) &&
         ConsumerGroup.active?(consumer_group_pid2, 30000)
     end)
@@ -287,7 +287,7 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
     starting_offsets =
       partition_range
       |> Enum.map(fn px ->
-        {px, TestHelper.latest_offset_number(topic_name, px)}
+        {px, KafkaEx.TestHelpers.latest_offset_number(topic_name, px)}
       end)
       |> Enum.into(%{})
 
@@ -311,7 +311,7 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
       |> Enum.map(fn px ->
         consumer_pid = Map.get(consumers, {topic_name, px})
 
-        TestHelper.wait_for(fn ->
+        KafkaEx.TestHelpers.wait_for(fn ->
           message_set = TestConsumer.last_message_set(consumer_pid)
           correct_last_message?(message_set, messages[px], starting_offsets[px])
         end)
@@ -331,9 +331,9 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
 
     # offsets should be committed on exit
     for px <- partition_range do
-      TestHelper.wait_for(fn ->
+      KafkaEx.TestHelpers.wait_for(fn ->
         ending_offset =
-          TestHelper.latest_consumer_offset_number(
+          KafkaEx.TestHelpers.latest_consumer_offset_number(
             topic_name,
             px,
             @consumer_group_name,

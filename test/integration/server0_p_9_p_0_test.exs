@@ -1,6 +1,6 @@
 defmodule KafkaEx.Server0P9P0.Test do
   use ExUnit.Case
-  import TestHelper
+  import KafkaEx.TestHelpers
 
   alias KafkaEx.Protocol.Heartbeat.Request, as: HeartbeatRequest
   alias KafkaEx.Protocol.JoinGroup.Request, as: JoinGroupRequest

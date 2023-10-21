@@ -24,7 +24,7 @@ defmodule KafkaEx.KayrockCompatibility0p9p0Test do
   end
 
   test "can join a consumer group", %{client: client} do
-    random_group = TestHelper.generate_random_string()
+    random_group = KafkaEx.TestHelpers.generate_random_string()
 
     request = %JoinGroupRequest{
       group_name: random_group,
@@ -44,7 +44,7 @@ defmodule KafkaEx.KayrockCompatibility0p9p0Test do
   test "can send a simple leader sync for a consumer group", %{client: client} do
     # A lot of repetition with the previous test. Leaving it in now, waiting for
     # how this pans out eventually as we add more and more 0.9 consumer group code
-    random_group = TestHelper.generate_random_string()
+    random_group = KafkaEx.TestHelpers.generate_random_string()
 
     request = %JoinGroupRequest{
       group_name: random_group,
@@ -80,7 +80,7 @@ defmodule KafkaEx.KayrockCompatibility0p9p0Test do
   test "can leave a consumer group", %{client: client} do
     # A lot of repetition with the previous tests. Leaving it in now, waiting for
     # how this pans out eventually as we add more and more 0.9 consumer group code
-    random_group = TestHelper.generate_random_string()
+    random_group = KafkaEx.TestHelpers.generate_random_string()
 
     request = %JoinGroupRequest{
       group_name: random_group,
@@ -106,7 +106,7 @@ defmodule KafkaEx.KayrockCompatibility0p9p0Test do
 
   test "can heartbeat", %{client: client} do
     # See sync test. Removing repetition in the next iteration
-    random_group = TestHelper.generate_random_string()
+    random_group = KafkaEx.TestHelpers.generate_random_string()
 
     request = %JoinGroupRequest{
       group_name: random_group,

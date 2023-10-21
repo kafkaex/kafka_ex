@@ -1,6 +1,6 @@
 defmodule KafkaEx.Server0P8P0.Test do
   use ExUnit.Case
-  import TestHelper
+  import KafkaEx.TestHelpers
 
   @moduletag :server_0_p_8_p_0
 

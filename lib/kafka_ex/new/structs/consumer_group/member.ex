@@ -29,8 +29,7 @@ defmodule KafkaEx.New.Structs.ConsumerGroup.Member do
       client_id: response.client_id,
       client_host: response.client_host,
       member_metadata: response.member_metadata,
-      member_assignment:
-        build_member_assignment(Map.get(response, :member_assignment))
+      member_assignment: build_member_assignment(Map.get(response, :member_assignment))
     }
   end
 

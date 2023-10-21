@@ -24,6 +24,3 @@ TEST_COMMAND=test
 export TEST_COMMAND
 
 ALL_TESTS=${PROJECT_DIR}/scripts/all_tests.sh
-
-# Retry if it doesn't work the first time
-${ALL_TESTS} || ${ALL_TESTS} --failed

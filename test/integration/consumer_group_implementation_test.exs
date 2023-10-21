@@ -3,7 +3,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
 
   alias KafkaEx.ConsumerGroup
   alias KafkaEx.GenConsumer
-  import TestHelper
+  import KafkaEx.TestHelpers
 
   require Logger
 

@@ -23,9 +23,7 @@ defmodule KafkaEx.New.Client.RequestBuilder do
   def describe_groups_request(group_names, state) do
     api_version = get_api_version(state, :describe_groups)
 
-    @protocol.build_request(:describe_groups, api_version,
-      group_names: group_names
-    )
+    @protocol.build_request(:describe_groups, api_version, group_names: group_names)
   end
 
   # -----------------------------------------------------------------------------

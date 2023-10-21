@@ -30,7 +30,7 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupTest do
   test "fetch with auto_commit doesn't blow up on no messages", %{
     client: client
   } do
-    topic = TestHelper.generate_random_string()
+    topic = KafkaEx.TestHelpers.generate_random_string()
     consumer_group = "auto_commit_consumer_group"
 
     KafkaExAPI.set_consumer_group_for_auto_commit(client, consumer_group)
@@ -166,7 +166,7 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupTest do
   end
 
   test "fetch starts consuming from last committed offset", %{client: client} do
-    random_string = TestHelper.generate_random_string()
+    random_string = KafkaEx.TestHelpers.generate_random_string()
     consumer_group = "auto_commit_consumer_group"
     KafkaExAPI.set_consumer_group_for_auto_commit(client, consumer_group)
 
@@ -203,7 +203,7 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupTest do
   test "fetch does not commit offset with auto_commit is set to false", %{
     client: client
   } do
-    topic = TestHelper.generate_random_string()
+    topic = KafkaEx.TestHelpers.generate_random_string()
 
     Enum.each(1..10, fn _ ->
       KafkaEx.produce(
@@ -246,7 +246,7 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupTest do
   end
 
   test "offset_fetch does not override consumer_group", %{client: client} do
-    topic = TestHelper.generate_random_string()
+    topic = KafkaEx.TestHelpers.generate_random_string()
     consumer_group = "bar#{topic}"
 
     KafkaExAPI.set_consumer_group_for_auto_commit(client, consumer_group)
@@ -274,7 +274,7 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupTest do
 
   test "offset_commit commits an offset and offset_fetch retrieves the committed offset",
        %{client: client} do
-    random_string = TestHelper.generate_random_string()
+    random_string = KafkaEx.TestHelpers.generate_random_string()
 
     Enum.each(1..10, fn _ ->
       KafkaEx.produce(
@@ -323,7 +323,7 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupTest do
   end
 
   test "stream auto_commits offset by default", %{client: client} do
-    random_string = TestHelper.generate_random_string()
+    random_string = KafkaEx.TestHelpers.generate_random_string()
 
     KafkaEx.produce(
       %Proto.Produce.Request{
@@ -346,7 +346,7 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupTest do
         offset: 0
       )
 
-    log = TestHelper.wait_for_any(fn -> Enum.take(stream, 2) end)
+    log = KafkaEx.TestHelpers.wait_for_any(fn -> Enum.take(stream, 2) end)
 
     refute Enum.empty?(log)
 
@@ -366,7 +366,7 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupTest do
   test "streams with a consumer group begin at the last committed offset", %{
     client: client
   } do
-    topic_name = TestHelper.generate_random_string()
+    topic_name = KafkaEx.TestHelpers.generate_random_string()
     consumer_group = "stream_test"
 
     KafkaExAPI.set_consumer_group_for_auto_commit(client, consumer_group)

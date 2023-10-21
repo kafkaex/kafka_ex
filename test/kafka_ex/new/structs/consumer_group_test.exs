@@ -1,7 +1,7 @@
 defmodule KafkaEx.New.ConsumerGroupTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.ConsumerGroup
+  alias KafkaEx.New.Structs.ConsumerGroup
 
   describe "from_describe_group_response/1" do
     test "returns a consumer group struct" do

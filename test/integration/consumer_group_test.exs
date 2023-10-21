@@ -2,7 +2,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
   alias KafkaEx.Protocol, as: Proto
   alias KafkaEx.Config
   use ExUnit.Case
-  import TestHelper
+  import KafkaEx.TestHelpers
 
   @moduletag :consumer_group
 
@@ -233,7 +233,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
       consumer_group: consumer_group
     )
 
-    offset_before = TestHelper.latest_offset_number(topic, 0, worker_name)
+    offset_before = KafkaEx.TestHelpers.latest_offset_number(topic, 0, worker_name)
 
     Enum.each(1..10, fn _ ->
       msg = %Proto.Produce.Message{value: "hey #{inspect(:os.timestamp())}"}
@@ -249,7 +249,8 @@ defmodule KafkaEx.ConsumerGroup.Test do
       )
     end)
 
-    offset_after = TestHelper.latest_offset_number(topic, 0, worker_name)
+    offset_after = KafkaEx.TestHelpers.latest_offset_number(topic, 0, worker_name)
+
     assert offset_after == offset_before + 10
 
     [logs] =
@@ -466,7 +467,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
         offset: 0
       )
 
-    log = TestHelper.wait_for_any(fn -> Enum.take(stream, 2) end)
+    log = KafkaEx.TestHelpers.wait_for_any(fn -> Enum.take(stream, 2) end)
 
     refute Enum.empty?(log)
 
@@ -515,9 +516,9 @@ defmodule KafkaEx.ConsumerGroup.Test do
     # make sure the offset commit is actually committed before we
     # start streaming again
     :ok =
-      TestHelper.wait_for(fn ->
+      KafkaEx.TestHelpers.wait_for(fn ->
         3 ==
-          TestHelper.latest_consumer_offset_number(
+          KafkaEx.TestHelpers.latest_consumer_offset_number(
             random_string,
             0,
             consumer_group,
@@ -526,7 +527,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
       end)
 
     stream = KafkaEx.stream(random_string, 0, worker_name: worker_name)
-    log = TestHelper.wait_for_any(fn -> Enum.take(stream, 2) end)
+    log = KafkaEx.TestHelpers.wait_for_any(fn -> Enum.take(stream, 2) end)
 
     refute Enum.empty?(log)
     first_message = log |> hd
@@ -569,7 +570,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
     assert "message 3" == m2.value
 
     offset =
-      TestHelper.latest_consumer_offset_number(
+      KafkaEx.TestHelpers.latest_consumer_offset_number(
         topic_name,
         0,
         consumer_group,
@@ -618,7 +619,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
     assert "message 5" == m4.value
 
     offset =
-      TestHelper.latest_consumer_offset_number(
+      KafkaEx.TestHelpers.latest_consumer_offset_number(
         topic_name,
         0,
         consumer_group,
@@ -644,7 +645,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
              Enum.map(map_stream, fn m -> m.value end)
 
     offset =
-      TestHelper.latest_consumer_offset_number(
+      KafkaEx.TestHelpers.latest_consumer_offset_number(
         topic_name,
         0,
         other_consumer_group,

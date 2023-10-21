@@ -167,8 +167,7 @@ defmodule KafkaEx.New.Client do
 
   def handle_call({:describe_groups, [consumer_group_name]}, _from, state) do
     if KafkaEx.valid_consumer_group?(consumer_group_name) do
-      {response, updated_state} =
-        describe_group_request(consumer_group_name, state)
+      {response, updated_state} = describe_group_request(consumer_group_name, state)
 
       {:reply, response, updated_state}
     else
@@ -294,9 +293,7 @@ defmodule KafkaEx.New.Client do
           {:error, [error | _]} ->
             consumer_group = request.groups[0]
 
-            Logger.warn(
-              "Unable to fetch consumer group metadata for #{consumer_group.group_id}"
-            )
+            Logger.warn("Unable to fetch consumer group metadata for #{consumer_group.group_id}")
 
             handle_describe_group_request(
               request,
@@ -310,9 +307,7 @@ defmodule KafkaEx.New.Client do
       {_, _state_out} ->
         consumer_group = request.groups[0]
 
-        Logger.warn(
-          "Unable to fetch consumer group metadata for #{consumer_group.group_id}"
-        )
+        Logger.warn("Unable to fetch consumer group metadata for #{consumer_group.group_id}")
 
         handle_describe_group_request(
           request,

@@ -12,8 +12,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
         group_ids: group_names
       }
 
-      {:ok, request} =
-        RequestBuilder.describe_groups_request(group_names, state)
+      request = RequestBuilder.describe_groups_request(group_names, state)
 
       assert expected_request == request
     end

@@ -1,7 +1,7 @@
-defmodule KafkaEx.New.ConsumerGroup.MemberTest do
+defmodule KafkaEx.New.Structs.ConsumerGroup.MemberTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.ConsumerGroup.Member
+  alias KafkaEx.New.Structs.ConsumerGroup.Member
 
   describe "from_describe_group_response/1" do
     test "returns a Member struct" do

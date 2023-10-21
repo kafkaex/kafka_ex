@@ -7,12 +7,11 @@ defmodule KafkaEx.New.Protocols.Kayrock.DescribeGroupsTest do
 
   describe "build_request/2" do
     test "builds request for Describe Groups API" do
-      api_version = 0
       consumer_group_names = ["test-group"]
-      expected_request = %V0.Request{group_ids: groups}
+      expected_request = %V0.Request{group_ids: consumer_group_names}
 
-      assert KayrockDescribeGroups.build_request(
-               api_version,
+      assert KayrockDescribeGroups.Request.build_request(
+               %V0.Request{},
                consumer_group_names
              ) == expected_request
     end
@@ -49,23 +48,23 @@ defmodule KafkaEx.New.Protocols.Kayrock.DescribeGroupsTest do
 
       assert {:ok,
               [
-                %KafkaEx.New.ConsumerGroup{
+                %KafkaEx.New.Structs.ConsumerGroup{
                   group_id: "succeeded",
                   state: "stable",
                   protocol_type: "protocol_type",
                   protocol: "protocol",
                   members: [
-                    %KafkaEx.New.ConsumerGroup.Member{
+                    %KafkaEx.New.Structs.ConsumerGroup.Member{
                       member_id: "member_id",
                       client_id: "client_id",
                       client_host: "client_host",
                       member_metadata: "member_metadata",
                       member_assignment:
-                        %KafkaEx.New.ConsumerGroup.Member.MemberAssignment{
+                        %KafkaEx.New.Structs.ConsumerGroup.Member.MemberAssignment{
                           version: 0,
                           user_data: "user_data",
                           partition_assignments: [
-                            %KafkaEx.New.ConsumerGroup.Member.MemberAssignment.PartitionAssignment{
+                            %KafkaEx.New.Structs.ConsumerGroup.Member.MemberAssignment.PartitionAssignment{
                               topic: "test-topic",
                               partitions: [1, 2, 3]
                             }
@@ -75,7 +74,7 @@ defmodule KafkaEx.New.Protocols.Kayrock.DescribeGroupsTest do
                   ]
                 }
               ]} ==
-               DescribeGroups.Response.parse_response(response)
+               KayrockDescribeGroups.Response.parse_response(response)
     end
   end
 end

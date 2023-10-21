@@ -2,7 +2,7 @@ defmodule KafkaEx.Integration.Test do
   alias KafkaEx.Protocol, as: Proto
   alias KafkaEx.Config
   use ExUnit.Case
-  import TestHelper
+  import KafkaEx.TestHelpers
 
   @moduletag :integration
 
@@ -203,7 +203,7 @@ defmodule KafkaEx.Integration.Test do
     random_string = generate_random_string()
 
     metadata =
-      TestHelper.wait_for_value(
+      KafkaEx.TestHelpers.wait_for_value(
         fn -> KafkaEx.metadata(topic: random_string) end,
         fn metadata ->
           metadata != nil && length(metadata.topic_metadatas) > 0
@@ -361,7 +361,10 @@ defmodule KafkaEx.Integration.Test do
       messages: [%Proto.Produce.Message{value: "foo"}]
     })
 
-    [offset_response] = TestHelper.wait_for_any(fn -> KafkaEx.latest_offset(random_string, 0) end)
+    [offset_response] =
+      KafkaEx.TestHelpers.wait_for_any(fn ->
+        KafkaEx.latest_offset(random_string, 0)
+      end)
 
     offset = offset_response.partition_offsets |> hd |> Map.get(:offset) |> hd
 

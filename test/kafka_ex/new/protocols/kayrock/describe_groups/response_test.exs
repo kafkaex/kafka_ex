@@ -1,28 +1,29 @@
 defmodule KafkaEx.New.Protocols.Kayrock.DescribeGroups.ResponseTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.DescribeGroups
+  alias KafkaEx.New.Protocols.Kayrock.DescribeGroups.Response,
+    as: DescribeGroupsResponse
 
   alias Kayrock.DescribeGroups.V0
   alias Kayrock.DescribeGroups.V1
 
   describe "parse_response/1" do
-    @expected_group %KafkaEx.New.ConsumerGroup{
+    @expected_group %KafkaEx.New.Structs.ConsumerGroup{
       group_id: "succeeded",
       state: "stable",
       protocol_type: "protocol_type",
       protocol: "protocol",
       members: [
-        %KafkaEx.New.ConsumerGroup.Member{
+        %KafkaEx.New.Structs.ConsumerGroup.Member{
           member_id: "member_id",
           client_id: "client_id",
           client_host: "client_host",
           member_metadata: "member_metadata",
-          member_assignment: %KafkaEx.New.ConsumerGroup.Member.MemberAssignment{
+          member_assignment: %KafkaEx.New.Structs.ConsumerGroup.Member.MemberAssignment{
             version: 0,
             user_data: "user_data",
             partition_assignments: [
-              %KafkaEx.New.ConsumerGroup.Member.MemberAssignment.PartitionAssignment{
+              %KafkaEx.New.Structs.ConsumerGroup.Member.MemberAssignment.PartitionAssignment{
                 topic: "test-topic",
                 partitions: [1, 2, 3]
               }
@@ -61,7 +62,7 @@ defmodule KafkaEx.New.Protocols.Kayrock.DescribeGroups.ResponseTest do
       }
 
       assert {:ok, [@expected_group]} ==
-               DescribeGroups.Response.parse_response(response)
+               DescribeGroupsResponse.parse_response(response)
     end
 
     test "for api version 0 - returns error if any group failed" do
@@ -73,7 +74,7 @@ defmodule KafkaEx.New.Protocols.Kayrock.DescribeGroups.ResponseTest do
       }
 
       assert {:error, [{"failed", :offset_out_of_range}]} ==
-               DescribeGroups.Response.parse_response(response)
+               DescribeGroupsResponse.parse_response(response)
     end
 
     test "for api version 1 - returns response if all groups succeeded" do
@@ -105,7 +106,7 @@ defmodule KafkaEx.New.Protocols.Kayrock.DescribeGroups.ResponseTest do
       }
 
       assert {:ok, [@expected_group]} ==
-               DescribeGroups.Response.parse_response(response)
+               DescribeGroupsResponse.parse_response(response)
     end
 
     test "for api version 1 - returns error if any group failed" do
@@ -117,7 +118,7 @@ defmodule KafkaEx.New.Protocols.Kayrock.DescribeGroups.ResponseTest do
       }
 
       assert {:error, [{"failed", :offset_out_of_range}]} ==
-               DescribeGroups.Response.parse_response(response)
+               DescribeGroupsResponse.parse_response(response)
     end
   end
 end
