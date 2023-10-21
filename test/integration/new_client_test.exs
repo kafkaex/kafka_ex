@@ -38,7 +38,7 @@ defmodule KafkaEx.New.Client.Test do
     } do
       join_to_group(client, topic, consumer_group)
 
-      {:ok, group_metadata} = GenServer.call(client, {:describe_groups, [consumer_group]})
+      {:ok, [group_metadata]} = GenServer.call(client, {:describe_groups, [consumer_group]})
 
       assert group_metadata.group_id == consumer_group
       assert group_metadata.protocol_type == "consumer"
@@ -47,7 +47,7 @@ defmodule KafkaEx.New.Client.Test do
     end
 
     test "returns dead when consumer group does not exist", %{client: client} do
-      {:ok, group_metadata} = GenServer.call(client, {:describe_groups, ["non-existing-group"]})
+      {:ok, [group_metadata]} = GenServer.call(client, {:describe_groups, ["non-existing-group"]})
 
       assert group_metadata.group_id == "non-existing-group"
       assert group_metadata.state == "Dead"

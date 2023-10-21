@@ -4,8 +4,8 @@ defmodule KafkaEx.KayrockCompatibilityTest do
 
   These mostly come from the original integration_test.exs file
   """
-
   use ExUnit.Case
+  import KafkaEx.TestHelpers
 
   @moduletag :new_client
 
@@ -32,6 +32,46 @@ defmodule KafkaEx.KayrockCompatibilityTest do
     {:ok, pid} = Client.start_link(args, :no_name)
 
     assert Process.alive?(pid)
+  end
+
+  describe "describe_groups/1" do
+    setup do
+      consumer_group = generate_random_string()
+      topic = "new_client_implementation"
+
+      {:ok, %{consumer_group: consumer_group, topic: topic}}
+    end
+
+    test "with new client - returns group metadata", %{
+      client: client,
+      consumer_group: consumer_group,
+      topic: topic
+    } do
+      join_to_group(client, topic, consumer_group)
+
+      {:ok, group_metadata} = KafkaExAPI.describe_group(client, consumer_group)
+
+      assert group_metadata.group_id == consumer_group
+      assert group_metadata.protocol_type == "consumer"
+      assert group_metadata.protocol == ""
+      assert length(group_metadata.members) == 1
+    end
+
+    test "with old client - returns group metadata", %{
+      client: client,
+      consumer_group: consumer_group,
+      topic: topic
+    } do
+      join_to_group(client, topic, consumer_group)
+
+      {:ok, group_metadata} =
+        KafkaEx.describe_group(consumer_group, worker_name: client)
+
+      assert group_metadata.group_id == consumer_group
+      assert group_metadata.protocol_type == "consumer"
+      assert group_metadata.protocol == ""
+      assert length(group_metadata.members) == 1
+    end
   end
 
   test "worker updates metadata after specified interval" do
@@ -614,5 +654,17 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   test "produce with the default partitioner works", %{client: client} do
     topic = KafkaEx.TestHelpers.generate_random_string()
     :ok = KafkaEx.produce(topic, nil, "hello", worker_name: client)
+  end
+
+  # -----------------------------------------------------------------------------
+  defp join_to_group(client, topic, consumer_group) do
+    request = %KafkaEx.Protocol.JoinGroup.Request{
+      group_name: consumer_group,
+      member_id: "",
+      topics: [topic],
+      session_timeout: 6000
+    }
+
+    KafkaEx.join_group(request, worker_name: client, timeout: 10000)
   end
 end

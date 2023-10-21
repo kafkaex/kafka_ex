@@ -15,6 +15,7 @@ defmodule KafkaEx.New.KafkaExAPI do
 
   alias KafkaEx.New.Client
   alias KafkaEx.New.Structs.ClusterMetadata
+  alias KafkaEx.New.Structs.ConsumerGroup
   alias KafkaEx.New.Structs.Topic
   alias KafkaEx.New.Structs.NodeSelector
 
@@ -57,6 +58,20 @@ defmodule KafkaEx.New.KafkaExAPI do
   end
 
   @doc """
+  Sends a request to describe a group identified by its name.
+  We support only one consumer group per request for now, as we don't
+  group requests by group coordinator.
+  """
+  @spec describe_group(client, Keyword.t()) ::
+          {:ok, ConsumerGroup.t()} | {:error, any}
+  def describe_group(client, consumer_group_name) do
+    case GenServer.call(client, {:describe_groups, [consumer_group_name]}) do
+      {:ok, [group]} -> {:ok, group}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  @doc """
   Get topic metadata for the given topics
 
   Always calls out to the broker to get the most up-to-date metadata (and
@@ -73,7 +88,7 @@ defmodule KafkaEx.New.KafkaExAPI do
   Returns the cluster metadata from the given client
   """
   @spec cluster_metadata(client) :: {:ok, ClusterMetadata.t()}
-  def(cluster_metadata(client)) do
+  def cluster_metadata(client) do
     GenServer.call(client, :cluster_metadata)
   end
 

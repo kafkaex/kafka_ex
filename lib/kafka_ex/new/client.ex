@@ -287,13 +287,11 @@ defmodule KafkaEx.New.Client do
     case kayrock_network_request(request, node_selector, state) do
       {{:ok, response}, state_out} ->
         case ResponseParser.describe_groups_response(response) do
-          {:ok, [consumer_group]} ->
-            {{:ok, consumer_group}, state_out}
+          {:ok, consumer_groups} ->
+            {{:ok, consumer_groups}, state_out}
 
           {:error, [error | _]} ->
-            consumer_group = request.groups[0]
-
-            Logger.warn("Unable to fetch consumer group metadata for #{consumer_group.group_id}")
+            Logger.warn("Unable to fetch consumer group metadata for #{inspect(request.group_ids)}")
 
             handle_describe_group_request(
               request,
@@ -305,9 +303,7 @@ defmodule KafkaEx.New.Client do
         end
 
       {_, _state_out} ->
-        consumer_group = request.groups[0]
-
-        Logger.warn("Unable to fetch consumer group metadata for #{consumer_group.group_id}")
+        Logger.warn("Unable to fetch consumer group metadata for #{inspect(request.group_ids)}")
 
         handle_describe_group_request(
           request,

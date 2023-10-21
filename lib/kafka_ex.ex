@@ -124,6 +124,22 @@ defmodule KafkaEx do
   end
 
   @doc """
+  Sends a request to describe a group identified by its name.
+  We support only one consumer group per request for now, as we don't
+  group requests by group coordinator.
+  This is a new client implementation, and is not compatible with the old clients
+  """
+  @spec describe_group(binary, Keyword.t()) :: {:ok, any} | {:error, any}
+  def describe_group(consumer_group_name, opts \\ []) do
+    worker_name = Keyword.get(opts, :worker_name, Config.default_worker())
+
+    case Server.call(worker_name, {:describe_groups, [consumer_group_name]}) do
+      {:ok, [group]} -> {:ok, group}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  @doc """
   Sends a request to join a consumer group.
   """
   @spec join_group(JoinGroupRequest.t(), Keyword.t()) :: JoinGroupResponse.t()
