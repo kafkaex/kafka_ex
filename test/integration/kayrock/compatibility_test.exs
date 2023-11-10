@@ -20,8 +20,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   alias KafkaEx.New.KafkaExAPI
 
   setup do
-    {:ok, pid} =
-      KafkaEx.start_link_worker(:no_name, server_impl: KafkaEx.New.Client)
+    {:ok, pid} = KafkaEx.start_link_worker(:no_name, server_impl: KafkaEx.New.Client)
 
     {:ok, %{client: pid}}
   end
@@ -48,8 +47,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   test "get metadata", %{client: client} do
     metadata = KafkaEx.metadata(worker_name: client, topic: "test0p8p0")
 
-    %MetadataResponse{topic_metadatas: topic_metadatas, brokers: brokers} =
-      metadata
+    %MetadataResponse{topic_metadatas: topic_metadatas, brokers: brokers} = metadata
 
     assert is_list(topic_metadatas)
     [topic_metadata | _] = topic_metadatas
@@ -65,8 +63,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
 
     resp = KafkaEx.offset(topic, 0, :earliest, client)
 
-    [%OffsetResponse{topic: ^topic, partition_offsets: [partition_offsets]}] =
-      resp
+    [%OffsetResponse{topic: ^topic, partition_offsets: [partition_offsets]}] = resp
 
     %{error_code: :no_error, offset: [offset], partition: 0} = partition_offsets
     assert offset >= 0
@@ -344,8 +341,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
       )
       |> hd
 
-    [got_message1, got_message2] =
-      fetch_response.partitions |> hd |> Map.get(:message_set)
+    [got_message1, got_message2] = fetch_response.partitions |> hd |> Map.get(:message_set)
 
     assert got_message1.key == message1.key
     assert got_message1.value == message1.value
@@ -380,8 +376,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
       )
       |> hd
 
-    [got_message1, got_message2] =
-      fetch_response.partitions |> hd |> Map.get(:message_set)
+    [got_message1, got_message2] = fetch_response.partitions |> hd |> Map.get(:message_set)
 
     assert got_message1.key == message1.key
     assert got_message1.value == message1.value
@@ -408,8 +403,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
 
     {:ok, offset} = KafkaEx.produce(produce_request, worker_name: client)
 
-    fetch_response =
-      KafkaEx.fetch(topic, 0, offset: offset, worker_name: client) |> hd
+    fetch_response = KafkaEx.fetch(topic, 0, offset: offset, worker_name: client) |> hd
 
     [got_message] = fetch_response.partitions |> hd |> Map.get(:message_set)
 
@@ -436,8 +430,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
 
     {:ok, offset} = KafkaEx.produce(produce_request, worker_name: client)
 
-    fetch_response =
-      KafkaEx.fetch(topic, 0, offset: offset, worker_name: client) |> hd
+    fetch_response = KafkaEx.fetch(topic, 0, offset: offset, worker_name: client) |> hd
 
     [got_message] = fetch_response.partitions |> hd |> Map.get(:message_set)
 

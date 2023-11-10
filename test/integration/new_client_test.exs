@@ -28,8 +28,7 @@ defmodule KafkaEx.New.Client.Test do
     # we don't fetch any topics on startup
     assert topics == %{}
 
-    {:ok, [topic_metadata]} =
-      GenServer.call(client, {:topic_metadata, ["test0p8p0"], false})
+    {:ok, [topic_metadata]} = GenServer.call(client, {:topic_metadata, ["test0p8p0"], false})
 
     assert %Topic{name: "test0p8p0"} = topic_metadata
   end
@@ -54,8 +53,7 @@ defmodule KafkaEx.New.Client.Test do
 
       %Kayrock.ListOffsets.V1.Response{responses: [main_resp]} = resp
 
-      [%{error_code: error_code, offset: offset}] =
-        main_resp.partition_responses
+      [%{error_code: error_code, offset: offset}] = main_resp.partition_responses
 
       assert error_code == 0
 
@@ -95,8 +93,7 @@ defmodule KafkaEx.New.Client.Test do
     %Kayrock.Produce.V1.Response{responses: [topic_response]} = response
     assert topic_response.topic == topic
 
-    [%{partition: ^partition, error_code: error_code}] =
-      topic_response.partition_responses
+    [%{partition: ^partition, error_code: error_code}] = topic_response.partition_responses
 
     assert error_code == 0
 
@@ -151,8 +148,7 @@ defmodule KafkaEx.New.Client.Test do
     %Kayrock.Produce.V1.Response{responses: [topic_response]} = response
     assert topic_response.topic == topic
 
-    [%{partition: ^partition, error_code: error_code}] =
-      topic_response.partition_responses
+    [%{partition: ^partition, error_code: error_code}] = topic_response.partition_responses
 
     assert error_code == 0
 

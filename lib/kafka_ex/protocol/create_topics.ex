@@ -106,8 +106,7 @@ defmodule KafkaEx.Protocol.CreateTopics do
   @spec encode_topic_request(TopicRequest.t()) :: binary
   defp encode_topic_request(request) do
     encode_string(request.topic) <>
-      <<request.num_partitions::32-signed,
-        request.replication_factor::16-signed>> <>
+      <<request.num_partitions::32-signed, request.replication_factor::16-signed>> <>
       encode_replica_assignments(request.replica_assignment) <>
       encode_config_entries(request.config_entries)
   end
@@ -135,8 +134,7 @@ defmodule KafkaEx.Protocol.CreateTopics do
 
   @spec parse_response(binary, integer) :: [] | Response.t()
   def parse_response(
-        <<_correlation_id::32-signed, topic_errors_count::32-signed,
-          topic_errors::binary>>,
+        <<_correlation_id::32-signed, topic_errors_count::32-signed, topic_errors::binary>>,
         0
       ) do
     %Response{

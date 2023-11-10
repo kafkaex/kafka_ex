@@ -126,8 +126,7 @@ defmodule KafkaEx.New.Client do
           Kernel.reraise(e, System.stacktrace())
       end
 
-    {:ok, _} =
-      :timer.send_interval(state.metadata_update_interval, :update_metadata)
+    {:ok, _} = :timer.send_interval(state.metadata_update_interval, :update_metadata)
 
     {:ok, state}
   end
@@ -159,15 +158,13 @@ defmodule KafkaEx.New.Client do
   end
 
   def handle_call({:topic_metadata, topics, allow_topic_creation}, _from, state) do
-    {topic_metadata, updated_state} =
-      fetch_topics_metadata(state, topics, allow_topic_creation)
+    {topic_metadata, updated_state} = fetch_topics_metadata(state, topics, allow_topic_creation)
 
     {:reply, {:ok, topic_metadata}, updated_state}
   end
 
   def handle_call({:kayrock_request, request, node_selector}, _from, state) do
-    {response, updated_state} =
-      kayrock_network_request(request, node_selector, state)
+    {response, updated_state} = kayrock_network_request(request, node_selector, state)
 
     {:reply, response, updated_state}
   end
@@ -220,8 +217,7 @@ defmodule KafkaEx.New.Client do
         updated_state
 
       _ ->
-        new_cluster_metadata =
-          ClusterMetadata.from_metadata_v1_response(response)
+        new_cluster_metadata = ClusterMetadata.from_metadata_v1_response(response)
 
         {updated_cluster_metadata, brokers_to_close} =
           ClusterMetadata.merge_brokers(
@@ -345,8 +341,7 @@ defmodule KafkaEx.New.Client do
         end
 
       _ ->
-        message =
-          "Unable to fetch metadata from any brokers. Timeout is #{sync_timeout}."
+        message = "Unable to fetch metadata from any brokers. Timeout is #{sync_timeout}."
 
         Logger.log(:error, message)
         raise message
@@ -549,8 +544,7 @@ defmodule KafkaEx.New.Client do
   end
 
   defp run_client_request(
-         %{client_id: client_id, correlation_id: correlation_id} =
-           client_request,
+         %{client_id: client_id, correlation_id: correlation_id} = client_request,
          send_request,
          synchronous
        )
@@ -694,8 +688,7 @@ defmodule KafkaEx.New.Client do
 
     topic_metadata = State.topics_metadata(updated_state, topics)
 
-    {topic_metadata,
-     %{updated_state | allow_auto_topic_creation: allow_auto_topic_creation}}
+    {topic_metadata, %{updated_state | allow_auto_topic_creation: allow_auto_topic_creation}}
   end
 
   defp close_broker_by_socket(state, socket) do

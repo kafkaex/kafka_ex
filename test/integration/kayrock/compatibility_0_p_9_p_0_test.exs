@@ -18,8 +18,7 @@ defmodule KafkaEx.KayrockCompatibility0p9p0Test do
   alias KafkaEx.Protocol.SyncGroup.Request, as: SyncGroupRequest
 
   setup do
-    {:ok, pid} =
-      KafkaEx.start_link_worker(:no_name, server_impl: KafkaEx.New.Client)
+    {:ok, pid} = KafkaEx.start_link_worker(:no_name, server_impl: KafkaEx.New.Client)
 
     {:ok, %{client: pid}}
   end

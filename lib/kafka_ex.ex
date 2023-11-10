@@ -607,8 +607,7 @@ defmodule KafkaEx do
           KafkaEx.worker_setting() | {:server_impl, module}
         ]) :: GenServer.on_start()
   def start_link_worker(name, worker_init \\ []) do
-    {server_impl, worker_init} =
-      Keyword.pop(worker_init, :server_impl, Config.server_impl())
+    {server_impl, worker_init} = Keyword.pop(worker_init, :server_impl, Config.server_impl())
 
     {:ok, full_worker_init} = build_worker_options(worker_init)
     server_impl.start_link(full_worker_init, name)

@@ -17,8 +17,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
   end
 
   test "create_worker allows us to disable the consumer group" do
-    {:ok, pid} =
-      KafkaEx.create_worker(:barney, consumer_group: :no_consumer_group)
+    {:ok, pid} = KafkaEx.create_worker(:barney, consumer_group: :no_consumer_group)
 
     consumer_group = :sys.get_state(pid).consumer_group
     assert consumer_group == :no_consumer_group
@@ -88,8 +87,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
   end
 
   test "create_worker allows us to provide a consumer group" do
-    {:ok, pid} =
-      KafkaEx.create_worker(:bah, consumer_group: "my_consumer_group")
+    {:ok, pid} = KafkaEx.create_worker(:bah, consumer_group: "my_consumer_group")
 
     consumer_group = :sys.get_state(pid).consumer_group
 
@@ -104,8 +102,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
         consumer_group_update_interval: 10
       )
 
-    consumer_group_update_interval =
-      :sys.get_state(pid).consumer_group_update_interval
+    consumer_group_update_interval = :sys.get_state(pid).consumer_group_update_interval
 
     assert consumer_group_update_interval == 10
   end
@@ -113,8 +110,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
   test "create_worker provides a default consumer_group_update_interval of '30000'" do
     {:ok, pid} = KafkaEx.create_worker(:de, uris: uris())
 
-    consumer_group_update_interval =
-      :sys.get_state(pid).consumer_group_update_interval
+    consumer_group_update_interval = :sys.get_state(pid).consumer_group_update_interval
 
     assert consumer_group_update_interval == 30000
   end
@@ -127,8 +123,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
   end
 
   test "create_worker takes a consumer_group option and sets that as the consumer_group of the worker" do
-    {:ok, pid} =
-      KafkaEx.create_worker(:joe, uris: uris(), consumer_group: "foo")
+    {:ok, pid} = KafkaEx.create_worker(:joe, uris: uris(), consumer_group: "foo")
 
     consumer_group = :sys.get_state(pid).consumer_group
 
@@ -357,8 +352,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
       })
       |> hd
 
-    offset_fetch_response_offset =
-      offset_fetch_response.partitions |> hd |> Map.get(:offset)
+    offset_fetch_response_offset = offset_fetch_response.partitions |> hd |> Map.get(:offset)
 
     refute offset == offset_fetch_response_offset
   end

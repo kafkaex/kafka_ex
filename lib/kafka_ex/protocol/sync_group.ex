@@ -42,17 +42,15 @@ defmodule KafkaEx.Protocol.SyncGroup do
     [
       KafkaEx.Protocol.create_request(:sync_group, correlation_id, client_id),
       <<byte_size(request.group_name)::16-signed, request.group_name::binary,
-        request.generation_id::32-signed,
-        byte_size(request.member_id)::16-signed, request.member_id::binary,
-        length(request.assignments)::32-signed,
+        request.generation_id::32-signed, byte_size(request.member_id)::16-signed,
+        request.member_id::binary, length(request.assignments)::32-signed,
         group_assignment_data(request.assignments, "")::binary>>
     ]
   end
 
   @spec parse_response(binary) :: Response.t()
   def parse_response(
-        <<_correlation_id::32-signed, error_code::16-signed,
-          member_assignment_len::32-signed,
+        <<_correlation_id::32-signed, error_code::16-signed, member_assignment_len::32-signed,
           member_assignment::size(member_assignment_len)-binary>>
       ) do
     %Response{
@@ -78,8 +76,7 @@ defmodule KafkaEx.Protocol.SyncGroup do
     >>
 
     <<byte_size(member_id)::16-signed, member_id::binary,
-      byte_size(assignment_bytes_for_member)::32-signed,
-      assignment_bytes_for_member::binary>>
+      byte_size(assignment_bytes_for_member)::32-signed, assignment_bytes_for_member::binary>>
   end
 
   defp topic_assignment_data([], acc), do: acc
@@ -88,8 +85,7 @@ defmodule KafkaEx.Protocol.SyncGroup do
     do: topic_assignment_data(t, acc <> partition_assignment_data(h))
 
   defp partition_assignment_data({topic_name, partition_ids}) do
-    <<byte_size(topic_name)::16-signed, topic_name::binary,
-      length(partition_ids)::32-signed,
+    <<byte_size(topic_name)::16-signed, topic_name::binary, length(partition_ids)::32-signed,
       partition_id_data(partition_ids, "")::binary>>
   end
 
@@ -103,8 +99,7 @@ defmodule KafkaEx.Protocol.SyncGroup do
   defp parse_member_assignment(<<>>), do: []
 
   defp parse_member_assignment(
-         <<@member_assignment_version::16-signed, assignments_size::32-signed,
-           rest::binary>>
+         <<@member_assignment_version::16-signed, assignments_size::32-signed, rest::binary>>
        ) do
     parse_assignments(assignments_size, rest, [])
   end
@@ -113,8 +108,8 @@ defmodule KafkaEx.Protocol.SyncGroup do
 
   defp parse_assignments(
          size,
-         <<topic_len::16-signed, topic::size(topic_len)-binary,
-           partition_len::32-signed, rest::binary>>,
+         <<topic_len::16-signed, topic::size(topic_len)-binary, partition_len::32-signed,
+           rest::binary>>,
          assignments
        ) do
     {partitions, rest} = parse_partitions(partition_len, rest, [])

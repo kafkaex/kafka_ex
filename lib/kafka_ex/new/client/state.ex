@@ -41,8 +41,7 @@ defmodule KafkaEx.New.Client.State do
           :consumer_group_update_interval,
           @default_consumer_group_update_interval
         ),
-      allow_auto_topic_creation:
-        Keyword.get(args, :allow_auto_topic_creation, true),
+      allow_auto_topic_creation: Keyword.get(args, :allow_auto_topic_creation, true),
       use_ssl: Keyword.get(args, :use_ssl, false),
       ssl_options: Keyword.get(args, :ssl_options, []),
       consumer_group_for_auto_commit: Keyword.get(args, :consumer_group)
@@ -99,8 +98,7 @@ defmodule KafkaEx.New.Client.State do
       ) do
     %{
       state
-      | cluster_metadata:
-          ClusterMetadata.remove_topics(cluster_metadata, topics)
+      | cluster_metadata: ClusterMetadata.remove_topics(cluster_metadata, topics)
     }
   end
 

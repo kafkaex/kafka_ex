@@ -42,20 +42,15 @@ defmodule KafkaEx.Protocol.OffsetCommit do
       Protocol.create_request(:offset_commit, correlation_id, client_id),
       <<byte_size(offset_commit_request.consumer_group)::16-signed,
         offset_commit_request.consumer_group::binary, 1::32-signed,
-        byte_size(offset_commit_request.topic)::16-signed,
-        offset_commit_request.topic::binary, 1::32-signed,
-        offset_commit_request.partition::32-signed,
-        offset_commit_request.offset::64,
-        byte_size(offset_commit_request.metadata)::16-signed,
+        byte_size(offset_commit_request.topic)::16-signed, offset_commit_request.topic::binary,
+        1::32-signed, offset_commit_request.partition::32-signed,
+        offset_commit_request.offset::64, byte_size(offset_commit_request.metadata)::16-signed,
         offset_commit_request.metadata::binary>>
     ]
   end
 
   @spec parse_response(binary) :: [] | [Response.t()]
-  def parse_response(
-        <<_correlation_id::32-signed, topics_count::32-signed,
-          topics_data::binary>>
-      ) do
+  def parse_response(<<_correlation_id::32-signed, topics_count::32-signed, topics_data::binary>>) do
     parse_topics(topics_count, topics_data)
   end
 
@@ -63,8 +58,8 @@ defmodule KafkaEx.Protocol.OffsetCommit do
 
   defp parse_topics(
          topic_count,
-         <<topic_size::16-signed, topic::size(topic_size)-binary,
-           partitions_count::32-signed, rest::binary>>
+         <<topic_size::16-signed, topic::size(topic_size)-binary, partitions_count::32-signed,
+           rest::binary>>
        ) do
     {partitions, topics_data} = parse_partitions(partitions_count, rest, [])
 

@@ -98,9 +98,7 @@ defmodule KafkaEx.Protocol.Fetch do
     ]
   end
 
-  def parse_response(
-        <<_correlation_id::32-signed, topics_size::32-signed, rest::binary>>
-      ) do
+  def parse_response(<<_correlation_id::32-signed, topics_size::32-signed, rest::binary>>) do
     parse_topics(topics_size, rest, __MODULE__)
   end
 
@@ -108,14 +106,12 @@ defmodule KafkaEx.Protocol.Fetch do
 
   def parse_partitions(
         partitions_size,
-        <<partition::32-signed, error_code::16-signed,
-          hw_mark_offset::64-signed, msg_set_size::32-signed,
-          msg_set_data::size(msg_set_size)-binary, rest::binary>>,
+        <<partition::32-signed, error_code::16-signed, hw_mark_offset::64-signed,
+          msg_set_size::32-signed, msg_set_data::size(msg_set_size)-binary, rest::binary>>,
         partitions,
         topic
       ) do
-    {:ok, message_set, last_offset} =
-      parse_message_set([], msg_set_data, topic, partition)
+    {:ok, message_set, last_offset} = parse_message_set([], msg_set_data, topic, partition)
 
     parse_partitions(
       partitions_size - 1,
@@ -140,8 +136,7 @@ defmodule KafkaEx.Protocol.Fetch do
 
   defp parse_message_set(
          list,
-         <<offset::64, msg_size::32, msg_data::size(msg_size)-binary,
-           rest::binary>>,
+         <<offset::64, msg_size::32, msg_data::size(msg_size)-binary, rest::binary>>,
          topic,
          partition
        ) do
@@ -200,8 +195,7 @@ defmodule KafkaEx.Protocol.Fetch do
     <<-1::32-signed, value_size::32, value::size(value_size)-binary>> = rest
     decompressed = Compression.decompress(attributes, value)
 
-    {:ok, msg_set, _offset} =
-      parse_message_set([], decompressed, topic, partition)
+    {:ok, msg_set, _offset} = parse_message_set([], decompressed, topic, partition)
 
     {:ok, msg_set}
   end

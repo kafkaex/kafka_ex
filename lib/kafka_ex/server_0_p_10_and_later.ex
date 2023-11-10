@@ -141,8 +141,7 @@ defmodule KafkaEx.Server0P10AndLater do
     # Get the initial "real" broker list and start a regular refresh cycle.
     state = update_metadata(state)
 
-    {:ok, _} =
-      :timer.send_interval(state.metadata_update_interval, :update_metadata)
+    {:ok, _} = :timer.send_interval(state.metadata_update_interval, :update_metadata)
 
     state =
       if consumer_group?(state) do
@@ -294,11 +293,9 @@ defmodule KafkaEx.Server0P10AndLater do
       nil ->
         {_, updated_state} = update_consumer_metadata(state)
 
-        default_broker =
-          if use_first_as_default, do: hd(state.brokers), else: nil
+        default_broker = if use_first_as_default, do: hd(state.brokers), else: nil
 
-        {broker_for_consumer_group(updated_state) || default_broker,
-         updated_state}
+        {broker_for_consumer_group(updated_state) || default_broker, updated_state}
 
       broker ->
         {broker, state}

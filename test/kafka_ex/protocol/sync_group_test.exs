@@ -74,15 +74,13 @@ defmodule KafkaEx.Protocol.SyncGroup.Test do
       ]
     }
 
-    request =
-      KafkaEx.Protocol.SyncGroup.create_request(42, "client_id", sync_request)
+    request = KafkaEx.Protocol.SyncGroup.create_request(42, "client_id", sync_request)
 
     assert :erlang.iolist_to_binary(request) == good_request
   end
 
   test "parse success response correctly" do
-    member_assignment =
-      <<0::16, 1::32, 6::16, "topic1", 3::32, 1::32, 3::32, 5::32>>
+    member_assignment = <<0::16, 1::32, 6::16, "topic1", 3::32, 1::32, 3::32, 5::32>>
 
     response = <<
       # CorrelationId

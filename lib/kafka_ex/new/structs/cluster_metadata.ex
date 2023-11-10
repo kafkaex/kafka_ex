@@ -146,8 +146,7 @@ defmodule KafkaEx.New.Structs.ClusterMetadata do
     brokers =
       metadata.brokers
       |> Enum.into(%{}, fn broker_metadata ->
-        %{host: host, port: port, node_id: node_id, rack: rack} =
-          broker_metadata
+        %{host: host, port: port, node_id: node_id, rack: rack} = broker_metadata
 
         {node_id, %Broker{host: host, port: port, node_id: node_id, rack: rack}}
       end)
@@ -240,8 +239,7 @@ defmodule KafkaEx.New.Structs.ClusterMetadata do
           KafkaExAPI.node_id()
         ) :: t
   def put_consumer_group_coordinator(
-        %__MODULE__{consumer_group_coordinators: consumer_group_coordinators} =
-          cluster_metadata,
+        %__MODULE__{consumer_group_coordinators: consumer_group_coordinators} = cluster_metadata,
         consumer_group,
         coordinator_node_id
       ) do

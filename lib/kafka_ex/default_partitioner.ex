@@ -33,9 +33,7 @@ defmodule KafkaEx.DefaultPartitioner do
         assign_partition_with_key(request, metadata, key)
 
       {:error, reason} ->
-        Logger.warn(
-          "#{__MODULE__}: couldn't assign partition due to #{inspect(reason)}"
-        )
+        Logger.warn("#{__MODULE__}: couldn't assign partition due to #{inspect(reason)}")
 
         assign_partition_randomly(request, metadata)
     end
@@ -70,8 +68,7 @@ defmodule KafkaEx.DefaultPartitioner do
        ) do
     hash = Murmur.umurmur2(key)
 
-    partitions_count =
-      metadata |> MetadataResponse.partitions_for_topic(topic) |> length()
+    partitions_count = metadata |> MetadataResponse.partitions_for_topic(topic) |> length()
 
     partition_id = rem(hash, partitions_count)
     %{request | partition: partition_id}

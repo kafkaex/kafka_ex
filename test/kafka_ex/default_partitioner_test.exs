@@ -48,8 +48,7 @@ defmodule KafkaEx.DefaultPartitionerTest do
       ]
     }
 
-    %{partition: partition} =
-      DefaultPartitioner.assign_partition(request, metadata(5))
+    %{partition: partition} = DefaultPartitioner.assign_partition(request, metadata(5))
 
     assert partition >= 0 and partition < 5
   end
@@ -74,11 +73,9 @@ defmodule KafkaEx.DefaultPartitionerTest do
       ]
     }
 
-    %{partition: 1} =
-      DefaultPartitioner.assign_partition(second_request, metadata(5))
+    %{partition: 1} = DefaultPartitioner.assign_partition(second_request, metadata(5))
 
-    %{partition: 5} =
-      DefaultPartitioner.assign_partition(second_request, metadata(6))
+    %{partition: 5} = DefaultPartitioner.assign_partition(second_request, metadata(6))
   end
 
   test "produce request with inconsistent keys" do

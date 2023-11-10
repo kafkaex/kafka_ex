@@ -115,8 +115,7 @@ defmodule KafkaEx.New.Structs.ClusterMetadataTest do
           ]
         })
 
-      node_selector =
-        KafkaEx.New.Structs.NodeSelector.topic_partition("topic-one", 0)
+      node_selector = KafkaEx.New.Structs.NodeSelector.topic_partition("topic-one", 0)
 
       cluster = %ClusterMetadata{
         topics: %{
@@ -138,8 +137,7 @@ defmodule KafkaEx.New.Structs.ClusterMetadataTest do
           ]
         })
 
-      node_selector =
-        KafkaEx.New.Structs.NodeSelector.topic_partition("topic-two", 0)
+      node_selector = KafkaEx.New.Structs.NodeSelector.topic_partition("topic-two", 0)
 
       cluster = %ClusterMetadata{
         topics: %{
@@ -161,8 +159,7 @@ defmodule KafkaEx.New.Structs.ClusterMetadataTest do
           ]
         })
 
-      node_selector =
-        KafkaEx.New.Structs.NodeSelector.topic_partition("topic-one", 1)
+      node_selector = KafkaEx.New.Structs.NodeSelector.topic_partition("topic-one", 1)
 
       cluster = %ClusterMetadata{
         topics: %{
@@ -175,8 +172,7 @@ defmodule KafkaEx.New.Structs.ClusterMetadataTest do
     end
 
     test "returns node based on consumer group name" do
-      node_selector =
-        KafkaEx.New.Structs.NodeSelector.consumer_group("consumer-group-one")
+      node_selector = KafkaEx.New.Structs.NodeSelector.consumer_group("consumer-group-one")
 
       cluster = %ClusterMetadata{
         consumer_group_coordinators: %{
@@ -189,8 +185,7 @@ defmodule KafkaEx.New.Structs.ClusterMetadataTest do
     end
 
     test "returns error when consumer group does not exist" do
-      node_selector =
-        KafkaEx.New.Structs.NodeSelector.consumer_group("consumer-group-three")
+      node_selector = KafkaEx.New.Structs.NodeSelector.consumer_group("consumer-group-three")
 
       cluster = %ClusterMetadata{
         consumer_group_coordinators: %{

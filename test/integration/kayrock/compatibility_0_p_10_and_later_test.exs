@@ -16,8 +16,7 @@ defmodule KafkaEx.KayrockCompatibility0p10AndLaterTest do
   alias KafkaEx.New.KafkaExAPI
 
   setup do
-    {:ok, pid} =
-      KafkaEx.start_link_worker(:no_name, server_impl: KafkaEx.New.Client)
+    {:ok, pid} = KafkaEx.start_link_worker(:no_name, server_impl: KafkaEx.New.Client)
 
     {:ok, %{client: pid}}
   end

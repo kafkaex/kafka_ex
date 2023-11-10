@@ -17,8 +17,7 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupTest do
   alias KafkaEx.New.KafkaExAPI
 
   setup do
-    {:ok, pid} =
-      KafkaEx.start_link_worker(:no_name, server_impl: KafkaEx.New.Client)
+    {:ok, pid} = KafkaEx.start_link_worker(:no_name, server_impl: KafkaEx.New.Client)
 
     {:ok, %{client: pid}}
   end
@@ -241,8 +240,7 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupTest do
       })
       |> hd
 
-    offset_fetch_response_offset =
-      offset_fetch_response.partitions |> hd |> Map.get(:offset)
+    offset_fetch_response_offset = offset_fetch_response.partitions |> hd |> Map.get(:offset)
 
     refute offset == offset_fetch_response_offset
   end
