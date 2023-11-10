@@ -22,8 +22,7 @@ defmodule KafkaEx.KayrockCompatibilityStreamingTest do
     partition = 0
     consumer_group = "streamers"
 
-    {:ok, topic} =
-      KafkaEx.TestHelpers.ensure_append_timestamp_topic(client, topic)
+    {:ok, topic} = KafkaEx.TestHelpers.ensure_append_timestamp_topic(client, topic)
 
     KafkaEx.produce(topic, partition, "foo 1", api_version: 3)
     KafkaEx.produce(topic, partition, "foo 2", api_version: 3)
@@ -82,8 +81,7 @@ defmodule KafkaEx.KayrockCompatibilityStreamingTest do
     topic_name = "kayrock_stream_with_empty_log"
     consumer_group = "streamers_with_empty_log"
 
-    {:ok, topic} =
-      KafkaEx.TestHelpers.ensure_append_timestamp_topic(client, topic_name)
+    {:ok, topic} = KafkaEx.TestHelpers.ensure_append_timestamp_topic(client, topic_name)
 
     {:ok, agent} = Agent.start(fn -> [] end)
 

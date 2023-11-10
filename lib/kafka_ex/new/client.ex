@@ -291,7 +291,9 @@ defmodule KafkaEx.New.Client do
             {{:ok, consumer_groups}, state_out}
 
           {:error, [error | _]} ->
-            Logger.warn("Unable to fetch consumer group metadata for #{inspect(request.group_ids)}")
+            Logger.warn(
+              "Unable to fetch consumer group metadata for #{inspect(request.group_ids)}"
+            )
 
             handle_describe_group_request(
               request,

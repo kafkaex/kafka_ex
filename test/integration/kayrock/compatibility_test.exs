@@ -64,8 +64,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
     } do
       join_to_group(client, topic, consumer_group)
 
-      {:ok, group_metadata} =
-        KafkaEx.describe_group(consumer_group, worker_name: client)
+      {:ok, group_metadata} = KafkaEx.describe_group(consumer_group, worker_name: client)
 
       assert group_metadata.group_id == consumer_group
       assert group_metadata.protocol_type == "consumer"
