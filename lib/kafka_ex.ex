@@ -649,7 +649,7 @@ defmodule KafkaEx do
          topic,
          worker_name,
          api_version,
-         consumer_group \\ nil
+         consumer_group
        )
 
   defp current_offset(

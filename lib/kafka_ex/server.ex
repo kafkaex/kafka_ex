@@ -767,7 +767,7 @@ defmodule KafkaEx.Server do
           rescue
             e ->
               sleep_for_reconnect()
-              Kernel.reraise(e, System.stacktrace())
+              Kernel.reraise(e, __STACKTRACE__)
           end
 
         state = %State{
@@ -885,7 +885,7 @@ defmodule KafkaEx.Server do
 
                       Kernel.reraise(
                         "Parse error during #{inspect(module)}.parse_response. Couldn't parse: #{inspect(response)}",
-                        System.stacktrace()
+                        __STACKTRACE__
                       )
                   end
               end

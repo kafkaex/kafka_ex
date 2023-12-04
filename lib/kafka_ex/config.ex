@@ -66,7 +66,7 @@ defmodule KafkaEx.Config do
       case line |> trim() |> String.split(":") do
         [host] ->
           msg = "Port not set for Kafka broker #{host}"
-          Logger.warn(msg)
+          Logger.warning(msg)
           raise msg
 
         [host, port] ->
@@ -102,7 +102,7 @@ defmodule KafkaEx.Config do
   #   (this is not a fatal error and can occur if one disables ssl in the
   #    default option set)
   defp ssl_options(false, options) do
-    Logger.warn(
+    Logger.warning(
       "Ignoring ssl_options #{inspect(options)} because " <>
         "use_ssl is false.  If you do not intend to use ssl and want to " <>
         "remove this warning, set `ssl_options: []` in the KafkaEx config."

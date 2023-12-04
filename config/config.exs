@@ -1,4 +1,4 @@
-use Mix.Config
+import Config
 
 config :kafka_ex,
   # A list of brokers to connect to. This can be in either of the following formats

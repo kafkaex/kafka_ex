@@ -285,7 +285,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
                   "#{@max_join_retries} attempts"
         end
 
-        Logger.warn(
+        Logger.warning(
           "Unable to join consumer group #{inspect(group_name)}.  " <>
             "Will sleep 1 second and try again (attempt number #{attempt_number})"
         )
@@ -402,13 +402,13 @@ defmodule KafkaEx.ConsumerGroup.Manager do
         Logger.debug(fn -> "Left consumer group #{group_name}" end)
 
       %{error_code: error_code} ->
-        Logger.warn(fn ->
+        Logger.warning(fn ->
           "Received error #{inspect(error_code)}, " <>
             "consumer group manager will exit regardless."
         end)
 
       {:error, reason} ->
-        Logger.warn(fn ->
+        Logger.warning(fn ->
           "Received error #{inspect(reason)}, " <>
             "consumer group manager will exit regardless."
         end)
@@ -523,7 +523,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   end
 
   defp warn_if_no_partitions([], group_name, topic) do
-    Logger.warn(fn ->
+    Logger.warning(fn ->
       "Consumer group #{group_name} encountered nonexistent topic #{topic}"
     end)
   end
