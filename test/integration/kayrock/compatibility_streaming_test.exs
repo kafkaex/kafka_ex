@@ -107,13 +107,13 @@ defmodule KafkaEx.KayrockCompatibilityStreamingTest do
         |> Stream.run()
       end)
 
-    Process.sleep(100)
+    Process.sleep(1000)
 
     KafkaEx.produce(topic, 0, "Msg 1", api_version: 3)
     KafkaEx.produce(topic, 0, "Msg 2", api_version: 3)
     KafkaEx.produce(topic, 0, "Msg 3", api_version: 3)
 
-    Process.sleep(100)
+    Process.sleep(1000)
 
     assert ["Msg 1", "Msg 2", "Msg 3"] ==
              agent
