@@ -370,7 +370,7 @@ defmodule KafkaEx.GenConsumer do
             {_, name} -> name
           end
 
-        pattern = '~p ~p received unexpected message in handle_info/2: ~p~n'
+        pattern = ~c"~p ~p received unexpected message in handle_info/2: ~p~n"
         :error_logger.error_msg(pattern, [__MODULE__, proc, msg])
         {:noreply, consumer_state}
       end

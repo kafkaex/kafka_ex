@@ -7,8 +7,8 @@ defmodule KafkaEx.TestSupport.SSLServer do
         {:active, false},
         {:reuseaddr, true},
         {:packet, 0},
-        {:certfile, 'test/fixtures/server.crt'},
-        {:keyfile, 'test/fixtures/server.key'}
+        {:certfile, ~c"test/fixtures/server.crt"},
+        {:keyfile, ~c"test/fixtures/server.key"}
       ])
 
     spawn_link(fn -> listen(listen_socket) end)

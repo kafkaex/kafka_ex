@@ -53,16 +53,16 @@ defmodule KafkaEx.NetworkClientTest do
     end
 
     test "format_host returns the char list version of the string passed in if host is not IP address" do
-      assert 'host' == format_host("host")
+      assert ~c"host" == format_host("host")
     end
 
     test "format_host handles hosts with embedded digits correctly" do
-      assert 'host0' == format_host("host0")
+      assert ~c"host0" == format_host("host0")
     end
 
     test "format_host correct handles hosts embedded with ip address" do
-      assert 'ip.10.4.1.11' == format_host("ip.10.4.1.11")
-      assert 'ip-10-4-1-11' == format_host("ip-10-4-1-11")
+      assert ~c"ip.10.4.1.11" == format_host("ip.10.4.1.11")
+      assert ~c"ip-10-4-1-11" == format_host("ip-10-4-1-11")
     end
   end
 end

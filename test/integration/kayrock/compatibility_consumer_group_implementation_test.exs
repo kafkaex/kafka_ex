@@ -140,7 +140,7 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
   def num_open_ports() do
     :erlang.ports()
     |> Enum.map(&:erlang.port_info(&1, :name))
-    |> Enum.filter(&(&1 == {:name, 'tcp_inet'}))
+    |> Enum.filter(&(&1 == {:name, ~c"tcp_inet"}))
     |> length
   end
 

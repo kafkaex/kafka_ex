@@ -6,7 +6,7 @@ defmodule KafkaEx.New.Structs.BrokerTest do
   setup do
     pid = KafkaEx.TestSupport.Server.start(3040)
 
-    {:ok, socket} = KafkaEx.Socket.create('localhost', 3040, [:binary, {:packet, 0}], false)
+    {:ok, socket} = KafkaEx.Socket.create(~c"localhost", 3040, [:binary, {:packet, 0}], false)
 
     on_exit(fn ->
       KafkaEx.Socket.close(socket)
@@ -66,7 +66,8 @@ defmodule KafkaEx.New.Structs.BrokerTest do
     end
 
     test "returns false if broker has different socket", %{socket: socket_one} do
-      {:ok, socket_two} = KafkaEx.Socket.create('localhost', 3040, [:binary, {:packet, 0}], false)
+      {:ok, socket_two} =
+        KafkaEx.Socket.create(~c"localhost", 3040, [:binary, {:packet, 0}], false)
 
       broker = %Broker{socket: nil} |> Broker.put_socket(socket_one)
 
