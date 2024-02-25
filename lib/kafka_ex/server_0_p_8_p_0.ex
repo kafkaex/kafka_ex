@@ -29,7 +29,7 @@ defmodule KafkaEx.Server0P8P0 do
   def kafka_server_init([args, name]) do
     # warn if ssl is configured
     if Keyword.get(args, :use_ssl) do
-      Logger.warn(fn ->
+      Logger.warning(fn ->
         "KafkaEx is being configured to use ssl with a broker version that " <>
           "does not support ssl"
       end)

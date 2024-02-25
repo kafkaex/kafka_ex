@@ -34,7 +34,7 @@ defmodule KafkaEx.LegacyPartitioner do
         assign_partition_with_key(request, metadata, key)
 
       {:error, reason} ->
-        Logger.warn("#{__MODULE__}: couldn't assign partition due to #{inspect(reason)}")
+        Logger.warning("#{__MODULE__}: couldn't assign partition due to #{inspect(reason)}")
 
         assign_partition_randomly(request, metadata)
     end

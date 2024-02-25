@@ -78,11 +78,11 @@ defmodule KafkaEx.ConsumerGroup.Heartbeat do
         {:stop, {:shutdown, :rebalance}, state}
 
       %HeartbeatResponse{error_code: error_code} ->
-        Logger.warn("Heartbeat failed, got error code #{error_code}")
+        Logger.warning("Heartbeat failed, got error code #{error_code}")
         {:stop, {:shutdown, {:error, error_code}}, state}
 
       {:error, reason} ->
-        Logger.warn("Heartbeat failed, got error reason #{inspect(reason)}")
+        Logger.warning("Heartbeat failed, got error reason #{inspect(reason)}")
         {:stop, {:shutdown, {:error, reason}}, state}
     end
   end

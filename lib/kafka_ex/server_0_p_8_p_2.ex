@@ -81,7 +81,7 @@ defmodule KafkaEx.Server0P8P2 do
       rescue
         e ->
           sleep_for_reconnect()
-          Kernel.reraise(e, System.stacktrace())
+          Kernel.reraise(e, __STACKTRACE__)
       end
 
     state = %State{

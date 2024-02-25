@@ -3,7 +3,7 @@ defmodule KafkaEx.Utils.Murmur do
   Utility module that provides Murmur hashing algorithm.
   """
 
-  use Bitwise
+  import Bitwise
 
   # Arbitrary constant for murmur2 hashing
   # https://github.com/aappleby/smhasher/blob/master/src/MurmurHash2.cpp#L39-L43

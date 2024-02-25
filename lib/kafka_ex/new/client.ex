@@ -123,7 +123,7 @@ defmodule KafkaEx.New.Client do
       rescue
         e ->
           sleep_for_reconnect()
-          Kernel.reraise(e, System.stacktrace())
+          Kernel.reraise(e, __STACKTRACE__)
       end
 
     {:ok, _} = :timer.send_interval(state.metadata_update_interval, :update_metadata)
@@ -435,7 +435,7 @@ defmodule KafkaEx.New.Client do
        %Kayrock.FindCoordinator.V1.Response{
          error_code: error_code
        }} ->
-        Logger.warn(
+        Logger.warning(
           "Unable to find consumer group coordinator for " <>
             "#{inspect(consumer_group)}: Error " <>
             "#{Kayrock.ErrorCode.code_to_atom(error_code)}"
@@ -458,7 +458,7 @@ defmodule KafkaEx.New.Client do
   defp try_broker(broker, request, timeout) do
     case NetworkClient.send_sync_request(broker, request, timeout) do
       {:error, error} ->
-        Logger.warn("Network call resulted in error: #{inspect(error)}")
+        Logger.warning("Network call resulted in error: #{inspect(error)}")
         nil
 
       response ->
@@ -672,7 +672,7 @@ defmodule KafkaEx.New.Client do
         Kernel.reraise(
           "Parse error during #{inspect(request)} response deserializer. " <>
             "Couldn't parse: #{inspect(data)}",
-          System.stacktrace()
+          __STACKTRACE__
         )
     end
   end
