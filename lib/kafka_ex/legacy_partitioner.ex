@@ -15,10 +15,8 @@ defmodule KafkaEx.LegacyPartitioner do
   alias KafkaEx.Utils.Murmur, as: Murmur
   require Logger
 
-  @spec assign_partition(
-          request :: %ProduceRequest{},
-          metadata :: %MetadataResponse{}
-        ) :: %ProduceRequest{}
+  @spec assign_partition(request :: ProduceRequest.t(), metadata :: MetadataResponse.t()) ::
+          ProduceRequest.t()
   def assign_partition(%ProduceRequest{partition: partition} = request, _)
       when is_number(partition) do
     request
@@ -40,14 +38,7 @@ defmodule KafkaEx.LegacyPartitioner do
     end
   end
 
-  @spec assign_partition_randomly(
-          request :: %ProduceRequest{},
-          metadata :: %MetadataResponse{}
-        ) :: %ProduceRequest{}
-  defp assign_partition_randomly(
-         %ProduceRequest{topic: topic} = request,
-         metadata
-       ) do
+  defp assign_partition_randomly(%ProduceRequest{topic: topic} = request, metadata) do
     partition_id =
       case MetadataResponse.partitions_for_topic(metadata, topic) do
         [] -> 0
@@ -57,11 +48,6 @@ defmodule KafkaEx.LegacyPartitioner do
     %{request | partition: partition_id}
   end
 
-  @spec assign_partition_with_key(
-          request :: %ProduceRequest{},
-          metadata :: %MetadataResponse{},
-          key :: binary
-        ) :: %ProduceRequest{}
   defp assign_partition_with_key(
          %ProduceRequest{topic: topic} = request,
          metadata,

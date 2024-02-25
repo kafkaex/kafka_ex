@@ -100,5 +100,11 @@ jobs:
           path: _build
           key: ${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-${{ hashFiles('mix.lock') }}
 
+      - name: Docker-compose up
+        run: ./scripts/docker_up.sh
+
+      - name: Docker ps
+        run: docker ps -a
+
       - name: Run tests
         run: ./scripts/ci_tests.sh
