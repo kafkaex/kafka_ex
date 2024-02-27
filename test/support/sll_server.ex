@@ -38,9 +38,4 @@ defmodule KafkaEx.TestSupport.SSLServer do
         :ok
     end
   end
-
-  defp otp_version_21_plus? do
-    {version, _} = System.otp_release() |> Float.parse()
-    version >= 21
-  end
 end

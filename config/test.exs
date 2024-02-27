@@ -1,4 +1,4 @@
-use Mix.Config
+import Config
 
 config :ex_unit, capture_log: is_nil(System.get_env("SHOW_LOGS"))
 
