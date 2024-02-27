@@ -68,6 +68,7 @@ defmodule KafkaEx.ConsumerGroup.Test do
       ## These reference symbolic links to the original files in order to validate
       ## that custom SSL filepaths can specified
       custom_ssl_options = [
+        verify: :verify_none,
         cacertfile: File.cwd!() <> "/ssl/ca-cert-custom",
         certfile: File.cwd!() <> "/ssl/cert-custom.pem",
         keyfile: File.cwd!() <> "/ssl/key-custom.pem"
