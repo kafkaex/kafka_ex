@@ -73,7 +73,7 @@ config :kafka_ex,
     certfile: File.cwd!() <> "/ssl/cert.pem",
     keyfile: File.cwd!() <> "/ssl/key.pem"
   ],
-  snappy_module: :snappy,
+  snappy_module: :snappyer,
   # set this to the version of the kafka broker that you are using
   # include only major.minor.patch versions.  must be at least 0.8.0
   # use "kayrock" for the new client

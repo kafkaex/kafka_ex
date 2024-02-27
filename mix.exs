@@ -51,7 +51,6 @@ defmodule KafkaEx.Mixfile do
       {:excoveralls, "~> 0.18", only: :test, runtime: false},
       {:ex_doc, "~> 0.23", only: :dev, runtime: false},
       {:hammox, "~> 0.5.0", only: :test},
-      {:snappy, git: "https://github.com/fdmanana/snappy-erlang-nif", only: [:dev, :test]},
       {:snappyer, "~> 1.2", only: [:dev, :test]}
     ]
   end
