@@ -461,12 +461,12 @@ The Slack channel is appropriate for quick questions or general design
 discussions.  The Slack discussion is archived at
 [http://slack.elixirhq.com/kafkaex](http://slack.elixirhq.com/kafkaex).
 
-## default snappy algorithm use snappy-erlang-nif package
+## Default snappy algorithm use snappyer package
 
-It can be changed to snappyer by using this:
+It can be changed to snappy by using this:
 
 ``` elixir
-config :kafka_ex, snappy_module: :snappyer
+config :kafka_ex, snappy_module: :snappy
 ```
 
-Snappy erlang nif is deprecated and will be changed to :snappyer in 1.0.0 release.
+Snappy erlang nif is deprecated and will be dropped 1.0.0 release.

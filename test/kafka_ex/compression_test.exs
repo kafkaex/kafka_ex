@@ -14,10 +14,6 @@ defmodule KafkaEx.CompressionTest do
         232>> <>
         String.duplicate("ABCDEFGHIJ", 100)
 
-    ## enable :snappy module, and test it
-    Application.put_env(:kafka_ex, :snappy_module, :snappy)
-    assert expected == KafkaEx.Compression.decompress(2, data)
-
     ## enable :snappyer module, and test it
     Application.put_env(:kafka_ex, :snappy_module, :snappyer)
     assert expected == KafkaEx.Compression.decompress(2, data)

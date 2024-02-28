@@ -6,11 +6,8 @@ defmodule KafkaEx.Partitioner do
   alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
   alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
 
-  @callback assign_partition(
-              request :: %ProduceRequest{},
-              metadata :: %MetadataResponse{}
-            ) :: %ProduceRequest{}
-
+  @callback assign_partition(request :: ProduceRequest.t(), metadata :: MetadataResponse.t()) ::
+              ProduceRequest.t()
   defmacro __using__(_) do
     quote location: :keep do
       @behaviour KafkaEx.Partitioner
@@ -24,7 +21,7 @@ defmodule KafkaEx.Partitioner do
   either `{:ok, nil}` if no key was found, `{:ok, key}` when key was found,
   or `{:error, atom}` when error happens while looking for the key.
   """
-  @spec get_key(request :: %ProduceRequest{}) ::
+  @spec get_key(request :: ProduceRequest.t()) ::
           {:ok, nil | binary} | {:error, atom}
   def get_key(%ProduceRequest{messages: messages}) when length(messages) > 0 do
     case unique_keys(messages) do

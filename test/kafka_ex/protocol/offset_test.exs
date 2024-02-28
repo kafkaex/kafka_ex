@@ -7,7 +7,7 @@ defmodule KafkaEx.Protocol.Offset.Test do
     expected_response = [
       %KafkaEx.Protocol.Offset.Response{
         partition_offsets: [
-          %{error_code: :no_error, offset: '\n', partition: 0}
+          %{error_code: :no_error, offset: ~c"\n", partition: 0}
         ],
         topic: "bar"
       }
@@ -40,7 +40,7 @@ defmodule KafkaEx.Protocol.Offset.Test do
       %KafkaEx.Protocol.Offset.Response{
         partition_offsets: [
           %{error_code: :no_error, offset: [20], partition: 1},
-          %{error_code: :no_error, offset: '\n', partition: 0}
+          %{error_code: :no_error, offset: ~c"\n", partition: 0}
         ],
         topic: "bar"
       }

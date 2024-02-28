@@ -9,23 +9,19 @@ defmodule KafkaEx.Mixfile do
     [
       app: :kafka_ex,
       version: @version,
-      elixir: "~> 1.8",
+      elixir: "~> 1.12",
       elixirc_paths: elixirc_paths(Mix.env()),
       dialyzer: [
-        plt_add_deps: :transitive,
         plt_add_apps: [:ssl],
-        plt_file: {:no_warn, "priv/plts/dialyzer.plt"},
-        flags: [
-          :error_handling,
-          :race_conditions
-        ]
+        plt_core_path: "priv/plts",
+        plt_file: {:no_warn, "priv/plts/kafka_ex.plt"},
+        flags: [:error_handling]
       ],
       test_coverage: [tool: ExCoveralls],
       preferred_cli_env: [coveralls: :test],
       description: description(),
       package: package(),
       deps: deps(),
-      dialyzer: dialyzer(),
       docs: [
         main: "readme",
         extras: [
@@ -49,13 +45,12 @@ defmodule KafkaEx.Mixfile do
 
   defp deps do
     [
-      {:kayrock, "~> 0.1.12"},
+      {:kayrock, "~> 0.1"},
       {:credo, "~> 1.1", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.0", only: :dev, runtime: false},
+      {:dialyxir, "~> 1.4", only: :dev, runtime: false},
       {:excoveralls, "~> 0.18", only: :test, runtime: false},
       {:ex_doc, "~> 0.23", only: :dev, runtime: false},
       {:hammox, "~> 0.5.0", only: :test},
-      {:snappy, git: "https://github.com/fdmanana/snappy-erlang-nif", only: [:dev, :test]},
       {:snappyer, "~> 1.2", only: [:dev, :test]}
     ]
   end
@@ -73,13 +68,6 @@ defmodule KafkaEx.Mixfile do
       files: ["lib", "config/config.exs", "mix.exs", "README.md"],
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url}
-    ]
-  end
-
-  defp dialyzer do
-    [
-      plt_core_path: "priv/plts",
-      plt_file: {:no_warn, "priv/plts/dialyzer.plt"}
     ]
   end
 end

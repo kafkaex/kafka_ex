@@ -15,14 +15,12 @@ jobs:
     strategy:
       matrix:
         pair:
+          - elixir: 1.16
+            otp: 26.1
           - elixir: 1.14
-            otp: 25.2
-          - elixir: 1.13
             otp: 24.3
-          - elixir: 1.11
-            otp: 21.3
-          - elixir: 1.8
-            otp: 20.3
+          - elixir: 1.12
+            otp: 22.3
 
     steps:
       - name: Cancel previous runs
@@ -36,7 +34,6 @@ jobs:
         with:
           elixir-version: ${{matrix.pair.elixir}} # Define the elixir version [required]
           otp-version: ${{matrix.pair.otp}} # Define the OTP version [required]
-          experimental-otp: true # More info https://github.com/actions/setup-elixir/issues/31
 
       - name: Retrieve Mix Dependencies Cache
         uses: actions/cache@v2
@@ -52,14 +49,12 @@ jobs:
           path: _build
           key: ${{ runner.os }}-${{ matrix.pair.otp }}-${{ matrix.pair.elixir }}-mix-deps-compile-${{ hashFiles(format('{0}{1}', github.workspace, '/mix.lock')) }}
       - name: Install Mix Dependencies
-        if: steps.mix-cache.outputs.cache-hit != 'true'
         run: |
           mix local.rebar --force
           mix local.hex --force
           mix deps.get
 
       - name: Compile Mix Dependencies
-        if: steps.mix-deps-compile-cache.outputs.cache-hit != 'true'
         run: mix deps.compile
 
   test:
@@ -74,14 +69,12 @@ jobs:
       fail-fast: false
       matrix:
         pair:
+          - elixir: 1.16
+            otp: 26.1
           - elixir: 1.14
-            otp: 25.2
-          - elixir: 1.13
             otp: 24.3
-          - elixir: 1.11
-            otp: 21.3
-          - elixir: 1.8
-            otp: 20.3
+          - elixir: 1.12
+            otp: 22.3
 
     steps:
       - uses: actions/checkout@v2
@@ -90,7 +83,6 @@ jobs:
         with:
           elixir-version: ${{matrix.pair.elixir}} # Define the elixir version [required]
           otp-version: ${{matrix.pair.otp}} # Define the OTP version [required]
-          experimental-otp: true # More info https://github.com/actions/setup-elixir/issues/31
 
       - name: Retrieve Mix Dependencies Cache
         uses: actions/cache@v2
@@ -108,7 +100,9 @@ jobs:
 
       - name: Docker-compose up
         run: ./scripts/docker_up.sh
+
       - name: Docker ps
         run: docker ps -a
+
       - name: Run Tests
         run: ./scripts/ci_tests.sh

@@ -649,7 +649,7 @@ defmodule KafkaEx do
          topic,
          worker_name,
          api_version,
-         consumer_group
+         consumer_group_name \\ nil
        )
 
   defp current_offset(
@@ -669,7 +669,7 @@ defmodule KafkaEx do
          topic,
          worker_name,
          api_version,
-         consumer_group
+         consumer_group_name
        ) do
     last_offset =
       worker_name
@@ -677,7 +677,7 @@ defmodule KafkaEx do
         topic: topic,
         partition: partition,
         api_version: api_version,
-        consumer_group: consumer_group
+        consumer_group: consumer_group_name
       })
       |> OffsetFetchResponse.last_offset()
 
