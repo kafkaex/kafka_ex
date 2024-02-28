@@ -67,17 +67,9 @@ defmodule KafkaEx.New.Structs.BrokerTest do
       refute Broker.has_socket?(broker, socket)
     end
 
-<<<<<<< HEAD
-    test "returns false if broker has different socket", %{socket: socket_one} do
+    test "returns false if broker has different socket", %{socket: socket_one, port: port} do
       {:ok, socket_two} =
-        KafkaEx.Socket.create(~c"localhost", 3040, [:binary, {:packet, 0}], false)
-=======
-    test "returns false if broker has different socket", %{
-      socket: socket_one,
-      port: port
-    } do
-      {:ok, socket_two} = KafkaEx.Socket.create('localhost', port, [:binary, {:packet, 0}], false)
->>>>>>> 9b52187 ([Kayrock] Refactor test helpers, add random ports & fix compile issues)
+        KafkaEx.Socket.create(~c"localhost", port, [:binary, {:packet, 0}], false)
 
       broker = %Broker{socket: nil} |> Broker.put_socket(socket_one)
 

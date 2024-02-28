@@ -5,7 +5,7 @@ defmodule KafkaEx.New.Client.ResponseParser do
   """
   alias KafkaEx.New.Structs.ConsumerGroup
 
-  @protocol Application.get_env(
+  @protocol Application.compile_env(
               :kafka_ex,
               :protocol,
               KafkaEx.New.Protocols.KayrockProtocol

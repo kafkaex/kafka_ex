@@ -4,7 +4,7 @@ defmodule KafkaEx.New.Client.RequestBuilder do
   It's main decision point which protocol to use for building request and what
   is required version.
   """
-  @protocol Application.get_env(
+  @protocol Application.compile_env(
               :kafka_ex,
               :protocol,
               KafkaEx.New.Protocols.KayrockProtocol
