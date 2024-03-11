@@ -209,6 +209,7 @@ defmodule KafkaEx.GenConsumer do
           | {:commit_threshold, non_neg_integer}
           | {:auto_offset_reset, :none | :earliest | :latest}
           | {:api_versions, map()}
+          | {:shutdown, timeout()}
           | {:extra_consumer_args, map()}
 
   @typedoc """
@@ -437,6 +438,10 @@ defmodule KafkaEx.GenConsumer do
 
   * `:fetch_options` - Optional keyword list that is passed along to the
     `KafkaEx.fetch` call.
+
+  * `:shutdown` - Optional amount of time in milliseconds that the supervisor
+    will wait for a `GenConsumer` to terminate after emitting a
+    `Process.exit(child, :shutdown)` signal. Defaults to `5_000`.
 
   * `:extra_consumer_args` - Optional parameter that is passed along to the
     `GenConsumer.init` call in the consumer module. Note that if `init/3` is not
