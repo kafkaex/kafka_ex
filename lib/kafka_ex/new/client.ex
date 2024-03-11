@@ -14,6 +14,8 @@ defmodule KafkaEx.New.Client do
   alias KafkaEx.Config
   alias KafkaEx.NetworkClient
 
+  alias KafkaEx.New.Client.RequestBuilder
+  alias KafkaEx.New.Client.ResponseParser
   alias KafkaEx.New.Structs.Broker
   alias KafkaEx.New.Structs.ClusterMetadata
   alias KafkaEx.New.Structs.NodeSelector
@@ -163,6 +165,16 @@ defmodule KafkaEx.New.Client do
     {:reply, {:ok, topic_metadata}, updated_state}
   end
 
+  def handle_call({:describe_groups, [consumer_group_name]}, _from, state) do
+    if KafkaEx.valid_consumer_group?(consumer_group_name) do
+      {response, updated_state} = describe_group_request(consumer_group_name, state)
+
+      {:reply, response, updated_state}
+    else
+      {:reply, {:error, :invalid_consumer_group}, state}
+    end
+  end
+
   def handle_call({:kayrock_request, request, node_selector}, _from, state) do
     {response, updated_state} = kayrock_network_request(request, node_selector, state)
 
@@ -242,6 +254,66 @@ defmodule KafkaEx.New.Client do
           )
 
         updated_state
+    end
+  end
+
+  defp describe_group_request(consumer_group_name, state) do
+    node_selector = NodeSelector.consumer_group(consumer_group_name)
+
+    [consumer_group_name]
+    |> RequestBuilder.describe_groups_request(state)
+    |> handle_describe_group_request(node_selector, state)
+  end
+
+  defp handle_describe_group_request(
+         _,
+         _,
+         _,
+         retry_count \\ @retry_count,
+         _last_error \\ nil
+       )
+
+  defp handle_describe_group_request(_, _, state, 0, last_error) do
+    {{:error, last_error}, state}
+  end
+
+  defp handle_describe_group_request(
+         request,
+         node_selector,
+         state,
+         retry_count,
+         _last_error
+       ) do
+    case kayrock_network_request(request, node_selector, state) do
+      {{:ok, response}, state_out} ->
+        case ResponseParser.describe_groups_response(response) do
+          {:ok, consumer_groups} ->
+            {{:ok, consumer_groups}, state_out}
+
+          {:error, [error | _]} ->
+            Logger.warn(
+              "Unable to fetch consumer group metadata for #{inspect(request.group_ids)}"
+            )
+
+            handle_describe_group_request(
+              request,
+              node_selector,
+              state,
+              retry_count - 1,
+              error
+            )
+        end
+
+      {_, _state_out} ->
+        Logger.warn("Unable to fetch consumer group metadata for #{inspect(request.group_ids)}")
+
+        handle_describe_group_request(
+          request,
+          node_selector,
+          state,
+          retry_count - 1,
+          :unknown
+        )
     end
   end
 

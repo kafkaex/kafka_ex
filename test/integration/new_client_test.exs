@@ -1,5 +1,6 @@
 defmodule KafkaEx.New.Client.Test do
   use ExUnit.Case
+  import KafkaEx.TestHelpers
 
   alias KafkaEx.New.Client
 
@@ -20,6 +21,37 @@ defmodule KafkaEx.New.Client.Test do
     {:ok, pid} = Client.start_link(args, :no_name)
 
     {:ok, %{client: pid}}
+  end
+
+  describe "describe_groups/1" do
+    setup do
+      consumer_group = generate_random_string()
+      topic = "new_client_implementation"
+
+      {:ok, %{consumer_group: consumer_group, topic: topic}}
+    end
+
+    test "returns group metadata for single consumer group", %{
+      consumer_group: consumer_group,
+      topic: topic,
+      client: client
+    } do
+      join_to_group(client, topic, consumer_group)
+
+      {:ok, [group_metadata]} = GenServer.call(client, {:describe_groups, [consumer_group]})
+
+      assert group_metadata.group_id == consumer_group
+      assert group_metadata.protocol_type == "consumer"
+      assert group_metadata.protocol == ""
+      assert length(group_metadata.members) == 1
+    end
+
+    test "returns dead when consumer group does not exist", %{client: client} do
+      {:ok, [group_metadata]} = GenServer.call(client, {:describe_groups, ["non-existing-group"]})
+
+      assert group_metadata.group_id == "non-existing-group"
+      assert group_metadata.state == "Dead"
+    end
   end
 
   test "update metadata", %{client: client} do
@@ -159,7 +191,7 @@ defmodule KafkaEx.New.Client.Test do
   test "client can receive {:ssl_closed, _}", %{client: client} do
     send(client, {:ssl_closed, :unused})
 
-    TestHelper.wait_for(fn ->
+    KafkaEx.TestHelpers.wait_for(fn ->
       {:message_queue_len, m} = Process.info(client, :message_queue_len)
       m == 0
     end)
@@ -170,11 +202,23 @@ defmodule KafkaEx.New.Client.Test do
   test "client can receive {:tcp_closed, _}", %{client: client} do
     send(client, {:tcp_closed, :unused})
 
-    TestHelper.wait_for(fn ->
+    KafkaEx.TestHelpers.wait_for(fn ->
       {:message_queue_len, m} = Process.info(client, :message_queue_len)
       m == 0
     end)
 
     assert Process.alive?(client)
+  end
+
+  # ------------------------------------------------------------------------------------------------
+  defp join_to_group(client, topic, consumer_group) do
+    request = %KafkaEx.Protocol.JoinGroup.Request{
+      group_name: consumer_group,
+      member_id: "",
+      topics: [topic],
+      session_timeout: 6000
+    }
+
+    KafkaEx.join_group(request, worker_name: client, timeout: 10000)
   end
 end

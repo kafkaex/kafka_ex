@@ -8,7 +8,7 @@ on:
 
 jobs:
   setup:
-    name: test / setup
+    name: test | setup dependencies
     runs-on: ubuntu-20.04
     env:
       MIX_ENV: test

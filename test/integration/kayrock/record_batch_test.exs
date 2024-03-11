@@ -15,7 +15,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
   test "can specify protocol version for fetch - v3", %{client: client} do
     topic = "food"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -44,7 +44,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
   test "fetch empty message set - v3", %{client: client} do
     topic = "food"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -71,7 +71,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
   # v2 is the highest that will accept the MessageSet format
   test "can specify protocol version for produce - v2", %{client: client} do
     topic = "food"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -101,7 +101,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
   test "can specify protocol version for fetch - v5", %{client: client} do
     topic = "food"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -130,7 +130,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
   test "fetch empty message set - v5", %{client: client} do
     topic = "food"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -157,7 +157,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
   # v3 is the lowest that requires the RecordBatch format
   test "can specify protocol version for produce - v3", %{client: client} do
     topic = "food"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -240,7 +240,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
   test "gzip compression - produce v0, fetch v3", %{client: client} do
     topic = "food"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -271,7 +271,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
   test "gzip compression - produce v0, fetch v5", %{client: client} do
     topic = "food"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -302,7 +302,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
   test "gzip compression - produce v3, fetch v0", %{client: client} do
     topic = "food"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -333,7 +333,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
   test "gzip compression - produce v3, fetch v3", %{client: client} do
     topic = "food"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -364,7 +364,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
   test "gzip compression - produce v3, fetch v5", %{client: client} do
     topic = "food"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -395,7 +395,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
   test "snappy compression - produce v0, fetch v3", %{client: client} do
     topic = "food"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -426,7 +426,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
   test "snappy compression - produce v0, fetch v5", %{client: client} do
     topic = "food"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -457,7 +457,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
   test "snappy compression - produce v3, fetch v0", %{client: client} do
     topic = "food"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -488,7 +488,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
   test "snappy compression - produce v3, fetch v3", %{client: client} do
     topic = "food"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -519,7 +519,7 @@ defmodule KafkaEx.KayrockRecordBatchTest do
 
   test "snappy compression - produce v3, fetch v5", %{client: client} do
     topic = "food"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(

@@ -19,7 +19,7 @@ defmodule KafkaEx.KayrockOffsetTest do
   test "offset commit v0 and fetch v0", %{client: client} do
     topic = "food"
     consumer_group = "commit_v0_fetch_v0"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -61,7 +61,7 @@ defmodule KafkaEx.KayrockOffsetTest do
   test "offset commit v1 and fetch v0", %{client: client} do
     topic = "food"
     consumer_group = "commit_v1_fetch_v0"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -106,7 +106,7 @@ defmodule KafkaEx.KayrockOffsetTest do
   test "offset commit v1 and fetch v1", %{client: client} do
     topic = "food"
     consumer_group = "commit_v1_fetch_v1"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -148,7 +148,7 @@ defmodule KafkaEx.KayrockOffsetTest do
   test "offset commit v0 and fetch v1", %{client: client} do
     topic = "food"
     consumer_group = "commit_v0_fetch_v1"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -191,7 +191,7 @@ defmodule KafkaEx.KayrockOffsetTest do
   test "offset commit v0 and fetch v2", %{client: client} do
     topic = "food"
     consumer_group = "commit_v0_fetch_v2"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -234,7 +234,7 @@ defmodule KafkaEx.KayrockOffsetTest do
   test "offset commit v0 and fetch v3", %{client: client} do
     topic = "food"
     consumer_group = "commit_v0_fetch_v3"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -277,7 +277,7 @@ defmodule KafkaEx.KayrockOffsetTest do
   test "offset commit v2 and fetch v2", %{client: client} do
     topic = "food"
     consumer_group = "commit_v2_fetch_v2"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -319,7 +319,7 @@ defmodule KafkaEx.KayrockOffsetTest do
   test "offset commit v3 and fetch v3", %{client: client} do
     topic = "food"
     consumer_group = "commit_v3_fetch_v3"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(

@@ -1,5 +1,6 @@
 defmodule KafkaEx.NetworkClientTest do
   use ExUnit.Case, async: true
+  import KafkaEx.TestHelpers
 
   use Hammox.Protect,
     module: KafkaEx.NetworkClient,
@@ -28,22 +29,26 @@ defmodule KafkaEx.NetworkClientTest do
 
   describe "create_socket/3" do
     setup do
-      pid = KafkaEx.TestSupport.Server.start(3040)
+      port = get_free_port(3040)
+      pid = KafkaEx.TestSupport.Server.start(port)
 
       on_exit(fn ->
         Process.exit(pid, :normal)
       end)
+
+      {:ok, [port: port]}
     end
 
-    test "creates a socket" do
-      kafka_ex_socket = create_socket("localhost", 3040, [], false)
+    test "creates a socket", %{port: port} do
+      kafka_ex_socket = create_socket("localhost", port, [], false)
 
       assert kafka_ex_socket.socket
       assert kafka_ex_socket.ssl == false
     end
 
     test "returns nil if socket creation fails" do
-      assert nil == create_socket("localhost", 3002, [], true)
+      port = get_free_port(3040)
+      assert nil == create_socket("localhost", port, [], true)
     end
   end
 

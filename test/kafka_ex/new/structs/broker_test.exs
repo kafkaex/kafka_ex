@@ -1,10 +1,12 @@
 defmodule KafkaEx.New.Structs.BrokerTest do
   use ExUnit.Case, async: false
+  import KafkaEx.TestHelpers
 
   alias KafkaEx.New.Structs.Broker
 
   setup do
-    pid = KafkaEx.TestSupport.Server.start(3040)
+    port = get_free_port(3040)
+    pid = KafkaEx.TestSupport.Server.start(port)
 
     {:ok, socket} = KafkaEx.Socket.create(~c"localhost", 3040, [:binary, {:packet, 0}], false)
 
@@ -13,7 +15,7 @@ defmodule KafkaEx.New.Structs.BrokerTest do
       Process.exit(pid, :normal)
     end)
 
-    {:ok, [socket: socket]}
+    {:ok, [socket: socket, port: port]}
   end
 
   describe "connect_broker/1" do
@@ -65,9 +67,9 @@ defmodule KafkaEx.New.Structs.BrokerTest do
       refute Broker.has_socket?(broker, socket)
     end
 
-    test "returns false if broker has different socket", %{socket: socket_one} do
+    test "returns false if broker has different socket", %{socket: socket_one, port: port} do
       {:ok, socket_two} =
-        KafkaEx.Socket.create(~c"localhost", 3040, [:binary, {:packet, 0}], false)
+        KafkaEx.Socket.create(~c"localhost", port, [:binary, {:packet, 0}], false)
 
       broker = %Broker{socket: nil} |> Broker.put_socket(socket_one)
 

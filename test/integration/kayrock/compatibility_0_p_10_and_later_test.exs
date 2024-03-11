@@ -35,7 +35,7 @@ defmodule KafkaEx.KayrockCompatibility0p10AndLaterTest do
     resp = create_topic(name, config, client)
     assert {:topic_already_exists, name} == parse_create_topic_resp(resp)
 
-    TestHelper.wait_for(fn ->
+    KafkaEx.TestHelpers.wait_for(fn ->
       {:ok, metadatas} = KafkaExAPI.topics_metadata(client, [name])
       length(metadatas) > 0
     end)
@@ -55,7 +55,7 @@ defmodule KafkaEx.KayrockCompatibility0p10AndLaterTest do
     resp = KafkaEx.delete_topics([name], timeout: 5_000, worker_name: client)
     assert {:no_error, name} = parse_delete_topic_resp(resp)
 
-    TestHelper.wait_for(fn ->
+    KafkaEx.TestHelpers.wait_for(fn ->
       {:ok, []} == KafkaExAPI.topics_metadata(client, [name])
     end)
   end

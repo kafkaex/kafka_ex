@@ -1,5 +1,6 @@
 defmodule KafkaEx.Socket.Test do
   use ExUnit.Case, async: false
+  import KafkaEx.TestHelpers
 
   setup_all do
     {:ok, _} = Application.ensure_all_started(:ssl)
@@ -7,8 +8,9 @@ defmodule KafkaEx.Socket.Test do
 
   describe "without SSL socket" do
     setup do
-      KafkaEx.TestSupport.Server.start(3040)
-      {:ok, [port: 3040]}
+      port = get_free_port(3040)
+      KafkaEx.TestSupport.Server.start(port)
+      {:ok, [port: port]}
     end
 
     test "create a non SSL socket", context do

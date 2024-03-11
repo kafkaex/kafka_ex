@@ -19,7 +19,7 @@ defmodule KafkaEx.KayrockTimestampTest do
 
   test "fetch timestamp is nil by default on v0 messages", %{client: client} do
     topic = "food"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -49,7 +49,7 @@ defmodule KafkaEx.KayrockTimestampTest do
 
   test "fetch timestamp is -1 by default on v3 messages", %{client: client} do
     topic = "food"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -79,7 +79,7 @@ defmodule KafkaEx.KayrockTimestampTest do
 
   test "fetch timestamp is -1 by default on v5 messages", %{client: client} do
     topic = "food"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -111,12 +111,12 @@ defmodule KafkaEx.KayrockTimestampTest do
     topic = "test_log_append_timestamp_#{:rand.uniform(2_000_000)}"
 
     {:ok, ^topic} =
-      TestHelper.ensure_append_timestamp_topic(
+      KafkaEx.TestHelpers.ensure_append_timestamp_topic(
         client,
         topic
       )
 
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -148,12 +148,12 @@ defmodule KafkaEx.KayrockTimestampTest do
     topic = "test_log_append_timestamp_#{:rand.uniform(2_000_000)}"
 
     {:ok, ^topic} =
-      TestHelper.ensure_append_timestamp_topic(
+      KafkaEx.TestHelpers.ensure_append_timestamp_topic(
         client,
         topic
       )
 
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -186,12 +186,12 @@ defmodule KafkaEx.KayrockTimestampTest do
     topic = "test_log_append_timestamp_#{:rand.uniform(2_000_000)}"
 
     {:ok, ^topic} =
-      TestHelper.ensure_append_timestamp_topic(
+      KafkaEx.TestHelpers.ensure_append_timestamp_topic(
         client,
         topic
       )
 
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -223,7 +223,7 @@ defmodule KafkaEx.KayrockTimestampTest do
   test "set timestamp with v0 throws an error", %{client: client} do
     topic = "food"
 
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     Process.flag(:trap_exit, true)
 
@@ -245,7 +245,7 @@ defmodule KafkaEx.KayrockTimestampTest do
   test "set timestamp with v1 throws an error", %{client: client} do
     topic = "food"
 
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     Process.flag(:trap_exit, true)
 
@@ -266,7 +266,7 @@ defmodule KafkaEx.KayrockTimestampTest do
 
   test "set timestamp for v3 message, fetch v0", %{client: client} do
     topic = "food"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -298,7 +298,7 @@ defmodule KafkaEx.KayrockTimestampTest do
 
   test "set timestamp for v3 message, fetch v3", %{client: client} do
     topic = "food"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -330,7 +330,7 @@ defmodule KafkaEx.KayrockTimestampTest do
 
   test "set timestamp for v3 message, fetch v5", %{client: client} do
     topic = "food"
-    msg = TestHelper.generate_random_string()
+    msg = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(

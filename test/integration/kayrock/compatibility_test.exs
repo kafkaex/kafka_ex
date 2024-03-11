@@ -4,8 +4,8 @@ defmodule KafkaEx.KayrockCompatibilityTest do
 
   These mostly come from the original integration_test.exs file
   """
-
   use ExUnit.Case
+  import KafkaEx.TestHelpers
 
   @moduletag :new_client
 
@@ -32,6 +32,45 @@ defmodule KafkaEx.KayrockCompatibilityTest do
     {:ok, pid} = Client.start_link(args, :no_name)
 
     assert Process.alive?(pid)
+  end
+
+  describe "describe_groups/1" do
+    setup do
+      consumer_group = generate_random_string()
+      topic = "new_client_implementation"
+
+      {:ok, %{consumer_group: consumer_group, topic: topic}}
+    end
+
+    test "with new client - returns group metadata", %{
+      client: client,
+      consumer_group: consumer_group,
+      topic: topic
+    } do
+      join_to_group(client, topic, consumer_group)
+
+      {:ok, group_metadata} = KafkaExAPI.describe_group(client, consumer_group)
+
+      assert group_metadata.group_id == consumer_group
+      assert group_metadata.protocol_type == "consumer"
+      assert group_metadata.protocol == ""
+      assert length(group_metadata.members) == 1
+    end
+
+    test "with old client - returns group metadata", %{
+      client: client,
+      consumer_group: consumer_group,
+      topic: topic
+    } do
+      join_to_group(client, topic, consumer_group)
+
+      {:ok, group_metadata} = KafkaEx.describe_group(consumer_group, worker_name: client)
+
+      assert group_metadata.group_id == consumer_group
+      assert group_metadata.protocol_type == "consumer"
+      assert group_metadata.protocol == ""
+      assert length(group_metadata.members) == 1
+    end
   end
 
   test "worker updates metadata after specified interval" do
@@ -118,7 +157,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   end
 
   test "produce creates log for a non-existing topic", %{client: client} do
-    random_string = TestHelper.generate_random_string()
+    random_string = KafkaEx.TestHelpers.generate_random_string()
 
     KafkaEx.produce(
       %Proto.Produce.Request{
@@ -147,14 +186,14 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   test "fetch returns ':topic_not_found' for non-existing topic", %{
     client: client
   } do
-    random_string = TestHelper.generate_random_string()
+    random_string = KafkaEx.TestHelpers.generate_random_string()
 
     assert KafkaEx.fetch(random_string, 0, offset: 0, worker_name: client) ==
              :topic_not_found
   end
 
   test "fetch works", %{client: client} do
-    topic_name = TestHelper.generate_random_string()
+    topic_name = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -185,7 +224,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   end
 
   test "fetch with empty topic", %{client: client} do
-    random_string = TestHelper.generate_random_string()
+    random_string = KafkaEx.TestHelpers.generate_random_string()
 
     response =
       KafkaEx.fetch(random_string, 0,
@@ -198,7 +237,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   end
 
   test "fetch nonexistent offset", %{client: client} do
-    random_string = TestHelper.generate_random_string()
+    random_string = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -224,7 +263,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   end
 
   test "fetch nonexistent partition", %{client: client} do
-    random_string = TestHelper.generate_random_string()
+    random_string = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, offset} =
       KafkaEx.produce(
@@ -248,7 +287,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   end
 
   test "earliest_offset retrieves offset of 0", %{client: client} do
-    random_string = TestHelper.generate_random_string()
+    random_string = KafkaEx.TestHelpers.generate_random_string()
 
     KafkaEx.produce(
       %Proto.Produce.Request{
@@ -270,7 +309,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   test "latest_offset retrieves offset of 0 for non-existing topic", %{
     client: client
   } do
-    random_string = TestHelper.generate_random_string()
+    random_string = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, produce_offset} =
       KafkaEx.produce(
@@ -293,7 +332,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   test "latest_offset retrieves a non-zero offset for a topic published to", %{
     client: client
   } do
-    random_string = TestHelper.generate_random_string()
+    random_string = KafkaEx.TestHelpers.generate_random_string()
 
     KafkaEx.produce(
       %Proto.Produce.Request{
@@ -306,7 +345,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
     )
 
     [offset_response] =
-      TestHelper.wait_for_any(fn ->
+      KafkaEx.TestHelpers.wait_for_any(fn ->
         KafkaEx.latest_offset(random_string, 0, client)
       end)
 
@@ -317,7 +356,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
 
   # compression
   test "compresses / decompresses using gzip", %{client: client} do
-    random_string = TestHelper.generate_random_string()
+    random_string = KafkaEx.TestHelpers.generate_random_string()
 
     message1 = %Proto.Produce.Message{value: "value 1"}
     message2 = %Proto.Produce.Message{key: "key 2", value: "value 2"}
@@ -352,7 +391,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   end
 
   test "compresses / decompresses using snappy", %{client: client} do
-    random_string = TestHelper.generate_random_string()
+    random_string = KafkaEx.TestHelpers.generate_random_string()
 
     message1 = %Proto.Produce.Message{value: "value 1"}
     message2 = %Proto.Produce.Message{key: "key 2", value: "value 2"}
@@ -440,7 +479,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
 
   # stream
   test "streams kafka logs", %{client: client} do
-    topic_name = TestHelper.generate_random_string()
+    topic_name = KafkaEx.TestHelpers.generate_random_string()
 
     KafkaEx.produce(
       %Proto.Produce.Request{
@@ -479,7 +518,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   test "stream with small max_bytes makes multiple requests if necessary", %{
     client: client
   } do
-    topic_name = TestHelper.generate_random_string()
+    topic_name = KafkaEx.TestHelpers.generate_random_string()
 
     KafkaEx.produce(
       %Proto.Produce.Request{
@@ -519,7 +558,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   end
 
   test "stream blocks until new messages are available", %{client: client} do
-    topic_name = TestHelper.generate_random_string()
+    topic_name = KafkaEx.TestHelpers.generate_random_string()
 
     KafkaEx.produce(
       %Proto.Produce.Request{
@@ -570,7 +609,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   end
 
   test "stream is non-blocking with no_wait_at_logend", %{client: client} do
-    topic_name = TestHelper.generate_random_string()
+    topic_name = KafkaEx.TestHelpers.generate_random_string()
 
     KafkaEx.produce(
       %Proto.Produce.Request{
@@ -606,13 +645,25 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   end
 
   test "doesn't error when re-creating an existing stream", %{client: client} do
-    random_string = TestHelper.generate_random_string()
+    random_string = KafkaEx.TestHelpers.generate_random_string()
     KafkaEx.stream(random_string, 0, offset: 0, worker_name: client)
     KafkaEx.stream(random_string, 0, offset: 0, worker_name: client)
   end
 
   test "produce with the default partitioner works", %{client: client} do
-    topic = TestHelper.generate_random_string()
+    topic = KafkaEx.TestHelpers.generate_random_string()
     :ok = KafkaEx.produce(topic, nil, "hello", worker_name: client)
+  end
+
+  # -----------------------------------------------------------------------------
+  defp join_to_group(client, topic, consumer_group) do
+    request = %KafkaEx.Protocol.JoinGroup.Request{
+      group_name: consumer_group,
+      member_id: "",
+      topics: [topic],
+      session_timeout: 6000
+    }
+
+    KafkaEx.join_group(request, worker_name: client, timeout: 10000)
   end
 end
