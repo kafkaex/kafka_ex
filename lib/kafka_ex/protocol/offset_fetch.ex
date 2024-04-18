@@ -51,9 +51,8 @@ defmodule KafkaEx.Protocol.OffsetFetch do
   def create_request(correlation_id, client_id, offset_fetch_request) do
     [
       KafkaEx.Protocol.create_request(:offset_fetch, correlation_id, client_id),
-      <<byte_size(offset_fetch_request.consumer_group)::16-signed,
-        offset_fetch_request.consumer_group::binary, 1::32-signed,
-        byte_size(offset_fetch_request.topic)::16-signed, offset_fetch_request.topic::binary,
+      <<byte_size(offset_fetch_request.consumer_group)::16-signed, offset_fetch_request.consumer_group::binary,
+        1::32-signed, byte_size(offset_fetch_request.topic)::16-signed, offset_fetch_request.topic::binary,
         1::32-signed, offset_fetch_request.partition::32>>
     ]
   end
@@ -66,8 +65,8 @@ defmodule KafkaEx.Protocol.OffsetFetch do
 
   def parse_partitions(
         partitions_size,
-        <<partition::32-signed, offset::64-signed, metadata_size::16-signed,
-          metadata::size(metadata_size)-binary, error_code::16-signed, rest::binary>>,
+        <<partition::32-signed, offset::64-signed, metadata_size::16-signed, metadata::size(metadata_size)-binary,
+          error_code::16-signed, rest::binary>>,
         partitions,
         topic
       ) do

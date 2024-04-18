@@ -230,8 +230,7 @@ defmodule KafkaEx.Protocol.Metadata do
   defp parse_brokers(
          0,
          brokers_size,
-         <<node_id::32-signed, host_len::16-signed, host::size(host_len)-binary, port::32-signed,
-           rest::binary>>,
+         <<node_id::32-signed, host_len::16-signed, host::size(host_len)-binary, port::32-signed, rest::binary>>,
          brokers
        ) do
     parse_brokers(0, brokers_size - 1, rest, [

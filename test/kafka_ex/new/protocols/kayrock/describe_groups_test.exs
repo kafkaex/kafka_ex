@@ -12,7 +12,7 @@ defmodule KafkaEx.New.Protocols.Kayrock.DescribeGroupsTest do
 
       assert KayrockDescribeGroups.Request.build_request(
                %V0.Request{},
-               consumer_group_names
+               group_names: consumer_group_names
              ) == expected_request
     end
   end
@@ -59,17 +59,16 @@ defmodule KafkaEx.New.Protocols.Kayrock.DescribeGroupsTest do
                       client_id: "client_id",
                       client_host: "client_host",
                       member_metadata: "member_metadata",
-                      member_assignment:
-                        %KafkaEx.New.Structs.ConsumerGroup.Member.MemberAssignment{
-                          version: 0,
-                          user_data: "user_data",
-                          partition_assignments: [
-                            %KafkaEx.New.Structs.ConsumerGroup.Member.MemberAssignment.PartitionAssignment{
-                              topic: "test-topic",
-                              partitions: [1, 2, 3]
-                            }
-                          ]
-                        }
+                      member_assignment: %KafkaEx.New.Structs.ConsumerGroup.Member.MemberAssignment{
+                        version: 0,
+                        user_data: "user_data",
+                        partition_assignments: [
+                          %KafkaEx.New.Structs.ConsumerGroup.Member.MemberAssignment.PartitionAssignment{
+                            topic: "test-topic",
+                            partitions: [1, 2, 3]
+                          }
+                        ]
+                      }
                     }
                   ]
                 }

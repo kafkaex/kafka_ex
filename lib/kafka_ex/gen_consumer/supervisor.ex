@@ -67,9 +67,7 @@ defmodule KafkaEx.GenConsumer.Supervisor do
     child_spec_builder = fn topic, partition ->
       %{
         id: gen_consumer_module,
-        start:
-          {gen_consumer_module, :start_link,
-           [consumer_module, group_name, topic, partition, opts]},
+        start: {gen_consumer_module, :start_link, [consumer_module, group_name, topic, partition, opts]},
         shutdown: Keyword.get(opts, :shutdown, @default_worker_shutdown)
       }
     end

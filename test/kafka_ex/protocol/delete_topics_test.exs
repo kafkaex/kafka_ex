@@ -4,8 +4,8 @@ defmodule KafkaEx.Protocol.DeleteTopicsTest do
   describe "create_request/4" do
     test "creates a request to delete a single topic" do
       expected_request =
-        <<20::16, 0::16, 999::32, 13::16, "the-client-id"::binary, 1::32-signed, 6::16,
-          "topic1"::binary, 100::32-signed>>
+        <<20::16, 0::16, 999::32, 13::16, "the-client-id"::binary, 1::32-signed, 6::16, "topic1"::binary,
+          100::32-signed>>
 
       delete_request = %KafkaEx.Protocol.DeleteTopics.Request{
         topics: ["topic1"],
@@ -25,8 +25,8 @@ defmodule KafkaEx.Protocol.DeleteTopicsTest do
 
     test "creates a request to delete a multiple topic" do
       expected_response =
-        <<20::16, 0::16, 999::32, 13::16, "the-client-id"::binary, 3::32-signed, 6::16,
-          "topic3"::binary, 6::16, "topic2"::binary, 6::16, "topic1"::binary, 100::32-signed>>
+        <<20::16, 0::16, 999::32, 13::16, "the-client-id"::binary, 3::32-signed, 6::16, "topic3"::binary, 6::16,
+          "topic2"::binary, 6::16, "topic1"::binary, 100::32-signed>>
 
       delete_request = %KafkaEx.Protocol.DeleteTopics.Request{
         topics: ["topic1", "topic2", "topic3"],
