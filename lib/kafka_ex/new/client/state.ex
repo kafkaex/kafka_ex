@@ -52,12 +52,8 @@ defmodule KafkaEx.New.Client.State do
     %{state | correlation_id: cid + 1}
   end
 
-  def select_broker(
-        %__MODULE__{cluster_metadata: cluster_metadata},
-        selector
-      ) do
-    with {:ok, node_id} <-
-           ClusterMetadata.select_node(cluster_metadata, selector),
+  def select_broker(%__MODULE__{cluster_metadata: cluster_metadata}, selector) do
+    with {:ok, node_id} <- ClusterMetadata.select_node(cluster_metadata, selector),
          broker <- ClusterMetadata.broker_by_node_id(cluster_metadata, node_id) do
       {:ok, broker}
     else
@@ -130,12 +126,11 @@ defmodule KafkaEx.New.Client.State do
     %{state | api_versions: api_versions}
   end
 
-  def max_supported_api_version(
-        %__MODULE__{api_versions: api_versions},
-        api,
-        default
-      )
-      when is_atom(api) do
+  @doc """
+  Returns max supported api version for request based on cached values in state.
+  Currently supports Kayrock metadata schema only.
+  """
+  def max_supported_api_version(%__MODULE__{api_versions: api_versions}, api, default) when is_atom(api) do
     api_key = Kayrock.KafkaSchemaMetadata.api_key(api)
     {_, max_kayrock_version} = Kayrock.KafkaSchemaMetadata.version_range(api)
 

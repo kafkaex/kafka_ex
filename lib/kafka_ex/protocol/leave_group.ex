@@ -25,8 +25,8 @@ defmodule KafkaEx.Protocol.LeaveGroup do
   def create_request(correlation_id, client_id, request) do
     [
       KafkaEx.Protocol.create_request(:leave_group, correlation_id, client_id),
-      <<byte_size(request.group_name)::16-signed, request.group_name::binary,
-        byte_size(request.member_id)::16-signed, request.member_id::binary>>
+      <<byte_size(request.group_name)::16-signed, request.group_name::binary, byte_size(request.member_id)::16-signed,
+        request.member_id::binary>>
     ]
   end
 

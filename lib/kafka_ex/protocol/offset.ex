@@ -37,8 +37,8 @@ defmodule KafkaEx.Protocol.Offset do
   def create_request(correlation_id, client_id, topic, partition, time) do
     [
       KafkaEx.Protocol.create_request(:offset, correlation_id, client_id),
-      <<-1::32-signed, 1::32-signed, byte_size(topic)::16-signed, topic::binary, 1::32-signed,
-        partition::32-signed, parse_time(time)::64, 1::32>>
+      <<-1::32-signed, 1::32-signed, byte_size(topic)::16-signed, topic::binary, 1::32-signed, partition::32-signed,
+        parse_time(time)::64, 1::32>>
     ]
   end
 
@@ -62,8 +62,7 @@ defmodule KafkaEx.Protocol.Offset do
 
   defp parse_topics(
          topics_size,
-         <<topic_size::16-signed, topic::size(topic_size)-binary, partitions_size::32-signed,
-           rest::binary>>
+         <<topic_size::16-signed, topic::size(topic_size)-binary, partitions_size::32-signed, rest::binary>>
        ) do
     {partitions, topics_data} = parse_partitions(partitions_size, rest)
 

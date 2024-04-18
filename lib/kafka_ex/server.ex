@@ -879,9 +879,7 @@ defmodule KafkaEx.Server do
                     module.parse_response(response)
                   rescue
                     _ ->
-                      Logger.error(
-                        "Failed to parse a response from the server: #{inspect(response)}"
-                      )
+                      Logger.error("Failed to parse a response from the server: #{inspect(response)}")
 
                       Kernel.reraise(
                         "Parse error during #{inspect(module)}.parse_response. Couldn't parse: #{inspect(response)}",

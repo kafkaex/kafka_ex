@@ -13,47 +13,37 @@ defmodule KafkaEx.New.KafkaExAPI do
   ```
   """
 
-  alias KafkaEx.New.Client
   alias KafkaEx.New.Structs.ClusterMetadata
   alias KafkaEx.New.Structs.ConsumerGroup
   alias KafkaEx.New.Structs.Topic
-  alias KafkaEx.New.Structs.NodeSelector
+  alias KafkaEx.New.Structs.Offset
 
   @type node_id :: non_neg_integer
-  @type topic_name :: binary
-  @type partition_id :: non_neg_integer
-  @type consumer_group_name :: binary
-  @type offset :: non_neg_integer
+
+  @type topic_name :: KafkaEx.Types.topic()
+  @type partition_id :: KafkaEx.Types.partition()
+  @type consumer_group_name :: KafkaEx.Types.consumer_group_name()
+  @type offset_val :: KafkaEx.Types.offset()
+  @type timestamp :: KafkaEx.Types.timestamp()
+
   @type error_atom :: atom
   @type client :: GenServer.server()
   @type correlation_id :: non_neg_integer
+  @type opts :: Keyword.t()
 
   @doc """
   Fetch the latest offset for a given partition
   """
-  @spec latest_offset(client, topic_name, partition_id) ::
-          {:error, error_atom} | {:ok, offset}
-  def latest_offset(client, topic, partition) do
-    request = %Kayrock.ListOffsets.V1.Request{
-      replica_id: -1,
-      topics: [
-        %{topic: topic, partitions: [%{partition: partition, timestamp: -1}]}
-      ]
-    }
+  @spec latest_offset(client, topic_name, partition_id) :: {:error, error_atom} | {:ok, offset_val}
+  @spec latest_offset(client, topic_name, partition_id, opts) :: {:error, error_atom} | {:ok, offset_val}
+  def latest_offset(client, topic, partition, opts \\ []) do
+    opts = Keyword.merge([api_version: 1], opts)
+    partition = %{partition_num: partition, timestamp: -1}
 
-    {:ok, resp} =
-      Client.send_request(
-        client,
-        request,
-        NodeSelector.topic_partition(topic, partition)
-      )
-
-    [topic_resp] = resp.responses
-    [%{error_code: error_code, offset: offset}] = topic_resp.partition_responses
-
-    case error_code do
-      0 -> {:ok, offset}
-      _ -> {:error, Kayrock.ErrorCode.code_to_atom(error_code)}
+    case GenServer.call(client, {:list_offsets, [{topic, [partition]}], opts}) do
+      {:ok, [offset_struct]} -> {:ok, offset_struct.offset}
+      {:error, %{error: error_atom}} -> {:error, error_atom}
+      {:error, error_atom} -> {:error, error_atom}
     end
   end
 
@@ -62,10 +52,25 @@ defmodule KafkaEx.New.KafkaExAPI do
   We support only one consumer group per request for now, as we don't
   group requests by group coordinator.
   """
-  @spec describe_group(client, Keyword.t()) ::
-          {:ok, ConsumerGroup.t()} | {:error, any}
-  def describe_group(client, consumer_group_name) do
-    case GenServer.call(client, {:describe_groups, [consumer_group_name]}) do
+  @spec describe_group(client, consumer_group_name) :: {:ok, ConsumerGroup.t()} | {:error, any}
+  @spec describe_group(client, consumer_group_name, opts) :: {:ok, ConsumerGroup.t()} | {:error, any}
+  def describe_group(client, consumer_group_name, opts \\ []) do
+    case GenServer.call(client, {:describe_groups, [consumer_group_name], opts}) do
+      {:ok, [group]} -> {:ok, group}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  @doc """
+  Returns list of Offsets per topic per partition.
+  We support only one topic partition pair for now, as we don't request by leader.
+  """
+  @spec list_offsets(client, {topic_name, [{partition_id, timestamp}]}) :: {:ok, list(Offset.t())} | {:error, any}
+  @spec list_offsets(client, {topic_name, [{partition_id, timestamp}]}, opts) :: {:ok, list(Offset.t())} | {:error, any}
+  def list_offsets(client, {topic, [{partition, timestamp}]}, opts \\ []) do
+    partition = %{partition_num: partition, timestamp: timestamp}
+
+    case GenServer.call(client, {:list_offsets, [{topic, [partition]}], opts}) do
       {:ok, [group]} -> {:ok, group}
       {:error, error} -> {:error, error}
     end

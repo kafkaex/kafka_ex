@@ -258,8 +258,7 @@ defmodule KafkaEx.New.ClientCompatibility do
 
         case response do
           {:ok, resp} ->
-            {:reply, Adapter.delete_topics_response(resp),
-             State.remove_topics(updated_state, topics)}
+            {:reply, Adapter.delete_topics_response(resp), State.remove_topics(updated_state, topics)}
 
           _ ->
             {:reply, response, updated_state}

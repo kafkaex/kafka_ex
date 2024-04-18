@@ -1,6 +1,7 @@
 defmodule KafkaEx.New.Client.Test do
   use ExUnit.Case
   import KafkaEx.TestHelpers
+  import KafkaEx.IntegrationHelpers
 
   alias KafkaEx.New.Client
 
@@ -17,7 +18,6 @@ defmodule KafkaEx.New.Client.Test do
 
   setup do
     {:ok, args} = KafkaEx.build_worker_options([])
-
     {:ok, pid} = Client.start_link(args, :no_name)
 
     {:ok, %{client: pid}}
@@ -38,7 +38,7 @@ defmodule KafkaEx.New.Client.Test do
     } do
       join_to_group(client, topic, consumer_group)
 
-      {:ok, [group_metadata]} = GenServer.call(client, {:describe_groups, [consumer_group]})
+      {:ok, [group_metadata]} = GenServer.call(client, {:describe_groups, [consumer_group], []})
 
       assert group_metadata.group_id == consumer_group
       assert group_metadata.protocol_type == "consumer"
@@ -47,10 +47,48 @@ defmodule KafkaEx.New.Client.Test do
     end
 
     test "returns dead when consumer group does not exist", %{client: client} do
-      {:ok, [group_metadata]} = GenServer.call(client, {:describe_groups, ["non-existing-group"]})
+      {:ok, [group_metadata]} = GenServer.call(client, {:describe_groups, ["non-existing-group"], []})
 
       assert group_metadata.group_id == "non-existing-group"
       assert group_metadata.state == "Dead"
+    end
+  end
+
+  describe "list_offsets/1" do
+    test "list offsets for empty topic", %{client: client} do
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name)
+      partition = [%{partition_num: 0, timestamp: -1}]
+
+      {:ok, [offset]} = GenServer.call(client, {:list_offsets, [{topic_name, partition}], []})
+
+      assert offset.topic == topic_name
+      assert offset.partition == 0
+      assert offset.offset == 0
+    end
+
+    test "lists offsets for topic with existing messages", %{client: client} do
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name)
+      _ = partition_produce(client, topic_name, "value", 0)
+      partition = [%{partition_num: 0, timestamp: -1}]
+
+      {:ok, [offset]} = GenServer.call(client, {:list_offsets, [{topic_name, partition}], []})
+
+      assert offset.topic == topic_name
+      assert offset.partition == 0
+      assert offset.offset == 1
+    end
+
+    test "returns error when opts are invalid", %{client: client} do
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name)
+      _ = partition_produce(client, topic_name, "value", 0)
+      partition = [%{partition_num: 0, timestamp: -1}]
+
+      {:error, error} = GenServer.call(client, {:list_offsets, [{topic_name, partition}], [api_version: 5]})
+
+      assert error == :api_version_no_supported
     end
   end
 
@@ -84,7 +122,6 @@ defmodule KafkaEx.New.Client.Test do
         )
 
       %Kayrock.ListOffsets.V1.Response{responses: [main_resp]} = resp
-
       [%{error_code: error_code, offset: offset}] = main_resp.partition_responses
 
       assert error_code == 0

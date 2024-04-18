@@ -41,9 +41,8 @@ defmodule KafkaEx.Protocol.SyncGroup do
   def create_request(correlation_id, client_id, %Request{} = request) do
     [
       KafkaEx.Protocol.create_request(:sync_group, correlation_id, client_id),
-      <<byte_size(request.group_name)::16-signed, request.group_name::binary,
-        request.generation_id::32-signed, byte_size(request.member_id)::16-signed,
-        request.member_id::binary, length(request.assignments)::32-signed,
+      <<byte_size(request.group_name)::16-signed, request.group_name::binary, request.generation_id::32-signed,
+        byte_size(request.member_id)::16-signed, request.member_id::binary, length(request.assignments)::32-signed,
         group_assignment_data(request.assignments, "")::binary>>
     ]
   end
@@ -75,8 +74,8 @@ defmodule KafkaEx.Protocol.SyncGroup do
       0::32-signed
     >>
 
-    <<byte_size(member_id)::16-signed, member_id::binary,
-      byte_size(assignment_bytes_for_member)::32-signed, assignment_bytes_for_member::binary>>
+    <<byte_size(member_id)::16-signed, member_id::binary, byte_size(assignment_bytes_for_member)::32-signed,
+      assignment_bytes_for_member::binary>>
   end
 
   defp topic_assignment_data([], acc), do: acc
@@ -98,9 +97,7 @@ defmodule KafkaEx.Protocol.SyncGroup do
 
   defp parse_member_assignment(<<>>), do: []
 
-  defp parse_member_assignment(
-         <<@member_assignment_version::16-signed, assignments_size::32-signed, rest::binary>>
-       ) do
+  defp parse_member_assignment(<<@member_assignment_version::16-signed, assignments_size::32-signed, rest::binary>>) do
     parse_assignments(assignments_size, rest, [])
   end
 
@@ -108,8 +105,7 @@ defmodule KafkaEx.Protocol.SyncGroup do
 
   defp parse_assignments(
          size,
-         <<topic_len::16-signed, topic::size(topic_len)-binary, partition_len::32-signed,
-           rest::binary>>,
+         <<topic_len::16-signed, topic::size(topic_len)-binary, partition_len::32-signed, rest::binary>>,
          assignments
        ) do
     {partitions, rest} = parse_partitions(partition_len, rest, [])
