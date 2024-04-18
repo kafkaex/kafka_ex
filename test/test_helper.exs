@@ -4,6 +4,7 @@ ExUnit.start()
 ExUnit.configure(
   timeout: 120 * 1000,
   exclude: [
+    new_client: true,
     integration: true,
     consumer_group: true,
     server_0_p_10_p_1: true,

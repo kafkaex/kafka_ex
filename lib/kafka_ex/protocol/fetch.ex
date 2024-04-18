@@ -106,8 +106,8 @@ defmodule KafkaEx.Protocol.Fetch do
 
   def parse_partitions(
         partitions_size,
-        <<partition::32-signed, error_code::16-signed, hw_mark_offset::64-signed,
-          msg_set_size::32-signed, msg_set_data::size(msg_set_size)-binary, rest::binary>>,
+        <<partition::32-signed, error_code::16-signed, hw_mark_offset::64-signed, msg_set_size::32-signed,
+          msg_set_data::size(msg_set_size)-binary, rest::binary>>,
         partitions,
         topic
       ) do

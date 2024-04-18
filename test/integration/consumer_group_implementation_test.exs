@@ -184,9 +184,7 @@ defmodule KafkaEx.ConsumerGroupImplementationTest do
 
     {
       :ok,
-      consumer_group_pid1: consumer_group_pid1,
-      consumer_group_pid2: consumer_group_pid2,
-      ports_before: ports_before
+      consumer_group_pid1: consumer_group_pid1, consumer_group_pid2: consumer_group_pid2, ports_before: ports_before
     }
   end
 
