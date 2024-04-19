@@ -163,6 +163,16 @@ defmodule KafkaEx.New.Client do
     end
   end
 
+  # Backward compatibility, to be deleted once we delete legacy code
+  def handle_call({:offset, topic, partition, timestamp}, _from, state) do
+    partition_data = %{partition_num: partition, timestamp: timestamp}
+
+    case list_offset_request({topic, [partition_data]}, [], state) do
+      {:error, error} -> {:reply, {:error, error}, state}
+      {result, updated_state} -> {:reply, result, updated_state}
+    end
+  end
+
   def handle_call({:describe_groups, [consumer_group_name], opts}, _from, state) do
     if KafkaEx.valid_consumer_group?(consumer_group_name) do
       case describe_group_request(consumer_group_name, opts, state) do

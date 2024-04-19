@@ -37,20 +37,13 @@ defmodule KafkaEx.New.ClientCompatibility do
         # note we also try to create the topic if it does not exist
         state = ensure_topics_metadata(state, [produce_request.topic], true)
 
-        produce_request =
-          default_partitioner().assign_partition(
-            produce_request,
-            Adapter.metadata_response(state.cluster_metadata)
-          )
+        metadata_response = Adapter.metadata_response(state.cluster_metadata)
+        produce_request = default_partitioner().assign_partition(produce_request, metadata_response)
 
         {request, topic, partition} = Adapter.produce_request(produce_request)
 
-        {response, updated_state} =
-          kayrock_network_request(
-            request,
-            NodeSelector.topic_partition(topic, partition),
-            state
-          )
+        node_selector = NodeSelector.topic_partition(topic, partition)
+        {response, updated_state} = kayrock_network_request(request, node_selector, state)
 
         response =
           case response do
@@ -256,18 +249,10 @@ defmodule KafkaEx.New.ClientCompatibility do
           raise KafkaEx.ConsumerGroupRequiredError, offset_fetch
         end
 
-        {request, consumer_group} =
-          Adapter.offset_fetch_request(
-            offset_fetch,
-            state.consumer_group_for_auto_commit
-          )
+        {request, consumer_group} = Adapter.offset_fetch_request(offset_fetch, state.consumer_group_for_auto_commit)
 
-        {response, updated_state} =
-          kayrock_network_request(
-            request,
-            NodeSelector.consumer_group(consumer_group),
-            state
-          )
+        node_selector = NodeSelector.consumer_group(consumer_group)
+        {response, updated_state} = kayrock_network_request(request, node_selector, state)
 
         response =
           case response do
