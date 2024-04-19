@@ -142,8 +142,7 @@ defmodule KafkaEx.TestHelpers do
 
   defp wait_for_topic_to_appear(_client, _topic_name, attempts \\ 10)
 
-  defp wait_for_topic_to_appear(_client, _topic_name, attempts)
-       when attempts <= 0 do
+  defp wait_for_topic_to_appear(_client, _topic_name, attempts) when attempts <= 0 do
     raise "Timeout while waiting for topic to appear"
   end
 
@@ -162,15 +161,17 @@ defmodule KafkaEx.TestHelpers do
     end
   end
 
-  defp first_partition_offset(:topic_not_found) do
-    nil
-  end
+  defp first_partition_offset({:ok, response}), do: first_partition_offset(response)
+  defp first_partition_offset({:error, error}), do: first_partition_offset(error)
+  defp first_partition_offset(:topic_not_found), do: nil
 
   defp first_partition_offset(response) do
-    [%KafkaEx.Protocol.Offset.Response{partition_offsets: partition_offsets}] = response
+    [%{partition_offsets: partition_offsets}] = response
 
-    first_partition = hd(partition_offsets)
-    first_partition.offset |> hd
+    case hd(partition_offsets) do
+      %{offset: [offset | _]} -> offset
+      %{offset: offset} -> offset
+    end
   end
 
   defp wait_for_value(_value_getter, _condn, _dwell, max_tries, n)
@@ -198,7 +199,10 @@ defmodule KafkaEx.TestHelpers do
     value =
       wait_for_value(
         value_getter,
-        fn v -> length(v) > 0 end,
+        fn
+          {:ok, v} -> length(v) > 0
+          v -> length(v) > 0
+        end,
         dwell,
         max_tries
       )

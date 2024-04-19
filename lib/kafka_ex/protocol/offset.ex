@@ -27,10 +27,11 @@ defmodule KafkaEx.Protocol.Offset do
     defstruct topic: nil, partition_offsets: []
     @type t :: %Response{topic: binary, partition_offsets: list}
 
-    def extract_offset([%__MODULE__{partition_offsets: [%{offset: [offset]}]}]),
-      do: offset
-
+    def extract_offset([%__MODULE__{partition_offsets: [%{offset: [offset]}]}]), do: offset
     def extract_offset([%__MODULE__{partition_offsets: [%{offset: []}]}]), do: 0
+
+    # Forward Compatibility with Kayrock Client
+    def extract_offset({:ok, [%{partition_offsets: [%{offset: offset}]}]}) when is_integer(offset), do: offset
   end
 
   @spec create_request(integer, binary, binary, integer, term) :: iolist
