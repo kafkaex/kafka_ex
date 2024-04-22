@@ -14,8 +14,8 @@ defmodule KafkaEx.Protocol.OffsetCommit.Test do
     }
 
     good_request =
-      <<8::16, 0::16, corr_id::32, byte_size(client_id)::16, client_id::binary, 3::16, "bar",
-        1::32, 3::16, "foo", 1::32, 0::32, 10::64, 3::16, "baz">>
+      <<8::16, 0::16, corr_id::32, byte_size(client_id)::16, client_id::binary, 3::16, "bar", 1::32, 3::16, "foo",
+        1::32, 0::32, 10::64, 3::16, "baz">>
 
     request =
       KafkaEx.Protocol.OffsetCommit.create_request(

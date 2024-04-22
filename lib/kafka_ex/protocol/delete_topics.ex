@@ -80,8 +80,7 @@ defmodule KafkaEx.Protocol.DeleteTopics do
 
   defp parse_topic_errors(
          topic_errors_count,
-         <<topic_name_size::16-signed, topic_name::size(topic_name_size)-binary,
-           error_code::16-signed, rest::binary>>
+         <<topic_name_size::16-signed, topic_name::size(topic_name_size)-binary, error_code::16-signed, rest::binary>>
        ) do
     [
       %TopicError{

@@ -62,8 +62,7 @@ defmodule KafkaEx.Protocol.ApiVersions do
   def parse_response(binary, this_api_version \\ @default_this_api_version)
 
   def parse_response(
-        <<_correlation_id::32-signed, error_code::16-signed, api_versions_count::32-signed,
-          rest::binary>>,
+        <<_correlation_id::32-signed, error_code::16-signed, api_versions_count::32-signed, rest::binary>>,
         this_api_version
       ) do
     %{
@@ -99,9 +98,7 @@ defmodule KafkaEx.Protocol.ApiVersions do
     end
   end
 
-  defp parse_one_api_version(
-         <<api_key::16-signed, min_version::16-signed, max_version::16-signed, rest::binary>>
-       ) do
+  defp parse_one_api_version(<<api_key::16-signed, min_version::16-signed, max_version::16-signed, rest::binary>>) do
     {%ApiVersion{
        api_key: api_key,
        min_version: min_version,

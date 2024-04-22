@@ -16,8 +16,8 @@ defmodule KafkaEx.Protocol.Metadata.Test do
 
   test "create_request with a multiple topics creates a valid metadata request" do
     good_request =
-      <<3::16, 0::16, 1::32, 3::16, "foo"::binary, 3::32, 3::16, "bar"::binary, 3::16,
-        "baz"::binary, 4::16, "food"::binary>>
+      <<3::16, 0::16, 1::32, 3::16, "foo"::binary, 3::32, 3::16, "bar"::binary, 3::16, "baz"::binary, 4::16,
+        "food"::binary>>
 
     request = KafkaEx.Protocol.Metadata.create_request(1, "foo", ["bar", "baz", "food"])
 
@@ -26,8 +26,8 @@ defmodule KafkaEx.Protocol.Metadata.Test do
 
   test "parse_response correctly parses a valid response" do
     response =
-      <<0::32, 1::32, 0::32, 3::16, "foo"::binary, 9092::32, 1::32, 0::16, 3::16, "bar"::binary,
-        1::32, 0::16, 0::32, 0::32, 0::32, 1::32, 0::32>>
+      <<0::32, 1::32, 0::32, 3::16, "foo"::binary, 9092::32, 1::32, 0::16, 3::16, "bar"::binary, 1::32, 0::16, 0::32,
+        0::32, 0::32, 1::32, 0::32>>
 
     expected_response = %KafkaEx.Protocol.Metadata.Response{
       brokers: [

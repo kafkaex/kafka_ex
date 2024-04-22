@@ -47,9 +47,8 @@ defmodule KafkaEx.Protocol.ConsumerMetadata do
 
   @spec parse_response(binary) :: Response.t()
   def parse_response(
-        <<_corr_id::32-signed, error_code::16-signed, coord_id::32-signed,
-          coord_host_size::16-signed, coord_host::size(coord_host_size)-binary,
-          coord_port::32-signed, _::binary>>
+        <<_corr_id::32-signed, error_code::16-signed, coord_id::32-signed, coord_host_size::16-signed,
+          coord_host::size(coord_host_size)-binary, coord_port::32-signed, _::binary>>
       ) do
     %Response{
       coordinator_id: coord_id,
