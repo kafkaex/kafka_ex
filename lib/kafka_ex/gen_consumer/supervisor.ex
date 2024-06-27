@@ -15,8 +15,10 @@ defmodule KafkaEx.GenConsumer.Supervisor do
 
   use DynamicSupervisor
 
+  @default_worker_shutdown 5_000
+
   if Version.match?(System.version(), ">= 1.7.0") do
-    @doc since: "0.14.0"
+    @doc since: "0.13.0"
   end
 
   @doc """
@@ -67,7 +69,8 @@ defmodule KafkaEx.GenConsumer.Supervisor do
         id: gen_consumer_module,
         start:
           {gen_consumer_module, :start_link,
-           [consumer_module, group_name, topic, partition, opts]}
+           [consumer_module, group_name, topic, partition, opts]},
+        shutdown: Keyword.get(opts, :shutdown, @default_worker_shutdown)
       }
     end
 
