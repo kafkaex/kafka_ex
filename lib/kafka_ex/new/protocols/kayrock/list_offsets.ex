@@ -1,4 +1,4 @@
-defprotocol KafkaEx.New.Protocols.Kayrock.ListOffsets do
+defmodule KafkaEx.New.Protocols.Kayrock.ListOffsets do
   @moduledoc """
   This module handles List Offsets request & response parsing.
   Request is built using Kayrock protocol, response is parsed to
