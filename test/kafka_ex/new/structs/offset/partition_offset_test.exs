@@ -9,16 +9,18 @@ defmodule KafkaEx.New.Structs.Offset.PartitionOffsetTest do
 
       assert result == %PartitionOffset{
                partition: 1,
+               error_code: :no_error,
                offset: 2,
                timestamp: -1
              }
     end
 
     test "returns struct with timestamp" do
-      result = PartitionOffset.build(%{partition: 1, offset: 2, timestamp: 123})
+      result = PartitionOffset.build(%{partition: 1, offset: 2, error_code: :no_error, timestamp: 123})
 
       assert result == %PartitionOffset{
                partition: 1,
+               error_code: :no_error,
                offset: 2,
                timestamp: 123
              }

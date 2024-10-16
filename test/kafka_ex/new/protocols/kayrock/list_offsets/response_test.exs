@@ -13,6 +13,7 @@ defmodule KafkaEx.New.Protocols.Kayrock.ListOffsets.ResponseTest do
       partition_offsets: [
         %KafkaEx.New.Structs.Offset.PartitionOffset{
           partition: 1,
+          error_code: :no_error,
           offset: 0,
           timestamp: -1
         }

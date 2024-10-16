@@ -13,7 +13,7 @@ defimpl KafkaEx.New.Protocols.Kayrock.ListOffsets.Response, for: Kayrock.ListOff
   end
 
   defp build_offset(topic, %{error_code: 0, partition: p, offset: o}) do
-    data = %{partition: p, offset: o}
+    data = %{partition: p, offset: o, error_code: :no_error}
     {:ok, KafkaEx.New.Structs.Offset.from_list_offset(topic, [data])}
   end
 

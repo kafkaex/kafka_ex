@@ -42,11 +42,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
       {:ok, %{consumer_group: consumer_group, topic: topic}}
     end
 
-    test "with new client - returns group metadata", %{
-      client: client,
-      consumer_group: consumer_group,
-      topic: topic
-    } do
+    test "with new client - returns group metadata", %{client: client, consumer_group: consumer_group, topic: topic} do
       join_to_group(client, topic, consumer_group)
 
       {:ok, group_metadata} = KafkaExAPI.describe_group(client, consumer_group)
@@ -57,11 +53,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
       assert length(group_metadata.members) == 1
     end
 
-    test "with old client - returns group metadata", %{
-      client: client,
-      consumer_group: consumer_group,
-      topic: topic
-    } do
+    test "with old client - returns group metadata", %{client: client, consumer_group: consumer_group, topic: topic} do
       join_to_group(client, topic, consumer_group)
 
       {:ok, group_metadata} = KafkaEx.describe_group(consumer_group, worker_name: client)
@@ -109,21 +101,11 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   end
 
   test "produce/4 without an acq required returns :ok", %{client: client} do
-    assert KafkaEx.produce("food", 0, "hey",
-             worker_name: client,
-             required_acks: 0
-           ) == :ok
+    assert KafkaEx.produce("food", 0, "hey", worker_name: client, required_acks: 0) == :ok
   end
 
   test "produce/4 with ack required returns an ack", %{client: client} do
-    {:ok, offset} =
-      KafkaEx.produce(
-        "food",
-        0,
-        "hey",
-        worker_name: client,
-        required_acks: 1
-      )
+    {:ok, offset} = KafkaEx.produce("food", 0, "hey", worker_name: client, required_acks: 1)
 
     assert is_integer(offset)
     refute offset == nil
@@ -306,9 +288,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
     assert offset == 0
   end
 
-  test "latest_offset retrieves offset of 0 for non-existing topic", %{
-    client: client
-  } do
+  test "latest_offset retrieves offset of 0 for non-existing topic", %{client: client} do
     random_string = KafkaEx.TestHelpers.generate_random_string()
 
     {:ok, produce_offset} =
