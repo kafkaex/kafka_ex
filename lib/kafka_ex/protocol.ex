@@ -34,8 +34,7 @@ defmodule KafkaEx.Protocol do
         client_id,
         api_version \\ @default_api_version
       ) do
-    <<api_key(type)::16, api_version::16, correlation_id::32, byte_size(client_id)::16,
-      client_id::binary>>
+    <<api_key(type)::16, api_version::16, correlation_id::32, byte_size(client_id)::16, client_id::binary>>
   end
 
   @error_map %{

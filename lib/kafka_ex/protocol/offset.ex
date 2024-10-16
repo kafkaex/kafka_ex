@@ -27,18 +27,19 @@ defmodule KafkaEx.Protocol.Offset do
     defstruct topic: nil, partition_offsets: []
     @type t :: %Response{topic: binary, partition_offsets: list}
 
-    def extract_offset([%__MODULE__{partition_offsets: [%{offset: [offset]}]}]),
-      do: offset
-
+    def extract_offset([%__MODULE__{partition_offsets: [%{offset: [offset]}]}]), do: offset
     def extract_offset([%__MODULE__{partition_offsets: [%{offset: []}]}]), do: 0
+
+    # Forward Compatibility with Kayrock Client
+    def extract_offset({:ok, [%{partition_offsets: [%{offset: offset}]}]}) when is_integer(offset), do: offset
   end
 
   @spec create_request(integer, binary, binary, integer, term) :: iolist
   def create_request(correlation_id, client_id, topic, partition, time) do
     [
       KafkaEx.Protocol.create_request(:offset, correlation_id, client_id),
-      <<-1::32-signed, 1::32-signed, byte_size(topic)::16-signed, topic::binary, 1::32-signed,
-        partition::32-signed, parse_time(time)::64, 1::32>>
+      <<-1::32-signed, 1::32-signed, byte_size(topic)::16-signed, topic::binary, 1::32-signed, partition::32-signed,
+        parse_time(time)::64, 1::32>>
     ]
   end
 
@@ -62,8 +63,7 @@ defmodule KafkaEx.Protocol.Offset do
 
   defp parse_topics(
          topics_size,
-         <<topic_size::16-signed, topic::size(topic_size)-binary, partitions_size::32-signed,
-           rest::binary>>
+         <<topic_size::16-signed, topic::size(topic_size)-binary, partitions_size::32-signed, rest::binary>>
        ) do
     {partitions, topics_data} = parse_partitions(partitions_size, rest)
 

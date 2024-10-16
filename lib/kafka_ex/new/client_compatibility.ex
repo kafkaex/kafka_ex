@@ -32,47 +32,18 @@ defmodule KafkaEx.New.ClientCompatibility do
         {:reply, Adapter.metadata_response(updated_state.cluster_metadata), updated_state}
       end
 
-      def handle_call({:offset, topic, partition, time}, _from, state) do
-        request = Adapter.list_offsets_request(topic, partition, time)
-
-        {response, updated_state} =
-          kayrock_network_request(
-            request,
-            NodeSelector.topic_partition(topic, partition),
-            state
-          )
-
-        adapted_response =
-          case response do
-            {:ok, api_response} ->
-              Adapter.list_offsets_response(api_response)
-
-            other ->
-              other
-          end
-
-        {:reply, adapted_response, updated_state}
-      end
-
       def handle_call({:produce, produce_request}, _from, state) do
         # the partitioner will need to know the topic's metadata
-        #   note we also try to create the topic if it does not exist
+        # note we also try to create the topic if it does not exist
         state = ensure_topics_metadata(state, [produce_request.topic], true)
 
-        produce_request =
-          default_partitioner().assign_partition(
-            produce_request,
-            Adapter.metadata_response(state.cluster_metadata)
-          )
+        metadata_response = Adapter.metadata_response(state.cluster_metadata)
+        produce_request = default_partitioner().assign_partition(produce_request, metadata_response)
 
         {request, topic, partition} = Adapter.produce_request(produce_request)
 
-        {response, updated_state} =
-          kayrock_network_request(
-            request,
-            NodeSelector.topic_partition(topic, partition),
-            state
-          )
+        node_selector = NodeSelector.topic_partition(topic, partition)
+        {response, updated_state} = kayrock_network_request(request, node_selector, state)
 
         response =
           case response do
@@ -258,8 +229,7 @@ defmodule KafkaEx.New.ClientCompatibility do
 
         case response do
           {:ok, resp} ->
-            {:reply, Adapter.delete_topics_response(resp),
-             State.remove_topics(updated_state, topics)}
+            {:reply, Adapter.delete_topics_response(resp), State.remove_topics(updated_state, topics)}
 
           _ ->
             {:reply, response, updated_state}
@@ -279,18 +249,10 @@ defmodule KafkaEx.New.ClientCompatibility do
           raise KafkaEx.ConsumerGroupRequiredError, offset_fetch
         end
 
-        {request, consumer_group} =
-          Adapter.offset_fetch_request(
-            offset_fetch,
-            state.consumer_group_for_auto_commit
-          )
+        {request, consumer_group} = Adapter.offset_fetch_request(offset_fetch, state.consumer_group_for_auto_commit)
 
-        {response, updated_state} =
-          kayrock_network_request(
-            request,
-            NodeSelector.consumer_group(consumer_group),
-            state
-          )
+        node_selector = NodeSelector.consumer_group(consumer_group)
+        {response, updated_state} = kayrock_network_request(request, node_selector, state)
 
         response =
           case response do

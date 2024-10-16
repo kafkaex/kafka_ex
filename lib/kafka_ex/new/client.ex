@@ -54,17 +54,8 @@ defmodule KafkaEx.New.Client do
           KafkaEx.New.Structs.NodeSelector.t(),
           pos_integer | nil
         ) :: {:ok, term} | {:error, term}
-  def send_request(
-        server,
-        request,
-        node_selector,
-        timeout \\ nil
-      ) do
-    GenServer.call(
-      server,
-      {:kayrock_request, request, node_selector},
-      timeout_val(timeout)
-    )
+  def send_request(server, request, node_selector, timeout \\ nil) do
+    GenServer.call(server, {:kayrock_request, request, node_selector}, timeout_val(timeout))
   end
 
   require Logger
@@ -165,11 +156,29 @@ defmodule KafkaEx.New.Client do
     {:reply, {:ok, topic_metadata}, updated_state}
   end
 
-  def handle_call({:describe_groups, [consumer_group_name]}, _from, state) do
-    if KafkaEx.valid_consumer_group?(consumer_group_name) do
-      {response, updated_state} = describe_group_request(consumer_group_name, state)
+  def handle_call({:list_offsets, [{topic, partitions_data}], opts}, _from, state) do
+    case list_offset_request({topic, partitions_data}, opts, state) do
+      {:error, error} -> {:reply, {:error, error}, state}
+      {result, updated_state} -> {:reply, result, updated_state}
+    end
+  end
 
-      {:reply, response, updated_state}
+  # Backward compatibility, to be deleted once we delete legacy code
+  def handle_call({:offset, topic, partition, timestamp}, _from, state) do
+    partition_data = %{partition_num: partition, timestamp: timestamp}
+
+    case list_offset_request({topic, [partition_data]}, [], state) do
+      {:error, error} -> {:reply, {:error, error}, state}
+      {result, updated_state} -> {:reply, result, updated_state}
+    end
+  end
+
+  def handle_call({:describe_groups, [consumer_group_name], opts}, _from, state) do
+    if KafkaEx.valid_consumer_group?(consumer_group_name) do
+      case describe_group_request(consumer_group_name, opts, state) do
+        {:error, error} -> {:reply, {:error, error}, state}
+        {result, updated_state} -> {:reply, result, updated_state}
+      end
     else
       {:reply, {:error, :invalid_consumer_group}, state}
     end
@@ -217,12 +226,7 @@ defmodule KafkaEx.New.Client do
     known_topics = ClusterMetadata.known_topics(state.cluster_metadata)
     topics = Enum.uniq(known_topics ++ topics)
 
-    {updated_state, response} =
-      retrieve_metadata(
-        state,
-        config_sync_timeout(),
-        topics
-      )
+    {updated_state, response} = retrieve_metadata(state, config_sync_timeout(), topics)
 
     case response do
       nil ->
@@ -232,10 +236,7 @@ defmodule KafkaEx.New.Client do
         new_cluster_metadata = ClusterMetadata.from_metadata_v1_response(response)
 
         {updated_cluster_metadata, brokers_to_close} =
-          ClusterMetadata.merge_brokers(
-            updated_state.cluster_metadata,
-            new_cluster_metadata
-          )
+          ClusterMetadata.merge_brokers(updated_state.cluster_metadata, new_cluster_metadata)
 
         for broker <- brokers_to_close do
           Logger.log(
@@ -257,66 +258,66 @@ defmodule KafkaEx.New.Client do
     end
   end
 
-  defp describe_group_request(consumer_group_name, state) do
+  # ----------------------------------------------------------------------------------------------------
+  defp describe_group_request(consumer_group_name, opts, state) do
     node_selector = NodeSelector.consumer_group(consumer_group_name)
+    req_data = [{:group_names, [consumer_group_name]} | opts]
 
-    [consumer_group_name]
-    |> RequestBuilder.describe_groups_request(state)
-    |> handle_describe_group_request(node_selector, state)
-  end
-
-  defp handle_describe_group_request(
-         _,
-         _,
-         _,
-         retry_count \\ @retry_count,
-         _last_error \\ nil
-       )
-
-  defp handle_describe_group_request(_, _, state, 0, last_error) do
-    {{:error, last_error}, state}
-  end
-
-  defp handle_describe_group_request(
-         request,
-         node_selector,
-         state,
-         retry_count,
-         _last_error
-       ) do
-    case kayrock_network_request(request, node_selector, state) do
-      {{:ok, response}, state_out} ->
-        case ResponseParser.describe_groups_response(response) do
-          {:ok, consumer_groups} ->
-            {{:ok, consumer_groups}, state_out}
-
-          {:error, [error | _]} ->
-            Logger.warn(
-              "Unable to fetch consumer group metadata for #{inspect(request.group_ids)}"
-            )
-
-            handle_describe_group_request(
-              request,
-              node_selector,
-              state,
-              retry_count - 1,
-              error
-            )
-        end
-
-      {_, _state_out} ->
-        Logger.warn("Unable to fetch consumer group metadata for #{inspect(request.group_ids)}")
-
-        handle_describe_group_request(
-          request,
-          node_selector,
-          state,
-          retry_count - 1,
-          :unknown
-        )
+    case RequestBuilder.describe_groups_request(req_data, state) do
+      {:ok, request} -> handle_describe_group_request(request, node_selector, state)
+      {:error, error} -> {:error, error}
     end
   end
 
+  defp list_offset_request({topic, partitions_data}, opts, state) do
+    [%{partition_num: partition_num}] = partitions_data
+    node_selector = NodeSelector.topic_partition(topic, partition_num)
+    req_data = [{:topics, [{topic, partitions_data}]} | opts]
+
+    case RequestBuilder.lists_offset_request(req_data, state) do
+      {:ok, request} -> handle_lists_offsets_request(request, node_selector, state)
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  # ----------------------------------------------------------------------------------------------------
+  defp handle_describe_group_request(request, node_selector, state) do
+    handle_request_with_retry(request, &ResponseParser.describe_groups_response/1, node_selector, state)
+  end
+
+  defp handle_lists_offsets_request(request, node_selector, state) do
+    handle_request_with_retry(request, &ResponseParser.list_offsets_response/1, node_selector, state)
+  end
+
+  # ----------------------------------------------------------------------------------------------------
+  defp handle_request_with_retry(_, _, _, _, retry_count \\ @retry_count, _last_error \\ nil)
+
+  defp handle_request_with_retry(_, _, _, state, 0, last_error) do
+    {{:error, last_error}, state}
+  end
+
+  defp handle_request_with_retry(request, parser_fn, node_selector, state, retry_count, _last_error) do
+    case kayrock_network_request(request, node_selector, state) do
+      {{:ok, response}, state_out} ->
+        case parser_fn.(response) do
+          {:ok, result} ->
+            {{:ok, result}, state_out}
+
+          {:error, [error | _]} ->
+            request_name = request.__struct__
+            Logger.warning("Unable to send request #{inspect(request_name)}, failed with error #{inspect(error)}")
+            handle_request_with_retry(request, parser_fn, node_selector, state, retry_count - 1, error)
+        end
+
+      {_, _state_out} ->
+        request_name = request.__struct__
+        Logger.warning("Unable to send request #{inspect(request_name)}, failed with error unknown")
+        error = KafkaEx.New.Structs.Error.build(:unknown, %{})
+        handle_request_with_retry(request, parser_fn, node_selector, state, retry_count - 1, error)
+    end
+  end
+
+  # ----------------------------------------------------------------------------------------------------
   defp maybe_connect_broker(broker, state) do
     case Broker.connected?(broker) do
       true ->
@@ -575,12 +576,7 @@ defmodule KafkaEx.New.Client do
     {ok_or_error, response, state_out}
   end
 
-  defp kayrock_network_request(
-         request,
-         node_selector,
-         state,
-         network_timeout \\ nil
-       ) do
+  defp kayrock_network_request(request, node_selector, state, network_timeout \\ nil) do
     # produce request have an acks field and if this is 0 then we do not want to
     # wait for a response from the broker
     synchronous =
@@ -590,14 +586,7 @@ defmodule KafkaEx.New.Client do
       end
 
     network_timeout = config_sync_timeout(network_timeout)
-
-    {send_request, updated_state} =
-      get_send_request_function(
-        node_selector,
-        state,
-        network_timeout,
-        synchronous
-      )
+    {send_request, updated_state} = get_send_request_function(node_selector, state, network_timeout, synchronous)
 
     case send_request do
       :no_broker ->
@@ -661,12 +650,7 @@ defmodule KafkaEx.New.Client do
          network_timeout,
          synchronous
        ) do
-    {broker, updated_state} =
-      broker_for_partition_with_update(
-        state,
-        topic,
-        partition
-      )
+    {broker, updated_state} = broker_for_partition_with_update(state, topic, partition)
 
     if broker do
       if synchronous do

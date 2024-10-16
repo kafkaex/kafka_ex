@@ -8,7 +8,7 @@ defmodule KafkaEx.New.Structs.BrokerTest do
     port = get_free_port(3040)
     pid = KafkaEx.TestSupport.Server.start(port)
 
-    {:ok, socket} = KafkaEx.Socket.create(~c"localhost", 3040, [:binary, {:packet, 0}], false)
+    {:ok, socket} = KafkaEx.Socket.create(~c"localhost", port, [:binary, {:packet, 0}], false)
 
     on_exit(fn ->
       KafkaEx.Socket.close(socket)

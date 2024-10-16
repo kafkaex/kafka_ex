@@ -133,7 +133,7 @@ defmodule KafkaEx do
   def describe_group(consumer_group_name, opts \\ []) do
     worker_name = Keyword.get(opts, :worker_name, Config.default_worker())
 
-    case Server.call(worker_name, {:describe_groups, [consumer_group_name]}) do
+    case Server.call(worker_name, {:describe_groups, [consumer_group_name], opts}) do
       {:ok, [group]} -> {:ok, group}
       {:error, error} -> {:error, error}
     end
@@ -227,8 +227,9 @@ defmodule KafkaEx do
   """
   @spec latest_offset(binary, integer, atom | pid) ::
           [OffsetResponse.t()] | :topic_not_found
-  def latest_offset(topic, partition, name \\ Config.default_worker()),
-    do: offset(topic, partition, :latest, name)
+  def latest_offset(topic, partition, name \\ Config.default_worker()) do
+    offset(topic, partition, :latest, name)
+  end
 
   @doc """
   Get the offset of the earliest message still persistent in Kafka
@@ -240,10 +241,10 @@ defmodule KafkaEx do
   [%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offset: [0], partition: 0}], topic: "foo"}]
   ```
   """
-  @spec earliest_offset(binary, integer, atom | pid) ::
-          [OffsetResponse.t()] | :topic_not_found
-  def earliest_offset(topic, partition, name \\ Config.default_worker()),
-    do: offset(topic, partition, :earliest, name)
+  @spec earliest_offset(binary, integer, atom | pid) :: [OffsetResponse.t()] | :topic_not_found
+  def earliest_offset(topic, partition, name \\ Config.default_worker()) do
+    offset(topic, partition, :earliest, name)
+  end
 
   @doc """
   Get the offset of the message sent at the specified date/time
@@ -255,14 +256,14 @@ defmodule KafkaEx do
   [%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: 0, offset: [256], partition: 0}], topic: "foo"}]
   ```
   """
-  @spec offset(
-          binary,
-          number,
-          :calendar.datetime() | :earliest | :latest,
-          atom | pid
-        ) :: [OffsetResponse.t()] | :topic_not_found
+  @type valid_timestamp :: :earliest | :latest | :calendar.datetime()
+  @spec offset(binary, number, valid_timestamp, atom | pid) :: [OffsetResponse.t()] | :topic_not_found
   def offset(topic, partition, time, name \\ Config.default_worker()) do
-    Server.call(name, {:offset, topic, partition, time})
+    case Server.call(name, {:offset, topic, partition, time}) do
+      {:ok, response} -> parse_offset_value(response)
+      {:error, :topic_not_found} -> :topic_not_found
+      result -> result
+    end
   end
 
   @wait_time 10
@@ -811,5 +812,24 @@ defmodule KafkaEx do
         {:ok, _} -> {:ok, pid}
       end
     end
+  end
+
+  # -------------------------------------------------------------------
+  # Backwards compatibility
+  # -------------------------------------------------------------------
+  defp parse_offset_value([%KafkaEx.New.Structs.Offset{} | _] = offsets) do
+    Enum.map(offsets, fn offset ->
+      %OffsetResponse{
+        topic: offset.topic,
+        partition_offsets:
+          Enum.map(offset.partition_offsets, fn value ->
+            %{
+              partition: value.partition,
+              error_code: value.error_code,
+              offset: [value.offset]
+            }
+          end)
+      }
+    end)
   end
 end

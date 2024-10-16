@@ -105,4 +105,4 @@ jobs:
         run: docker ps -a
 
       - name: Run Tests
-        run: ./scripts/ci_tests.sh
+        run: mix test
