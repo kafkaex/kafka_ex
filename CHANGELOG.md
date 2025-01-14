@@ -1,5 +1,11 @@
 # KafkaEx Changelog
 
+## 0.14
+
+* Switch to use snappyer
+* Deprecate use Bitwise 
+* Add Describe Groups API
+
 ## 0.13
 
 *   Support Snappyer 2
