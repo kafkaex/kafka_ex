@@ -110,8 +110,10 @@ defmodule KafkaEx.Socket do
   end
 
   defp extract_port(%KafkaEx.Socket{ssl: true} = socket) do
-    {:sslsocket, {:gen_tcp, port, _, _}, _} = socket.socket
-    port
+    case socket.socket do
+      {:sslsocket, {:gen_tcp, port, _, _}, _} -> port # OTP pre 28
+      {:sslsocket, port, _, _, :gen_tcp, _, _, _} -> port # OTP 28
+    end
   end
 
   defp extract_port(socket), do: socket.socket
