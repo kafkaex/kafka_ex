@@ -6,29 +6,26 @@ defmodule KafkaEx.NetworkClient do
 
   require Logger
   alias KafkaEx.Socket
+  alias KafkaEx.Auth.SASL.VersionSupport
+  alias KafkaEx.Auth.Config, as: AuthConfig
 
   @impl true
-  def create_socket(host, port, ssl_options \\ [], use_ssl \\ false) do
-    case Socket.create(
-           format_host(host),
-           port,
-           build_socket_options(ssl_options),
-           use_ssl
-         ) do
+  def create_socket(host, port, ssl_options \\ [], use_ssl \\ false, auth_opts \\ nil) do
+    case Socket.create(format_host(host), port, build_socket_options(ssl_options), use_ssl) do
       {:ok, socket} ->
-        Logger.log(
-          :debug,
-          "Successfully connected to broker #{inspect(host)}:#{inspect(port)}"
-        )
+        case maybe_authenticate_sasl(socket, auth_opts) do
+          :ok ->
+            :ok = Socket.setopts(socket, [:binary, {:packet, 4}, {:active, true}])
+            socket
 
-        socket
+          {:error, reason} ->
+            _ = Socket.close(socket)
+            Logger.error("SASL authentication failed for #{inspect(host)}:#{inspect(port)}: #{inspect(reason)}")
+            nil
+        end
 
-      err ->
-        Logger.log(
-          :error,
-          "Could not connect to broker #{inspect(host)}:#{inspect(port)} because of error #{inspect(err)}"
-        )
-
+      {:error, reason} ->
+        Logger.error("Could not connect to broker #{inspect(host)}:#{inspect(port)} because of error #{inspect(reason)}")
         nil
     end
   end
@@ -113,8 +110,16 @@ defmodule KafkaEx.NetworkClient do
     end
   end
 
+  defp maybe_authenticate_sasl(_socket, nil), do: :ok
+  defp maybe_authenticate_sasl(socket, %AuthConfig{} = cfg) do
+    case VersionSupport.validate_config(cfg, socket) do
+      :ok -> KafkaEx.Auth.SASL.authenticate(socket, cfg)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   defp build_socket_options([]) do
-    [:binary, {:packet, 4}]
+    [:binary, {:packet, 4}, {:active, false}]
   end
 
   defp build_socket_options(ssl_options) do

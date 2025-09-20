@@ -88,7 +88,8 @@ defmodule KafkaEx.New.Client do
                host,
                port,
                state.ssl_options,
-               state.use_ssl
+               state.use_ssl,
+               state.auth
              )
          }}
       end)
@@ -331,7 +332,8 @@ defmodule KafkaEx.New.Client do
                 broker.host,
                 broker.port,
                 state.ssl_options,
-                state.use_ssl
+                state.use_ssl,
+                state.auth
               )
         }
     end

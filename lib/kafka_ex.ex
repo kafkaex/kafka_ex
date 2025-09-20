@@ -58,6 +58,7 @@ defmodule KafkaEx do
           | {:metadata_update_interval, non_neg_integer}
           | {:consumer_group_update_interval, non_neg_integer}
           | {:ssl_options, ssl_options}
+          | {:auth, KafkaEx.Auth.Config.t() | nil}
           | {:initial_topics, [binary]}
 
   @doc """
@@ -70,6 +71,7 @@ defmodule KafkaEx do
   - consumer_group_update_interval: How often `kafka_ex` would update the Kafka cluster consumer_groups information in milliseconds, default is 30000
   - use_ssl: Boolean flag specifying if ssl should be used for the connection by the worker to Kafka, default is false
   - ssl_options: see SSL OPTION DESCRIPTIONS - CLIENT SIDE at http://erlang.org/doc/man/ssl.html, default is []
+  - auth: SASL authentication configuration as `KafkaEx.Auth.Config.t()` or `nil`. See `KafkaEx.Auth.Config` for details. Default is `nil` (no authentication)
 
   Returns `{:error, error_description}` on invalid arguments
 
@@ -646,7 +648,8 @@ defmodule KafkaEx do
       uris: Config.brokers(),
       consumer_group: Config.consumer_group(),
       use_ssl: Config.use_ssl(),
-      ssl_options: Config.ssl_options()
+      ssl_options: Config.ssl_options(),
+      auth: Config.auth_config()
     ]
 
     worker_init = Keyword.merge(defaults, worker_init)

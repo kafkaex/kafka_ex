@@ -1,5 +1,11 @@
 #!/bin/bash
+set -euo pipefail
 
-# This script starts zookeeper and the 3 kafka nodes used for testing
+if [[ "$(uname -m)" == "arm64" || "$(uname -m)" == "aarch64" ]]; then
+  BASE="-f docker-compose-arm.yml"
+else
+  BASE="-f docker-compose.yml"
+fi
 
-docker compose up -d
+echo "Starting Kafka with mode: $BASE"
+docker compose $BASE  up -d

@@ -28,6 +28,7 @@ defmodule KafkaEx.Mixfile do
           "README.md",
           "kayrock.md",
           "new_api.md",
+          "AUTH.md",
           "CONTRIBUTING.md"
         ],
         source_url: @source_url,
