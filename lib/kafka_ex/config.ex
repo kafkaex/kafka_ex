@@ -55,6 +55,11 @@ defmodule KafkaEx.Config do
     |> brokers()
   end
 
+  @doc false
+  def auth_config do
+    KafkaEx.Auth.Config.from_env()
+  end
+
   defp brokers(nil),
     do: nil
 

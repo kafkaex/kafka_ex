@@ -29,6 +29,9 @@ defmodule KafkaEx.NetworkClient.Behaviour do
   @callback create_socket(host, host_port, KafkaEx.ssl_options(), use_ssl) ::
               kafka_ex_socket | nil
 
+  @callback create_socket(host, host_port, KafkaEx.ssl_options(), use_ssl,  auth :: KafkaEx.Auth.Config.t() | nil) ::
+              kafka_ex_socket | nil
+
   @doc """
   Close socket, if socket is nil, do nothing.
   """

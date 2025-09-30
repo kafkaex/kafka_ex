@@ -11,4 +11,5 @@ mix $TEST_COMMAND \
   --include server_0_p_10_p_1 \
   --include server_0_p_9_p_0 \
   --include server_0_p_8_p_0 \
+  --include sasl \
   --include new_client "$@"

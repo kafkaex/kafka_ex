@@ -9,7 +9,7 @@ defmodule KafkaEx.NetworkClientTest do
   describe "close_socket/1" do
     test "closes the socket" do
       {:ok, socket} =
-        :gen_tcp.listen(3001, [
+        :gen_tcp.listen(get_free_port(3001), [
           :binary,
           {:active, false},
           {:reuseaddr, true},

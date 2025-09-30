@@ -89,13 +89,14 @@ defmodule KafkaEx.Server0P9P0 do
 
     use_ssl = Keyword.get(args, :use_ssl, false)
     ssl_options = Keyword.get(args, :ssl_options, [])
+    auth = Keyword.get(args, :auth, nil)
 
     brokers =
       Enum.map(uris, fn {host, port} ->
         %Broker{
           host: host,
           port: port,
-          socket: NetworkClient.create_socket(host, port, ssl_options, use_ssl)
+          socket: NetworkClient.create_socket(host, port, ssl_options, use_ssl, auth)
         }
       end)
 
@@ -120,6 +121,7 @@ defmodule KafkaEx.Server0P9P0 do
       worker_name: name,
       ssl_options: ssl_options,
       use_ssl: use_ssl,
+      auth: auth,
       api_versions: [:unsupported]
     }
 

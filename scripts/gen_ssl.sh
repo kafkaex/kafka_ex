@@ -1,42 +1,57 @@
 #!/bin/bash
+set -euo pipefail
 
 # Setup directories
 SSL_DIR="../ssl"
-mkdir -p $SSL_DIR
+mkdir -p "$SSL_DIR"
 
 # Password for the keystores and private keys
 PASSWORD="kafka_ex"
 
 # Generate the CA
 openssl req -new -x509 -keyout "$SSL_DIR/ca-key" -out "$SSL_DIR/ca-cert" -days 365 \
--subj "/CN=localhost/OU=KafkaEx/O=KafkaEx/L=KafkaEx/ST=KafkaEx/C=US" -passout pass:$PASSWORD || exit 1
+  -subj "/CN=localhost/OU=KafkaEx/O=KafkaEx/L=KafkaEx/ST=KafkaEx/C=US" -passout pass:$PASSWORD
 
 # Generate the server key
-openssl genrsa -out "$SSL_DIR/server.key" 2048 || exit 1
+openssl genrsa -out "$SSL_DIR/server.key" 2048
 
 # Generate the server certificate request
 openssl req -new -key "$SSL_DIR/server.key" -out "$SSL_DIR/server.csr" \
--subj "/CN=localhost/OU=KafkaEx/O=KafkaEx/L=KafkaEx/ST=KafkaEx/C=US" -passout pass:$PASSWORD || exit 1
+  -subj "/CN=localhost/OU=KafkaEx/O=KafkaEx/L=KafkaEx/ST=KafkaEx/C=US"
 
 # Sign the server certificate with the CA
 openssl x509 -req -in "$SSL_DIR/server.csr" -CA "$SSL_DIR/ca-cert" -CAkey "$SSL_DIR/ca-key" -CAcreateserial \
--out "$SSL_DIR/server.crt" -days 365 -passin pass:$PASSWORD || exit 1
+  -out "$SSL_DIR/server.crt" -days 365 -passin pass:$PASSWORD
 
-# Convert the server certificate and key into a PKCS#12 file
-openssl pkcs12 -export -in "$SSL_DIR/server.crt" -inkey "$SSL_DIR/server.key" -out "$SSL_DIR/server.p12" \
--name kafka -passin pass:$PASSWORD -passout pass:$PASSWORD || exit 1
+# ---- PKCS#12 outputs
 
-# Create Kafka server keystore
-keytool -importkeystore -destkeystore "$SSL_DIR/kafka.server.keystore.jks" -srckeystore "$SSL_DIR/server.p12" \
--srcstoretype PKCS12 -alias kafka -storepass $PASSWORD -srcstorepass $PASSWORD || exit 1
+# Keystore (PKCS#12) with full chain
+openssl pkcs12 -export \
+  -in "$SSL_DIR/server.crt" \
+  -inkey "$SSL_DIR/server.key" \
+  -certfile "$SSL_DIR/ca-cert" \
+  -name kafka \
+  -out "$SSL_DIR/kafka.server.keystore.p12" \
+  -passout pass:$PASSWORD \
+  -keypbe PBE-SHA1-3DES \
+  -certpbe PBE-SHA1-3DES \
+  -macalg sha1 \
+  -legacy
 
-# Create Kafka server truststore and import the CA certificate
-keytool -keystore "$SSL_DIR/kafka.server.truststore.jks" -alias CARoot -import -file "$SSL_DIR/ca-cert" \
--storepass $PASSWORD -noprompt || exit 1
+# Truststore (PKCS#12) containing CA
+openssl pkcs12 -export \
+  -in "$SSL_DIR/ca-cert" \
+  -nokeys \
+  -name CARoot \
+  -out "$SSL_DIR/kafka.server.truststore.p12" \
+  -passout pass:$PASSWORD \
+  -certpbe PBE-SHA1-3DES \
+  -macalg sha1 \
+  -legacy
 
-# Prepare PEM files for client
-cp "$SSL_DIR/server.key" "$SSL_DIR/key.pem" || exit 1
-cp "$SSL_DIR/server.crt" "$SSL_DIR/cert.pem" || exit 1
-cp "$SSL_DIR/ca-cert" "$SSL_DIR/ca-cert" || exit 1
+# Optional: PEMs for clients
+cp "$SSL_DIR/server.key" "$SSL_DIR/key.pem"
+cp "$SSL_DIR/server.crt" "$SSL_DIR/cert.pem"
 
-echo "SSL files generated successfully."
+echo "SSL files (PKCS#12) generated successfully:"
+ls -l "$SSL_DIR"/kafka.server.keystore.p12 "$SSL_DIR"/kafka.server.truststore.p12

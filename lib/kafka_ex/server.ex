@@ -39,6 +39,7 @@ defmodule KafkaEx.Server do
       worker_name: KafkaEx.Server,
       ssl_options: [],
       use_ssl: false,
+      auth: nil,
       api_versions: []
     )
 
@@ -53,6 +54,7 @@ defmodule KafkaEx.Server do
             worker_name: atom,
             ssl_options: KafkaEx.ssl_options(),
             use_ssl: boolean,
+            auth: KafkaEx.Auth.Config.t() | nil,
             api_versions: [KafkaEx.Protocol.ApiVersions.ApiVersion]
           }
 
@@ -289,6 +291,7 @@ defmodule KafkaEx.Server do
       @metadata_update_interval 30_000
       @sync_timeout 1_000
       @ssl_options []
+      @auth nil
 
       def init([args]) do
         kafka_server_init([args])
@@ -610,7 +613,7 @@ defmodule KafkaEx.Server do
         brokers =
           state.brokers
           |> remove_stale_brokers(metadata_brokers)
-          |> add_new_brokers(metadata_brokers, state.ssl_options, state.use_ssl)
+          |> add_new_brokers(metadata_brokers, state.ssl_options, state.use_ssl, state.auth)
 
         %{
           state
@@ -740,6 +743,7 @@ defmodule KafkaEx.Server do
       defp kafka_common_init(args, name) do
         use_ssl = Keyword.get(args, :use_ssl, false)
         ssl_options = Keyword.get(args, :ssl_options, [])
+        auth = Keyword.get(args, :auth, nil)
 
         uris = Keyword.get(args, :uris, [])
 
@@ -752,7 +756,7 @@ defmodule KafkaEx.Server do
 
         brokers =
           for {host, port} <- uris do
-            connect_broker(host, port, ssl_options, use_ssl)
+            connect_broker(host, port, ssl_options, use_ssl, auth)
           end
 
         check_brokers_sockets!(brokers)
@@ -777,6 +781,7 @@ defmodule KafkaEx.Server do
           metadata_update_interval: metadata_update_interval,
           ssl_options: ssl_options,
           use_ssl: use_ssl,
+          auth: auth,
           worker_name: name,
           api_versions: [:unsupported]
         }
@@ -807,11 +812,11 @@ defmodule KafkaEx.Server do
         end
       end
 
-      defp connect_broker(host, port, ssl_opts, use_ssl) do
+      defp connect_broker(host, port, ssl_opts, use_ssl, auth) do
         %Broker{
           host: host,
           port: port,
-          socket: NetworkClient.create_socket(host, port, ssl_opts, use_ssl)
+          socket: NetworkClient.create_socket(host, port, ssl_opts, use_ssl, auth)
         }
       end
 
@@ -925,13 +930,14 @@ defmodule KafkaEx.Server do
         end
       end
 
-      defp add_new_brokers(brokers, [], _, _), do: brokers
+      defp add_new_brokers(brokers, [], _, _, _), do: brokers
 
       defp add_new_brokers(
              brokers,
              [metadata_broker | metadata_brokers],
              ssl_options,
-             use_ssl
+             use_ssl,
+             auth
            ) do
         case Enum.find(brokers, &(metadata_broker.node_id == &1.node_id)) do
           nil ->
@@ -949,18 +955,20 @@ defmodule KafkaEx.Server do
                         metadata_broker.host,
                         metadata_broker.port,
                         ssl_options,
-                        use_ssl
+                        use_ssl,
+                        auth
                       )
                 }
                 | brokers
               ],
               metadata_brokers,
               ssl_options,
-              use_ssl
+              use_ssl,
+              auth
             )
 
           _ ->
-            add_new_brokers(brokers, metadata_brokers, ssl_options, use_ssl)
+            add_new_brokers(brokers, metadata_brokers, ssl_options, use_ssl, auth)
         end
       end
 

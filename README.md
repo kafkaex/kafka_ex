@@ -355,6 +355,47 @@ KafkaEx.produce(produce_request)
 
 Compression is handled automatically on the consuming/fetching end.
 
+## SASL Authentication
+
+KafkaEx supports connecting to secure Kafka clusters with SASL mechanisms.
+
+Example:
+
+```elixir
+# config/config.exs
+config :kafka_ex,
+  brokers: [{"localhost", 9292}],
+  use_ssl: true,
+  ssl_options: [verify: :verify_none],
+  sasl: %{
+    mechanism: :scram,
+    username: System.get_env("KAFKA_USERNAME"),
+    password: System.get_env("KAFKA_PASSWORD"),
+    mechanism_opts: %{algo: :sha256}  # or :sha512
+  }
+```
+
+Or via worker options:
+
+```elixir
+{:ok, _pid} = KafkaEx.create_worker(:sasl_worker, [
+  uris: [{"localhost", 9292}],
+  use_ssl: true,
+  ssl_options: [verify: :verify_none],
+  auth: KafkaEx.Auth.Config.new(%{
+    mechanism: :plain,
+    username: "alice",
+    password: "secret123"
+  })
+])
+```
+
+> ✅ Use SSL/TLS with PLAIN (never send passwords in cleartext).  
+> ✅ Prefer SCRAM over PLAIN when supported.  
+> ✅ PLAIN requires Kafka 0.9.0+, SCRAM requires 0.10.2+.  
+
+👉 See [AUTH.md](./AUTH.md) for full details, configuration examples, and troubleshooting tips.
+
 ## Testing
 
 It is strongly recommended to test using the Dockerized test cluster described
@@ -366,12 +407,17 @@ asynchronous issues, the test suite sometimes fails on the first try.
 ### Dockerized Test Cluster
 
 Testing KafkaEx requires a local SSL-enabled Kafka cluster with 3 nodes: one
-node listening on each port 9092, 9093, and 9093.  The easiest way to do this
+node listening on appropriate port. The easiest way to do this
 is using the scripts in
 this repository that utilize [Docker](https://www.docker.com) and
 [Docker Compose](https://www.docker.com/products/docker-compose) (both of which
 are freely available).  This is the method we use for our CI testing of
 KafkaEx.
+
+Ports:
+9092-9094 - No authentication (SSL)
+9192-9194 - SASL/PLAIN (SSL)
+9292-9294 - SASL/SCRAM (SSL)
 
 To launch the included test cluster, run
 
