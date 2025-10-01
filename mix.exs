@@ -9,7 +9,7 @@ defmodule KafkaEx.Mixfile do
     [
       app: :kafka_ex,
       version: @version,
-      elixir: "~> 1.12",
+      elixir: "~> 1.14",
       elixirc_paths: elixirc_paths(Mix.env()),
       dialyzer: [
         plt_add_apps: [:ssl],
@@ -65,7 +65,7 @@ defmodule KafkaEx.Mixfile do
 
   defp package do
     [
-      maintainers: ["Abejide Ayodele", "Dan Swain", "Jack Lund", "Joshua Scott"],
+      maintainers: ["Abejide Ayodele", "Dan Swain", "Jack Lund", "Joshua Scott", "Piotr Rybarczyk"],
       files: ["lib", "config/config.exs", "mix.exs", "README.md"],
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url}

@@ -23,12 +23,12 @@ jobs:
       fail-fast: false
       matrix:
         pair:
+          - elixir: 1.18
+            otp: 27.2
           - elixir: 1.16
-            otp: 26.1
+            otp: 26.2
           - elixir: 1.14
             otp: 24.3
-          - elixir: 1.12
-            otp: 22.3
 
     steps:
       - name: Checkout
