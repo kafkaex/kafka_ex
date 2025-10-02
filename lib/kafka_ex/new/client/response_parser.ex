@@ -24,4 +24,20 @@ defmodule KafkaEx.New.Client.ResponseParser do
   def list_offsets_response(response) do
     @protocol.parse_response(:list_offsets, response)
   end
+
+  @doc """
+  Parses response for Offset Fetch API
+  """
+  @spec offset_fetch_response(term) :: {:ok, [Offset.t()]} | {:error, Error.t()}
+  def offset_fetch_response(response) do
+    @protocol.parse_response(:offset_fetch, response)
+  end
+
+  @doc """
+  Parses response for Offset Commit API
+  """
+  @spec offset_commit_response(term) :: {:ok, [Offset.t()]} | {:error, Error.t()}
+  def offset_commit_response(response) do
+    @protocol.parse_response(:offset_commit, response)
+  end
 end

@@ -6,6 +6,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   """
   use ExUnit.Case
   import KafkaEx.TestHelpers
+  import KafkaEx.IntegrationHelpers
 
   @moduletag :new_client
 
@@ -635,15 +636,137 @@ defmodule KafkaEx.KayrockCompatibilityTest do
     :ok = KafkaEx.produce(topic, nil, "hello", worker_name: client)
   end
 
-  # -----------------------------------------------------------------------------
-  defp join_to_group(client, topic, consumer_group) do
-    request = %KafkaEx.Protocol.JoinGroup.Request{
-      group_name: consumer_group,
-      member_id: "",
-      topics: [topic],
-      session_timeout: 6000
-    }
+  describe "offset_fetch compatibility" do
+    test "fetch committed offset via legacy API", %{client: client} do
+      topic_name = KafkaEx.TestHelpers.generate_random_string()
+      consumer_group = KafkaEx.TestHelpers.generate_random_string()
+      create_topic(client, topic_name, partitions: 1)
 
-    KafkaEx.join_group(request, worker_name: client, timeout: 10000)
+      # Commit via new API
+      partitions = [%{partition_num: 0, offset: 123}]
+      {:ok, _} = KafkaExAPI.commit_offset(client, consumer_group, topic_name, partitions)
+
+      # Fetch via legacy API
+      request = %KafkaEx.Protocol.OffsetFetch.Request{
+        topic: topic_name,
+        partition: 0,
+        consumer_group: consumer_group
+      }
+
+      [response] = KafkaEx.offset_fetch(client, request)
+
+      assert response.topic == topic_name
+      assert [partition_offset] = response.partitions
+      assert partition_offset.partition == 0
+      assert partition_offset.offset == 123
+    end
+
+    test "fetch via new API what was committed via legacy API", %{client: client} do
+      topic_name = KafkaEx.TestHelpers.generate_random_string()
+      consumer_group = KafkaEx.TestHelpers.generate_random_string()
+      create_topic(client, topic_name, partitions: 1)
+
+      # Commit via legacy API
+      request = %KafkaEx.Protocol.OffsetCommit.Request{
+        topic: topic_name,
+        partition: 0,
+        offset: 456,
+        consumer_group: consumer_group
+      }
+
+      KafkaEx.offset_commit(request, worker_name: client)
+
+      # Fetch via new API
+      partitions = [%{partition_num: 0}]
+      {:ok, [offset]} = KafkaExAPI.fetch_committed_offset(client, consumer_group, topic_name, partitions)
+
+      assert offset.topic == topic_name
+      assert [partition_offset] = offset.partition_offsets
+      assert partition_offset.offset == 456
+    end
   end
+
+  describe "offset_commit compatibility" do
+    test "commit offset via legacy API", %{client: client} do
+      topic_name = KafkaEx.TestHelpers.generate_random_string()
+      consumer_group = KafkaEx.TestHelpers.generate_random_string()
+      create_topic(client, topic_name, partitions: 1)
+
+      request = %KafkaEx.Protocol.OffsetCommit.Request{
+        topic: topic_name,
+        partition: 0,
+        offset: 789,
+        consumer_group: consumer_group
+      }
+
+      response = KafkaEx.offset_commit(client, request)
+
+      assert [result] = response
+      assert result.topic == topic_name
+      assert [partition_result] = result.partitions
+      assert partition_result.partition == 0
+      assert partition_result.error_code == :no_error
+    end
+
+    test "commit via new API and verify via legacy API", %{client: client} do
+      topic_name = KafkaEx.TestHelpers.generate_random_string()
+      consumer_group = KafkaEx.TestHelpers.generate_random_string()
+      create_topic(client, topic_name, partitions: 1)
+
+      # Commit via new API
+      partitions = [%{partition_num: 0, offset: 999}]
+      {:ok, _} = KafkaExAPI.commit_offset(client, consumer_group, topic_name, partitions)
+
+      # Verify via legacy API
+      fetch_request = %KafkaEx.Protocol.OffsetFetch.Request{
+        topic: topic_name,
+        partition: 0,
+        consumer_group: consumer_group
+      }
+
+      [response] = KafkaEx.offset_fetch(client, fetch_request)
+
+      assert [partition_offset] = response.partitions
+      assert partition_offset.offset == 999
+    end
+
+    test "round trip commit-then-fetch with mixed APIs", %{client: client} do
+      topic_name = KafkaEx.TestHelpers.generate_random_string()
+      consumer_group = KafkaEx.TestHelpers.generate_random_string()
+      create_topic(client, topic_name, partitions: 1)
+
+      # Commit via legacy API
+      commit_request = %KafkaEx.Protocol.OffsetCommit.Request{
+        topic: topic_name,
+        partition: 0,
+        offset: 555,
+        consumer_group: consumer_group
+      }
+      KafkaEx.offset_commit(client, commit_request)
+
+      # Fetch via new API
+      partitions_fetch = [%{partition_num: 0}]
+      {:ok, [offset]} = KafkaExAPI.fetch_committed_offset(client, consumer_group, topic_name, partitions_fetch)
+
+      assert [partition_offset] = offset.partition_offsets
+      assert partition_offset.offset == 555
+
+      # Commit via new API
+      partitions_commit = [%{partition_num: 0, offset: 777}]
+      {:ok, _} = KafkaExAPI.commit_offset(client, consumer_group, topic_name, partitions_commit)
+
+      # Fetch via legacy API
+      fetch_request = %KafkaEx.Protocol.OffsetFetch.Request{
+        topic: topic_name,
+        partition: 0,
+        consumer_group: consumer_group
+      }
+      [response] = KafkaEx.offset_fetch(client, fetch_request)
+
+      assert [final_partition_offset] = response.partitions
+      assert final_partition_offset.offset == 777
+    end
+  end
+
+  # -----------------------------------------------------------------------------
 end
