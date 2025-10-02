@@ -6,10 +6,10 @@ defmodule KafkaEx.New.Structs.ClusterMetadata do
   functions may be useful for extracting metadata information
   """
 
-  alias KafkaEx.New.Structs.Broker
-  alias KafkaEx.New.Structs.Topic
   alias KafkaEx.New.KafkaExAPI
+  alias KafkaEx.New.Structs.Broker
   alias KafkaEx.New.Structs.NodeSelector
+  alias KafkaEx.New.Structs.Topic
 
   defstruct brokers: %{},
             controller_id: nil,

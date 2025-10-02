@@ -9,6 +9,8 @@ defmodule KafkaEx.Config do
                ```
                """
 
+  alias KafkaEx.Auth.Config, as: AuthConfig
+
   require Logger
 
   @doc false
@@ -57,7 +59,7 @@ defmodule KafkaEx.Config do
 
   @doc false
   def auth_config do
-    KafkaEx.Auth.Config.from_env()
+    AuthConfig.from_env()
   end
 
   defp brokers(nil),

@@ -11,39 +11,54 @@ defmodule KafkaEx.New.Adapter do
 
   require Logger
 
+  alias KafkaEx.Protocol
   alias KafkaEx.Protocol.ApiVersions.ApiVersion
   alias KafkaEx.Protocol.CreateTopics.Response, as: CreateTopicsResponse
   alias KafkaEx.Protocol.CreateTopics.TopicError, as: CreateTopicError
   alias KafkaEx.Protocol.DeleteTopics.Response, as: DeleteTopicsResponse
   alias KafkaEx.Protocol.DeleteTopics.TopicError, as: DeleteTopicError
+  alias KafkaEx.Protocol.Fetch.Message, as: FetchMessage
+  alias KafkaEx.Protocol.Fetch.Response, as: FetchResponse
   alias KafkaEx.Protocol.Heartbeat.Response, as: HeartbeatResponse
-  alias KafkaEx.Protocol.Metadata.Broker
-  alias KafkaEx.Protocol.Metadata.TopicMetadata
-  alias KafkaEx.Protocol.Metadata.PartitionMetadata
-  alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
   alias KafkaEx.Protocol.JoinGroup.Response, as: JoinGroupResponse
   alias KafkaEx.Protocol.LeaveGroup.Response, as: LeaveGroupResponse
+  alias KafkaEx.Protocol.Metadata.Broker
+  alias KafkaEx.Protocol.Metadata.PartitionMetadata
+  alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
+  alias KafkaEx.Protocol.Metadata.TopicMetadata
   alias KafkaEx.Protocol.Offset, as: Offset
   alias KafkaEx.Protocol.Offset.Response, as: OffsetResponse
-  alias KafkaEx.Protocol.OffsetFetch.Response, as: OffsetFetchResponse
   alias KafkaEx.Protocol.OffsetCommit.Response, as: OffsetCommitResponse
+  alias KafkaEx.Protocol.OffsetFetch.Response, as: OffsetFetchResponse
   alias KafkaEx.Protocol.SyncGroup.Response, as: SyncGroupResponse
-  alias KafkaEx.Protocol.Fetch.Response, as: FetchResponse
-  alias KafkaEx.Protocol.Fetch.Message, as: FetchMessage
   alias KafkaEx.TimestampNotSupportedError
 
+  alias Kayrock.CreateTopics
+  alias Kayrock.DeleteTopics
+  alias Kayrock.ErrorCode
+  alias Kayrock.Fetch
+  alias Kayrock.GroupProtocolMetadata
+  alias Kayrock.Heartbeat
+  alias Kayrock.JoinGroup
+  alias Kayrock.LeaveGroup
+  alias Kayrock.ListOffsets
+  alias Kayrock.MemberAssignment
   alias Kayrock.MessageSet
   alias Kayrock.MessageSet.Message
+  alias Kayrock.OffsetCommit
+  alias Kayrock.OffsetFetch
+  alias Kayrock.Produce
   alias Kayrock.RecordBatch
   alias Kayrock.RecordBatch.Record
   alias Kayrock.RecordBatch.RecordHeader
+  alias Kayrock.SyncGroup
 
   def list_offsets_request(topic, partition, time) do
     time = Offset.parse_time(time)
 
     partition_request = %{partition: partition, timestamp: time}
 
-    %Kayrock.ListOffsets.V1.Request{
+    %ListOffsets.V1.Request{
       replica_id: -1,
       topics: [%{topic: topic, partitions: [partition_request]}]
     }
@@ -56,7 +71,7 @@ defmodule KafkaEx.New.Adapter do
         partition_offsets:
           Enum.map(r.partition_responses, fn p ->
             %{
-              error_code: Kayrock.ErrorCode.code_to_atom(p.error_code),
+              error_code: ErrorCode.code_to_atom(p.error_code),
               offset: [p.offset],
               partition: p.partition
             }
@@ -71,7 +86,7 @@ defmodule KafkaEx.New.Adapter do
 
     message_set = build_produce_messages(produce_request)
 
-    request = Kayrock.Produce.get_request_struct(produce_request.api_version)
+    request = Produce.get_request_struct(produce_request.api_version)
 
     request = %{
       request
@@ -111,7 +126,7 @@ defmodule KafkaEx.New.Adapter do
           }
         ]
       }) do
-    {:error, Kayrock.ErrorCode.code_to_atom(error_code)}
+    {:error, ErrorCode.code_to_atom(error_code)}
   end
 
   def metadata_response(cluster_metadata) do
@@ -135,7 +150,7 @@ defmodule KafkaEx.New.Adapter do
   end
 
   def fetch_request(fetch_request) do
-    request = Kayrock.Fetch.get_request_struct(fetch_request.api_version)
+    request = Fetch.get_request_struct(fetch_request.api_version)
 
     partition_request = %{
       partition: fetch_request.partition,
@@ -207,7 +222,7 @@ defmodule KafkaEx.New.Adapter do
          partitions: [
            %{
              partition: partition,
-             error_code: KafkaEx.Protocol.error(error_code),
+             error_code: Protocol.error(error_code),
              hw_mark_offset: high_watermark,
              message_set: message_set,
              last_offset: last_offset || high_watermark
@@ -227,7 +242,7 @@ defmodule KafkaEx.New.Adapter do
   end
 
   def join_group_request(join_group_request) do
-    request = %Kayrock.JoinGroup.V0.Request{
+    request = %JoinGroup.V0.Request{
       group_id: join_group_request.group_name,
       member_id: join_group_request.member_id,
       session_timeout: join_group_request.session_timeout,
@@ -235,7 +250,7 @@ defmodule KafkaEx.New.Adapter do
       group_protocols: [
         %{
           protocol_name: "assign",
-          protocol_metadata: %Kayrock.GroupProtocolMetadata{
+          protocol_metadata: %GroupProtocolMetadata{
             topics: join_group_request.topics
           }
         }
@@ -245,7 +260,7 @@ defmodule KafkaEx.New.Adapter do
     {request, request.group_id}
   end
 
-  def join_group_response(%Kayrock.JoinGroup.V0.Response{
+  def join_group_response(%JoinGroup.V0.Response{
         error_code: error_code,
         generation_id: generation_id,
         leader_id: leader_id,
@@ -253,7 +268,7 @@ defmodule KafkaEx.New.Adapter do
         members: members
       }) do
     %JoinGroupResponse{
-      error_code: Kayrock.ErrorCode.code_to_atom(error_code),
+      error_code: ErrorCode.code_to_atom(error_code),
       generation_id: generation_id,
       leader_id: leader_id,
       member_id: member_id,
@@ -262,7 +277,7 @@ defmodule KafkaEx.New.Adapter do
   end
 
   def sync_group_request(request) do
-    {%Kayrock.SyncGroup.V0.Request{
+    {%SyncGroup.V0.Request{
        group_id: request.group_name,
        generation_id: request.generation_id,
        member_id: request.member_id,
@@ -270,51 +285,51 @@ defmodule KafkaEx.New.Adapter do
      }, request.group_name}
   end
 
-  def sync_group_response(%Kayrock.SyncGroup.V0.Response{
+  def sync_group_response(%SyncGroup.V0.Response{
         error_code: error_code,
-        member_assignment: %Kayrock.MemberAssignment{
+        member_assignment: %MemberAssignment{
           partition_assignments: partition_assignments
         }
       }) do
     %SyncGroupResponse{
-      error_code: Kayrock.ErrorCode.code_to_atom(error_code),
+      error_code: ErrorCode.code_to_atom(error_code),
       assignments: Enum.map(partition_assignments, fn p -> {p.topic, p.partitions} end)
     }
   end
 
   def leave_group_request(request) do
-    {%Kayrock.LeaveGroup.V0.Request{
+    {%LeaveGroup.V0.Request{
        group_id: request.group_name,
        member_id: request.member_id
      }, request.group_name}
   end
 
-  def leave_group_response(%Kayrock.LeaveGroup.V0.Response{
+  def leave_group_response(%LeaveGroup.V0.Response{
         error_code: error_code
       }) do
-    %LeaveGroupResponse{error_code: Kayrock.ErrorCode.code_to_atom(error_code)}
+    %LeaveGroupResponse{error_code: ErrorCode.code_to_atom(error_code)}
   end
 
   def heartbeat_request(request) do
-    {%Kayrock.Heartbeat.V0.Request{
+    {%Heartbeat.V0.Request{
        group_id: request.group_name,
        member_id: request.member_id,
        generation_id: request.generation_id
      }, request.group_name}
   end
 
-  def heartbeat_response(%Kayrock.Heartbeat.V0.Response{error_code: error_code}) do
-    %HeartbeatResponse{error_code: Kayrock.ErrorCode.code_to_atom(error_code)}
+  def heartbeat_response(%Heartbeat.V0.Response{error_code: error_code}) do
+    %HeartbeatResponse{error_code: ErrorCode.code_to_atom(error_code)}
   end
 
   def create_topics_request(requests, timeout) do
-    %Kayrock.CreateTopics.V0.Request{
+    %CreateTopics.V0.Request{
       timeout: timeout,
       create_topic_requests: Enum.map(requests, &kafka_ex_to_kayrock_create_topics/1)
     }
   end
 
-  def create_topics_response(%Kayrock.CreateTopics.V0.Response{
+  def create_topics_response(%CreateTopics.V0.Response{
         topic_errors: topic_errors
       }) do
     %CreateTopicsResponse{
@@ -322,20 +337,20 @@ defmodule KafkaEx.New.Adapter do
         Enum.map(topic_errors, fn e ->
           %CreateTopicError{
             topic_name: e.topic,
-            error_code: Kayrock.ErrorCode.code_to_atom(e.error_code)
+            error_code: ErrorCode.code_to_atom(e.error_code)
           }
         end)
     }
   end
 
   def delete_topics_request(topics, timeout) do
-    %Kayrock.DeleteTopics.V0.Request{
+    %DeleteTopics.V0.Request{
       topics: topics,
       timeout: timeout
     }
   end
 
-  def delete_topics_response(%Kayrock.DeleteTopics.V0.Response{
+  def delete_topics_response(%DeleteTopics.V0.Response{
         topic_error_codes: topic_error_codes
       }) do
     %DeleteTopicsResponse{
@@ -343,7 +358,7 @@ defmodule KafkaEx.New.Adapter do
         Enum.map(topic_error_codes, fn ec ->
           %DeleteTopicError{
             topic_name: ec.topic,
-            error_code: Kayrock.ErrorCode.code_to_atom(ec.error_code)
+            error_code: ErrorCode.code_to_atom(ec.error_code)
           }
         end)
     }
@@ -371,7 +386,7 @@ defmodule KafkaEx.New.Adapter do
   def offset_fetch_request(offset_fetch_request, client_consumer_group) do
     consumer_group = offset_fetch_request.consumer_group || client_consumer_group
 
-    request = Kayrock.OffsetFetch.get_request_struct(offset_fetch_request.api_version)
+    request = OffsetFetch.get_request_struct(offset_fetch_request.api_version)
 
     {%{
        request
@@ -408,7 +423,7 @@ defmodule KafkaEx.New.Adapter do
             partition: partition,
             offset: offset,
             metadata: metadata,
-            error_code: Kayrock.ErrorCode.code_to_atom(error_code)
+            error_code: ErrorCode.code_to_atom(error_code)
           }
         ]
       }
@@ -418,7 +433,7 @@ defmodule KafkaEx.New.Adapter do
   def offset_commit_request(offset_commit_request, client_consumer_group) do
     consumer_group = offset_commit_request.consumer_group || client_consumer_group
 
-    request = Kayrock.OffsetCommit.get_request_struct(offset_commit_request.api_version)
+    request = OffsetCommit.get_request_struct(offset_commit_request.api_version)
 
     request = %{
       request
@@ -498,7 +513,7 @@ defmodule KafkaEx.New.Adapter do
         partitions: [
           %{
             partition: partition,
-            error_code: Kayrock.ErrorCode.code_to_atom(error_code)
+            error_code: ErrorCode.code_to_atom(error_code)
           }
         ]
       }
@@ -521,11 +536,11 @@ defmodule KafkaEx.New.Adapter do
   defp kafka_ex_group_assignment_to_kayrock({member_id, member_assignments}) do
     %{
       member_id: member_id,
-      member_assignment: %Kayrock.MemberAssignment{
+      member_assignment: %MemberAssignment{
         version: 0,
         partition_assignments:
           Enum.map(member_assignments, fn {topic, partitions} ->
-            %Kayrock.MemberAssignment.PartitionAssignment{
+            %MemberAssignment.PartitionAssignment{
               topic: topic,
               partitions: partitions
             }

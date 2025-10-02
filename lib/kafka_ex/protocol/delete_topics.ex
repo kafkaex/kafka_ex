@@ -1,6 +1,9 @@
 defmodule KafkaEx.Protocol.DeleteTopics do
+  alias KafkaEx.ApiVersions
   alias KafkaEx.Protocol
+
   import KafkaEx.Protocol.Common
+
   @supported_versions_range {0, 0}
 
   @moduledoc """
@@ -37,7 +40,7 @@ defmodule KafkaEx.Protocol.DeleteTopics do
   end
 
   def api_version(api_versions) do
-    KafkaEx.ApiVersions.find_api_version(
+    ApiVersions.find_api_version(
       api_versions,
       :delete_topics,
       @supported_versions_range

@@ -36,8 +36,12 @@ defmodule KafkaEx.Auth.SASL do
   """
 
   require Logger
+
+  alias KafkaEx.Auth.Config
+  alias KafkaEx.Auth.SASL.CodecBinary
+  alias KafkaEx.Auth.SASL.VersionSupport
   alias KafkaEx.Socket
-  alias KafkaEx.Auth.{SASL.CodecBinary, Config, SASL.VersionSupport}
+
   import Bitwise, only: [&&&: 2]
 
   @max_corr 0x7FFFFFFF
@@ -45,7 +49,7 @@ defmodule KafkaEx.Auth.SASL do
   @mechanisms %{
     plain: KafkaEx.Auth.SASL.Plain,
     scram: KafkaEx.Auth.SASL.Scram
-    # Future extensions: oauthbearer, msk_iam_auth 
+    # Future extensions: oauthbearer, msk_iam_auth
   }
 
   # -------- Public API --------

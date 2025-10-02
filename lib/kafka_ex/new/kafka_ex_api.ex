@@ -15,8 +15,8 @@ defmodule KafkaEx.New.KafkaExAPI do
 
   alias KafkaEx.New.Structs.ClusterMetadata
   alias KafkaEx.New.Structs.ConsumerGroup
-  alias KafkaEx.New.Structs.Topic
   alias KafkaEx.New.Structs.Offset
+  alias KafkaEx.New.Structs.Topic
 
   @type node_id :: non_neg_integer
 

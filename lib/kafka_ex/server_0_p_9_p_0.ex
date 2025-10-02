@@ -15,6 +15,7 @@ defmodule KafkaEx.Server0P9P0 do
   alias KafkaEx.Config
   alias KafkaEx.ConsumerGroupRequiredError
   alias KafkaEx.InvalidConsumerGroupError
+  alias KafkaEx.NetworkClient
   alias KafkaEx.Protocol.ConsumerMetadata.Response, as: ConsumerMetadataResponse
   alias KafkaEx.Protocol.Heartbeat
   alias KafkaEx.Protocol.JoinGroup
@@ -22,7 +23,6 @@ defmodule KafkaEx.Server0P9P0 do
   alias KafkaEx.Protocol.Metadata.Broker
   alias KafkaEx.Protocol.SyncGroup
   alias KafkaEx.Server.State
-  alias KafkaEx.NetworkClient
   alias KafkaEx.Server0P8P2
 
   require Logger

@@ -6,6 +6,8 @@ defmodule KafkaEx.Server do
   alias KafkaEx.Config
   alias KafkaEx.NetworkClient
   alias KafkaEx.Protocol.ConsumerMetadata
+  alias KafkaEx.Protocol.CreateTopics.TopicRequest, as: CreateTopicsRequest
+  alias KafkaEx.Protocol.Fetch.Request, as: FetchRequest
   alias KafkaEx.Protocol.Heartbeat.Request, as: HeartbeatRequest
   alias KafkaEx.Protocol.JoinGroup.Request, as: JoinGroupRequest
   alias KafkaEx.Protocol.LeaveGroup.Request, as: LeaveGroupRequest
@@ -14,18 +16,16 @@ defmodule KafkaEx.Server do
   alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
   alias KafkaEx.Protocol.OffsetCommit.Request, as: OffsetCommitRequest
   alias KafkaEx.Protocol.OffsetFetch.Request, as: OffsetFetchRequest
-  alias KafkaEx.Protocol.Fetch.Request, as: FetchRequest
   alias KafkaEx.Protocol.Produce
   alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
   alias KafkaEx.Protocol.SyncGroup.Request, as: SyncGroupRequest
-  alias KafkaEx.Protocol.CreateTopics.TopicRequest, as: CreateTopicsRequest
   alias KafkaEx.Socket
 
   defmodule State do
     @moduledoc false
 
-    alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
     alias KafkaEx.Protocol.Metadata.Broker
+    alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
 
     defstruct(
       metadata: %Metadata.Response{},
@@ -797,7 +797,7 @@ defmodule KafkaEx.Server do
         state
       end
 
-      defp sleep_for_reconnect() do
+      defp sleep_for_reconnect do
         Process.sleep(Application.get_env(:kafka_ex, :sleep_for_reconnect, 400))
       end
 
@@ -900,7 +900,7 @@ defmodule KafkaEx.Server do
 
       defp remove_stale_brokers(brokers, metadata_brokers) do
         {brokers_to_keep, brokers_to_remove} =
-          apply(Enum, :partition, [
+          Enum.split_with(
             brokers,
             fn broker ->
               Enum.find_value(
@@ -910,7 +910,7 @@ defmodule KafkaEx.Server do
                        Socket.info(broker.socket)))
               )
             end
-          ])
+          )
 
         case length(brokers_to_keep) do
           0 ->

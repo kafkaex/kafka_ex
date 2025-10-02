@@ -5,9 +5,11 @@ defmodule KafkaEx.NetworkClient do
   @behaviour KafkaEx.NetworkClient.Behaviour
 
   require Logger
-  alias KafkaEx.Socket
-  alias KafkaEx.Auth.SASL.VersionSupport
+
   alias KafkaEx.Auth.Config, as: AuthConfig
+  alias KafkaEx.Auth.SASL
+  alias KafkaEx.Auth.SASL.VersionSupport
+  alias KafkaEx.Socket
 
   @impl true
   def create_socket(host, port, ssl_options \\ [], use_ssl \\ false, auth_opts \\ nil) do
@@ -109,7 +111,7 @@ defmodule KafkaEx.NetworkClient do
 
       # to_char_list is deprecated from Elixir 1.3 onward
       _ ->
-        apply(String, :to_char_list, [host])
+        String.to_charlist(host)
     end
   end
 
@@ -117,7 +119,7 @@ defmodule KafkaEx.NetworkClient do
 
   defp maybe_authenticate_sasl(socket, %AuthConfig{} = cfg) do
     case VersionSupport.validate_config(cfg, socket) do
-      :ok -> KafkaEx.Auth.SASL.authenticate(socket, cfg)
+      :ok -> SASL.authenticate(socket, cfg)
       {:error, reason} -> {:error, reason}
     end
   end

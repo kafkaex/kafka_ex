@@ -4,22 +4,22 @@ defmodule KafkaEx.Auth.ScramFlow.Internal do
   # Internal implementation of RFC 5802/7677 SCRAM authentication
   #
   # ## Implementation Notes
-  # 
+  #
   # This module implements the SCRAM client exchange following RFC 5802 (SCRAM)
   # and RFC 7677 (SCRAM-SHA-256). The flow consists of:
-  # 
+  #
   # 1. Client First: Send username and client nonce
   #    Format: "n,,n=<username>,r=<nonce>"
-  # 
+  #
   # 2. Server First: Receive salt, iterations, combined nonce
   #    Parse: "r=<nonce>,s=<salt>,i=<iterations>"
-  # 
+  #
   # 3. Client Final: Compute and send proof
   #    - Derive salted password using PBKDF2
   #    - Calculate client/server keys
   #    - Generate auth message and signatures
   #    Format: "c=<channel>,r=<nonce>,p=<proof>"
-  # 
+  #
   # 4. Server Final: Verify server signature
   #    Verify: "v=<server_signature>"
   #

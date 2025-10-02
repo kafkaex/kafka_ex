@@ -3,17 +3,17 @@ defmodule KafkaEx.Server0P10AndLater do
   Implements KafkaEx.Server behaviors for Kafka 0.10.1 API.
   """
   use KafkaEx.Server
+
   alias KafkaEx.Config
+  alias KafkaEx.InvalidConsumerGroupError
+  alias KafkaEx.Protocol.ApiVersions
+  alias KafkaEx.Protocol.ConsumerMetadata.Response, as: ConsumerMetadataResponse
   alias KafkaEx.Protocol.CreateTopics
   alias KafkaEx.Protocol.DeleteTopics
-  alias KafkaEx.Protocol.ApiVersions
-  alias KafkaEx.Server0P8P2
-  alias KafkaEx.Server0P9P0
-
-  alias KafkaEx.InvalidConsumerGroupError
-  alias KafkaEx.Protocol.ConsumerMetadata.Response, as: ConsumerMetadataResponse
   alias KafkaEx.Protocol.Metadata.Broker
   alias KafkaEx.Server.State
+  alias KafkaEx.Server0P8P2
+  alias KafkaEx.Server0P9P0
 
   require Logger
 
