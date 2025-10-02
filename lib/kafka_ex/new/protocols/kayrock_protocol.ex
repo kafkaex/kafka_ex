@@ -7,6 +7,8 @@ defmodule KafkaEx.New.Protocols.KayrockProtocol do
   @behaviour KafkaEx.New.Client.Protocol
 
   alias KafkaEx.New.Protocols.Kayrock, as: KayrockProtocol
+  alias Kayrock.DescribeGroups
+  alias Kayrock.ListOffsets
 
   # -----------------------------------------------------------------------------
   @doc """
@@ -15,13 +17,13 @@ defmodule KafkaEx.New.Protocols.KayrockProtocol do
   @impl KafkaEx.New.Client.Protocol
   def build_request(:describe_groups, api_version, opts) do
     api_version
-    |> Kayrock.DescribeGroups.get_request_struct()
+    |> DescribeGroups.get_request_struct()
     |> KayrockProtocol.DescribeGroups.Request.build_request(opts)
   end
 
   def build_request(:list_offsets, api_version, opts) do
     api_version
-    |> Kayrock.ListOffsets.get_request_struct()
+    |> ListOffsets.get_request_struct()
     |> KayrockProtocol.ListOffsets.Request.build_request(opts)
   end
 

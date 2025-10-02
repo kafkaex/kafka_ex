@@ -16,11 +16,17 @@ defmodule KafkaEx.New.Client do
 
   alias KafkaEx.New.Client.RequestBuilder
   alias KafkaEx.New.Client.ResponseParser
+  alias KafkaEx.New.Client.State
   alias KafkaEx.New.Structs.Broker
   alias KafkaEx.New.Structs.ClusterMetadata
+  alias KafkaEx.New.Structs.Error
   alias KafkaEx.New.Structs.NodeSelector
 
-  alias KafkaEx.New.Client.State
+  alias Kayrock.ApiVersions
+  alias Kayrock.ErrorCode
+  alias Kayrock.FindCoordinator
+  alias Kayrock.Metadata
+  alias Kayrock.Request
 
   use GenServer
 
@@ -105,7 +111,7 @@ defmodule KafkaEx.New.Client do
       raise "Brokers sockets are closed"
     end
 
-    :no_error = Kayrock.ErrorCode.code_to_atom(api_versions.error_code)
+    :no_error = ErrorCode.code_to_atom(api_versions.error_code)
 
     initial_topics = Keyword.get(args, :initial_topics, [])
 
@@ -313,7 +319,7 @@ defmodule KafkaEx.New.Client do
       {_, _state_out} ->
         request_name = request.__struct__
         Logger.warning("Unable to send request #{inspect(request_name)}, failed with error unknown")
-        error = KafkaEx.New.Structs.Error.build(:unknown, %{})
+        error = Error.build(:unknown, %{})
         handle_request_with_retry(request, parser_fn, node_selector, state, retry_count - 1, error)
     end
   end
@@ -381,7 +387,7 @@ defmodule KafkaEx.New.Client do
     api_version = State.max_supported_api_version(state, :metadata, 4)
 
     metadata_request = %{
-      Kayrock.Metadata.get_request_struct(api_version)
+      Metadata.get_request_struct(api_version)
       | topics: topics,
         allow_auto_topic_creation: state.allow_auto_topic_creation
     }
@@ -398,7 +404,7 @@ defmodule KafkaEx.New.Client do
         case Enum.find(
                response.topic_metadata,
                &(&1.error_code ==
-                   Kayrock.ErrorCode.atom_to_code!(:leader_not_available))
+                   ErrorCode.atom_to_code!(:leader_not_available))
              ) do
           nil ->
             {state_out, response}
@@ -424,7 +430,7 @@ defmodule KafkaEx.New.Client do
     end
   end
 
-  defp sleep_for_reconnect() do
+  defp sleep_for_reconnect do
     Process.sleep(Application.get_env(:kafka_ex, :sleep_for_reconnect, 400))
   end
 
@@ -486,7 +492,7 @@ defmodule KafkaEx.New.Client do
   end
 
   defp update_consumer_group_coordinator(state, consumer_group) do
-    request = %Kayrock.FindCoordinator.V1.Request{
+    request = %FindCoordinator.V1.Request{
       coordinator_key: consumer_group,
       coordinator_type: 0
     }
@@ -496,7 +502,7 @@ defmodule KafkaEx.New.Client do
 
     case response do
       {:ok,
-       %Kayrock.FindCoordinator.V1.Response{
+       %FindCoordinator.V1.Response{
          error_code: 0,
          coordinator: coordinator
        }} ->
@@ -507,13 +513,13 @@ defmodule KafkaEx.New.Client do
         )
 
       {:ok,
-       %Kayrock.FindCoordinator.V1.Response{
+       %FindCoordinator.V1.Response{
          error_code: error_code
        }} ->
         Logger.warning(
           "Unable to find consumer group coordinator for " <>
             "#{inspect(consumer_group)}: Error " <>
-            "#{Kayrock.ErrorCode.code_to_atom(error_code)}"
+            "#{ErrorCode.code_to_atom(error_code)}"
         )
 
         updated_state
@@ -570,7 +576,7 @@ defmodule KafkaEx.New.Client do
   defp consumer_group?(_), do: true
 
   defp get_api_versions(state, request_version \\ 0) do
-    request = Kayrock.ApiVersions.get_request_struct(request_version)
+    request = ApiVersions.get_request_struct(request_version)
 
     {{ok_or_error, response}, state_out} =
       kayrock_network_request(request, NodeSelector.first_available(), state)
@@ -612,7 +618,7 @@ defmodule KafkaEx.New.Client do
          synchronous
        )
        when not is_nil(client_id) and not is_nil(correlation_id) do
-    wire_request = Kayrock.Request.serialize(client_request)
+    wire_request = Request.serialize(client_request)
 
     case(send_request.(wire_request)) do
       {:error, reason} ->
@@ -715,24 +721,22 @@ defmodule KafkaEx.New.Client do
   end
 
   defp deserialize(data, request) do
-    try do
-      deserializer = Kayrock.Request.response_deserializer(request)
-      {resp, _} = deserializer.(data)
-      resp
-    rescue
-      _ ->
-        Logger.error(
-          "Failed to parse a response from the server: " <>
-            inspect(data, limit: :infinity) <>
-            " for request #{inspect(request, limit: :infinity)}"
-        )
+    deserializer = Request.response_deserializer(request)
+    {resp, _} = deserializer.(data)
+    resp
+  rescue
+    _ ->
+      Logger.error(
+        "Failed to parse a response from the server: " <>
+          inspect(data, limit: :infinity) <>
+          " for request #{inspect(request, limit: :infinity)}"
+      )
 
-        Kernel.reraise(
-          "Parse error during #{inspect(request)} response deserializer. " <>
-            "Couldn't parse: #{inspect(data)}",
-          __STACKTRACE__
-        )
-    end
+      Kernel.reraise(
+        "Parse error during #{inspect(request)} response deserializer. " <>
+          "Couldn't parse: #{inspect(data)}",
+        __STACKTRACE__
+      )
   end
 
   defp fetch_topics_metadata(state, topics, allow_topic_creation) do

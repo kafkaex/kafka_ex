@@ -191,13 +191,13 @@ defmodule KafkaEx.GenConsumer do
 
   use GenServer
 
+  alias KafkaEx.Protocol.Fetch.Message
+  alias KafkaEx.Protocol.Fetch.Response, as: FetchResponse
+  alias KafkaEx.Protocol.Offset.Response, as: OffsetResponse
   alias KafkaEx.Protocol.OffsetCommit.Request, as: OffsetCommitRequest
   alias KafkaEx.Protocol.OffsetCommit.Response, as: OffsetCommitResponse
   alias KafkaEx.Protocol.OffsetFetch.Request, as: OffsetFetchRequest
   alias KafkaEx.Protocol.OffsetFetch.Response, as: OffsetFetchResponse
-  alias KafkaEx.Protocol.Offset.Response, as: OffsetResponse
-  alias KafkaEx.Protocol.Fetch.Response, as: FetchResponse
-  alias KafkaEx.Protocol.Fetch.Message
 
   require Logger
 

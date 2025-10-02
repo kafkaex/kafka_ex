@@ -1,5 +1,7 @@
 defmodule KafkaEx.Protocol.Metadata do
+  alias KafkaEx.ApiVersions
   alias KafkaEx.Protocol
+
   import KafkaEx.Protocol.Common
 
   @supported_versions_range {0, 1}
@@ -127,7 +129,7 @@ defmodule KafkaEx.Protocol.Metadata do
   end
 
   def api_version(api_versions) do
-    case KafkaEx.ApiVersions.find_api_version(
+    case ApiVersions.find_api_version(
            api_versions,
            :metadata,
            @supported_versions_range

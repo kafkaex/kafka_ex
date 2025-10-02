@@ -1,10 +1,10 @@
 defmodule KafkaEx.Stream do
   @moduledoc false
 
-  alias KafkaEx.Server
-  alias KafkaEx.Protocol.OffsetCommit.Request, as: OffsetCommitRequest
   alias KafkaEx.Protocol.Fetch.Request, as: FetchRequest
   alias KafkaEx.Protocol.Fetch.Response, as: FetchResponse
+  alias KafkaEx.Protocol.OffsetCommit.Request, as: OffsetCommitRequest
+  alias KafkaEx.Server
 
   defstruct worker_name: nil,
             fetch_request: %FetchRequest{},

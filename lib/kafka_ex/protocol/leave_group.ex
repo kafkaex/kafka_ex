@@ -1,4 +1,6 @@
 defmodule KafkaEx.Protocol.LeaveGroup do
+  @moduledoc false
+
   defmodule Request do
     @moduledoc false
     defstruct group_name: nil, member_id: nil

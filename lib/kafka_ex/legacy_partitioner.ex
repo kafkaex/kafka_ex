@@ -9,10 +9,12 @@ defmodule KafkaEx.LegacyPartitioner do
   current default partitioner now correctly matches the Java client.
   """
   use KafkaEx.Partitioner
+
   alias KafkaEx.Partitioner
-  alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
   alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
+  alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
   alias KafkaEx.Utils.Murmur, as: Murmur
+
   require Logger
 
   @spec assign_partition(request :: ProduceRequest.t(), metadata :: MetadataResponse.t()) ::
