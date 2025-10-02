@@ -14,7 +14,7 @@ defmodule KafkaEx.Auth.Mechanism do
   ## Extending Authentication
 
   To implement a custom mechanism:
-  
+
   defmodule MyAuth do
     @behaviour KafkaEx.Auth.Mechanism
     
@@ -29,18 +29,18 @@ defmodule KafkaEx.Auth.Mechanism do
     end
   end
   """
-  
+
   @type auth_opts :: KafkaEx.Auth.Config.t()
   @type send_fun :: (binary() -> {:ok, binary() | nil} | {:error, term()})
-  
+
   @doc """
   Returns mechanism name for handshake.
   """
   @callback mechanism_name(auth_opts()) :: String.t()
-  
+
   @doc """
   Performs the authentication exchange after handshake.
   """
   @callback authenticate(auth_opts(), send_fun()) ::
-    :ok | {:error, term()}
+              :ok | {:error, term()}
 end

@@ -35,10 +35,17 @@ defmodule KafkaEx.Auth.ScramFlow.Internal do
   # - "," becomes "=2C"
 
   defstruct [
-    :algorithm, :username, :password,
-    :client_nonce, :client_first_bare,
-    :server_first_raw, :server_nonce, :salt, :iterations,
-    :auth_message, :server_signature
+    :algorithm,
+    :username,
+    :password,
+    :client_nonce,
+    :client_first_bare,
+    :server_first_raw,
+    :server_nonce,
+    :salt,
+    :iterations,
+    :auth_message,
+    :server_signature
   ]
 
   @type t :: %__MODULE__{}
@@ -71,8 +78,10 @@ defmodule KafkaEx.Auth.ScramFlow.Internal do
 
   @spec client_final(%__MODULE__{}) :: {binary(), %__MODULE__{}}
   def client_final(%__MODULE__{} = s) do
-    cb64 = Base.encode64("n,,")               # "biws"
-    cfwp = "c=#{cb64},r=#{s.server_nonce}"    # client-final-without-proof
+    # "biws"
+    cb64 = Base.encode64("n,,")
+    # client-final-without-proof
+    cfwp = "c=#{cb64},r=#{s.server_nonce}"
 
     auth = s.client_first_bare <> "," <> s.server_first_raw <> "," <> cfwp
     {proof, server_sig} = proof_and_server_sig(s, auth)
@@ -97,16 +106,17 @@ defmodule KafkaEx.Auth.ScramFlow.Internal do
   # -------- Helpers
 
   defp proof_and_server_sig(%__MODULE__{algorithm: algo} = s, auth) do
-    {hash, dklen} = case algo do
-      :sha256 -> {:sha256, 32}
-      :sha512 -> {:sha512, 64}
-    end
+    {hash, dklen} =
+      case algo do
+        :sha256 -> {:sha256, 32}
+        :sha512 -> {:sha512, 64}
+      end
 
     salted = :crypto.pbkdf2_hmac(hash, s.password, s.salt, s.iterations, dklen)
     client_key = :crypto.mac(:hmac, hash, salted, "Client Key")
     stored_key = :crypto.hash(hash, client_key)
     client_sig = :crypto.mac(:hmac, hash, stored_key, auth)
-    proof      = :crypto.exor(client_key, client_sig)
+    proof = :crypto.exor(client_key, client_sig)
 
     server_key = :crypto.mac(:hmac, hash, salted, "Server Key")
     server_sig = :crypto.mac(:hmac, hash, server_key, auth)

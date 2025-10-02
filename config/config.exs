@@ -79,18 +79,17 @@ config :kafka_ex,
   # use "kayrock" for the new client
   kafka_version: "0.10.1"
 
-  # SASL Authentication (optional)
+# SASL Authentication (optional)
 
-  # Configure SASL credentials and mechanism
-  # sasl: %{
-  #   mechanism: :scram,  # :plain or :scram
-  #   username: "kafka_user",         # USE ENV VARS and don't expose secrets
-  #   password: "kafka_password",     # USE ENV VARS and don't expose secrets
-  #   mechanism_opts: %{algorithm: :sha256}  # For SCRAM only, :sha256 or :sha512
-  # }
-  #
-  # Note: SASL/PLAIN requires SSL to be enabled for security
-  
+# Configure SASL credentials and mechanism
+# sasl: %{
+#   mechanism: :scram,  # :plain or :scram
+#   username: "kafka_user",         # USE ENV VARS and don't expose secrets
+#   password: "kafka_password",     # USE ENV VARS and don't expose secrets
+#   mechanism_opts: %{algorithm: :sha256}  # For SCRAM only, :sha256 or :sha512
+# }
+#
+# Note: SASL/PLAIN requires SSL to be enabled for security
 
 env_config = Path.expand("#{Mix.env()}.exs", __DIR__)
 

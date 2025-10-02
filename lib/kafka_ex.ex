@@ -665,15 +665,6 @@ defmodule KafkaEx do
 
   defp current_offset(
          supplied_offset,
-         partition,
-         topic,
-         worker_name,
-         api_version,
-         consumer_group_name \\ nil
-       )
-
-  defp current_offset(
-         supplied_offset,
          _partition,
          _topic,
          _worker_name,

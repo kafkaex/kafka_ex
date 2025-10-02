@@ -25,7 +25,10 @@ defmodule KafkaEx.NetworkClient do
         end
 
       {:error, reason} ->
-        Logger.error("Could not connect to broker #{inspect(host)}:#{inspect(port)} because of error #{inspect(reason)}")
+        Logger.error(
+          "Could not connect to broker #{inspect(host)}:#{inspect(port)} because of error #{inspect(reason)}"
+        )
+
         nil
     end
   end
@@ -111,6 +114,7 @@ defmodule KafkaEx.NetworkClient do
   end
 
   defp maybe_authenticate_sasl(_socket, nil), do: :ok
+
   defp maybe_authenticate_sasl(socket, %AuthConfig{} = cfg) do
     case VersionSupport.validate_config(cfg, socket) do
       :ok -> KafkaEx.Auth.SASL.authenticate(socket, cfg)

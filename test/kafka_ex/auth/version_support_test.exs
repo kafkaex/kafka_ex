@@ -44,64 +44,69 @@ defmodule KafkaEx.Auth.VersionSupportTest do
 
     test "rejects SASL on old Kafka", %{ssl_socket: socket} do
       Application.put_env(:kafka_ex, :kafka_version, "0.8.0")
-      
+
       config = %Config{
-        mechanism: :plain, 
+        mechanism: :plain,
         username: "test",
         password: "secret",
         mechanism_opts: %{}
       }
-      assert {:error, :sasl_requires_kafka_0_9_plus} = 
-        VersionSupport.validate_config(config, socket)
+
+      assert {:error, :sasl_requires_kafka_0_9_plus} =
+               VersionSupport.validate_config(config, socket)
     end
 
     test "rejects SCRAM on Kafka 0.9", %{ssl_socket: socket} do
       Application.put_env(:kafka_ex, :kafka_version, "0.9.0")
-      
+
       config = %Config{
         mechanism: :scram_sha_256,
         username: "test",
         password: "secret",
         mechanism_opts: %{}
       }
-      assert {:error, :scram_requires_kafka_0_10_2_plus} = 
-        VersionSupport.validate_config(config, socket)
+
+      assert {:error, :scram_requires_kafka_0_10_2_plus} =
+               VersionSupport.validate_config(config, socket)
     end
 
     test "rejects PLAIN without TLS", %{plain_socket: socket} do
       Application.put_env(:kafka_ex, :kafka_version, "1.0.0")
-      
+
       config = %Config{
         mechanism: :plain,
         username: "test",
         password: "secret",
         mechanism_opts: %{}
       }
-      assert {:error, :plain_requires_tls} = 
-        VersionSupport.validate_config(config, socket)
+
+      assert {:error, :plain_requires_tls} =
+               VersionSupport.validate_config(config, socket)
     end
 
     test "accepts PLAIN with TLS on 0.9", %{ssl_socket: socket} do
       Application.put_env(:kafka_ex, :kafka_version, "0.9.0")
-      
+
       config = %Config{
         mechanism: :plain,
         username: "test",
         password: "secret",
         mechanism_opts: %{}
       }
+
       assert :ok = VersionSupport.validate_config(config, socket)
     end
 
     test "accepts SCRAM on 0.10.2+", %{ssl_socket: socket} do
       Application.put_env(:kafka_ex, :kafka_version, "0.10.2")
-      
+
       config = %Config{
         mechanism: :scram_sha_512,
         username: "test",
         password: "secret",
         mechanism_opts: %{}
       }
+
       assert :ok = VersionSupport.validate_config(config, socket)
     end
   end
