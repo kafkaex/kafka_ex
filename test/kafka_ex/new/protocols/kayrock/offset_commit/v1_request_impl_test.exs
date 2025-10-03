@@ -73,8 +73,7 @@ defmodule KafkaEx.New.Protocols.Kayrock.OffsetCommit.V1RequestImplTest do
         generation_id: 10,
         member_id: "member-abc",
         topics: [
-          {"topic-1",
-           [%{partition_num: 0, offset: 500, timestamp: 9_999_999, metadata: "custom-meta"}]}
+          {"topic-1", [%{partition_num: 0, offset: 500, timestamp: 9_999_999, metadata: "custom-meta"}]}
         ]
       ]
 

@@ -81,20 +81,22 @@ defmodule KafkaEx.New.Client.RequestBuilder do
         opts = [group_id: group_id, topics: topics]
 
         # Add optional parameters based on API version
-        opts = if api_version >= 1 do
-          Keyword.merge(opts, [
-            generation_id: Keyword.get(request_opts, :generation_id, -1),
-            member_id: Keyword.get(request_opts, :member_id, "")
-          ])
-        else
-          opts
-        end
+        opts =
+          if api_version >= 1 do
+            Keyword.merge(opts,
+              generation_id: Keyword.get(request_opts, :generation_id, -1),
+              member_id: Keyword.get(request_opts, :member_id, "")
+            )
+          else
+            opts
+          end
 
-        opts = if api_version >= 2 do
-          Keyword.put(opts, :retention_time, Keyword.get(request_opts, :retention_time, -1))
-        else
-          opts
-        end
+        opts =
+          if api_version >= 2 do
+            Keyword.put(opts, :retention_time, Keyword.get(request_opts, :retention_time, -1))
+          else
+            opts
+          end
 
         req = @protocol.build_request(:offset_commit, api_version, opts)
         {:ok, req}

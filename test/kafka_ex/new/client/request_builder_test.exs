@@ -116,7 +116,8 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
       group_id = "test-group"
       topics = [{"test-topic", [%{partition_num: 0}]}]
 
-      {:error, error_value} = RequestBuilder.offset_fetch_request([group_id: group_id, topics: topics, api_version: 5], state)
+      {:error, error_value} =
+        RequestBuilder.offset_fetch_request([group_id: group_id, topics: topics, api_version: 5], state)
 
       assert error_value == :api_version_no_supported
     end
@@ -148,13 +149,17 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
       group_id = "consumer-group"
       topics = [{"my-topic", [%{partition_num: 1, offset: 200}]}]
 
-      {:ok, request} = RequestBuilder.offset_commit_request([
-        group_id: group_id,
-        topics: topics,
-        api_version: 1,
-        generation_id: 5,
-        member_id: "member-123"
-      ], state)
+      {:ok, request} =
+        RequestBuilder.offset_commit_request(
+          [
+            group_id: group_id,
+            topics: topics,
+            api_version: 1,
+            generation_id: 5,
+            member_id: "member-123"
+          ],
+          state
+        )
 
       expected_request = %Kayrock.OffsetCommit.V1.Request{
         client_id: nil,
@@ -173,14 +178,18 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
       group_id = "retention-group"
       topics = [{"topic-a", [%{partition_num: 0, offset: 300}]}]
 
-      {:ok, request} = RequestBuilder.offset_commit_request([
-        group_id: group_id,
-        topics: topics,
-        api_version: 2,
-        retention_time: 86_400_000,
-        generation_id: 10,
-        member_id: "member-abc"
-      ], state)
+      {:ok, request} =
+        RequestBuilder.offset_commit_request(
+          [
+            group_id: group_id,
+            topics: topics,
+            api_version: 2,
+            retention_time: 86_400_000,
+            generation_id: 10,
+            member_id: "member-abc"
+          ],
+          state
+        )
 
       expected_request = %Kayrock.OffsetCommit.V2.Request{
         client_id: nil,
@@ -200,11 +209,15 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
       group_id = "legacy-group"
       topics = [{"legacy-topic", [%{partition_num: 0, offset: 50}]}]
 
-      {:ok, request} = RequestBuilder.offset_commit_request([
-        group_id: group_id,
-        topics: topics,
-        api_version: 0
-      ], state)
+      {:ok, request} =
+        RequestBuilder.offset_commit_request(
+          [
+            group_id: group_id,
+            topics: topics,
+            api_version: 0
+          ],
+          state
+        )
 
       expected_request = %Kayrock.OffsetCommit.V0.Request{
         client_id: nil,
@@ -221,7 +234,8 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
       group_id = "test-group"
       topics = [{"test-topic", [%{partition_num: 0, offset: 100}]}]
 
-      {:error, error_value} = RequestBuilder.offset_commit_request([group_id: group_id, topics: topics, api_version: 5], state)
+      {:error, error_value} =
+        RequestBuilder.offset_commit_request([group_id: group_id, topics: topics, api_version: 5], state)
 
       assert error_value == :api_version_no_supported
     end

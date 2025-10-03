@@ -334,7 +334,9 @@ defmodule KafkaEx.New.Client.Test do
       _ = create_topic(client, topic_name)
 
       partitions = [%{partition_num: 0}]
-      {:error, :invalid_consumer_group} = GenServer.call(client, {:offset_fetch, :no_consumer_group, [{topic_name, partitions}], []})
+
+      {:error, :invalid_consumer_group} =
+        GenServer.call(client, {:offset_fetch, :no_consumer_group, [{topic_name, partitions}], []})
     end
 
     test "supports api_version option", %{client: client} do
@@ -344,11 +346,15 @@ defmodule KafkaEx.New.Client.Test do
 
       # Commit with v2
       partitions_commit = [%{partition_num: 0, offset: 5}]
-      {:ok, _} = GenServer.call(client, {:offset_commit, consumer_group, [{topic_name, partitions_commit}], [api_version: 2]})
+
+      {:ok, _} =
+        GenServer.call(client, {:offset_commit, consumer_group, [{topic_name, partitions_commit}], [api_version: 2]})
 
       # Fetch with v2
       partitions_fetch = [%{partition_num: 0}]
-      {:ok, [offset]} = GenServer.call(client, {:offset_fetch, consumer_group, [{topic_name, partitions_fetch}], [api_version: 2]})
+
+      {:ok, [offset]} =
+        GenServer.call(client, {:offset_fetch, consumer_group, [{topic_name, partitions_fetch}], [api_version: 2]})
 
       assert [partition_offset] = offset.partition_offsets
       assert partition_offset.offset == 5
@@ -380,9 +386,11 @@ defmodule KafkaEx.New.Client.Test do
         %{partition_num: 1, offset: 20},
         %{partition_num: 2, offset: 30}
       ]
+
       {:ok, results} = GenServer.call(client, {:offset_commit, consumer_group, [{topic_name, partitions}], []})
 
       assert length(results) == 3
+
       Enum.each(results, fn result ->
         assert result.topic == topic_name
         assert [partition_offset] = result.partition_offsets
@@ -395,7 +403,9 @@ defmodule KafkaEx.New.Client.Test do
       _ = create_topic(client, topic_name)
 
       partitions = [%{partition_num: 0, offset: 100}]
-      {:error, :invalid_consumer_group} = GenServer.call(client, {:offset_commit, :no_consumer_group, [{topic_name, partitions}], []})
+
+      {:error, :invalid_consumer_group} =
+        GenServer.call(client, {:offset_commit, :no_consumer_group, [{topic_name, partitions}], []})
     end
 
     test "supports retention_time option (v2)", %{client: client} do

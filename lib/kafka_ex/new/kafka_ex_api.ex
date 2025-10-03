@@ -140,8 +140,10 @@ defmodule KafkaEx.New.KafkaExAPI do
   for a consumer group. This is useful for tracking consumer group progress
   and implementing manual offset management.
   """
-  @spec fetch_committed_offset(client, consumer_group_name, topic_name, [partition_id_request]) :: {:ok, [Offset.t()]} | {:error, error_atom}
-  @spec fetch_committed_offset(client, consumer_group_name, topic_name, [partition_id_request], opts) :: {:ok, [Offset.t()]} | {:error, error_atom}
+  @spec fetch_committed_offset(client, consumer_group_name, topic_name, [partition_id_request]) ::
+          {:ok, [Offset.t()]} | {:error, error_atom}
+  @spec fetch_committed_offset(client, consumer_group_name, topic_name, [partition_id_request], opts) ::
+          {:ok, [Offset.t()]} | {:error, error_atom}
   def fetch_committed_offset(client, consumer_group, topic, partitions, opts \\ []) do
     case GenServer.call(client, {:offset_fetch, consumer_group, [{topic, partitions}], opts}) do
       {:ok, offsets} -> {:ok, offsets}
@@ -157,8 +159,10 @@ defmodule KafkaEx.New.KafkaExAPI do
   consumer group. This is used for manual offset management and consumer
   group coordination.
   """
-  @spec commit_offset(client, consumer_group_name, topic_name, [partition_offset_commit_request]) :: {:ok, [Offset.t()]} | {:error, error_atom}
-  @spec commit_offset(client, consumer_group_name, topic_name, [partition_offset_commit_request], opts) :: {:ok, [Offset.t()]} | {:error, error_atom}
+  @spec commit_offset(client, consumer_group_name, topic_name, [partition_offset_commit_request]) ::
+          {:ok, [Offset.t()]} | {:error, error_atom}
+  @spec commit_offset(client, consumer_group_name, topic_name, [partition_offset_commit_request], opts) ::
+          {:ok, [Offset.t()]} | {:error, error_atom}
   def commit_offset(client, consumer_group, topic, partitions, opts \\ []) do
     case GenServer.call(client, {:offset_commit, consumer_group, [{topic, partitions}], opts}) do
       {:ok, offsets} -> {:ok, offsets}

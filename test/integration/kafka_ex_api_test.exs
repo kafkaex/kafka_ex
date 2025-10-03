@@ -168,6 +168,7 @@ defmodule KafkaEx.New.KafkaExAPITest do
         %{partition_num: 1, offset: 1},
         %{partition_num: 2, offset: 1}
       ]
+
       {:ok, _} = API.commit_offset(client, consumer_group, topic_name, partitions_commit)
 
       # Fetch committed offsets
@@ -175,6 +176,7 @@ defmodule KafkaEx.New.KafkaExAPITest do
       {:ok, offsets} = API.fetch_committed_offset(client, consumer_group, topic_name, partitions_fetch)
 
       assert length(offsets) == 3
+
       Enum.each(offsets, fn offset ->
         assert offset.topic == topic_name
         assert [partition_offset] = offset.partition_offsets
@@ -231,9 +233,11 @@ defmodule KafkaEx.New.KafkaExAPITest do
         %{partition_num: 1, offset: 20},
         %{partition_num: 2, offset: 30}
       ]
+
       {:ok, results} = API.commit_offset(client, consumer_group, topic_name, partitions)
 
       assert length(results) == 3
+
       Enum.each(results, fn result ->
         assert result.topic == topic_name
         assert [partition_offset] = result.partition_offsets

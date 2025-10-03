@@ -11,7 +11,11 @@ defmodule KafkaEx.New.ClientTest do
       state = %State{consumer_group_for_auto_commit: :no_consumer_group}
 
       assert {:reply, {:error, :invalid_consumer_group}, ^state} =
-               Client.handle_call({:offset_fetch, :no_consumer_group, [{"test-topic", [%{partition_num: 0}]}], []}, self(), state)
+               Client.handle_call(
+                 {:offset_fetch, :no_consumer_group, [{"test-topic", [%{partition_num: 0}]}], []},
+                 self(),
+                 state
+               )
     end
 
     test "handles valid consumer group" do
@@ -28,11 +32,12 @@ defmodule KafkaEx.New.ClientTest do
 
       # Note: This would require mocking the network layer for a full test
       # Here we just verify the handle_call accepts the valid format
-      result = Client.handle_call(
-        {:offset_fetch, "test-group", [{"test-topic", [%{partition_num: 0}]}], []},
-        self(),
-        state
-      )
+      result =
+        Client.handle_call(
+          {:offset_fetch, "test-group", [{"test-topic", [%{partition_num: 0}]}], []},
+          self(),
+          state
+        )
 
       assert match?({:reply, _, _}, result)
     end
@@ -64,11 +69,12 @@ defmodule KafkaEx.New.ClientTest do
 
       # Note: This would require mocking the network layer for a full test
       # Here we just verify the handle_call accepts the valid format
-      result = Client.handle_call(
-        {:offset_commit, "test-group", [{"test-topic", [%{partition_num: 0, offset: 100}]}], []},
-        self(),
-        state
-      )
+      result =
+        Client.handle_call(
+          {:offset_commit, "test-group", [{"test-topic", [%{partition_num: 0, offset: 100}]}], []},
+          self(),
+          state
+        )
 
       assert match?({:reply, _, _}, result)
     end

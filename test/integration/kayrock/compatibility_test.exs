@@ -742,6 +742,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
         offset: 555,
         consumer_group: consumer_group
       }
+
       KafkaEx.offset_commit(client, commit_request)
 
       # Fetch via new API
@@ -761,6 +762,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
         partition: 0,
         consumer_group: consumer_group
       }
+
       [response] = KafkaEx.offset_fetch(client, fetch_request)
 
       assert [final_partition_offset] = response.partitions
