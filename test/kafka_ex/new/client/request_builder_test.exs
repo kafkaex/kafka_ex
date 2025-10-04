@@ -124,21 +124,20 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
   end
 
   describe "offset_commit_request/2" do
-    test "returns request for OffsetCommit API v2 (default)" do
+    test "returns request for OffsetCommit API v1 (default)" do
       state = %KafkaEx.New.Client.State{api_versions: %{8 => {0, 3}}}
       group_id = "test-group"
       topics = [{"test-topic", [%{partition_num: 0, offset: 100}]}]
 
       {:ok, request} = RequestBuilder.offset_commit_request([group_id: group_id, topics: topics], state)
 
-      expected_request = %Kayrock.OffsetCommit.V2.Request{
+      expected_request = %Kayrock.OffsetCommit.V1.Request{
         client_id: nil,
         correlation_id: nil,
         group_id: "test-group",
         generation_id: -1,
         member_id: "",
-        retention_time: -1,
-        topics: [%{topic: "test-topic", partitions: [%{partition: 0, offset: 100, metadata: ""}]}]
+        topics: [%{topic: "test-topic", partitions: [%{partition: 0, offset: 100, timestamp: -1, metadata: ""}]}]
       }
 
       assert expected_request == request

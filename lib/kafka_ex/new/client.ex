@@ -364,6 +364,11 @@ defmodule KafkaEx.New.Client do
             request_name = request.__struct__
             Logger.warning("Unable to send request #{inspect(request_name)}, failed with error #{inspect(error)}")
             handle_request_with_retry(request, parser_fn, node_selector, state, retry_count - 1, error)
+
+          {:error, %Error{} = error} ->
+            request_name = request.__struct__
+            Logger.warning("Unable to send request #{inspect(request_name)}, failed with error #{inspect(error)}")
+            handle_request_with_retry(request, parser_fn, node_selector, state, retry_count - 1, error)
         end
 
       {_, _state_out} ->

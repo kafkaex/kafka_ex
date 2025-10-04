@@ -14,7 +14,7 @@ defmodule KafkaEx.New.Client.RequestBuilder do
     describe_groups: 1,
     list_offsets: 1,
     offset_fetch: 1,
-    offset_commit: 2
+    offset_commit: 1
   }
 
   alias KafkaEx.New.Client.State

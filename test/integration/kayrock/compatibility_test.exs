@@ -644,13 +644,23 @@ defmodule KafkaEx.KayrockCompatibilityTest do
 
       # Commit via new API
       partitions = [%{partition_num: 0, offset: 123}]
-      {:ok, _} = KafkaExAPI.commit_offset(client, consumer_group, topic_name, partitions)
+      {:ok, commit_result} = KafkaExAPI.commit_offset(client, consumer_group, topic_name, partitions)
 
-      # Fetch via legacy API
+      # Verify commit succeeded
+      assert [commit_response] = commit_result
+      assert commit_response.topic == topic_name
+      assert [commit_partition] = commit_response.partition_offsets
+      assert commit_partition.error_code == :no_error
+
+      # Small delay to ensure Kafka has processed the commit
+      Process.sleep(100)
+
+      # Fetch via legacy API (use v1 to match new API's Kafka-based storage)
       request = %KafkaEx.Protocol.OffsetFetch.Request{
         topic: topic_name,
         partition: 0,
-        consumer_group: consumer_group
+        consumer_group: consumer_group,
+        api_version: 1
       }
 
       [response] = KafkaEx.offset_fetch(client, request)
@@ -666,15 +676,23 @@ defmodule KafkaEx.KayrockCompatibilityTest do
       consumer_group = KafkaEx.TestHelpers.generate_random_string()
       create_topic(client, topic_name, partitions: 1)
 
-      # Commit via legacy API
+      # Commit via legacy API (use v1 for standalone commits)
       request = %KafkaEx.Protocol.OffsetCommit.Request{
         topic: topic_name,
         partition: 0,
         offset: 456,
-        consumer_group: consumer_group
+        consumer_group: consumer_group,
+        api_version: 1
       }
 
-      KafkaEx.offset_commit(request, worker_name: client)
+      commit_response = KafkaEx.offset_commit(client, request)
+
+      # Verify commit succeeded
+      assert [commit_result] = commit_response
+      assert commit_result.topic == topic_name
+
+      # Small delay to ensure Kafka has processed the commit
+      Process.sleep(100)
 
       # Fetch via new API
       partitions = [%{partition_num: 0}]
@@ -692,11 +710,13 @@ defmodule KafkaEx.KayrockCompatibilityTest do
       consumer_group = KafkaEx.TestHelpers.generate_random_string()
       create_topic(client, topic_name, partitions: 1)
 
+      # Use v1 for standalone offset commits (no consumer group session)
       request = %KafkaEx.Protocol.OffsetCommit.Request{
         topic: topic_name,
         partition: 0,
         offset: 789,
-        consumer_group: consumer_group
+        consumer_group: consumer_group,
+        api_version: 1
       }
 
       response = KafkaEx.offset_commit(client, request)
@@ -715,13 +735,21 @@ defmodule KafkaEx.KayrockCompatibilityTest do
 
       # Commit via new API
       partitions = [%{partition_num: 0, offset: 999}]
-      {:ok, _} = KafkaExAPI.commit_offset(client, consumer_group, topic_name, partitions)
+      {:ok, commit_result} = KafkaExAPI.commit_offset(client, consumer_group, topic_name, partitions)
 
-      # Verify via legacy API
+      # Verify commit succeeded
+      assert [commit_response] = commit_result
+      assert commit_response.topic == topic_name
+
+      # Small delay to ensure Kafka has processed the commit
+      Process.sleep(100)
+
+      # Verify via legacy API (use v1 to match new API's Kafka-based storage)
       fetch_request = %KafkaEx.Protocol.OffsetFetch.Request{
         topic: topic_name,
         partition: 0,
-        consumer_group: consumer_group
+        consumer_group: consumer_group,
+        api_version: 1
       }
 
       [response] = KafkaEx.offset_fetch(client, fetch_request)
@@ -735,15 +763,23 @@ defmodule KafkaEx.KayrockCompatibilityTest do
       consumer_group = KafkaEx.TestHelpers.generate_random_string()
       create_topic(client, topic_name, partitions: 1)
 
-      # Commit via legacy API
+      # Commit via legacy API (use v1 for standalone commits)
       commit_request = %KafkaEx.Protocol.OffsetCommit.Request{
         topic: topic_name,
         partition: 0,
         offset: 555,
-        consumer_group: consumer_group
+        consumer_group: consumer_group,
+        api_version: 1
       }
 
-      KafkaEx.offset_commit(client, commit_request)
+      commit_response = KafkaEx.offset_commit(client, commit_request)
+
+      # Verify commit succeeded
+      assert [commit_result] = commit_response
+      assert commit_result.topic == topic_name
+
+      # Small delay to ensure Kafka has processed the commit
+      Process.sleep(100)
 
       # Fetch via new API
       partitions_fetch = [%{partition_num: 0}]
@@ -754,13 +790,21 @@ defmodule KafkaEx.KayrockCompatibilityTest do
 
       # Commit via new API
       partitions_commit = [%{partition_num: 0, offset: 777}]
-      {:ok, _} = KafkaExAPI.commit_offset(client, consumer_group, topic_name, partitions_commit)
+      {:ok, commit_result2} = KafkaExAPI.commit_offset(client, consumer_group, topic_name, partitions_commit)
 
-      # Fetch via legacy API
+      # Verify commit succeeded
+      assert [commit_response2] = commit_result2
+      assert commit_response2.topic == topic_name
+
+      # Small delay to ensure Kafka has processed the commit
+      Process.sleep(100)
+
+      # Fetch via legacy API (use v1 to match new API's Kafka-based storage)
       fetch_request = %KafkaEx.Protocol.OffsetFetch.Request{
         topic: topic_name,
         partition: 0,
-        consumer_group: consumer_group
+        consumer_group: consumer_group,
+        api_version: 1
       }
 
       [response] = KafkaEx.offset_fetch(client, fetch_request)

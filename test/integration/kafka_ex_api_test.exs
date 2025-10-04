@@ -283,8 +283,10 @@ defmodule KafkaEx.New.KafkaExAPITest do
       consumer_group = generate_random_string()
       _ = create_topic(client, topic_name)
 
+      # Note: Using v0 since v1 requires actual group membership for generation_id/member_id
+      # to be valid. In a real scenario, these would come from JoinGroup response.
       partitions = [%{partition_num: 0, offset: 100}]
-      opts = [api_version: 1, generation_id: 1, member_id: "test-member"]
+      opts = [api_version: 0]
       {:ok, [result]} = API.commit_offset(client, consumer_group, topic_name, partitions, opts)
 
       assert result.topic == topic_name

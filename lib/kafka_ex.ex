@@ -352,15 +352,12 @@ defmodule KafkaEx do
     )
   end
 
-  @spec offset_commit(atom, OffsetCommitRequest.t()) :: [
-          OffsetCommitResponse.t()
-        ]
+  @spec offset_commit(atom, OffsetCommitRequest.t()) :: [OffsetCommitResponse.t()]
   def offset_commit(worker_name, offset_commit_request) do
     Server.call(worker_name, {:offset_commit, offset_commit_request})
   end
 
-  @spec offset_fetch(atom, OffsetFetchRequest.t()) ::
-          [OffsetFetchResponse.t()] | :topic_not_found
+  @spec offset_fetch(atom, OffsetFetchRequest.t()) :: [OffsetFetchResponse.t()] | :topic_not_found
   def offset_fetch(worker_name, offset_fetch_request) do
     Server.call(worker_name, {:offset_fetch, offset_fetch_request})
   end
@@ -792,12 +789,7 @@ defmodule KafkaEx do
   def start(_type, _args) do
     max_restarts = Application.get_env(:kafka_ex, :max_restarts, 10)
     max_seconds = Application.get_env(:kafka_ex, :max_seconds, 60)
-
-    {:ok, pid} =
-      KafkaEx.Supervisor.start_link(
-        max_restarts,
-        max_seconds
-      )
+    {:ok, pid} = KafkaEx.Supervisor.start_link(max_restarts,max_seconds)
 
     if Config.disable_default_worker() do
       {:ok, pid}
