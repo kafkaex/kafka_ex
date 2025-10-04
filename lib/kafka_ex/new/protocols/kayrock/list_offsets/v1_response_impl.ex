@@ -1,5 +1,5 @@
 defimpl KafkaEx.New.Protocols.Kayrock.ListOffsets.Response, for: Kayrock.ListOffsets.V1.Response do
-  import KafkaEx.New.Protocols.ListOffsets.Shared,
+  import KafkaEx.New.Protocols.Kayrock.ResponseHelpers,
     only: [build_response: 1, fail_fast_iterate_topics: 2, fail_fast_iterate_partitions: 3]
 
   def parse_response(%{responses: responses}) do

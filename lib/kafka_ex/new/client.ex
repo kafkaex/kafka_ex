@@ -191,6 +191,28 @@ defmodule KafkaEx.New.Client do
     end
   end
 
+  def handle_call({:offset_fetch, consumer_group, [{topic, partitions_data}], opts}, _from, state) do
+    if KafkaEx.valid_consumer_group?(consumer_group) and is_binary(consumer_group) do
+      case offset_fetch_request(consumer_group, {topic, partitions_data}, opts, state) do
+        {:error, error} -> {:reply, {:error, error}, state}
+        {result, updated_state} -> {:reply, result, updated_state}
+      end
+    else
+      {:reply, {:error, :invalid_consumer_group}, state}
+    end
+  end
+
+  def handle_call({:offset_commit, consumer_group, [{topic, partitions_data}], opts}, _from, state) do
+    if KafkaEx.valid_consumer_group?(consumer_group) and is_binary(consumer_group) do
+      case offset_commit_request(consumer_group, {topic, partitions_data}, opts, state) do
+        {:error, error} -> {:reply, {:error, error}, state}
+        {result, updated_state} -> {:reply, result, updated_state}
+      end
+    else
+      {:reply, {:error, :invalid_consumer_group}, state}
+    end
+  end
+
   def handle_call({:kayrock_request, request, node_selector}, _from, state) do
     {response, updated_state} = kayrock_network_request(request, node_selector, state)
 
@@ -287,6 +309,26 @@ defmodule KafkaEx.New.Client do
     end
   end
 
+  defp offset_fetch_request(consumer_group, {topic, partitions_data}, opts, state) do
+    node_selector = NodeSelector.consumer_group(consumer_group)
+    req_data = [{:group_id, consumer_group}, {:topics, [{topic, partitions_data}]} | opts]
+
+    case RequestBuilder.offset_fetch_request(req_data, state) do
+      {:ok, request} -> handle_offset_fetch_request(request, node_selector, state)
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp offset_commit_request(consumer_group, {topic, partitions_data}, opts, state) do
+    node_selector = NodeSelector.consumer_group(consumer_group)
+    req_data = [{:group_id, consumer_group}, {:topics, [{topic, partitions_data}]} | opts]
+
+    case RequestBuilder.offset_commit_request(req_data, state) do
+      {:ok, request} -> handle_offset_commit_request(request, node_selector, state)
+      {:error, error} -> {:error, error}
+    end
+  end
+
   # ----------------------------------------------------------------------------------------------------
   defp handle_describe_group_request(request, node_selector, state) do
     handle_request_with_retry(request, &ResponseParser.describe_groups_response/1, node_selector, state)
@@ -294,6 +336,14 @@ defmodule KafkaEx.New.Client do
 
   defp handle_lists_offsets_request(request, node_selector, state) do
     handle_request_with_retry(request, &ResponseParser.list_offsets_response/1, node_selector, state)
+  end
+
+  defp handle_offset_fetch_request(request, node_selector, state) do
+    handle_request_with_retry(request, &ResponseParser.offset_fetch_response/1, node_selector, state)
+  end
+
+  defp handle_offset_commit_request(request, node_selector, state) do
+    handle_request_with_retry(request, &ResponseParser.offset_commit_response/1, node_selector, state)
   end
 
   # ----------------------------------------------------------------------------------------------------
@@ -311,6 +361,11 @@ defmodule KafkaEx.New.Client do
             {{:ok, result}, state_out}
 
           {:error, [error | _]} ->
+            request_name = request.__struct__
+            Logger.warning("Unable to send request #{inspect(request_name)}, failed with error #{inspect(error)}")
+            handle_request_with_retry(request, parser_fn, node_selector, state, retry_count - 1, error)
+
+          {:error, %Error{} = error} ->
             request_name = request.__struct__
             Logger.warning("Unable to send request #{inspect(request_name)}, failed with error #{inspect(error)}")
             handle_request_with_retry(request, parser_fn, node_selector, state, retry_count - 1, error)

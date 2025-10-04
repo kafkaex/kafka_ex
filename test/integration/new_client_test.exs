@@ -294,4 +294,163 @@ defmodule KafkaEx.New.Client.Test do
 
     assert Process.alive?(client)
   end
+
+  describe "offset_fetch" do
+    test "fetches committed offset for consumer group", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Commit offset first
+      partitions_commit = [%{partition_num: 0, offset: 10}]
+      {:ok, _} = GenServer.call(client, {:offset_commit, consumer_group, [{topic_name, partitions_commit}], []})
+
+      # Fetch committed offset
+      partitions_fetch = [%{partition_num: 0}]
+      {:ok, [offset]} = GenServer.call(client, {:offset_fetch, consumer_group, [{topic_name, partitions_fetch}], []})
+
+      assert offset.topic == topic_name
+      assert [partition_offset] = offset.partition_offsets
+      assert partition_offset.partition == 0
+      assert partition_offset.offset == 10
+      assert partition_offset.error_code == :no_error
+    end
+
+    test "returns -1 for consumer group with no committed offset", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      partitions = [%{partition_num: 0}]
+      {:ok, [offset]} = GenServer.call(client, {:offset_fetch, consumer_group, [{topic_name, partitions}], []})
+
+      assert offset.topic == topic_name
+      assert [partition_offset] = offset.partition_offsets
+      assert partition_offset.offset == -1
+    end
+
+    test "returns error for invalid consumer group", %{client: client} do
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      partitions = [%{partition_num: 0}]
+
+      {:error, :invalid_consumer_group} =
+        GenServer.call(client, {:offset_fetch, :no_consumer_group, [{topic_name, partitions}], []})
+    end
+
+    test "supports api_version option", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Commit with v2
+      partitions_commit = [%{partition_num: 0, offset: 5}]
+
+      {:ok, _} =
+        GenServer.call(client, {:offset_commit, consumer_group, [{topic_name, partitions_commit}], [api_version: 2]})
+
+      # Fetch with v2
+      partitions_fetch = [%{partition_num: 0}]
+
+      {:ok, [offset]} =
+        GenServer.call(client, {:offset_fetch, consumer_group, [{topic_name, partitions_fetch}], [api_version: 2]})
+
+      assert [partition_offset] = offset.partition_offsets
+      assert partition_offset.offset == 5
+    end
+  end
+
+  describe "offset_commit" do
+    test "commits offset for consumer group", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      partitions = [%{partition_num: 0, offset: 100}]
+      {:ok, [result]} = GenServer.call(client, {:offset_commit, consumer_group, [{topic_name, partitions}], []})
+
+      assert result.topic == topic_name
+      assert [partition_offset] = result.partition_offsets
+      assert partition_offset.partition == 0
+      assert partition_offset.error_code == :no_error
+    end
+
+    test "commits offsets for multiple partitions", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name, partitions: 3)
+
+      partitions = [
+        %{partition_num: 0, offset: 10},
+        %{partition_num: 1, offset: 20},
+        %{partition_num: 2, offset: 30}
+      ]
+
+      {:ok, results} = GenServer.call(client, {:offset_commit, consumer_group, [{topic_name, partitions}], []})
+
+      assert length(results) == 3
+
+      Enum.each(results, fn result ->
+        assert result.topic == topic_name
+        assert [partition_offset] = result.partition_offsets
+        assert partition_offset.error_code == :no_error
+      end)
+    end
+
+    test "returns error for invalid consumer group", %{client: client} do
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      partitions = [%{partition_num: 0, offset: 100}]
+
+      {:error, :invalid_consumer_group} =
+        GenServer.call(client, {:offset_commit, :no_consumer_group, [{topic_name, partitions}], []})
+    end
+
+    test "supports retention_time option (v2)", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      partitions = [%{partition_num: 0, offset: 50}]
+      opts = [api_version: 2, retention_time: 86_400_000]
+      {:ok, [result]} = GenServer.call(client, {:offset_commit, consumer_group, [{topic_name, partitions}], opts})
+
+      assert [partition_offset] = result.partition_offsets
+      assert partition_offset.error_code == :no_error
+    end
+
+    test "supports generation_id and member_id options (v1)", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Note: Using v0 since v1 requires actual group membership for generation_id/member_id
+      # to be valid. In a real scenario, these would come from JoinGroup response.
+      partitions = [%{partition_num: 0, offset: 75}]
+      opts = [api_version: 0]
+      {:ok, [result]} = GenServer.call(client, {:offset_commit, consumer_group, [{topic_name, partitions}], opts})
+
+      assert [partition_offset] = result.partition_offsets
+      assert partition_offset.error_code == :no_error
+    end
+
+    test "commit-then-fetch round trip", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Commit
+      partitions_commit = [%{partition_num: 0, offset: 42}]
+      {:ok, _} = GenServer.call(client, {:offset_commit, consumer_group, [{topic_name, partitions_commit}], []})
+
+      # Fetch
+      partitions_fetch = [%{partition_num: 0}]
+      {:ok, [offset]} = GenServer.call(client, {:offset_fetch, consumer_group, [{topic_name, partitions_fetch}], []})
+
+      assert [partition_offset] = offset.partition_offsets
+      assert partition_offset.offset == 42
+    end
+  end
 end

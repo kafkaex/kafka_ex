@@ -31,6 +31,8 @@ defmodule KafkaEx.New.KafkaExAPI do
   @type correlation_id :: non_neg_integer
   @type opts :: Keyword.t()
   @type partition_offset_request :: %{partition_num: partition_id, timestamp: timestamp_request}
+  @type partition_id_request :: %{partition_num: partition_id}
+  @type partition_offset_commit_request :: %{partition_num: partition_id, offset: offset_val}
 
   @doc """
   Fetch the latest offset for a given partition
@@ -126,12 +128,46 @@ defmodule KafkaEx.New.KafkaExAPI do
 
   NOTE this function will not be supported after the legacy API is removed
   """
-  @spec set_consumer_group_for_auto_commit(client, consumer_group_name) ::
-          :ok | {:error, :invalid_consumer_group}
+  @spec set_consumer_group_for_auto_commit(client, consumer_group_name) :: :ok | {:error, :invalid_consumer_group}
   def set_consumer_group_for_auto_commit(client, consumer_group) do
-    GenServer.call(
-      client,
-      {:set_consumer_group_for_auto_commit, consumer_group}
-    )
+    GenServer.call(client, {:set_consumer_group_for_auto_commit, consumer_group})
+  end
+
+  @doc """
+  Fetch committed offsets for a consumer group
+
+  Retrieves the last committed offsets for the specified topic/partition(s)
+  for a consumer group. This is useful for tracking consumer group progress
+  and implementing manual offset management.
+  """
+  @spec fetch_committed_offset(client, consumer_group_name, topic_name, [partition_id_request]) ::
+          {:ok, [Offset.t()]} | {:error, error_atom}
+  @spec fetch_committed_offset(client, consumer_group_name, topic_name, [partition_id_request], opts) ::
+          {:ok, [Offset.t()]} | {:error, error_atom}
+  def fetch_committed_offset(client, consumer_group, topic, partitions, opts \\ []) do
+    case GenServer.call(client, {:offset_fetch, consumer_group, [{topic, partitions}], opts}) do
+      {:ok, offsets} -> {:ok, offsets}
+      {:error, %{error: error_atom}} -> {:error, error_atom}
+      {:error, error_atom} -> {:error, error_atom}
+    end
+  end
+
+  @doc """
+  Commit offsets for a consumer group
+
+  Stores the committed offsets for the specified topic/partition(s) for a
+  consumer group. This is used for manual offset management and consumer
+  group coordination.
+  """
+  @spec commit_offset(client, consumer_group_name, topic_name, [partition_offset_commit_request]) ::
+          {:ok, [Offset.t()]} | {:error, error_atom}
+  @spec commit_offset(client, consumer_group_name, topic_name, [partition_offset_commit_request], opts) ::
+          {:ok, [Offset.t()]} | {:error, error_atom}
+  def commit_offset(client, consumer_group, topic, partitions, opts \\ []) do
+    case GenServer.call(client, {:offset_commit, consumer_group, [{topic, partitions}], opts}) do
+      {:ok, offsets} -> {:ok, offsets}
+      {:error, %{error: error_atom}} -> {:error, error_atom}
+      {:error, error_atom} -> {:error, error_atom}
+    end
   end
 end
