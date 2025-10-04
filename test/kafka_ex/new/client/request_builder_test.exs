@@ -239,4 +239,123 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
       assert error_value == :api_version_no_supported
     end
   end
+
+  describe "heartbeat_request/2" do
+    test "returns request for Heartbeat API v0 (default)" do
+      state = %KafkaEx.New.Client.State{api_versions: %{12 => {0, 1}}}
+      group_id = "test-group"
+      member_id = "consumer-123"
+      generation_id = 5
+
+      {:ok, request} =
+        RequestBuilder.heartbeat_request(
+          [group_id: group_id, member_id: member_id, generation_id: generation_id],
+          state
+        )
+
+      expected_request = %Kayrock.Heartbeat.V0.Request{
+        client_id: nil,
+        correlation_id: nil,
+        group_id: "test-group",
+        member_id: "consumer-123",
+        generation_id: 5
+      }
+
+      assert expected_request == request
+    end
+
+    test "returns request for Heartbeat API v1" do
+      state = %KafkaEx.New.Client.State{api_versions: %{12 => {0, 1}}}
+      group_id = "consumer-group"
+      member_id = "member-abc"
+      generation_id = 10
+
+      {:ok, request} =
+        RequestBuilder.heartbeat_request(
+          [
+            group_id: group_id,
+            member_id: member_id,
+            generation_id: generation_id,
+            api_version: 1
+          ],
+          state
+        )
+
+      expected_request = %Kayrock.Heartbeat.V1.Request{
+        client_id: nil,
+        correlation_id: nil,
+        group_id: "consumer-group",
+        member_id: "member-abc",
+        generation_id: 10
+      }
+
+      assert expected_request == request
+    end
+
+    test "handles generation_id 0" do
+      state = %KafkaEx.New.Client.State{api_versions: %{12 => {0, 1}}}
+
+      {:ok, request} =
+        RequestBuilder.heartbeat_request(
+          [
+            group_id: "group",
+            member_id: "member",
+            generation_id: 0
+          ],
+          state
+        )
+
+      assert request.generation_id == 0
+    end
+
+    test "handles empty member_id" do
+      state = %KafkaEx.New.Client.State{api_versions: %{12 => {0, 1}}}
+
+      {:ok, request} =
+        RequestBuilder.heartbeat_request(
+          [
+            group_id: "group",
+            member_id: "",
+            generation_id: 1
+          ],
+          state
+        )
+
+      assert request.member_id == ""
+    end
+
+    test "returns error when api version is not supported" do
+      state = %KafkaEx.New.Client.State{api_versions: %{12 => {0, 1}}}
+
+      {:error, error_value} =
+        RequestBuilder.heartbeat_request(
+          [
+            group_id: "group",
+            member_id: "member",
+            generation_id: 1,
+            api_version: 3
+          ],
+          state
+        )
+
+      assert error_value == :api_version_no_supported
+    end
+
+    test "uses correct default api version when not specified" do
+      state = %KafkaEx.New.Client.State{api_versions: %{12 => {0, 1}}}
+
+      {:ok, request} =
+        RequestBuilder.heartbeat_request(
+          [
+            group_id: "group",
+            member_id: "member",
+            generation_id: 1
+          ],
+          state
+        )
+
+      # Should use v0 as default
+      assert match?(%Kayrock.Heartbeat.V0.Request{}, request)
+    end
+  end
 end

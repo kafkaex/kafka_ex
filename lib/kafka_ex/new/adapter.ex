@@ -322,6 +322,10 @@ defmodule KafkaEx.New.Adapter do
     %HeartbeatResponse{error_code: ErrorCode.code_to_atom(error_code)}
   end
 
+  def heartbeat_response(%Heartbeat.V1.Response{error_code: error_code}) do
+    %HeartbeatResponse{error_code: ErrorCode.code_to_atom(error_code)}
+  end
+
   def create_topics_request(requests, timeout) do
     %CreateTopics.V0.Request{
       timeout: timeout,

@@ -8,6 +8,7 @@ defmodule KafkaEx.New.Protocols.KayrockProtocol do
 
   alias KafkaEx.New.Protocols.Kayrock, as: KayrockProtocol
   alias Kayrock.DescribeGroups
+  alias Kayrock.Heartbeat
   alias Kayrock.ListOffsets
   alias Kayrock.OffsetCommit
   alias Kayrock.OffsetFetch
@@ -41,6 +42,12 @@ defmodule KafkaEx.New.Protocols.KayrockProtocol do
     |> KayrockProtocol.OffsetCommit.Request.build_request(opts)
   end
 
+  def build_request(:heartbeat, api_version, opts) do
+    api_version
+    |> Heartbeat.get_request_struct()
+    |> KayrockProtocol.Heartbeat.Request.build_request(opts)
+  end
+
   # -----------------------------------------------------------------------------
   @doc """
   Parses response based on request type and response
@@ -60,5 +67,9 @@ defmodule KafkaEx.New.Protocols.KayrockProtocol do
 
   def parse_response(:offset_commit, response) do
     KayrockProtocol.OffsetCommit.Response.parse_response(response)
+  end
+
+  def parse_response(:heartbeat, response) do
+    KayrockProtocol.Heartbeat.Response.parse_response(response)
   end
 end
