@@ -1,5 +1,5 @@
 defimpl KafkaEx.New.Protocols.Kayrock.ListOffsets.Request, for: Kayrock.ListOffsets.V0.Request do
-  import KafkaEx.New.Protocols.ListOffsets.Shared, only: [parse_time: 1]
+  import KafkaEx.New.Protocols.Kayrock.ResponseHelpers, only: [parse_time: 1]
 
   def build_request(request_template, opts) do
     replica_id = Keyword.get(opts, :replica_id, -1)

@@ -6,25 +6,11 @@ defimpl KafkaEx.New.Protocols.Kayrock.OffsetCommit.Request, for: Kayrock.OffsetC
   Request includes: group_id, topics with partitions (offset + metadata).
   """
 
-  def build_request(request_template, opts) do
-    group_id = Keyword.fetch!(opts, :group_id)
+  alias KafkaEx.New.Protocols.Kayrock.OffsetCommit.RequestHelpers
 
-    topics =
-      opts
-      |> Keyword.fetch!(:topics)
-      |> Enum.map(fn {topic, partitions} ->
-        %{
-          topic: topic,
-          partitions:
-            Enum.map(partitions, fn partition_data ->
-              %{
-                partition: partition_data.partition_num,
-                offset: partition_data.offset,
-                metadata: partition_data[:metadata] || ""
-              }
-            end)
-        }
-      end)
+  def build_request(request_template, opts) do
+    %{group_id: group_id} = RequestHelpers.extract_common_fields(opts)
+    topics = RequestHelpers.build_topics(opts, false)
 
     request_template
     |> Map.put(:group_id, group_id)

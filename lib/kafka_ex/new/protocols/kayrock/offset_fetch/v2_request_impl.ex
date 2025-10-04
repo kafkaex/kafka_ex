@@ -6,21 +6,11 @@ defimpl KafkaEx.New.Protocols.Kayrock.OffsetFetch.Request, for: Kayrock.OffsetFe
   Request structure is identical to V1.
   """
 
-  def build_request(request_template, opts) do
-    group_id = Keyword.fetch!(opts, :group_id)
+  alias KafkaEx.New.Protocols.Kayrock.OffsetFetch.RequestHelpers
 
-    topics =
-      opts
-      |> Keyword.fetch!(:topics)
-      |> Enum.map(fn {topic, partitions} ->
-        %{
-          topic: topic,
-          partitions:
-            Enum.map(partitions, fn partition_data ->
-              %{partition: partition_data.partition_num}
-            end)
-        }
-      end)
+  def build_request(request_template, opts) do
+    %{group_id: group_id} = RequestHelpers.extract_common_fields(opts)
+    topics = RequestHelpers.build_topics(opts)
 
     request_template
     |> Map.put(:group_id, group_id)

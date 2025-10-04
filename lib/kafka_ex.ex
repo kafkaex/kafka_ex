@@ -789,7 +789,7 @@ defmodule KafkaEx do
   def start(_type, _args) do
     max_restarts = Application.get_env(:kafka_ex, :max_restarts, 10)
     max_seconds = Application.get_env(:kafka_ex, :max_seconds, 60)
-    {:ok, pid} = KafkaEx.Supervisor.start_link(max_restarts,max_seconds)
+    {:ok, pid} = KafkaEx.Supervisor.start_link(max_restarts, max_seconds)
 
     if Config.disable_default_worker() do
       {:ok, pid}

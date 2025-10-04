@@ -6,28 +6,12 @@ defimpl KafkaEx.New.Protocols.Kayrock.OffsetCommit.Request, for: Kayrock.OffsetC
   Can store offsets in either Kafka or Zookeeper depending on configuration.
   """
 
-  def build_request(request_template, opts) do
-    group_id = Keyword.fetch!(opts, :group_id)
-    generation_id = Keyword.get(opts, :generation_id, -1)
-    member_id = Keyword.get(opts, :member_id, "")
+  alias KafkaEx.New.Protocols.Kayrock.OffsetCommit.RequestHelpers
 
-    topics =
-      opts
-      |> Keyword.fetch!(:topics)
-      |> Enum.map(fn {topic, partitions} ->
-        %{
-          topic: topic,
-          partitions:
-            Enum.map(partitions, fn partition_data ->
-              %{
-                partition: partition_data.partition_num,
-                offset: partition_data.offset,
-                timestamp: partition_data[:timestamp] || -1,
-                metadata: partition_data[:metadata] || ""
-              }
-            end)
-        }
-      end)
+  def build_request(request_template, opts) do
+    %{group_id: group_id} = RequestHelpers.extract_common_fields(opts)
+    %{generation_id: generation_id, member_id: member_id} = RequestHelpers.extract_coordination_fields(opts)
+    topics = RequestHelpers.build_topics(opts, true)
 
     request_template
     |> Map.put(:group_id, group_id)

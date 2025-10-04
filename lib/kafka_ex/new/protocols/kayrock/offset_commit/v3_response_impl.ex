@@ -6,7 +6,7 @@ defimpl KafkaEx.New.Protocols.Kayrock.OffsetCommit.Response, for: Kayrock.Offset
   Response only contains partition and error_code (no offset).
   """
 
-  import KafkaEx.New.Protocols.OffsetCommit.Shared,
+  import KafkaEx.New.Protocols.Kayrock.ResponseHelpers,
     only: [build_response: 1, fail_fast_iterate_topics: 2, fail_fast_iterate_partitions: 3]
 
   def parse_response(%{responses: responses, throttle_time_ms: _throttle_time}) do

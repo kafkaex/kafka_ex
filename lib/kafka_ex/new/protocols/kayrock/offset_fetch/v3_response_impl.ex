@@ -5,7 +5,7 @@ defimpl KafkaEx.New.Protocols.Kayrock.OffsetFetch.Response, for: Kayrock.OffsetF
   Includes throttle_time_ms field for rate limiting information.
   """
 
-  import KafkaEx.New.Protocols.OffsetFetch.Shared,
+  import KafkaEx.New.Protocols.Kayrock.ResponseHelpers,
     only: [build_response: 1, fail_fast_iterate_topics: 2, fail_fast_iterate_partitions: 3]
 
   alias KafkaEx.New.Structs.Error, as: ErrorStruct
