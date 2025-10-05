@@ -1,5 +1,31 @@
 # KafkaEx Changelog
 
+## Unreleased 
+
+## Features
+
+* Added `SASL` Auth Implementation
+* Added Graceful shutdown for GenConsumer
+* Migrated Offset API to `kayrock`
+* Migrated Consumer Group API to `kayrock`
+
+## 0.14
+
+### Fixes
+
+* Multiple Github Action Fixes
+* Fix deprecation warnings with Bitwise usage
+* Fix deprecation warnings with Config
+* Fix deprecation warnings with Stacktrace
+
+### Features
+
+* Added `describe_groups` API
+
+### Breaking Changes
+
+* Set minimal version of elixir to 1.8
+
 ## 0.13
 
 *   Support Snappyer 2
