@@ -17,6 +17,7 @@ defmodule KafkaEx.New.AdapterHeartbeatTest do
       {kayrock_request, consumer_group} = Adapter.heartbeat_request(legacy_request)
 
       assert consumer_group == "test-group"
+
       assert kayrock_request == %Heartbeat.V0.Request{
                group_id: "test-group",
                member_id: "consumer-123",

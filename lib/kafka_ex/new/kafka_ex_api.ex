@@ -15,6 +15,7 @@ defmodule KafkaEx.New.KafkaExAPI do
 
   alias KafkaEx.New.Structs.ClusterMetadata
   alias KafkaEx.New.Structs.ConsumerGroup
+  alias KafkaEx.New.Structs.Heartbeat
   alias KafkaEx.New.Structs.Offset
   alias KafkaEx.New.Structs.Topic
 
@@ -33,6 +34,8 @@ defmodule KafkaEx.New.KafkaExAPI do
   @type partition_offset_request :: %{partition_num: partition_id, timestamp: timestamp_request}
   @type partition_id_request :: %{partition_num: partition_id}
   @type partition_offset_commit_request :: %{partition_num: partition_id, offset: offset_val}
+  @type member_id :: binary
+  @type generation_id :: non_neg_integer
 
   @doc """
   Fetch the latest offset for a given partition
@@ -166,6 +169,21 @@ defmodule KafkaEx.New.KafkaExAPI do
   def commit_offset(client, consumer_group, topic, partitions, opts \\ []) do
     case GenServer.call(client, {:offset_commit, consumer_group, [{topic, partitions}], opts}) do
       {:ok, offsets} -> {:ok, offsets}
+      {:error, %{error: error_atom}} -> {:error, error_atom}
+      {:error, error_atom} -> {:error, error_atom}
+    end
+  end
+
+  @doc """
+  Send a heartbeat to a consumer group coordinator
+  """
+  @spec heartbeat(client, consumer_group_name, member_id, generation_id) ::
+          {:ok, :no_error | Heartbeat.t()} | {:error, error_atom}
+  @spec heartbeat(client, consumer_group_name, member_id, generation_id, opts) ::
+          {:ok, :no_error | Heartbeat.t()} | {:error, error_atom}
+  def heartbeat(client, consumer_group, member_id, generation_id, opts \\ []) do
+    case GenServer.call(client, {:heartbeat, consumer_group, member_id, generation_id, opts}) do
+      {:ok, result} -> {:ok, result}
       {:error, %{error: error_atom}} -> {:error, error_atom}
       {:error, error_atom} -> {:error, error_atom}
     end
