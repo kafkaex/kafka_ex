@@ -38,6 +38,7 @@ defmodule KafkaEx.IntegrationHelpers do
       session_timeout: 6000
     }
 
-    KafkaEx.join_group(request, worker_name: client, timeout: 10000)
+    response = KafkaEx.join_group(request, worker_name: client, timeout: 10000)
+    {response.member_id, response.generation_id}
   end
 end

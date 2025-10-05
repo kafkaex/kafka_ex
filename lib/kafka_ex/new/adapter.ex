@@ -310,6 +310,10 @@ defmodule KafkaEx.New.Adapter do
     %LeaveGroupResponse{error_code: ErrorCode.code_to_atom(error_code)}
   end
 
+  def leave_group_response(%LeaveGroup.V1.Response{error_code: error_code}) do
+    %LeaveGroupResponse{error_code: ErrorCode.code_to_atom(error_code)}
+  end
+
   def heartbeat_request(request) do
     {%Heartbeat.V0.Request{
        group_id: request.group_name,
