@@ -2,6 +2,7 @@ defmodule KafkaEx.New.Client.ResponseParserTest do
   use ExUnit.Case, async: true
 
   alias KafkaEx.New.Client.ResponseParser
+  alias KafkaEx.New.Structs.Heartbeat
   alias KafkaEx.New.Structs.Offset
   alias KafkaEx.New.Structs.Offset.PartitionOffset
 
@@ -130,6 +131,102 @@ defmodule KafkaEx.New.Client.ResponseParserTest do
 
       assert {:error, error} = ResponseParser.offset_commit_response(response)
       assert error.error == :not_coordinator
+    end
+  end
+
+  describe "heartbeat_response/1" do
+    test "parses successful Heartbeat v0 response" do
+      response = %Kayrock.Heartbeat.V0.Response{
+        error_code: 0
+      }
+
+      assert {:ok, :no_error} = ResponseParser.heartbeat_response(response)
+    end
+
+    test "parses successful Heartbeat v1 response with throttle_time_ms" do
+      response = %Kayrock.Heartbeat.V1.Response{
+        error_code: 0,
+        throttle_time_ms: 100
+      }
+
+      assert {:ok, heartbeat} = ResponseParser.heartbeat_response(response)
+      assert %Heartbeat{throttle_time_ms: 100} = heartbeat
+    end
+
+    test "parses Heartbeat v1 response with zero throttle_time_ms" do
+      response = %Kayrock.Heartbeat.V1.Response{
+        error_code: 0,
+        throttle_time_ms: 0
+      }
+
+      assert {:ok, heartbeat} = ResponseParser.heartbeat_response(response)
+      assert heartbeat.throttle_time_ms == 0
+    end
+
+    test "returns error for unknown_member_id (v0)" do
+      response = %Kayrock.Heartbeat.V0.Response{
+        error_code: 25
+      }
+
+      assert {:error, error} = ResponseParser.heartbeat_response(response)
+      assert error.error == :unknown_member_id
+    end
+
+    test "returns error for illegal_generation (v0)" do
+      response = %Kayrock.Heartbeat.V0.Response{
+        error_code: 22
+      }
+
+      assert {:error, error} = ResponseParser.heartbeat_response(response)
+      assert error.error == :illegal_generation
+    end
+
+    test "returns error for rebalance_in_progress (v1)" do
+      response = %Kayrock.Heartbeat.V1.Response{
+        error_code: 27,
+        throttle_time_ms: 50
+      }
+
+      assert {:error, error} = ResponseParser.heartbeat_response(response)
+      assert error.error == :rebalance_in_progress
+    end
+
+    test "returns error for not_coordinator (v1)" do
+      response = %Kayrock.Heartbeat.V1.Response{
+        error_code: 16,
+        throttle_time_ms: 0
+      }
+
+      assert {:error, error} = ResponseParser.heartbeat_response(response)
+      assert error.error == :not_coordinator
+    end
+
+    test "returns error for coordinator_not_available (v0)" do
+      response = %Kayrock.Heartbeat.V0.Response{
+        error_code: 15
+      }
+
+      assert {:error, error} = ResponseParser.heartbeat_response(response)
+      assert error.error == :coordinator_not_available
+    end
+
+    test "handles generic error with unknown error code (v0)" do
+      response = %Kayrock.Heartbeat.V0.Response{
+        error_code: 999
+      }
+
+      assert {:error, error} = ResponseParser.heartbeat_response(response)
+      assert error.error == :unknown
+    end
+
+    test "handles generic error with unknown error code (v1)" do
+      response = %Kayrock.Heartbeat.V1.Response{
+        error_code: 999,
+        throttle_time_ms: 10
+      }
+
+      assert {:error, error} = ResponseParser.heartbeat_response(response)
+      assert error.error == :unknown
     end
   end
 end

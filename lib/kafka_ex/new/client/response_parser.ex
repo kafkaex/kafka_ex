@@ -5,6 +5,7 @@ defmodule KafkaEx.New.Client.ResponseParser do
   """
   alias KafkaEx.New.Structs.ConsumerGroup
   alias KafkaEx.New.Structs.Error
+  alias KafkaEx.New.Structs.Heartbeat
   alias KafkaEx.New.Structs.Offset
 
   @protocol Application.compile_env(:kafka_ex, :protocol, KafkaEx.New.Protocols.KayrockProtocol)
@@ -39,5 +40,13 @@ defmodule KafkaEx.New.Client.ResponseParser do
   @spec offset_commit_response(term) :: {:ok, [Offset.t()]} | {:error, Error.t()}
   def offset_commit_response(response) do
     @protocol.parse_response(:offset_commit, response)
+  end
+
+  @doc """
+  Parses response for Heartbeat API
+  """
+  @spec heartbeat_response(term) :: {:ok, :no_error | Heartbeat.t()} | {:error, Error.t()}
+  def heartbeat_response(response) do
+    @protocol.parse_response(:heartbeat, response)
   end
 end

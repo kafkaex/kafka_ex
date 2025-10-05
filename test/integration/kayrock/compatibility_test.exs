@@ -815,4 +815,151 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   end
 
   # -----------------------------------------------------------------------------
+  describe "heartbeat compatibility" do
+    test "legacy API can heartbeat to group created with new API", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group to get member_id and generation_id
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Heartbeat via new API
+      {:ok, result} = KafkaExAPI.heartbeat(client, consumer_group, member_id, generation_id)
+      assert result == :no_error
+
+      # Heartbeat via legacy API
+      legacy_request = %KafkaEx.Protocol.Heartbeat.Request{
+        group_name: consumer_group,
+        member_id: member_id,
+        generation_id: generation_id
+      }
+
+      legacy_response = KafkaEx.heartbeat(legacy_request, worker_name: client)
+      assert legacy_response.error_code == :no_error
+    end
+
+    test "new API can heartbeat to group created with legacy API", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group to get member_id and generation_id
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Heartbeat via legacy API first
+      legacy_request = %KafkaEx.Protocol.Heartbeat.Request{
+        group_name: consumer_group,
+        member_id: member_id,
+        generation_id: generation_id
+      }
+
+      legacy_response = KafkaEx.heartbeat(legacy_request, worker_name: client)
+      assert legacy_response.error_code == :no_error
+
+      # Heartbeat via new API
+      {:ok, result} = KafkaExAPI.heartbeat(client, consumer_group, member_id, generation_id)
+      assert result == :no_error
+    end
+
+    test "both APIs handle unknown_member_id error identically", %{client: client} do
+      consumer_group = generate_random_string()
+
+      # New API
+      {:error, error_new} = KafkaExAPI.heartbeat(client, consumer_group, "invalid-member", 0)
+      assert error_new == :unknown_member_id
+
+      # Legacy API
+      legacy_request = %KafkaEx.Protocol.Heartbeat.Request{
+        group_name: consumer_group,
+        member_id: "invalid-member",
+        generation_id: 0
+      }
+
+      legacy_response = KafkaEx.heartbeat(legacy_request, worker_name: client)
+      assert legacy_response.error_code == :unknown_member_id
+    end
+
+    test "both APIs handle illegal_generation error identically", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, _generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # New API
+      {:error, error_new} = KafkaExAPI.heartbeat(client, consumer_group, member_id, 999_999)
+      assert error_new == :illegal_generation
+
+      # Legacy API
+      legacy_request = %KafkaEx.Protocol.Heartbeat.Request{
+        group_name: consumer_group,
+        member_id: member_id,
+        generation_id: 999_999
+      }
+
+      legacy_response = KafkaEx.heartbeat(legacy_request, worker_name: client)
+      assert legacy_response.error_code == :illegal_generation
+    end
+
+    test "multiple heartbeats across APIs maintain group membership", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Alternate between APIs
+      {:ok, _} = KafkaExAPI.heartbeat(client, consumer_group, member_id, generation_id)
+      Process.sleep(50)
+
+      legacy_request = %KafkaEx.Protocol.Heartbeat.Request{
+        group_name: consumer_group,
+        member_id: member_id,
+        generation_id: generation_id
+      }
+
+      legacy_response = KafkaEx.heartbeat(legacy_request, worker_name: client)
+      assert legacy_response.error_code == :no_error
+      Process.sleep(50)
+
+      {:ok, _} = KafkaExAPI.heartbeat(client, consumer_group, member_id, generation_id)
+
+      # Verify still in group
+      {:ok, group} = KafkaExAPI.describe_group(client, consumer_group)
+      assert group.group_id == consumer_group
+      assert length(group.members) == 1
+    end
+
+    test "heartbeat v1 with new API vs v0 with legacy API", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # New API with v1 (returns Heartbeat struct)
+      {:ok, result_v1} = KafkaExAPI.heartbeat(client, consumer_group, member_id, generation_id, api_version: 1)
+      assert %KafkaEx.New.Structs.Heartbeat{throttle_time_ms: _} = result_v1
+
+      # Legacy API uses v0 (returns error_code only)
+      legacy_request = %KafkaEx.Protocol.Heartbeat.Request{
+        group_name: consumer_group,
+        member_id: member_id,
+        generation_id: generation_id
+      }
+
+      legacy_response = KafkaEx.heartbeat(legacy_request, worker_name: client)
+      assert legacy_response.error_code == :no_error
+
+      # New API with v0 (matches legacy behavior)
+      {:ok, result_v0} = KafkaExAPI.heartbeat(client, consumer_group, member_id, generation_id, api_version: 0)
+      assert result_v0 == :no_error
+    end
+  end
+
+  # -----------------------------------------------------------------------------
 end

@@ -453,4 +453,105 @@ defmodule KafkaEx.New.Client.Test do
       assert partition_offset.offset == 42
     end
   end
+
+  describe "heartbeat" do
+    test "sends successful heartbeat to consumer group", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group to get member_id and generation_id
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Send heartbeat
+      {:ok, result} = GenServer.call(client, {:heartbeat, consumer_group, member_id, generation_id, []})
+
+      # v0 returns :no_error
+      assert result == :no_error
+    end
+
+    test "heartbeat with v1 API returns throttle information", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Send heartbeat with v1
+      {:ok, result} = GenServer.call(client, {:heartbeat, consumer_group, member_id, generation_id, [api_version: 1]})
+
+      # v1 returns Heartbeat struct
+      assert %KafkaEx.New.Structs.Heartbeat{throttle_time_ms: _} = result
+    end
+
+    test "returns error for unknown member_id", %{client: client} do
+      consumer_group = generate_random_string()
+
+      # Try heartbeat with invalid member_id (without joining)
+      {:error, error} = GenServer.call(client, {:heartbeat, consumer_group, "invalid-member", 0, []})
+
+      assert error.error == :unknown_member_id
+    end
+
+    test "returns error for illegal generation", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, _generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Send heartbeat with wrong generation_id
+      {:error, error} = GenServer.call(client, {:heartbeat, consumer_group, member_id, 999_999, []})
+
+      assert error.error == :illegal_generation
+    end
+
+    test "returns error for invalid consumer group", %{client: client} do
+      {:error, :invalid_consumer_group} =
+        GenServer.call(client, {:heartbeat, :not_a_binary, "member", 0, []})
+    end
+
+    test "multiple heartbeats maintain group membership", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Send multiple heartbeats
+      Enum.each(1..3, fn _ ->
+        {:ok, _result} = GenServer.call(client, {:heartbeat, consumer_group, member_id, generation_id, []})
+        Process.sleep(100)
+      end)
+
+      # Verify still in group by describing it
+      {:ok, [group]} = GenServer.call(client, {:describe_groups, [consumer_group], []})
+      assert group.group_id == consumer_group
+      assert length(group.members) == 1
+    end
+
+    test "supports api_version option", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # v0
+      {:ok, result_v0} =
+        GenServer.call(client, {:heartbeat, consumer_group, member_id, generation_id, [api_version: 0]})
+
+      assert result_v0 == :no_error
+
+      # v1
+      {:ok, result_v1} =
+        GenServer.call(client, {:heartbeat, consumer_group, member_id, generation_id, [api_version: 1]})
+
+      assert %KafkaEx.New.Structs.Heartbeat{} = result_v1
+    end
+  end
 end

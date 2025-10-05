@@ -5,8 +5,8 @@
 This document tracks the progress of migrating KafkaEx to use Kayrock protocol implementations for all Kafka APIs. 
 The migration aims to replace manual binary parsing with Kayrock's type-safe, versioned protocol layer.
 
-**Last Updated:** 2025-10-03
-**Overall Progress:** 4/20 APIs migrated (20%)
+**Last Updated:** 2025-10-05
+**Overall Progress:** 5/20 APIs migrated (25%)
 
 ---
 
@@ -53,7 +53,7 @@ Pattern matching naturally separates them with no conflicts.
 |--------------------|-----------------|----------|----------|--------------|---------------------------|
 | **JoinGroup**      | 🟡 Adapter Only | v0-v5    | HIGH     | High         | Consumer group membership |
 | **SyncGroup**      | 🟡 Adapter Only | v0-v3    | HIGH     | Medium       | Partition assignment      |
-| **Heartbeat**      | 🟡 Adapter Only | v0-v3    | HIGH     | Low          | Keep-alive mechanism      |
+| **Heartbeat**      | ✅ Complete     | v0-v1    | HIGH     | Low          | Keep-alive mechanism      |
 | **LeaveGroup**     | 🟡 Adapter Only | v0-v2    | MEDIUM   | Low          | Clean exit from group     |
 | **DescribeGroups** | ✅ Complete     | v0-v1    | HIGH     | Medium       | Group metadata inspection |
 
@@ -75,175 +75,6 @@ Pattern matching naturally separates them with no conflicts.
 | **FindCoordinator**    | 🟡 Adapter Only     | v0-v2    | MEDIUM   | Low        | Coordinator discovery    |
 | **InitProducerID**     | ❌ Not Started      | v0-v2    | LOW      | Medium     | Transactional support    |
 | **AddPartitionsToTxn** | ❌ Not Started      | v0-v1    | LOW      | Medium     | Transactional support    |
-
----
-
-## Detailed Status
-
-### ✅ Completed Migrations (4 APIs)
-
-#### 1. DescribeGroups API
-- **Status:** ✅ Complete
-- **Versions:** v0-v1 (uses default implementations for both)
-- **Files:** Protocol layer in `lib/kafka_ex/new/protocols/kayrock/describe_groups/`
-- **Tests:** Full coverage (request_test.exs, response_test.exs)
-- **Pattern:** Consumer group introspection, single default implementation pattern
-- **Location:** `lib/kafka_ex/new/protocols/kayrock/describe_groups/`
-  - `describe_groups.ex` - Protocol definitions
-  - `default_request_impl.ex` - Implements for both V0 and V1
-  - `default_response_impl.ex` - Implements for both V0 and V1
-- **Implementation Note:** Uses `defimpl for: [V0.Request, V1.Request]` pattern instead of separate version files
-
-#### 2. ListOffsets API
-- **Status:** ✅ Complete
-- **Versions:** v0-v2
-- **Files:** Protocol layer, infrastructure, public API
-- **Tests:** 143 tests (115 unit + 28 integration)
-- **Pattern:** Reference implementation for offset migrations
-- **Branch:** Merged to master
-
-#### 3. OffsetFetch API
-- **Status:** ✅ Complete (pending documentation)
-- **Versions:** v0-v3
-- **Files:**
-  - 10 protocol files in `lib/kafka_ex/new/protocols/kayrock/offset_fetch/`
-  - Infrastructure integration (kayrock_protocol, request_builder, response_parser, client)
-  - Public API functions in `kafka_ex_api.ex`
-  - 10 test files (32 tests total)
-- **Tests:** 32 protocol tests + integration tests
-- **Backward Compatibility:** ✅ Verified
-- **Pattern:** Dual API with pattern matching disambiguation
-- **Branch:** `KAYROCK-migrate-offset`
-
-#### 4. OffsetCommit API
-- **Status:** ✅ Complete (pending documentation)
-- **Versions:** v0-v3
-- **Files:**
-  - 10 protocol files in `lib/kafka_ex/new/protocols/kayrock/offset_commit/`
-  - Infrastructure integration (same as OffsetFetch)
-  - Public API functions in `kafka_ex_api.ex`
-  - 10 test files (36 tests total)
-- **Tests:** 36 protocol tests + integration tests
-- **Backward Compatibility:** ✅ Verified (543/549 legacy tests passing - 98.9%)
-- **Pattern:** Dual API with pattern matching disambiguation
-- **Branch:** `KAYROCK-migrate-offset` (75% complete)
-- **Combined Stats (OffsetFetch + OffsetCommit):**
-  - 143 new tests passing (115 unit + 28 integration)
-  - 20 protocol implementation files
-  - 6 infrastructure files modified
-  - Full backward compatibility verified
-
----
-
-## 🟡 Adapter-Only APIs (Requires Migration)
-
-### High Priority (4 APIs)
-
-#### JoinGroup API
-- **Current State:** Adapter only (`adapter.ex:211-236`)
-- **Versions:** v0-v5
-- **Complexity:** HIGH
-- **Why Migrate:** Core consumer group functionality
-- **Estimated Effort:** 3-4 days
-- **Notes:** Complex protocol with multiple rebalance strategies
-
-#### SyncGroup API
-- **Current State:** Adapter only (`adapter.ex:238-264`)
-- **Versions:** v0-v3
-- **Complexity:** MEDIUM
-- **Why Migrate:** Required for consumer group coordination
-- **Estimated Effort:** 2-3 days
-- **Notes:** Follows JoinGroup, simpler logic
-
-#### Heartbeat API
-- **Current State:** Adapter only (`adapter.ex:266-287`)
-- **Versions:** v0-v3
-- **Complexity:** LOW
-- **Why Migrate:** Keep-alive for consumer groups
-- **Estimated Effort:** 1-2 days
-- **Notes:** Simple request/response, good starter migration
-
-#### LeaveGroup API
-- **Current State:** Adapter only (`adapter.ex:289-310`)
-- **Versions:** v0-v2
-- **Complexity:** LOW
-- **Why Migrate:** Clean consumer group exit
-- **Estimated Effort:** 1-2 days
-- **Notes:** Simple, follows Heartbeat pattern
-
-
-### Medium Priority (3 APIs)
-
-#### CreateTopics API
-- **Current State:** Adapter only (`adapter.ex:344-379`)
-- **Versions:** v0-v5
-- **Complexity:** MEDIUM
-- **Why Migrate:** Admin operations
-- **Estimated Effort:** 2-3 days
-- **Notes:** Multiple configuration options
-
-#### DeleteTopics API
-- **Current State:** Adapter only (`adapter.ex:381-407`)
-- **Versions:** v0-v3
-- **Complexity:** LOW
-- **Why Migrate:** Admin operations
-- **Estimated Effort:** 1-2 days
-- **Notes:** Simple deletion logic
-
-#### FindCoordinator API
-- **Current State:** Adapter only (`adapter.ex:409-431`)
-- **Versions:** v0-v2
-- **Complexity:** LOW
-- **Why Migrate:** Consumer group setup
-- **Estimated Effort:** 1-2 days
-- **Notes:** Simple coordinator lookup
-
----
-
-## ❌ Not Started (6 APIs)
-
-### Low Priority
-
-These APIs are either rarely used or support advanced features:
-
-1. **CreatePartitions** - Add partitions to existing topics
-2. **DeleteRecords** - Delete records before a given offset
-3. **DescribeConfigs** - Inspect broker/topic configurations
-4. **AlterConfigs** - Modify configurations
-5. **InitProducerID** - Initialize transactional producer
-6. **AddPartitionsToTxn** - Add partitions to transaction
-
-**Recommendation:** Migrate on-demand based on user requirements.
-
----
-
-## Migration Priority Recommendations
-
-### Phase 1: Consumer Group APIs (Next Up)
-**Goal:** Complete consumer group coordination migration
-**APIs:**
-1. Heartbeat - Simple, good starter
-2. LeaveGroup - Simple cleanup
-3. JoinGroup  - Complex but critical
-4. SyncGroup  - Completes coordination
-
-### Phase 2: Admin APIs
-**Goal:** Complete topic management migration
-**APIs:**
-1. FindCoordinator
-2. DeleteTopics
-3. CreateTopics
-
-### Phase 3: Advanced Features (Optional)
-**Goal:** Support advanced use cases
-**APIs:**
-- CreatePartitions
-- DeleteRecords
-- DescribeConfigs
-- AlterConfigs
-- Transactional APIs
-
----
 
 ## Migration Checklist Template
 
