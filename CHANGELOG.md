@@ -3,11 +3,9 @@
 ## 0.13
 
 *   Support Snappyer 2
-*   Continuous integration: replace CircleCI 
-*   Using the Kayrock client: take into account the `api_version` when
-    retrieving offsets to fetch messages.
-*   Update metadata before topic creation to make sure it connects to a
-    controller broker.
+*   Continuous integration: replace CircleCI
+*   Using the Kayrock client: take into account the `api_version` when retrieving offsets to fetch messages.
+*   Update metadata before topic creation to make sure it connects to a  controller broker.
 *   Support record headers.
 
 ## 0.12.1
