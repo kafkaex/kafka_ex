@@ -539,6 +539,7 @@ defmodule KafkaEx.New.KafkaExAPITest do
         topics: [topic_name],
         session_timeout: 6000
       }
+
       response2 = KafkaEx.join_group(request2, worker_name: client, timeout: 10000)
       member_id_2 = response2.member_id
 
