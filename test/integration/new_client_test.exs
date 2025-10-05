@@ -542,11 +542,15 @@ defmodule KafkaEx.New.Client.Test do
       {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
 
       # v0
-      {:ok, result_v0} = GenServer.call(client, {:heartbeat, consumer_group, member_id, generation_id, [api_version: 0]})
+      {:ok, result_v0} =
+        GenServer.call(client, {:heartbeat, consumer_group, member_id, generation_id, [api_version: 0]})
+
       assert result_v0 == :no_error
 
       # v1
-      {:ok, result_v1} = GenServer.call(client, {:heartbeat, consumer_group, member_id, generation_id, [api_version: 1]})
+      {:ok, result_v1} =
+        GenServer.call(client, {:heartbeat, consumer_group, member_id, generation_id, [api_version: 1]})
+
       assert %KafkaEx.New.Structs.Heartbeat{} = result_v1
     end
   end
