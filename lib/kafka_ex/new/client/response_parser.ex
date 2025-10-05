@@ -6,6 +6,7 @@ defmodule KafkaEx.New.Client.ResponseParser do
   alias KafkaEx.New.Structs.ConsumerGroup
   alias KafkaEx.New.Structs.Error
   alias KafkaEx.New.Structs.Heartbeat
+  alias KafkaEx.New.Structs.LeaveGroup
   alias KafkaEx.New.Structs.Offset
 
   @protocol Application.compile_env(:kafka_ex, :protocol, KafkaEx.New.Protocols.KayrockProtocol)
@@ -48,5 +49,13 @@ defmodule KafkaEx.New.Client.ResponseParser do
   @spec heartbeat_response(term) :: {:ok, :no_error | Heartbeat.t()} | {:error, Error.t()}
   def heartbeat_response(response) do
     @protocol.parse_response(:heartbeat, response)
+  end
+
+  @doc """
+  Parses response for LeaveGroup API
+  """
+  @spec leave_group_response(term) :: {:ok, :no_error | LeaveGroup.t()} | {:error, Error.t()}
+  def leave_group_response(response) do
+    @protocol.parse_response(:leave_group, response)
   end
 end
