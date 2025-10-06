@@ -402,4 +402,171 @@ defmodule KafkaEx.New.KafkaExAPITest do
       assert result == :no_error
     end
   end
+
+  describe "leave_group/3" do
+    test "successfully leaves consumer group", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group to get member_id
+      {member_id, _generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Leave group
+      {:ok, result} = API.leave_group(client, consumer_group, member_id)
+
+      # v0 returns :no_error
+      assert result == :no_error
+    end
+
+    test "returns error for unknown member_id", %{client: client} do
+      consumer_group = generate_random_string()
+
+      # Try to leave with invalid member_id (without joining)
+      {:error, error} = API.leave_group(client, consumer_group, "invalid-member")
+
+      assert error == :unknown_member_id
+    end
+
+    test "returns error for non-existent group", %{client: client} do
+      # Try to leave a group that doesn't exist
+      {:error, error} = API.leave_group(client, "nonexistent-group", "some-member")
+
+      # Could be :group_id_not_found or :unknown_member_id depending on Kafka version
+      assert error in [:group_id_not_found, :unknown_member_id]
+    end
+
+    test "leaving group triggers rebalance", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, _generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Verify member is in group
+      {:ok, group_before} = API.describe_group(client, consumer_group)
+      assert length(group_before.members) == 1
+
+      # Leave group
+      {:ok, _result} = API.leave_group(client, consumer_group, member_id)
+
+      # Give some time for rebalance
+      Process.sleep(500)
+
+      # Verify member is no longer in group
+      {:ok, group_after} = API.describe_group(client, consumer_group)
+      # Group might be empty or in Empty state
+      assert group_after.state in ["Empty", "Dead"]
+    end
+
+    test "can rejoin after leaving", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id_1, _generation_id_1} = join_to_group(client, topic_name, consumer_group)
+
+      # Leave group
+      {:ok, _result} = API.leave_group(client, consumer_group, member_id_1)
+
+      # Give some time for rebalance
+      Process.sleep(500)
+
+      # Rejoin group
+      {member_id_2, _generation_id_2} = join_to_group(client, topic_name, consumer_group)
+
+      # Should get a new member_id
+      assert member_id_1 != member_id_2
+
+      # Verify member is in group
+      {:ok, group} = API.describe_group(client, consumer_group)
+      assert length(group.members) == 1
+    end
+
+    test "graceful shutdown pattern works", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, _generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Graceful shutdown: leave group
+      result = API.leave_group(client, consumer_group, member_id)
+
+      # Should succeed
+      assert {:ok, _} = result
+
+      # Trying to leave again should fail (already left)
+      {:error, error} = API.leave_group(client, consumer_group, member_id)
+      assert error == :unknown_member_id
+    end
+  end
+
+  describe "leave_group/4" do
+    test "leave_group with v1 API returns throttle information", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, _generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Leave group with v1
+      {:ok, result} = API.leave_group(client, consumer_group, member_id, api_version: 1)
+
+      # v1 returns LeaveGroup struct
+      assert %KafkaEx.New.Structs.LeaveGroup{throttle_time_ms: _} = result
+    end
+
+    test "supports api_version option", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group twice (need two members for two tests)
+      {member_id_1, _} = join_to_group(client, topic_name, consumer_group)
+
+      # Give time for first member to settle
+      Process.sleep(200)
+
+      # Join another member
+      request2 = %KafkaEx.Protocol.JoinGroup.Request{
+        group_name: consumer_group,
+        member_id: "",
+        topics: [topic_name],
+        session_timeout: 6000
+      }
+
+      response2 = KafkaEx.join_group(request2, worker_name: client, timeout: 10000)
+      member_id_2 = response2.member_id
+
+      # Leave with v0
+      {:ok, result_v0} = API.leave_group(client, consumer_group, member_id_1, api_version: 0)
+      assert result_v0 == :no_error
+
+      # Give time for rebalance
+      Process.sleep(200)
+
+      # Leave with v1
+      {:ok, result_v1} = API.leave_group(client, consumer_group, member_id_2, api_version: 1)
+      assert %KafkaEx.New.Structs.LeaveGroup{} = result_v1
+    end
+
+    test "handles custom timeout option", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, _generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Leave with custom timeout
+      {:ok, result} = API.leave_group(client, consumer_group, member_id, timeout: 10_000)
+
+      assert result == :no_error
+    end
+  end
 end

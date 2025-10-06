@@ -358,4 +358,115 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
       assert match?(%Kayrock.Heartbeat.V0.Request{}, request)
     end
   end
+
+  describe "leave_group_request/2" do
+    test "returns request for LeaveGroup API v0 (default)" do
+      state = %KafkaEx.New.Client.State{api_versions: %{13 => {0, 2}}}
+      group_id = "test-group"
+      member_id = "consumer-123"
+
+      {:ok, request} =
+        RequestBuilder.leave_group_request(
+          [group_id: group_id, member_id: member_id],
+          state
+        )
+
+      expected_request = %Kayrock.LeaveGroup.V0.Request{
+        client_id: nil,
+        correlation_id: nil,
+        group_id: "test-group",
+        member_id: "consumer-123"
+      }
+
+      assert expected_request == request
+    end
+
+    test "returns request for LeaveGroup API v1" do
+      state = %KafkaEx.New.Client.State{api_versions: %{13 => {0, 2}}}
+      group_id = "consumer-group"
+      member_id = "member-abc"
+
+      {:ok, request} =
+        RequestBuilder.leave_group_request(
+          [
+            group_id: group_id,
+            member_id: member_id,
+            api_version: 1
+          ],
+          state
+        )
+
+      expected_request = %Kayrock.LeaveGroup.V1.Request{
+        client_id: nil,
+        correlation_id: nil,
+        group_id: "consumer-group",
+        member_id: "member-abc"
+      }
+
+      assert expected_request == request
+    end
+
+    test "handles empty member_id" do
+      state = %KafkaEx.New.Client.State{api_versions: %{13 => {0, 2}}}
+
+      {:ok, request} =
+        RequestBuilder.leave_group_request(
+          [
+            group_id: "group",
+            member_id: ""
+          ],
+          state
+        )
+
+      assert request.member_id == ""
+    end
+
+    test "handles unicode characters in group_id and member_id" do
+      state = %KafkaEx.New.Client.State{api_versions: %{13 => {0, 2}}}
+
+      {:ok, request} =
+        RequestBuilder.leave_group_request(
+          [
+            group_id: "group-日本",
+            member_id: "member-한국"
+          ],
+          state
+        )
+
+      assert request.group_id == "group-日本"
+      assert request.member_id == "member-한국"
+    end
+
+    test "returns error when api version is not supported" do
+      state = %KafkaEx.New.Client.State{api_versions: %{13 => {0, 1}}}
+
+      {:error, error_value} =
+        RequestBuilder.leave_group_request(
+          [
+            group_id: "group",
+            member_id: "member",
+            api_version: 3
+          ],
+          state
+        )
+
+      assert error_value == :api_version_no_supported
+    end
+
+    test "uses correct default api version when not specified" do
+      state = %KafkaEx.New.Client.State{api_versions: %{13 => {0, 2}}}
+
+      {:ok, request} =
+        RequestBuilder.leave_group_request(
+          [
+            group_id: "group",
+            member_id: "member"
+          ],
+          state
+        )
+
+      # Should use v0 as default
+      assert match?(%Kayrock.LeaveGroup.V0.Request{}, request)
+    end
+  end
 end

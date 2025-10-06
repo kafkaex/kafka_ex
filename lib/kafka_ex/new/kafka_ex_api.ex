@@ -16,6 +16,7 @@ defmodule KafkaEx.New.KafkaExAPI do
   alias KafkaEx.New.Structs.ClusterMetadata
   alias KafkaEx.New.Structs.ConsumerGroup
   alias KafkaEx.New.Structs.Heartbeat
+  alias KafkaEx.New.Structs.LeaveGroup
   alias KafkaEx.New.Structs.Offset
   alias KafkaEx.New.Structs.Topic
 
@@ -176,6 +177,10 @@ defmodule KafkaEx.New.KafkaExAPI do
 
   @doc """
   Send a heartbeat to a consumer group coordinator
+
+  Sends a periodic heartbeat to the group coordinator to indicate that the
+  consumer is still active and participating in the consumer group. This is
+  required to maintain group membership and prevent rebalancing.
   """
   @spec heartbeat(client, consumer_group_name, member_id, generation_id) ::
           {:ok, :no_error | Heartbeat.t()} | {:error, error_atom}
@@ -183,6 +188,25 @@ defmodule KafkaEx.New.KafkaExAPI do
           {:ok, :no_error | Heartbeat.t()} | {:error, error_atom}
   def heartbeat(client, consumer_group, member_id, generation_id, opts \\ []) do
     case GenServer.call(client, {:heartbeat, consumer_group, member_id, generation_id, opts}) do
+      {:ok, result} -> {:ok, result}
+      {:error, %{error: error_atom}} -> {:error, error_atom}
+      {:error, error_atom} -> {:error, error_atom}
+    end
+  end
+
+  @doc """
+  Leave a consumer group
+
+  Notifies the group coordinator that a consumer is voluntarily leaving the
+  consumer group. This allows the coordinator to immediately trigger a rebalance
+  without waiting for a session timeout, improving rebalance latency.
+  """
+  @spec leave_group(client, consumer_group_name, member_id) ::
+          {:ok, :no_error | LeaveGroup.t()} | {:error, error_atom}
+  @spec leave_group(client, consumer_group_name, member_id, opts) ::
+          {:ok, :no_error | LeaveGroup.t()} | {:error, error_atom}
+  def leave_group(client, consumer_group, member_id, opts \\ []) do
+    case GenServer.call(client, {:leave_group, consumer_group, member_id, opts}) do
       {:ok, result} -> {:ok, result}
       {:error, %{error: error_atom}} -> {:error, error_atom}
       {:error, error_atom} -> {:error, error_atom}

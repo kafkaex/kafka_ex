@@ -1,6 +1,6 @@
 # KafkaEx Changelog
 
-## Unreleased 
+## Unreleased
 
 ## Features
 
@@ -8,6 +8,7 @@
 * Added Graceful shutdown for GenConsumer
 * Migrated Offset API to `kayrock`
 * Migrated Consumer Group API to `kayrock`
+* Migrated LeaveGroup API (v0-v1) to `kayrock` with new API support
 
 ## 0.14
 

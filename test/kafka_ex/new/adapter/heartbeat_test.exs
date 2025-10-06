@@ -1,4 +1,4 @@
-defmodule KafkaEx.New.AdapterHeartbeatTest do
+defmodule KafkaEx.New.Adapter.HeartbeatTest do
   use ExUnit.Case, async: true
 
   alias KafkaEx.New.Adapter

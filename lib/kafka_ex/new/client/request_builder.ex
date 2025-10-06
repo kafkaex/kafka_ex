@@ -13,6 +13,7 @@ defmodule KafkaEx.New.Client.RequestBuilder do
   @default_api_version %{
     describe_groups: 1,
     heartbeat: 0,
+    leave_group: 0,
     list_offsets: 1,
     offset_fetch: 1,
     offset_commit: 1
@@ -83,6 +84,26 @@ defmodule KafkaEx.New.Client.RequestBuilder do
         opts = [group_id: group_id, member_id: member_id, generation_id: generation_id]
 
         req = @protocol.build_request(:heartbeat, api_version, opts)
+        {:ok, req}
+
+      {:error, error_code} ->
+        {:error, error_code}
+    end
+  end
+
+  @doc """
+  Builds request for LeaveGroup API
+  """
+  @spec leave_group_request(Keyword.t(), State.t()) :: {:ok, term} | {:error, :api_version_no_supported}
+  def leave_group_request(request_opts, state) do
+    case get_api_version(state, :leave_group, request_opts) do
+      {:ok, api_version} ->
+        group_id = Keyword.fetch!(request_opts, :group_id)
+        member_id = Keyword.fetch!(request_opts, :member_id)
+
+        opts = [group_id: group_id, member_id: member_id]
+
+        req = @protocol.build_request(:leave_group, api_version, opts)
         {:ok, req}
 
       {:error, error_code} ->
