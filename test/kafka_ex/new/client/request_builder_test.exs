@@ -241,7 +241,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
   end
 
   describe "heartbeat_request/2" do
-    test "returns request for Heartbeat API v0 (default)" do
+    test "returns request for Heartbeat API v1 (default)" do
       state = %KafkaEx.New.Client.State{api_versions: %{12 => {0, 1}}}
       group_id = "test-group"
       member_id = "consumer-123"
@@ -250,6 +250,29 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
       {:ok, request} =
         RequestBuilder.heartbeat_request(
           [group_id: group_id, member_id: member_id, generation_id: generation_id],
+          state
+        )
+
+      expected_request = %Kayrock.Heartbeat.V1.Request{
+        client_id: nil,
+        correlation_id: nil,
+        group_id: "test-group",
+        member_id: "consumer-123",
+        generation_id: 5
+      }
+
+      assert expected_request == request
+    end
+
+    test "returns request for Heartbeat API v0 when explicitly requested" do
+      state = %KafkaEx.New.Client.State{api_versions: %{12 => {0, 1}}}
+      group_id = "test-group"
+      member_id = "consumer-123"
+      generation_id = 5
+
+      {:ok, request} =
+        RequestBuilder.heartbeat_request(
+          [group_id: group_id, member_id: member_id, generation_id: generation_id, api_version: 0],
           state
         )
 
@@ -354,13 +377,30 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
           state
         )
 
-      # Should use v0 as default
+      # Should use v1 as default (changed from v0 for better throttle visibility)
+      assert match?(%Kayrock.Heartbeat.V1.Request{}, request)
+    end
+
+    test "can explicitly request v0 when needed" do
+      state = %KafkaEx.New.Client.State{api_versions: %{12 => {0, 1}}}
+
+      {:ok, request} =
+        RequestBuilder.heartbeat_request(
+          [
+            group_id: "group",
+            member_id: "member",
+            generation_id: 1,
+            api_version: 0
+          ],
+          state
+        )
+
       assert match?(%Kayrock.Heartbeat.V0.Request{}, request)
     end
   end
 
   describe "leave_group_request/2" do
-    test "returns request for LeaveGroup API v0 (default)" do
+    test "returns request for LeaveGroup API v1 (default)" do
       state = %KafkaEx.New.Client.State{api_versions: %{13 => {0, 2}}}
       group_id = "test-group"
       member_id = "consumer-123"
@@ -368,6 +408,27 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
       {:ok, request} =
         RequestBuilder.leave_group_request(
           [group_id: group_id, member_id: member_id],
+          state
+        )
+
+      expected_request = %Kayrock.LeaveGroup.V1.Request{
+        client_id: nil,
+        correlation_id: nil,
+        group_id: "test-group",
+        member_id: "consumer-123"
+      }
+
+      assert expected_request == request
+    end
+
+    test "returns request for LeaveGroup API v0 when explicitly requested" do
+      state = %KafkaEx.New.Client.State{api_versions: %{13 => {0, 2}}}
+      group_id = "test-group"
+      member_id = "consumer-123"
+
+      {:ok, request} =
+        RequestBuilder.leave_group_request(
+          [group_id: group_id, member_id: member_id, api_version: 0],
           state
         )
 
@@ -465,8 +526,188 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
           state
         )
 
-      # Should use v0 as default
+      # Should use v1 as default (changed from v0 for better throttle visibility)
+      assert match?(%Kayrock.LeaveGroup.V1.Request{}, request)
+    end
+
+    test "can explicitly request v0 when needed" do
+      state = %KafkaEx.New.Client.State{api_versions: %{13 => {0, 2}}}
+
+      {:ok, request} =
+        RequestBuilder.leave_group_request(
+          [
+            group_id: "group",
+            member_id: "member",
+            api_version: 0
+          ],
+          state
+        )
+
       assert match?(%Kayrock.LeaveGroup.V0.Request{}, request)
+    end
+  end
+
+  describe "sync_group_request/2" do
+    test "returns request for SyncGroup API v1 (default)" do
+      state = %KafkaEx.New.Client.State{api_versions: %{14 => {0, 1}}}
+      group_id = "test-group"
+      member_id = "consumer-123"
+      generation_id = 5
+
+      {:ok, request} =
+        RequestBuilder.sync_group_request(
+          [
+            group_id: group_id,
+            member_id: member_id,
+            generation_id: generation_id
+          ],
+          state
+        )
+
+      expected_request = %Kayrock.SyncGroup.V1.Request{
+        client_id: nil,
+        correlation_id: nil,
+        group_id: "test-group",
+        member_id: "consumer-123",
+        generation_id: 5,
+        group_assignment: []
+      }
+
+      assert expected_request == request
+    end
+
+    test "returns request for SyncGroup API v0 when explicitly requested" do
+      state = %KafkaEx.New.Client.State{api_versions: %{14 => {0, 1}}}
+      group_id = "legacy-group"
+      member_id = "member-abc"
+      generation_id = 10
+
+      {:ok, request} =
+        RequestBuilder.sync_group_request(
+          [
+            group_id: group_id,
+            member_id: member_id,
+            generation_id: generation_id,
+            api_version: 0
+          ],
+          state
+        )
+
+      expected_request = %Kayrock.SyncGroup.V0.Request{
+        client_id: nil,
+        correlation_id: nil,
+        group_id: "legacy-group",
+        member_id: "member-abc",
+        generation_id: 10,
+        group_assignment: []
+      }
+
+      assert expected_request == request
+    end
+
+    test "returns request with group_assignment for leader" do
+      state = %KafkaEx.New.Client.State{api_versions: %{14 => {0, 1}}}
+
+      assignments = [
+        %{member_id: "member-1", member_assignment: <<1, 2, 3>>},
+        %{member_id: "member-2", member_assignment: <<4, 5, 6>>}
+      ]
+
+      {:ok, request} =
+        RequestBuilder.sync_group_request(
+          [
+            group_id: "consumer-group",
+            member_id: "leader-member",
+            generation_id: 3,
+            group_assignment: assignments
+          ],
+          state
+        )
+
+      assert request.group_assignment == assignments
+    end
+
+    test "handles generation_id 0" do
+      state = %KafkaEx.New.Client.State{api_versions: %{14 => {0, 1}}}
+
+      {:ok, request} =
+        RequestBuilder.sync_group_request(
+          [
+            group_id: "group",
+            member_id: "member",
+            generation_id: 0
+          ],
+          state
+        )
+
+      assert request.generation_id == 0
+    end
+
+    test "handles empty member_id" do
+      state = %KafkaEx.New.Client.State{api_versions: %{14 => {0, 1}}}
+
+      {:ok, request} =
+        RequestBuilder.sync_group_request(
+          [
+            group_id: "group",
+            member_id: "",
+            generation_id: 1
+          ],
+          state
+        )
+
+      assert request.member_id == ""
+    end
+
+    test "handles unicode characters in group_id and member_id" do
+      state = %KafkaEx.New.Client.State{api_versions: %{14 => {0, 1}}}
+
+      {:ok, request} =
+        RequestBuilder.sync_group_request(
+          [
+            group_id: "group-🚀",
+            member_id: "member-café",
+            generation_id: 1
+          ],
+          state
+        )
+
+      assert request.group_id == "group-🚀"
+      assert request.member_id == "member-café"
+    end
+
+    test "returns error when api version is not supported" do
+      state = %KafkaEx.New.Client.State{api_versions: %{14 => {0, 1}}}
+
+      {:error, error_value} =
+        RequestBuilder.sync_group_request(
+          [
+            group_id: "group",
+            member_id: "member",
+            generation_id: 1,
+            api_version: 3
+          ],
+          state
+        )
+
+      assert error_value == :api_version_no_supported
+    end
+
+    test "uses correct default api version when not specified" do
+      state = %KafkaEx.New.Client.State{api_versions: %{14 => {0, 1}}}
+
+      {:ok, request} =
+        RequestBuilder.sync_group_request(
+          [
+            group_id: "group",
+            member_id: "member",
+            generation_id: 1
+          ],
+          state
+        )
+
+      # Should use v1 as default (for throttle visibility)
+      assert match?(%Kayrock.SyncGroup.V1.Request{}, request)
     end
   end
 end

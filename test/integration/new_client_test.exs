@@ -554,4 +554,144 @@ defmodule KafkaEx.New.Client.Test do
       assert %KafkaEx.New.Structs.Heartbeat{} = result_v1
     end
   end
+
+  describe "sync_group" do
+    test "successfully syncs as group follower", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group to get member_id and generation_id
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Sync as follower (no assignments provided)
+      {:ok, result} = GenServer.call(client, {:sync_group, consumer_group, generation_id, member_id, []})
+
+      # Should succeed and return SyncGroup struct
+      assert %KafkaEx.New.Structs.SyncGroup{partition_assignments: _} = result
+    end
+
+    test "sync_group with v1 API returns throttle information", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Sync with v1
+      {:ok, result} = GenServer.call(client, {:sync_group, consumer_group, generation_id, member_id, [api_version: 1]})
+
+      # v1 returns SyncGroup struct with throttle_time_ms
+      assert %KafkaEx.New.Structs.SyncGroup{throttle_time_ms: throttle} = result
+      # v1 should include throttle_time_ms (may be 0 or greater)
+      assert is_integer(throttle) or is_nil(throttle)
+    end
+
+    test "returns error for unknown member_id", %{client: client} do
+      consumer_group = generate_random_string()
+
+      # Try sync_group with invalid member_id (without joining)
+      {:error, error} = GenServer.call(client, {:sync_group, consumer_group, 0, "invalid-member", []})
+
+      assert error.error == :unknown_member_id
+    end
+
+    test "returns error for illegal generation", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, _generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Sync with wrong generation_id
+      {:error, error} = GenServer.call(client, {:sync_group, consumer_group, 999_999, member_id, []})
+
+      assert error.error == :illegal_generation
+    end
+
+    test "returns error for invalid consumer group", %{client: client} do
+      {:error, :invalid_consumer_group} =
+        GenServer.call(client, {:sync_group, :not_a_binary, 0, "member", []})
+    end
+
+    test "sync_group with empty assignments succeeds", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Sync with explicit empty assignments
+      {:ok, result} =
+        GenServer.call(client, {:sync_group, consumer_group, generation_id, member_id, [group_assignment: []]})
+
+      assert %KafkaEx.New.Structs.SyncGroup{} = result
+    end
+
+    test "sync completes consumer group protocol", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Sync group
+      {:ok, sync_result} = GenServer.call(client, {:sync_group, consumer_group, generation_id, member_id, []})
+
+      assert %KafkaEx.New.Structs.SyncGroup{} = sync_result
+
+      # Verify group is stable after sync
+      {:ok, [group]} = GenServer.call(client, {:describe_groups, [consumer_group], []})
+      assert group.group_id == consumer_group
+      assert group.state == "Stable"
+    end
+
+    test "supports api_version option", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # v0
+      {:ok, result_v0} =
+        GenServer.call(client, {:sync_group, consumer_group, generation_id, member_id, [api_version: 0]})
+
+      assert %KafkaEx.New.Structs.SyncGroup{throttle_time_ms: nil} = result_v0
+
+      # Give time for first sync to complete
+      Process.sleep(200)
+
+      # v1
+      {:ok, result_v1} =
+        GenServer.call(client, {:sync_group, consumer_group, generation_id, member_id, [api_version: 1]})
+
+      assert %KafkaEx.New.Structs.SyncGroup{throttle_time_ms: _} = result_v1
+    end
+
+    test "sync_group followed by heartbeat maintains group membership", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Sync group
+      {:ok, _sync_result} = GenServer.call(client, {:sync_group, consumer_group, generation_id, member_id, []})
+
+      # Send heartbeat to maintain membership
+      {:ok, _heartbeat_result} = GenServer.call(client, {:heartbeat, consumer_group, member_id, generation_id, []})
+
+      # Verify still in group
+      {:ok, [group]} = GenServer.call(client, {:describe_groups, [consumer_group], []})
+      assert group.group_id == consumer_group
+      assert length(group.members) == 1
+    end
+  end
 end
