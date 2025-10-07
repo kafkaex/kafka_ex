@@ -52,7 +52,7 @@ Pattern matching naturally separates them with no conflicts.
 | API                | Status          | Versions | Priority | Complexity   | Notes                     |
 |--------------------|-----------------|----------|----------|--------------|---------------------------|
 | **JoinGroup**      | 🟡 Adapter Only | v0-v5    | HIGH     | High         | Consumer group membership |
-| **SyncGroup**      | 🟡 Adapter Only | v0-v3    | HIGH     | Medium       | Partition assignment      |
+| **SyncGroup**      | ✅ Complete     | v0-v1    | HIGH     | Medium       | Partition assignment      |
 | **Heartbeat**      | ✅ Complete     | v0-v1    | HIGH     | Low          | Keep-alive mechanism      |
 | **LeaveGroup**     | ✅ Complete     | v0-v1    | MEDIUM   | Low          | Clean exit from group     |
 | **DescribeGroups** | ✅ Complete     | v0-v1    | HIGH     | Medium       | Group metadata inspection |

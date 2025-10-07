@@ -304,11 +304,11 @@ defmodule KafkaEx.New.KafkaExAPITest do
       # Join group to get member_id and generation_id
       {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
 
-      # Send heartbeat
+      # Send heartbeat (defaults to v1)
       {:ok, result} = API.heartbeat(client, consumer_group, member_id, generation_id)
 
-      # v0 returns :no_error
-      assert result == :no_error
+      # v1 returns Heartbeat struct with throttle_time_ms
+      assert %KafkaEx.New.Structs.Heartbeat{throttle_time_ms: _} = result
     end
 
     test "returns error for unknown member_id", %{client: client} do
@@ -396,10 +396,11 @@ defmodule KafkaEx.New.KafkaExAPITest do
       # Join group
       {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
 
-      # Send heartbeat with custom timeout
+      # Send heartbeat with custom timeout (defaults to v1)
       {:ok, result} = API.heartbeat(client, consumer_group, member_id, generation_id, timeout: 10_000)
 
-      assert result == :no_error
+      # v1 returns Heartbeat struct
+      assert %KafkaEx.New.Structs.Heartbeat{throttle_time_ms: _} = result
     end
   end
 
@@ -412,11 +413,11 @@ defmodule KafkaEx.New.KafkaExAPITest do
       # Join group to get member_id
       {member_id, _generation_id} = join_to_group(client, topic_name, consumer_group)
 
-      # Leave group
+      # Leave group (defaults to v1)
       {:ok, result} = API.leave_group(client, consumer_group, member_id)
 
-      # v0 returns :no_error
-      assert result == :no_error
+      # v1 returns LeaveGroup struct with throttle_time_ms
+      assert %KafkaEx.New.Structs.LeaveGroup{throttle_time_ms: _} = result
     end
 
     test "returns error for unknown member_id", %{client: client} do
@@ -523,35 +524,25 @@ defmodule KafkaEx.New.KafkaExAPITest do
 
     test "supports api_version option", %{client: client} do
       topic_name = generate_random_string()
-      consumer_group = generate_random_string()
       _ = create_topic(client, topic_name)
 
-      # Join group twice (need two members for two tests)
-      {member_id_1, _} = join_to_group(client, topic_name, consumer_group)
-
-      # Give time for first member to settle
-      Process.sleep(200)
-
-      # Join another member
-      request2 = %KafkaEx.Protocol.JoinGroup.Request{
-        group_name: consumer_group,
-        member_id: "",
-        topics: [topic_name],
-        session_timeout: 6000
-      }
-
-      response2 = KafkaEx.join_group(request2, worker_name: client, timeout: 10000)
-      member_id_2 = response2.member_id
+      # Test v0 with first group
+      consumer_group_1 = generate_random_string()
+      {member_id_1, _} = join_to_group(client, topic_name, consumer_group_1)
 
       # Leave with v0
-      {:ok, result_v0} = API.leave_group(client, consumer_group, member_id_1, api_version: 0)
+      {:ok, result_v0} = API.leave_group(client, consumer_group_1, member_id_1, api_version: 0)
       assert result_v0 == :no_error
 
-      # Give time for rebalance
+      # Give time for cleanup
       Process.sleep(200)
 
+      # Test v1 with second group
+      consumer_group_2 = generate_random_string()
+      {member_id_2, _} = join_to_group(client, topic_name, consumer_group_2)
+
       # Leave with v1
-      {:ok, result_v1} = API.leave_group(client, consumer_group, member_id_2, api_version: 1)
+      {:ok, result_v1} = API.leave_group(client, consumer_group_2, member_id_2, api_version: 1)
       assert %KafkaEx.New.Structs.LeaveGroup{} = result_v1
     end
 
@@ -563,10 +554,239 @@ defmodule KafkaEx.New.KafkaExAPITest do
       # Join group
       {member_id, _generation_id} = join_to_group(client, topic_name, consumer_group)
 
-      # Leave with custom timeout
+      # Leave with custom timeout (defaults to v1)
       {:ok, result} = API.leave_group(client, consumer_group, member_id, timeout: 10_000)
 
-      assert result == :no_error
+      # v1 returns LeaveGroup struct
+      assert %KafkaEx.New.Structs.LeaveGroup{throttle_time_ms: _} = result
+    end
+  end
+
+  describe "sync_group/4" do
+    test "successfully syncs as group follower", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group to get member_id and generation_id
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Sync as follower (no assignments provided)
+      {:ok, result} = API.sync_group(client, consumer_group, generation_id, member_id)
+
+      # Should succeed and return SyncGroup struct
+      assert %KafkaEx.New.Structs.SyncGroup{partition_assignments: _} = result
+    end
+
+    test "returns error for unknown member_id", %{client: client} do
+      consumer_group = generate_random_string()
+
+      # Try sync_group with invalid member_id (without joining)
+      {:error, error} = API.sync_group(client, consumer_group, 0, "invalid-member")
+
+      assert error == :unknown_member_id
+    end
+
+    test "returns error for illegal generation", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, _generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Sync with wrong generation_id
+      {:error, error} = API.sync_group(client, consumer_group, 999_999, member_id)
+
+      assert error == :illegal_generation
+    end
+
+    test "sync_group with empty assignments succeeds", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Sync with explicit empty assignments
+      {:ok, result} = API.sync_group(client, consumer_group, generation_id, member_id, group_assignment: [])
+
+      assert %KafkaEx.New.Structs.SyncGroup{} = result
+    end
+
+    test "handles zero generation_id", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, _generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Sync with generation_id 0 should fail
+      {:error, error} = API.sync_group(client, consumer_group, 0, member_id)
+
+      # Should return illegal_generation or unknown_member_id
+      assert error in [:illegal_generation, :unknown_member_id]
+    end
+
+    test "sync completes consumer group protocol", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Sync group
+      {:ok, sync_result} = API.sync_group(client, consumer_group, generation_id, member_id)
+
+      assert %KafkaEx.New.Structs.SyncGroup{} = sync_result
+
+      # Verify group is stable after sync
+      {:ok, group} = API.describe_group(client, consumer_group)
+      assert group.group_id == consumer_group
+      assert group.state == "Stable"
+    end
+
+    test "returns partition assignments", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Sync group
+      {:ok, sync_result} = API.sync_group(client, consumer_group, generation_id, member_id)
+
+      # partition_assignments should be a list (empty or with assignments)
+      assert is_list(sync_result.partition_assignments)
+    end
+  end
+
+  describe "sync_group/5" do
+    test "sync_group with v1 API returns throttle information", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Sync with v1
+      {:ok, result} = API.sync_group(client, consumer_group, generation_id, member_id, api_version: 1)
+
+      # v1 returns SyncGroup struct with throttle_time_ms
+      assert %KafkaEx.New.Structs.SyncGroup{throttle_time_ms: throttle} = result
+      # v1 should include throttle_time_ms (may be 0 or greater)
+      assert is_integer(throttle) or is_nil(throttle)
+    end
+
+    test "supports api_version option", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group twice for two separate sync calls
+      {member_id_1, generation_id_1} = join_to_group(client, topic_name, consumer_group)
+
+      # v1 (default)
+      {:ok, result_v1} = API.sync_group(client, consumer_group, generation_id_1, member_id_1, api_version: 1)
+      assert %KafkaEx.New.Structs.SyncGroup{throttle_time_ms: _} = result_v1
+
+      # Give time for first sync to complete
+      Process.sleep(200)
+
+      # Join another member for v0 test
+      request2 = %KafkaEx.Protocol.JoinGroup.Request{
+        group_name: consumer_group,
+        member_id: "",
+        topics: [topic_name],
+        session_timeout: 6000
+      }
+
+      response2 = KafkaEx.join_group(request2, worker_name: client, timeout: 10000)
+      member_id_2 = response2.member_id
+      generation_id_2 = response2.generation_id
+
+      # v0
+      {:ok, result_v0} = API.sync_group(client, consumer_group, generation_id_2, member_id_2, api_version: 0)
+      assert %KafkaEx.New.Structs.SyncGroup{throttle_time_ms: nil} = result_v0
+    end
+
+    test "handles custom timeout option", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Sync with custom timeout
+      {:ok, result} = API.sync_group(client, consumer_group, generation_id, member_id, timeout: 10_000)
+
+      assert %KafkaEx.New.Structs.SyncGroup{} = result
+    end
+
+    test "sync with explicit empty group_assignment", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Sync with explicit empty group_assignment and v1
+      {:ok, result} =
+        API.sync_group(
+          client,
+          consumer_group,
+          generation_id,
+          member_id,
+          group_assignment: [],
+          api_version: 1
+        )
+
+      assert %KafkaEx.New.Structs.SyncGroup{throttle_time_ms: _} = result
+    end
+
+    test "multiple sync_group calls with same generation_id", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # First sync
+      {:ok, result1} = API.sync_group(client, consumer_group, generation_id, member_id)
+      assert %KafkaEx.New.Structs.SyncGroup{} = result1
+
+      # Second sync with same generation_id should succeed
+      # (though in real usage, sync_group is typically called once per generation)
+      {:ok, result2} = API.sync_group(client, consumer_group, generation_id, member_id)
+      assert %KafkaEx.New.Structs.SyncGroup{} = result2
+    end
+
+    test "sync_group followed by heartbeat maintains group membership", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Sync group
+      {:ok, _sync_result} = API.sync_group(client, consumer_group, generation_id, member_id)
+
+      # Send heartbeat to maintain membership
+      {:ok, _heartbeat_result} = API.heartbeat(client, consumer_group, member_id, generation_id)
+
+      # Verify still in group
+      {:ok, group} = API.describe_group(client, consumer_group)
+      assert group.group_id == consumer_group
+      assert length(group.members) == 1
     end
   end
 end

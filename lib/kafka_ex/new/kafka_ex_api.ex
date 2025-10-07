@@ -18,6 +18,7 @@ defmodule KafkaEx.New.KafkaExAPI do
   alias KafkaEx.New.Structs.Heartbeat
   alias KafkaEx.New.Structs.LeaveGroup
   alias KafkaEx.New.Structs.Offset
+  alias KafkaEx.New.Structs.SyncGroup
   alias KafkaEx.New.Structs.Topic
 
   @type node_id :: non_neg_integer
@@ -207,6 +208,26 @@ defmodule KafkaEx.New.KafkaExAPI do
           {:ok, :no_error | LeaveGroup.t()} | {:error, error_atom}
   def leave_group(client, consumer_group, member_id, opts \\ []) do
     case GenServer.call(client, {:leave_group, consumer_group, member_id, opts}) do
+      {:ok, result} -> {:ok, result}
+      {:error, %{error: error_atom}} -> {:error, error_atom}
+      {:error, error_atom} -> {:error, error_atom}
+    end
+  end
+
+  @doc """
+  Synchronize consumer group state
+
+  Completes the consumer group rebalance protocol by synchronizing state
+  between the group leader and followers. The leader provides partition
+  assignments which are distributed to all members. Followers receive their
+  assigned partitions from this call.
+  """
+  @spec sync_group(client, consumer_group_name, generation_id, member_id) ::
+          {:ok, SyncGroup.t()} | {:error, error_atom}
+  @spec sync_group(client, consumer_group_name, generation_id, member_id, opts) ::
+          {:ok, SyncGroup.t()} | {:error, error_atom}
+  def sync_group(client, consumer_group, generation_id, member_id, opts \\ []) do
+    case GenServer.call(client, {:sync_group, consumer_group, generation_id, member_id, opts}) do
       {:ok, result} -> {:ok, result}
       {:error, %{error: error_atom}} -> {:error, error_atom}
       {:error, error_atom} -> {:error, error_atom}
