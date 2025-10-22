@@ -297,6 +297,18 @@ defmodule KafkaEx.New.Adapter do
     }
   end
 
+  def sync_group_response(%SyncGroup.V1.Response{
+        error_code: error_code,
+        member_assignment: %MemberAssignment{
+          partition_assignments: partition_assignments
+        }
+      }) do
+    %SyncGroupResponse{
+      error_code: ErrorCode.code_to_atom(error_code),
+      assignments: Enum.map(partition_assignments, fn p -> {p.topic, p.partitions} end)
+    }
+  end
+
   def leave_group_request(request) do
     {%LeaveGroup.V0.Request{
        group_id: request.group_name,
