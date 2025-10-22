@@ -9,6 +9,7 @@
 * Migrated Offset API to `kayrock`
 * Migrated Consumer Group API to `kayrock`
 * Migrated LeaveGroup API (v0-v1) to `kayrock` with new API support
+* Migrated SyncGroup API (v0-v1) to `kayrock` with new API support
 
 ## 0.14
 

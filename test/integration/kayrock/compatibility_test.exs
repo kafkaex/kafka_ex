@@ -962,4 +962,188 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   end
 
   # -----------------------------------------------------------------------------
+  describe "sync_group compatibility" do
+    test "legacy API can sync_group with group created via new API", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group to get member_id and generation_id
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Sync via new API
+      {:ok, result} = KafkaExAPI.sync_group(client, consumer_group, generation_id, member_id)
+      assert %KafkaEx.New.Structs.SyncGroup{} = result
+
+      # Sync via legacy API
+      legacy_request = %KafkaEx.Protocol.SyncGroup.Request{
+        group_name: consumer_group,
+        member_id: member_id,
+        generation_id: generation_id,
+        assignments: []
+      }
+
+      legacy_response = KafkaEx.sync_group(legacy_request, worker_name: client)
+      assert legacy_response.error_code == :no_error
+    end
+
+    test "new API can sync_group with group created via legacy API", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group to get member_id and generation_id
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Sync via legacy API first
+      legacy_request = %KafkaEx.Protocol.SyncGroup.Request{
+        group_name: consumer_group,
+        member_id: member_id,
+        generation_id: generation_id,
+        assignments: []
+      }
+
+      legacy_response = KafkaEx.sync_group(legacy_request, worker_name: client)
+      assert legacy_response.error_code == :no_error
+
+      # Sync via new API
+      {:ok, result} = KafkaExAPI.sync_group(client, consumer_group, generation_id, member_id)
+      assert %KafkaEx.New.Structs.SyncGroup{} = result
+    end
+
+    test "both APIs handle unknown_member_id error identically", %{client: client} do
+      consumer_group = generate_random_string()
+
+      # New API
+      {:error, error_new} = KafkaExAPI.sync_group(client, consumer_group, 0, "invalid-member")
+      assert error_new == :unknown_member_id
+
+      # Legacy API
+      legacy_request = %KafkaEx.Protocol.SyncGroup.Request{
+        group_name: consumer_group,
+        member_id: "invalid-member",
+        generation_id: 0,
+        assignments: []
+      }
+
+      legacy_response = KafkaEx.sync_group(legacy_request, worker_name: client)
+      assert legacy_response.error_code == :unknown_member_id
+    end
+
+    test "both APIs handle illegal_generation error identically", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, _generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # New API
+      {:error, error_new} = KafkaExAPI.sync_group(client, consumer_group, 999_999, member_id)
+      assert error_new == :illegal_generation
+
+      # Legacy API
+      legacy_request = %KafkaEx.Protocol.SyncGroup.Request{
+        group_name: consumer_group,
+        member_id: member_id,
+        generation_id: 999_999,
+        assignments: []
+      }
+
+      legacy_response = KafkaEx.sync_group(legacy_request, worker_name: client)
+      assert legacy_response.error_code == :illegal_generation
+    end
+
+    test "multiple sync_group calls across APIs maintain group state", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Alternate between APIs
+      {:ok, _} = KafkaExAPI.sync_group(client, consumer_group, generation_id, member_id)
+      Process.sleep(50)
+
+      legacy_request = %KafkaEx.Protocol.SyncGroup.Request{
+        group_name: consumer_group,
+        member_id: member_id,
+        generation_id: generation_id,
+        assignments: []
+      }
+
+      legacy_response = KafkaEx.sync_group(legacy_request, worker_name: client)
+      assert legacy_response.error_code == :no_error
+      Process.sleep(50)
+
+      {:ok, _} = KafkaExAPI.sync_group(client, consumer_group, generation_id, member_id)
+
+      # Verify still in group and stable
+      {:ok, group} = KafkaExAPI.describe_group(client, consumer_group)
+      assert group.group_id == consumer_group
+      assert group.state == "Stable"
+    end
+
+    test "sync_group v1 with new API vs v0 with legacy API", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # New API with v1 (returns SyncGroup struct with throttle_time_ms)
+      {:ok, result_v1} = KafkaExAPI.sync_group(client, consumer_group, generation_id, member_id, api_version: 1)
+      assert %KafkaEx.New.Structs.SyncGroup{throttle_time_ms: _} = result_v1
+
+      Process.sleep(100)
+
+      # Legacy API uses v0 (returns error_code only)
+      legacy_request = %KafkaEx.Protocol.SyncGroup.Request{
+        group_name: consumer_group,
+        member_id: member_id,
+        generation_id: generation_id,
+        assignments: []
+      }
+
+      legacy_response = KafkaEx.sync_group(legacy_request, worker_name: client)
+      assert legacy_response.error_code == :no_error
+
+      Process.sleep(100)
+
+      # New API with v0 (no throttle_time_ms)
+      {:ok, result_v0} = KafkaExAPI.sync_group(client, consumer_group, generation_id, member_id, api_version: 0)
+      assert %KafkaEx.New.Structs.SyncGroup{throttle_time_ms: nil} = result_v0
+    end
+
+    test "sync_group followed by heartbeat across APIs", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Sync via new API
+      {:ok, _sync_result} = KafkaExAPI.sync_group(client, consumer_group, generation_id, member_id)
+
+      # Heartbeat via legacy API
+      heartbeat_request = %KafkaEx.Protocol.Heartbeat.Request{
+        group_name: consumer_group,
+        member_id: member_id,
+        generation_id: generation_id
+      }
+
+      heartbeat_response = KafkaEx.heartbeat(heartbeat_request, worker_name: client)
+      assert heartbeat_response.error_code == :no_error
+
+      # Verify group is stable
+      {:ok, group} = KafkaExAPI.describe_group(client, consumer_group)
+      assert group.group_id == consumer_group
+      assert group.state == "Stable"
+    end
+  end
+
+  # -----------------------------------------------------------------------------
 end
