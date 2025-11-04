@@ -9,6 +9,7 @@ defmodule KafkaEx.New.Protocols.KayrockProtocol do
   alias KafkaEx.New.Protocols.Kayrock, as: KayrockProtocol
   alias Kayrock.DescribeGroups
   alias Kayrock.Heartbeat
+  alias Kayrock.JoinGroup
   alias Kayrock.LeaveGroup
   alias Kayrock.ListOffsets
   alias Kayrock.OffsetCommit
@@ -50,6 +51,12 @@ defmodule KafkaEx.New.Protocols.KayrockProtocol do
     |> KayrockProtocol.Heartbeat.Request.build_request(opts)
   end
 
+  def build_request(:join_group, api_version, opts) do
+    api_version
+    |> JoinGroup.get_request_struct()
+    |> KayrockProtocol.JoinGroup.Request.build_request(opts)
+  end
+
   def build_request(:leave_group, api_version, opts) do
     api_version
     |> LeaveGroup.get_request_struct()
@@ -85,6 +92,10 @@ defmodule KafkaEx.New.Protocols.KayrockProtocol do
 
   def parse_response(:heartbeat, response) do
     KayrockProtocol.Heartbeat.Response.parse_response(response)
+  end
+
+  def parse_response(:join_group, response) do
+    KayrockProtocol.JoinGroup.Response.parse_response(response)
   end
 
   def parse_response(:leave_group, response) do

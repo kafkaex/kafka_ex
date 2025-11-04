@@ -13,6 +13,7 @@ defmodule KafkaEx.New.Client.RequestBuilder do
   @default_api_version %{
     describe_groups: 1,
     heartbeat: 1,
+    join_group: 1,
     leave_group: 1,
     list_offsets: 1,
     offset_fetch: 1,
@@ -105,6 +106,44 @@ defmodule KafkaEx.New.Client.RequestBuilder do
         opts = [group_id: group_id, member_id: member_id]
 
         req = @protocol.build_request(:leave_group, api_version, opts)
+        {:ok, req}
+
+      {:error, error_code} ->
+        {:error, error_code}
+    end
+  end
+
+  @doc """
+  Builds request for JoinGroup API
+  """
+  @spec join_group_request(Keyword.t(), State.t()) :: {:ok, term} | {:error, :api_version_no_supported}
+  def join_group_request(request_opts, state) do
+    case get_api_version(state, :join_group, request_opts) do
+      {:ok, api_version} ->
+        group_id = Keyword.fetch!(request_opts, :group_id)
+        session_timeout = Keyword.fetch!(request_opts, :session_timeout)
+        member_id = Keyword.fetch!(request_opts, :member_id)
+        protocol_type = Keyword.get(request_opts, :protocol_type, "consumer")
+        group_protocols = Keyword.fetch!(request_opts, :group_protocols)
+
+        opts = [
+          group_id: group_id,
+          session_timeout: session_timeout,
+          member_id: member_id,
+          protocol_type: protocol_type,
+          group_protocols: group_protocols
+        ]
+
+        # V1 and V2 require rebalance_timeout
+        opts =
+          if api_version >= 1 do
+            rebalance_timeout = Keyword.fetch!(request_opts, :rebalance_timeout)
+            Keyword.put(opts, :rebalance_timeout, rebalance_timeout)
+          else
+            opts
+          end
+
+        req = @protocol.build_request(:join_group, api_version, opts)
         {:ok, req}
 
       {:error, error_code} ->
