@@ -35,6 +35,109 @@ defmodule KafkaEx.KayrockCompatibilityTest do
     assert Process.alive?(pid)
   end
 
+  describe "join_group/3" do
+    setup do
+      consumer_group = generate_random_string()
+      topic = "new_client_implementation"
+
+      {:ok, %{consumer_group: consumer_group, topic: topic}}
+    end
+
+    test "with new API - joins consumer group successfully", %{
+      client: client,
+      consumer_group: consumer_group,
+      topic: topic
+    } do
+      group_protocols = [
+        %{
+          protocol_name: "assign",
+          protocol_metadata: %Kayrock.GroupProtocolMetadata{topics: [topic]}
+        }
+      ]
+
+      {:ok, response} =
+        KafkaExAPI.join_group(
+          client,
+          consumer_group,
+          "",
+          session_timeout: 30_000,
+          rebalance_timeout: 60_000,
+          group_protocols: group_protocols
+        )
+
+      assert response.generation_id >= 0
+      assert response.member_id != ""
+      assert response.leader_id == response.member_id
+      assert length(response.members) >= 1
+    end
+
+    test "with old API - joins consumer group successfully", %{
+      client: client,
+      consumer_group: consumer_group,
+      topic: topic
+    } do
+      alias KafkaEx.Protocol.JoinGroup.Request, as: JoinGroupRequest
+
+      request = %JoinGroupRequest{
+        group_name: consumer_group,
+        member_id: "",
+        topics: [topic],
+        session_timeout: 30_000
+      }
+
+      response = KafkaEx.join_group(request, worker_name: client, timeout: 10_000)
+
+      assert response.error_code == :no_error
+      assert response.generation_id >= 0
+      assert response.member_id != ""
+      assert response.leader_id == response.member_id
+    end
+
+    test "new and old APIs return compatible results", %{client: client, topic: topic} do
+      # Test with new API
+      new_group = generate_random_string()
+
+      group_protocols = [
+        %{
+          protocol_name: "assign",
+          protocol_metadata: %Kayrock.GroupProtocolMetadata{topics: [topic]}
+        }
+      ]
+
+      {:ok, new_response} =
+        KafkaExAPI.join_group(
+          client,
+          new_group,
+          "",
+          session_timeout: 30_000,
+          rebalance_timeout: 60_000,
+          group_protocols: group_protocols
+        )
+
+      # Test with old API
+      old_group = generate_random_string()
+      alias KafkaEx.Protocol.JoinGroup.Request, as: JoinGroupRequest
+
+      old_request = %JoinGroupRequest{
+        group_name: old_group,
+        member_id: "",
+        topics: [topic],
+        session_timeout: 30_000
+      }
+
+      old_response = KafkaEx.join_group(old_request, worker_name: client, timeout: 10_000)
+
+      # Both should succeed with similar structure
+      assert new_response.generation_id >= 0
+      assert old_response.generation_id >= 0
+      assert new_response.member_id != ""
+      assert old_response.member_id != ""
+      # Both should be leaders (first member)
+      assert new_response.leader_id == new_response.member_id
+      assert old_response.leader_id == old_response.member_id
+    end
+  end
+
   describe "describe_groups/1" do
     setup do
       consumer_group = generate_random_string()

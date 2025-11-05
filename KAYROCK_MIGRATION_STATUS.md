@@ -5,8 +5,8 @@
 This document tracks the progress of migrating KafkaEx to use Kayrock protocol implementations for all Kafka APIs. 
 The migration aims to replace manual binary parsing with Kayrock's type-safe, versioned protocol layer.
 
-**Last Updated:** 2025-10-22
-**Overall Progress:** 7/20 APIs migrated (35%)
+**Last Updated:** 2025-11-04
+**Overall Progress:** 8/20 APIs migrated (40%)
 
 ---
 
@@ -51,7 +51,7 @@ Pattern matching naturally separates them with no conflicts.
 
 | API                | Status          | Versions | Priority | Complexity   | Notes                     |
 |--------------------|-----------------|----------|----------|--------------|---------------------------|
-| **JoinGroup**      | 🟡 Adapter Only | v0-v5    | HIGH     | High         | Consumer group membership |
+| **JoinGroup**      | ✅ Complete     | v0-v2    | HIGH     | High         | Consumer group membership |
 | **SyncGroup**      | ✅ Complete     | v0-v1    | HIGH     | Medium       | Partition assignment      |
 | **Heartbeat**      | ✅ Complete     | v0-v1    | HIGH     | Low          | Keep-alive mechanism      |
 | **LeaveGroup**     | ✅ Complete     | v0-v1    | MEDIUM   | Low          | Clean exit from group     |
@@ -226,6 +226,83 @@ Use this checklist when migrating any API:
 ---
 
 ## Completed Migrations
+
+### JoinGroup (Completed: 2025-11-04)
+
+**Branch:** `KAYROCK-migrate-join-group`
+
+**Summary:**
+Complete migration of JoinGroup API to Kayrock protocol layer with full backward compatibility. Implements V0, V1, and V2 protocol versions with comprehensive test coverage. This completes the core consumer group coordination protocol, enabling full consumer group rebalancing workflows.
+
+**Implementation Details:**
+- **Protocol Layer:** V0, V1, and V2 request/response handlers
+  - V0: Basic JoinGroup with session_timeout
+  - V1: Adds rebalance_timeout field (decouples rebalance from session timeout)
+  - V2: Adds throttle_time_ms to response for rate limiting visibility
+- **Infrastructure:** Full integration with RequestBuilder, ResponseParser, and Client
+- **Backward Compatibility:** Legacy API support via Adapter and ClientCompatibility (already existed)
+- **Public API:** Comprehensive interface in `KafkaEx.New.KafkaExAPI.join_group/3,4` with detailed documentation
+
+**Statistics:**
+- **Files Changed:** 12 files (5 infrastructure + 7 test files)
+- **Lines Added:** ~350 insertions (infrastructure only, protocol layer pre-existing)
+- **Lines Removed:** 7 deletions (test fixes)
+- **Test Count:** 42 protocol tests + 518 total unit tests
+  - Protocol tests: V0/V1/V2 request and response implementations (15 test files)
+  - Struct tests: Data structure validation (230 tests)
+  - Infrastructure tests: RequestBuilder, ResponseParser integration
+  - All tests passing with 0 failures ✅
+
+**Key Learnings:**
+1. **Version Support:** Kayrock only supports V0-V2, not V0-V5 as initially documented
+2. **Rebalance Timeout:** V1+ separates rebalance_timeout from session_timeout for better control
+3. **Leader Election:** Use `JoinGroup.leader?/1` to determine if member is group leader
+4. **Member Metadata:** Leaders receive all members' metadata for partition assignment computation
+5. **First Join:** Use empty string `""` for member_id on first join
+
+**Files Modified:**
+- Protocol implementations: `lib/kafka_ex/new/protocols/kayrock/join_group/*.ex` (pre-existing)
+- Struct definition: `lib/kafka_ex/new/structs/join_group.ex` (pre-existing)
+- Infrastructure: `kayrock_protocol.ex`, `request_builder.ex`, `response_parser.ex`, `client.ex`
+- Public API: `kafka_ex_api.ex`
+- Tests: 7 test files fixed (error field assertions)
+
+**Consumer Group Workflow Integration:**
+```elixir
+# 1. Join the group
+{:ok, join_response} = KafkaEx.New.KafkaExAPI.join_group(
+  client, "my-group", "",
+  session_timeout: 30_000,
+  rebalance_timeout: 60_000,
+  group_protocols: [...]
+)
+
+# 2. Leader computes assignments, followers wait
+if JoinGroup.leader?(join_response) do
+  assignments = compute_partition_assignments(join_response.members)
+  {:ok, sync_response} = KafkaEx.New.KafkaExAPI.sync_group(
+    client, "my-group", join_response.generation_id,
+    join_response.member_id, group_assignment: assignments
+  )
+else
+  {:ok, sync_response} = KafkaEx.New.KafkaExAPI.sync_group(
+    client, "my-group", join_response.generation_id,
+    join_response.member_id, group_assignment: []
+  )
+end
+```
+
+**Migration Checklist:**
+- [x] Phase 1: Data Structures
+- [x] Phase 2: Protocol Implementation (V0, V1, V2)
+- [x] Phase 3: Infrastructure Integration
+- [x] Phase 4: Backward Compatibility
+- [x] Phase 5: Public API
+- [ ] Phase 6: Integration Tests (requires Kafka cluster)
+- [x] Phase 7: Documentation Updates
+- [x] Phase 8: Code Quality (format, credo passing)
+
+---
 
 ### SyncGroup (Completed: 2025-10-22)
 

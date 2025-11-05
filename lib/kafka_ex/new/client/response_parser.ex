@@ -6,6 +6,7 @@ defmodule KafkaEx.New.Client.ResponseParser do
   alias KafkaEx.New.Structs.ConsumerGroup
   alias KafkaEx.New.Structs.Error
   alias KafkaEx.New.Structs.Heartbeat
+  alias KafkaEx.New.Structs.JoinGroup
   alias KafkaEx.New.Structs.LeaveGroup
   alias KafkaEx.New.Structs.Offset
   alias KafkaEx.New.Structs.SyncGroup
@@ -50,6 +51,14 @@ defmodule KafkaEx.New.Client.ResponseParser do
   @spec heartbeat_response(term) :: {:ok, :no_error | Heartbeat.t()} | {:error, Error.t()}
   def heartbeat_response(response) do
     @protocol.parse_response(:heartbeat, response)
+  end
+
+  @doc """
+  Parses response for JoinGroup API
+  """
+  @spec join_group_response(term) :: {:ok, JoinGroup.t()} | {:error, Error.t()}
+  def join_group_response(response) do
+    @protocol.parse_response(:join_group, response)
   end
 
   @doc """

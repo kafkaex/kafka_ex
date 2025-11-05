@@ -3,6 +3,8 @@ defmodule KafkaEx.New.Client.ResponseParserTest do
 
   alias KafkaEx.New.Client.ResponseParser
   alias KafkaEx.New.Structs.Heartbeat
+  alias KafkaEx.New.Structs.JoinGroup
+  alias KafkaEx.New.Structs.JoinGroup.Member
   alias KafkaEx.New.Structs.LeaveGroup
   alias KafkaEx.New.Structs.Offset
   alias KafkaEx.New.Structs.Offset.PartitionOffset
@@ -227,6 +229,238 @@ defmodule KafkaEx.New.Client.ResponseParserTest do
       }
 
       assert {:error, error} = ResponseParser.heartbeat_response(response)
+      assert error.error == :unknown
+    end
+  end
+
+  describe "join_group_response/1" do
+    test "parses successful JoinGroup v0 response" do
+      response = %Kayrock.JoinGroup.V0.Response{
+        error_code: 0,
+        generation_id: 5,
+        group_protocol: "assign",
+        leader_id: "leader-123",
+        member_id: "member-456",
+        members: [
+          %{member_id: "member-456", member_metadata: <<1, 2, 3>>},
+          %{member_id: "member-789", member_metadata: <<4, 5, 6>>}
+        ]
+      }
+
+      assert {:ok, join_group} = ResponseParser.join_group_response(response)
+
+      assert %JoinGroup{
+               generation_id: 5,
+               group_protocol: "assign",
+               leader_id: "leader-123",
+               member_id: "member-456",
+               throttle_time_ms: nil
+             } = join_group
+
+      assert length(join_group.members) == 2
+      assert Enum.at(join_group.members, 0).member_id == "member-456"
+    end
+
+    test "parses successful JoinGroup v1 response" do
+      response = %Kayrock.JoinGroup.V1.Response{
+        error_code: 0,
+        generation_id: 10,
+        group_protocol: "roundrobin",
+        leader_id: "leader-abc",
+        member_id: "member-abc",
+        members: []
+      }
+
+      assert {:ok, join_group} = ResponseParser.join_group_response(response)
+
+      assert %JoinGroup{
+               generation_id: 10,
+               group_protocol: "roundrobin",
+               leader_id: "leader-abc",
+               member_id: "member-abc",
+               throttle_time_ms: nil,
+               members: []
+             } = join_group
+    end
+
+    test "parses successful JoinGroup v2 response with throttle_time_ms" do
+      response = %Kayrock.JoinGroup.V2.Response{
+        error_code: 0,
+        throttle_time_ms: 150,
+        generation_id: 3,
+        group_protocol: "range",
+        leader_id: "leader-xyz",
+        member_id: "member-xyz",
+        members: [
+          %{member_id: "member-xyz", member_metadata: <<>>}
+        ]
+      }
+
+      assert {:ok, join_group} = ResponseParser.join_group_response(response)
+
+      assert %JoinGroup{
+               throttle_time_ms: 150,
+               generation_id: 3,
+               group_protocol: "range",
+               leader_id: "leader-xyz",
+               member_id: "member-xyz"
+             } = join_group
+
+      assert length(join_group.members) == 1
+    end
+
+    test "parses JoinGroup v2 response with zero throttle_time_ms" do
+      response = %Kayrock.JoinGroup.V2.Response{
+        error_code: 0,
+        throttle_time_ms: 0,
+        generation_id: 1,
+        group_protocol: "assign",
+        leader_id: "leader",
+        member_id: "member",
+        members: []
+      }
+
+      assert {:ok, join_group} = ResponseParser.join_group_response(response)
+      assert join_group.throttle_time_ms == 0
+    end
+
+    test "parses JoinGroup response with multiple members" do
+      members = [
+        %{member_id: "member-1", member_metadata: <<1>>},
+        %{member_id: "member-2", member_metadata: <<2>>},
+        %{member_id: "member-3", member_metadata: <<3>>}
+      ]
+
+      response = %Kayrock.JoinGroup.V0.Response{
+        error_code: 0,
+        generation_id: 7,
+        group_protocol: "sticky",
+        leader_id: "member-1",
+        member_id: "member-1",
+        members: members
+      }
+
+      assert {:ok, join_group} = ResponseParser.join_group_response(response)
+      assert length(join_group.members) == 3
+
+      Enum.each(join_group.members, fn member ->
+        assert %Member{} = member
+        assert member.member_id in ["member-1", "member-2", "member-3"]
+      end)
+    end
+
+    test "returns error for unknown_member_id (v0)" do
+      response = %Kayrock.JoinGroup.V0.Response{
+        error_code: 25,
+        generation_id: 0,
+        group_protocol: "",
+        leader_id: "",
+        member_id: "",
+        members: []
+      }
+
+      assert {:error, error} = ResponseParser.join_group_response(response)
+      assert error.error == :unknown_member_id
+    end
+
+    test "returns error for illegal_generation (v0)" do
+      response = %Kayrock.JoinGroup.V0.Response{
+        error_code: 22,
+        generation_id: 0,
+        group_protocol: "",
+        leader_id: "",
+        member_id: "",
+        members: []
+      }
+
+      assert {:error, error} = ResponseParser.join_group_response(response)
+      assert error.error == :illegal_generation
+    end
+
+    test "returns error for rebalance_in_progress (v2)" do
+      response = %Kayrock.JoinGroup.V2.Response{
+        error_code: 27,
+        throttle_time_ms: 50,
+        generation_id: 0,
+        group_protocol: "",
+        leader_id: "",
+        member_id: "",
+        members: []
+      }
+
+      assert {:error, error} = ResponseParser.join_group_response(response)
+      assert error.error == :rebalance_in_progress
+    end
+
+    test "returns error for not_coordinator (v1)" do
+      response = %Kayrock.JoinGroup.V1.Response{
+        error_code: 16,
+        generation_id: 0,
+        group_protocol: "",
+        leader_id: "",
+        member_id: "",
+        members: []
+      }
+
+      assert {:error, error} = ResponseParser.join_group_response(response)
+      assert error.error == :not_coordinator
+    end
+
+    test "returns error for coordinator_not_available (v0)" do
+      response = %Kayrock.JoinGroup.V0.Response{
+        error_code: 15,
+        generation_id: 0,
+        group_protocol: "",
+        leader_id: "",
+        member_id: "",
+        members: []
+      }
+
+      assert {:error, error} = ResponseParser.join_group_response(response)
+      assert error.error == :coordinator_not_available
+    end
+
+    test "returns error for group_authorization_failed (v2)" do
+      response = %Kayrock.JoinGroup.V2.Response{
+        error_code: 30,
+        throttle_time_ms: 0,
+        generation_id: 0,
+        group_protocol: "",
+        leader_id: "",
+        member_id: "",
+        members: []
+      }
+
+      assert {:error, error} = ResponseParser.join_group_response(response)
+      assert error.error == :group_authorization_failed
+    end
+
+    test "handles generic error with unknown error code (v0)" do
+      response = %Kayrock.JoinGroup.V0.Response{
+        error_code: 999,
+        generation_id: 0,
+        group_protocol: "",
+        leader_id: "",
+        member_id: "",
+        members: []
+      }
+
+      assert {:error, error} = ResponseParser.join_group_response(response)
+      assert error.error == :unknown
+    end
+
+    test "handles generic error with unknown error code (v2)" do
+      response = %Kayrock.JoinGroup.V2.Response{
+        error_code: 999,
+        throttle_time_ms: 10,
+        generation_id: 0,
+        group_protocol: "",
+        leader_id: "",
+        member_id: "",
+        members: []
+      }
+
+      assert {:error, error} = ResponseParser.join_group_response(response)
       assert error.error == :unknown
     end
   end

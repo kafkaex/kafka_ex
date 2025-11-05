@@ -16,6 +16,7 @@ defmodule KafkaEx.New.KafkaExAPI do
   alias KafkaEx.New.Structs.ClusterMetadata
   alias KafkaEx.New.Structs.ConsumerGroup
   alias KafkaEx.New.Structs.Heartbeat
+  alias KafkaEx.New.Structs.JoinGroup
   alias KafkaEx.New.Structs.LeaveGroup
   alias KafkaEx.New.Structs.Offset
   alias KafkaEx.New.Structs.SyncGroup
@@ -189,6 +190,98 @@ defmodule KafkaEx.New.KafkaExAPI do
           {:ok, :no_error | Heartbeat.t()} | {:error, error_atom}
   def heartbeat(client, consumer_group, member_id, generation_id, opts \\ []) do
     case GenServer.call(client, {:heartbeat, consumer_group, member_id, generation_id, opts}) do
+      {:ok, result} -> {:ok, result}
+      {:error, %{error: error_atom}} -> {:error, error_atom}
+      {:error, error_atom} -> {:error, error_atom}
+    end
+  end
+
+  @doc """
+  Join a consumer group
+
+  Initiates the consumer group join protocol. This is the first step in the
+  consumer group coordination protocol. The consumer sends its metadata (topics
+  it's interested in) and receives back group membership information including
+  the generation ID and member ID.
+
+  If this member is elected as the group leader, it will receive the metadata
+  of all members and is responsible for computing partition assignments (via
+  `sync_group/5`).
+
+  ## Parameters
+
+    - `client` - The client PID
+    - `consumer_group` - The name of the consumer group to join
+    - `member_id` - The member ID (use empty string "" for first join)
+    - `opts` - Options keyword list
+
+  ## Options
+
+    - `:session_timeout` - (required) Session timeout in milliseconds. If the
+      coordinator does not receive a heartbeat within this timeout, it will
+      remove the member from the group and trigger a rebalance.
+    - `:protocol_type` - Protocol type (default: "consumer")
+    - `:group_protocols` - (required) List of group protocols with metadata.
+      Format: `[%{protocol_name: "assign", protocol_metadata: metadata}]`
+    - `:rebalance_timeout` - (V1+) Maximum time in milliseconds the coordinator
+      will wait for members to complete the rebalance. Defaults to session_timeout
+      if not provided.
+    - `:api_version` - API version to use (0, 1, or 2). Default: 1
+
+  ## API Version Differences
+
+    - **V0**: Basic JoinGroup with session_timeout
+    - **V1**: Adds separate rebalance_timeout field
+    - **V2**: Adds throttle_time_ms to response
+
+  ## Returns
+
+    - `{:ok, JoinGroup.t()}` - Join successful, contains generation_id, member_id,
+      leader_id, and members list (if leader)
+    - `{:error, error_atom}` - Join failed with error code
+
+  ## Examples
+
+      # First join (empty member_id)
+      {:ok, response} = KafkaEx.New.KafkaExAPI.join_group(
+        client,
+        "my-group",
+        "",
+        session_timeout: 30_000,
+        rebalance_timeout: 60_000,
+        group_protocols: [
+          %{
+            protocol_name: "assign",
+            protocol_metadata: %Kayrock.GroupProtocolMetadata{topics: ["my-topic"]}
+          }
+        ]
+      )
+
+      # Subsequent joins (with member_id)
+      {:ok, response} = KafkaEx.New.KafkaExAPI.join_group(
+        client,
+        "my-group",
+        response.member_id,
+        session_timeout: 30_000,
+        rebalance_timeout: 60_000,
+        group_protocols: [...]
+      )
+
+      # Check if this member is the leader
+      if JoinGroup.leader?(response) do
+        # This member is the leader, compute assignments
+        # Then call sync_group with assignments
+      else
+        # Follower, call sync_group with empty assignments
+      end
+
+  """
+  @spec join_group(client, consumer_group_name, member_id) ::
+          {:ok, JoinGroup.t()} | {:error, error_atom}
+  @spec join_group(client, consumer_group_name, member_id, opts) ::
+          {:ok, JoinGroup.t()} | {:error, error_atom}
+  def join_group(client, consumer_group, member_id, opts \\ []) do
+    case GenServer.call(client, {:join_group, consumer_group, member_id, opts}) do
       {:ok, result} -> {:ok, result}
       {:error, %{error: error_atom}} -> {:error, error_atom}
       {:error, error_atom} -> {:error, error_atom}

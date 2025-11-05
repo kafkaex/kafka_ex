@@ -224,6 +224,17 @@ defmodule KafkaEx.New.Client do
     end
   end
 
+  def handle_call({:join_group, consumer_group, member_id, opts}, _from, state) do
+    if KafkaEx.valid_consumer_group?(consumer_group) and is_binary(consumer_group) do
+      case join_group_request(consumer_group, member_id, opts, state) do
+        {:error, error} -> {:reply, {:error, error}, state}
+        {result, updated_state} -> {:reply, result, updated_state}
+      end
+    else
+      {:reply, {:error, :invalid_consumer_group}, state}
+    end
+  end
+
   def handle_call({:leave_group, consumer_group, member_id, opts}, _from, state) do
     if KafkaEx.valid_consumer_group?(consumer_group) and is_binary(consumer_group) do
       case leave_group_request(consumer_group, member_id, opts, state) do
@@ -372,6 +383,16 @@ defmodule KafkaEx.New.Client do
     end
   end
 
+  defp join_group_request(consumer_group, member_id, opts, state) do
+    node_selector = NodeSelector.consumer_group(consumer_group)
+    req_data = [{:group_id, consumer_group}, {:member_id, member_id} | opts]
+
+    case RequestBuilder.join_group_request(req_data, state) do
+      {:ok, request} -> handle_join_group_request(request, node_selector, state)
+      {:error, error} -> {:error, error}
+    end
+  end
+
   defp leave_group_request(consumer_group, member_id, opts, state) do
     node_selector = NodeSelector.consumer_group(consumer_group)
     req_data = [{:group_id, consumer_group}, {:member_id, member_id} | opts]
@@ -417,6 +438,10 @@ defmodule KafkaEx.New.Client do
 
   defp handle_heartbeat_request(request, node_selector, state) do
     handle_request_with_retry(request, &ResponseParser.heartbeat_response/1, node_selector, state)
+  end
+
+  defp handle_join_group_request(request, node_selector, state) do
+    handle_request_with_retry(request, &ResponseParser.join_group_response/1, node_selector, state)
   end
 
   defp handle_leave_group_request(request, node_selector, state) do

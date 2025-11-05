@@ -547,6 +547,197 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
   end
 
+  describe "join_group_request/2" do
+    test "returns request for JoinGroup API v1 (default)" do
+      state = %KafkaEx.New.Client.State{api_versions: %{11 => {0, 2}}}
+      group_id = "test-group"
+      member_id = ""
+      session_timeout = 30_000
+      rebalance_timeout = 60_000
+
+      group_protocols = [
+        %{protocol_name: "assign", protocol_metadata: <<0, 1, 2>>}
+      ]
+
+      {:ok, request} =
+        RequestBuilder.join_group_request(
+          [
+            group_id: group_id,
+            member_id: member_id,
+            session_timeout: session_timeout,
+            rebalance_timeout: rebalance_timeout,
+            group_protocols: group_protocols
+          ],
+          state
+        )
+
+      expected_request = %Kayrock.JoinGroup.V1.Request{
+        client_id: nil,
+        correlation_id: nil,
+        group_id: "test-group",
+        member_id: "",
+        session_timeout: 30_000,
+        rebalance_timeout: 60_000,
+        protocol_type: "consumer",
+        group_protocols: group_protocols
+      }
+
+      assert expected_request == request
+    end
+
+    test "returns request for JoinGroup API v0 when explicitly requested" do
+      state = %KafkaEx.New.Client.State{api_versions: %{11 => {0, 2}}}
+      group_id = "legacy-group"
+      member_id = "member-123"
+      session_timeout = 10_000
+
+      group_protocols = [
+        %{protocol_name: "roundrobin", protocol_metadata: <<1, 2, 3>>}
+      ]
+
+      {:ok, request} =
+        RequestBuilder.join_group_request(
+          [
+            group_id: group_id,
+            member_id: member_id,
+            session_timeout: session_timeout,
+            group_protocols: group_protocols,
+            api_version: 0
+          ],
+          state
+        )
+
+      expected_request = %Kayrock.JoinGroup.V0.Request{
+        client_id: nil,
+        correlation_id: nil,
+        group_id: "legacy-group",
+        member_id: "member-123",
+        session_timeout: 10_000,
+        protocol_type: "consumer",
+        group_protocols: group_protocols
+      }
+
+      assert expected_request == request
+      # V0 doesn't have rebalance_timeout
+      refute Map.has_key?(request, :rebalance_timeout)
+    end
+
+    test "returns request for JoinGroup API v2" do
+      state = %KafkaEx.New.Client.State{api_versions: %{11 => {0, 2}}}
+
+      group_protocols = [
+        %{protocol_name: "assign", protocol_metadata: <<>>}
+      ]
+
+      {:ok, request} =
+        RequestBuilder.join_group_request(
+          [
+            group_id: "my-group",
+            member_id: "member-456",
+            session_timeout: 45_000,
+            rebalance_timeout: 90_000,
+            group_protocols: group_protocols,
+            api_version: 2
+          ],
+          state
+        )
+
+      expected_request = %Kayrock.JoinGroup.V2.Request{
+        client_id: nil,
+        correlation_id: nil,
+        group_id: "my-group",
+        member_id: "member-456",
+        session_timeout: 45_000,
+        rebalance_timeout: 90_000,
+        protocol_type: "consumer",
+        group_protocols: group_protocols
+      }
+
+      assert expected_request == request
+    end
+
+    test "uses custom protocol_type when provided" do
+      state = %KafkaEx.New.Client.State{api_versions: %{11 => {0, 2}}}
+
+      {:ok, request} =
+        RequestBuilder.join_group_request(
+          [
+            group_id: "group",
+            member_id: "",
+            session_timeout: 30_000,
+            rebalance_timeout: 60_000,
+            protocol_type: "custom",
+            group_protocols: []
+          ],
+          state
+        )
+
+      assert request.protocol_type == "custom"
+    end
+
+    test "defaults to consumer protocol_type" do
+      state = %KafkaEx.New.Client.State{api_versions: %{11 => {0, 2}}}
+
+      {:ok, request} =
+        RequestBuilder.join_group_request(
+          [
+            group_id: "group",
+            member_id: "",
+            session_timeout: 30_000,
+            rebalance_timeout: 60_000,
+            group_protocols: []
+          ],
+          state
+        )
+
+      assert request.protocol_type == "consumer"
+    end
+
+    test "handles multiple group protocols" do
+      state = %KafkaEx.New.Client.State{api_versions: %{11 => {0, 2}}}
+
+      group_protocols = [
+        %{protocol_name: "roundrobin", protocol_metadata: <<1>>},
+        %{protocol_name: "range", protocol_metadata: <<2>>},
+        %{protocol_name: "sticky", protocol_metadata: <<3>>}
+      ]
+
+      {:ok, request} =
+        RequestBuilder.join_group_request(
+          [
+            group_id: "group",
+            member_id: "",
+            session_timeout: 30_000,
+            rebalance_timeout: 60_000,
+            group_protocols: group_protocols
+          ],
+          state
+        )
+
+      assert length(request.group_protocols) == 3
+      assert request.group_protocols == group_protocols
+    end
+
+    test "returns error when requested API version not supported" do
+      state = %KafkaEx.New.Client.State{api_versions: %{11 => {0, 1}}}
+
+      result =
+        RequestBuilder.join_group_request(
+          [
+            group_id: "group",
+            member_id: "",
+            session_timeout: 30_000,
+            rebalance_timeout: 60_000,
+            group_protocols: [],
+            api_version: 5
+          ],
+          state
+        )
+
+      assert {:error, :api_version_no_supported} == result
+    end
+  end
+
   describe "sync_group_request/2" do
     test "returns request for SyncGroup API v1 (default)" do
       state = %KafkaEx.New.Client.State{api_versions: %{14 => {0, 1}}}

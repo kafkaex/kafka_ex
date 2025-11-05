@@ -789,4 +789,251 @@ defmodule KafkaEx.New.KafkaExAPITest do
       assert length(group.members) == 1
     end
   end
+
+  describe "join_group/3" do
+    test "joins a consumer group successfully", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      group_protocols = [
+        %{
+          protocol_name: "assign",
+          protocol_metadata: %Kayrock.GroupProtocolMetadata{topics: [topic_name]}
+        }
+      ]
+
+      {:ok, response} =
+        API.join_group(
+          client,
+          consumer_group,
+          "",
+          session_timeout: 30_000,
+          rebalance_timeout: 60_000,
+          group_protocols: group_protocols
+        )
+
+      assert response.generation_id >= 0
+      assert response.group_protocol in ["assign", "range", "roundrobin"]
+      assert response.leader_id != ""
+      assert response.member_id != ""
+      # First member is always the leader
+      assert response.leader_id == response.member_id
+      # Leader receives all members
+      assert length(response.members) >= 1
+    end
+
+    test "subsequent join with member_id works", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      group_protocols = [
+        %{
+          protocol_name: "assign",
+          protocol_metadata: %Kayrock.GroupProtocolMetadata{topics: [topic_name]}
+        }
+      ]
+
+      # First join
+      {:ok, first_response} =
+        API.join_group(
+          client,
+          consumer_group,
+          "",
+          session_timeout: 30_000,
+          rebalance_timeout: 60_000,
+          group_protocols: group_protocols
+        )
+
+      member_id = first_response.member_id
+
+      # Second join with member_id
+      {:ok, second_response} =
+        API.join_group(
+          client,
+          consumer_group,
+          member_id,
+          session_timeout: 30_000,
+          rebalance_timeout: 60_000,
+          group_protocols: group_protocols
+        )
+
+      assert second_response.member_id == member_id
+      assert second_response.generation_id >= first_response.generation_id
+    end
+  end
+
+  describe "join_group/4" do
+    test "supports api_version option for v0", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      group_protocols = [
+        %{
+          protocol_name: "assign",
+          protocol_metadata: %Kayrock.GroupProtocolMetadata{topics: [topic_name]}
+        }
+      ]
+
+      {:ok, response} =
+        API.join_group(
+          client,
+          consumer_group,
+          "",
+          session_timeout: 30_000,
+          group_protocols: group_protocols,
+          api_version: 0
+        )
+
+      assert response.generation_id >= 0
+      assert response.member_id != ""
+      # V0 doesn't have throttle_time_ms
+      assert response.throttle_time_ms == nil
+    end
+
+    test "supports api_version option for v2 with throttle_time_ms", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      group_protocols = [
+        %{
+          protocol_name: "assign",
+          protocol_metadata: %Kayrock.GroupProtocolMetadata{topics: [topic_name]}
+        }
+      ]
+
+      {:ok, response} =
+        API.join_group(
+          client,
+          consumer_group,
+          "",
+          session_timeout: 30_000,
+          rebalance_timeout: 60_000,
+          group_protocols: group_protocols,
+          api_version: 2
+        )
+
+      assert response.generation_id >= 0
+      assert response.member_id != ""
+      # V2 includes throttle_time_ms (may be 0)
+      assert is_integer(response.throttle_time_ms)
+    end
+
+    test "leader detection works correctly", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      group_protocols = [
+        %{
+          protocol_name: "assign",
+          protocol_metadata: %Kayrock.GroupProtocolMetadata{topics: [topic_name]}
+        }
+      ]
+
+      {:ok, response} =
+        API.join_group(
+          client,
+          consumer_group,
+          "",
+          session_timeout: 30_000,
+          rebalance_timeout: 60_000,
+          group_protocols: group_protocols
+        )
+
+      # Use the helper function from the struct
+      alias KafkaEx.New.Structs.JoinGroup
+      assert JoinGroup.leader?(response) == true
+    end
+
+    test "returns error for invalid consumer group", %{client: client} do
+      result =
+        API.join_group(
+          client,
+          "",
+          "",
+          session_timeout: 30_000,
+          rebalance_timeout: 60_000,
+          group_protocols: []
+        )
+
+      assert {:error, :invalid_consumer_group} == result
+    end
+  end
+
+  describe "join_group + sync_group workflow" do
+    test "complete consumer group join and sync workflow", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      group_protocols = [
+        %{
+          protocol_name: "assign",
+          protocol_metadata: %Kayrock.GroupProtocolMetadata{topics: [topic_name]}
+        }
+      ]
+
+      # Step 1: Join the group
+      {:ok, join_response} =
+        API.join_group(
+          client,
+          consumer_group,
+          "",
+          session_timeout: 30_000,
+          rebalance_timeout: 60_000,
+          group_protocols: group_protocols
+        )
+
+      assert join_response.generation_id >= 0
+      member_id = join_response.member_id
+      generation_id = join_response.generation_id
+
+      # Step 2: Sync (as leader, provide assignments)
+      alias KafkaEx.New.Structs.JoinGroup
+
+      if JoinGroup.leader?(join_response) do
+        # Leader assigns partitions to members
+        group_assignment = [
+          %{
+            member_id: member_id,
+            member_assignment: %Kayrock.MemberAssignment{
+              partition_assignments: [%{topic: topic_name, partitions: [0]}]
+            }
+          }
+        ]
+
+        {:ok, sync_response} =
+          API.sync_group(
+            client,
+            consumer_group,
+            generation_id,
+            member_id,
+            group_assignment: group_assignment
+          )
+
+        assert sync_response.partition_assignment.partition_assignments != []
+      else
+        # Follower waits for assignment
+        {:ok, sync_response} =
+          API.sync_group(
+            client,
+            consumer_group,
+            generation_id,
+            member_id,
+            group_assignment: []
+          )
+
+        assert sync_response.partition_assignment != nil
+      end
+
+      # Step 3: Verify group membership
+      {:ok, group_info} = API.describe_group(client, consumer_group)
+      assert group_info.group_id == consumer_group
+      assert length(group_info.members) == 1
+    end
+  end
 end
