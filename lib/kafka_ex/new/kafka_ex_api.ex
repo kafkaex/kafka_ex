@@ -114,10 +114,143 @@ defmodule KafkaEx.New.KafkaExAPI do
 
   @doc """
   Returns the cluster metadata from the given client
+
+  This returns the cluster metadata currently cached in the client's state.
+  It does not make a network request to Kafka. If you need fresh metadata,
+  use `metadata/2` or `metadata/3` instead.
+
+  ## Returns
+
+    - `{:ok, ClusterMetadata.t()}` - The cached cluster metadata
+
+  ## Examples
+
+      {:ok, metadata} = KafkaEx.New.KafkaExAPI.cluster_metadata(client)
+      brokers = metadata.brokers
+      topics = metadata.topics
+
   """
   @spec cluster_metadata(client) :: {:ok, ClusterMetadata.t()}
   def cluster_metadata(client) do
     GenServer.call(client, :cluster_metadata)
+  end
+
+  @doc """
+  Fetch metadata from Kafka brokers
+
+  Makes a network request to fetch fresh metadata from Kafka. This updates
+  the client's internal cluster metadata state and returns the updated metadata.
+
+  By default, fetches metadata for all topics in the cluster. To fetch metadata
+  for specific topics only, use `metadata/3`.
+
+  ## Options
+
+    - `:api_version` - Kafka API version (0, 1, or 2). Default: 1
+    - `:timeout` - Request timeout in milliseconds. Default: 5000
+
+  ## API Version Differences
+
+    - **V0**: Basic metadata (topics, partitions, brokers)
+    - **V1**: Adds `controller_id`, `is_internal` flag, broker `rack`
+    - **V2**: Adds `cluster_id` field
+
+  ## Returns
+
+    - `{:ok, ClusterMetadata.t()}` - Successfully retrieved metadata
+    - `{:error, reason}` - Request failed
+
+  ## Examples
+
+      # Fetch metadata for all topics (default V1)
+      {:ok, metadata} = KafkaEx.New.KafkaExAPI.metadata(client)
+
+      # Fetch metadata using V2 API
+      {:ok, metadata} = KafkaEx.New.KafkaExAPI.metadata(client, api_version: 2)
+
+      # Fetch with custom timeout
+      {:ok, metadata} = KafkaEx.New.KafkaExAPI.metadata(client, timeout: 10_000)
+
+      # Access cluster information
+      {:ok, metadata} = KafkaEx.New.KafkaExAPI.metadata(client)
+      controller_id = metadata.controller_id
+      broker_count = map_size(metadata.brokers)
+      topic_names = Map.keys(metadata.topics)
+
+  """
+  @spec metadata(client) :: {:ok, ClusterMetadata.t()} | {:error, error_atom}
+  @spec metadata(client, opts) :: {:ok, ClusterMetadata.t()} | {:error, error_atom}
+  def metadata(client, opts \\ []) do
+    api_version = Keyword.get(opts, :api_version, 1)
+
+    case GenServer.call(client, {:metadata, nil, opts, api_version}) do
+      {:ok, cluster_metadata} -> {:ok, cluster_metadata}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  @doc """
+  Fetch metadata for specific topics
+
+  Makes a network request to fetch fresh metadata for the specified topics only.
+  This is more efficient than fetching all topics if you only need information
+  about a subset of topics.
+
+  ## Parameters
+
+    - `client` - The client PID
+    - `topics` - List of topic names, or `nil` for all topics
+    - `opts` - Options keyword list
+
+  ## Options
+
+    - `:api_version` - Kafka API version (0, 1, or 2). Default: 1
+    - `:timeout` - Request timeout in milliseconds. Default: 5000
+    - `:allow_auto_topic_creation` - Whether to allow Kafka to auto-create topics
+      if they don't exist (default: false)
+
+  ## Returns
+
+    - `{:ok, ClusterMetadata.t()}` - Successfully retrieved metadata
+    - `{:error, reason}` - Request failed
+
+  ## Examples
+
+      # Fetch metadata for specific topics
+      {:ok, metadata} = KafkaEx.New.KafkaExAPI.metadata(
+        client,
+        ["orders", "payments"]
+      )
+
+      # Fetch with auto-creation enabled
+      {:ok, metadata} = KafkaEx.New.KafkaExAPI.metadata(
+        client,
+        ["new-topic"],
+        allow_auto_topic_creation: true
+      )
+
+      # Check if topic exists
+      {:ok, metadata} = KafkaEx.New.KafkaExAPI.metadata(client, ["orders"])
+      if Map.has_key?(metadata.topics, "orders") do
+        IO.puts("Topic exists!")
+      end
+
+      # Get partition leaders for a topic
+      {:ok, metadata} = KafkaEx.New.KafkaExAPI.metadata(client, ["orders"])
+      topic = metadata.topics["orders"]
+      leaders = topic.partition_leaders
+      # => %{0 => 1, 1 => 2, 2 => 3}  (partition_id => broker_node_id)
+
+  """
+  @spec metadata(client, [topic_name] | nil, opts) :: {:ok, ClusterMetadata.t()} | {:error, error_atom}
+  def metadata(client, topics, opts) when is_list(topics) or is_nil(topics) do
+    api_version = Keyword.get(opts, :api_version, 1)
+    request_opts = Keyword.put(opts, :topics, topics)
+
+    case GenServer.call(client, {:metadata, topics, request_opts, api_version}) do
+      {:ok, cluster_metadata} -> {:ok, cluster_metadata}
+      {:error, error} -> {:error, error}
+    end
   end
 
   @doc """

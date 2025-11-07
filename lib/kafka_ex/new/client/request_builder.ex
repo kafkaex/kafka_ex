@@ -4,11 +4,7 @@ defmodule KafkaEx.New.Client.RequestBuilder do
   It's main decision point which protocol to use for building request and what
   is required version.
   """
-  @protocol Application.compile_env(
-              :kafka_ex,
-              :protocol,
-              KafkaEx.New.Protocols.KayrockProtocol
-            )
+  @protocol Application.compile_env(:kafka_ex, :protocol, KafkaEx.New.Protocols.KayrockProtocol)
 
   @default_api_version %{
     describe_groups: 1,
@@ -16,6 +12,7 @@ defmodule KafkaEx.New.Client.RequestBuilder do
     join_group: 1,
     leave_group: 1,
     list_offsets: 1,
+    metadata: 1,
     offset_fetch: 1,
     offset_commit: 1,
     sync_group: 1
@@ -171,6 +168,23 @@ defmodule KafkaEx.New.Client.RequestBuilder do
         ]
 
         req = @protocol.build_request(:sync_group, api_version, opts)
+        {:ok, req}
+
+      {:error, error_code} ->
+        {:error, error_code}
+    end
+  end
+
+  @doc """
+  Builds request for Metadata API
+  """
+  @spec metadata_request(Keyword.t(), State.t()) ::
+          {:ok, term} | {:error, :api_version_no_supported}
+  def metadata_request(request_opts, state) do
+    case get_api_version(state, :metadata, request_opts) do
+      {:ok, api_version} ->
+        topics = Keyword.get(request_opts, :topics)
+        req = @protocol.build_request(:metadata, api_version, topics: topics)
         {:ok, req}
 
       {:error, error_code} ->
