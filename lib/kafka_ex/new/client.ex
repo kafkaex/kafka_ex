@@ -163,6 +163,13 @@ defmodule KafkaEx.New.Client do
     {:reply, {:ok, topic_metadata}, updated_state}
   end
 
+  def handle_call({:metadata, topics, opts, _api_version}, _from, state) do
+    case metadata_request(topics, opts, state) do
+      {:error, error} -> {:reply, {:error, error}, state}
+      {result, updated_state} -> {:reply, result, updated_state}
+    end
+  end
+
   def handle_call({:list_offsets, [{topic, partitions_data}], opts}, _from, state) do
     case list_offset_request({topic, partitions_data}, opts, state) do
       {:error, error} -> {:reply, {:error, error}, state}
@@ -419,6 +426,17 @@ defmodule KafkaEx.New.Client do
     end
   end
 
+  defp metadata_request(topics, opts, state) do
+    # Metadata can be fetched from any broker, use random selection
+    node_selector = NodeSelector.random()
+    req_data = [{:topics, topics} | opts]
+
+    case RequestBuilder.metadata_request(req_data, state) do
+      {:ok, request} -> handle_metadata_request(request, node_selector, state)
+      {:error, error} -> {:error, error}
+    end
+  end
+
   # ----------------------------------------------------------------------------------------------------
   defp handle_describe_group_request(request, node_selector, state) do
     handle_request_with_retry(request, &ResponseParser.describe_groups_response/1, node_selector, state)
@@ -450,6 +468,18 @@ defmodule KafkaEx.New.Client do
 
   defp handle_sync_group_request(request, node_selector, state) do
     handle_request_with_retry(request, &ResponseParser.sync_group_response/1, node_selector, state)
+  end
+
+  defp handle_metadata_request(request, node_selector, state) do
+    case handle_request_with_retry(request, &ResponseParser.metadata_response/1, node_selector, state) do
+      {{:ok, cluster_metadata}, updated_state} ->
+        # Update state with new cluster metadata
+        merged_state = %{updated_state | cluster_metadata: cluster_metadata}
+        {{:ok, cluster_metadata}, merged_state}
+
+      error_result ->
+        error_result
+    end
   end
 
   # ----------------------------------------------------------------------------------------------------

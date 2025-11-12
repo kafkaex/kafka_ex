@@ -1036,4 +1036,210 @@ defmodule KafkaEx.New.KafkaExAPITest do
       assert length(group_info.members) == 1
     end
   end
+
+  describe "cluster_metadata/1" do
+    test "returns cached cluster metadata", %{client: client} do
+      {:ok, metadata} = API.cluster_metadata(client)
+
+      assert metadata.brokers != %{}
+      assert is_map(metadata.topics)
+      assert is_integer(metadata.controller_id) or is_nil(metadata.controller_id)
+    end
+  end
+
+  describe "metadata/1" do
+    test "fetches metadata for all topics with default V1 API", %{client: client} do
+      # Create a test topic first
+      topic_name = generate_random_string()
+      create_topic(client, topic_name)
+
+      {:ok, metadata} = API.metadata(client)
+
+      assert metadata.brokers != %{}
+      assert metadata.controller_id != nil
+      assert is_map(metadata.topics)
+      # Should have at least our test topic
+      assert map_size(metadata.topics) >= 1
+    end
+
+    test "fetches metadata with V0 API version", %{client: client} do
+      topic_name = generate_random_string()
+      create_topic(client, topic_name)
+
+      {:ok, metadata} = API.metadata(client, api_version: 0)
+
+      assert metadata.brokers != %{}
+      assert is_map(metadata.topics)
+      # V0 may not have controller_id
+      assert map_size(metadata.topics) >= 1
+    end
+
+    test "fetches metadata with V2 API version", %{client: client} do
+      topic_name = generate_random_string()
+      create_topic(client, topic_name)
+
+      {:ok, metadata} = API.metadata(client, api_version: 2)
+
+      assert metadata.brokers != %{}
+      assert metadata.controller_id != nil
+      assert is_map(metadata.topics)
+      assert map_size(metadata.topics) >= 1
+    end
+
+    test "returns broker information", %{client: client} do
+      {:ok, metadata} = API.metadata(client)
+
+      assert map_size(metadata.brokers) > 0
+      [broker | _] = Map.values(metadata.brokers)
+      assert broker.host != nil
+      assert broker.port != nil
+      assert broker.node_id != nil
+    end
+
+    test "identifies controller broker", %{client: client} do
+      {:ok, metadata} = API.metadata(client)
+
+      assert metadata.controller_id != nil
+      assert Map.has_key?(metadata.brokers, metadata.controller_id)
+    end
+  end
+
+  describe "metadata/3" do
+    test "fetches metadata for specific topic", %{client: client} do
+      topic_name = generate_random_string()
+      create_topic(client, topic_name)
+
+      {:ok, metadata} = API.metadata(client, [topic_name], [])
+
+      assert Map.has_key?(metadata.topics, topic_name)
+      topic = metadata.topics[topic_name]
+      assert topic.name == topic_name
+      assert length(topic.partitions) > 0
+    end
+
+    test "fetches metadata for multiple specific topics", %{client: client} do
+      topic1 = generate_random_string()
+      topic2 = generate_random_string()
+      create_topic(client, topic1)
+      create_topic(client, topic2)
+
+      {:ok, metadata} = API.metadata(client, [topic1, topic2], [])
+
+      assert Map.has_key?(metadata.topics, topic1)
+      assert Map.has_key?(metadata.topics, topic2)
+    end
+
+    test "returns partition leaders for topic", %{client: client} do
+      topic_name = generate_random_string()
+      create_topic(client, topic_name)
+
+      {:ok, metadata} = API.metadata(client, [topic_name], [])
+
+      topic = metadata.topics[topic_name]
+      assert map_size(topic.partition_leaders) > 0
+
+      # Verify partition leaders are valid broker IDs
+      Enum.each(topic.partition_leaders, fn {_partition_id, broker_id} ->
+        assert Map.has_key?(metadata.brokers, broker_id)
+      end)
+    end
+
+    test "returns partition replicas and ISR", %{client: client} do
+      topic_name = generate_random_string()
+      create_topic(client, topic_name)
+
+      {:ok, metadata} = API.metadata(client, [topic_name], [])
+
+      topic = metadata.topics[topic_name]
+      [partition | _] = topic.partitions
+
+      assert partition.leader != nil
+      assert is_list(partition.replicas)
+      assert is_list(partition.isr)
+      assert length(partition.replicas) > 0
+      assert length(partition.isr) > 0
+    end
+
+    test "handles non-existent topic gracefully", %{client: client} do
+      non_existent_topic = "non_existent_topic_#{generate_random_string()}"
+
+      {:ok, metadata} = API.metadata(client, [non_existent_topic], [])
+
+      # Non-existent topics are filtered out in response parsing
+      refute Map.has_key?(metadata.topics, non_existent_topic)
+    end
+
+    test "fetches metadata with allow_auto_topic_creation", %{client: client} do
+      topic_name = generate_random_string()
+
+      {:ok, metadata} = API.metadata(client, [topic_name], allow_auto_topic_creation: true)
+
+      # Topic may or may not be created depending on broker config
+      # But the call should succeed
+      assert is_map(metadata.topics)
+    end
+
+    test "fetches metadata with different API versions for specific topics", %{client: client} do
+      topic_name = generate_random_string()
+      create_topic(client, topic_name)
+
+      # Test V0
+      {:ok, metadata_v0} = API.metadata(client, [topic_name], api_version: 0)
+      assert Map.has_key?(metadata_v0.topics, topic_name)
+
+      # Test V1
+      {:ok, metadata_v1} = API.metadata(client, [topic_name], api_version: 1)
+      assert Map.has_key?(metadata_v1.topics, topic_name)
+      assert metadata_v1.controller_id != nil
+
+      # Test V2
+      {:ok, metadata_v2} = API.metadata(client, [topic_name], api_version: 2)
+      assert Map.has_key?(metadata_v2.topics, topic_name)
+      assert metadata_v2.controller_id != nil
+    end
+
+    test "identifies internal topics", %{client: client} do
+      {:ok, metadata} = API.metadata(client)
+
+      # Check for __consumer_offsets which is always internal
+      internal_topics = Enum.filter(metadata.topics, fn {_name, topic} -> topic.is_internal end)
+
+      # There should be at least one internal topic in any Kafka cluster
+      assert length(internal_topics) > 0
+    end
+  end
+
+  describe "metadata API integration" do
+    test "metadata updates are reflected in cluster_metadata", %{client: client} do
+      topic_name = generate_random_string()
+      create_topic(client, topic_name)
+
+      # Fetch fresh metadata
+      {:ok, metadata} = API.metadata(client, [topic_name], [])
+      assert Map.has_key?(metadata.topics, topic_name)
+
+      # Get cached metadata
+      {:ok, cached_metadata} = API.cluster_metadata(client)
+      assert Map.has_key?(cached_metadata.topics, topic_name)
+    end
+
+    test "can fetch metadata for topics with different partition counts", %{client: client} do
+      topic1 = generate_random_string()
+      topic2 = generate_random_string()
+
+      # Create topics (default is 4 partitions based on test helpers)
+      create_topic(client, topic1)
+      create_topic(client, topic2)
+
+      {:ok, metadata} = API.metadata(client, [topic1, topic2], [])
+
+      topic1_data = metadata.topics[topic1]
+      topic2_data = metadata.topics[topic2]
+
+      assert length(topic1_data.partitions) > 0
+      assert length(topic2_data.partitions) > 0
+      assert map_size(topic1_data.partition_leaders) == length(topic1_data.partitions)
+      assert map_size(topic2_data.partition_leaders) == length(topic2_data.partitions)
+    end
+  end
 end

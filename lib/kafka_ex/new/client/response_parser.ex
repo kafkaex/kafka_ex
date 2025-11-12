@@ -3,6 +3,7 @@ defmodule KafkaEx.New.Client.ResponseParser do
   This module is used to parse response from KafkaEx.New.Client.
   It's main decision point which protocol to use for parsing response
   """
+  alias KafkaEx.New.Structs.ClusterMetadata
   alias KafkaEx.New.Structs.ConsumerGroup
   alias KafkaEx.New.Structs.Error
   alias KafkaEx.New.Structs.Heartbeat
@@ -75,5 +76,13 @@ defmodule KafkaEx.New.Client.ResponseParser do
   @spec sync_group_response(term) :: {:ok, SyncGroup.t()} | {:error, Error.t()}
   def sync_group_response(response) do
     @protocol.parse_response(:sync_group, response)
+  end
+
+  @doc """
+  Parses response for Metadata API
+  """
+  @spec metadata_response(term) :: {:ok, ClusterMetadata.t()} | {:error, Error.t()}
+  def metadata_response(response) do
+    @protocol.parse_response(:metadata, response)
   end
 end

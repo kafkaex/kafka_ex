@@ -12,6 +12,7 @@ defmodule KafkaEx.New.Protocols.KayrockProtocol do
   alias Kayrock.JoinGroup
   alias Kayrock.LeaveGroup
   alias Kayrock.ListOffsets
+  alias Kayrock.Metadata
   alias Kayrock.OffsetCommit
   alias Kayrock.OffsetFetch
   alias Kayrock.SyncGroup
@@ -69,6 +70,12 @@ defmodule KafkaEx.New.Protocols.KayrockProtocol do
     |> KayrockProtocol.SyncGroup.Request.build_request(opts)
   end
 
+  def build_request(:metadata, api_version, opts) do
+    api_version
+    |> Metadata.get_request_struct()
+    |> KayrockProtocol.Metadata.Request.build_request(opts)
+  end
+
   # -----------------------------------------------------------------------------
   @doc """
   Parses response based on request type and response
@@ -104,5 +111,9 @@ defmodule KafkaEx.New.Protocols.KayrockProtocol do
 
   def parse_response(:sync_group, response) do
     KayrockProtocol.SyncGroup.Response.parse_response(response)
+  end
+
+  def parse_response(:metadata, response) do
+    KayrockProtocol.Metadata.Response.parse_response(response)
   end
 end
