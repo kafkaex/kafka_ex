@@ -123,6 +123,19 @@ defmodule KafkaEx.Auth.Config do
         require_keys!(cfg, [:username, :password])
         cfg
 
+      :oauthbearer ->
+        opts = cfg[:mechanism_opts] || %{}
+
+        unless is_function(opts[:token_provider], 0) do
+          raise ArgumentError, "oauthbearer requires mechanism_opts.token_provider/0"
+        end
+
+        if is_map(opts[:extensions]) and Map.has_key?(opts[:extensions], "auth") do
+          raise ArgumentError, "'auth' is a reserved extension name"
+        end
+
+        Map.merge(%{username: nil, password: nil}, cfg)
+
       _ ->
         raise ArgumentError, "Unsupported SASL mechanism: #{inspect(mech)}"
     end

@@ -48,8 +48,9 @@ defmodule KafkaEx.Auth.SASL do
 
   @mechanisms %{
     plain: KafkaEx.Auth.SASL.Plain,
-    scram: KafkaEx.Auth.SASL.Scram
-    # Future extensions: oauthbearer, msk_iam_auth
+    scram: KafkaEx.Auth.SASL.Scram,
+    oauthbearer: KafkaEx.Auth.SASL.OAuthBearer
+    # Future extensions: msk_iam_auth
   }
 
   # -------- Public API --------
