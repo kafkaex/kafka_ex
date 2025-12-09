@@ -1249,4 +1249,107 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   end
 
   # -----------------------------------------------------------------------------
+  describe "api_versions compatibility" do
+    test "fetch api_versions via new API", %{client: client} do
+      alias KafkaEx.New.Structs.ApiVersions
+
+      {:ok, versions} = KafkaExAPI.api_versions(client)
+
+      assert is_map(versions.api_versions)
+      assert map_size(versions.api_versions) > 0
+
+      assert {:ok, _} = ApiVersions.max_version_for_api(versions, 0)
+      assert {:ok, _} = ApiVersions.max_version_for_api(versions, 1)
+      assert {:ok, _} = ApiVersions.max_version_for_api(versions, 3)
+      assert {:ok, _} = ApiVersions.max_version_for_api(versions, 18)
+    end
+
+    test "fetch api_versions via legacy API", %{client: client} do
+      response = KafkaEx.api_versions(worker_name: client)
+
+      assert %KafkaEx.Protocol.ApiVersions.Response{} = response
+      assert response.error_code == :no_error
+      assert is_list(response.api_versions)
+      assert length(response.api_versions) > 0
+
+      api_keys = Enum.map(response.api_versions, & &1.api_key)
+
+      assert 0 in api_keys
+      assert 1 in api_keys
+      assert 3 in api_keys
+      assert 18 in api_keys
+    end
+
+    test "new and legacy APIs return compatible API version data", %{client: client} do
+      alias KafkaEx.New.Structs.ApiVersions
+      {:ok, new_versions} = KafkaExAPI.api_versions(client)
+
+      legacy_response = KafkaEx.api_versions(worker_name: client)
+      new_api_keys = Map.keys(new_versions.api_versions) |> Enum.sort()
+      legacy_api_keys = Enum.map(legacy_response.api_versions, & &1.api_key) |> Enum.sort()
+
+      assert new_api_keys == legacy_api_keys
+
+      Enum.each([0, 1, 3, 18], fn api_key ->
+        {:ok, new_max} = ApiVersions.max_version_for_api(new_versions, api_key)
+        {:ok, new_min} = ApiVersions.min_version_for_api(new_versions, api_key)
+
+        legacy_entry = Enum.find(legacy_response.api_versions, &(&1.api_key == api_key))
+
+        assert legacy_entry.max_version == new_max,
+               "API #{api_key} max_version mismatch: new=#{new_max}, legacy=#{legacy_entry.max_version}"
+
+        assert legacy_entry.min_version == new_min,
+               "API #{api_key} min_version mismatch: new=#{new_min}, legacy=#{legacy_entry.min_version}"
+      end)
+    end
+
+    test "new API with V1 returns throttle_time_ms", %{client: client} do
+      {:ok, versions} = KafkaExAPI.api_versions(client, api_version: 1)
+
+      assert is_map(versions.api_versions)
+      assert is_integer(versions.throttle_time_ms)
+      assert versions.throttle_time_ms >= 0
+    end
+
+    test "new API with V0 does not return throttle_time_ms", %{client: client} do
+      {:ok, versions} = KafkaExAPI.api_versions(client, api_version: 0)
+
+      assert is_map(versions.api_versions)
+      assert is_nil(versions.throttle_time_ms)
+    end
+
+    test "legacy API always returns throttle_time_ms of 0", %{client: client} do
+      response = KafkaEx.api_versions(worker_name: client)
+
+      assert response.throttle_time_ms == 0
+    end
+
+    test "api_versions helper functions work correctly", %{client: client} do
+      alias KafkaEx.New.Structs.ApiVersions
+
+      {:ok, versions} = KafkaExAPI.api_versions(client)
+
+      # Test max_version_for_api
+      assert {:ok, metadata_max} = ApiVersions.max_version_for_api(versions, 3)
+      assert is_integer(metadata_max) and metadata_max >= 0
+
+      # Test min_version_for_api
+      assert {:ok, metadata_min} = ApiVersions.min_version_for_api(versions, 3)
+      assert is_integer(metadata_min) and metadata_min >= 0
+      assert metadata_min <= metadata_max
+
+      # Test version_supported?
+      assert ApiVersions.version_supported?(versions, 3, metadata_min)
+      assert ApiVersions.version_supported?(versions, 3, metadata_max)
+      refute ApiVersions.version_supported?(versions, 3, metadata_max + 100)
+
+      # Test unsupported API
+      assert {:error, :unsupported_api} = ApiVersions.max_version_for_api(versions, 9999)
+      assert {:error, :unsupported_api} = ApiVersions.min_version_for_api(versions, 9999)
+      refute ApiVersions.version_supported?(versions, 9999, 0)
+    end
+  end
+
+  # -----------------------------------------------------------------------------
 end
