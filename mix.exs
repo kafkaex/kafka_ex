@@ -5,7 +5,6 @@ defmodule KafkaEx.Mixfile do
   @source_url "https://github.com/kafkaex/kafka_ex"
   @version "0.15.0"
 
-
   def project do
     [
       app: :kafka_ex,
