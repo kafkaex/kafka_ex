@@ -1,6 +1,7 @@
 defmodule KafkaEx.Protocol.Fetch do
-  alias KafkaEx.Protocol
   alias KafkaEx.Compression
+  alias KafkaEx.Protocol
+
   import KafkaEx.Protocol.Common
 
   @moduledoc """

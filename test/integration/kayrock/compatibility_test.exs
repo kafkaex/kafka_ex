@@ -6,6 +6,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   """
   use ExUnit.Case
   import KafkaEx.TestHelpers
+  import KafkaEx.IntegrationHelpers
 
   @moduletag :new_client
 
@@ -32,6 +33,109 @@ defmodule KafkaEx.KayrockCompatibilityTest do
     {:ok, pid} = Client.start_link(args, :no_name)
 
     assert Process.alive?(pid)
+  end
+
+  describe "join_group/3" do
+    setup do
+      consumer_group = generate_random_string()
+      topic = "new_client_implementation"
+
+      {:ok, %{consumer_group: consumer_group, topic: topic}}
+    end
+
+    test "with new API - joins consumer group successfully", %{
+      client: client,
+      consumer_group: consumer_group,
+      topic: topic
+    } do
+      group_protocols = [
+        %{
+          protocol_name: "assign",
+          protocol_metadata: %Kayrock.GroupProtocolMetadata{topics: [topic]}
+        }
+      ]
+
+      {:ok, response} =
+        KafkaExAPI.join_group(
+          client,
+          consumer_group,
+          "",
+          session_timeout: 30_000,
+          rebalance_timeout: 60_000,
+          group_protocols: group_protocols
+        )
+
+      assert response.generation_id >= 0
+      assert response.member_id != ""
+      assert response.leader_id == response.member_id
+      assert length(response.members) >= 1
+    end
+
+    test "with old API - joins consumer group successfully", %{
+      client: client,
+      consumer_group: consumer_group,
+      topic: topic
+    } do
+      alias KafkaEx.Protocol.JoinGroup.Request, as: JoinGroupRequest
+
+      request = %JoinGroupRequest{
+        group_name: consumer_group,
+        member_id: "",
+        topics: [topic],
+        session_timeout: 30_000
+      }
+
+      response = KafkaEx.join_group(request, worker_name: client, timeout: 10_000)
+
+      assert response.error_code == :no_error
+      assert response.generation_id >= 0
+      assert response.member_id != ""
+      assert response.leader_id == response.member_id
+    end
+
+    test "new and old APIs return compatible results", %{client: client, topic: topic} do
+      # Test with new API
+      new_group = generate_random_string()
+
+      group_protocols = [
+        %{
+          protocol_name: "assign",
+          protocol_metadata: %Kayrock.GroupProtocolMetadata{topics: [topic]}
+        }
+      ]
+
+      {:ok, new_response} =
+        KafkaExAPI.join_group(
+          client,
+          new_group,
+          "",
+          session_timeout: 30_000,
+          rebalance_timeout: 60_000,
+          group_protocols: group_protocols
+        )
+
+      # Test with old API
+      old_group = generate_random_string()
+      alias KafkaEx.Protocol.JoinGroup.Request, as: JoinGroupRequest
+
+      old_request = %JoinGroupRequest{
+        group_name: old_group,
+        member_id: "",
+        topics: [topic],
+        session_timeout: 30_000
+      }
+
+      old_response = KafkaEx.join_group(old_request, worker_name: client, timeout: 10_000)
+
+      # Both should succeed with similar structure
+      assert new_response.generation_id >= 0
+      assert old_response.generation_id >= 0
+      assert new_response.member_id != ""
+      assert old_response.member_id != ""
+      # Both should be leaders (first member)
+      assert new_response.leader_id == new_response.member_id
+      assert old_response.leader_id == old_response.member_id
+    end
   end
 
   describe "describe_groups/1" do
@@ -635,15 +739,617 @@ defmodule KafkaEx.KayrockCompatibilityTest do
     :ok = KafkaEx.produce(topic, nil, "hello", worker_name: client)
   end
 
-  # -----------------------------------------------------------------------------
-  defp join_to_group(client, topic, consumer_group) do
-    request = %KafkaEx.Protocol.JoinGroup.Request{
-      group_name: consumer_group,
-      member_id: "",
-      topics: [topic],
-      session_timeout: 6000
-    }
+  describe "offset_fetch compatibility" do
+    test "fetch committed offset via legacy API", %{client: client} do
+      topic_name = KafkaEx.TestHelpers.generate_random_string()
+      consumer_group = KafkaEx.TestHelpers.generate_random_string()
+      create_topic(client, topic_name, partitions: 1)
 
-    KafkaEx.join_group(request, worker_name: client, timeout: 10000)
+      # Commit via new API
+      partitions = [%{partition_num: 0, offset: 123}]
+      {:ok, commit_result} = KafkaExAPI.commit_offset(client, consumer_group, topic_name, partitions)
+
+      # Verify commit succeeded
+      assert [commit_response] = commit_result
+      assert commit_response.topic == topic_name
+      assert [commit_partition] = commit_response.partition_offsets
+      assert commit_partition.error_code == :no_error
+
+      # Small delay to ensure Kafka has processed the commit
+      Process.sleep(100)
+
+      # Fetch via legacy API (use v1 to match new API's Kafka-based storage)
+      request = %KafkaEx.Protocol.OffsetFetch.Request{
+        topic: topic_name,
+        partition: 0,
+        consumer_group: consumer_group,
+        api_version: 1
+      }
+
+      [response] = KafkaEx.offset_fetch(client, request)
+
+      assert response.topic == topic_name
+      assert [partition_offset] = response.partitions
+      assert partition_offset.partition == 0
+      assert partition_offset.offset == 123
+    end
+
+    test "fetch via new API what was committed via legacy API", %{client: client} do
+      topic_name = KafkaEx.TestHelpers.generate_random_string()
+      consumer_group = KafkaEx.TestHelpers.generate_random_string()
+      create_topic(client, topic_name, partitions: 1)
+
+      # Commit via legacy API (use v1 for standalone commits)
+      request = %KafkaEx.Protocol.OffsetCommit.Request{
+        topic: topic_name,
+        partition: 0,
+        offset: 456,
+        consumer_group: consumer_group,
+        api_version: 1
+      }
+
+      commit_response = KafkaEx.offset_commit(client, request)
+
+      # Verify commit succeeded
+      assert [commit_result] = commit_response
+      assert commit_result.topic == topic_name
+
+      # Small delay to ensure Kafka has processed the commit
+      Process.sleep(100)
+
+      # Fetch via new API
+      partitions = [%{partition_num: 0}]
+      {:ok, [offset]} = KafkaExAPI.fetch_committed_offset(client, consumer_group, topic_name, partitions)
+
+      assert offset.topic == topic_name
+      assert [partition_offset] = offset.partition_offsets
+      assert partition_offset.offset == 456
+    end
   end
+
+  describe "offset_commit compatibility" do
+    test "commit offset via legacy API", %{client: client} do
+      topic_name = KafkaEx.TestHelpers.generate_random_string()
+      consumer_group = KafkaEx.TestHelpers.generate_random_string()
+      create_topic(client, topic_name, partitions: 1)
+
+      # Use v1 for standalone offset commits (no consumer group session)
+      request = %KafkaEx.Protocol.OffsetCommit.Request{
+        topic: topic_name,
+        partition: 0,
+        offset: 789,
+        consumer_group: consumer_group,
+        api_version: 1
+      }
+
+      response = KafkaEx.offset_commit(client, request)
+
+      assert [result] = response
+      assert result.topic == topic_name
+      assert [partition_result] = result.partitions
+      assert partition_result.partition == 0
+      assert partition_result.error_code == :no_error
+    end
+
+    test "commit via new API and verify via legacy API", %{client: client} do
+      topic_name = KafkaEx.TestHelpers.generate_random_string()
+      consumer_group = KafkaEx.TestHelpers.generate_random_string()
+      create_topic(client, topic_name, partitions: 1)
+
+      # Commit via new API
+      partitions = [%{partition_num: 0, offset: 999}]
+      {:ok, commit_result} = KafkaExAPI.commit_offset(client, consumer_group, topic_name, partitions)
+
+      # Verify commit succeeded
+      assert [commit_response] = commit_result
+      assert commit_response.topic == topic_name
+
+      # Small delay to ensure Kafka has processed the commit
+      Process.sleep(100)
+
+      # Verify via legacy API (use v1 to match new API's Kafka-based storage)
+      fetch_request = %KafkaEx.Protocol.OffsetFetch.Request{
+        topic: topic_name,
+        partition: 0,
+        consumer_group: consumer_group,
+        api_version: 1
+      }
+
+      [response] = KafkaEx.offset_fetch(client, fetch_request)
+
+      assert [partition_offset] = response.partitions
+      assert partition_offset.offset == 999
+    end
+
+    test "round trip commit-then-fetch with mixed APIs", %{client: client} do
+      topic_name = KafkaEx.TestHelpers.generate_random_string()
+      consumer_group = KafkaEx.TestHelpers.generate_random_string()
+      create_topic(client, topic_name, partitions: 1)
+
+      # Commit via legacy API (use v1 for standalone commits)
+      commit_request = %KafkaEx.Protocol.OffsetCommit.Request{
+        topic: topic_name,
+        partition: 0,
+        offset: 555,
+        consumer_group: consumer_group,
+        api_version: 1
+      }
+
+      commit_response = KafkaEx.offset_commit(client, commit_request)
+
+      # Verify commit succeeded
+      assert [commit_result] = commit_response
+      assert commit_result.topic == topic_name
+
+      # Small delay to ensure Kafka has processed the commit
+      Process.sleep(100)
+
+      # Fetch via new API
+      partitions_fetch = [%{partition_num: 0}]
+      {:ok, [offset]} = KafkaExAPI.fetch_committed_offset(client, consumer_group, topic_name, partitions_fetch)
+
+      assert [partition_offset] = offset.partition_offsets
+      assert partition_offset.offset == 555
+
+      # Commit via new API
+      partitions_commit = [%{partition_num: 0, offset: 777}]
+      {:ok, commit_result2} = KafkaExAPI.commit_offset(client, consumer_group, topic_name, partitions_commit)
+
+      # Verify commit succeeded
+      assert [commit_response2] = commit_result2
+      assert commit_response2.topic == topic_name
+
+      # Small delay to ensure Kafka has processed the commit
+      Process.sleep(100)
+
+      # Fetch via legacy API (use v1 to match new API's Kafka-based storage)
+      fetch_request = %KafkaEx.Protocol.OffsetFetch.Request{
+        topic: topic_name,
+        partition: 0,
+        consumer_group: consumer_group,
+        api_version: 1
+      }
+
+      [response] = KafkaEx.offset_fetch(client, fetch_request)
+
+      assert [final_partition_offset] = response.partitions
+      assert final_partition_offset.offset == 777
+    end
+  end
+
+  # -----------------------------------------------------------------------------
+  describe "heartbeat compatibility" do
+    test "legacy API can heartbeat to group created with new API", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group to get member_id and generation_id
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Heartbeat via new API
+      {:ok, result} = KafkaExAPI.heartbeat(client, consumer_group, member_id, generation_id)
+      assert result == :no_error
+
+      # Heartbeat via legacy API
+      legacy_request = %KafkaEx.Protocol.Heartbeat.Request{
+        group_name: consumer_group,
+        member_id: member_id,
+        generation_id: generation_id
+      }
+
+      legacy_response = KafkaEx.heartbeat(legacy_request, worker_name: client)
+      assert legacy_response.error_code == :no_error
+    end
+
+    test "new API can heartbeat to group created with legacy API", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group to get member_id and generation_id
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Heartbeat via legacy API first
+      legacy_request = %KafkaEx.Protocol.Heartbeat.Request{
+        group_name: consumer_group,
+        member_id: member_id,
+        generation_id: generation_id
+      }
+
+      legacy_response = KafkaEx.heartbeat(legacy_request, worker_name: client)
+      assert legacy_response.error_code == :no_error
+
+      # Heartbeat via new API
+      {:ok, result} = KafkaExAPI.heartbeat(client, consumer_group, member_id, generation_id)
+      assert result == :no_error
+    end
+
+    test "both APIs handle unknown_member_id error identically", %{client: client} do
+      consumer_group = generate_random_string()
+
+      # New API
+      {:error, error_new} = KafkaExAPI.heartbeat(client, consumer_group, "invalid-member", 0)
+      assert error_new == :unknown_member_id
+
+      # Legacy API
+      legacy_request = %KafkaEx.Protocol.Heartbeat.Request{
+        group_name: consumer_group,
+        member_id: "invalid-member",
+        generation_id: 0
+      }
+
+      legacy_response = KafkaEx.heartbeat(legacy_request, worker_name: client)
+      assert legacy_response.error_code == :unknown_member_id
+    end
+
+    test "both APIs handle illegal_generation error identically", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, _generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # New API
+      {:error, error_new} = KafkaExAPI.heartbeat(client, consumer_group, member_id, 999_999)
+      assert error_new == :illegal_generation
+
+      # Legacy API
+      legacy_request = %KafkaEx.Protocol.Heartbeat.Request{
+        group_name: consumer_group,
+        member_id: member_id,
+        generation_id: 999_999
+      }
+
+      legacy_response = KafkaEx.heartbeat(legacy_request, worker_name: client)
+      assert legacy_response.error_code == :illegal_generation
+    end
+
+    test "multiple heartbeats across APIs maintain group membership", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Alternate between APIs
+      {:ok, _} = KafkaExAPI.heartbeat(client, consumer_group, member_id, generation_id)
+      Process.sleep(50)
+
+      legacy_request = %KafkaEx.Protocol.Heartbeat.Request{
+        group_name: consumer_group,
+        member_id: member_id,
+        generation_id: generation_id
+      }
+
+      legacy_response = KafkaEx.heartbeat(legacy_request, worker_name: client)
+      assert legacy_response.error_code == :no_error
+      Process.sleep(50)
+
+      {:ok, _} = KafkaExAPI.heartbeat(client, consumer_group, member_id, generation_id)
+
+      # Verify still in group
+      {:ok, group} = KafkaExAPI.describe_group(client, consumer_group)
+      assert group.group_id == consumer_group
+      assert length(group.members) == 1
+    end
+
+    test "heartbeat v1 with new API vs v0 with legacy API", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # New API with v1 (returns Heartbeat struct)
+      {:ok, result_v1} = KafkaExAPI.heartbeat(client, consumer_group, member_id, generation_id, api_version: 1)
+      assert %KafkaEx.New.Structs.Heartbeat{throttle_time_ms: _} = result_v1
+
+      # Legacy API uses v0 (returns error_code only)
+      legacy_request = %KafkaEx.Protocol.Heartbeat.Request{
+        group_name: consumer_group,
+        member_id: member_id,
+        generation_id: generation_id
+      }
+
+      legacy_response = KafkaEx.heartbeat(legacy_request, worker_name: client)
+      assert legacy_response.error_code == :no_error
+
+      # New API with v0 (matches legacy behavior)
+      {:ok, result_v0} = KafkaExAPI.heartbeat(client, consumer_group, member_id, generation_id, api_version: 0)
+      assert result_v0 == :no_error
+    end
+  end
+
+  # -----------------------------------------------------------------------------
+  describe "sync_group compatibility" do
+    test "legacy API can sync_group with group created via new API", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group to get member_id and generation_id
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Sync via new API
+      {:ok, result} = KafkaExAPI.sync_group(client, consumer_group, generation_id, member_id)
+      assert %KafkaEx.New.Structs.SyncGroup{} = result
+
+      # Sync via legacy API
+      legacy_request = %KafkaEx.Protocol.SyncGroup.Request{
+        group_name: consumer_group,
+        member_id: member_id,
+        generation_id: generation_id,
+        assignments: []
+      }
+
+      legacy_response = KafkaEx.sync_group(legacy_request, worker_name: client)
+      assert legacy_response.error_code == :no_error
+    end
+
+    test "new API can sync_group with group created via legacy API", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group to get member_id and generation_id
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Sync via legacy API first
+      legacy_request = %KafkaEx.Protocol.SyncGroup.Request{
+        group_name: consumer_group,
+        member_id: member_id,
+        generation_id: generation_id,
+        assignments: []
+      }
+
+      legacy_response = KafkaEx.sync_group(legacy_request, worker_name: client)
+      assert legacy_response.error_code == :no_error
+
+      # Sync via new API
+      {:ok, result} = KafkaExAPI.sync_group(client, consumer_group, generation_id, member_id)
+      assert %KafkaEx.New.Structs.SyncGroup{} = result
+    end
+
+    test "both APIs handle unknown_member_id error identically", %{client: client} do
+      consumer_group = generate_random_string()
+
+      # New API
+      {:error, error_new} = KafkaExAPI.sync_group(client, consumer_group, 0, "invalid-member")
+      assert error_new == :unknown_member_id
+
+      # Legacy API
+      legacy_request = %KafkaEx.Protocol.SyncGroup.Request{
+        group_name: consumer_group,
+        member_id: "invalid-member",
+        generation_id: 0,
+        assignments: []
+      }
+
+      legacy_response = KafkaEx.sync_group(legacy_request, worker_name: client)
+      assert legacy_response.error_code == :unknown_member_id
+    end
+
+    test "both APIs handle illegal_generation error identically", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, _generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # New API
+      {:error, error_new} = KafkaExAPI.sync_group(client, consumer_group, 999_999, member_id)
+      assert error_new == :illegal_generation
+
+      # Legacy API
+      legacy_request = %KafkaEx.Protocol.SyncGroup.Request{
+        group_name: consumer_group,
+        member_id: member_id,
+        generation_id: 999_999,
+        assignments: []
+      }
+
+      legacy_response = KafkaEx.sync_group(legacy_request, worker_name: client)
+      assert legacy_response.error_code == :illegal_generation
+    end
+
+    test "multiple sync_group calls across APIs maintain group state", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Alternate between APIs
+      {:ok, _} = KafkaExAPI.sync_group(client, consumer_group, generation_id, member_id)
+      Process.sleep(50)
+
+      legacy_request = %KafkaEx.Protocol.SyncGroup.Request{
+        group_name: consumer_group,
+        member_id: member_id,
+        generation_id: generation_id,
+        assignments: []
+      }
+
+      legacy_response = KafkaEx.sync_group(legacy_request, worker_name: client)
+      assert legacy_response.error_code == :no_error
+      Process.sleep(50)
+
+      {:ok, _} = KafkaExAPI.sync_group(client, consumer_group, generation_id, member_id)
+
+      # Verify still in group and stable
+      {:ok, group} = KafkaExAPI.describe_group(client, consumer_group)
+      assert group.group_id == consumer_group
+      assert group.state == "Stable"
+    end
+
+    test "sync_group v1 with new API vs v0 with legacy API", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # New API with v1 (returns SyncGroup struct with throttle_time_ms)
+      {:ok, result_v1} = KafkaExAPI.sync_group(client, consumer_group, generation_id, member_id, api_version: 1)
+      assert %KafkaEx.New.Structs.SyncGroup{throttle_time_ms: _} = result_v1
+
+      Process.sleep(100)
+
+      # Legacy API uses v0 (returns error_code only)
+      legacy_request = %KafkaEx.Protocol.SyncGroup.Request{
+        group_name: consumer_group,
+        member_id: member_id,
+        generation_id: generation_id,
+        assignments: []
+      }
+
+      legacy_response = KafkaEx.sync_group(legacy_request, worker_name: client)
+      assert legacy_response.error_code == :no_error
+
+      Process.sleep(100)
+
+      # New API with v0 (no throttle_time_ms)
+      {:ok, result_v0} = KafkaExAPI.sync_group(client, consumer_group, generation_id, member_id, api_version: 0)
+      assert %KafkaEx.New.Structs.SyncGroup{throttle_time_ms: nil} = result_v0
+    end
+
+    test "sync_group followed by heartbeat across APIs", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Join group
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      # Sync via new API
+      {:ok, _sync_result} = KafkaExAPI.sync_group(client, consumer_group, generation_id, member_id)
+
+      # Heartbeat via legacy API
+      heartbeat_request = %KafkaEx.Protocol.Heartbeat.Request{
+        group_name: consumer_group,
+        member_id: member_id,
+        generation_id: generation_id
+      }
+
+      heartbeat_response = KafkaEx.heartbeat(heartbeat_request, worker_name: client)
+      assert heartbeat_response.error_code == :no_error
+
+      # Verify group is stable
+      {:ok, group} = KafkaExAPI.describe_group(client, consumer_group)
+      assert group.group_id == consumer_group
+      assert group.state == "Stable"
+    end
+  end
+
+  # -----------------------------------------------------------------------------
+  describe "api_versions compatibility" do
+    test "fetch api_versions via new API", %{client: client} do
+      alias KafkaEx.New.Structs.ApiVersions
+
+      {:ok, versions} = KafkaExAPI.api_versions(client)
+
+      assert is_map(versions.api_versions)
+      assert map_size(versions.api_versions) > 0
+
+      assert {:ok, _} = ApiVersions.max_version_for_api(versions, 0)
+      assert {:ok, _} = ApiVersions.max_version_for_api(versions, 1)
+      assert {:ok, _} = ApiVersions.max_version_for_api(versions, 3)
+      assert {:ok, _} = ApiVersions.max_version_for_api(versions, 18)
+    end
+
+    test "fetch api_versions via legacy API", %{client: client} do
+      response = KafkaEx.api_versions(worker_name: client)
+
+      assert %KafkaEx.Protocol.ApiVersions.Response{} = response
+      assert response.error_code == :no_error
+      assert is_list(response.api_versions)
+      assert length(response.api_versions) > 0
+
+      api_keys = Enum.map(response.api_versions, & &1.api_key)
+
+      assert 0 in api_keys
+      assert 1 in api_keys
+      assert 3 in api_keys
+      assert 18 in api_keys
+    end
+
+    test "new and legacy APIs return compatible API version data", %{client: client} do
+      alias KafkaEx.New.Structs.ApiVersions
+      {:ok, new_versions} = KafkaExAPI.api_versions(client)
+
+      legacy_response = KafkaEx.api_versions(worker_name: client)
+      new_api_keys = Map.keys(new_versions.api_versions) |> Enum.sort()
+      legacy_api_keys = Enum.map(legacy_response.api_versions, & &1.api_key) |> Enum.sort()
+
+      assert new_api_keys == legacy_api_keys
+
+      Enum.each([0, 1, 3, 18], fn api_key ->
+        {:ok, new_max} = ApiVersions.max_version_for_api(new_versions, api_key)
+        {:ok, new_min} = ApiVersions.min_version_for_api(new_versions, api_key)
+
+        legacy_entry = Enum.find(legacy_response.api_versions, &(&1.api_key == api_key))
+
+        assert legacy_entry.max_version == new_max,
+               "API #{api_key} max_version mismatch: new=#{new_max}, legacy=#{legacy_entry.max_version}"
+
+        assert legacy_entry.min_version == new_min,
+               "API #{api_key} min_version mismatch: new=#{new_min}, legacy=#{legacy_entry.min_version}"
+      end)
+    end
+
+    test "new API with V1 returns throttle_time_ms", %{client: client} do
+      {:ok, versions} = KafkaExAPI.api_versions(client, api_version: 1)
+
+      assert is_map(versions.api_versions)
+      assert is_integer(versions.throttle_time_ms)
+      assert versions.throttle_time_ms >= 0
+    end
+
+    test "new API with V0 does not return throttle_time_ms", %{client: client} do
+      {:ok, versions} = KafkaExAPI.api_versions(client, api_version: 0)
+
+      assert is_map(versions.api_versions)
+      assert is_nil(versions.throttle_time_ms)
+    end
+
+    test "legacy API always returns throttle_time_ms of 0", %{client: client} do
+      response = KafkaEx.api_versions(worker_name: client)
+
+      assert response.throttle_time_ms == 0
+    end
+
+    test "api_versions helper functions work correctly", %{client: client} do
+      alias KafkaEx.New.Structs.ApiVersions
+
+      {:ok, versions} = KafkaExAPI.api_versions(client)
+
+      # Test max_version_for_api
+      assert {:ok, metadata_max} = ApiVersions.max_version_for_api(versions, 3)
+      assert is_integer(metadata_max) and metadata_max >= 0
+
+      # Test min_version_for_api
+      assert {:ok, metadata_min} = ApiVersions.min_version_for_api(versions, 3)
+      assert is_integer(metadata_min) and metadata_min >= 0
+      assert metadata_min <= metadata_max
+
+      # Test version_supported?
+      assert ApiVersions.version_supported?(versions, 3, metadata_min)
+      assert ApiVersions.version_supported?(versions, 3, metadata_max)
+      refute ApiVersions.version_supported?(versions, 3, metadata_max + 100)
+
+      # Test unsupported API
+      assert {:error, :unsupported_api} = ApiVersions.max_version_for_api(versions, 9999)
+      assert {:error, :unsupported_api} = ApiVersions.min_version_for_api(versions, 9999)
+      refute ApiVersions.version_supported?(versions, 9999, 0)
+    end
+  end
+
+  # -----------------------------------------------------------------------------
 end

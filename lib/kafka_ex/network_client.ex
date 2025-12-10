@@ -5,9 +5,11 @@ defmodule KafkaEx.NetworkClient do
   @behaviour KafkaEx.NetworkClient.Behaviour
 
   require Logger
-  alias KafkaEx.Socket
-  alias KafkaEx.Auth.SASL.VersionSupport
+
   alias KafkaEx.Auth.Config, as: AuthConfig
+  alias KafkaEx.Auth.SASL
+  alias KafkaEx.Auth.SASL.VersionSupport
+  alias KafkaEx.Socket
 
   @impl true
   def create_socket(host, port, ssl_options \\ [], use_ssl \\ false, auth_opts \\ nil) do
@@ -25,7 +27,10 @@ defmodule KafkaEx.NetworkClient do
         end
 
       {:error, reason} ->
-        Logger.error("Could not connect to broker #{inspect(host)}:#{inspect(port)} because of error #{inspect(reason)}")
+        Logger.error(
+          "Could not connect to broker #{inspect(host)}:#{inspect(port)} because of error #{inspect(reason)}"
+        )
+
         nil
     end
   end
@@ -43,10 +48,8 @@ defmodule KafkaEx.NetworkClient do
         :ok
 
       {_, reason} ->
-        Logger.log(
-          :error,
-          "Asynchronously sending data to broker #{inspect(broker.host)}:#{inspect(broker.port)} failed with #{inspect(reason)}"
-        )
+        broker_str = broker_address_str(broker)
+        Logger.error("Asynchronously sending data to broker #{broker_str} failed with #{inspect(reason)}")
 
         reason
     end
@@ -54,44 +57,48 @@ defmodule KafkaEx.NetworkClient do
 
   @impl true
   def send_sync_request(%{:socket => socket} = broker, data, timeout) do
-    :ok = Socket.setopts(socket, [:binary, {:packet, 4}, {:active, false}])
+    case Socket.setopts(socket, [:binary, {:packet, 4}, {:active, false}]) do
+      :ok ->
+        response =
+          case Socket.send(socket, data) do
+            :ok ->
+              receive_response(socket, timeout, broker)
 
-    response =
-      case Socket.send(socket, data) do
-        :ok ->
-          case Socket.recv(socket, 0, timeout) do
-            {:ok, data} ->
-              :ok = Socket.setopts(socket, [:binary, {:packet, 4}, {:active, true}])
-
-              data
-
-            {:error, reason} ->
-              Logger.log(
-                :error,
-                "Receiving data from broker #{inspect(broker.host)}:#{inspect(broker.port)} failed with #{inspect(reason)}"
-              )
-
+            {_, reason} ->
+              broker_str = broker_address_str(broker)
+              Logger.error("Sending data to broker #{broker_str} failed with #{inspect(reason)}")
               Socket.close(socket)
 
               {:error, reason}
           end
 
-        {_, reason} ->
-          Logger.log(
-            :error,
-            "Sending data to broker #{inspect(broker.host)}:#{inspect(broker.port)} failed with #{inspect(reason)}"
-          )
+        response
 
-          Socket.close(socket)
-
-          {:error, reason}
-      end
-
-    response
+      {:error, reason} ->
+        broker_str = broker_address_str(broker)
+        Logger.error("Setting socket options for broker #{broker_str} failed with #{inspect(reason)}")
+        Socket.close(socket)
+        {:error, reason}
+    end
   end
 
   def send_sync_request(nil, _, _) do
     {:error, :no_broker}
+  end
+
+  defp receive_response(socket, timeout, broker) do
+    case Socket.recv(socket, 0, timeout) do
+      {:ok, data} ->
+        :ok = Socket.setopts(socket, [:binary, {:packet, 4}, {:active, true}])
+        data
+
+      {:error, reason} ->
+        broker_str = broker_address_str(broker)
+        Logger.error("Receiving data from broker #{broker_str} failed with #{inspect(reason)}")
+        Socket.close(socket)
+
+        {:error, reason}
+    end
   end
 
   @impl true
@@ -106,14 +113,15 @@ defmodule KafkaEx.NetworkClient do
 
       # to_char_list is deprecated from Elixir 1.3 onward
       _ ->
-        apply(String, :to_char_list, [host])
+        String.to_charlist(host)
     end
   end
 
   defp maybe_authenticate_sasl(_socket, nil), do: :ok
+
   defp maybe_authenticate_sasl(socket, %AuthConfig{} = cfg) do
     case VersionSupport.validate_config(cfg, socket) do
-      :ok -> KafkaEx.Auth.SASL.authenticate(socket, cfg)
+      :ok -> SASL.authenticate(socket, cfg)
       {:error, reason} -> {:error, reason}
     end
   end
@@ -124,5 +132,9 @@ defmodule KafkaEx.NetworkClient do
 
   defp build_socket_options(ssl_options) do
     build_socket_options([]) ++ ssl_options
+  end
+
+  defp broker_address_str(broker) do
+    "#{inspect(broker.host)}:#{inspect(broker.port)}"
   end
 end

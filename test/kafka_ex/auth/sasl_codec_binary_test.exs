@@ -10,9 +10,8 @@ defmodule KafkaEx.Auth.SASL.CodecBinaryTest do
       ver = 0
 
       result = CodecBinary.api_versions_request(corr, ver)
-      
-      <<api_key::16, api_ver::16, correlation::32, 
-        client_len::16, client_id::binary-size(client_len)>> = result
+
+      <<api_key::16, api_ver::16, correlation::32, client_len::16, client_id::binary-size(client_len)>> = result
 
       assert api_key == 18
       assert api_ver == ver
@@ -22,9 +21,8 @@ defmodule KafkaEx.Auth.SASL.CodecBinaryTest do
 
     test "builds correct request with custom client_id" do
       result = CodecBinary.api_versions_request(456, 1, "my_client")
-      
-      <<_api_key::16, _ver::16, _corr::32,
-        client_len::16, client_id::binary-size(client_len)>> = result
+
+      <<_api_key::16, _ver::16, _corr::32, client_len::16, client_id::binary-size(client_len)>> = result
 
       assert client_id == "my_client"
     end
@@ -37,10 +35,9 @@ defmodule KafkaEx.Auth.SASL.CodecBinaryTest do
       ver = 1
 
       result = CodecBinary.handshake_request(mech, corr, ver)
-      
-      <<api_key::16, api_ver::16, correlation::32,
-        client_len::16, client_id::binary-size(client_len),
-        mech_len::16, mechanism::binary-size(mech_len)>> = result
+
+      <<api_key::16, api_ver::16, correlation::32, client_len::16, client_id::binary-size(client_len), mech_len::16,
+        mechanism::binary-size(mech_len)>> = result
 
       assert api_key == 17
       assert api_ver == ver
@@ -52,7 +49,7 @@ defmodule KafkaEx.Auth.SASL.CodecBinaryTest do
     test "handles different mechanism names" do
       for mech <- ["PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512"] do
         result = CodecBinary.handshake_request(mech, 1, 0)
-        
+
         # Skip the header (api_key, version, correlation_id)
         <<_api_key::16, _ver::16, _corr::32, rest::binary>> = result
         # Parse client_id
@@ -73,9 +70,8 @@ defmodule KafkaEx.Auth.SASL.CodecBinaryTest do
 
       result = CodecBinary.authenticate_request(auth_bytes, corr, ver)
 
-      <<api_key::16, api_ver::16, correlation::32,
-        client_len::16, _client_id::binary-size(client_len),
-        auth_len::32, auth_data::binary-size(auth_len)>> = result
+      <<api_key::16, api_ver::16, correlation::32, client_len::16, _client_id::binary-size(client_len), auth_len::32,
+        auth_data::binary-size(auth_len)>> = result
 
       assert api_key == 36
       assert api_ver == ver
@@ -104,28 +100,40 @@ defmodule KafkaEx.Auth.SASL.CodecBinaryTest do
       corr = 42
       # Build a response: corr_id, error_code, array_count, then api entries
       response = <<
-        corr::32,           # correlation id
-        0::16,              # error code (0 = success)
-        3::32,              # number of API entries
-        1::16, 0::16, 2::16,   # API key 1: min=0, max=2
-        17::16, 0::16, 1::16,  # API key 17 (handshake): min=0, max=1  
-        36::16, 0::16, 2::16   # API key 36 (authenticate): min=0, max=2
+        # correlation id
+        corr::32,
+        # error code (0 = success)
+        0::16,
+        # number of API entries
+        3::32,
+        # API key 1: min=0, max=2
+        1::16,
+        0::16,
+        2::16,
+        # API key 17 (handshake): min=0, max=1  
+        17::16,
+        0::16,
+        1::16,
+        # API key 36 (authenticate): min=0, max=2
+        36::16,
+        0::16,
+        2::16
       >>
 
       result = CodecBinary.parse_api_versions_response(response, corr)
 
       assert result == %{
-        1 => {0, 2},
-        17 => {0, 1},
-        36 => {0, 2}
-      }
+               1 => {0, 2},
+               17 => {0, 1},
+               36 => {0, 2}
+             }
     end
 
     test "returns error on correlation mismatch" do
       response = <<42::32, 0::16, 0::32>>
-      
-      assert {:error, :correlation_mismatch} = 
-        CodecBinary.parse_api_versions_response(response, 99)
+
+      assert {:error, :correlation_mismatch} =
+               CodecBinary.parse_api_versions_response(response, 99)
     end
 
     test "returns error for invalid/short response" do
@@ -136,26 +144,26 @@ defmodule KafkaEx.Auth.SASL.CodecBinaryTest do
     test "handles empty API list" do
       corr = 10
       response = <<corr::32, 0::16, 0::32>>
-      
+
       assert %{} = CodecBinary.parse_api_versions_response(response, corr)
     end
 
     test "handles incomplete responses" do
       corr = 123
-      
+
       # Very short response (< 4 bytes) returns incomplete error
       assert {:error, :incomplete_response} = CodecBinary.parse_api_versions_response(<<1, 2>>, corr)
-      
+
       # Response with just correlation (4 bytes) - needs more data
       assert {:error, :incomplete_response} = CodecBinary.parse_api_versions_response(<<corr::32>>, corr)
-      
+
       # Response with correlation + partial data (6 bytes) - still incomplete
       assert {:error, :incomplete_response} = CodecBinary.parse_api_versions_response(<<corr::32, 0::16>>, corr)
-      
+
       # Complete response structure parses correctly (empty API list)
       response_complete = <<corr::32, 0::16, 0::32>>
       assert %{} = CodecBinary.parse_api_versions_response(response_complete, corr)
-      
+
       # Wrong correlation returns specific error
       assert {:error, :correlation_mismatch} = CodecBinary.parse_api_versions_response(<<456::32, 0::16, 0::32>>, corr)
     end
@@ -165,51 +173,53 @@ defmodule KafkaEx.Auth.SASL.CodecBinaryTest do
     test "parses v0 success response" do
       corr = 123
       response = <<corr::32, 0::16>>
-      
+
       assert :ok = CodecBinary.parse_handshake_response(response, corr, "PLAIN", 0)
     end
 
     test "parses v1 success with matching mechanism" do
       corr = 456
       mechanisms = ["PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512"]
-      
+
       # Build response with mechanism list
       mech_bytes = for m <- mechanisms, into: <<>>, do: <<byte_size(m)::16, m::binary>>
       response = <<corr::32, 0::16, length(mechanisms)::32, mech_bytes::binary>>
-      
+
       assert :ok = CodecBinary.parse_handshake_response(response, corr, "SCRAM-SHA-256", 1)
     end
 
     test "returns error for unsupported mechanism in v1" do
       corr = 789
       mechanisms = ["PLAIN", "SCRAM-SHA-256"]
-      
+
       mech_bytes = for m <- mechanisms, into: <<>>, do: <<byte_size(m)::16, m::binary>>
       response = <<corr::32, 0::16, length(mechanisms)::32, mech_bytes::binary>>
-      
-      assert {:error, {:unsupported_mechanism_on_broker, "SCRAM-SHA-512"}} = 
-        CodecBinary.parse_handshake_response(response, corr, "SCRAM-SHA-512", 1)
+
+      assert {:error, {:unsupported_mechanism_on_broker, "SCRAM-SHA-512"}} =
+               CodecBinary.parse_handshake_response(response, corr, "SCRAM-SHA-512", 1)
     end
 
     test "returns error on correlation mismatch" do
       response = <<123::32, 0::16>>
-      
-      assert {:error, :correlation_mismatch} = 
-        CodecBinary.parse_handshake_response(response, 456, "PLAIN", 0)
+
+      assert {:error, :correlation_mismatch} =
+               CodecBinary.parse_handshake_response(response, 456, "PLAIN", 0)
     end
 
     test "returns appropriate error for known error codes" do
       corr = 100
-      
+
       # Test unsupported SASL mechanism error
       response = <<corr::32, 33::16>>
+
       assert {:error, {:handshake_failed, :unsupported_sasl_mechanism}} =
-        CodecBinary.parse_handshake_response(response, corr, "PLAIN", 0)
-      
+               CodecBinary.parse_handshake_response(response, corr, "PLAIN", 0)
+
       # Test illegal SASL state error
       response = <<corr::32, 34::16>>
+
       assert {:error, {:handshake_failed, :illegal_sasl_state}} =
-        CodecBinary.parse_handshake_response(response, corr, "PLAIN", 0)
+               CodecBinary.parse_handshake_response(response, corr, "PLAIN", 0)
     end
   end
 
@@ -218,14 +228,14 @@ defmodule KafkaEx.Auth.SASL.CodecBinaryTest do
       corr = 111
       auth_data = "server_response"
       response = <<corr::32, 0::16, byte_size(auth_data)::32, auth_data::binary>>
-      
+
       assert {:ok, ^auth_data} = CodecBinary.parse_authenticate_response(response, corr, 0)
     end
 
     test "parses v0 success with null auth bytes" do
       corr = 222
       response = <<corr::32, 0::16, -1::32-signed>>
-      
+
       assert {:ok, nil} = CodecBinary.parse_authenticate_response(response, corr, 0)
     end
 
@@ -233,50 +243,56 @@ defmodule KafkaEx.Auth.SASL.CodecBinaryTest do
       corr = 333
       error_msg = "some_error"
       auth_data = "auth_response"
-      
+
       response = <<
-        corr::32, 0::16,
-        byte_size(error_msg)::16, error_msg::binary,
-        byte_size(auth_data)::32, auth_data::binary
+        corr::32,
+        0::16,
+        byte_size(error_msg)::16,
+        error_msg::binary,
+        byte_size(auth_data)::32,
+        auth_data::binary
       >>
-      
+
       assert {:ok, ^auth_data} = CodecBinary.parse_authenticate_response(response, corr, 1)
     end
 
     test "parses v1+ with null error message" do
       corr = 444
       auth_data = "response"
-      
+
       response = <<
-        corr::32, 0::16,
-        -1::16-signed,  # null error message
-        byte_size(auth_data)::32, auth_data::binary
+        corr::32,
+        0::16,
+        # null error message
+        -1::16-signed,
+        byte_size(auth_data)::32,
+        auth_data::binary
       >>
-      
+
       assert {:ok, ^auth_data} = CodecBinary.parse_authenticate_response(response, corr, 1)
     end
 
     test "returns error on correlation mismatch" do
       response = <<100::32, 0::16, 0::32>>
-      
-      assert {:error, :correlation_mismatch} = 
-        CodecBinary.parse_authenticate_response(response, 200, 0)
+
+      assert {:error, :correlation_mismatch} =
+               CodecBinary.parse_authenticate_response(response, 200, 0)
     end
 
     test "returns appropriate error for authentication failure" do
       corr = 555
       response = <<corr::32, 58::16, 0::32>>
-      
+
       assert {:error, {:auth_failed, :sasl_authentication_failed}} =
-        CodecBinary.parse_authenticate_response(response, corr, 0)
+               CodecBinary.parse_authenticate_response(response, corr, 0)
     end
 
     test "returns generic error for unknown error codes" do
       corr = 666
       response = <<corr::32, 999::16, 0::32>>
-      
+
       assert {:error, {:auth_failed, {:error_code, 999}}} =
-        CodecBinary.parse_authenticate_response(response, corr, 0)
+               CodecBinary.parse_authenticate_response(response, corr, 0)
     end
   end
 
@@ -341,28 +357,28 @@ defmodule KafkaEx.Auth.SASL.CodecBinaryTest do
     test "picks highest preferred version in broker range" do
       api_versions = %{10 => {2, 5}}
       preferred = [1, 2, 3, 4, 5, 6]
-      
+
       assert 5 = CodecBinary.pick_supported_version(api_versions, 10, preferred)
     end
 
     test "returns 0 when no overlap between broker and preferred" do
       api_versions = %{10 => {5, 7}}
       preferred = [0, 1, 2, 3]
-      
+
       assert 0 = CodecBinary.pick_supported_version(api_versions, 10, preferred)
     end
 
     test "handles single version preference" do
       api_versions = %{10 => {0, 10}}
       preferred = [3]
-      
+
       assert 3 = CodecBinary.pick_supported_version(api_versions, 10, preferred)
     end
 
     test "returns 0 for missing API key" do
       api_versions = %{10 => {0, 5}}
       preferred = [0, 1, 2]
-      
+
       assert 0 = CodecBinary.pick_supported_version(api_versions, 99, preferred)
     end
   end
@@ -371,34 +387,34 @@ defmodule KafkaEx.Auth.SASL.CodecBinaryTest do
     test "round-trip request/response for handshake" do
       corr = 12345
       mech = "SCRAM-SHA-256"
-      
+
       # Build request
       request = CodecBinary.handshake_request(mech, corr, 1)
       assert is_binary(request)
-      
+
       # Simulate broker response (v1 with mechanism list)
       mechanisms = ["PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512"]
       mech_bytes = for m <- mechanisms, into: <<>>, do: <<byte_size(m)::16, m::binary>>
       response = <<corr::32, 0::16, length(mechanisms)::32, mech_bytes::binary>>
-      
+
       # Parse response
       assert :ok = CodecBinary.parse_handshake_response(response, corr, mech, 1)
     end
 
     test "handles authentication flow with server challenges" do
       corr = 54321
-      
+
       # First auth request
       client_first = "n,,n=user,r=rOprNGfwEbeRWgbNEkqO"
       request1 = CodecBinary.authenticate_request(client_first, corr, 0)
       assert is_binary(request1)
-      
+
       # Server responds with challenge
       server_first = "r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF,s=W22ZaJ0SNY,i=4096"
       response1 = <<corr::32, 0::16, byte_size(server_first)::32, server_first::binary>>
-      
+
       assert {:ok, ^server_first} = CodecBinary.parse_authenticate_response(response1, corr, 0)
-      
+
       # Continue with final message...
       corr2 = corr + 1
       client_final = "c=biws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF,p=..."
@@ -411,14 +427,14 @@ defmodule KafkaEx.Auth.SASL.CodecBinaryTest do
     test "handles malformed responses gracefully" do
       # Too short to parse
       assert {:error, :incomplete_response} = CodecBinary.parse_api_versions_response(<<1, 2>>, 1)
-      
+
       # Short response even with matching correlation returns incomplete error
-      assert {:error, :incomplete_response} = 
-        CodecBinary.parse_api_versions_response(<<123::32>>, 123)
-      
+      assert {:error, :incomplete_response} =
+               CodecBinary.parse_api_versions_response(<<123::32>>, 123)
+
       # Short response with wrong correlation - checks correlation first
-      assert {:error, :correlation_mismatch} = 
-        CodecBinary.parse_api_versions_response(<<456::32>>, 123)
+      assert {:error, :correlation_mismatch} =
+               CodecBinary.parse_api_versions_response(<<456::32>>, 123)
     end
 
     test "handles invalid mechanism list parsing" do
@@ -426,7 +442,7 @@ defmodule KafkaEx.Auth.SASL.CodecBinaryTest do
       # Create a response with invalid data that will fail to parse properly
       # Using a huge count that doesn't match the actual data
       response = <<corr::32, 0::16, 999::32, "SHORT"::binary>>
-      
+
       # The parser should return incomplete/empty mechanism list gracefully
       result = CodecBinary.parse_handshake_response(response, corr, "PLAIN", 1)
       assert {:error, {:unsupported_mechanism_on_broker, "PLAIN"}} = result
@@ -447,14 +463,23 @@ defmodule KafkaEx.Auth.SASL.CodecBinaryTest do
       auth = "ok"
       session_ms = 1234
 
+      # correlation id
       payload =
-        <<corr::32,                # correlation id
-          0,                       # resp hdr tagged fields (empty)
-          0::16,                   # error_code = success
-          0,                       # compact_nullable_string(nil)
-          3, auth::binary,         # compact_bytes("ok")
+        <<
+          corr::32,
+          # resp hdr tagged fields (empty)
+          0,
+          # error_code = success
+          0::16,
+          # compact_nullable_string(nil)
+          0,
+          # compact_bytes("ok")
+          3,
+          auth::binary,
           session_ms::64,
-          0>>                      # body tagged fields (empty)
+          # body tagged fields (empty)
+          0
+        >>
 
       assert {:ok, ^auth} = CodecBinary.parse_authenticate_response(payload, corr, 2)
     end
@@ -473,14 +498,24 @@ defmodule KafkaEx.Auth.SASL.CodecBinaryTest do
       # error_code 58 = :sasl_authentication_failed
       # error_message "bad" -> len=3 => <<4, "bad">>
       err_msg = "bad"
+      # corr
       payload =
-        <<corr::32,    # corr
-          0,           # resp hdr tags
-          58::16,      # error_code
-          4, err_msg::binary,  # compact_nullable_string("bad")
-          1,           # compact_bytes(<<>>) to keep it simple (not used on error)
-          0::64,       # session lifetime ms
-          0>>          # body tags
+        <<
+          corr::32,
+          # resp hdr tags
+          0,
+          # error_code
+          58::16,
+          # compact_nullable_string("bad")
+          4,
+          err_msg::binary,
+          # compact_bytes(<<>>) to keep it simple (not used on error)
+          1,
+          # session lifetime ms
+          0::64,
+          # body tags
+          0
+        >>
 
       assert {:error, {:auth_failed, :sasl_authentication_failed, ^err_msg, 0}} =
                CodecBinary.parse_authenticate_response(payload, corr, 2)
@@ -490,6 +525,7 @@ defmodule KafkaEx.Auth.SASL.CodecBinaryTest do
       corr = 9000
       other = 9001
       payload = <<other::32, 0, 0::16, 0, 1, 0::64, 0>>
+
       assert {:error, :correlation_mismatch} =
                CodecBinary.parse_authenticate_response(payload, corr, 2)
     end

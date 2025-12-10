@@ -4,6 +4,7 @@ defmodule KafkaEx.New.Client.State do
   # state struct for New.Client
 
   alias KafkaEx.New.Structs.ClusterMetadata
+  alias Kayrock.KafkaSchemaMetadata
 
   defstruct(
     bootstrap_uris: [],
@@ -133,8 +134,8 @@ defmodule KafkaEx.New.Client.State do
   Currently supports Kayrock metadata schema only.
   """
   def max_supported_api_version(%__MODULE__{api_versions: api_versions}, api, default) when is_atom(api) do
-    api_key = Kayrock.KafkaSchemaMetadata.api_key(api)
-    {_, max_kayrock_version} = Kayrock.KafkaSchemaMetadata.version_range(api)
+    api_key = KafkaSchemaMetadata.api_key(api)
+    {_, max_kayrock_version} = KafkaSchemaMetadata.version_range(api)
 
     case Map.get(api_versions, api_key) do
       {_, vsn} -> min(vsn, max_kayrock_version)

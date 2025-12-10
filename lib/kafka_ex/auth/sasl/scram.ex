@@ -11,11 +11,12 @@ defmodule KafkaEx.Auth.SASL.Scram do
   @impl true
   def mechanism_name(%Config{mechanism_opts: %{algo: :sha512}}), do: @sha512
   @impl true
-  def mechanism_name(%Config{}), do: @sha256 # default
+  # default
+  def mechanism_name(%Config{}), do: @sha256
 
   @impl true
   def authenticate(%Config{username: u, password: p, mechanism_opts: opts}, send_fun) do
-    algo = (opts[:algo] == :sha512) && :sha512 || :sha256
+    algo = (opts[:algo] == :sha512 && :sha512) || :sha256
     ScramFlow.authenticate(u, p, algo, send_fun)
   end
 end

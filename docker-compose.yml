@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   zookeeper:
-    image: confluentinc/cp-zookeeper:5.5.1
+    image: confluentinc/cp-zookeeper:7.0.4
     restart: unless-stopped
     ports: ["32181:32181"]
     environment:
@@ -16,7 +16,7 @@ services:
 
   # -------------------- kafka-1 --------------------
   kafka-1:
-    image: confluentinc/cp-kafka:5.5.1
+    image: confluentinc/cp-kafka:7.0.4
     depends_on: { zookeeper: { condition: service_healthy } }
     env_file: docker-compose-kafka.env
     ports:
@@ -39,7 +39,7 @@ services:
 
   # -------------------- kafka-2 --------------------
   kafka-2:
-    image: confluentinc/cp-kafka:5.5.1
+    image: confluentinc/cp-kafka:7.0.4
     depends_on: { zookeeper: { condition: service_healthy } }
     env_file: docker-compose-kafka.env
     ports:
@@ -62,7 +62,7 @@ services:
 
   # -------------------- kafka-3 --------------------
   kafka-3:
-    image: confluentinc/cp-kafka:5.5.1
+    image: confluentinc/cp-kafka:7.0.4
     depends_on: { zookeeper: { condition: service_healthy } }
     env_file: docker-compose-kafka.env
     ports:
@@ -85,7 +85,7 @@ services:
 
   # SCRAM user creation (runs once; uses kafka-1 INTERNAL)
   scram-setup:
-    image: confluentinc/cp-kafka:5.5.1
+    image: confluentinc/cp-kafka:7.0.4
     restart: "no"
     depends_on: { kafka-1: { condition: service_healthy } }
     command: ["bash", "-lc", "set -euo pipefail; \
@@ -98,7 +98,7 @@ services:
       echo DONE" ]
 
   kafka-setup:
-    image: confluentinc/cp-kafka:5.5.1
+    image: confluentinc/cp-kafka:7.0.4
     restart: "no"
     depends_on:
       kafka-1: { condition: service_healthy }

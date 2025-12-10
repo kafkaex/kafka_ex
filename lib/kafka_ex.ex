@@ -17,10 +17,15 @@ defmodule KafkaEx do
   """
 
   use Application
+
   alias KafkaEx.Config
+  alias KafkaEx.Protocol.ApiVersions.Response, as: ApiVersionsResponse
   alias KafkaEx.Protocol.ConsumerMetadata.Response, as: ConsumerMetadataResponse
-  alias KafkaEx.Protocol.Fetch.Response, as: FetchResponse
+  alias KafkaEx.Protocol.CreateTopics.Response, as: CreateTopicsResponse
+  alias KafkaEx.Protocol.CreateTopics.TopicRequest, as: CreateTopicsRequest
+  alias KafkaEx.Protocol.DeleteTopics.Response, as: DeleteTopicsResponse
   alias KafkaEx.Protocol.Fetch.Request, as: FetchRequest
+  alias KafkaEx.Protocol.Fetch.Response, as: FetchResponse
   alias KafkaEx.Protocol.Heartbeat.Request, as: HeartbeatRequest
   alias KafkaEx.Protocol.Heartbeat.Response, as: HeartbeatResponse
   alias KafkaEx.Protocol.JoinGroup.Request, as: JoinGroupRequest
@@ -31,16 +36,12 @@ defmodule KafkaEx do
   alias KafkaEx.Protocol.Offset.Response, as: OffsetResponse
   alias KafkaEx.Protocol.OffsetCommit.Request, as: OffsetCommitRequest
   alias KafkaEx.Protocol.OffsetCommit.Response, as: OffsetCommitResponse
-  alias KafkaEx.Protocol.OffsetFetch.Response, as: OffsetFetchResponse
   alias KafkaEx.Protocol.OffsetFetch.Request, as: OffsetFetchRequest
-  alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
+  alias KafkaEx.Protocol.OffsetFetch.Response, as: OffsetFetchResponse
   alias KafkaEx.Protocol.Produce.Message
+  alias KafkaEx.Protocol.Produce.Request, as: ProduceRequest
   alias KafkaEx.Protocol.SyncGroup.Request, as: SyncGroupRequest
   alias KafkaEx.Protocol.SyncGroup.Response, as: SyncGroupResponse
-  alias KafkaEx.Protocol.CreateTopics.TopicRequest, as: CreateTopicsRequest
-  alias KafkaEx.Protocol.CreateTopics.Response, as: CreateTopicsResponse
-  alias KafkaEx.Protocol.DeleteTopics.Response, as: DeleteTopicsResponse
-  alias KafkaEx.Protocol.ApiVersions.Response, as: ApiVersionsResponse
   alias KafkaEx.Server
   alias KafkaEx.Stream
 
@@ -351,15 +352,12 @@ defmodule KafkaEx do
     )
   end
 
-  @spec offset_commit(atom, OffsetCommitRequest.t()) :: [
-          OffsetCommitResponse.t()
-        ]
+  @spec offset_commit(atom, OffsetCommitRequest.t()) :: [OffsetCommitResponse.t()]
   def offset_commit(worker_name, offset_commit_request) do
     Server.call(worker_name, {:offset_commit, offset_commit_request})
   end
 
-  @spec offset_fetch(atom, OffsetFetchRequest.t()) ::
-          [OffsetFetchResponse.t()] | :topic_not_found
+  @spec offset_fetch(atom, OffsetFetchRequest.t()) :: [OffsetFetchResponse.t()] | :topic_not_found
   def offset_fetch(worker_name, offset_fetch_request) do
     Server.call(worker_name, {:offset_fetch, offset_fetch_request})
   end
@@ -665,15 +663,6 @@ defmodule KafkaEx do
 
   defp current_offset(
          supplied_offset,
-         partition,
-         topic,
-         worker_name,
-         api_version,
-         consumer_group_name \\ nil
-       )
-
-  defp current_offset(
-         supplied_offset,
          _partition,
          _topic,
          _worker_name,
@@ -800,12 +789,7 @@ defmodule KafkaEx do
   def start(_type, _args) do
     max_restarts = Application.get_env(:kafka_ex, :max_restarts, 10)
     max_seconds = Application.get_env(:kafka_ex, :max_seconds, 60)
-
-    {:ok, pid} =
-      KafkaEx.Supervisor.start_link(
-        max_restarts,
-        max_seconds
-      )
+    {:ok, pid} = KafkaEx.Supervisor.start_link(max_restarts, max_seconds)
 
     if Config.disable_default_worker() do
       {:ok, pid}

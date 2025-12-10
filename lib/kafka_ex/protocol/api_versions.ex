@@ -1,5 +1,7 @@
 defmodule KafkaEx.Protocol.ApiVersions do
   alias KafkaEx.Protocol
+  alias KafkaEx.Protocol.Common
+
   require Logger
 
   # the ApiVersions message can also, itself, have different api versions
@@ -77,7 +79,7 @@ defmodule KafkaEx.Protocol.ApiVersions do
 
   defp parse_rest_of_response(api_versions_count, data, this_api_version) do
     {api_versions, remaining_data} =
-      Protocol.Common.read_array(
+      Common.read_array(
         api_versions_count,
         data,
         &parse_one_api_version/1

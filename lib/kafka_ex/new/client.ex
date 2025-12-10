@@ -16,11 +16,17 @@ defmodule KafkaEx.New.Client do
 
   alias KafkaEx.New.Client.RequestBuilder
   alias KafkaEx.New.Client.ResponseParser
+  alias KafkaEx.New.Client.State
   alias KafkaEx.New.Structs.Broker
   alias KafkaEx.New.Structs.ClusterMetadata
+  alias KafkaEx.New.Structs.Error
   alias KafkaEx.New.Structs.NodeSelector
 
-  alias KafkaEx.New.Client.State
+  alias Kayrock.ApiVersions
+  alias Kayrock.ErrorCode
+  alias Kayrock.FindCoordinator
+  alias Kayrock.Metadata
+  alias Kayrock.Request
 
   use GenServer
 
@@ -105,7 +111,7 @@ defmodule KafkaEx.New.Client do
       raise "Brokers sockets are closed"
     end
 
-    :no_error = Kayrock.ErrorCode.code_to_atom(api_versions.error_code)
+    :no_error = ErrorCode.code_to_atom(api_versions.error_code)
 
     initial_topics = Keyword.get(args, :initial_topics, [])
 
@@ -157,6 +163,20 @@ defmodule KafkaEx.New.Client do
     {:reply, {:ok, topic_metadata}, updated_state}
   end
 
+  def handle_call({:api_versions, opts}, _from, state) do
+    case api_versions_request(opts, state) do
+      {:error, error} -> {:reply, {:error, error}, state}
+      {result, updated_state} -> {:reply, result, updated_state}
+    end
+  end
+
+  def handle_call({:metadata, topics, opts, _api_version}, _from, state) do
+    case metadata_request(topics, opts, state) do
+      {:error, error} -> {:reply, {:error, error}, state}
+      {result, updated_state} -> {:reply, result, updated_state}
+    end
+  end
+
   def handle_call({:list_offsets, [{topic, partitions_data}], opts}, _from, state) do
     case list_offset_request({topic, partitions_data}, opts, state) do
       {:error, error} -> {:reply, {:error, error}, state}
@@ -177,6 +197,72 @@ defmodule KafkaEx.New.Client do
   def handle_call({:describe_groups, [consumer_group_name], opts}, _from, state) do
     if KafkaEx.valid_consumer_group?(consumer_group_name) do
       case describe_group_request(consumer_group_name, opts, state) do
+        {:error, error} -> {:reply, {:error, error}, state}
+        {result, updated_state} -> {:reply, result, updated_state}
+      end
+    else
+      {:reply, {:error, :invalid_consumer_group}, state}
+    end
+  end
+
+  def handle_call({:offset_fetch, consumer_group, [{topic, partitions_data}], opts}, _from, state) do
+    if KafkaEx.valid_consumer_group?(consumer_group) and is_binary(consumer_group) do
+      case offset_fetch_request(consumer_group, {topic, partitions_data}, opts, state) do
+        {:error, error} -> {:reply, {:error, error}, state}
+        {result, updated_state} -> {:reply, result, updated_state}
+      end
+    else
+      {:reply, {:error, :invalid_consumer_group}, state}
+    end
+  end
+
+  def handle_call({:offset_commit, consumer_group, [{topic, partitions_data}], opts}, _from, state) do
+    if KafkaEx.valid_consumer_group?(consumer_group) and is_binary(consumer_group) do
+      case offset_commit_request(consumer_group, {topic, partitions_data}, opts, state) do
+        {:error, error} -> {:reply, {:error, error}, state}
+        {result, updated_state} -> {:reply, result, updated_state}
+      end
+    else
+      {:reply, {:error, :invalid_consumer_group}, state}
+    end
+  end
+
+  def handle_call({:heartbeat, consumer_group, member_id, generation_id, opts}, _from, state) do
+    if KafkaEx.valid_consumer_group?(consumer_group) and is_binary(consumer_group) do
+      case heartbeat_request(consumer_group, member_id, generation_id, opts, state) do
+        {:error, error} -> {:reply, {:error, error}, state}
+        {result, updated_state} -> {:reply, result, updated_state}
+      end
+    else
+      {:reply, {:error, :invalid_consumer_group}, state}
+    end
+  end
+
+  def handle_call({:join_group, consumer_group, member_id, opts}, _from, state) do
+    if KafkaEx.valid_consumer_group?(consumer_group) and is_binary(consumer_group) do
+      case join_group_request(consumer_group, member_id, opts, state) do
+        {:error, error} -> {:reply, {:error, error}, state}
+        {result, updated_state} -> {:reply, result, updated_state}
+      end
+    else
+      {:reply, {:error, :invalid_consumer_group}, state}
+    end
+  end
+
+  def handle_call({:leave_group, consumer_group, member_id, opts}, _from, state) do
+    if KafkaEx.valid_consumer_group?(consumer_group) and is_binary(consumer_group) do
+      case leave_group_request(consumer_group, member_id, opts, state) do
+        {:error, error} -> {:reply, {:error, error}, state}
+        {result, updated_state} -> {:reply, result, updated_state}
+      end
+    else
+      {:reply, {:error, :invalid_consumer_group}, state}
+    end
+  end
+
+  def handle_call({:sync_group, consumer_group, generation_id, member_id, opts}, _from, state) do
+    if KafkaEx.valid_consumer_group?(consumer_group) and is_binary(consumer_group) do
+      case sync_group_request(consumer_group, generation_id, member_id, opts, state) do
         {:error, error} -> {:reply, {:error, error}, state}
         {result, updated_state} -> {:reply, result, updated_state}
       end
@@ -281,13 +367,139 @@ defmodule KafkaEx.New.Client do
     end
   end
 
+  defp offset_fetch_request(consumer_group, {topic, partitions_data}, opts, state) do
+    node_selector = NodeSelector.consumer_group(consumer_group)
+    req_data = [{:group_id, consumer_group}, {:topics, [{topic, partitions_data}]} | opts]
+
+    case RequestBuilder.offset_fetch_request(req_data, state) do
+      {:ok, request} -> handle_offset_fetch_request(request, node_selector, state)
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp offset_commit_request(consumer_group, {topic, partitions_data}, opts, state) do
+    node_selector = NodeSelector.consumer_group(consumer_group)
+    req_data = [{:group_id, consumer_group}, {:topics, [{topic, partitions_data}]} | opts]
+
+    case RequestBuilder.offset_commit_request(req_data, state) do
+      {:ok, request} -> handle_offset_commit_request(request, node_selector, state)
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp heartbeat_request(consumer_group, member_id, generation_id, opts, state) do
+    node_selector = NodeSelector.consumer_group(consumer_group)
+    req_data = [{:group_id, consumer_group}, {:member_id, member_id}, {:generation_id, generation_id} | opts]
+
+    case RequestBuilder.heartbeat_request(req_data, state) do
+      {:ok, request} -> handle_heartbeat_request(request, node_selector, state)
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp join_group_request(consumer_group, member_id, opts, state) do
+    node_selector = NodeSelector.consumer_group(consumer_group)
+    req_data = [{:group_id, consumer_group}, {:member_id, member_id} | opts]
+
+    case RequestBuilder.join_group_request(req_data, state) do
+      {:ok, request} -> handle_join_group_request(request, node_selector, state)
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp leave_group_request(consumer_group, member_id, opts, state) do
+    node_selector = NodeSelector.consumer_group(consumer_group)
+    req_data = [{:group_id, consumer_group}, {:member_id, member_id} | opts]
+
+    case RequestBuilder.leave_group_request(req_data, state) do
+      {:ok, request} -> handle_leave_group_request(request, node_selector, state)
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp sync_group_request(consumer_group, generation_id, member_id, opts, state) do
+    node_selector = NodeSelector.consumer_group(consumer_group)
+
+    req_data = [
+      {:group_id, consumer_group},
+      {:generation_id, generation_id},
+      {:member_id, member_id}
+      | opts
+    ]
+
+    case RequestBuilder.sync_group_request(req_data, state) do
+      {:ok, request} -> handle_sync_group_request(request, node_selector, state)
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp api_versions_request(opts, state) do
+    node_selector = NodeSelector.random()
+
+    case RequestBuilder.api_versions_request(opts, state) do
+      {:ok, request} -> handle_api_versions_request(request, node_selector, state)
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp metadata_request(topics, opts, state) do
+    # Metadata can be fetched from any broker, use random selection
+    node_selector = NodeSelector.random()
+    req_data = [{:topics, topics} | opts]
+
+    case RequestBuilder.metadata_request(req_data, state) do
+      {:ok, request} -> handle_metadata_request(request, node_selector, state)
+      {:error, error} -> {:error, error}
+    end
+  end
+
   # ----------------------------------------------------------------------------------------------------
+  defp handle_api_versions_request(request, node_selector, state) do
+    handle_request_with_retry(request, &ResponseParser.api_versions_response/1, node_selector, state)
+  end
+
   defp handle_describe_group_request(request, node_selector, state) do
     handle_request_with_retry(request, &ResponseParser.describe_groups_response/1, node_selector, state)
   end
 
   defp handle_lists_offsets_request(request, node_selector, state) do
     handle_request_with_retry(request, &ResponseParser.list_offsets_response/1, node_selector, state)
+  end
+
+  defp handle_offset_fetch_request(request, node_selector, state) do
+    handle_request_with_retry(request, &ResponseParser.offset_fetch_response/1, node_selector, state)
+  end
+
+  defp handle_offset_commit_request(request, node_selector, state) do
+    handle_request_with_retry(request, &ResponseParser.offset_commit_response/1, node_selector, state)
+  end
+
+  defp handle_heartbeat_request(request, node_selector, state) do
+    handle_request_with_retry(request, &ResponseParser.heartbeat_response/1, node_selector, state)
+  end
+
+  defp handle_join_group_request(request, node_selector, state) do
+    handle_request_with_retry(request, &ResponseParser.join_group_response/1, node_selector, state)
+  end
+
+  defp handle_leave_group_request(request, node_selector, state) do
+    handle_request_with_retry(request, &ResponseParser.leave_group_response/1, node_selector, state)
+  end
+
+  defp handle_sync_group_request(request, node_selector, state) do
+    handle_request_with_retry(request, &ResponseParser.sync_group_response/1, node_selector, state)
+  end
+
+  defp handle_metadata_request(request, node_selector, state) do
+    case handle_request_with_retry(request, &ResponseParser.metadata_response/1, node_selector, state) do
+      {{:ok, cluster_metadata}, updated_state} ->
+        # Update state with new cluster metadata
+        merged_state = %{updated_state | cluster_metadata: cluster_metadata}
+        {{:ok, cluster_metadata}, merged_state}
+
+      error_result ->
+        error_result
+    end
   end
 
   # ----------------------------------------------------------------------------------------------------
@@ -308,12 +520,17 @@ defmodule KafkaEx.New.Client do
             request_name = request.__struct__
             Logger.warning("Unable to send request #{inspect(request_name)}, failed with error #{inspect(error)}")
             handle_request_with_retry(request, parser_fn, node_selector, state, retry_count - 1, error)
+
+          {:error, %Error{} = error} ->
+            request_name = request.__struct__
+            Logger.warning("Unable to send request #{inspect(request_name)}, failed with error #{inspect(error)}")
+            handle_request_with_retry(request, parser_fn, node_selector, state, retry_count - 1, error)
         end
 
       {_, _state_out} ->
         request_name = request.__struct__
         Logger.warning("Unable to send request #{inspect(request_name)}, failed with error unknown")
-        error = KafkaEx.New.Structs.Error.build(:unknown, %{})
+        error = Error.build(:unknown, %{})
         handle_request_with_retry(request, parser_fn, node_selector, state, retry_count - 1, error)
     end
   end
@@ -381,7 +598,7 @@ defmodule KafkaEx.New.Client do
     api_version = State.max_supported_api_version(state, :metadata, 4)
 
     metadata_request = %{
-      Kayrock.Metadata.get_request_struct(api_version)
+      Metadata.get_request_struct(api_version)
       | topics: topics,
         allow_auto_topic_creation: state.allow_auto_topic_creation
     }
@@ -398,7 +615,7 @@ defmodule KafkaEx.New.Client do
         case Enum.find(
                response.topic_metadata,
                &(&1.error_code ==
-                   Kayrock.ErrorCode.atom_to_code!(:leader_not_available))
+                   ErrorCode.atom_to_code!(:leader_not_available))
              ) do
           nil ->
             {state_out, response}
@@ -424,7 +641,7 @@ defmodule KafkaEx.New.Client do
     end
   end
 
-  defp sleep_for_reconnect() do
+  defp sleep_for_reconnect do
     Process.sleep(Application.get_env(:kafka_ex, :sleep_for_reconnect, 400))
   end
 
@@ -486,7 +703,7 @@ defmodule KafkaEx.New.Client do
   end
 
   defp update_consumer_group_coordinator(state, consumer_group) do
-    request = %Kayrock.FindCoordinator.V1.Request{
+    request = %FindCoordinator.V1.Request{
       coordinator_key: consumer_group,
       coordinator_type: 0
     }
@@ -496,7 +713,7 @@ defmodule KafkaEx.New.Client do
 
     case response do
       {:ok,
-       %Kayrock.FindCoordinator.V1.Response{
+       %FindCoordinator.V1.Response{
          error_code: 0,
          coordinator: coordinator
        }} ->
@@ -507,13 +724,13 @@ defmodule KafkaEx.New.Client do
         )
 
       {:ok,
-       %Kayrock.FindCoordinator.V1.Response{
+       %FindCoordinator.V1.Response{
          error_code: error_code
        }} ->
         Logger.warning(
           "Unable to find consumer group coordinator for " <>
             "#{inspect(consumer_group)}: Error " <>
-            "#{Kayrock.ErrorCode.code_to_atom(error_code)}"
+            "#{ErrorCode.code_to_atom(error_code)}"
         )
 
         updated_state
@@ -570,7 +787,7 @@ defmodule KafkaEx.New.Client do
   defp consumer_group?(_), do: true
 
   defp get_api_versions(state, request_version \\ 0) do
-    request = Kayrock.ApiVersions.get_request_struct(request_version)
+    request = ApiVersions.get_request_struct(request_version)
 
     {{ok_or_error, response}, state_out} =
       kayrock_network_request(request, NodeSelector.first_available(), state)
@@ -612,7 +829,7 @@ defmodule KafkaEx.New.Client do
          synchronous
        )
        when not is_nil(client_id) and not is_nil(correlation_id) do
-    wire_request = Kayrock.Request.serialize(client_request)
+    wire_request = Request.serialize(client_request)
 
     case(send_request.(wire_request)) do
       {:error, reason} ->
@@ -715,24 +932,22 @@ defmodule KafkaEx.New.Client do
   end
 
   defp deserialize(data, request) do
-    try do
-      deserializer = Kayrock.Request.response_deserializer(request)
-      {resp, _} = deserializer.(data)
-      resp
-    rescue
-      _ ->
-        Logger.error(
-          "Failed to parse a response from the server: " <>
-            inspect(data, limit: :infinity) <>
-            " for request #{inspect(request, limit: :infinity)}"
-        )
+    deserializer = Request.response_deserializer(request)
+    {resp, _} = deserializer.(data)
+    resp
+  rescue
+    _ ->
+      Logger.error(
+        "Failed to parse a response from the server: " <>
+          inspect(data, limit: :infinity) <>
+          " for request #{inspect(request, limit: :infinity)}"
+      )
 
-        Kernel.reraise(
-          "Parse error during #{inspect(request)} response deserializer. " <>
-            "Couldn't parse: #{inspect(data)}",
-          __STACKTRACE__
-        )
-    end
+      Kernel.reraise(
+        "Parse error during #{inspect(request)} response deserializer. " <>
+          "Couldn't parse: #{inspect(data)}",
+        __STACKTRACE__
+      )
   end
 
   defp fetch_topics_metadata(state, topics, allow_topic_creation) do

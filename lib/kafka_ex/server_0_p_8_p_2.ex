@@ -18,14 +18,14 @@ defmodule KafkaEx.Server0P8P2 do
   alias KafkaEx.Config
   alias KafkaEx.ConsumerGroupRequiredError
   alias KafkaEx.InvalidConsumerGroupError
+  alias KafkaEx.NetworkClient
   alias KafkaEx.Protocol.ConsumerMetadata
   alias KafkaEx.Protocol.ConsumerMetadata.Response, as: ConsumerMetadataResponse
   alias KafkaEx.Protocol.Fetch
   alias KafkaEx.Protocol.Metadata.Broker
-  alias KafkaEx.Protocol.OffsetFetch
   alias KafkaEx.Protocol.OffsetCommit
+  alias KafkaEx.Protocol.OffsetFetch
   alias KafkaEx.Server.State
-  alias KafkaEx.NetworkClient
 
   @consumer_group_update_interval 30_000
 

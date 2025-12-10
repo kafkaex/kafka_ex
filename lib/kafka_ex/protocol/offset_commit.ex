@@ -15,7 +15,7 @@ defmodule KafkaEx.Protocol.OffsetCommit do
               # NOTE api_version, generation_id, member_id, and timestamp only used in new client
               api_version: 0,
               generation_id: -1,
-              member_id: "kafkaex",
+              member_id: "",
               timestamp: 0
 
     @type t :: %Request{

@@ -27,7 +27,7 @@ defmodule KafkaEx.Auth.SASL do
     4. Return `:ok` or `{:error, reason}` to NetworkClient
 
   ## Compatibility
-  
+
   Brokers does not tell you the header mode (legacy vs flexible). 
   Some stacks (older IBP, ZK builds, or auth/proxy layers) still map (apiKey=36, ver=2) to header v1 internally,
   so we cap at v1 for authentication request.
@@ -36,16 +36,20 @@ defmodule KafkaEx.Auth.SASL do
   """
 
   require Logger
+
+  alias KafkaEx.Auth.Config
+  alias KafkaEx.Auth.SASL.CodecBinary
+  alias KafkaEx.Auth.SASL.VersionSupport
   alias KafkaEx.Socket
-  alias KafkaEx.Auth.{SASL.CodecBinary, Config, SASL.VersionSupport}
+
   import Bitwise, only: [&&&: 2]
 
-  @max_corr 0x7fffffff
+  @max_corr 0x7FFFFFFF
 
   @mechanisms %{
     plain: KafkaEx.Auth.SASL.Plain,
     scram: KafkaEx.Auth.SASL.Scram
-    # Future extensions: oauthbearer, msk_iam_auth 
+    # Future extensions: oauthbearer, msk_iam_auth
   }
 
   # -------- Public API --------
@@ -54,8 +58,9 @@ defmodule KafkaEx.Auth.SASL do
   def authenticate(socket, %Config{} = creds) do
     with {:ok, mech_mod} <- get_mechanism_module(creds),
          api_versions <- fetch_api_versions_if_needed(socket),
-         handshake_v  <- CodecBinary.pick_handshake_version(api_versions),
-         auth_v       <- api_versions |> CodecBinary.pick_authenticate_version() |> min(1), # v2 flexible headers support is limited, better play safe now
+         handshake_v <- CodecBinary.pick_handshake_version(api_versions),
+         # v2 flexible headers support is limited, better play safe now
+         auth_v <- api_versions |> CodecBinary.pick_authenticate_version() |> min(1),
          :ok <- perform_handshake(socket, mech_mod, handshake_v, creds),
          :ok <- mech_mod.authenticate(creds, fn bytes -> send_authenticate(socket, bytes, auth_v) end) do
       Logger.debug("SASL authentication successful")
@@ -74,7 +79,7 @@ defmodule KafkaEx.Auth.SASL do
       # Kafka 0.10.0+ - actually make the API versions call
       corr = next_correlation_id()
       req = CodecBinary.api_versions_request(corr, 0)
-      
+
       case send_and_receive(socket, req) do
         {:ok, resp} -> CodecBinary.parse_api_versions_response(resp, corr)
         {:error, _} -> %{}
@@ -95,7 +100,7 @@ defmodule KafkaEx.Auth.SASL do
   defp perform_handshake(socket, mech_mod, version, %Config{} = creds) do
     mech = mech_mod.mechanism_name(creds)
     corr = next_correlation_id()
-    req  = CodecBinary.handshake_request(mech, corr, version)
+    req = CodecBinary.handshake_request(mech, corr, version)
 
     with {:ok, resp} <- send_and_receive(socket, req) do
       CodecBinary.parse_handshake_response(resp, corr, mech, version)

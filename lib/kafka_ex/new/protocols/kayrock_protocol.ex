@@ -7,22 +7,80 @@ defmodule KafkaEx.New.Protocols.KayrockProtocol do
   @behaviour KafkaEx.New.Client.Protocol
 
   alias KafkaEx.New.Protocols.Kayrock, as: KayrockProtocol
+  alias Kayrock.ApiVersions
+  alias Kayrock.DescribeGroups
+  alias Kayrock.Heartbeat
+  alias Kayrock.JoinGroup
+  alias Kayrock.LeaveGroup
+  alias Kayrock.ListOffsets
+  alias Kayrock.Metadata
+  alias Kayrock.OffsetCommit
+  alias Kayrock.OffsetFetch
+  alias Kayrock.SyncGroup
 
   # -----------------------------------------------------------------------------
   @doc """
   Builds kayrock request based on type, api version and opts
   """
   @impl KafkaEx.New.Client.Protocol
+  def build_request(:api_versions, api_version, opts) do
+    api_version
+    |> ApiVersions.get_request_struct()
+    |> KayrockProtocol.ApiVersions.Request.build_request(opts)
+  end
+
   def build_request(:describe_groups, api_version, opts) do
     api_version
-    |> Kayrock.DescribeGroups.get_request_struct()
+    |> DescribeGroups.get_request_struct()
     |> KayrockProtocol.DescribeGroups.Request.build_request(opts)
   end
 
   def build_request(:list_offsets, api_version, opts) do
     api_version
-    |> Kayrock.ListOffsets.get_request_struct()
+    |> ListOffsets.get_request_struct()
     |> KayrockProtocol.ListOffsets.Request.build_request(opts)
+  end
+
+  def build_request(:offset_fetch, api_version, opts) do
+    api_version
+    |> OffsetFetch.get_request_struct()
+    |> KayrockProtocol.OffsetFetch.Request.build_request(opts)
+  end
+
+  def build_request(:offset_commit, api_version, opts) do
+    api_version
+    |> OffsetCommit.get_request_struct()
+    |> KayrockProtocol.OffsetCommit.Request.build_request(opts)
+  end
+
+  def build_request(:heartbeat, api_version, opts) do
+    api_version
+    |> Heartbeat.get_request_struct()
+    |> KayrockProtocol.Heartbeat.Request.build_request(opts)
+  end
+
+  def build_request(:join_group, api_version, opts) do
+    api_version
+    |> JoinGroup.get_request_struct()
+    |> KayrockProtocol.JoinGroup.Request.build_request(opts)
+  end
+
+  def build_request(:leave_group, api_version, opts) do
+    api_version
+    |> LeaveGroup.get_request_struct()
+    |> KayrockProtocol.LeaveGroup.Request.build_request(opts)
+  end
+
+  def build_request(:sync_group, api_version, opts) do
+    api_version
+    |> SyncGroup.get_request_struct()
+    |> KayrockProtocol.SyncGroup.Request.build_request(opts)
+  end
+
+  def build_request(:metadata, api_version, opts) do
+    api_version
+    |> Metadata.get_request_struct()
+    |> KayrockProtocol.Metadata.Request.build_request(opts)
   end
 
   # -----------------------------------------------------------------------------
@@ -30,11 +88,43 @@ defmodule KafkaEx.New.Protocols.KayrockProtocol do
   Parses response based on request type and response
   """
   @impl KafkaEx.New.Client.Protocol
+  def parse_response(:api_versions, response) do
+    KayrockProtocol.ApiVersions.Response.parse_response(response)
+  end
+
   def parse_response(:describe_groups, response) do
     KayrockProtocol.DescribeGroups.Response.parse_response(response)
   end
 
   def parse_response(:list_offsets, response) do
     KayrockProtocol.ListOffsets.Response.parse_response(response)
+  end
+
+  def parse_response(:offset_fetch, response) do
+    KayrockProtocol.OffsetFetch.Response.parse_response(response)
+  end
+
+  def parse_response(:offset_commit, response) do
+    KayrockProtocol.OffsetCommit.Response.parse_response(response)
+  end
+
+  def parse_response(:heartbeat, response) do
+    KayrockProtocol.Heartbeat.Response.parse_response(response)
+  end
+
+  def parse_response(:join_group, response) do
+    KayrockProtocol.JoinGroup.Response.parse_response(response)
+  end
+
+  def parse_response(:leave_group, response) do
+    KayrockProtocol.LeaveGroup.Response.parse_response(response)
+  end
+
+  def parse_response(:sync_group, response) do
+    KayrockProtocol.SyncGroup.Response.parse_response(response)
+  end
+
+  def parse_response(:metadata, response) do
+    KayrockProtocol.Metadata.Response.parse_response(response)
   end
 end

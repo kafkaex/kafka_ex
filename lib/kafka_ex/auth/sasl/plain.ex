@@ -25,6 +25,7 @@ defmodule KafkaEx.Auth.SASL.Plain do
   @impl true
   def authenticate(%Config{username: u, password: p}, send_fun) do
     msg = <<0, u::binary, 0, p::binary>>
+
     case send_fun.(msg) do
       {:ok, _} -> :ok
       error -> error
