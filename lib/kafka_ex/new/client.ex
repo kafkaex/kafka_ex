@@ -163,6 +163,13 @@ defmodule KafkaEx.New.Client do
     {:reply, {:ok, topic_metadata}, updated_state}
   end
 
+  def handle_call({:api_versions, opts}, _from, state) do
+    case api_versions_request(opts, state) do
+      {:error, error} -> {:reply, {:error, error}, state}
+      {result, updated_state} -> {:reply, result, updated_state}
+    end
+  end
+
   def handle_call({:metadata, topics, opts, _api_version}, _from, state) do
     case metadata_request(topics, opts, state) do
       {:error, error} -> {:reply, {:error, error}, state}
@@ -426,6 +433,15 @@ defmodule KafkaEx.New.Client do
     end
   end
 
+  defp api_versions_request(opts, state) do
+    node_selector = NodeSelector.random()
+
+    case RequestBuilder.api_versions_request(opts, state) do
+      {:ok, request} -> handle_api_versions_request(request, node_selector, state)
+      {:error, error} -> {:error, error}
+    end
+  end
+
   defp metadata_request(topics, opts, state) do
     # Metadata can be fetched from any broker, use random selection
     node_selector = NodeSelector.random()
@@ -438,6 +454,10 @@ defmodule KafkaEx.New.Client do
   end
 
   # ----------------------------------------------------------------------------------------------------
+  defp handle_api_versions_request(request, node_selector, state) do
+    handle_request_with_retry(request, &ResponseParser.api_versions_response/1, node_selector, state)
+  end
+
   defp handle_describe_group_request(request, node_selector, state) do
     handle_request_with_retry(request, &ResponseParser.describe_groups_response/1, node_selector, state)
   end

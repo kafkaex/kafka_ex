@@ -13,6 +13,7 @@ defmodule KafkaEx.New.KafkaExAPI do
   ```
   """
 
+  alias KafkaEx.New.Structs.ApiVersions
   alias KafkaEx.New.Structs.ClusterMetadata
   alias KafkaEx.New.Structs.ConsumerGroup
   alias KafkaEx.New.Structs.Heartbeat
@@ -144,39 +145,11 @@ defmodule KafkaEx.New.KafkaExAPI do
   By default, fetches metadata for all topics in the cluster. To fetch metadata
   for specific topics only, use `metadata/3`.
 
-  ## Options
-
-    - `:api_version` - Kafka API version (0, 1, or 2). Default: 1
-    - `:timeout` - Request timeout in milliseconds. Default: 5000
-
   ## API Version Differences
 
     - **V0**: Basic metadata (topics, partitions, brokers)
     - **V1**: Adds `controller_id`, `is_internal` flag, broker `rack`
     - **V2**: Adds `cluster_id` field
-
-  ## Returns
-
-    - `{:ok, ClusterMetadata.t()}` - Successfully retrieved metadata
-    - `{:error, reason}` - Request failed
-
-  ## Examples
-
-      # Fetch metadata for all topics (default V1)
-      {:ok, metadata} = KafkaEx.New.KafkaExAPI.metadata(client)
-
-      # Fetch metadata using V2 API
-      {:ok, metadata} = KafkaEx.New.KafkaExAPI.metadata(client, api_version: 2)
-
-      # Fetch with custom timeout
-      {:ok, metadata} = KafkaEx.New.KafkaExAPI.metadata(client, timeout: 10_000)
-
-      # Access cluster information
-      {:ok, metadata} = KafkaEx.New.KafkaExAPI.metadata(client)
-      controller_id = metadata.controller_id
-      broker_count = map_size(metadata.brokers)
-      topic_names = Map.keys(metadata.topics)
-
   """
   @spec metadata(client) :: {:ok, ClusterMetadata.t()} | {:error, error_atom}
   @spec metadata(client, opts) :: {:ok, ClusterMetadata.t()} | {:error, error_atom}
@@ -195,52 +168,6 @@ defmodule KafkaEx.New.KafkaExAPI do
   Makes a network request to fetch fresh metadata for the specified topics only.
   This is more efficient than fetching all topics if you only need information
   about a subset of topics.
-
-  ## Parameters
-
-    - `client` - The client PID
-    - `topics` - List of topic names, or `nil` for all topics
-    - `opts` - Options keyword list
-
-  ## Options
-
-    - `:api_version` - Kafka API version (0, 1, or 2). Default: 1
-    - `:timeout` - Request timeout in milliseconds. Default: 5000
-    - `:allow_auto_topic_creation` - Whether to allow Kafka to auto-create topics
-      if they don't exist (default: false)
-
-  ## Returns
-
-    - `{:ok, ClusterMetadata.t()}` - Successfully retrieved metadata
-    - `{:error, reason}` - Request failed
-
-  ## Examples
-
-      # Fetch metadata for specific topics
-      {:ok, metadata} = KafkaEx.New.KafkaExAPI.metadata(
-        client,
-        ["orders", "payments"]
-      )
-
-      # Fetch with auto-creation enabled
-      {:ok, metadata} = KafkaEx.New.KafkaExAPI.metadata(
-        client,
-        ["new-topic"],
-        allow_auto_topic_creation: true
-      )
-
-      # Check if topic exists
-      {:ok, metadata} = KafkaEx.New.KafkaExAPI.metadata(client, ["orders"])
-      if Map.has_key?(metadata.topics, "orders") do
-        IO.puts("Topic exists!")
-      end
-
-      # Get partition leaders for a topic
-      {:ok, metadata} = KafkaEx.New.KafkaExAPI.metadata(client, ["orders"])
-      topic = metadata.topics["orders"]
-      leaders = topic.partition_leaders
-      # => %{0 => 1, 1 => 2, 2 => 3}  (partition_id => broker_node_id)
-
   """
   @spec metadata(client, [topic_name] | nil, opts) :: {:ok, ClusterMetadata.t()} | {:error, error_atom}
   def metadata(client, topics, opts) when is_list(topics) or is_nil(topics) do
@@ -259,6 +186,30 @@ defmodule KafkaEx.New.KafkaExAPI do
   @spec correlation_id(client) :: {:ok, correlation_id}
   def correlation_id(client) do
     GenServer.call(client, :correlation_id)
+  end
+
+  @doc """
+  Fetch API versions supported by the Kafka broker
+
+  Queries the broker to discover which Kafka API versions it supports.
+  This enables the client to negotiate compatible API versions for all operations.
+
+  The response includes the minimum and maximum supported versions for each Kafka API,
+  identified by their API key.
+
+  ## API Version Differences
+
+    - **V0**: Basic API version discovery
+    - **V1**: Adds `throttle_time_ms` to response for rate limiting visibility
+  """
+  @spec api_versions(client) :: {:ok, ApiVersions.t()} | {:error, error_atom}
+  @spec api_versions(client, opts) :: {:ok, ApiVersions.t()} | {:error, error_atom}
+  def api_versions(client, opts \\ []) do
+    case GenServer.call(client, {:api_versions, opts}) do
+      {:ok, versions} -> {:ok, versions}
+      {:error, %{error: error_atom}} -> {:error, error_atom}
+      {:error, error_atom} -> {:error, error_atom}
+    end
   end
 
   @doc """

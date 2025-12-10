@@ -7,6 +7,7 @@ defmodule KafkaEx.New.Client.RequestBuilder do
   @protocol Application.compile_env(:kafka_ex, :protocol, KafkaEx.New.Protocols.KayrockProtocol)
 
   @default_api_version %{
+    api_versions: 0,
     describe_groups: 1,
     heartbeat: 1,
     join_group: 1,
@@ -19,6 +20,21 @@ defmodule KafkaEx.New.Client.RequestBuilder do
   }
 
   alias KafkaEx.New.Client.State
+
+  @doc """
+  Builds request for ApiVersions API
+  """
+  @spec api_versions_request(Keyword.t(), State.t()) :: {:ok, term} | {:error, :api_version_no_supported}
+  def api_versions_request(request_opts, state) do
+    case get_api_version(state, :api_versions, request_opts) do
+      {:ok, api_version} ->
+        req = @protocol.build_request(:api_versions, api_version, [])
+        {:ok, req}
+
+      {:error, error_code} ->
+        {:error, error_code}
+    end
+  end
 
   @doc """
   Builds request for Describe Groups API

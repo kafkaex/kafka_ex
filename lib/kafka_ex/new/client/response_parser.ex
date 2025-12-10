@@ -3,6 +3,7 @@ defmodule KafkaEx.New.Client.ResponseParser do
   This module is used to parse response from KafkaEx.New.Client.
   It's main decision point which protocol to use for parsing response
   """
+  alias KafkaEx.New.Structs.ApiVersions
   alias KafkaEx.New.Structs.ClusterMetadata
   alias KafkaEx.New.Structs.ConsumerGroup
   alias KafkaEx.New.Structs.Error
@@ -13,6 +14,14 @@ defmodule KafkaEx.New.Client.ResponseParser do
   alias KafkaEx.New.Structs.SyncGroup
 
   @protocol Application.compile_env(:kafka_ex, :protocol, KafkaEx.New.Protocols.KayrockProtocol)
+
+  @doc """
+  Parses response for ApiVersions API
+  """
+  @spec api_versions_response(term) :: {:ok, ApiVersions.t()} | {:error, Error.t()}
+  def api_versions_response(response) do
+    @protocol.parse_response(:api_versions, response)
+  end
 
   @doc """
   Parses response for Describe Groups API

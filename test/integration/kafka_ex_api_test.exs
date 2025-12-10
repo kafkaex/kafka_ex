@@ -1242,4 +1242,70 @@ defmodule KafkaEx.New.KafkaExAPITest do
       assert map_size(topic2_data.partition_leaders) == length(topic2_data.partitions)
     end
   end
+
+  describe "api_versions/1" do
+    test "fetches API versions with default V0", %{client: client} do
+      {:ok, versions} = API.api_versions(client)
+
+      assert is_map(versions.api_versions)
+      assert map_size(versions.api_versions) > 0
+      # V0 doesn't include throttle_time_ms
+      assert is_nil(versions.throttle_time_ms)
+    end
+
+    test "api_versions map contains valid entries", %{client: client} do
+      {:ok, versions} = API.api_versions(client)
+
+      Enum.each(versions.api_versions, fn {api_key, %{min_version: min, max_version: max}} ->
+        assert is_integer(api_key) and api_key >= 0
+        assert is_integer(min) and min >= 0
+        assert is_integer(max) and max >= min
+      end)
+    end
+
+    test "essential Kafka APIs are present", %{client: client} do
+      alias KafkaEx.New.Structs.ApiVersions
+
+      {:ok, versions} = API.api_versions(client)
+
+      # These APIs should be present in any Kafka 0.10+ broker
+      essential_apis = [
+        {0, "Produce"},
+        {1, "Fetch"},
+        {3, "Metadata"},
+        {11, "JoinGroup"},
+        {12, "Heartbeat"},
+        {18, "ApiVersions"}
+      ]
+
+      Enum.each(essential_apis, fn {api_key, api_name} ->
+        assert {:ok, _max_version} = ApiVersions.max_version_for_api(versions, api_key),
+               "API key #{api_key} (#{api_name}) should be supported"
+      end)
+    end
+  end
+
+  describe "api_versions/2" do
+    test "fetches API versions with V1", %{client: client} do
+      {:ok, versions} = API.api_versions(client, api_version: 1)
+
+      assert is_map(versions.api_versions)
+      assert map_size(versions.api_versions) > 0
+      # V1 includes throttle_time_ms
+      assert is_integer(versions.throttle_time_ms)
+      assert versions.throttle_time_ms >= 0
+    end
+
+    test "V0 and V1 return same API versions", %{client: client} do
+      {:ok, versions_v0} = API.api_versions(client, api_version: 0)
+      {:ok, versions_v1} = API.api_versions(client, api_version: 1)
+
+      # Both should return the same API version data
+      assert versions_v0.api_versions == versions_v1.api_versions
+
+      # Only V1 has throttle_time_ms
+      assert is_nil(versions_v0.throttle_time_ms)
+      assert is_integer(versions_v1.throttle_time_ms)
+    end
+  end
 end

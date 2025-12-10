@@ -22,6 +22,10 @@ Features implemented:
 *   Get latest offset for a partition as `{:ok, offset}` or `{:error, error_code}`
     (no more fishing through the response structs).
 *   Get metadata for an arbitrary list of topics
+*   Discover broker API version support via `api_versions/1,2`
+*   Consumer group coordination: `join_group`, `sync_group`, `heartbeat`, `leave_group`
+*   Consumer group inspection via `describe_group/2,3`
+*   Offset management: `fetch_committed_offset`, `commit_offset`, `list_offsets`
 
 ## Major Differences from the Legacy API
 

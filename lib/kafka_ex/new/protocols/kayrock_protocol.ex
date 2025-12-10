@@ -7,6 +7,7 @@ defmodule KafkaEx.New.Protocols.KayrockProtocol do
   @behaviour KafkaEx.New.Client.Protocol
 
   alias KafkaEx.New.Protocols.Kayrock, as: KayrockProtocol
+  alias Kayrock.ApiVersions
   alias Kayrock.DescribeGroups
   alias Kayrock.Heartbeat
   alias Kayrock.JoinGroup
@@ -22,6 +23,12 @@ defmodule KafkaEx.New.Protocols.KayrockProtocol do
   Builds kayrock request based on type, api version and opts
   """
   @impl KafkaEx.New.Client.Protocol
+  def build_request(:api_versions, api_version, opts) do
+    api_version
+    |> ApiVersions.get_request_struct()
+    |> KayrockProtocol.ApiVersions.Request.build_request(opts)
+  end
+
   def build_request(:describe_groups, api_version, opts) do
     api_version
     |> DescribeGroups.get_request_struct()
@@ -81,6 +88,10 @@ defmodule KafkaEx.New.Protocols.KayrockProtocol do
   Parses response based on request type and response
   """
   @impl KafkaEx.New.Client.Protocol
+  def parse_response(:api_versions, response) do
+    KayrockProtocol.ApiVersions.Response.parse_response(response)
+  end
+
   def parse_response(:describe_groups, response) do
     KayrockProtocol.DescribeGroups.Response.parse_response(response)
   end

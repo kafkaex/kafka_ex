@@ -5,8 +5,111 @@
 This document tracks the progress of migrating KafkaEx to use Kayrock protocol implementations for all Kafka APIs. 
 The migration aims to replace manual binary parsing with Kayrock's type-safe, versioned protocol layer.
 
-**Last Updated:** 2025-11-07
-**Overall Progress:** 9/20 APIs migrated (45%)
+**Last Updated:** 2025-12-09
+**Overall Progress:** 10/20 APIs migrated (50%)
+
+---
+
+## System Architecture
+
+### Current Infrastructure
+
+The KafkaEx library implements a dual-layer architecture to support both legacy and new Kayrock-based APIs:
+
+#### 1. **Client Layer** (`lib/kafka_ex/new/client.ex`)
+   - GenServer-based client managing connections to Kafka brokers
+   - Maintains cluster metadata, API version cache, and broker connections
+   - Handles both legacy (2-tuple) and new (4-tuple) request formats
+   - Auto-discovers API versions on initialization via `Kayrock.ApiVersions`
+   - Pattern: `{:api_name, ...legacy_args...}` → routed to `ClientCompatibility`
+   - Pattern: `{:api_name, param1, param2, opts}` → routed to new protocol layer
+
+#### 2. **Protocol Layer** (`lib/kafka_ex/new/protocols/`)
+   - **KayrockProtocol** (`kayrock_protocol.ex`): Central dispatcher for request building and response parsing
+   - **Individual API Protocols** (`kayrock/{api_name}/`): Per-API versioned implementations
+     - Each API has its own module defining Request and Response protocols
+     - Version-specific implementations (e.g., `v0_request_impl.ex`, `v1_response_impl.ex`)
+     - Shared helpers for common logic across versions (`request_helpers.ex`, `response_helpers.ex`)
+
+#### 3. **Request/Response Infrastructure**
+   - **RequestBuilder** (`client/request_builder.ex`):
+     - Determines API version based on broker capabilities
+     - Builds Kayrock requests from user parameters
+     - Default API versions configured per API (mostly v1)
+   - **ResponseParser** (`client/response_parser.ex`):
+     - Parses Kayrock responses into KafkaEx structs
+     - Handles error detection and conversion
+     - Returns structured `{:ok, struct}` or `{:error, error}` tuples
+
+#### 4. **Struct Layer** (`lib/kafka_ex/new/structs/`)
+   - Type-safe Elixir structs representing Kafka concepts
+   - Examples: `ClusterMetadata`, `Broker`, `Topic`, `Partition`, `ConsumerGroup`
+   - Protocol-specific structs: `Heartbeat`, `JoinGroup`, `SyncGroup`, `LeaveGroup`, `Offset`
+   - Provide helper functions for common operations
+
+#### 5. **Backward Compatibility Layer**
+   - **Adapter** (`adapter.ex`): Converts between legacy KafkaEx structs and Kayrock structs
+   - **ClientCompatibility** (`client_compatibility.ex`): Injected into Client via `use` macro
+     - Implements legacy `handle_call` clauses for 2-tuple requests
+     - Translates to new API calls internally
+     - Maintains 100% compatibility with existing KafkaEx code
+
+#### 6. **Public API** (`kafka_ex_api.ex`)
+   - Modern, ergonomic API for new applications
+   - Clean function signatures with keyword options
+   - Returns structured results: `{:ok, result}` | `{:error, reason}`
+   - Examples: `latest_offset/3`, `describe_group/2`, `heartbeat/4`, `metadata/2`
+
+### State Management
+
+The `Client.State` struct maintains:
+- **`cluster_metadata`**: Broker topology, topic/partition mappings, consumer group coordinators
+- **`api_versions`**: Cached API version support from brokers (Map of `api_key => {min_version, max_version}`)
+- **`correlation_id`**: Request correlation tracking
+- **`consumer_group_for_auto_commit`**: Consumer group for legacy auto-commit support
+- **Connection details**: SSL options, auth config, bootstrap URIs
+
+### Request Flow (New API)
+
+```
+User Code
+  ↓
+KafkaExAPI.metadata(client, topics, opts)
+  ↓
+GenServer.call(client, {:metadata, topics, opts, api_version})
+  ↓
+Client.handle_call({:metadata, topics, opts, _api_version})
+  ↓
+RequestBuilder.metadata_request(request_opts, state)
+  ├─ Determines API version from state.api_versions
+  └─ Calls KayrockProtocol.build_request(:metadata, api_version, opts)
+      ↓
+      Kayrock.Metadata.Request.build_request(struct, opts)
+        ├─ Routes to version-specific implementation
+        └─ Returns populated Kayrock request struct
+  ↓
+kayrock_network_request(request, node_selector, state)
+  ├─ Serializes request via Kayrock.Request.serialize/1
+  ├─ Selects broker via NodeSelector
+  ├─ Sends over TCP/SSL socket
+  └─ Deserializes response
+  ↓
+ResponseParser.metadata_response(kayrock_response)
+  ├─ Calls KayrockProtocol.parse_response(:metadata, response)
+  └─ Converts to ClusterMetadata struct
+  ↓
+Returns {:ok, ClusterMetadata.t()} to user
+```
+
+### API Version Negotiation
+
+On client initialization:
+1. Client connects to bootstrap brokers
+2. Sends `ApiVersions.V0.Request` to first available broker
+3. Broker responds with supported API versions
+4. `State.ingest_api_versions/2` stores versions in state
+5. `State.max_supported_api_version/3` used by RequestBuilder to select version
+   - Takes minimum of: broker's max version, Kayrock's max version, requested version
 
 ---
 
@@ -40,7 +143,7 @@ Pattern matching naturally separates them with no conflicts.
 | API              | Status          | Versions | Priority | Complexity | Notes                           |
 |------------------|-----------------|----------|----------|------------|---------------------------------|
 | **Metadata**     | ✅ Complete     | v0-v2    | HIGH     | Medium     | Core infrastructure             |
-| **ApiVersions**  | 🟡 Adapter Only | v0-v2    | HIGH     | Low        | Version negotiation             |
+| **ApiVersions**  | ✅ Complete     | v0-v1    | HIGH     | Low        | Version negotiation             |
 | **Produce**      | 🟡 Adapter Only | v0-v3    | HIGH     | High       | Message publishing              |
 | **Fetch**        | 🟡 Adapter Only | v0-v11   | HIGH     | High       | Message consumption             |
 | **ListOffsets**  | ✅ Complete     | v0-v2    | HIGH     | Medium     | Timestamp-based offset lookup   |
@@ -319,6 +422,90 @@ partition_leaders = topic.partition_leaders  # %{0 => 1, 1 => 2, 2 => 3}
 
 ---
 
+### ApiVersions (Completed: 2025-12-09)
+
+**Branch:** `master`
+
+**Summary:**
+Complete migration of ApiVersions API to Kayrock protocol layer with full backward compatibility. Implements V0 and V1 protocol versions with comprehensive test coverage. This is a foundational infrastructure migration that enables dynamic API version negotiation for all other Kafka operations.
+
+**Implementation Details:**
+- **Protocol Layer:** V0 and V1 request/response handlers
+  - V0: Basic API version discovery (no throttle_time_ms)
+  - V1: Adds throttle_time_ms for rate limiting visibility
+- **Data Structures:** Created ApiVersions struct with helper functions for version lookups
+  - `max_version_for_api/2` - Find max supported version for an API
+  - `min_version_for_api/2` - Find min supported version for an API
+  - `version_supported?/3` - Check if specific version is supported
+- **Infrastructure:** Full integration with RequestBuilder, ResponseParser, and Client
+- **Backward Compatibility:** Legacy API continues working via existing Adapter (no changes needed)
+- **Public API:** Clean interface in `KafkaEx.New.KafkaExAPI.api_versions/1,2`
+
+**Statistics:**
+- **Files Created:** 6 files
+- **Files Modified:** 5 files
+- **Lines Added:** ~400 insertions
+- **Test Count:** 21 tests across all layers
+  - Adapter tests: 9 tests (legacy format conversion)
+  - Integration tests: 12 tests (real Kafka cluster)
+  - All tests passing ✅
+
+**Key Learnings:**
+1. **Simple Migration Pattern:** ApiVersions has no parameters, making it an ideal simple migration
+2. **Map-Based Storage:** Using `%{api_key => %{min_version, max_version}}` for O(1) lookups
+3. **Backward Compatibility:** Existing adapter/compatibility layer worked without changes
+4. **Helper Functions:** Version lookup helpers provide excellent developer experience
+
+**Files Created:**
+- `lib/kafka_ex/new/structs/api_versions.ex` - Struct with helper functions
+- `lib/kafka_ex/new/protocols/kayrock/api_versions.ex` - Protocol definitions
+- `lib/kafka_ex/new/protocols/kayrock/api_versions/v0_request_impl.ex`
+- `lib/kafka_ex/new/protocols/kayrock/api_versions/v0_response_impl.ex`
+- `lib/kafka_ex/new/protocols/kayrock/api_versions/v1_request_impl.ex`
+- `lib/kafka_ex/new/protocols/kayrock/api_versions/v1_response_impl.ex`
+- `test/kafka_ex/new/adapter_api_versions_test.exs` - Adapter tests
+
+**Files Modified:**
+- `lib/kafka_ex/new/protocols/kayrock_protocol.ex` - Added api_versions handlers
+- `lib/kafka_ex/new/client/request_builder.ex` - Added api_versions_request/2
+- `lib/kafka_ex/new/client/response_parser.ex` - Added api_versions_response/1
+- `lib/kafka_ex/new/client.ex` - Added handle_call for api_versions
+- `lib/kafka_ex/new/kafka_ex_api.ex` - Added api_versions/1,2 functions
+- `test/integration/kafka_ex_api_test.exs` - Added 12 integration tests
+
+**Public API Examples:**
+```elixir
+# Fetch API versions (default V0)
+{:ok, versions} = KafkaEx.New.KafkaExAPI.api_versions(client)
+
+# Fetch with V1 to get throttle information
+{:ok, versions} = KafkaEx.New.KafkaExAPI.api_versions(client, api_version: 1)
+
+# Find max version for Metadata API (key 3)
+{:ok, max_version} = ApiVersions.max_version_for_api(versions, 3)
+# => {:ok, 2}
+
+# Check if a specific version is supported
+ApiVersions.version_supported?(versions, 3, 1)
+# => true
+
+# Check for unsupported API
+ApiVersions.max_version_for_api(versions, 999)
+# => {:error, :unsupported_api}
+```
+
+**Migration Checklist:**
+- [x] Phase 1: Data Structures
+- [x] Phase 2: Protocol Implementation (V0, V1)
+- [x] Phase 3: Infrastructure Integration
+- [x] Phase 4: Backward Compatibility (9 adapter tests)
+- [x] Phase 5: Public API
+- [x] Phase 6: Integration Tests (12 tests)
+- [x] Phase 7: Documentation Updates
+- [x] Phase 8: Code Quality (format, credo passing)
+
+---
+
 ### JoinGroup (Completed: 2025-11-04)
 
 **Branch:** `KAYROCK-migrate-join-group`
@@ -390,7 +577,7 @@ end
 - [x] Phase 3: Infrastructure Integration
 - [x] Phase 4: Backward Compatibility
 - [x] Phase 5: Public API
-- [ ] Phase 6: Integration Tests (requires Kafka cluster)
+- [x] Phase 6: Integration Tests (requires Kafka cluster)
 - [x] Phase 7: Documentation Updates
 - [x] Phase 8: Code Quality (format, credo passing)
 
