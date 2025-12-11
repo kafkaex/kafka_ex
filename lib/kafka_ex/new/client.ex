@@ -14,13 +14,13 @@ defmodule KafkaEx.New.Client do
   alias KafkaEx.Config
   alias KafkaEx.NetworkClient
 
+  alias KafkaEx.New.Client.Error
+  alias KafkaEx.New.Client.NodeSelector
   alias KafkaEx.New.Client.RequestBuilder
   alias KafkaEx.New.Client.ResponseParser
   alias KafkaEx.New.Client.State
   alias KafkaEx.New.Kafka.Broker
   alias KafkaEx.New.Kafka.ClusterMetadata
-  alias KafkaEx.New.Client.Error
-  alias KafkaEx.New.Client.NodeSelector
 
   alias Kayrock.ApiVersions
   alias Kayrock.ErrorCode

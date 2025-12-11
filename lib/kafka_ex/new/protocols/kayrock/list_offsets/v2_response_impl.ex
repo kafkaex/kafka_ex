@@ -1,23 +1,13 @@
 defimpl KafkaEx.New.Protocols.Kayrock.ListOffsets.Response, for: Kayrock.ListOffsets.V2.Response do
-  import KafkaEx.New.Protocols.Kayrock.ResponseHelpers,
-    only: [build_response: 1, fail_fast_iterate_topics: 2, fail_fast_iterate_partitions: 3]
+  @moduledoc """
+  Implementation for ListOffsets V2 Response.
 
-  def parse_response(%{responses: responses}) do
-    responses
-    |> fail_fast_iterate_topics(&parse_partition_responses/2)
-    |> build_response()
-  end
+  V2 uses a single `offset` field with `timestamp`.
+  """
 
-  defp parse_partition_responses(topic, partition_responses) do
-    fail_fast_iterate_partitions(partition_responses, topic, &build_offset/2)
-  end
+  alias KafkaEx.New.Protocols.Kayrock.ListOffsets.ResponseHelpers
 
-  defp build_offset(topic, %{error_code: 0, partition: p, offset: o, timestamp: t}) do
-    data = %{partition: p, offset: o, timestamp: t, error_code: :no_error}
-    {:ok, KafkaEx.New.Kafka.Offset.from_list_offset(topic, [data])}
-  end
-
-  defp build_offset(topic, %{error_code: error_code, partition: partition}) do
-    {:error, {error_code, topic, partition}}
+  def parse_response(response) do
+    ResponseHelpers.parse_response(response, &ResponseHelpers.extract_v2_offset/2)
   end
 end

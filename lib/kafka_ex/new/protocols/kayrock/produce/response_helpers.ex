@@ -65,4 +65,29 @@ defmodule KafkaEx.New.Protocols.Kayrock.Produce.ResponseHelpers do
   def empty_response_error do
     {:error, Error.build(:empty_response, %{})}
   end
+
+  @doc """
+  Common parsing logic for produce responses.
+
+  Extracts the first partition response, checks for errors, and builds
+  the RecordMetadata using the provided field extractor function.
+
+  The `field_extractor` function receives `{response, partition_resp}` and
+  should return keyword options for `build_record_metadata/1`.
+  """
+  @spec parse_response(map(), (map(), map() -> Keyword.t())) ::
+          {:ok, RecordMetadata.t()} | {:error, Error.t()}
+  def parse_response(response, field_extractor) when is_function(field_extractor, 2) do
+    with {:ok, topic, partition_resp} <- extract_first_partition_response(response),
+         {:ok, partition_resp} <- check_error(topic, partition_resp) do
+      opts =
+        [topic: topic, partition: partition_resp.partition, base_offset: partition_resp.base_offset]
+        |> Keyword.merge(field_extractor.(response, partition_resp))
+
+      {:ok, build_record_metadata(opts)}
+    else
+      {:error, :empty_response} -> empty_response_error()
+      {:error, _} = error -> error
+    end
+  end
 end

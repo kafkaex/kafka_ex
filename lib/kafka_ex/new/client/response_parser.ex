@@ -3,10 +3,10 @@ defmodule KafkaEx.New.Client.ResponseParser do
   This module is used to parse response from KafkaEx.New.Client.
   It's main decision point which protocol to use for parsing response
   """
+  alias KafkaEx.New.Client.Error
   alias KafkaEx.New.Kafka.ApiVersions
   alias KafkaEx.New.Kafka.ClusterMetadata
   alias KafkaEx.New.Kafka.ConsumerGroupDescription
-  alias KafkaEx.New.Client.Error
   alias KafkaEx.New.Kafka.Heartbeat
   alias KafkaEx.New.Kafka.JoinGroup
   alias KafkaEx.New.Kafka.LeaveGroup
