@@ -289,6 +289,156 @@ Use this checklist when migrating any API:
 
 ---
 
+## Test File Patterns
+
+### Protocol Test Structure
+
+All protocol tests follow a **consolidated pattern** with exactly two files per protocol:
+
+```
+test/kafka_ex/new/protocols/kayrock/{api_name}/
+├── request_test.exs    # RequestHelpers tests + all version request tests
+└── response_test.exs   # All version response tests
+```
+
+**DO NOT** create fragmented per-version test files like:
+- ~~`v0_request_impl_test.exs`~~ (WRONG)
+- ~~`v1_response_impl_test.exs`~~ (WRONG)
+- ~~`request_helpers_test.exs`~~ (WRONG)
+
+### Test File Structure
+
+#### request_test.exs
+
+```elixir
+defmodule KafkaEx.New.Protocols.Kayrock.{ApiName}.RequestTest do
+  use ExUnit.Case, async: true
+
+  alias KafkaEx.New.Protocols.Kayrock.{ApiName}
+  alias KafkaEx.New.Protocols.Kayrock.{ApiName}.RequestHelpers
+
+  # 1. RequestHelpers tests (if helpers exist)
+  describe "RequestHelpers.extract_common_fields/1" do
+    test "extracts required fields" do
+      # ...
+    end
+
+    test "raises when required field is missing" do
+      # ...
+    end
+  end
+
+  # 2. V0 Request implementation tests
+  describe "V0 Request implementation" do
+    test "builds request with all required fields" do
+      request = %Kayrock.{ApiName}.V0.Request{}
+      opts = [field1: "value1", field2: "value2"]
+
+      result = {ApiName}.Request.build_request(request, opts)
+
+      assert result == %Kayrock.{ApiName}.V0.Request{
+        client_id: nil,
+        correlation_id: nil,
+        field1: "value1",
+        field2: "value2"
+      }
+    end
+
+    test "preserves existing correlation_id and client_id" do
+      # ...
+    end
+  end
+
+  # 3. V1 Request implementation tests
+  describe "V1 Request implementation" do
+    test "builds request with version-specific fields" do
+      # ...
+    end
+  end
+
+  # 4. Continue for V2, V3, etc.
+end
+```
+
+#### response_test.exs
+
+```elixir
+defmodule KafkaEx.New.Protocols.Kayrock.{ApiName}.ResponseTest do
+  use ExUnit.Case, async: true
+
+  alias KafkaEx.New.Protocols.Kayrock.{ApiName}
+  alias KafkaEx.New.Structs.{ApiName}, as: {ApiName}Struct  # if applicable
+
+  # 1. V0 Response implementation tests
+  describe "V0 Response implementation" do
+    test "parses successful response with no error" do
+      response = %Kayrock.{ApiName}.V0.Response{
+        error_code: 0,
+        # ... other fields
+      }
+
+      assert {:ok, result} = {ApiName}.Response.parse_response(response)
+      # ... assertions
+    end
+
+    test "parses error response with specific error code" do
+      response = %Kayrock.{ApiName}.V0.Response{
+        error_code: 25  # e.g., unknown_member_id
+      }
+
+      assert {:error, error} = {ApiName}.Response.parse_response(response)
+      assert error.error == :unknown_member_id
+    end
+  end
+
+  # 2. V1 Response implementation tests
+  describe "V1 Response implementation" do
+    test "parses response with throttle_time_ms" do  # if V1 adds throttle
+      # ...
+    end
+  end
+
+  # 3. Version comparison tests (optional but recommended)
+  describe "Version comparison" do
+    test "V1 returns struct while V0 returns atom" do
+      # ...
+    end
+
+    test "error responses are identical between versions" do
+      # ...
+    end
+  end
+end
+```
+
+### Test Count Guidelines
+
+| Layer                         | Expected Tests          |
+|-------------------------------|-------------------------|
+| Protocol (request + response) | for each api version    |
+| Struct tests                  | for each supported case |
+| Adapter tests                 | for each supported case |
+| Public API tests              | for each supported case |
+| Integration tests             | for each supported case             |
+
+### Test Naming Conventions
+
+- Use descriptive test names that explain what is being tested
+- Include version numbers in describe blocks: `"V0 Response implementation"`
+- Group related tests in describe blocks
+- Test both success and error paths
+- Test edge cases (empty lists, nil values, large numbers)
+
+### Example Reference Files
+
+Use these as templates when writing new protocol tests:
+
+1. **Simple protocol (no helpers):** `test/kafka_ex/new/protocols/kayrock/heartbeat/`
+2. **Protocol with helpers:** `test/kafka_ex/new/protocols/kayrock/offset_commit/`
+3. **Multi-version protocol:** `test/kafka_ex/new/protocols/kayrock/produce/`
+
+---
+
 ## Resources
 
 ### Reference Implementations
