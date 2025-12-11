@@ -22,7 +22,7 @@ defmodule KafkaEx.New.Protocols.Kayrock.ListOffsets.ResponseHelpers do
   - `{:ok, data}` where data is a map with :partition, :offset, :error_code, and optionally :timestamp
   - `{:error, {error_code, topic, partition}}`
   """
-  @spec parse_response(map(), (map() -> {:ok, map()} | {:error, any()})) ::
+  @spec parse_response(map(), (String.t(), map() -> {:ok, Offset.t()} | {:error, error_tuple()})) ::
           {:ok, list(Offset.t())} | {:error, any()}
   def parse_response(%{responses: responses}, offset_extractor) do
     responses
