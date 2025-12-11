@@ -11,6 +11,7 @@ defmodule KafkaEx.New.Client.ResponseParser do
   alias KafkaEx.New.Structs.JoinGroup
   alias KafkaEx.New.Structs.LeaveGroup
   alias KafkaEx.New.Structs.Offset
+  alias KafkaEx.New.Structs.Produce
   alias KafkaEx.New.Structs.SyncGroup
 
   @protocol Application.compile_env(:kafka_ex, :protocol, KafkaEx.New.Protocols.KayrockProtocol)
@@ -93,5 +94,13 @@ defmodule KafkaEx.New.Client.ResponseParser do
   @spec metadata_response(term) :: {:ok, ClusterMetadata.t()} | {:error, Error.t()}
   def metadata_response(response) do
     @protocol.parse_response(:metadata, response)
+  end
+
+  @doc """
+  Parses response for Produce API
+  """
+  @spec produce_response(term) :: {:ok, Produce.t()} | {:error, Error.t()}
+  def produce_response(response) do
+    @protocol.parse_response(:produce, response)
   end
 end

@@ -579,4 +579,90 @@ defmodule KafkaEx.New.Client.ResponseParserTest do
       assert error.error == :unknown
     end
   end
+
+  describe "produce_response/1" do
+    alias KafkaEx.New.Structs.Produce
+
+    test "parses successful Produce v0 response" do
+      response = %Kayrock.Produce.V0.Response{
+        responses: [
+          %{
+            topic: "test-topic",
+            partition_responses: [
+              %{partition: 0, error_code: 0, base_offset: 42}
+            ]
+          }
+        ]
+      }
+
+      assert {:ok, produce} = ResponseParser.produce_response(response)
+      assert %Produce{} = produce
+      assert produce.topic == "test-topic"
+      assert produce.partition == 0
+      assert produce.base_offset == 42
+    end
+
+    test "parses successful Produce v2 response with log_append_time" do
+      response = %Kayrock.Produce.V2.Response{
+        responses: [
+          %{
+            topic: "events",
+            partition_responses: [
+              %{partition: 1, error_code: 0, base_offset: 100, log_append_time: 1_702_000_000_000}
+            ]
+          }
+        ]
+      }
+
+      assert {:ok, produce} = ResponseParser.produce_response(response)
+      assert produce.topic == "events"
+      assert produce.partition == 1
+      assert produce.base_offset == 100
+      assert produce.log_append_time == 1_702_000_000_000
+    end
+
+    test "parses successful Produce v3 response with throttle_time_ms" do
+      response = %Kayrock.Produce.V3.Response{
+        throttle_time_ms: 50,
+        responses: [
+          %{
+            topic: "transactions",
+            partition_responses: [
+              %{partition: 0, error_code: 0, base_offset: 500, log_append_time: -1}
+            ]
+          }
+        ]
+      }
+
+      assert {:ok, produce} = ResponseParser.produce_response(response)
+      assert produce.topic == "transactions"
+      assert produce.throttle_time_ms == 50
+      assert produce.log_append_time == -1
+    end
+
+    test "returns error for failed Produce response" do
+      response = %Kayrock.Produce.V0.Response{
+        responses: [
+          %{
+            topic: "error-topic",
+            partition_responses: [
+              %{partition: 0, error_code: 3, base_offset: -1}
+            ]
+          }
+        ]
+      }
+
+      assert {:error, error} = ResponseParser.produce_response(response)
+      assert error.error == :unknown_topic_or_partition
+    end
+
+    test "returns error for empty responses" do
+      response = %Kayrock.Produce.V0.Response{
+        responses: []
+      }
+
+      assert {:error, error} = ResponseParser.produce_response(response)
+      assert error.error == :empty_response
+    end
+  end
 end

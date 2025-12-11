@@ -17,10 +17,7 @@ defmodule KafkaEx.New.AdapterApiVersionsTest do
     end
 
     test "converts single API entry to legacy format" do
-      versions_map = %{
-        3 => {0, 2}
-      }
-
+      versions_map = %{3 => {0, 2}}
       response = Adapter.api_versions(versions_map)
 
       assert %Response{} = response
@@ -57,7 +54,6 @@ defmodule KafkaEx.New.AdapterApiVersionsTest do
     end
 
     test "sorts API entries by api_key" do
-      # Create map with keys in non-sorted order
       versions_map = %{
         18 => {0, 1},
         3 => {0, 2},

@@ -16,6 +16,7 @@ defmodule KafkaEx.New.Client.RequestBuilder do
     metadata: 1,
     offset_fetch: 1,
     offset_commit: 1,
+    produce: 3,
     sync_group: 1
   }
 
@@ -209,6 +210,47 @@ defmodule KafkaEx.New.Client.RequestBuilder do
   end
 
   @doc """
+  Builds request for Produce API
+  """
+  @spec produce_request(Keyword.t(), State.t()) :: {:ok, term} | {:error, :api_version_no_supported}
+  def produce_request(request_opts, state) do
+    case get_api_version(state, :produce, request_opts) do
+      {:ok, api_version} ->
+        topic = Keyword.fetch!(request_opts, :topic)
+        partition = Keyword.fetch!(request_opts, :partition)
+        messages = Keyword.fetch!(request_opts, :messages)
+
+        acks = Keyword.get(request_opts, :acks, -1)
+        timeout = Keyword.get(request_opts, :timeout, 5000)
+        compression = Keyword.get(request_opts, :compression, :none)
+        transactional_id = Keyword.get(request_opts, :transactional_id)
+
+        opts = [
+          topic: topic,
+          partition: partition,
+          messages: messages,
+          acks: acks,
+          timeout: timeout,
+          compression: compression
+        ]
+
+        # Add transactional_id for V3+ if provided
+        opts =
+          if api_version >= 3 && !is_nil(transactional_id) do
+            Keyword.put(opts, :transactional_id, transactional_id)
+          else
+            opts
+          end
+
+        req = @protocol.build_request(:produce, api_version, opts)
+        {:ok, req}
+
+      {:error, error_code} ->
+        {:error, error_code}
+    end
+  end
+
+  @doc """
   Builds request for Offset Commit API
   """
   @spec offset_commit_request(Keyword.t(), State.t()) :: {:ok, term} | {:error, :api_version_no_supported}
@@ -223,10 +265,9 @@ defmodule KafkaEx.New.Client.RequestBuilder do
         # Add optional parameters based on API version
         opts =
           if api_version >= 1 do
-            Keyword.merge(opts,
-              generation_id: Keyword.get(request_opts, :generation_id, -1),
-              member_id: Keyword.get(request_opts, :member_id, "")
-            )
+            generation_id = Keyword.get(request_opts, :generation_id, -1)
+            member_id = Keyword.get(request_opts, :member_id, "")
+            Keyword.merge(opts, generation_id: generation_id, member_id: member_id)
           else
             opts
           end

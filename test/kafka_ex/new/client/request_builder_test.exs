@@ -901,4 +901,154 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
       assert match?(%Kayrock.SyncGroup.V1.Request{}, request)
     end
   end
+
+  describe "produce_request/2" do
+    test "returns request for Produce API v3 (default)" do
+      state = %KafkaEx.New.Client.State{api_versions: %{0 => {0, 3}}}
+      messages = [%{value: "hello", key: "key1"}]
+      {:ok, request} = RequestBuilder.produce_request([topic: "test-topic", partition: 0, messages: messages], state)
+
+      # V3 uses RecordBatch
+      assert match?(%Kayrock.Produce.V3.Request{}, request)
+      assert request.acks == -1
+      assert request.timeout == 5000
+      assert [%{topic: "test-topic", data: [%{partition: 0}]}] = request.topic_data
+    end
+
+    test "returns request for Produce API v0 when explicitly requested" do
+      state = %KafkaEx.New.Client.State{api_versions: %{0 => {0, 3}}}
+      messages = [%{value: "hello"}]
+
+      {:ok, request} =
+        RequestBuilder.produce_request([topic: "events", partition: 1, messages: messages, api_version: 0], state)
+
+      assert match?(%Kayrock.Produce.V0.Request{}, request)
+      assert [%{topic: "events", data: [%{partition: 1}]}] = request.topic_data
+    end
+
+    test "returns request with custom acks and timeout" do
+      state = %KafkaEx.New.Client.State{api_versions: %{0 => {0, 3}}}
+      messages = [%{value: "data"}]
+
+      {:ok, request} =
+        RequestBuilder.produce_request(
+          [topic: "topic", partition: 0, messages: messages, acks: 1, timeout: 10_000],
+          state
+        )
+
+      assert request.acks == 1
+      assert request.timeout == 10_000
+    end
+
+    test "returns request with compression" do
+      state = %KafkaEx.New.Client.State{api_versions: %{0 => {0, 3}}}
+      messages = [%{value: "data"}]
+
+      {:ok, request} =
+        RequestBuilder.produce_request(
+          [topic: "compressed-topic", partition: 0, messages: messages, compression: :gzip],
+          state
+        )
+
+      assert match?(%Kayrock.Produce.V3.Request{}, request)
+      [%{data: [%{record_set: record_batch}]}] = request.topic_data
+      assert record_batch.attributes == 1
+    end
+
+    test "returns request with transactional_id for V3" do
+      state = %KafkaEx.New.Client.State{api_versions: %{0 => {0, 3}}}
+      messages = [%{value: "tx-data"}]
+
+      {:ok, request} =
+        RequestBuilder.produce_request(
+          [topic: "transactions", partition: 0, messages: messages, transactional_id: "my-tx-id"],
+          state
+        )
+
+      assert request.transactional_id == "my-tx-id"
+    end
+
+    test "uses MessageSet for V0-V2" do
+      state = %KafkaEx.New.Client.State{api_versions: %{0 => {0, 3}}}
+      messages = [%{value: "hello", key: "k1"}]
+
+      {:ok, request} =
+        RequestBuilder.produce_request([topic: "test", partition: 0, messages: messages, api_version: 2], state)
+
+      assert match?(%Kayrock.Produce.V2.Request{}, request)
+      [%{data: [%{record_set: message_set}]}] = request.topic_data
+      assert match?(%Kayrock.MessageSet{}, message_set)
+    end
+
+    test "uses RecordBatch for V3+" do
+      state = %KafkaEx.New.Client.State{api_versions: %{0 => {0, 3}}}
+      messages = [%{value: "hello", key: "k1"}]
+
+      {:ok, request} =
+        RequestBuilder.produce_request([topic: "test", partition: 0, messages: messages, api_version: 3], state)
+
+      assert match?(%Kayrock.Produce.V3.Request{}, request)
+      [%{data: [%{record_set: record_batch}]}] = request.topic_data
+      assert match?(%Kayrock.RecordBatch{}, record_batch)
+    end
+
+    test "returns error when api version is not supported" do
+      state = %KafkaEx.New.Client.State{api_versions: %{0 => {0, 2}}}
+      messages = [%{value: "data"}]
+
+      {:error, error_value} =
+        RequestBuilder.produce_request([topic: "topic", partition: 0, messages: messages, api_version: 5], state)
+
+      assert error_value == :api_version_no_supported
+    end
+
+    test "handles multiple messages" do
+      state = %KafkaEx.New.Client.State{api_versions: %{0 => {0, 3}}}
+
+      messages = [
+        %{value: "msg1", key: "k1"},
+        %{value: "msg2", key: "k2"},
+        %{value: "msg3"}
+      ]
+
+      {:ok, request} =
+        RequestBuilder.produce_request(
+          [
+            topic: "batch-topic",
+            partition: 0,
+            messages: messages
+          ],
+          state
+        )
+
+      [%{data: [%{record_set: record_batch}]}] = request.topic_data
+      assert length(record_batch.records) == 3
+    end
+
+    test "handles messages with headers (V3+)" do
+      state = %KafkaEx.New.Client.State{api_versions: %{0 => {0, 3}}}
+
+      messages = [
+        %{
+          value: "event-data",
+          key: "event-1",
+          headers: [{"content-type", "application/json"}, {"version", "1.0"}]
+        }
+      ]
+
+      {:ok, request} =
+        RequestBuilder.produce_request(
+          [
+            topic: "events",
+            partition: 0,
+            messages: messages
+          ],
+          state
+        )
+
+      [%{data: [%{record_set: record_batch}]}] = request.topic_data
+      [record] = record_batch.records
+      assert length(record.headers) == 2
+    end
+  end
 end

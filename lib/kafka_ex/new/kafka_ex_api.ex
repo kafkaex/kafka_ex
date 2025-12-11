@@ -20,6 +20,7 @@ defmodule KafkaEx.New.KafkaExAPI do
   alias KafkaEx.New.Structs.JoinGroup
   alias KafkaEx.New.Structs.LeaveGroup
   alias KafkaEx.New.Structs.Offset
+  alias KafkaEx.New.Structs.Produce
   alias KafkaEx.New.Structs.SyncGroup
   alias KafkaEx.New.Structs.Topic
 
@@ -410,4 +411,149 @@ defmodule KafkaEx.New.KafkaExAPI do
       {:error, error_atom} -> {:error, error_atom}
     end
   end
+
+  @doc """
+  Produce messages to a Kafka topic partition
+
+  Sends one or more messages to the specified topic and partition. Returns the
+  base offset assigned to the first message in the batch.
+
+  ## Parameters
+
+    - `client` - The KafkaEx client pid
+    - `topic` - The topic to produce to
+    - `partition` - The partition number
+    - `messages` - List of messages to produce, each a map with:
+      - `:value` (required) - The message value (binary)
+      - `:key` (optional) - The message key (binary, default nil)
+      - `:timestamp` (optional) - Message timestamp in ms (V2+, default broker time)
+      - `:headers` (optional) - List of {key, value} tuples (V3+ only)
+
+  ## Options
+
+    - `:acks` - Required acknowledgments. Default: -1
+      - `-1` - Wait for all in-sync replicas
+      - `0` - No acknowledgment (fire and forget)
+      - `1` - Wait for leader acknowledgment only
+    - `:timeout` - Request timeout in milliseconds. Default: 5000
+    - `:compression` - Compression type. Default: :none
+      - `:none` - No compression
+      - `:gzip` - GZIP compression
+      - `:snappy` - Snappy compression
+      - `:lz4` - LZ4 compression (V3+)
+      - `:zstd` - ZSTD compression (V3+)
+    - `:api_version` - API version to use. Default: 2
+    - `:transactional_id` - Transactional ID for transactional producers (V3+ only)
+
+  ## API Version Differences
+
+  | Version | Features |
+  |---------|----------|
+  | V0-V1 | Basic produce using MessageSet format |
+  | V2 | Adds timestamp support, still MessageSet format |
+  | V3+ | RecordBatch format with headers, transactional support |
+  | V5 | Adds log_start_offset to response |
+
+  ## Returns
+
+    - `{:ok, Produce.t()}` - Success with offset and metadata
+    - `{:error, error_atom}` - Error occurred
+
+  ## Examples
+
+      # Simple produce
+      messages = [%{value: "hello"}, %{value: "world", key: "greeting"}]
+      {:ok, result} = KafkaEx.New.KafkaExAPI.produce(client, "my-topic", 0, messages)
+      IO.puts("Offset: \#{result.base_offset}")
+
+      # With options
+      {:ok, result} = KafkaEx.New.KafkaExAPI.produce(client, "my-topic", 0, messages,
+        acks: 1,
+        compression: :gzip,
+        timeout: 10_000
+      )
+
+      # With headers (V3+)
+      messages = [%{
+        value: "event data",
+        key: "event-1",
+        headers: [{"content-type", "application/json"}]
+      }]
+      {:ok, result} = KafkaEx.New.KafkaExAPI.produce(client, "my-topic", 0, messages,
+        api_version: 3
+      )
+
+  """
+  @spec produce(client, topic_name, partition_id, [map()]) ::
+          {:ok, Produce.t()} | {:error, error_atom}
+  @spec produce(client, topic_name, partition_id, [map()], opts) ::
+          {:ok, Produce.t()} | {:error, error_atom}
+  def produce(client, topic, partition, messages, opts \\ []) do
+    case GenServer.call(client, {:produce, topic, partition, messages, opts}) do
+      {:ok, result} -> {:ok, result}
+      {:error, %{error: error_atom}} -> {:error, error_atom}
+      {:error, error_atom} -> {:error, error_atom}
+    end
+  end
+
+  @doc """
+  Produce a single message to a Kafka topic partition
+
+  Convenience function for producing a single message. Wraps the message
+  in a list and calls `produce/5`.
+
+  ## Parameters
+
+    - `client` - The KafkaEx client pid
+    - `topic` - The topic to produce to
+    - `partition` - The partition number
+    - `value` - The message value (binary)
+
+  ## Options
+
+  All options from `produce/5` are supported, plus:
+
+    - `:key` - The message key (binary, default nil)
+    - `:timestamp` - Message timestamp in ms (V2+)
+    - `:headers` - List of {key, value} tuples (V3+ only)
+
+  ## Examples
+
+      # Simple single message
+      {:ok, result} = KafkaEx.New.KafkaExAPI.produce_one(client, "my-topic", 0, "hello world")
+
+      # With key and options
+      {:ok, result} = KafkaEx.New.KafkaExAPI.produce_one(client, "my-topic", 0, "hello",
+        key: "greeting",
+        compression: :gzip
+      )
+
+      # With headers (V3+)
+      {:ok, result} = KafkaEx.New.KafkaExAPI.produce_one(client, "my-topic", 0, "event data",
+        key: "event-1",
+        headers: [{"content-type", "application/json"}],
+        api_version: 3
+      )
+
+  """
+  @spec produce_one(client, topic_name, partition_id, binary) ::
+          {:ok, Produce.t()} | {:error, error_atom}
+  @spec produce_one(client, topic_name, partition_id, binary, opts) ::
+          {:ok, Produce.t()} | {:error, error_atom}
+  def produce_one(client, topic, partition, value, opts \\ []) do
+    {message_opts, produce_opts} =
+      Keyword.split(opts, [:key, :timestamp, :headers])
+
+    message =
+      %{value: value}
+      |> maybe_put(:key, Keyword.get(message_opts, :key))
+      |> maybe_put(:timestamp, Keyword.get(message_opts, :timestamp))
+      |> maybe_put(:headers, Keyword.get(message_opts, :headers))
+
+    produce(client, topic, partition, [message], produce_opts)
+  end
+
+  # Helper to conditionally add keys to a map only if value is not nil
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end
