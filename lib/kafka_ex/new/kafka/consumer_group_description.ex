@@ -4,24 +4,7 @@ defmodule KafkaEx.New.Kafka.ConsumerGroupDescription do
 
   Java equivalent: `org.apache.kafka.clients.admin.ConsumerGroupDescription`
 
-  Contains information about a consumer group's state, protocol, and members
-  as returned by the DescribeGroups API.
-
-  ## Fields
-
-    * `:group_id` - The unique identifier for the consumer group
-    * `:state` - The current state of the group (e.g., "Stable", "PreparingRebalance")
-    * `:protocol_type` - The protocol type (usually "consumer")
-    * `:protocol` - The partition assignment protocol (e.g., "range", "roundrobin")
-    * `:members` - List of members currently in the group
-
-  ## Example
-
-      {:ok, description} = KafkaEx.New.KafkaExAPI.describe_group(client, "my-consumer-group")
-      description.state
-      #=> "Stable"
-      length(description.members)
-      #=> 3
+  Contains information about a consumer group's state, protocol, and members as returned by the DescribeGroups API.
   """
 
   alias KafkaEx.New.Kafka.ConsumerGroupDescription.Member

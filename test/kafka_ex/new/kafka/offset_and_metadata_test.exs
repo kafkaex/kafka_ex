@@ -171,10 +171,11 @@ defmodule KafkaEx.New.Kafka.OffsetAndMetadataTest do
   describe "use cases" do
     test "represents committed offset for consumer group" do
       # Typical usage: consumer commits offset with metadata
-      om = OffsetAndMetadata.build(
-        offset: 12345,
-        metadata: "consumer-instance-1"
-      )
+      om =
+        OffsetAndMetadata.build(
+          offset: 12345,
+          metadata: "consumer-instance-1"
+        )
 
       assert om.offset == 12345
       assert om.metadata == "consumer-instance-1"
@@ -182,11 +183,12 @@ defmodule KafkaEx.New.Kafka.OffsetAndMetadataTest do
 
     test "represents offset with leader epoch for fencing" do
       # V3+ usage with leader epoch
-      om = OffsetAndMetadata.build(
-        offset: 999,
-        metadata: "",
-        leader_epoch: 42
-      )
+      om =
+        OffsetAndMetadata.build(
+          offset: 999,
+          metadata: "",
+          leader_epoch: 42
+        )
 
       assert om.offset == 999
       assert om.leader_epoch == 42

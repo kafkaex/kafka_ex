@@ -8,19 +8,6 @@ defmodule KafkaEx.New.Kafka.TopicPartition do
   or manage offsets for.
 
   Java equivalent: `org.apache.kafka.common.TopicPartition`
-
-  ## Examples
-
-      # Create a topic-partition reference
-      tp = TopicPartition.new("my-topic", 0)
-
-      # Or using build/1
-      tp = TopicPartition.build(topic: "my-topic", partition: 0)
-
-      # Access fields
-      tp.topic     # "my-topic"
-      tp.partition # 0
-
   """
 
   defstruct [:topic, :partition]

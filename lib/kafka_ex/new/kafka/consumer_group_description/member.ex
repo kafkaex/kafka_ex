@@ -6,14 +6,6 @@ defmodule KafkaEx.New.Kafka.ConsumerGroupDescription.Member do
 
   Contains identifying information about a consumer group member and their
   current partition assignment.
-
-  ## Fields
-
-    * `:member_id` - The unique identifier assigned to this member by the coordinator
-    * `:client_id` - The client ID configured by the consumer
-    * `:client_host` - The host from which the consumer is connecting
-    * `:member_metadata` - Protocol-specific metadata (e.g., subscribed topics)
-    * `:member_assignment` - Current partition assignment (nil if group is rebalancing)
   """
   alias KafkaEx.New.Kafka.ConsumerGroupDescription.Member.MemberAssignment
 

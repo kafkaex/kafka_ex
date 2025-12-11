@@ -4,11 +4,6 @@ defmodule KafkaEx.New.Kafka.ConsumerGroupDescription.Member.MemberAssignment.Par
 
   Contains the topic name and list of partition IDs assigned to a member.
   Will only be present if the group is stable.
-
-  ## Fields
-
-    * `:topic` - The topic name
-    * `:partitions` - List of partition IDs assigned for this topic
   """
 
   @type t :: %__MODULE__{

@@ -6,12 +6,6 @@ defmodule KafkaEx.New.Kafka.ConsumerGroupDescription.Member.MemberAssignment do
 
   Contains the partition assignments and user data for a member.
   Will only be present if the group is stable.
-
-  ## Fields
-
-    * `:version` - The assignment protocol version
-    * `:user_data` - Custom user data passed with the assignment
-    * `:partition_assignments` - List of topic-partition assignments
   """
 
   alias KafkaEx.New.Kafka.ConsumerGroupDescription.Member.MemberAssignment.PartitionAssignment

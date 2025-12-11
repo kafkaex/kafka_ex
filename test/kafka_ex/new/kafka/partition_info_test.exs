@@ -51,12 +51,13 @@ defmodule KafkaEx.New.Kafka.PartitionInfoTest do
     end
 
     test "builds with all fields" do
-      result = PartitionInfo.build(
-        partition_id: 5,
-        leader: 2,
-        replicas: [1, 2, 3],
-        isr: [1, 2]
-      )
+      result =
+        PartitionInfo.build(
+          partition_id: 5,
+          leader: 2,
+          replicas: [1, 2, 3],
+          isr: [1, 2]
+        )
 
       assert result.partition_id == 5
       assert result.leader == 2

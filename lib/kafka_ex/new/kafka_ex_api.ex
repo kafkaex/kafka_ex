@@ -305,7 +305,8 @@ defmodule KafkaEx.New.KafkaExAPI do
   without waiting for a session timeout, improving rebalance latency.
   """
   @spec leave_group(client, consumer_group_name, member_id) :: {:ok, :no_error | LeaveGroup.t()} | {:error, error_atom}
-  @spec leave_group(client, consumer_group_name, member_id, opts) :: {:ok, :no_error | LeaveGroup.t()} | {:error, error_atom}
+  @spec leave_group(client, consumer_group_name, member_id, opts) ::
+          {:ok, :no_error | LeaveGroup.t()} | {:error, error_atom}
   def leave_group(client, consumer_group, member_id, opts \\ []) do
     case GenServer.call(client, {:leave_group, consumer_group, member_id, opts}) do
       {:ok, result} -> {:ok, result}
@@ -323,7 +324,8 @@ defmodule KafkaEx.New.KafkaExAPI do
   assigned partitions from this call.
   """
   @spec sync_group(client, consumer_group_name, generation_id, member_id) :: {:ok, SyncGroup.t()} | {:error, error_atom}
-  @spec sync_group(client, consumer_group_name, generation_id, member_id, opts) :: {:ok, SyncGroup.t()} | {:error, error_atom}
+  @spec sync_group(client, consumer_group_name, generation_id, member_id, opts) ::
+          {:ok, SyncGroup.t()} | {:error, error_atom}
   def sync_group(client, consumer_group, generation_id, member_id, opts \\ []) do
     case GenServer.call(client, {:sync_group, consumer_group, generation_id, member_id, opts}) do
       {:ok, result} -> {:ok, result}

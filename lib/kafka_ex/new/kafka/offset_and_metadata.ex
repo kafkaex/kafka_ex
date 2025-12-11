@@ -7,24 +7,6 @@ defmodule KafkaEx.New.Kafka.OffsetAndMetadata do
   typically used for consumer group coordination or custom tracking purposes.
 
   Java equivalent: `org.apache.kafka.clients.consumer.OffsetAndMetadata`
-
-  ## Fields
-
-    * `:offset` - The committed offset value (required, must be non-negative)
-    * `:metadata` - Optional metadata string (defaults to empty string)
-    * `:leader_epoch` - Optional leader epoch for fencing (v3+)
-
-  ## Examples
-
-      # Create with offset only
-      offset = OffsetAndMetadata.new(100)
-
-      # Create with offset and metadata
-      offset = OffsetAndMetadata.new(100, "consumer-v1")
-
-      # Create using build/1
-      offset = OffsetAndMetadata.build(offset: 100, metadata: "v1", leader_epoch: 5)
-
   """
 
   defstruct [:offset, metadata: "", leader_epoch: nil]

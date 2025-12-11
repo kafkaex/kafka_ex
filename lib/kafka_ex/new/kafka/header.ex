@@ -7,34 +7,6 @@ defmodule KafkaEx.New.Kafka.Header do
   uses include tracing information, content types, and routing metadata.
 
   Java equivalent: `org.apache.kafka.common.header.Header`
-
-  ## Examples
-
-      # Create a header
-      header = Header.new("content-type", "application/json")
-
-      # Convert from tuple format
-      header = Header.from_tuple({"trace-id", "abc123"})
-
-      # Convert to tuple format
-      tuple = Header.to_tuple(header)  # {"content-type", "application/json"}
-
-  ## Usage in Produce
-
-  When producing messages with headers (V3+):
-
-      messages = [
-        %{
-          value: "message body",
-          headers: [
-            Header.new("content-type", "application/json"),
-            Header.new("trace-id", "xyz789")
-          ]
-        }
-      ]
-
-  Note: Headers can also be specified as raw tuples `{"key", "value"}` for
-  convenience. This struct provides type safety and helper functions.
   """
 
   defstruct [:key, :value]

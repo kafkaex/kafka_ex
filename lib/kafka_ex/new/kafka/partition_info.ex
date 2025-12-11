@@ -6,23 +6,6 @@ defmodule KafkaEx.New.Kafka.PartitionInfo do
   replica assignments, and in-sync replica (ISR) list.
 
   Java equivalent: `org.apache.kafka.common.PartitionInfo`
-
-  ## Fields
-
-    * `:partition_id` - The partition number
-    * `:leader` - Node ID of the leader broker for this partition (-1 if unavailable)
-    * `:replicas` - List of node IDs hosting replicas of this partition
-    * `:isr` - List of node IDs that are in-sync replicas
-
-  ## Examples
-
-      partition = %PartitionInfo{
-        partition_id: 0,
-        leader: 1,
-        replicas: [1, 2, 3],
-        isr: [1, 2]
-      }
-
   """
 
   defstruct partition_id: nil, leader: -1, replicas: [], isr: []
