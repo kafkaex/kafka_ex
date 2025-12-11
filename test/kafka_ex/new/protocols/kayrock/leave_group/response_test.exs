@@ -2,7 +2,7 @@ defmodule KafkaEx.New.Protocols.Kayrock.LeaveGroup.ResponseTest do
   use ExUnit.Case, async: true
 
   alias KafkaEx.New.Protocols.Kayrock.LeaveGroup
-  alias KafkaEx.New.Structs.LeaveGroup, as: LeaveGroupStruct
+  alias KafkaEx.New.Kafka.LeaveGroup, as: LeaveGroupStruct
 
   describe "V0 Response implementation" do
     test "parses successful response with no error" do

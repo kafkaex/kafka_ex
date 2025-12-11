@@ -2,12 +2,12 @@ defmodule KafkaEx.New.Client.ResponseParserTest do
   use ExUnit.Case, async: true
 
   alias KafkaEx.New.Client.ResponseParser
-  alias KafkaEx.New.Structs.Heartbeat
-  alias KafkaEx.New.Structs.JoinGroup
-  alias KafkaEx.New.Structs.JoinGroup.Member
-  alias KafkaEx.New.Structs.LeaveGroup
-  alias KafkaEx.New.Structs.Offset
-  alias KafkaEx.New.Structs.Offset.PartitionOffset
+  alias KafkaEx.New.Kafka.Heartbeat
+  alias KafkaEx.New.Kafka.JoinGroup
+  alias KafkaEx.New.Kafka.JoinGroup.Member
+  alias KafkaEx.New.Kafka.LeaveGroup
+  alias KafkaEx.New.Kafka.Offset
+  alias KafkaEx.New.Kafka.Offset.PartitionOffset
 
   describe "offset_fetch_response/1" do
     test "parses successful OffsetFetch v1 response" do
@@ -581,7 +581,7 @@ defmodule KafkaEx.New.Client.ResponseParserTest do
   end
 
   describe "produce_response/1" do
-    alias KafkaEx.New.Structs.Produce
+    alias KafkaEx.New.Kafka.RecordMetadata
 
     test "parses successful Produce v0 response" do
       response = %Kayrock.Produce.V0.Response{
@@ -595,11 +595,11 @@ defmodule KafkaEx.New.Client.ResponseParserTest do
         ]
       }
 
-      assert {:ok, produce} = ResponseParser.produce_response(response)
-      assert %Produce{} = produce
-      assert produce.topic == "test-topic"
-      assert produce.partition == 0
-      assert produce.base_offset == 42
+      assert {:ok, record_metadata} = ResponseParser.produce_response(response)
+      assert %RecordMetadata{} = record_metadata
+      assert record_metadata.topic == "test-topic"
+      assert record_metadata.partition == 0
+      assert record_metadata.base_offset == 42
     end
 
     test "parses successful Produce v2 response with log_append_time" do
@@ -614,11 +614,11 @@ defmodule KafkaEx.New.Client.ResponseParserTest do
         ]
       }
 
-      assert {:ok, produce} = ResponseParser.produce_response(response)
-      assert produce.topic == "events"
-      assert produce.partition == 1
-      assert produce.base_offset == 100
-      assert produce.log_append_time == 1_702_000_000_000
+      assert {:ok, record_metadata} = ResponseParser.produce_response(response)
+      assert record_metadata.topic == "events"
+      assert record_metadata.partition == 1
+      assert record_metadata.base_offset == 100
+      assert record_metadata.log_append_time == 1_702_000_000_000
     end
 
     test "parses successful Produce v3 response with throttle_time_ms" do
@@ -634,10 +634,10 @@ defmodule KafkaEx.New.Client.ResponseParserTest do
         ]
       }
 
-      assert {:ok, produce} = ResponseParser.produce_response(response)
-      assert produce.topic == "transactions"
-      assert produce.throttle_time_ms == 50
-      assert produce.log_append_time == -1
+      assert {:ok, record_metadata} = ResponseParser.produce_response(response)
+      assert record_metadata.topic == "transactions"
+      assert record_metadata.throttle_time_ms == 50
+      assert record_metadata.log_append_time == -1
     end
 
     test "returns error for failed Produce response" do

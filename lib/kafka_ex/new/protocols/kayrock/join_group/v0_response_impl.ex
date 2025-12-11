@@ -7,8 +7,8 @@ defimpl KafkaEx.New.Protocols.Kayrock.JoinGroup.Response,
   """
 
   alias Kayrock.ErrorCode
-  alias KafkaEx.New.Structs.Error
-  alias KafkaEx.New.Structs.JoinGroup
+  alias KafkaEx.New.Client.Error
+  alias KafkaEx.New.Kafka.JoinGroup
 
   def parse_response(%Kayrock.JoinGroup.V0.Response{
         error_code: error_code,

@@ -17,7 +17,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   alias KafkaEx.Protocol.Metadata.TopicMetadata
   alias KafkaEx.Protocol.Offset.Response, as: OffsetResponse
 
-  alias KafkaEx.New.Structs.ClusterMetadata
+  alias KafkaEx.New.Kafka.ClusterMetadata
   alias KafkaEx.New.KafkaExAPI
 
   setup do
@@ -1046,7 +1046,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
 
       # New API with v1 (returns Heartbeat struct)
       {:ok, result_v1} = KafkaExAPI.heartbeat(client, consumer_group, member_id, generation_id, api_version: 1)
-      assert %KafkaEx.New.Structs.Heartbeat{throttle_time_ms: _} = result_v1
+      assert %KafkaEx.New.Kafka.Heartbeat{throttle_time_ms: _} = result_v1
 
       # Legacy API uses v0 (returns error_code only)
       legacy_request = %KafkaEx.Protocol.Heartbeat.Request{
@@ -1076,7 +1076,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
 
       # Sync via new API
       {:ok, result} = KafkaExAPI.sync_group(client, consumer_group, generation_id, member_id)
-      assert %KafkaEx.New.Structs.SyncGroup{} = result
+      assert %KafkaEx.New.Kafka.SyncGroup{} = result
 
       # Sync via legacy API
       legacy_request = %KafkaEx.Protocol.SyncGroup.Request{
@@ -1111,7 +1111,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
 
       # Sync via new API
       {:ok, result} = KafkaExAPI.sync_group(client, consumer_group, generation_id, member_id)
-      assert %KafkaEx.New.Structs.SyncGroup{} = result
+      assert %KafkaEx.New.Kafka.SyncGroup{} = result
     end
 
     test "both APIs handle unknown_member_id error identically", %{client: client} do
@@ -1198,7 +1198,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
 
       # New API with v1 (returns SyncGroup struct with throttle_time_ms)
       {:ok, result_v1} = KafkaExAPI.sync_group(client, consumer_group, generation_id, member_id, api_version: 1)
-      assert %KafkaEx.New.Structs.SyncGroup{throttle_time_ms: _} = result_v1
+      assert %KafkaEx.New.Kafka.SyncGroup{throttle_time_ms: _} = result_v1
 
       Process.sleep(100)
 
@@ -1217,7 +1217,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
 
       # New API with v0 (no throttle_time_ms)
       {:ok, result_v0} = KafkaExAPI.sync_group(client, consumer_group, generation_id, member_id, api_version: 0)
-      assert %KafkaEx.New.Structs.SyncGroup{throttle_time_ms: nil} = result_v0
+      assert %KafkaEx.New.Kafka.SyncGroup{throttle_time_ms: nil} = result_v0
     end
 
     test "sync_group followed by heartbeat across APIs", %{client: client} do
@@ -1251,7 +1251,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   # -----------------------------------------------------------------------------
   describe "api_versions compatibility" do
     test "fetch api_versions via new API", %{client: client} do
-      alias KafkaEx.New.Structs.ApiVersions
+      alias KafkaEx.New.Kafka.ApiVersions
 
       {:ok, versions} = KafkaExAPI.api_versions(client)
 
@@ -1281,7 +1281,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
     end
 
     test "new and legacy APIs return compatible API version data", %{client: client} do
-      alias KafkaEx.New.Structs.ApiVersions
+      alias KafkaEx.New.Kafka.ApiVersions
       {:ok, new_versions} = KafkaExAPI.api_versions(client)
 
       legacy_response = KafkaEx.api_versions(worker_name: client)
@@ -1326,7 +1326,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
     end
 
     test "api_versions helper functions work correctly", %{client: client} do
-      alias KafkaEx.New.Structs.ApiVersions
+      alias KafkaEx.New.Kafka.ApiVersions
 
       {:ok, versions} = KafkaExAPI.api_versions(client)
 

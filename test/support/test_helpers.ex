@@ -1,6 +1,6 @@
 defmodule KafkaEx.TestHelpers do
   alias KafkaEx.New.Client
-  alias KafkaEx.New.Structs.NodeSelector
+  alias KafkaEx.New.Client.NodeSelector
   require Logger
 
   @doc """

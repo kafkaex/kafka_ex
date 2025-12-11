@@ -13,16 +13,16 @@ defmodule KafkaEx.New.KafkaExAPI do
   ```
   """
 
-  alias KafkaEx.New.Structs.ApiVersions
-  alias KafkaEx.New.Structs.ClusterMetadata
-  alias KafkaEx.New.Structs.ConsumerGroup
-  alias KafkaEx.New.Structs.Heartbeat
-  alias KafkaEx.New.Structs.JoinGroup
-  alias KafkaEx.New.Structs.LeaveGroup
-  alias KafkaEx.New.Structs.Offset
-  alias KafkaEx.New.Structs.Produce
-  alias KafkaEx.New.Structs.SyncGroup
-  alias KafkaEx.New.Structs.Topic
+  alias KafkaEx.New.Kafka.ApiVersions
+  alias KafkaEx.New.Kafka.ClusterMetadata
+  alias KafkaEx.New.Kafka.ConsumerGroupDescription
+  alias KafkaEx.New.Kafka.Heartbeat
+  alias KafkaEx.New.Kafka.JoinGroup
+  alias KafkaEx.New.Kafka.LeaveGroup
+  alias KafkaEx.New.Kafka.Offset
+  alias KafkaEx.New.Kafka.RecordMetadata
+  alias KafkaEx.New.Kafka.SyncGroup
+  alias KafkaEx.New.Kafka.Topic
 
   @type node_id :: non_neg_integer
 
@@ -77,8 +77,8 @@ defmodule KafkaEx.New.KafkaExAPI do
   We support only one consumer group per request for now, as we don't
   group requests by group coordinator.
   """
-  @spec describe_group(client, consumer_group_name) :: {:ok, ConsumerGroup.t()} | {:error, any}
-  @spec describe_group(client, consumer_group_name, opts) :: {:ok, ConsumerGroup.t()} | {:error, any}
+  @spec describe_group(client, consumer_group_name) :: {:ok, ConsumerGroupDescription.t()} | {:error, any}
+  @spec describe_group(client, consumer_group_name, opts) :: {:ok, ConsumerGroupDescription.t()} | {:error, any}
   def describe_group(client, consumer_group_name, opts \\ []) do
     case GenServer.call(client, {:describe_groups, [consumer_group_name], opts}) do
       {:ok, [group]} -> {:ok, group}
@@ -120,17 +120,6 @@ defmodule KafkaEx.New.KafkaExAPI do
   This returns the cluster metadata currently cached in the client's state.
   It does not make a network request to Kafka. If you need fresh metadata,
   use `metadata/2` or `metadata/3` instead.
-
-  ## Returns
-
-    - `{:ok, ClusterMetadata.t()}` - The cached cluster metadata
-
-  ## Examples
-
-      {:ok, metadata} = KafkaEx.New.KafkaExAPI.cluster_metadata(client)
-      brokers = metadata.brokers
-      topics = metadata.topics
-
   """
   @spec cluster_metadata(client) :: {:ok, ClusterMetadata.t()}
   def cluster_metadata(client) do
@@ -293,78 +282,13 @@ defmodule KafkaEx.New.KafkaExAPI do
   of all members and is responsible for computing partition assignments (via
   `sync_group/5`).
 
-  ## Parameters
-
-    - `client` - The client PID
-    - `consumer_group` - The name of the consumer group to join
-    - `member_id` - The member ID (use empty string "" for first join)
-    - `opts` - Options keyword list
-
-  ## Options
-
-    - `:session_timeout` - (required) Session timeout in milliseconds. If the
-      coordinator does not receive a heartbeat within this timeout, it will
-      remove the member from the group and trigger a rebalance.
-    - `:protocol_type` - Protocol type (default: "consumer")
-    - `:group_protocols` - (required) List of group protocols with metadata.
-      Format: `[%{protocol_name: "assign", protocol_metadata: metadata}]`
-    - `:rebalance_timeout` - (V1+) Maximum time in milliseconds the coordinator
-      will wait for members to complete the rebalance. Defaults to session_timeout
-      if not provided.
-    - `:api_version` - API version to use (0, 1, or 2). Default: 1
-
   ## API Version Differences
-
     - **V0**: Basic JoinGroup with session_timeout
     - **V1**: Adds separate rebalance_timeout field
     - **V2**: Adds throttle_time_ms to response
-
-  ## Returns
-
-    - `{:ok, JoinGroup.t()}` - Join successful, contains generation_id, member_id,
-      leader_id, and members list (if leader)
-    - `{:error, error_atom}` - Join failed with error code
-
-  ## Examples
-
-      # First join (empty member_id)
-      {:ok, response} = KafkaEx.New.KafkaExAPI.join_group(
-        client,
-        "my-group",
-        "",
-        session_timeout: 30_000,
-        rebalance_timeout: 60_000,
-        group_protocols: [
-          %{
-            protocol_name: "assign",
-            protocol_metadata: %Kayrock.GroupProtocolMetadata{topics: ["my-topic"]}
-          }
-        ]
-      )
-
-      # Subsequent joins (with member_id)
-      {:ok, response} = KafkaEx.New.KafkaExAPI.join_group(
-        client,
-        "my-group",
-        response.member_id,
-        session_timeout: 30_000,
-        rebalance_timeout: 60_000,
-        group_protocols: [...]
-      )
-
-      # Check if this member is the leader
-      if JoinGroup.leader?(response) do
-        # This member is the leader, compute assignments
-        # Then call sync_group with assignments
-      else
-        # Follower, call sync_group with empty assignments
-      end
-
   """
-  @spec join_group(client, consumer_group_name, member_id) ::
-          {:ok, JoinGroup.t()} | {:error, error_atom}
-  @spec join_group(client, consumer_group_name, member_id, opts) ::
-          {:ok, JoinGroup.t()} | {:error, error_atom}
+  @spec join_group(client, consumer_group_name, member_id) :: {:ok, JoinGroup.t()} | {:error, error_atom}
+  @spec join_group(client, consumer_group_name, member_id, opts) :: {:ok, JoinGroup.t()} | {:error, error_atom}
   def join_group(client, consumer_group, member_id, opts \\ []) do
     case GenServer.call(client, {:join_group, consumer_group, member_id, opts}) do
       {:ok, result} -> {:ok, result}
@@ -380,10 +304,8 @@ defmodule KafkaEx.New.KafkaExAPI do
   consumer group. This allows the coordinator to immediately trigger a rebalance
   without waiting for a session timeout, improving rebalance latency.
   """
-  @spec leave_group(client, consumer_group_name, member_id) ::
-          {:ok, :no_error | LeaveGroup.t()} | {:error, error_atom}
-  @spec leave_group(client, consumer_group_name, member_id, opts) ::
-          {:ok, :no_error | LeaveGroup.t()} | {:error, error_atom}
+  @spec leave_group(client, consumer_group_name, member_id) :: {:ok, :no_error | LeaveGroup.t()} | {:error, error_atom}
+  @spec leave_group(client, consumer_group_name, member_id, opts) :: {:ok, :no_error | LeaveGroup.t()} | {:error, error_atom}
   def leave_group(client, consumer_group, member_id, opts \\ []) do
     case GenServer.call(client, {:leave_group, consumer_group, member_id, opts}) do
       {:ok, result} -> {:ok, result}
@@ -400,10 +322,8 @@ defmodule KafkaEx.New.KafkaExAPI do
   assignments which are distributed to all members. Followers receive their
   assigned partitions from this call.
   """
-  @spec sync_group(client, consumer_group_name, generation_id, member_id) ::
-          {:ok, SyncGroup.t()} | {:error, error_atom}
-  @spec sync_group(client, consumer_group_name, generation_id, member_id, opts) ::
-          {:ok, SyncGroup.t()} | {:error, error_atom}
+  @spec sync_group(client, consumer_group_name, generation_id, member_id) :: {:ok, SyncGroup.t()} | {:error, error_atom}
+  @spec sync_group(client, consumer_group_name, generation_id, member_id, opts) :: {:ok, SyncGroup.t()} | {:error, error_atom}
   def sync_group(client, consumer_group, generation_id, member_id, opts \\ []) do
     case GenServer.call(client, {:sync_group, consumer_group, generation_id, member_id, opts}) do
       {:ok, result} -> {:ok, result}
@@ -418,33 +338,6 @@ defmodule KafkaEx.New.KafkaExAPI do
   Sends one or more messages to the specified topic and partition. Returns the
   base offset assigned to the first message in the batch.
 
-  ## Parameters
-
-    - `client` - The KafkaEx client pid
-    - `topic` - The topic to produce to
-    - `partition` - The partition number
-    - `messages` - List of messages to produce, each a map with:
-      - `:value` (required) - The message value (binary)
-      - `:key` (optional) - The message key (binary, default nil)
-      - `:timestamp` (optional) - Message timestamp in ms (V2+, default broker time)
-      - `:headers` (optional) - List of {key, value} tuples (V3+ only)
-
-  ## Options
-
-    - `:acks` - Required acknowledgments. Default: -1
-      - `-1` - Wait for all in-sync replicas
-      - `0` - No acknowledgment (fire and forget)
-      - `1` - Wait for leader acknowledgment only
-    - `:timeout` - Request timeout in milliseconds. Default: 5000
-    - `:compression` - Compression type. Default: :none
-      - `:none` - No compression
-      - `:gzip` - GZIP compression
-      - `:snappy` - Snappy compression
-      - `:lz4` - LZ4 compression (V3+)
-      - `:zstd` - ZSTD compression (V3+)
-    - `:api_version` - API version to use. Default: 2
-    - `:transactional_id` - Transactional ID for transactional producers (V3+ only)
-
   ## API Version Differences
 
   | Version | Features |
@@ -453,41 +346,9 @@ defmodule KafkaEx.New.KafkaExAPI do
   | V2 | Adds timestamp support, still MessageSet format |
   | V3+ | RecordBatch format with headers, transactional support |
   | V5 | Adds log_start_offset to response |
-
-  ## Returns
-
-    - `{:ok, Produce.t()}` - Success with offset and metadata
-    - `{:error, error_atom}` - Error occurred
-
-  ## Examples
-
-      # Simple produce
-      messages = [%{value: "hello"}, %{value: "world", key: "greeting"}]
-      {:ok, result} = KafkaEx.New.KafkaExAPI.produce(client, "my-topic", 0, messages)
-      IO.puts("Offset: \#{result.base_offset}")
-
-      # With options
-      {:ok, result} = KafkaEx.New.KafkaExAPI.produce(client, "my-topic", 0, messages,
-        acks: 1,
-        compression: :gzip,
-        timeout: 10_000
-      )
-
-      # With headers (V3+)
-      messages = [%{
-        value: "event data",
-        key: "event-1",
-        headers: [{"content-type", "application/json"}]
-      }]
-      {:ok, result} = KafkaEx.New.KafkaExAPI.produce(client, "my-topic", 0, messages,
-        api_version: 3
-      )
-
   """
-  @spec produce(client, topic_name, partition_id, [map()]) ::
-          {:ok, Produce.t()} | {:error, error_atom}
-  @spec produce(client, topic_name, partition_id, [map()], opts) ::
-          {:ok, Produce.t()} | {:error, error_atom}
+  @spec produce(client, topic_name, partition_id, [map()]) :: {:ok, RecordMetadata.t()} | {:error, error_atom}
+  @spec produce(client, topic_name, partition_id, [map()], opts) :: {:ok, RecordMetadata.t()} | {:error, error_atom}
   def produce(client, topic, partition, messages, opts \\ []) do
     case GenServer.call(client, {:produce, topic, partition, messages, opts}) do
       {:ok, result} -> {:ok, result}
@@ -498,51 +359,12 @@ defmodule KafkaEx.New.KafkaExAPI do
 
   @doc """
   Produce a single message to a Kafka topic partition
-
-  Convenience function for producing a single message. Wraps the message
-  in a list and calls `produce/5`.
-
-  ## Parameters
-
-    - `client` - The KafkaEx client pid
-    - `topic` - The topic to produce to
-    - `partition` - The partition number
-    - `value` - The message value (binary)
-
-  ## Options
-
-  All options from `produce/5` are supported, plus:
-
-    - `:key` - The message key (binary, default nil)
-    - `:timestamp` - Message timestamp in ms (V2+)
-    - `:headers` - List of {key, value} tuples (V3+ only)
-
-  ## Examples
-
-      # Simple single message
-      {:ok, result} = KafkaEx.New.KafkaExAPI.produce_one(client, "my-topic", 0, "hello world")
-
-      # With key and options
-      {:ok, result} = KafkaEx.New.KafkaExAPI.produce_one(client, "my-topic", 0, "hello",
-        key: "greeting",
-        compression: :gzip
-      )
-
-      # With headers (V3+)
-      {:ok, result} = KafkaEx.New.KafkaExAPI.produce_one(client, "my-topic", 0, "event data",
-        key: "event-1",
-        headers: [{"content-type", "application/json"}],
-        api_version: 3
-      )
-
+  Convenience function for producing a single message. Wraps the message in a list and calls `produce/5`.
   """
-  @spec produce_one(client, topic_name, partition_id, binary) ::
-          {:ok, Produce.t()} | {:error, error_atom}
-  @spec produce_one(client, topic_name, partition_id, binary, opts) ::
-          {:ok, Produce.t()} | {:error, error_atom}
+  @spec produce_one(client, topic_name, partition_id, binary) :: {:ok, RecordMetadata.t()} | {:error, error_atom}
+  @spec produce_one(client, topic_name, partition_id, binary, opts) :: {:ok, RecordMetadata.t()} | {:error, error_atom}
   def produce_one(client, topic, partition, value, opts \\ []) do
-    {message_opts, produce_opts} =
-      Keyword.split(opts, [:key, :timestamp, :headers])
+    {message_opts, produce_opts} = Keyword.split(opts, [:key, :timestamp, :headers])
 
     message =
       %{value: value}

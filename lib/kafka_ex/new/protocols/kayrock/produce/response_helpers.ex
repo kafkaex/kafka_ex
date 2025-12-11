@@ -7,8 +7,8 @@ defmodule KafkaEx.New.Protocols.Kayrock.Produce.ResponseHelpers do
   extraction logic directly.
   """
 
-  alias KafkaEx.New.Structs.Error
-  alias KafkaEx.New.Structs.Produce
+  alias KafkaEx.New.Client.Error
+  alias KafkaEx.New.Kafka.RecordMetadata
 
   alias Kayrock.ErrorCode
 
@@ -51,11 +51,11 @@ defmodule KafkaEx.New.Protocols.Kayrock.Produce.ResponseHelpers do
   end
 
   @doc """
-  Builds a Produce struct from parsed response data.
+  Builds a RecordMetadata struct from parsed response data.
   """
-  @spec build_produce(Keyword.t()) :: Produce.t()
-  def build_produce(opts) do
-    Produce.build(opts)
+  @spec build_record_metadata(Keyword.t()) :: RecordMetadata.t()
+  def build_record_metadata(opts) do
+    RecordMetadata.build(opts)
   end
 
   @doc """

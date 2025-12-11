@@ -21,7 +21,7 @@ defimpl KafkaEx.New.Protocols.Kayrock.OffsetCommit.Response, for: Kayrock.Offset
 
   defp build_commit_result(topic, %{partition: partition, error_code: 0}) do
     data = %{partition: partition, error_code: :no_error}
-    {:ok, KafkaEx.New.Structs.Offset.from_list_offset(topic, [data])}
+    {:ok, KafkaEx.New.Kafka.Offset.from_list_offset(topic, [data])}
   end
 
   defp build_commit_result(topic, %{error_code: error_code, partition: partition}) do

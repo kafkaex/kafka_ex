@@ -367,7 +367,7 @@ defmodule KafkaEx.New.Protocols.Kayrock.{ApiName}.ResponseTest do
   use ExUnit.Case, async: true
 
   alias KafkaEx.New.Protocols.Kayrock.{ApiName}
-  alias KafkaEx.New.Structs.{ApiName}, as: {ApiName}Struct  # if applicable
+  alias KafkaEx.New.Kafka.{ApiName}, as: {ApiName}Struct  # if applicable
 
   # 1. V0 Response implementation tests
   describe "V0 Response implementation" do

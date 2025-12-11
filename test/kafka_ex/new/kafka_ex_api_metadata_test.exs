@@ -2,7 +2,7 @@ defmodule KafkaEx.New.KafkaExAPIMetadataTest do
   use ExUnit.Case, async: false
 
   alias KafkaEx.New.KafkaExAPI
-  alias KafkaEx.New.Structs.{Broker, ClusterMetadata, Partition, Topic}
+  alias KafkaEx.New.Kafka.{Broker, ClusterMetadata, PartitionInfo, Topic}
 
   # Mock GenServer for testing
   defmodule MockClient do
@@ -313,7 +313,7 @@ defmodule KafkaEx.New.KafkaExAPIMetadataTest do
           name: "test-topic",
           partition_leaders: %{0 => 1},
           is_internal: false,
-          partitions: [%Partition{partition_id: 0, leader: 1, replicas: [1], isr: [1]}]
+          partitions: [%PartitionInfo{partition_id: 0, leader: 1, replicas: [1], isr: [1]}]
         }
       },
       consumer_group_coordinators: %{}
@@ -328,7 +328,7 @@ defmodule KafkaEx.New.KafkaExAPIMetadataTest do
            name: topic_name,
            partition_leaders: %{0 => 1},
            is_internal: false,
-           partitions: [%Partition{partition_id: 0, leader: 1, replicas: [1], isr: [1]}]
+           partitions: [%PartitionInfo{partition_id: 0, leader: 1, replicas: [1], isr: [1]}]
          }}
       end)
 
@@ -367,9 +367,9 @@ defmodule KafkaEx.New.KafkaExAPIMetadataTest do
           partition_leaders: %{0 => 1, 1 => 2, 2 => 3},
           is_internal: false,
           partitions: [
-            %Partition{partition_id: 0, leader: 1, replicas: [1, 2], isr: [1, 2]},
-            %Partition{partition_id: 1, leader: 2, replicas: [2, 3], isr: [2, 3]},
-            %Partition{partition_id: 2, leader: 3, replicas: [3, 1], isr: [3, 1]}
+            %PartitionInfo{partition_id: 0, leader: 1, replicas: [1, 2], isr: [1, 2]},
+            %PartitionInfo{partition_id: 1, leader: 2, replicas: [2, 3], isr: [2, 3]},
+            %PartitionInfo{partition_id: 2, leader: 3, replicas: [3, 1], isr: [3, 1]}
           ]
         }
       },
@@ -388,13 +388,13 @@ defmodule KafkaEx.New.KafkaExAPIMetadataTest do
           name: "__consumer_offsets",
           partition_leaders: %{0 => 1},
           is_internal: true,
-          partitions: [%Partition{partition_id: 0, leader: 1, replicas: [1], isr: [1]}]
+          partitions: [%PartitionInfo{partition_id: 0, leader: 1, replicas: [1], isr: [1]}]
         },
         "orders" => %Topic{
           name: "orders",
           partition_leaders: %{0 => 1},
           is_internal: false,
-          partitions: [%Partition{partition_id: 0, leader: 1, replicas: [1], isr: [1]}]
+          partitions: [%PartitionInfo{partition_id: 0, leader: 1, replicas: [1], isr: [1]}]
         }
       },
       consumer_group_coordinators: %{}

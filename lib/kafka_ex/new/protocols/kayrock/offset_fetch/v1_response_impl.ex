@@ -26,7 +26,7 @@ defimpl KafkaEx.New.Protocols.Kayrock.OffsetFetch.Response, for: Kayrock.OffsetF
       metadata: metadata || ""
     }
 
-    {:ok, KafkaEx.New.Structs.Offset.from_list_offset(topic, [data])}
+    {:ok, KafkaEx.New.Kafka.Offset.from_list_offset(topic, [data])}
   end
 
   defp build_offset(topic, %{error_code: error_code, partition: partition}) do

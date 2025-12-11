@@ -5,8 +5,8 @@ defimpl KafkaEx.New.Protocols.Kayrock.Heartbeat.Response, for: Kayrock.Heartbeat
   V1 includes throttle_time_ms field.
   """
 
-  alias KafkaEx.New.Structs.Error, as: ErrorStruct
-  alias KafkaEx.New.Structs.Heartbeat, as: HeartbeatStruct
+  alias KafkaEx.New.Client.Error, as: ErrorStruct
+  alias KafkaEx.New.Kafka.Heartbeat, as: HeartbeatStruct
 
   def parse_response(%{error_code: 0, throttle_time_ms: throttle_time_ms}) do
     heartbeat = HeartbeatStruct.build(throttle_time_ms: throttle_time_ms)

@@ -6,9 +6,9 @@ defimpl KafkaEx.New.Protocols.Kayrock.SyncGroup.Response, for: Kayrock.SyncGroup
   """
 
   alias Kayrock.ErrorCode
-  alias KafkaEx.New.Structs.Error
-  alias KafkaEx.New.Structs.SyncGroup
-  alias KafkaEx.New.Structs.ConsumerGroup.Member.MemberAssignment.PartitionAssignment
+  alias KafkaEx.New.Client.Error
+  alias KafkaEx.New.Kafka.SyncGroup
+  alias KafkaEx.New.Kafka.ConsumerGroupDescription.Member.MemberAssignment.PartitionAssignment
 
   def parse_response(%Kayrock.SyncGroup.V1.Response{
         throttle_time_ms: throttle_time_ms,

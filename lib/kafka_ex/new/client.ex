@@ -17,10 +17,10 @@ defmodule KafkaEx.New.Client do
   alias KafkaEx.New.Client.RequestBuilder
   alias KafkaEx.New.Client.ResponseParser
   alias KafkaEx.New.Client.State
-  alias KafkaEx.New.Structs.Broker
-  alias KafkaEx.New.Structs.ClusterMetadata
-  alias KafkaEx.New.Structs.Error
-  alias KafkaEx.New.Structs.NodeSelector
+  alias KafkaEx.New.Kafka.Broker
+  alias KafkaEx.New.Kafka.ClusterMetadata
+  alias KafkaEx.New.Client.Error
+  alias KafkaEx.New.Client.NodeSelector
 
   alias Kayrock.ApiVersions
   alias Kayrock.ErrorCode
@@ -50,7 +50,7 @@ defmodule KafkaEx.New.Client do
   Send a Kayrock request to the appropriate broker
   Broker metadata will be updated if necessary
   """
-  @spec send_request(KafkaEx.New.KafkaExAPI.client(), map, KafkaEx.New.Structs.NodeSelector.t(), pos_integer | nil) ::
+  @spec send_request(KafkaEx.New.KafkaExAPI.client(), map, KafkaEx.New.Client.NodeSelector.t(), pos_integer | nil) ::
           {:ok, term} | {:error, term}
   def send_request(server, request, node_selector, timeout \\ nil) do
     GenServer.call(server, {:kayrock_request, request, node_selector}, timeout_val(timeout))

@@ -6,7 +6,7 @@ defmodule KafkaEx.New.Protocols.Kayrock.ResponseHelpers do
   multiple protocol implementations (OffsetCommit, OffsetFetch, etc.).
   """
 
-  alias KafkaEx.New.Structs.Error, as: ErrorStruct
+  alias KafkaEx.New.Client.Error, as: ErrorStruct
 
   @type error_tuple :: {atom(), String.t(), non_neg_integer()}
   @type parser_fn :: (String.t(), list() -> {:ok, any()} | {:error, error_tuple()})

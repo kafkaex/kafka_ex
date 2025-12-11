@@ -3,7 +3,7 @@ defimpl KafkaEx.New.Protocols.Kayrock.Heartbeat.Response, for: Kayrock.Heartbeat
   Implementation for Heartbeat v0 Response.
   """
 
-  alias KafkaEx.New.Structs.Error, as: ErrorStruct
+  alias KafkaEx.New.Client.Error, as: ErrorStruct
 
   def parse_response(%{error_code: 0}) do
     {:ok, :no_error}

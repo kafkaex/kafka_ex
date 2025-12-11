@@ -2,7 +2,7 @@ defmodule KafkaEx.New.Protocols.Kayrock.JoinGroup.ResponseTest do
   use ExUnit.Case, async: true
 
   alias KafkaEx.New.Protocols.Kayrock.JoinGroup
-  alias KafkaEx.New.Structs.JoinGroup, as: JoinGroupStruct
+  alias KafkaEx.New.Kafka.JoinGroup, as: JoinGroupStruct
 
   describe "V0 Response implementation" do
     test "parses successful response with no error and empty members" do

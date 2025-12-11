@@ -7,7 +7,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
 
   alias KafkaEx.New.Client
   alias KafkaEx.New.KafkaExAPI, as: API
-  alias KafkaEx.New.Structs.Produce
+  alias KafkaEx.New.Kafka.RecordMetadata
 
   setup do
     {:ok, args} = KafkaEx.build_worker_options([])
@@ -24,7 +24,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
       messages = [%{value: "hello world"}]
       {:ok, result} = API.produce(client, topic_name, 0, messages)
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.topic == topic_name
       assert result.partition == 0
       assert result.base_offset >= 0
@@ -42,7 +42,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
 
       {:ok, result} = API.produce(client, topic_name, 0, messages)
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset >= 0
     end
 
@@ -53,7 +53,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
       messages = [%{value: "hello", key: "greeting"}]
       {:ok, result} = API.produce(client, topic_name, 0, messages)
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset >= 0
     end
 
@@ -64,7 +64,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
       messages = [%{value: "hello", key: nil}]
       {:ok, result} = API.produce(client, topic_name, 0, messages)
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset >= 0
     end
 
@@ -104,7 +104,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
       messages = [%{value: ""}]
       {:ok, result} = API.produce(client, topic_name, 0, messages)
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset >= 0
     end
 
@@ -116,7 +116,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
       messages = [%{value: binary_value}]
       {:ok, result} = API.produce(client, topic_name, 0, messages)
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset >= 0
     end
   end
@@ -129,7 +129,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
       messages = [%{value: "acks=1 test"}]
       {:ok, result} = API.produce(client, topic_name, 0, messages, acks: 1)
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset >= 0
     end
 
@@ -140,7 +140,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
       messages = [%{value: "acks=-1 test"}]
       {:ok, result} = API.produce(client, topic_name, 0, messages, acks: -1)
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset >= 0
     end
   end
@@ -158,7 +158,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
 
       {:ok, result} = API.produce(client, topic_name, 0, messages, compression: :gzip)
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset >= 0
     end
 
@@ -174,7 +174,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
 
       {:ok, result} = API.produce(client, topic_name, 0, messages, compression: :snappy)
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset >= 0
     end
 
@@ -185,7 +185,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
       messages = [%{value: "no compression"}]
       {:ok, result} = API.produce(client, topic_name, 0, messages, compression: :none)
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset >= 0
     end
   end
@@ -198,7 +198,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
       messages = [%{value: "v0 message"}]
       {:ok, result} = API.produce(client, topic_name, 0, messages, api_version: 0)
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset >= 0
       # V0 doesn't have throttle_time_ms or log_append_time
       assert is_nil(result.throttle_time_ms)
@@ -212,7 +212,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
       messages = [%{value: "v1 message"}]
       {:ok, result} = API.produce(client, topic_name, 0, messages, api_version: 1)
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset >= 0
       # V1 has throttle_time_ms
       assert is_integer(result.throttle_time_ms) or is_nil(result.throttle_time_ms)
@@ -225,7 +225,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
       messages = [%{value: "v2 message"}]
       {:ok, result} = API.produce(client, topic_name, 0, messages, api_version: 2)
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset >= 0
       # V2 has log_append_time
       # log_append_time may be -1 if broker uses CreateTime
@@ -238,7 +238,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
       messages = [%{value: "v3 message"}]
       {:ok, result} = API.produce(client, topic_name, 0, messages, api_version: 3)
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset >= 0
     end
 
@@ -249,7 +249,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
       messages = [%{value: "v5 message"}]
       {:ok, result} = API.produce(client, topic_name, 0, messages, api_version: 5)
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset >= 0
       # V5 includes log_start_offset
       assert is_integer(result.log_start_offset) or is_nil(result.log_start_offset)
@@ -270,7 +270,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
 
       {:ok, result} = API.produce(client, topic_name, 0, messages, api_version: 3)
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset >= 0
     end
 
@@ -281,7 +281,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
       messages = [%{value: "message with empty headers", headers: []}]
       {:ok, result} = API.produce(client, topic_name, 0, messages, api_version: 3)
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset >= 0
     end
 
@@ -292,7 +292,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
       messages = [%{value: "message with nil headers", headers: nil}]
       {:ok, result} = API.produce(client, topic_name, 0, messages, api_version: 3)
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset >= 0
     end
   end
@@ -307,7 +307,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
 
       {:ok, result} = API.produce(client, topic_name, 0, messages, api_version: 2)
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset >= 0
     end
 
@@ -320,7 +320,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
 
       {:ok, result} = API.produce(client, topic_name, 0, messages, api_version: 3)
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset >= 0
     end
   end
@@ -332,7 +332,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
 
       {:ok, result} = API.produce_one(client, topic_name, 0, "simple message")
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.topic == topic_name
       assert result.partition == 0
       assert result.base_offset >= 0
@@ -344,7 +344,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
 
       {:ok, result} = API.produce_one(client, topic_name, 0, "")
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset >= 0
     end
   end
@@ -356,7 +356,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
 
       {:ok, result} = API.produce_one(client, topic_name, 0, "hello", key: "greeting")
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset >= 0
     end
 
@@ -370,7 +370,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
           compression: :gzip
         )
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset >= 0
     end
 
@@ -385,7 +385,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
           api_version: 3
         )
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset >= 0
     end
 
@@ -401,7 +401,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
           api_version: 3
         )
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset >= 0
     end
 
@@ -422,7 +422,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
           api_version: 3
         )
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset >= 0
     end
   end
@@ -438,7 +438,7 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
 
       # Either succeeds (auto-create enabled) or fails with error
       case result do
-        {:ok, %Produce{}} -> assert true
+        {:ok, %RecordMetadata{}} -> assert true
         {:error, error} -> assert error in [:unknown_topic_or_partition, :leader_not_available]
       end
     end

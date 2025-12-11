@@ -2,7 +2,7 @@ defmodule KafkaEx.New.AdapterMetadataTest do
   use ExUnit.Case, async: true
 
   alias KafkaEx.New.Adapter
-  alias KafkaEx.New.Structs.{Broker, ClusterMetadata, Partition, Topic}
+  alias KafkaEx.New.Kafka.{Broker, ClusterMetadata, PartitionInfo, Topic}
   alias KafkaEx.Protocol.Metadata.{PartitionMetadata, Response, TopicMetadata}
 
   describe "Adapter.metadata_response/1" do
@@ -68,8 +68,8 @@ defmodule KafkaEx.New.AdapterMetadataTest do
             partition_leaders: %{0 => 1, 1 => 1},
             is_internal: false,
             partitions: [
-              %Partition{partition_id: 0, leader: 1, replicas: [1], isr: [1]},
-              %Partition{partition_id: 1, leader: 1, replicas: [1], isr: [1]}
+              %PartitionInfo{partition_id: 0, leader: 1, replicas: [1], isr: [1]},
+              %PartitionInfo{partition_id: 1, leader: 1, replicas: [1], isr: [1]}
             ]
           }
         },
@@ -98,7 +98,7 @@ defmodule KafkaEx.New.AdapterMetadataTest do
             partition_leaders: %{0 => 1},
             is_internal: false,
             partitions: [
-              %Partition{
+              %PartitionInfo{
                 partition_id: 0,
                 leader: 1,
                 replicas: [1, 2, 3],
@@ -134,7 +134,7 @@ defmodule KafkaEx.New.AdapterMetadataTest do
             partition_leaders: %{0 => 1},
             is_internal: true,
             partitions: [
-              %Partition{partition_id: 0, leader: 1, replicas: [1], isr: [1]}
+              %PartitionInfo{partition_id: 0, leader: 1, replicas: [1], isr: [1]}
             ]
           }
         },
@@ -206,7 +206,7 @@ defmodule KafkaEx.New.AdapterMetadataTest do
             partition_leaders: %{0 => 1},
             is_internal: false,
             partitions: [
-              %Partition{partition_id: 0, leader: 1, replicas: [1], isr: [1]}
+              %PartitionInfo{partition_id: 0, leader: 1, replicas: [1], isr: [1]}
             ]
           },
           "topic2" => %Topic{
@@ -214,7 +214,7 @@ defmodule KafkaEx.New.AdapterMetadataTest do
             partition_leaders: %{0 => 1},
             is_internal: false,
             partitions: [
-              %Partition{partition_id: 0, leader: 1, replicas: [1], isr: [1]}
+              %PartitionInfo{partition_id: 0, leader: 1, replicas: [1], isr: [1]}
             ]
           }
         },

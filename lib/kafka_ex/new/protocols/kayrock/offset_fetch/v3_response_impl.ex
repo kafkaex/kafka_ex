@@ -8,7 +8,7 @@ defimpl KafkaEx.New.Protocols.Kayrock.OffsetFetch.Response, for: Kayrock.OffsetF
   import KafkaEx.New.Protocols.Kayrock.ResponseHelpers,
     only: [build_response: 1, fail_fast_iterate_topics: 2, fail_fast_iterate_partitions: 3]
 
-  alias KafkaEx.New.Structs.Error, as: ErrorStruct
+  alias KafkaEx.New.Client.Error, as: ErrorStruct
 
   def parse_response(%{error_code: error_code, responses: _responses}) when error_code != 0 do
     {:error, ErrorStruct.build(error_code, %{})}
@@ -34,7 +34,7 @@ defimpl KafkaEx.New.Protocols.Kayrock.OffsetFetch.Response, for: Kayrock.OffsetF
       metadata: metadata || ""
     }
 
-    {:ok, KafkaEx.New.Structs.Offset.from_list_offset(topic, [data])}
+    {:ok, KafkaEx.New.Kafka.Offset.from_list_offset(topic, [data])}
   end
 
   defp build_offset(topic, %{error_code: error_code, partition: partition}) do

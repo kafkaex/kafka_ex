@@ -32,7 +32,7 @@ defmodule KafkaEx.New.Protocols.Kayrock.Metadata do
   ```
   """
 
-  alias KafkaEx.New.Structs.ClusterMetadata
+  alias KafkaEx.New.Kafka.ClusterMetadata
 
   defprotocol Request do
     @moduledoc """

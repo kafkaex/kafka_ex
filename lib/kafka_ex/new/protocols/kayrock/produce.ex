@@ -37,13 +37,13 @@ defmodule KafkaEx.New.Protocols.Kayrock.Produce do
 
     ## Return Values
 
-    - `{:ok, Produce.t()}` on success with offset and metadata
+    - `{:ok, RecordMetadata.t()}` on success with offset and metadata
     - `{:error, Error.t()}` on error with error details
     """
-    alias KafkaEx.New.Structs.Error
-    alias KafkaEx.New.Structs.Produce
+    alias KafkaEx.New.Client.Error
+    alias KafkaEx.New.Kafka.RecordMetadata
 
-    @spec parse_response(t()) :: {:ok, Produce.t()} | {:error, Error.t()}
+    @spec parse_response(t()) :: {:ok, RecordMetadata.t()} | {:error, Error.t()}
     def parse_response(response)
   end
 end

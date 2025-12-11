@@ -3,7 +3,7 @@ defimpl KafkaEx.New.Protocols.Kayrock.LeaveGroup.Response, for: Kayrock.LeaveGro
   Implementation for LeaveGroup v0 Response.
   """
 
-  alias KafkaEx.New.Structs.Error, as: ErrorStruct
+  alias KafkaEx.New.Client.Error, as: ErrorStruct
 
   def parse_response(%{error_code: 0}) do
     {:ok, :no_error}

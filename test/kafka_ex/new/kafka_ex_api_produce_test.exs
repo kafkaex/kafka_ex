@@ -2,7 +2,7 @@ defmodule KafkaEx.New.KafkaExAPIProduceTest do
   use ExUnit.Case, async: false
 
   alias KafkaEx.New.KafkaExAPI
-  alias KafkaEx.New.Structs.Produce
+  alias KafkaEx.New.Kafka.RecordMetadata
 
   # Mock GenServer for testing
   defmodule MockClient do
@@ -37,7 +37,7 @@ defmodule KafkaEx.New.KafkaExAPIProduceTest do
     end
 
     defp build_default_produce do
-      %Produce{
+      %RecordMetadata{
         topic: "test-topic",
         partition: 0,
         base_offset: 100,
@@ -55,7 +55,7 @@ defmodule KafkaEx.New.KafkaExAPIProduceTest do
       messages = [%{value: "hello"}, %{value: "world"}]
       {:ok, result} = KafkaExAPI.produce(client, "test-topic", 0, messages)
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
       assert result.base_offset == 100
 
       last_call = GenServer.call(client, :get_last_call)
@@ -85,7 +85,7 @@ defmodule KafkaEx.New.KafkaExAPIProduceTest do
       messages = [%{value: "single message"}]
       {:ok, result} = KafkaExAPI.produce(client, "my-topic", 1, messages)
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
 
       last_call = GenServer.call(client, :get_last_call)
       assert last_call.topic == "my-topic"
@@ -180,7 +180,7 @@ defmodule KafkaEx.New.KafkaExAPIProduceTest do
 
   describe "KafkaExAPI.produce/5 with response fields" do
     test "returns all response fields" do
-      produce_response = %Produce{
+      produce_response = %RecordMetadata{
         topic: "events",
         partition: 2,
         base_offset: 500,
@@ -203,7 +203,7 @@ defmodule KafkaEx.New.KafkaExAPIProduceTest do
     end
 
     test "handles nil optional fields" do
-      produce_response = %Produce{
+      produce_response = %RecordMetadata{
         topic: "test",
         partition: 0,
         base_offset: 0,
@@ -229,7 +229,7 @@ defmodule KafkaEx.New.KafkaExAPIProduceTest do
 
       {:ok, result} = KafkaExAPI.produce_one(client, "test-topic", 0, "hello world")
 
-      assert %Produce{} = result
+      assert %RecordMetadata{} = result
 
       last_call = GenServer.call(client, :get_last_call)
       assert last_call.topic == "test-topic"

@@ -2,7 +2,7 @@ defmodule KafkaEx.New.Protocols.Kayrock.SyncGroup.ResponseTest do
   use ExUnit.Case, async: true
 
   alias KafkaEx.New.Protocols.Kayrock.SyncGroup
-  alias KafkaEx.New.Structs.ConsumerGroup.Member.MemberAssignment.PartitionAssignment
+  alias KafkaEx.New.Kafka.ConsumerGroupDescription.Member.MemberAssignment.PartitionAssignment
 
   describe "V0 Response implementation" do
     test "parses successful response with no error and empty assignments" do
