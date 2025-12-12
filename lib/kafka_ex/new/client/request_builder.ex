@@ -117,7 +117,6 @@ defmodule KafkaEx.New.Client.RequestBuilder do
       {:ok, api_version} ->
         group_id = Keyword.fetch!(request_opts, :group_id)
         member_id = Keyword.fetch!(request_opts, :member_id)
-
         opts = [group_id: group_id, member_id: member_id]
 
         req = @protocol.build_request(:leave_group, api_version, opts)
@@ -130,35 +129,15 @@ defmodule KafkaEx.New.Client.RequestBuilder do
 
   @doc """
   Builds request for JoinGroup API
+
+  Version-specific logic is handled by the protocol layer (RequestHelpers).
+  This function simply passes all options through to the protocol.
   """
   @spec join_group_request(Keyword.t(), State.t()) :: {:ok, term} | {:error, :api_version_no_supported}
   def join_group_request(request_opts, state) do
     case get_api_version(state, :join_group, request_opts) do
       {:ok, api_version} ->
-        group_id = Keyword.fetch!(request_opts, :group_id)
-        session_timeout = Keyword.fetch!(request_opts, :session_timeout)
-        member_id = Keyword.fetch!(request_opts, :member_id)
-        protocol_type = Keyword.get(request_opts, :protocol_type, "consumer")
-        group_protocols = Keyword.fetch!(request_opts, :group_protocols)
-
-        opts = [
-          group_id: group_id,
-          session_timeout: session_timeout,
-          member_id: member_id,
-          protocol_type: protocol_type,
-          group_protocols: group_protocols
-        ]
-
-        # V1 and V2 require rebalance_timeout
-        opts =
-          if api_version >= 1 do
-            rebalance_timeout = Keyword.fetch!(request_opts, :rebalance_timeout)
-            Keyword.put(opts, :rebalance_timeout, rebalance_timeout)
-          else
-            opts
-          end
-
-        req = @protocol.build_request(:join_group, api_version, opts)
+        req = @protocol.build_request(:join_group, api_version, request_opts)
         {:ok, req}
 
       {:error, error_code} ->
@@ -212,38 +191,15 @@ defmodule KafkaEx.New.Client.RequestBuilder do
 
   @doc """
   Builds request for Produce API
+
+  Version-specific logic is handled by the protocol layer (RequestHelpers).
+  This function simply passes all options through to the protocol.
   """
   @spec produce_request(Keyword.t(), State.t()) :: {:ok, term} | {:error, :api_version_no_supported}
   def produce_request(request_opts, state) do
     case get_api_version(state, :produce, request_opts) do
       {:ok, api_version} ->
-        topic = Keyword.fetch!(request_opts, :topic)
-        partition = Keyword.fetch!(request_opts, :partition)
-        messages = Keyword.fetch!(request_opts, :messages)
-
-        acks = Keyword.get(request_opts, :acks, -1)
-        timeout = Keyword.get(request_opts, :timeout, 5000)
-        compression = Keyword.get(request_opts, :compression, :none)
-        transactional_id = Keyword.get(request_opts, :transactional_id)
-
-        opts = [
-          topic: topic,
-          partition: partition,
-          messages: messages,
-          acks: acks,
-          timeout: timeout,
-          compression: compression
-        ]
-
-        # Add transactional_id for V3+ if provided
-        opts =
-          if api_version >= 3 && !is_nil(transactional_id) do
-            Keyword.put(opts, :transactional_id, transactional_id)
-          else
-            opts
-          end
-
-        req = @protocol.build_request(:produce, api_version, opts)
+        req = @protocol.build_request(:produce, api_version, request_opts)
         {:ok, req}
 
       {:error, error_code} ->
@@ -253,61 +209,17 @@ defmodule KafkaEx.New.Client.RequestBuilder do
 
   @doc """
   Builds request for Fetch API
+
+  Version-specific logic is handled by the protocol layer (RequestHelpers).
+  This function simply passes all options through to the protocol.
   """
   @spec fetch_request(Keyword.t(), State.t()) :: {:ok, term} | {:error, :api_version_no_supported}
   def fetch_request(request_opts, state) do
     case get_api_version(state, :fetch, request_opts) do
       {:ok, api_version} ->
-        topic = Keyword.fetch!(request_opts, :topic)
-        partition = Keyword.fetch!(request_opts, :partition)
-        offset = Keyword.fetch!(request_opts, :offset)
-
-        max_bytes = Keyword.get(request_opts, :max_bytes, 1_000_000)
-        max_wait_time = Keyword.get(request_opts, :max_wait_time, 10_000)
-        min_bytes = Keyword.get(request_opts, :min_bytes, 1)
-        isolation_level = Keyword.get(request_opts, :isolation_level, 0)
-
-        opts = [
-          topic: topic,
-          partition: partition,
-          offset: offset,
-          max_bytes: max_bytes,
-          max_wait_time: max_wait_time,
-          min_bytes: min_bytes,
-          api_version: api_version
-        ]
-
-        # Add isolation_level for V4+
         opts =
-          if api_version >= 4 do
-            Keyword.put(opts, :isolation_level, isolation_level)
-          else
-            opts
-          end
-
-        # Add log_start_offset for V5+
-        opts =
-          if api_version >= 5 do
-            log_start_offset = Keyword.get(request_opts, :log_start_offset, 0)
-            Keyword.put(opts, :log_start_offset, log_start_offset)
-          else
-            opts
-          end
-
-        # Add session fields for V7+
-        opts =
-          if api_version >= 7 do
-            session_id = Keyword.get(request_opts, :session_id, 0)
-            epoch = Keyword.get(request_opts, :epoch, -1)
-            forgotten_topics_data = Keyword.get(request_opts, :forgotten_topics_data, [])
-
-            opts
-            |> Keyword.put(:session_id, session_id)
-            |> Keyword.put(:epoch, epoch)
-            |> Keyword.put(:forgotten_topics_data, forgotten_topics_data)
-          else
-            opts
-          end
+          request_opts
+          |> Keyword.put(:api_version, api_version)
 
         req = @protocol.build_request(:fetch, api_version, opts)
         {:ok, req}
@@ -319,34 +231,15 @@ defmodule KafkaEx.New.Client.RequestBuilder do
 
   @doc """
   Builds request for Offset Commit API
+
+  Version-specific logic is handled by the protocol layer (RequestHelpers).
+  This function simply passes all options through to the protocol.
   """
   @spec offset_commit_request(Keyword.t(), State.t()) :: {:ok, term} | {:error, :api_version_no_supported}
   def offset_commit_request(request_opts, state) do
     case get_api_version(state, :offset_commit, request_opts) do
       {:ok, api_version} ->
-        group_id = Keyword.fetch!(request_opts, :group_id)
-        topics = Keyword.fetch!(request_opts, :topics)
-
-        opts = [group_id: group_id, topics: topics]
-
-        # Add optional parameters based on API version
-        opts =
-          if api_version >= 1 do
-            generation_id = Keyword.get(request_opts, :generation_id, -1)
-            member_id = Keyword.get(request_opts, :member_id, "")
-            Keyword.merge(opts, generation_id: generation_id, member_id: member_id)
-          else
-            opts
-          end
-
-        opts =
-          if api_version >= 2 do
-            Keyword.put(opts, :retention_time, Keyword.get(request_opts, :retention_time, -1))
-          else
-            opts
-          end
-
-        req = @protocol.build_request(:offset_commit, api_version, opts)
+        req = @protocol.build_request(:offset_commit, api_version, request_opts)
         {:ok, req}
 
       {:error, error_code} ->
