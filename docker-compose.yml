@@ -23,11 +23,12 @@ services:
       - "9092:9092"   # NOAUTH
       - "9192:9192"   # PLAIN
       - "9292:9292"   # SCRAM
+      - "9392:9392"   # OAUTH
     environment:
       KAFKA_BROKER_ID: "1"
 
-      KAFKA_LISTENERS: "INTERNAL://:29092,NOAUTH://:9092,PLAIN://:9192,SCRAM://:9292"
-      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka-1:29092,NOAUTH://localhost:9092,PLAIN://localhost:9192,SCRAM://localhost:9292"
+      KAFKA_LISTENERS: "INTERNAL://:29092,NOAUTH://:9092,PLAIN://:9192,SCRAM://:9292,OAUTH://:9392"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka-1:29092,NOAUTH://localhost:9092,PLAIN://localhost:9192,SCRAM://localhost:9292,OAUTH://localhost:9392"
     healthcheck:
       test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "kafka-1:29092"]
       interval: 20s
@@ -46,11 +47,12 @@ services:
       - "9093:9093"   # NOAUTH
       - "9193:9193"   # PLAIN
       - "9293:9293"   # SCRAM
+      - "9393:9393"   # OAUTH
     environment:
       KAFKA_BROKER_ID: "2"
 
-      KAFKA_LISTENERS: "INTERNAL://:29093,NOAUTH://:9093,PLAIN://:9193,SCRAM://:9293"
-      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka-2:29093,NOAUTH://localhost:9093,PLAIN://localhost:9193,SCRAM://localhost:9293"
+      KAFKA_LISTENERS: "INTERNAL://:29093,NOAUTH://:9093,PLAIN://:9193,SCRAM://:9293,OAUTH://:9393"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka-2:29093,NOAUTH://localhost:9093,PLAIN://localhost:9193,SCRAM://localhost:9293,OAUTH://localhost:9393"
     healthcheck:
       test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "kafka-2:29093"]
       interval: 20s
@@ -69,11 +71,12 @@ services:
       - "9094:9094"   # NOAUTH
       - "9194:9194"   # PLAIN
       - "9294:9294"   # SCRAM
+      - "9394:9394"   # OAUTH
     environment:
       KAFKA_BROKER_ID: "3"
 
-      KAFKA_LISTENERS: "INTERNAL://:29094,NOAUTH://:9094,PLAIN://:9194,SCRAM://:9294"
-      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka-3:29094,NOAUTH://localhost:9094,PLAIN://localhost:9194,SCRAM://localhost:9294"
+      KAFKA_LISTENERS: "INTERNAL://:29094,NOAUTH://:9094,PLAIN://:9194,SCRAM://:9294,OAUTH://:9394"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka-3:29094,NOAUTH://localhost:9094,PLAIN://localhost:9194,SCRAM://localhost:9294,OAUTH://localhost:9394"
     healthcheck:
       test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "kafka-3:29094"]
       interval: 20s
