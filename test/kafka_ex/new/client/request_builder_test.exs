@@ -1051,4 +1051,141 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
       assert length(record.headers) == 2
     end
   end
+
+  describe "fetch_request/2" do
+    test "builds a basic fetch request" do
+      state = %KafkaEx.New.Client.State{api_versions: %{1 => {0, 7}}}
+
+      opts = [
+        topic: "test_topic",
+        partition: 0,
+        offset: 100,
+        api_version: 3
+      ]
+
+      assert {:ok, request} = RequestBuilder.fetch_request(opts, state)
+
+      assert request.__struct__ == Kayrock.Fetch.V3.Request
+      assert request.replica_id == -1
+      assert [%{topic: "test_topic", partitions: [partition]}] = request.topics
+      assert partition.partition == 0
+      assert partition.fetch_offset == 100
+    end
+
+    test "builds V0 fetch request" do
+      state = %KafkaEx.New.Client.State{api_versions: %{1 => {0, 7}}}
+
+      opts = [
+        topic: "test_topic",
+        partition: 0,
+        offset: 0,
+        api_version: 0
+      ]
+
+      assert {:ok, request} = RequestBuilder.fetch_request(opts, state)
+      assert request.__struct__ == Kayrock.Fetch.V0.Request
+    end
+
+    test "builds V4 fetch request with isolation_level" do
+      state = %KafkaEx.New.Client.State{api_versions: %{1 => {0, 7}}}
+
+      opts = [
+        topic: "test_topic",
+        partition: 0,
+        offset: 0,
+        api_version: 4,
+        isolation_level: 1
+      ]
+
+      assert {:ok, request} = RequestBuilder.fetch_request(opts, state)
+      assert request.__struct__ == Kayrock.Fetch.V4.Request
+      assert request.isolation_level == 1
+    end
+
+    test "builds V5 fetch request with log_start_offset" do
+      state = %KafkaEx.New.Client.State{api_versions: %{1 => {0, 7}}}
+
+      opts = [
+        topic: "test_topic",
+        partition: 0,
+        offset: 0,
+        api_version: 5,
+        log_start_offset: 50
+      ]
+
+      assert {:ok, request} = RequestBuilder.fetch_request(opts, state)
+      assert request.__struct__ == Kayrock.Fetch.V5.Request
+
+      [%{partitions: [partition]}] = request.topics
+      assert partition.log_start_offset == 50
+    end
+
+    test "builds V7 fetch request with session fields" do
+      state = %KafkaEx.New.Client.State{api_versions: %{1 => {0, 7}}}
+
+      opts = [
+        topic: "test_topic",
+        partition: 0,
+        offset: 0,
+        api_version: 7,
+        session_id: 123,
+        epoch: 5
+      ]
+
+      assert {:ok, request} = RequestBuilder.fetch_request(opts, state)
+      assert request.__struct__ == Kayrock.Fetch.V7.Request
+      assert request.session_id == 123
+      assert request.epoch == 5
+    end
+
+    test "returns error when api version not supported" do
+      state = %KafkaEx.New.Client.State{api_versions: %{}}
+
+      opts = [
+        topic: "test_topic",
+        partition: 0,
+        offset: 0,
+        api_version: 10
+      ]
+
+      assert {:error, :api_version_no_supported} = RequestBuilder.fetch_request(opts, state)
+    end
+
+    test "uses default options when not specified" do
+      state = %KafkaEx.New.Client.State{api_versions: %{1 => {0, 7}}}
+
+      opts = [
+        topic: "test_topic",
+        partition: 0,
+        offset: 0
+      ]
+
+      assert {:ok, request} = RequestBuilder.fetch_request(opts, state)
+
+      # Default is V3
+      assert request.__struct__ == Kayrock.Fetch.V3.Request
+      assert request.max_wait_time == 10_000
+      assert request.min_bytes == 1
+    end
+
+    test "allows custom max_bytes, max_wait_time, and min_bytes" do
+      state = %KafkaEx.New.Client.State{api_versions: %{1 => {0, 7}}}
+
+      opts = [
+        topic: "test_topic",
+        partition: 0,
+        offset: 0,
+        max_bytes: 500_000,
+        max_wait_time: 5_000,
+        min_bytes: 100
+      ]
+
+      assert {:ok, request} = RequestBuilder.fetch_request(opts, state)
+
+      assert request.max_wait_time == 5_000
+      assert request.min_bytes == 100
+      [%{partitions: [partition]}] = request.topics
+      assert partition.max_bytes == 500_000
+    end
+  end
 end

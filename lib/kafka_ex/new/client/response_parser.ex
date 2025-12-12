@@ -7,6 +7,7 @@ defmodule KafkaEx.New.Client.ResponseParser do
   alias KafkaEx.New.Kafka.ApiVersions
   alias KafkaEx.New.Kafka.ClusterMetadata
   alias KafkaEx.New.Kafka.ConsumerGroupDescription
+  alias KafkaEx.New.Kafka.Fetch
   alias KafkaEx.New.Kafka.Heartbeat
   alias KafkaEx.New.Kafka.JoinGroup
   alias KafkaEx.New.Kafka.LeaveGroup
@@ -102,5 +103,13 @@ defmodule KafkaEx.New.Client.ResponseParser do
   @spec produce_response(term) :: {:ok, RecordMetadata.t()} | {:error, Error.t()}
   def produce_response(response) do
     @protocol.parse_response(:produce, response)
+  end
+
+  @doc """
+  Parses response for Fetch API
+  """
+  @spec fetch_response(term) :: {:ok, Fetch.t()} | {:error, Error.t()}
+  def fetch_response(response) do
+    @protocol.parse_response(:fetch, response)
   end
 end

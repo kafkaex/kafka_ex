@@ -452,7 +452,6 @@ defmodule KafkaEx.New.Adapter do
 
   def offset_commit_request(offset_commit_request, client_consumer_group) do
     consumer_group = offset_commit_request.consumer_group || client_consumer_group
-
     request = OffsetCommit.get_request_struct(offset_commit_request.api_version)
 
     request = %{
@@ -488,14 +487,7 @@ defmodule KafkaEx.New.Adapter do
             request
             | generation_id: offset_commit_request.generation_id,
               member_id: offset_commit_request.member_id,
-              topics: [
-                %{
-                  topic
-                  | partitions: [
-                      Map.put_new(partition, :timestamp, timestamp)
-                    ]
-                }
-              ]
+              topics: [%{topic | partitions: [Map.put_new(partition, :timestamp, timestamp)]}]
           }
 
         v when v >= 2 ->
@@ -710,15 +702,12 @@ defmodule KafkaEx.New.Adapter do
   defp minus_one_if_nil(nil), do: -1
   defp minus_one_if_nil(x), do: x
 
-  defp millis_timestamp_now do
-    :os.system_time(:millisecond)
-  end
+  defp millis_timestamp_now, do: :os.system_time(:millisecond)
 
   defp build_record_headers(nil), do: []
 
   defp build_record_headers(headers) when is_list(headers) do
-    Enum.map(headers, fn header ->
-      {key, value} = header
+    Enum.map(headers, fn {key, value} ->
       %RecordHeader{key: key, value: value}
     end)
   end
@@ -726,8 +715,6 @@ defmodule KafkaEx.New.Adapter do
   defp build_fetch_message_headers(nil), do: []
 
   defp build_fetch_message_headers(record_headers) do
-    Enum.map(record_headers, fn header ->
-      {header.key, header.value}
-    end)
+    Enum.map(record_headers, &{&1.key, &1.value})
   end
 end

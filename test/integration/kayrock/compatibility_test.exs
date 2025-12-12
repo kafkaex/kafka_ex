@@ -1682,4 +1682,326 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   end
 
   # -----------------------------------------------------------------------------
+  describe "fetch compatibility" do
+    test "new API can fetch what legacy API produced", %{client: client} do
+      alias KafkaEx.New.Kafka.Fetch
+
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name)
+      Process.sleep(100)
+
+      # Produce via legacy API
+      {:ok, offset} =
+        KafkaEx.produce(
+          %Proto.Produce.Request{
+            topic: topic_name,
+            partition: 0,
+            required_acks: 1,
+            messages: [%Proto.Produce.Message{value: "legacy message", key: "legacy-key"}]
+          },
+          worker_name: client
+        )
+
+      # Fetch via new API
+      {:ok, fetch_result} = KafkaExAPI.fetch(client, topic_name, 0, offset)
+
+      assert %Fetch{} = fetch_result
+      assert fetch_result.topic == topic_name
+      assert fetch_result.partition == 0
+      assert length(fetch_result.records) >= 1
+
+      [message | _] = fetch_result.records
+      assert message.value == "legacy message"
+      assert message.key == "legacy-key"
+      assert message.offset == offset
+    end
+
+    test "legacy API can fetch what new API produced", %{client: client} do
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Produce via new API
+      messages = [%{value: "new API message", key: "new-key"}]
+      {:ok, result} = KafkaExAPI.produce(client, topic_name, 0, messages)
+      offset = result.base_offset
+
+      # Fetch via legacy API
+      fetch_response =
+        KafkaEx.fetch(topic_name, 0,
+          offset: offset,
+          auto_commit: false,
+          worker_name: client
+        )
+
+      assert [%{partitions: [%{message_set: fetched_messages}]}] = fetch_response
+      assert length(fetched_messages) >= 1
+      [message | _] = fetched_messages
+      assert message.value == "new API message"
+      assert message.key == "new-key"
+    end
+
+    test "both APIs return same message content", %{client: client} do
+      alias KafkaEx.New.Kafka.Fetch
+
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name)
+      Process.sleep(100)
+
+      # Produce message
+      {:ok, offset} =
+        KafkaEx.produce(
+          %Proto.Produce.Request{
+            topic: topic_name,
+            partition: 0,
+            required_acks: 1,
+            messages: [%Proto.Produce.Message{value: "test message", key: "test-key"}]
+          },
+          worker_name: client
+        )
+
+      # Fetch via legacy API
+      legacy_response =
+        KafkaEx.fetch(topic_name, 0,
+          offset: offset,
+          auto_commit: false,
+          worker_name: client
+        )
+
+      [%{partitions: [%{message_set: [legacy_message | _]}]}] = legacy_response
+
+      # Fetch via new API
+      {:ok, new_response} = KafkaExAPI.fetch(client, topic_name, 0, offset)
+      [new_message | _] = new_response.records
+
+      # Both should return identical message content
+      assert legacy_message.value == new_message.value
+      assert legacy_message.key == new_message.key
+      assert legacy_message.offset == new_message.offset
+    end
+
+    test "new API fetch_all works with legacy produced messages", %{client: client} do
+      alias KafkaEx.New.Kafka.Fetch
+
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Produce multiple messages via legacy API
+      {:ok, _} =
+        KafkaEx.produce(
+          %Proto.Produce.Request{
+            topic: topic_name,
+            partition: 0,
+            required_acks: 1,
+            messages: [
+              %Proto.Produce.Message{value: "msg1"},
+              %Proto.Produce.Message{value: "msg2"},
+              %Proto.Produce.Message{value: "msg3"}
+            ]
+          },
+          worker_name: client
+        )
+
+      # Fetch all via new API (use max_wait_time to avoid timeouts)
+      {:ok, fetch_result} = KafkaExAPI.fetch_all(client, topic_name, 0, max_wait_time: 1000)
+
+      assert %Fetch{} = fetch_result
+      assert length(fetch_result.records) >= 3
+
+      values = Enum.map(fetch_result.records, & &1.value)
+      assert "msg1" in values
+      assert "msg2" in values
+      assert "msg3" in values
+    end
+
+    test "new API with different API versions", %{client: client} do
+      alias KafkaEx.New.Kafka.Fetch
+
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Produce message
+      {:ok, result} = KafkaExAPI.produce(client, topic_name, 0, [%{value: "test"}])
+      offset = result.base_offset
+
+      # Fetch with V0
+      {:ok, fetch_v0} = KafkaExAPI.fetch(client, topic_name, 0, offset, api_version: 0)
+      assert %Fetch{} = fetch_v0
+      assert hd(fetch_v0.records).value == "test"
+
+      # Fetch with V1 (adds throttle_time_ms)
+      {:ok, fetch_v1} = KafkaExAPI.fetch(client, topic_name, 0, offset, api_version: 1)
+      assert %Fetch{} = fetch_v1
+      assert is_integer(fetch_v1.throttle_time_ms) or is_nil(fetch_v1.throttle_time_ms)
+
+      # Fetch with V3 (default)
+      {:ok, fetch_v3} = KafkaExAPI.fetch(client, topic_name, 0, offset, api_version: 3)
+      assert %Fetch{} = fetch_v3
+
+      # Fetch with V4 (adds isolation_level)
+      {:ok, fetch_v4} = KafkaExAPI.fetch(client, topic_name, 0, offset, api_version: 4)
+      assert %Fetch{} = fetch_v4
+      assert is_integer(fetch_v4.last_stable_offset) or is_nil(fetch_v4.last_stable_offset)
+
+      # Fetch with V5 (adds log_start_offset)
+      {:ok, fetch_v5} = KafkaExAPI.fetch(client, topic_name, 0, offset, api_version: 5)
+      assert %Fetch{} = fetch_v5
+      assert is_integer(fetch_v5.log_start_offset) or is_nil(fetch_v5.log_start_offset)
+    end
+
+    test "new API high_watermark matches legacy API", %{client: client} do
+      alias KafkaEx.New.Kafka.Fetch
+
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Produce some messages
+      KafkaEx.produce(
+        %Proto.Produce.Request{
+          topic: topic_name,
+          partition: 0,
+          required_acks: 1,
+          messages: [
+            %Proto.Produce.Message{value: "msg1"},
+            %Proto.Produce.Message{value: "msg2"}
+          ]
+        },
+        worker_name: client
+      )
+
+      # Fetch via legacy API
+      legacy_response =
+        KafkaEx.fetch(topic_name, 0,
+          offset: 0,
+          auto_commit: false,
+          worker_name: client
+        )
+
+      [%{partitions: [%{hw_mark_offset: legacy_hw}]}] = legacy_response
+
+      # Fetch via new API (use max_wait_time to avoid timeout)
+      {:ok, new_response} = KafkaExAPI.fetch(client, topic_name, 0, 0, max_wait_time: 1000)
+
+      # High watermarks should be equal
+      assert new_response.high_watermark == legacy_hw
+    end
+
+    test "new API with compressed messages from legacy API", %{client: client} do
+      alias KafkaEx.New.Kafka.Fetch
+
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Small delay to ensure topic is ready
+      Process.sleep(100)
+
+      # Produce compressed messages via legacy API
+      {:ok, offset} =
+        KafkaEx.produce(
+          %Proto.Produce.Request{
+            topic: topic_name,
+            partition: 0,
+            required_acks: 1,
+            compression: :gzip,
+            messages: [
+              %Proto.Produce.Message{value: "gzip 1"},
+              %Proto.Produce.Message{value: "gzip 2"}
+            ]
+          },
+          worker_name: client
+        )
+
+      # Fetch via new API
+      {:ok, fetch_result} = KafkaExAPI.fetch(client, topic_name, 0, offset)
+
+      assert %Fetch{} = fetch_result
+      values = Enum.map(fetch_result.records, & &1.value)
+      assert "gzip 1" in values
+      assert "gzip 2" in values
+    end
+
+    test "new API handles empty partition", %{client: client} do
+      alias KafkaEx.New.Kafka.Fetch
+
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Get latest offset
+      {:ok, latest_offset} = KafkaExAPI.latest_offset(client, topic_name, 0)
+
+      # Fetch from empty partition with short wait
+      {:ok, fetch_result} = KafkaExAPI.fetch(client, topic_name, 0, latest_offset, max_wait_time: 100)
+
+      assert %Fetch{} = fetch_result
+      assert fetch_result.records == []
+      assert Fetch.empty?(fetch_result)
+    end
+
+    test "Fetch helper functions work correctly", %{client: client} do
+      alias KafkaEx.New.Kafka.Fetch
+      alias KafkaEx.New.Kafka.Fetch.Record
+
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Produce messages
+      {:ok, result} =
+        KafkaExAPI.produce(client, topic_name, 0, [
+          %{value: "test", key: "key1"},
+          %{value: "test2", key: nil}
+        ])
+
+      offset = result.base_offset
+
+      # Fetch
+      {:ok, fetch_result} = KafkaExAPI.fetch(client, topic_name, 0, offset)
+
+      # Test Fetch helpers
+      assert Fetch.empty?(fetch_result) == false
+      assert Fetch.record_count(fetch_result) >= 2
+      assert Fetch.next_offset(fetch_result) > offset
+
+      # Test Message helpers
+      [msg1, msg2 | _] = fetch_result.records
+      assert Record.has_value?(msg1) == true
+      assert Record.has_key?(msg1) == true
+      assert Record.has_key?(msg2) == false
+    end
+
+    test "produce via new API then fetch via both APIs returns same data", %{client: client} do
+      alias KafkaEx.New.Kafka.Fetch
+
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Produce via new API with V3 (RecordBatch format)
+      {:ok, result} =
+        KafkaExAPI.produce(client, topic_name, 0, [%{value: "round trip", key: "rt-key"}], api_version: 3)
+
+      offset = result.base_offset
+
+      # Fetch via legacy API
+      legacy_response =
+        KafkaEx.fetch(topic_name, 0,
+          offset: offset,
+          auto_commit: false,
+          worker_name: client
+        )
+
+      [%{partitions: [%{message_set: [legacy_msg | _]}]}] = legacy_response
+
+      # Fetch via new API
+      {:ok, new_response} = KafkaExAPI.fetch(client, topic_name, 0, offset)
+      assert %Fetch{} = new_response
+      [new_msg | _] = new_response.records
+
+      # Both should have identical content
+      assert legacy_msg.value == "round trip"
+      assert new_msg.value == "round trip"
+      assert legacy_msg.key == "rt-key"
+      assert new_msg.key == "rt-key"
+      assert legacy_msg.offset == new_msg.offset
+    end
+  end
+
+  # -----------------------------------------------------------------------------
 end
