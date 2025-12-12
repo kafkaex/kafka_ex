@@ -16,6 +16,7 @@ defmodule KafkaEx.New.KafkaExAPI do
   alias KafkaEx.New.Kafka.ApiVersions
   alias KafkaEx.New.Kafka.ClusterMetadata
   alias KafkaEx.New.Kafka.ConsumerGroupDescription
+  alias KafkaEx.New.Kafka.Fetch
   alias KafkaEx.New.Kafka.Heartbeat
   alias KafkaEx.New.Kafka.JoinGroup
   alias KafkaEx.New.Kafka.LeaveGroup
@@ -375,6 +376,64 @@ defmodule KafkaEx.New.KafkaExAPI do
       |> maybe_put(:headers, Keyword.get(message_opts, :headers))
 
     produce(client, topic, partition, [message], produce_opts)
+  end
+
+  @doc """
+  Fetch records from a Kafka topic partition
+
+  Retrieves records from the specified topic and partition starting from the given offset.
+  Returns the fetched records along with metadata about the fetch (high watermark, etc).
+
+  ## Options
+
+    * `:max_bytes` - Maximum bytes to fetch per partition (default: 1,000,000)
+    * `:max_wait_time` - Maximum time to wait for records in ms (default: 10,000)
+    * `:min_bytes` - Minimum bytes to accumulate before returning (default: 1)
+    * `:isolation_level` - 0 for READ_UNCOMMITTED, 1 for READ_COMMITTED (V4+, default: 0)
+    * `:api_version` - API version to use (default: 3)
+
+  ## API Version Differences
+
+  | Version | Features |
+  |---------|----------|
+  | V0 | Basic fetch using MessageSet format |
+  | V1 | Adds throttle_time_ms to response |
+  | V3 | Adds max_bytes at request level |
+  | V4 | Adds isolation_level, last_stable_offset, aborted_transactions |
+  | V5+ | Adds log_start_offset |
+  | V7 | Adds incremental fetch (session_id, epoch) |
+
+  ## Examples
+
+      iex> KafkaEx.New.KafkaExAPI.fetch(client, "my_topic", 0, 0)
+      {:ok, %Fetch{topic: "my_topic", partition: 0, records: [...], high_watermark: 100}}
+
+      iex> KafkaEx.New.KafkaExAPI.fetch(client, "my_topic", 0, 0, max_bytes: 10_000)
+      {:ok, %Fetch{...}}
+  """
+  @spec fetch(client, topic_name, partition_id, offset_val) :: {:ok, Fetch.t()} | {:error, error_atom}
+  @spec fetch(client, topic_name, partition_id, offset_val, opts) :: {:ok, Fetch.t()} | {:error, error_atom}
+  def fetch(client, topic, partition, offset, opts \\ []) do
+    case GenServer.call(client, {:fetch, topic, partition, offset, opts}) do
+      {:ok, result} -> {:ok, result}
+      {:error, %{error: error_atom}} -> {:error, error_atom}
+      {:error, error_atom} -> {:error, error_atom}
+    end
+  end
+
+  @doc """
+  Fetch all available records from a topic partition
+
+  Convenience function that fetches records from the earliest offset up to the high watermark.
+  Useful for reading all data in a partition (within the configured max_bytes limit).
+  """
+  @spec fetch_all(client, topic_name, partition_id) :: {:ok, Fetch.t()} | {:error, error_atom}
+  @spec fetch_all(client, topic_name, partition_id, opts) :: {:ok, Fetch.t()} | {:error, error_atom}
+  def fetch_all(client, topic, partition, opts \\ []) do
+    case earliest_offset(client, topic, partition) do
+      {:ok, offset} -> fetch(client, topic, partition, offset, opts)
+      {:error, _} = error -> error
+    end
   end
 
   # Helper to conditionally add keys to a map only if value is not nil
