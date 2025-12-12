@@ -5,8 +5,8 @@ defimpl KafkaEx.New.Protocols.Kayrock.LeaveGroup.Response, for: Kayrock.LeaveGro
   V1 includes throttle_time_ms field.
   """
 
-  alias KafkaEx.New.Structs.Error, as: ErrorStruct
-  alias KafkaEx.New.Structs.LeaveGroup, as: LeaveGroupStruct
+  alias KafkaEx.New.Client.Error, as: ErrorStruct
+  alias KafkaEx.New.Kafka.LeaveGroup, as: LeaveGroupStruct
 
   def parse_response(%{error_code: 0, throttle_time_ms: throttle_time_ms}) do
     leave_group = LeaveGroupStruct.build(throttle_time_ms: throttle_time_ms)

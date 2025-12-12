@@ -24,7 +24,7 @@ defmodule KafkaEx.New.Protocols.Kayrock.OffsetCommit do
     @moduledoc """
     This protocol is used to parse Offset Commit responses
     """
-    alias KafkaEx.New.Structs.Offset
+    alias KafkaEx.New.Kafka.Offset
 
     @spec parse_response(t()) :: {:ok, [Offset.t()]} | {:error, term}
     def parse_response(response)

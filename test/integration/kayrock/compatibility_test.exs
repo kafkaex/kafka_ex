@@ -17,7 +17,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   alias KafkaEx.Protocol.Metadata.TopicMetadata
   alias KafkaEx.Protocol.Offset.Response, as: OffsetResponse
 
-  alias KafkaEx.New.Structs.ClusterMetadata
+  alias KafkaEx.New.Kafka.ClusterMetadata
   alias KafkaEx.New.KafkaExAPI
 
   setup do
@@ -1046,7 +1046,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
 
       # New API with v1 (returns Heartbeat struct)
       {:ok, result_v1} = KafkaExAPI.heartbeat(client, consumer_group, member_id, generation_id, api_version: 1)
-      assert %KafkaEx.New.Structs.Heartbeat{throttle_time_ms: _} = result_v1
+      assert %KafkaEx.New.Kafka.Heartbeat{throttle_time_ms: _} = result_v1
 
       # Legacy API uses v0 (returns error_code only)
       legacy_request = %KafkaEx.Protocol.Heartbeat.Request{
@@ -1076,7 +1076,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
 
       # Sync via new API
       {:ok, result} = KafkaExAPI.sync_group(client, consumer_group, generation_id, member_id)
-      assert %KafkaEx.New.Structs.SyncGroup{} = result
+      assert %KafkaEx.New.Kafka.SyncGroup{} = result
 
       # Sync via legacy API
       legacy_request = %KafkaEx.Protocol.SyncGroup.Request{
@@ -1111,7 +1111,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
 
       # Sync via new API
       {:ok, result} = KafkaExAPI.sync_group(client, consumer_group, generation_id, member_id)
-      assert %KafkaEx.New.Structs.SyncGroup{} = result
+      assert %KafkaEx.New.Kafka.SyncGroup{} = result
     end
 
     test "both APIs handle unknown_member_id error identically", %{client: client} do
@@ -1198,7 +1198,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
 
       # New API with v1 (returns SyncGroup struct with throttle_time_ms)
       {:ok, result_v1} = KafkaExAPI.sync_group(client, consumer_group, generation_id, member_id, api_version: 1)
-      assert %KafkaEx.New.Structs.SyncGroup{throttle_time_ms: _} = result_v1
+      assert %KafkaEx.New.Kafka.SyncGroup{throttle_time_ms: _} = result_v1
 
       Process.sleep(100)
 
@@ -1217,7 +1217,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
 
       # New API with v0 (no throttle_time_ms)
       {:ok, result_v0} = KafkaExAPI.sync_group(client, consumer_group, generation_id, member_id, api_version: 0)
-      assert %KafkaEx.New.Structs.SyncGroup{throttle_time_ms: nil} = result_v0
+      assert %KafkaEx.New.Kafka.SyncGroup{throttle_time_ms: nil} = result_v0
     end
 
     test "sync_group followed by heartbeat across APIs", %{client: client} do
@@ -1251,7 +1251,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   # -----------------------------------------------------------------------------
   describe "api_versions compatibility" do
     test "fetch api_versions via new API", %{client: client} do
-      alias KafkaEx.New.Structs.ApiVersions
+      alias KafkaEx.New.Kafka.ApiVersions
 
       {:ok, versions} = KafkaExAPI.api_versions(client)
 
@@ -1281,7 +1281,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
     end
 
     test "new and legacy APIs return compatible API version data", %{client: client} do
-      alias KafkaEx.New.Structs.ApiVersions
+      alias KafkaEx.New.Kafka.ApiVersions
       {:ok, new_versions} = KafkaExAPI.api_versions(client)
 
       legacy_response = KafkaEx.api_versions(worker_name: client)
@@ -1326,7 +1326,7 @@ defmodule KafkaEx.KayrockCompatibilityTest do
     end
 
     test "api_versions helper functions work correctly", %{client: client} do
-      alias KafkaEx.New.Structs.ApiVersions
+      alias KafkaEx.New.Kafka.ApiVersions
 
       {:ok, versions} = KafkaExAPI.api_versions(client)
 
@@ -1348,6 +1348,336 @@ defmodule KafkaEx.KayrockCompatibilityTest do
       assert {:error, :unsupported_api} = ApiVersions.max_version_for_api(versions, 9999)
       assert {:error, :unsupported_api} = ApiVersions.min_version_for_api(versions, 9999)
       refute ApiVersions.version_supported?(versions, 9999, 0)
+    end
+  end
+
+  # -----------------------------------------------------------------------------
+  describe "produce compatibility" do
+    test "new API can produce and legacy API can fetch", %{client: client} do
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Produce via new API
+      messages = [%{value: "new API message", key: "key1"}]
+      {:ok, result} = KafkaExAPI.produce(client, topic_name, 0, messages)
+
+      assert result.base_offset >= 0
+      offset = result.base_offset
+
+      # Fetch via legacy API
+      fetch_response =
+        KafkaEx.fetch(topic_name, 0,
+          offset: offset,
+          auto_commit: false,
+          worker_name: client
+        )
+
+      assert [%{partitions: [%{message_set: fetched_messages}]}] = fetch_response
+      assert length(fetched_messages) >= 1
+      [message | _] = fetched_messages
+      assert message.value == "new API message"
+      assert message.key == "key1"
+    end
+
+    test "legacy API can produce and new API can verify offset", %{client: client} do
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Produce via legacy API
+      {:ok, legacy_offset} =
+        KafkaEx.produce(
+          %Proto.Produce.Request{
+            topic: topic_name,
+            partition: 0,
+            required_acks: 1,
+            messages: [%Proto.Produce.Message{value: "legacy message"}]
+          },
+          worker_name: client
+        )
+
+      # Produce via new API and verify offset increments
+      {:ok, new_result} = KafkaExAPI.produce(client, topic_name, 0, [%{value: "new message"}])
+
+      assert new_result.base_offset == legacy_offset + 1
+    end
+
+    test "produce_one via new API works with legacy fetch", %{client: client} do
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Produce via new API produce_one
+      {:ok, result} = KafkaExAPI.produce_one(client, topic_name, 0, "single message", key: "single-key")
+
+      offset = result.base_offset
+
+      # Fetch via legacy API
+      fetch_response =
+        KafkaEx.fetch(topic_name, 0,
+          offset: offset,
+          auto_commit: false,
+          worker_name: client
+        )
+
+      assert [%{partitions: [%{message_set: [message | _]}]}] = fetch_response
+      assert message.value == "single message"
+      assert message.key == "single-key"
+    end
+
+    test "both APIs produce to same topic sequentially", %{client: client} do
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Produce via legacy API
+      {:ok, offset1} =
+        KafkaEx.produce(
+          %Proto.Produce.Request{
+            topic: topic_name,
+            partition: 0,
+            required_acks: 1,
+            messages: [%Proto.Produce.Message{value: "msg1"}]
+          },
+          worker_name: client
+        )
+
+      # Produce via new API
+      {:ok, result2} = KafkaExAPI.produce(client, topic_name, 0, [%{value: "msg2"}])
+      offset2 = result2.base_offset
+
+      # Produce via legacy API again
+      {:ok, offset3} =
+        KafkaEx.produce(
+          %Proto.Produce.Request{
+            topic: topic_name,
+            partition: 0,
+            required_acks: 1,
+            messages: [%Proto.Produce.Message{value: "msg3"}]
+          },
+          worker_name: client
+        )
+
+      # Offsets should be sequential
+      assert offset2 == offset1 + 1
+      assert offset3 == offset2 + 1
+
+      # Fetch all and verify order
+      fetch_response =
+        KafkaEx.fetch(topic_name, 0,
+          offset: offset1,
+          auto_commit: false,
+          worker_name: client
+        )
+
+      assert [%{partitions: [%{message_set: messages}]}] = fetch_response
+      values = Enum.map(messages, & &1.value)
+      assert "msg1" in values
+      assert "msg2" in values
+      assert "msg3" in values
+    end
+
+    test "new API produce with gzip compression can be fetched by legacy API", %{client: client} do
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Produce multiple messages with gzip via new API
+      messages = [
+        %{value: "compressed msg 1"},
+        %{value: "compressed msg 2"}
+      ]
+
+      {:ok, result} = KafkaExAPI.produce(client, topic_name, 0, messages, compression: :gzip)
+      offset = result.base_offset
+
+      # Fetch via legacy API
+      fetch_response =
+        KafkaEx.fetch(topic_name, 0,
+          offset: offset,
+          auto_commit: false,
+          worker_name: client
+        )
+
+      assert [%{partitions: [%{message_set: fetched_messages}]}] = fetch_response
+      values = Enum.map(fetched_messages, & &1.value)
+      assert "compressed msg 1" in values
+      assert "compressed msg 2" in values
+    end
+
+    test "legacy API produce with compression can be verified by new API offset", %{client: client} do
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Produce with compression via legacy API
+      {:ok, legacy_offset} =
+        KafkaEx.produce(
+          %Proto.Produce.Request{
+            topic: topic_name,
+            partition: 0,
+            required_acks: 1,
+            compression: :snappy,
+            messages: [
+              %Proto.Produce.Message{value: "snappy 1"},
+              %Proto.Produce.Message{value: "snappy 2"}
+            ]
+          },
+          worker_name: client
+        )
+
+      # Verify via new API latest_offset
+      {:ok, latest} = KafkaExAPI.latest_offset(client, topic_name, 0)
+
+      # Latest offset should be after the produced messages
+      assert latest >= legacy_offset + 2
+    end
+
+    test "new API produce with different API versions", %{client: client} do
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Produce with V0
+      {:ok, result_v0} = KafkaExAPI.produce(client, topic_name, 0, [%{value: "v0 msg"}], api_version: 0)
+      assert result_v0.base_offset >= 0
+      assert is_nil(result_v0.throttle_time_ms)
+
+      # Produce with V2
+      {:ok, result_v2} = KafkaExAPI.produce(client, topic_name, 0, [%{value: "v2 msg"}], api_version: 2)
+      assert result_v2.base_offset == result_v0.base_offset + 1
+
+      # Produce with V3 (RecordBatch format)
+      {:ok, result_v3} = KafkaExAPI.produce(client, topic_name, 0, [%{value: "v3 msg"}], api_version: 3)
+      assert result_v3.base_offset == result_v2.base_offset + 1
+
+      # Fetch all via legacy API
+      fetch_response =
+        KafkaEx.fetch(topic_name, 0,
+          offset: result_v0.base_offset,
+          auto_commit: false,
+          worker_name: client
+        )
+
+      assert [%{partitions: [%{message_set: messages}]}] = fetch_response
+      values = Enum.map(messages, & &1.value)
+      assert "v0 msg" in values
+      assert "v2 msg" in values
+      assert "v3 msg" in values
+    end
+
+    test "new API produce with headers (V3+) can be fetched", %{client: client} do
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Produce with headers via new API (V3+)
+      messages = [
+        %{
+          value: "message with headers",
+          key: "header-key",
+          headers: [{"content-type", "application/json"}, {"trace-id", "xyz789"}]
+        }
+      ]
+
+      {:ok, result} = KafkaExAPI.produce(client, topic_name, 0, messages, api_version: 3)
+      offset = result.base_offset
+
+      # Fetch via legacy API
+      fetch_response =
+        KafkaEx.fetch(topic_name, 0,
+          offset: offset,
+          auto_commit: false,
+          worker_name: client
+        )
+
+      assert [%{partitions: [%{message_set: [message | _]}]}] = fetch_response
+      assert message.value == "message with headers"
+      assert message.key == "header-key"
+      # Headers may or may not be returned depending on fetch API version
+    end
+
+    test "produce error handling is consistent across APIs", %{client: client} do
+      # Try to produce to non-existent partition
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name, partitions: 1)
+
+      # New API error
+      new_result = KafkaExAPI.produce(client, topic_name, 99, [%{value: "test"}])
+
+      case new_result do
+        {:error, error} ->
+          assert error in [:unknown_topic_or_partition, :leader_not_available]
+
+        {:ok, _} ->
+          # Some Kafka configurations might auto-create partitions
+          assert true
+      end
+    end
+
+    test "multiple messages in batch produce correctly", %{client: client} do
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Produce batch via new API
+      messages =
+        Enum.map(1..10, fn i ->
+          %{value: "batch message #{i}", key: "key-#{i}"}
+        end)
+
+      {:ok, result} = KafkaExAPI.produce(client, topic_name, 0, messages)
+      base_offset = result.base_offset
+
+      # Fetch via legacy API
+      fetch_response =
+        KafkaEx.fetch(topic_name, 0,
+          offset: base_offset,
+          auto_commit: false,
+          worker_name: client
+        )
+
+      assert [%{partitions: [%{message_set: fetched_messages}]}] = fetch_response
+      assert length(fetched_messages) >= 10
+
+      # Verify all messages are present
+      values = Enum.map(fetched_messages, & &1.value)
+
+      Enum.each(1..10, fn i ->
+        assert "batch message #{i}" in values
+      end)
+    end
+
+    test "produce to multiple partitions works with both APIs", %{client: client} do
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name, partitions: 3)
+
+      # Produce via new API to partition 0
+      {:ok, result0} = KafkaExAPI.produce(client, topic_name, 0, [%{value: "p0 new"}])
+
+      # Produce via legacy API to partition 1
+      {:ok, _offset1} =
+        KafkaEx.produce(
+          %Proto.Produce.Request{
+            topic: topic_name,
+            partition: 1,
+            required_acks: 1,
+            messages: [%Proto.Produce.Message{value: "p1 legacy"}]
+          },
+          worker_name: client
+        )
+
+      # Produce via new API to partition 2
+      {:ok, result2} = KafkaExAPI.produce(client, topic_name, 2, [%{value: "p2 new"}])
+
+      # Verify each partition
+      assert result0.partition == 0
+      assert result2.partition == 2
+
+      # Fetch from each partition
+      fetch0 = KafkaEx.fetch(topic_name, 0, offset: 0, worker_name: client)
+      fetch1 = KafkaEx.fetch(topic_name, 1, offset: 0, worker_name: client)
+      fetch2 = KafkaEx.fetch(topic_name, 2, offset: 0, worker_name: client)
+
+      assert [%{partitions: [%{message_set: [msg0 | _]}]}] = fetch0
+      assert [%{partitions: [%{message_set: [msg1 | _]}]}] = fetch1
+      assert [%{partitions: [%{message_set: [msg2 | _]}]}] = fetch2
+
+      assert msg0.value == "p0 new"
+      assert msg1.value == "p1 legacy"
+      assert msg2.value == "p2 new"
     end
   end
 

@@ -2,8 +2,8 @@ defmodule KafkaEx.New.Protocols.Kayrock.ApiVersions.ResponseTest do
   use ExUnit.Case, async: true
 
   alias KafkaEx.New.Protocols.Kayrock.ApiVersions
-  alias KafkaEx.New.Structs.ApiVersions, as: ApiVersionsStruct
-  alias KafkaEx.New.Structs.Error
+  alias KafkaEx.New.Kafka.ApiVersions, as: ApiVersionsStruct
+  alias KafkaEx.New.Client.Error
 
   describe "V0 response parsing - success cases" do
     test "parses successful V0 response with multiple APIs" do

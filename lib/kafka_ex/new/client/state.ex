@@ -3,7 +3,7 @@ defmodule KafkaEx.New.Client.State do
 
   # state struct for New.Client
 
-  alias KafkaEx.New.Structs.ClusterMetadata
+  alias KafkaEx.New.Kafka.ClusterMetadata
   alias Kayrock.KafkaSchemaMetadata
 
   defstruct(

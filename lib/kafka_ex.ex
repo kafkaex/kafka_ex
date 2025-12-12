@@ -804,7 +804,7 @@ defmodule KafkaEx do
   # -------------------------------------------------------------------
   # Backwards compatibility
   # -------------------------------------------------------------------
-  defp parse_offset_value([%KafkaEx.New.Structs.Offset{} | _] = offsets) do
+  defp parse_offset_value([%KafkaEx.New.Kafka.Offset{} | _] = offsets) do
     Enum.map(offsets, fn offset ->
       %OffsetResponse{
         topic: offset.topic,

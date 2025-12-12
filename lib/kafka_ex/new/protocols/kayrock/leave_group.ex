@@ -22,8 +22,8 @@ defmodule KafkaEx.New.Protocols.Kayrock.LeaveGroup do
     - V1: `{:ok, LeaveGroup.t()}` on success (includes throttle_time_ms)
     - All versions: `{:error, Error.t()}` on error
     """
-    alias KafkaEx.New.Structs.Error
-    alias KafkaEx.New.Structs.LeaveGroup
+    alias KafkaEx.New.Client.Error
+    alias KafkaEx.New.Kafka.LeaveGroup
 
     @spec parse_response(t()) :: {:ok, :no_error | LeaveGroup.t()} | {:error, Error.t()}
     def parse_response(response)

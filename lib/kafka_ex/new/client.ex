@@ -14,13 +14,13 @@ defmodule KafkaEx.New.Client do
   alias KafkaEx.Config
   alias KafkaEx.NetworkClient
 
+  alias KafkaEx.New.Client.Error
+  alias KafkaEx.New.Client.NodeSelector
   alias KafkaEx.New.Client.RequestBuilder
   alias KafkaEx.New.Client.ResponseParser
   alias KafkaEx.New.Client.State
-  alias KafkaEx.New.Structs.Broker
-  alias KafkaEx.New.Structs.ClusterMetadata
-  alias KafkaEx.New.Structs.Error
-  alias KafkaEx.New.Structs.NodeSelector
+  alias KafkaEx.New.Kafka.Broker
+  alias KafkaEx.New.Kafka.ClusterMetadata
 
   alias Kayrock.ApiVersions
   alias Kayrock.ErrorCode
@@ -30,10 +30,7 @@ defmodule KafkaEx.New.Client do
 
   use GenServer
 
-  @type args :: [
-          KafkaEx.worker_setting()
-          | {:allow_auto_topic_creation, boolean}
-        ]
+  @type args :: [KafkaEx.worker_setting() | {:allow_auto_topic_creation, boolean}]
 
   @doc """
   Start the server in a supervision tree
@@ -51,15 +48,10 @@ defmodule KafkaEx.New.Client do
 
   @doc """
   Send a Kayrock request to the appropriate broker
-
   Broker metadata will be updated if necessary
   """
-  @spec send_request(
-          KafkaEx.New.KafkaExAPI.client(),
-          map,
-          KafkaEx.New.Structs.NodeSelector.t(),
-          pos_integer | nil
-        ) :: {:ok, term} | {:error, term}
+  @spec send_request(KafkaEx.New.KafkaExAPI.client(), map, KafkaEx.New.Client.NodeSelector.t(), pos_integer | nil) ::
+          {:ok, term} | {:error, term}
   def send_request(server, request, node_selector, timeout \\ nil) do
     GenServer.call(server, {:kayrock_request, request, node_selector}, timeout_val(timeout))
   end
@@ -271,6 +263,13 @@ defmodule KafkaEx.New.Client do
     end
   end
 
+  def handle_call({:produce, topic, partition, messages, opts}, _from, state) do
+    case produce_request(topic, partition, messages, opts, state) do
+      {:error, error} -> {:reply, {:error, error}, state}
+      {result, updated_state} -> {:reply, result, updated_state}
+    end
+  end
+
   def handle_call({:kayrock_request, request, node_selector}, _from, state) do
     {response, updated_state} = kayrock_network_request(request, node_selector, state)
 
@@ -433,6 +432,16 @@ defmodule KafkaEx.New.Client do
     end
   end
 
+  defp produce_request(topic, partition, messages, opts, state) do
+    node_selector = NodeSelector.topic_partition(topic, partition)
+    req_data = [{:topic, topic}, {:partition, partition}, {:messages, messages} | opts]
+
+    case RequestBuilder.produce_request(req_data, state) do
+      {:ok, request} -> handle_produce_request(request, node_selector, state)
+      {:error, error} -> {:error, error}
+    end
+  end
+
   defp api_versions_request(opts, state) do
     node_selector = NodeSelector.random()
 
@@ -490,10 +499,13 @@ defmodule KafkaEx.New.Client do
     handle_request_with_retry(request, &ResponseParser.sync_group_response/1, node_selector, state)
   end
 
+  defp handle_produce_request(request, node_selector, state) do
+    handle_request_with_retry(request, &ResponseParser.produce_response/1, node_selector, state)
+  end
+
   defp handle_metadata_request(request, node_selector, state) do
     case handle_request_with_retry(request, &ResponseParser.metadata_response/1, node_selector, state) do
       {{:ok, cluster_metadata}, updated_state} ->
-        # Update state with new cluster metadata
         merged_state = %{updated_state | cluster_metadata: cluster_metadata}
         {{:ok, cluster_metadata}, merged_state}
 
@@ -542,57 +554,21 @@ defmodule KafkaEx.New.Client do
         broker
 
       false ->
-        %{
-          broker
-          | socket:
-              NetworkClient.create_socket(
-                broker.host,
-                broker.port,
-                state.ssl_options,
-                state.use_ssl,
-                state.auth
-              )
-        }
+        socker = NetworkClient.create_socket(broker.host, broker.port, state.ssl_options, state.use_ssl, state.auth)
+        %{broker | socket: socker}
     end
   end
 
-  defp retrieve_metadata(
-         state,
-         sync_timeout,
-         topics
-       ) do
-    retrieve_metadata(
-      state,
-      sync_timeout,
-      topics,
-      @retry_count,
-      0
-    )
+  defp retrieve_metadata(state, sync_timeout, topics) do
+    retrieve_metadata(state, sync_timeout, topics, @retry_count, 0)
   end
 
-  defp retrieve_metadata(
-         state,
-         _sync_timeout,
-         topics,
-         0,
-         error_code
-       ) do
-    Logger.log(
-      :error,
-      "Metadata request for topics #{inspect(topics)} failed " <>
-        "with error_code #{inspect(error_code)}"
-    )
-
+  defp retrieve_metadata(state, _sync_timeout, topics, 0, error_code) do
+    Logger.log(:error, "Metadata request for topics #{inspect(topics)} failed with error_code #{inspect(error_code)}")
     {state, nil}
   end
 
-  defp retrieve_metadata(
-         state,
-         sync_timeout,
-         topics,
-         retry,
-         _error_code
-       ) do
+  defp retrieve_metadata(state, sync_timeout, topics, retry, _error_code) do
     # default to version 4 of the metadata protocol because this one treats an
     # empty list of topics as 'no topics'.  note this limits us to Kafka 0.11+
     api_version = State.max_supported_api_version(state, :metadata, 4)
@@ -604,32 +580,17 @@ defmodule KafkaEx.New.Client do
     }
 
     {{ok_or_err, response}, state_out} =
-      kayrock_network_request(
-        metadata_request,
-        NodeSelector.first_available(),
-        state
-      )
+      kayrock_network_request(metadata_request, NodeSelector.first_available(), state)
 
     case ok_or_err do
       :ok ->
-        case Enum.find(
-               response.topic_metadata,
-               &(&1.error_code ==
-                   ErrorCode.atom_to_code!(:leader_not_available))
-             ) do
+        case Enum.find(response.topic_metadata, &(&1.error_code == ErrorCode.atom_to_code!(:leader_not_available))) do
           nil ->
             {state_out, response}
 
           topic_metadata ->
             :timer.sleep(300)
-
-            retrieve_metadata(
-              state,
-              sync_timeout,
-              topics,
-              retry - 1,
-              topic_metadata.error_code
-            )
+            retrieve_metadata(state, sync_timeout, topics, retry - 1, topic_metadata.error_code)
         end
 
       _ ->
@@ -658,11 +619,7 @@ defmodule KafkaEx.New.Client do
   end
 
   defp client_request(request, state) do
-    %{
-      request
-      | client_id: Config.client_id(),
-        correlation_id: state.correlation_id
-    }
+    %{request | client_id: Config.client_id(), correlation_id: state.correlation_id}
   end
 
   # select a broker, updating state if necessary (e.g., metadata or consumer group)
@@ -674,11 +631,8 @@ defmodule KafkaEx.New.Client do
         updated_state = state_updater.(state)
 
         case State.select_broker(updated_state, selector) do
-          {:error, _} ->
-            {nil, updated_state}
-
-          {:ok, broker} ->
-            {broker, updated_state}
+          {:error, _} -> {nil, updated_state}
+          {:ok, broker} -> {broker, updated_state}
         end
 
       {:ok, broker} ->
@@ -687,52 +641,26 @@ defmodule KafkaEx.New.Client do
   end
 
   defp broker_for_partition_with_update(state, topic, partition) do
-    select_broker_with_update(
-      state,
-      NodeSelector.topic_partition(topic, partition),
-      &update_metadata(&1, [topic])
-    )
+    node = NodeSelector.topic_partition(topic, partition)
+    select_broker_with_update(state, node, &update_metadata(&1, [topic]))
   end
 
   defp broker_for_consumer_group_with_update(state, consumer_group) do
-    select_broker_with_update(
-      state,
-      NodeSelector.consumer_group(consumer_group),
-      &update_consumer_group_coordinator(&1, consumer_group)
-    )
+    node = NodeSelector.consumer_group(consumer_group)
+    select_broker_with_update(state, node, &update_consumer_group_coordinator(&1, consumer_group))
   end
 
   defp update_consumer_group_coordinator(state, consumer_group) do
-    request = %FindCoordinator.V1.Request{
-      coordinator_key: consumer_group,
-      coordinator_type: 0
-    }
-
-    {response, updated_state} =
-      kayrock_network_request(request, NodeSelector.first_available(), state)
+    request = %FindCoordinator.V1.Request{coordinator_key: consumer_group, coordinator_type: 0}
+    {response, updated_state} = kayrock_network_request(request, NodeSelector.first_available(), state)
 
     case response do
-      {:ok,
-       %FindCoordinator.V1.Response{
-         error_code: 0,
-         coordinator: coordinator
-       }} ->
-        State.put_consumer_group_coordinator(
-          updated_state,
-          consumer_group,
-          coordinator.node_id
-        )
+      {:ok, %FindCoordinator.V1.Response{error_code: 0, coordinator: coordinator}} ->
+        State.put_consumer_group_coordinator(updated_state, consumer_group, coordinator.node_id)
 
-      {:ok,
-       %FindCoordinator.V1.Response{
-         error_code: error_code
-       }} ->
-        Logger.warning(
-          "Unable to find consumer group coordinator for " <>
-            "#{inspect(consumer_group)}: Error " <>
-            "#{ErrorCode.code_to_atom(error_code)}"
-        )
-
+      {:ok, %FindCoordinator.V1.Response{error_code: error_code}} ->
+        error_code = ErrorCode.code_to_atom(error_code)
+        Logger.warning("Unable to find consumer group coordinator for #{inspect(consumer_group)}: Error #{error_code}")
         updated_state
     end
   end
@@ -778,20 +706,12 @@ defmodule KafkaEx.New.Client do
   # note within the GenServer state, we've already validated the
   # consumer group, so it can only be either :no_consumer_group or a
   # valid binary consumer group name
-  defp consumer_group?(%State{
-         consumer_group_for_auto_commit: :no_consumer_group
-       }) do
-    false
-  end
-
+  defp consumer_group?(%State{consumer_group_for_auto_commit: :no_consumer_group}), do: false
   defp consumer_group?(_), do: true
 
   defp get_api_versions(state, request_version \\ 0) do
     request = ApiVersions.get_request_struct(request_version)
-
-    {{ok_or_error, response}, state_out} =
-      kayrock_network_request(request, NodeSelector.first_available(), state)
-
+    {{ok_or_error, response}, state_out} = kayrock_network_request(request, NodeSelector.first_available(), state)
     {ok_or_error, response, state_out}
   end
 
@@ -812,13 +732,7 @@ defmodule KafkaEx.New.Client do
         {{:error, :no_broker}, updated_state}
 
       _ ->
-        response =
-          run_client_request(
-            client_request(request, updated_state),
-            send_request,
-            synchronous
-          )
-
+        response = run_client_request(client_request(request, updated_state), send_request, synchronous)
         {response, State.increment_correlation_id(updated_state)}
     end
   end
@@ -844,27 +758,12 @@ defmodule KafkaEx.New.Client do
     end
   end
 
-  defp get_send_request_function(
-         %NodeSelector{strategy: :first_available},
-         state,
-         network_timeout,
-         _synchronous
-       ) do
-    {fn wire_request ->
-       first_broker_response(
-         wire_request,
-         State.brokers(state),
-         network_timeout
-       )
-     end, state}
+  defp get_send_request_function(%NodeSelector{strategy: :first_available}, state, network_timeout, _synchronous) do
+    {fn wire_request -> first_broker_response(wire_request, State.brokers(state), network_timeout) end, state}
   end
 
   defp get_send_request_function(
-         %NodeSelector{
-           strategy: :topic_partition,
-           topic: topic,
-           partition: partition
-         },
+         %NodeSelector{strategy: :topic_partition, topic: topic, partition: partition},
          state,
          network_timeout,
          synchronous

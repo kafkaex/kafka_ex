@@ -48,22 +48,22 @@ defmodule KafkaEx.New.Protocols.Kayrock.DescribeGroupsTest do
 
       assert {:ok,
               [
-                %KafkaEx.New.Structs.ConsumerGroup{
+                %KafkaEx.New.Kafka.ConsumerGroupDescription{
                   group_id: "succeeded",
                   state: "stable",
                   protocol_type: "protocol_type",
                   protocol: "protocol",
                   members: [
-                    %KafkaEx.New.Structs.ConsumerGroup.Member{
+                    %KafkaEx.New.Kafka.ConsumerGroupDescription.Member{
                       member_id: "member_id",
                       client_id: "client_id",
                       client_host: "client_host",
                       member_metadata: "member_metadata",
-                      member_assignment: %KafkaEx.New.Structs.ConsumerGroup.Member.MemberAssignment{
+                      member_assignment: %KafkaEx.New.Kafka.ConsumerGroupDescription.Member.MemberAssignment{
                         version: 0,
                         user_data: "user_data",
                         partition_assignments: [
-                          %KafkaEx.New.Structs.ConsumerGroup.Member.MemberAssignment.PartitionAssignment{
+                          %KafkaEx.New.Kafka.ConsumerGroupDescription.Member.MemberAssignment.PartitionAssignment{
                             topic: "test-topic",
                             partitions: [1, 2, 3]
                           }

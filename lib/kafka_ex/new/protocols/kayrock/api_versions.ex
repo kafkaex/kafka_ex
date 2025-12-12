@@ -21,8 +21,8 @@ defmodule KafkaEx.New.Protocols.Kayrock.ApiVersions do
     This protocol is used to parse ApiVersions responses.
     """
 
-    alias KafkaEx.New.Structs.ApiVersions
-    alias KafkaEx.New.Structs.Error
+    alias KafkaEx.New.Client.Error
+    alias KafkaEx.New.Kafka.ApiVersions
 
     @spec parse_response(t()) :: {:ok, ApiVersions.t()} | {:error, Error.t()}
     def parse_response(response)

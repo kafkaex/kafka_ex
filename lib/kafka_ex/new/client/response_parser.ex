@@ -3,15 +3,16 @@ defmodule KafkaEx.New.Client.ResponseParser do
   This module is used to parse response from KafkaEx.New.Client.
   It's main decision point which protocol to use for parsing response
   """
-  alias KafkaEx.New.Structs.ApiVersions
-  alias KafkaEx.New.Structs.ClusterMetadata
-  alias KafkaEx.New.Structs.ConsumerGroup
-  alias KafkaEx.New.Structs.Error
-  alias KafkaEx.New.Structs.Heartbeat
-  alias KafkaEx.New.Structs.JoinGroup
-  alias KafkaEx.New.Structs.LeaveGroup
-  alias KafkaEx.New.Structs.Offset
-  alias KafkaEx.New.Structs.SyncGroup
+  alias KafkaEx.New.Client.Error
+  alias KafkaEx.New.Kafka.ApiVersions
+  alias KafkaEx.New.Kafka.ClusterMetadata
+  alias KafkaEx.New.Kafka.ConsumerGroupDescription
+  alias KafkaEx.New.Kafka.Heartbeat
+  alias KafkaEx.New.Kafka.JoinGroup
+  alias KafkaEx.New.Kafka.LeaveGroup
+  alias KafkaEx.New.Kafka.Offset
+  alias KafkaEx.New.Kafka.RecordMetadata
+  alias KafkaEx.New.Kafka.SyncGroup
 
   @protocol Application.compile_env(:kafka_ex, :protocol, KafkaEx.New.Protocols.KayrockProtocol)
 
@@ -26,7 +27,7 @@ defmodule KafkaEx.New.Client.ResponseParser do
   @doc """
   Parses response for Describe Groups API
   """
-  @spec describe_groups_response(term) :: {:ok, [ConsumerGroup.t()]} | {:error, term}
+  @spec describe_groups_response(term) :: {:ok, [ConsumerGroupDescription.t()]} | {:error, term}
   def describe_groups_response(response) do
     @protocol.parse_response(:describe_groups, response)
   end
@@ -93,5 +94,13 @@ defmodule KafkaEx.New.Client.ResponseParser do
   @spec metadata_response(term) :: {:ok, ClusterMetadata.t()} | {:error, Error.t()}
   def metadata_response(response) do
     @protocol.parse_response(:metadata, response)
+  end
+
+  @doc """
+  Parses response for Produce API
+  """
+  @spec produce_response(term) :: {:ok, RecordMetadata.t()} | {:error, Error.t()}
+  def produce_response(response) do
+    @protocol.parse_response(:produce, response)
   end
 end

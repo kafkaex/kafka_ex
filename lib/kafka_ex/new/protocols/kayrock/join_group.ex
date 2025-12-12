@@ -21,8 +21,8 @@ defmodule KafkaEx.New.Protocols.Kayrock.JoinGroup do
     - All versions: `{:ok, JoinGroup.t()}` on success
     - All versions: `{:error, Error.t()}` on error
     """
-    alias KafkaEx.New.Structs.Error
-    alias KafkaEx.New.Structs.JoinGroup
+    alias KafkaEx.New.Client.Error
+    alias KafkaEx.New.Kafka.JoinGroup
 
     @spec parse_response(t()) :: {:ok, JoinGroup.t()} | {:error, Error.t()}
     def parse_response(response)

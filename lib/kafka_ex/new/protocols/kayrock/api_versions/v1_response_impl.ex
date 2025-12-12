@@ -3,8 +3,8 @@ defimpl KafkaEx.New.Protocols.Kayrock.ApiVersions.Response, for: Kayrock.ApiVers
   Parses ApiVersions V1 responses.
   """
 
-  alias KafkaEx.New.Structs.ApiVersions
-  alias KafkaEx.New.Structs.Error
+  alias KafkaEx.New.Kafka.ApiVersions
+  alias KafkaEx.New.Client.Error
   alias Kayrock.ErrorCode
 
   @doc """

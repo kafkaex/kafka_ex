@@ -2,12 +2,12 @@ defmodule KafkaEx.New.Client.ResponseParserTest do
   use ExUnit.Case, async: true
 
   alias KafkaEx.New.Client.ResponseParser
-  alias KafkaEx.New.Structs.Heartbeat
-  alias KafkaEx.New.Structs.JoinGroup
-  alias KafkaEx.New.Structs.JoinGroup.Member
-  alias KafkaEx.New.Structs.LeaveGroup
-  alias KafkaEx.New.Structs.Offset
-  alias KafkaEx.New.Structs.Offset.PartitionOffset
+  alias KafkaEx.New.Kafka.Heartbeat
+  alias KafkaEx.New.Kafka.JoinGroup
+  alias KafkaEx.New.Kafka.JoinGroup.Member
+  alias KafkaEx.New.Kafka.LeaveGroup
+  alias KafkaEx.New.Kafka.Offset
+  alias KafkaEx.New.Kafka.Offset.PartitionOffset
 
   describe "offset_fetch_response/1" do
     test "parses successful OffsetFetch v1 response" do
@@ -577,6 +577,92 @@ defmodule KafkaEx.New.Client.ResponseParserTest do
 
       assert {:error, error} = ResponseParser.leave_group_response(response)
       assert error.error == :unknown
+    end
+  end
+
+  describe "produce_response/1" do
+    alias KafkaEx.New.Kafka.RecordMetadata
+
+    test "parses successful Produce v0 response" do
+      response = %Kayrock.Produce.V0.Response{
+        responses: [
+          %{
+            topic: "test-topic",
+            partition_responses: [
+              %{partition: 0, error_code: 0, base_offset: 42}
+            ]
+          }
+        ]
+      }
+
+      assert {:ok, record_metadata} = ResponseParser.produce_response(response)
+      assert %RecordMetadata{} = record_metadata
+      assert record_metadata.topic == "test-topic"
+      assert record_metadata.partition == 0
+      assert record_metadata.base_offset == 42
+    end
+
+    test "parses successful Produce v2 response with log_append_time" do
+      response = %Kayrock.Produce.V2.Response{
+        responses: [
+          %{
+            topic: "events",
+            partition_responses: [
+              %{partition: 1, error_code: 0, base_offset: 100, log_append_time: 1_702_000_000_000}
+            ]
+          }
+        ]
+      }
+
+      assert {:ok, record_metadata} = ResponseParser.produce_response(response)
+      assert record_metadata.topic == "events"
+      assert record_metadata.partition == 1
+      assert record_metadata.base_offset == 100
+      assert record_metadata.log_append_time == 1_702_000_000_000
+    end
+
+    test "parses successful Produce v3 response with throttle_time_ms" do
+      response = %Kayrock.Produce.V3.Response{
+        throttle_time_ms: 50,
+        responses: [
+          %{
+            topic: "transactions",
+            partition_responses: [
+              %{partition: 0, error_code: 0, base_offset: 500, log_append_time: -1}
+            ]
+          }
+        ]
+      }
+
+      assert {:ok, record_metadata} = ResponseParser.produce_response(response)
+      assert record_metadata.topic == "transactions"
+      assert record_metadata.throttle_time_ms == 50
+      assert record_metadata.log_append_time == -1
+    end
+
+    test "returns error for failed Produce response" do
+      response = %Kayrock.Produce.V0.Response{
+        responses: [
+          %{
+            topic: "error-topic",
+            partition_responses: [
+              %{partition: 0, error_code: 3, base_offset: -1}
+            ]
+          }
+        ]
+      }
+
+      assert {:error, error} = ResponseParser.produce_response(response)
+      assert error.error == :unknown_topic_or_partition
+    end
+
+    test "returns error for empty responses" do
+      response = %Kayrock.Produce.V0.Response{
+        responses: []
+      }
+
+      assert {:error, error} = ResponseParser.produce_response(response)
+      assert error.error == :empty_response
     end
   end
 end

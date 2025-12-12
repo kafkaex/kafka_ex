@@ -5,10 +5,10 @@ defmodule KafkaEx.New.Client.Test do
 
   alias KafkaEx.New.Client
 
-  alias KafkaEx.New.Structs.ClusterMetadata
+  alias KafkaEx.New.Kafka.ClusterMetadata
   alias KafkaEx.New.KafkaExAPI
-  alias KafkaEx.New.Structs.Topic
-  alias KafkaEx.New.Structs.NodeSelector
+  alias KafkaEx.New.Kafka.Topic
+  alias KafkaEx.New.Client.NodeSelector
 
   alias Kayrock.RecordBatch
   alias Kayrock.RecordBatch.Record
@@ -482,7 +482,7 @@ defmodule KafkaEx.New.Client.Test do
       {:ok, result} = GenServer.call(client, {:heartbeat, consumer_group, member_id, generation_id, [api_version: 1]})
 
       # v1 returns Heartbeat struct
-      assert %KafkaEx.New.Structs.Heartbeat{throttle_time_ms: _} = result
+      assert %KafkaEx.New.Kafka.Heartbeat{throttle_time_ms: _} = result
     end
 
     test "returns error for unknown member_id", %{client: client} do
@@ -551,7 +551,7 @@ defmodule KafkaEx.New.Client.Test do
       {:ok, result_v1} =
         GenServer.call(client, {:heartbeat, consumer_group, member_id, generation_id, [api_version: 1]})
 
-      assert %KafkaEx.New.Structs.Heartbeat{} = result_v1
+      assert %KafkaEx.New.Kafka.Heartbeat{} = result_v1
     end
   end
 
@@ -568,7 +568,7 @@ defmodule KafkaEx.New.Client.Test do
       {:ok, result} = GenServer.call(client, {:sync_group, consumer_group, generation_id, member_id, []})
 
       # Should succeed and return SyncGroup struct
-      assert %KafkaEx.New.Structs.SyncGroup{partition_assignments: _} = result
+      assert %KafkaEx.New.Kafka.SyncGroup{partition_assignments: _} = result
     end
 
     test "sync_group with v1 API returns throttle information", %{client: client} do
@@ -583,7 +583,7 @@ defmodule KafkaEx.New.Client.Test do
       {:ok, result} = GenServer.call(client, {:sync_group, consumer_group, generation_id, member_id, [api_version: 1]})
 
       # v1 returns SyncGroup struct with throttle_time_ms
-      assert %KafkaEx.New.Structs.SyncGroup{throttle_time_ms: throttle} = result
+      assert %KafkaEx.New.Kafka.SyncGroup{throttle_time_ms: throttle} = result
       # v1 should include throttle_time_ms (may be 0 or greater)
       assert is_integer(throttle) or is_nil(throttle)
     end
@@ -628,7 +628,7 @@ defmodule KafkaEx.New.Client.Test do
       {:ok, result} =
         GenServer.call(client, {:sync_group, consumer_group, generation_id, member_id, [group_assignment: []]})
 
-      assert %KafkaEx.New.Structs.SyncGroup{} = result
+      assert %KafkaEx.New.Kafka.SyncGroup{} = result
     end
 
     test "sync completes consumer group protocol", %{client: client} do
@@ -642,7 +642,7 @@ defmodule KafkaEx.New.Client.Test do
       # Sync group
       {:ok, sync_result} = GenServer.call(client, {:sync_group, consumer_group, generation_id, member_id, []})
 
-      assert %KafkaEx.New.Structs.SyncGroup{} = sync_result
+      assert %KafkaEx.New.Kafka.SyncGroup{} = sync_result
 
       # Verify group is stable after sync
       {:ok, [group]} = GenServer.call(client, {:describe_groups, [consumer_group], []})
@@ -662,7 +662,7 @@ defmodule KafkaEx.New.Client.Test do
       {:ok, result_v0} =
         GenServer.call(client, {:sync_group, consumer_group, generation_id, member_id, [api_version: 0]})
 
-      assert %KafkaEx.New.Structs.SyncGroup{throttle_time_ms: nil} = result_v0
+      assert %KafkaEx.New.Kafka.SyncGroup{throttle_time_ms: nil} = result_v0
 
       # Give time for first sync to complete
       Process.sleep(200)
@@ -671,7 +671,7 @@ defmodule KafkaEx.New.Client.Test do
       {:ok, result_v1} =
         GenServer.call(client, {:sync_group, consumer_group, generation_id, member_id, [api_version: 1]})
 
-      assert %KafkaEx.New.Structs.SyncGroup{throttle_time_ms: _} = result_v1
+      assert %KafkaEx.New.Kafka.SyncGroup{throttle_time_ms: _} = result_v1
     end
 
     test "sync_group followed by heartbeat maintains group membership", %{client: client} do

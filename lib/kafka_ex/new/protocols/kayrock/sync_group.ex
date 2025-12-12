@@ -17,8 +17,8 @@ defmodule KafkaEx.New.Protocols.Kayrock.SyncGroup do
     @moduledoc """
     This protocol is used to parse SyncGroup responses.
     """
-    alias KafkaEx.New.Structs.Error
-    alias KafkaEx.New.Structs.SyncGroup
+    alias KafkaEx.New.Client.Error
+    alias KafkaEx.New.Kafka.SyncGroup
 
     @spec parse_response(t()) :: {:ok, SyncGroup.t()} | {:error, Error.t()}
     def parse_response(response)

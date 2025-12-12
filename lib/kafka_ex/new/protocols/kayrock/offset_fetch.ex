@@ -24,7 +24,7 @@ defmodule KafkaEx.New.Protocols.Kayrock.OffsetFetch do
     @moduledoc """
     This protocol is used to parse Offset Fetch responses
     """
-    alias KafkaEx.New.Structs.Offset
+    alias KafkaEx.New.Kafka.Offset
 
     @spec parse_response(t()) :: {:ok, [Offset.t()]} | {:error, term}
     def parse_response(response)

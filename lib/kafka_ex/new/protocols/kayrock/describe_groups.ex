@@ -17,9 +17,9 @@ defmodule KafkaEx.New.Protocols.Kayrock.DescribeGroups do
     @moduledoc """
     This protocol is used to parse Describe Groups response
     """
-    alias KafkaEx.New.Structs.ConsumerGroup
+    alias KafkaEx.New.Kafka.ConsumerGroupDescription
 
-    @spec parse_response(t()) :: {:ok, [ConsumerGroup.t()]} | {:error, term}
+    @spec parse_response(t()) :: {:ok, [ConsumerGroupDescription.t()]} | {:error, term}
     def parse_response(response)
   end
 end

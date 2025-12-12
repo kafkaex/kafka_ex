@@ -3,7 +3,7 @@ defmodule KafkaEx.New.Client.MetadataIntegrationTest do
 
   alias KafkaEx.New.Client.{RequestBuilder, ResponseParser}
   alias KafkaEx.New.Client.State
-  alias KafkaEx.New.Structs.ClusterMetadata
+  alias KafkaEx.New.Kafka.ClusterMetadata
   alias KafkaEx.New.Protocols.KayrockProtocol
   alias Kayrock.Metadata
 

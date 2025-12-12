@@ -17,6 +17,6 @@ defimpl KafkaEx.New.Protocols.Kayrock.DescribeGroups.Response,
   end
 
   defp build_consumer_group(kayrock_group) do
-    KafkaEx.New.Structs.ConsumerGroup.from_describe_group_response(kayrock_group)
+    KafkaEx.New.Kafka.ConsumerGroupDescription.from_describe_group_response(kayrock_group)
   end
 end

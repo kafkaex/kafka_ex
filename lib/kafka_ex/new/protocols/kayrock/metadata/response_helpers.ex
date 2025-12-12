@@ -3,10 +3,10 @@ defmodule KafkaEx.New.Protocols.Kayrock.Metadata.ResponseHelpers do
   Helper functions for parsing Metadata responses across different protocol versions.
   """
 
-  alias KafkaEx.New.Structs.Broker
-  alias KafkaEx.New.Structs.ClusterMetadata
-  alias KafkaEx.New.Structs.Partition
-  alias KafkaEx.New.Structs.Topic
+  alias KafkaEx.New.Kafka.Broker
+  alias KafkaEx.New.Kafka.ClusterMetadata
+  alias KafkaEx.New.Kafka.PartitionInfo
+  alias KafkaEx.New.Kafka.Topic
   alias Kayrock.ErrorCode
 
   @doc """
@@ -82,12 +82,12 @@ defmodule KafkaEx.New.Protocols.Kayrock.Metadata.ResponseHelpers do
   @doc """
   Parses partition metadata list from Kayrock response.
   """
-  @spec parse_partitions([map()]) :: [Partition.t()]
+  @spec parse_partitions([map()]) :: [PartitionInfo.t()]
   def parse_partitions(kayrock_partitions) when is_list(kayrock_partitions) do
     kayrock_partitions
     |> Enum.filter(fn partition_map -> partition_map.error_code == 0 end)
     |> Enum.map(fn partition_map ->
-      %Partition{
+      %PartitionInfo{
         partition_id: partition_map.partition,
         leader: partition_map.leader,
         replicas: partition_map.replicas || [],

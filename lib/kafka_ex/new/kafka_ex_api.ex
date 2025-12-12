@@ -13,15 +13,16 @@ defmodule KafkaEx.New.KafkaExAPI do
   ```
   """
 
-  alias KafkaEx.New.Structs.ApiVersions
-  alias KafkaEx.New.Structs.ClusterMetadata
-  alias KafkaEx.New.Structs.ConsumerGroup
-  alias KafkaEx.New.Structs.Heartbeat
-  alias KafkaEx.New.Structs.JoinGroup
-  alias KafkaEx.New.Structs.LeaveGroup
-  alias KafkaEx.New.Structs.Offset
-  alias KafkaEx.New.Structs.SyncGroup
-  alias KafkaEx.New.Structs.Topic
+  alias KafkaEx.New.Kafka.ApiVersions
+  alias KafkaEx.New.Kafka.ClusterMetadata
+  alias KafkaEx.New.Kafka.ConsumerGroupDescription
+  alias KafkaEx.New.Kafka.Heartbeat
+  alias KafkaEx.New.Kafka.JoinGroup
+  alias KafkaEx.New.Kafka.LeaveGroup
+  alias KafkaEx.New.Kafka.Offset
+  alias KafkaEx.New.Kafka.RecordMetadata
+  alias KafkaEx.New.Kafka.SyncGroup
+  alias KafkaEx.New.Kafka.Topic
 
   @type node_id :: non_neg_integer
 
@@ -76,8 +77,8 @@ defmodule KafkaEx.New.KafkaExAPI do
   We support only one consumer group per request for now, as we don't
   group requests by group coordinator.
   """
-  @spec describe_group(client, consumer_group_name) :: {:ok, ConsumerGroup.t()} | {:error, any}
-  @spec describe_group(client, consumer_group_name, opts) :: {:ok, ConsumerGroup.t()} | {:error, any}
+  @spec describe_group(client, consumer_group_name) :: {:ok, ConsumerGroupDescription.t()} | {:error, any}
+  @spec describe_group(client, consumer_group_name, opts) :: {:ok, ConsumerGroupDescription.t()} | {:error, any}
   def describe_group(client, consumer_group_name, opts \\ []) do
     case GenServer.call(client, {:describe_groups, [consumer_group_name], opts}) do
       {:ok, [group]} -> {:ok, group}
@@ -119,17 +120,6 @@ defmodule KafkaEx.New.KafkaExAPI do
   This returns the cluster metadata currently cached in the client's state.
   It does not make a network request to Kafka. If you need fresh metadata,
   use `metadata/2` or `metadata/3` instead.
-
-  ## Returns
-
-    - `{:ok, ClusterMetadata.t()}` - The cached cluster metadata
-
-  ## Examples
-
-      {:ok, metadata} = KafkaEx.New.KafkaExAPI.cluster_metadata(client)
-      brokers = metadata.brokers
-      topics = metadata.topics
-
   """
   @spec cluster_metadata(client) :: {:ok, ClusterMetadata.t()}
   def cluster_metadata(client) do
@@ -292,78 +282,13 @@ defmodule KafkaEx.New.KafkaExAPI do
   of all members and is responsible for computing partition assignments (via
   `sync_group/5`).
 
-  ## Parameters
-
-    - `client` - The client PID
-    - `consumer_group` - The name of the consumer group to join
-    - `member_id` - The member ID (use empty string "" for first join)
-    - `opts` - Options keyword list
-
-  ## Options
-
-    - `:session_timeout` - (required) Session timeout in milliseconds. If the
-      coordinator does not receive a heartbeat within this timeout, it will
-      remove the member from the group and trigger a rebalance.
-    - `:protocol_type` - Protocol type (default: "consumer")
-    - `:group_protocols` - (required) List of group protocols with metadata.
-      Format: `[%{protocol_name: "assign", protocol_metadata: metadata}]`
-    - `:rebalance_timeout` - (V1+) Maximum time in milliseconds the coordinator
-      will wait for members to complete the rebalance. Defaults to session_timeout
-      if not provided.
-    - `:api_version` - API version to use (0, 1, or 2). Default: 1
-
   ## API Version Differences
-
     - **V0**: Basic JoinGroup with session_timeout
     - **V1**: Adds separate rebalance_timeout field
     - **V2**: Adds throttle_time_ms to response
-
-  ## Returns
-
-    - `{:ok, JoinGroup.t()}` - Join successful, contains generation_id, member_id,
-      leader_id, and members list (if leader)
-    - `{:error, error_atom}` - Join failed with error code
-
-  ## Examples
-
-      # First join (empty member_id)
-      {:ok, response} = KafkaEx.New.KafkaExAPI.join_group(
-        client,
-        "my-group",
-        "",
-        session_timeout: 30_000,
-        rebalance_timeout: 60_000,
-        group_protocols: [
-          %{
-            protocol_name: "assign",
-            protocol_metadata: %Kayrock.GroupProtocolMetadata{topics: ["my-topic"]}
-          }
-        ]
-      )
-
-      # Subsequent joins (with member_id)
-      {:ok, response} = KafkaEx.New.KafkaExAPI.join_group(
-        client,
-        "my-group",
-        response.member_id,
-        session_timeout: 30_000,
-        rebalance_timeout: 60_000,
-        group_protocols: [...]
-      )
-
-      # Check if this member is the leader
-      if JoinGroup.leader?(response) do
-        # This member is the leader, compute assignments
-        # Then call sync_group with assignments
-      else
-        # Follower, call sync_group with empty assignments
-      end
-
   """
-  @spec join_group(client, consumer_group_name, member_id) ::
-          {:ok, JoinGroup.t()} | {:error, error_atom}
-  @spec join_group(client, consumer_group_name, member_id, opts) ::
-          {:ok, JoinGroup.t()} | {:error, error_atom}
+  @spec join_group(client, consumer_group_name, member_id) :: {:ok, JoinGroup.t()} | {:error, error_atom}
+  @spec join_group(client, consumer_group_name, member_id, opts) :: {:ok, JoinGroup.t()} | {:error, error_atom}
   def join_group(client, consumer_group, member_id, opts \\ []) do
     case GenServer.call(client, {:join_group, consumer_group, member_id, opts}) do
       {:ok, result} -> {:ok, result}
@@ -379,8 +304,7 @@ defmodule KafkaEx.New.KafkaExAPI do
   consumer group. This allows the coordinator to immediately trigger a rebalance
   without waiting for a session timeout, improving rebalance latency.
   """
-  @spec leave_group(client, consumer_group_name, member_id) ::
-          {:ok, :no_error | LeaveGroup.t()} | {:error, error_atom}
+  @spec leave_group(client, consumer_group_name, member_id) :: {:ok, :no_error | LeaveGroup.t()} | {:error, error_atom}
   @spec leave_group(client, consumer_group_name, member_id, opts) ::
           {:ok, :no_error | LeaveGroup.t()} | {:error, error_atom}
   def leave_group(client, consumer_group, member_id, opts \\ []) do
@@ -399,8 +323,7 @@ defmodule KafkaEx.New.KafkaExAPI do
   assignments which are distributed to all members. Followers receive their
   assigned partitions from this call.
   """
-  @spec sync_group(client, consumer_group_name, generation_id, member_id) ::
-          {:ok, SyncGroup.t()} | {:error, error_atom}
+  @spec sync_group(client, consumer_group_name, generation_id, member_id) :: {:ok, SyncGroup.t()} | {:error, error_atom}
   @spec sync_group(client, consumer_group_name, generation_id, member_id, opts) ::
           {:ok, SyncGroup.t()} | {:error, error_atom}
   def sync_group(client, consumer_group, generation_id, member_id, opts \\ []) do
@@ -410,4 +333,51 @@ defmodule KafkaEx.New.KafkaExAPI do
       {:error, error_atom} -> {:error, error_atom}
     end
   end
+
+  @doc """
+  Produce messages to a Kafka topic partition
+
+  Sends one or more messages to the specified topic and partition. Returns the
+  base offset assigned to the first message in the batch.
+
+  ## API Version Differences
+
+  | Version | Features |
+  |---------|----------|
+  | V0-V1 | Basic produce using MessageSet format |
+  | V2 | Adds timestamp support, still MessageSet format |
+  | V3+ | RecordBatch format with headers, transactional support |
+  | V5 | Adds log_start_offset to response |
+  """
+  @spec produce(client, topic_name, partition_id, [map()]) :: {:ok, RecordMetadata.t()} | {:error, error_atom}
+  @spec produce(client, topic_name, partition_id, [map()], opts) :: {:ok, RecordMetadata.t()} | {:error, error_atom}
+  def produce(client, topic, partition, messages, opts \\ []) do
+    case GenServer.call(client, {:produce, topic, partition, messages, opts}) do
+      {:ok, result} -> {:ok, result}
+      {:error, %{error: error_atom}} -> {:error, error_atom}
+      {:error, error_atom} -> {:error, error_atom}
+    end
+  end
+
+  @doc """
+  Produce a single message to a Kafka topic partition
+  Convenience function for producing a single message. Wraps the message in a list and calls `produce/5`.
+  """
+  @spec produce_one(client, topic_name, partition_id, binary) :: {:ok, RecordMetadata.t()} | {:error, error_atom}
+  @spec produce_one(client, topic_name, partition_id, binary, opts) :: {:ok, RecordMetadata.t()} | {:error, error_atom}
+  def produce_one(client, topic, partition, value, opts \\ []) do
+    {message_opts, produce_opts} = Keyword.split(opts, [:key, :timestamp, :headers])
+
+    message =
+      %{value: value}
+      |> maybe_put(:key, Keyword.get(message_opts, :key))
+      |> maybe_put(:timestamp, Keyword.get(message_opts, :timestamp))
+      |> maybe_put(:headers, Keyword.get(message_opts, :headers))
+
+    produce(client, topic, partition, [message], produce_opts)
+  end
+
+  # Helper to conditionally add keys to a map only if value is not nil
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

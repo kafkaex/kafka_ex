@@ -24,7 +24,7 @@ defmodule KafkaEx.New.ClientTest do
         consumer_group_for_auto_commit: "test-group",
         api_versions: %{9 => {0, 3}},
         correlation_id: 1,
-        cluster_metadata: %KafkaEx.New.Structs.ClusterMetadata{
+        cluster_metadata: %KafkaEx.New.Kafka.ClusterMetadata{
           brokers: %{},
           consumer_group_coordinators: %{"test-group" => 1}
         }
@@ -61,7 +61,7 @@ defmodule KafkaEx.New.ClientTest do
         consumer_group_for_auto_commit: "test-group",
         api_versions: %{8 => {0, 3}},
         correlation_id: 1,
-        cluster_metadata: %KafkaEx.New.Structs.ClusterMetadata{
+        cluster_metadata: %KafkaEx.New.Kafka.ClusterMetadata{
           brokers: %{},
           consumer_group_coordinators: %{"test-group" => 1}
         }

@@ -10,7 +10,7 @@ defmodule KafkaEx.New.Client.Protocol do
   @callback build_request(:describe_groups, integer, params) :: term
 
   # ------------------------------------------------------------------------------
-  @type consumer_group :: KafkaEx.New.Structs.ConsumerGroup
+  @type consumer_group :: KafkaEx.New.Kafka.ConsumerGroupDescription
 
   @callback parse_response(:describe_groups, term) ::
               {:ok, [consumer_group]} | {:error, term}

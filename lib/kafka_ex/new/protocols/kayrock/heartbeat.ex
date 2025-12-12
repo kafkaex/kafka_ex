@@ -22,8 +22,8 @@ defmodule KafkaEx.New.Protocols.Kayrock.Heartbeat do
     - V1: `{:ok, Heartbeat.t()}` on success (includes throttle_time_ms)
     - All versions: `{:error, Error.t()}` on error
     """
-    alias KafkaEx.New.Structs.Error
-    alias KafkaEx.New.Structs.Heartbeat
+    alias KafkaEx.New.Client.Error
+    alias KafkaEx.New.Kafka.Heartbeat
 
     @spec parse_response(t()) :: {:ok, :no_error | Heartbeat.t()} | {:error, Error.t()}
     def parse_response(response)
