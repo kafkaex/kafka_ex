@@ -217,10 +217,7 @@ defmodule KafkaEx.New.Client.RequestBuilder do
   def fetch_request(request_opts, state) do
     case get_api_version(state, :fetch, request_opts) do
       {:ok, api_version} ->
-        opts =
-          request_opts
-          |> Keyword.put(:api_version, api_version)
-
+        opts = request_opts |> Keyword.put(:api_version, api_version)
         req = @protocol.build_request(:fetch, api_version, opts)
         {:ok, req}
 

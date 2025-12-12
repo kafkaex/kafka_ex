@@ -137,6 +137,27 @@ defmodule KafkaEx.New.Protocols.Kayrock.Fetch.ResponseHelpers do
   end
 
   @doc """
+  Field extractor for V5+ responses (V5, V6, V7).
+
+  These versions share the same response fields:
+  - throttle_time_ms
+  - last_stable_offset
+  - log_start_offset
+  - aborted_transactions
+  """
+  @spec extract_v5_plus_fields(map(), map()) :: Keyword.t()
+  def extract_v5_plus_fields(response, partition_resp) do
+    partition_header = Map.get(partition_resp, :partition_header, %{})
+
+    [
+      throttle_time_ms: Map.get(response, :throttle_time_ms, 0),
+      last_stable_offset: Map.get(partition_header, :last_stable_offset),
+      log_start_offset: Map.get(partition_header, :log_start_offset),
+      aborted_transactions: Map.get(partition_header, :aborted_transactions)
+    ]
+  end
+
+  @doc """
   Common parsing logic for fetch responses.
 
   Extracts the first partition response, checks for errors, converts records,
