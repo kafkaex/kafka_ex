@@ -277,6 +277,13 @@ defmodule KafkaEx.New.Client do
     end
   end
 
+  def handle_call({:find_coordinator, group_id, opts}, _from, state) do
+    case find_coordinator_request(group_id, opts, state) do
+      {:error, error} -> {:reply, {:error, error}, state}
+      {result, updated_state} -> {:reply, result, updated_state}
+    end
+  end
+
   def handle_call({:kayrock_request, request, node_selector}, _from, state) do
     {response, updated_state} = kayrock_network_request(request, node_selector, state)
 
@@ -459,6 +466,17 @@ defmodule KafkaEx.New.Client do
     end
   end
 
+  defp find_coordinator_request(group_id, opts, state) do
+    # FindCoordinator can be sent to any broker
+    node_selector = NodeSelector.first_available()
+    req_data = [{:group_id, group_id} | opts]
+
+    case RequestBuilder.find_coordinator_request(req_data, state) do
+      {:ok, request} -> handle_find_coordinator_request(request, node_selector, state)
+      {:error, error} -> {:error, error}
+    end
+  end
+
   defp api_versions_request(opts, state) do
     node_selector = NodeSelector.random()
 
@@ -522,6 +540,10 @@ defmodule KafkaEx.New.Client do
 
   defp handle_fetch_request(request, node_selector, state) do
     handle_request_with_retry(request, &ResponseParser.fetch_response/1, node_selector, state)
+  end
+
+  defp handle_find_coordinator_request(request, node_selector, state) do
+    handle_request_with_retry(request, &ResponseParser.find_coordinator_response/1, node_selector, state)
   end
 
   defp handle_metadata_request(request, node_selector, state) do

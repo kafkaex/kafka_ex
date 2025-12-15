@@ -8,6 +8,7 @@ defmodule KafkaEx.New.Client.ResponseParser do
   alias KafkaEx.New.Kafka.ClusterMetadata
   alias KafkaEx.New.Kafka.ConsumerGroupDescription
   alias KafkaEx.New.Kafka.Fetch
+  alias KafkaEx.New.Kafka.FindCoordinator
   alias KafkaEx.New.Kafka.Heartbeat
   alias KafkaEx.New.Kafka.JoinGroup
   alias KafkaEx.New.Kafka.LeaveGroup
@@ -111,5 +112,13 @@ defmodule KafkaEx.New.Client.ResponseParser do
   @spec fetch_response(term) :: {:ok, Fetch.t()} | {:error, Error.t()}
   def fetch_response(response) do
     @protocol.parse_response(:fetch, response)
+  end
+
+  @doc """
+  Parses response for FindCoordinator API
+  """
+  @spec find_coordinator_response(term) :: {:ok, FindCoordinator.t()} | {:error, Error.t()}
+  def find_coordinator_response(response) do
+    @protocol.parse_response(:find_coordinator, response)
   end
 end

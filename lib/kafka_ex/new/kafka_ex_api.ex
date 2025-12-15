@@ -17,6 +17,7 @@ defmodule KafkaEx.New.KafkaExAPI do
   alias KafkaEx.New.Kafka.ClusterMetadata
   alias KafkaEx.New.Kafka.ConsumerGroupDescription
   alias KafkaEx.New.Kafka.Fetch
+  alias KafkaEx.New.Kafka.FindCoordinator
   alias KafkaEx.New.Kafka.Heartbeat
   alias KafkaEx.New.Kafka.JoinGroup
   alias KafkaEx.New.Kafka.LeaveGroup
@@ -402,14 +403,6 @@ defmodule KafkaEx.New.KafkaExAPI do
   | V4 | Adds isolation_level, last_stable_offset, aborted_transactions |
   | V5+ | Adds log_start_offset |
   | V7 | Adds incremental fetch (session_id, epoch) |
-
-  ## Examples
-
-      iex> KafkaEx.New.KafkaExAPI.fetch(client, "my_topic", 0, 0)
-      {:ok, %Fetch{topic: "my_topic", partition: 0, records: [...], high_watermark: 100}}
-
-      iex> KafkaEx.New.KafkaExAPI.fetch(client, "my_topic", 0, 0, max_bytes: 10_000)
-      {:ok, %Fetch{...}}
   """
   @spec fetch(client, topic_name, partition_id, offset_val) :: {:ok, Fetch.t()} | {:error, error_atom}
   @spec fetch(client, topic_name, partition_id, offset_val, opts) :: {:ok, Fetch.t()} | {:error, error_atom}
@@ -433,6 +426,46 @@ defmodule KafkaEx.New.KafkaExAPI do
     case earliest_offset(client, topic, partition) do
       {:ok, offset} -> fetch(client, topic, partition, offset, opts)
       {:error, _} = error -> error
+    end
+  end
+
+  @doc """
+  Find the coordinator broker for a consumer group or transaction
+
+  Discovers which broker is the coordinator for the specified consumer group
+  (or transactional producer). This is used internally for consumer group
+  operations but can also be called directly.
+
+  ## Options
+
+    * `:coordinator_type` - 0 for group (default), 1 for transaction
+    * `:api_version` - API version to use (default: 1)
+
+  ## API Version Differences
+
+  | Version | Features |
+  |---------|----------|
+  | V0 | Basic group coordinator discovery (uses group_id) |
+  | V1 | Adds coordinator_type (group/transaction), throttle_time_ms, error_message |
+
+  ## Examples
+
+      # Find group coordinator
+      {:ok, coordinator} = KafkaExAPI.find_coordinator(client, "my-consumer-group")
+
+      # Find transaction coordinator
+      {:ok, coordinator} = KafkaExAPI.find_coordinator(client, "my-transactional-id",
+        coordinator_type: :transaction)
+  """
+  @spec find_coordinator(client, consumer_group_name) ::
+          {:ok, FindCoordinator.t()} | {:error, error_atom}
+  @spec find_coordinator(client, consumer_group_name, opts) ::
+          {:ok, FindCoordinator.t()} | {:error, error_atom}
+  def find_coordinator(client, group_id, opts \\ []) do
+    case GenServer.call(client, {:find_coordinator, group_id, opts}) do
+      {:ok, result} -> {:ok, result}
+      {:error, %{error: error_atom}} -> {:error, error_atom}
+      {:error, error_atom} -> {:error, error_atom}
     end
   end
 

@@ -1,9 +1,4 @@
 defmodule KafkaEx.KayrockCompatibilityTest do
-  @moduledoc """
-  These are tests using the original KafkaEx API with the kayrock server
-
-  These mostly come from the original integration_test.exs file
-  """
   use ExUnit.Case
   import KafkaEx.TestHelpers
   import KafkaEx.IntegrationHelpers
@@ -2000,6 +1995,87 @@ defmodule KafkaEx.KayrockCompatibilityTest do
       assert legacy_msg.key == "rt-key"
       assert new_msg.key == "rt-key"
       assert legacy_msg.offset == new_msg.offset
+    end
+  end
+
+  # -----------------------------------------------------------------------------
+  # FindCoordinator / ConsumerMetadata Compatibility Tests
+  # -----------------------------------------------------------------------------
+
+  describe "find_coordinator/consumer_group_metadata compatibility" do
+    test "legacy consumer_group_metadata returns coordinator info", %{client: client} do
+      consumer_group = "find-coord-compat-#{:rand.uniform(100_000)}"
+
+      # Use the legacy API
+      response = KafkaEx.consumer_group_metadata(client, consumer_group)
+
+      assert %KafkaEx.Protocol.ConsumerMetadata.Response{} = response
+      assert response.error_code == :no_error
+      assert response.coordinator_id >= 0
+      assert response.coordinator_host != nil
+      assert response.coordinator_host != ""
+      assert response.coordinator_port > 0
+    end
+
+    test "new find_coordinator API returns same coordinator as legacy", %{client: client} do
+      consumer_group = "find-coord-same-#{:rand.uniform(100_000)}"
+
+      # Use legacy API
+      legacy_response = KafkaEx.consumer_group_metadata(client, consumer_group)
+      assert legacy_response.error_code == :no_error
+
+      # Use new API
+      {:ok, new_response} = KafkaExAPI.find_coordinator(client, consumer_group)
+      assert new_response.error_code == :no_error
+
+      # Both should return the same coordinator
+      assert legacy_response.coordinator_id == new_response.coordinator.node_id
+      assert legacy_response.coordinator_host == new_response.coordinator.host
+      assert legacy_response.coordinator_port == new_response.coordinator.port
+    end
+
+    test "both APIs handle invalid consumer group consistently", %{client: client} do
+      # Empty consumer group is invalid
+      legacy_response = KafkaEx.consumer_group_metadata(client, "")
+      {:ok, new_response} = KafkaExAPI.find_coordinator(client, "")
+
+      # Both should return the same error or both succeed (broker-dependent)
+      # The key is they should be consistent
+      legacy_error = legacy_response.error_code
+      new_error = new_response.error_code
+
+      assert legacy_error == new_error
+    end
+
+    test "coordinator is consistent across multiple calls", %{client: client} do
+      consumer_group = "find-coord-consistent-#{:rand.uniform(100_000)}"
+
+      # Call legacy API twice
+      legacy1 = KafkaEx.consumer_group_metadata(client, consumer_group)
+      legacy2 = KafkaEx.consumer_group_metadata(client, consumer_group)
+
+      # Call new API twice
+      {:ok, new1} = KafkaExAPI.find_coordinator(client, consumer_group)
+      {:ok, new2} = KafkaExAPI.find_coordinator(client, consumer_group)
+
+      # All should return the same coordinator (unless rebalance)
+      assert legacy1.coordinator_id == legacy2.coordinator_id
+      assert new1.coordinator.node_id == new2.coordinator.node_id
+      assert legacy1.coordinator_id == new1.coordinator.node_id
+    end
+
+    test "new API with V0 returns equivalent to legacy", %{client: client} do
+      consumer_group = "find-coord-v0-#{:rand.uniform(100_000)}"
+
+      # Legacy API uses V0 internally
+      legacy_response = KafkaEx.consumer_group_metadata(client, consumer_group)
+
+      # Force V0 on new API
+      {:ok, new_response} = KafkaExAPI.find_coordinator(client, consumer_group, api_version: 0)
+
+      assert legacy_response.error_code == :no_error
+      assert new_response.error_code == :no_error
+      assert legacy_response.coordinator_id == new_response.coordinator.node_id
     end
   end
 

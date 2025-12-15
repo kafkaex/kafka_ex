@@ -6,7 +6,7 @@ This document tracks the progress of migrating KafkaEx to use Kayrock protocol i
 The migration aims to replace manual binary parsing with Kayrock's type-safe, versioned protocol layer.
 
 **Last Updated:** 2025-12-12
-**Overall Progress:** 12/20 APIs migrated (60%)
+**Overall Progress:** 13/20 APIs migrated (65%)
 
 ---
 
@@ -175,7 +175,7 @@ Pattern matching naturally separates them with no conflicts.
 |------------------------|---------------------|----------|----------|------------|--------------------------|
 | **DescribeConfigs**    | ❌ Not Started      | v0-v2    | LOW      | Medium     | Configuration inspection |
 | **AlterConfigs**       | ❌ Not Started      | v0-v1    | LOW      | Medium     | Configuration changes    |
-| **FindCoordinator**    | 🟡 Adapter Only     | v0-v2    | MEDIUM   | Low        | Coordinator discovery    |
+| **FindCoordinator**    | ✅ Complete         | v0-v1    | MEDIUM   | Low        | Coordinator discovery    |
 | **InitProducerID**     | ❌ Not Started      | v0-v2    | LOW      | Medium     | Transactional support    |
 | **AddPartitionsToTxn** | ❌ Not Started      | v0-v1    | LOW      | Medium     | Transactional support    |
 
@@ -1026,3 +1026,98 @@ Message.get_header(msg, "content-type")
 - [x] Phase 7: Integration Tests (35 tests passing)
 - [x] Phase 8: Code Quality (format, dialyzer, credo passing)
 
+
+
+---
+
+### FindCoordinator (Completed: 2025-12-12)
+
+**Summary:**
+Complete migration of FindCoordinator API to Kayrock protocol layer. This API discovers the coordinator broker for a consumer group (type=0) or transactional producer (type=1). Implements V0 and V1 protocol versions with comprehensive test coverage.
+
+**Implementation Details:**
+- **Protocol Layer:** V0 and V1 request/response handlers
+  - V0: Basic group coordinator discovery using `group_id`
+  - V1: Extended discovery with `coordinator_key`, `coordinator_type`, `throttle_time_ms`, `error_message`
+- **Data Structures:** Created `FindCoordinator` struct with coordinator broker info and helper functions
+- **Infrastructure:** Full integration with RequestBuilder, ResponseParser, KayrockProtocol, and Client
+- **Public API:** Clean interface in `KafkaEx.New.KafkaExAPI` with `find_coordinator/2,3`
+
+**Statistics:**
+- **Files Created:** 12 files
+- **Lines Added:** ~850 insertions
+- **Test Count:** 70 new tests + 1704 legacy tests passing (100%)
+  - Protocol tests: 27 tests (V0/V1 request and response implementations)
+  - Struct tests: 11 tests (FindCoordinator struct, helper functions)
+  - Infrastructure tests: 7 tests (RequestBuilder, ResponseParser integration)
+  - Adapter tests: 25 tests (legacy ConsumerMetadata format conversion)
+
+**Key Learnings:**
+1. **Coordinator Types:** V1 supports both group (0) and transaction (1) coordinators
+2. **API Key:** FindCoordinator uses API key 10 in Kayrock
+3. **Broker Selection:** FindCoordinator can be sent to any broker (use NodeSelector.first_available())
+4. **Error Codes:** Common errors include coordinator_not_available (15), not_coordinator (16), invalid_group_id (24)
+
+**Files Created:**
+- `lib/kafka_ex/new/kafka/find_coordinator.ex` - FindCoordinator struct with helper functions
+- `lib/kafka_ex/new/protocols/kayrock/find_coordinator.ex` - Protocol definitions
+- `lib/kafka_ex/new/protocols/kayrock/find_coordinator/request_helpers.ex` - Request building helpers
+- `lib/kafka_ex/new/protocols/kayrock/find_coordinator/response_helpers.ex` - Response parsing helpers
+- `lib/kafka_ex/new/protocols/kayrock/find_coordinator/v0_request_impl.ex` - V0 request implementation
+- `lib/kafka_ex/new/protocols/kayrock/find_coordinator/v0_response_impl.ex` - V0 response implementation
+- `lib/kafka_ex/new/protocols/kayrock/find_coordinator/v1_request_impl.ex` - V1 request implementation
+- `lib/kafka_ex/new/protocols/kayrock/find_coordinator/v1_response_impl.ex` - V1 response implementation
+- `test/kafka_ex/new/protocols/kayrock/find_coordinator/request_test.exs` - Request protocol tests
+- `test/kafka_ex/new/protocols/kayrock/find_coordinator/response_test.exs` - Response protocol tests
+- `test/kafka_ex/new/structs/find_coordinator_test.exs` - Struct tests
+- `test/kafka_ex/new/kafka_ex_api_find_coordinator_test.exs` - API tests
+- `test/kafka_ex/new/adapter/find_coordinator_test.exs` - Adapter tests
+
+**Files Modified:**
+- `lib/kafka_ex/new/protocols/kayrock_protocol.ex` - Added find_coordinator handlers
+- `lib/kafka_ex/new/client/request_builder.ex` - Added find_coordinator_request/2
+- `lib/kafka_ex/new/client/response_parser.ex` - Added find_coordinator_response/1
+- `lib/kafka_ex/new/client.ex` - Added handle_call for find_coordinator
+- `lib/kafka_ex/new/kafka_ex_api.ex` - Added find_coordinator/2,3
+- `lib/kafka_ex/new/adapter.ex` - Added consumer_metadata_request/1, consumer_metadata_response/1
+
+**Public API Examples:**
+```elixir
+# Find group coordinator (default)
+{:ok, result} = KafkaEx.New.KafkaExAPI.find_coordinator(client, "my-consumer-group")
+# => %FindCoordinator{
+#      coordinator: %Broker{node_id: 1, host: "broker1", port: 9092},
+#      error_code: :no_error,
+#      throttle_time_ms: 0
+#    }
+
+# Find transaction coordinator
+{:ok, result} = KafkaEx.New.KafkaExAPI.find_coordinator(client, "my-transactional-id",
+  coordinator_type: :transaction)
+
+# Use V0 API (only supports group coordinators)
+{:ok, result} = KafkaEx.New.KafkaExAPI.find_coordinator(client, "my-group",
+  api_version: 0)
+
+# Access coordinator info
+coordinator = result.coordinator
+coordinator.node_id  # Broker ID
+coordinator.host     # Broker hostname
+coordinator.port     # Broker port
+
+# Helper functions
+FindCoordinator.success?(result)           # Check if no error
+FindCoordinator.coordinator_node_id(result) # Get coordinator node ID
+```
+
+**Migration Checklist:**
+- [x] Phase 1: Data Structures (FindCoordinator struct, 11 tests)
+- [x] Phase 2: Protocol Implementation (V0, V1 request/response, 27 tests)
+- [x] Phase 3: Infrastructure Integration (RequestBuilder, ResponseParser, KayrockProtocol, Client)
+- [x] Phase 4: Backward Compatibility (Adapter consumer_metadata_request/response, 25 tests)
+- [x] Phase 5: Public API (find_coordinator/2,3, 7 tests)
+- [x] Phase 6: Unit Tests (70 tests passing)
+- [x] Phase 7: Integration Tests (10 tests passing)
+- [x] Phase 8: Code Quality (format, credo passing)
+
+---

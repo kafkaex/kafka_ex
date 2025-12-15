@@ -10,6 +10,7 @@ defmodule KafkaEx.New.Protocols.KayrockProtocol do
   alias Kayrock.ApiVersions
   alias Kayrock.DescribeGroups
   alias Kayrock.Fetch
+  alias Kayrock.FindCoordinator
   alias Kayrock.Heartbeat
   alias Kayrock.JoinGroup
   alias Kayrock.LeaveGroup
@@ -97,6 +98,12 @@ defmodule KafkaEx.New.Protocols.KayrockProtocol do
     |> KayrockProtocol.Fetch.Request.build_request(opts)
   end
 
+  def build_request(:find_coordinator, api_version, opts) do
+    api_version
+    |> FindCoordinator.get_request_struct()
+    |> KayrockProtocol.FindCoordinator.Request.build_request(opts)
+  end
+
   # -----------------------------------------------------------------------------
   @doc """
   Parses response based on request type and response
@@ -148,5 +155,9 @@ defmodule KafkaEx.New.Protocols.KayrockProtocol do
 
   def parse_response(:fetch, response) do
     KayrockProtocol.Fetch.Response.parse_response(response)
+  end
+
+  def parse_response(:find_coordinator, response) do
+    KayrockProtocol.FindCoordinator.Response.parse_response(response)
   end
 end
