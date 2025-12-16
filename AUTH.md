@@ -7,6 +7,8 @@ KafkaEx supports SASL authentication for secure Kafka clusters. Multiple mechani
 - **PLAIN** - Simple username/password (requires SSL/TLS)
 - **SCRAM-SHA-256** - Secure challenge-response authentication (Kafka 0.10.2+)
 - **SCRAM-SHA-512** - Secure challenge-response with stronger hash (Kafka 0.10.2+)
+- **SCRAM-SHA-512** - Secure challenge-response with stronger hash (Kafka 0.10.2+)
+- **OAUTHBEARER**   - Token-based authentication using OAuth 2.0 bearer tokens (Kafka 2.0+)
 
 ## Configuration
 
@@ -58,6 +60,7 @@ docker-compose up -d
 # 9092 - No authentication (SSL)
 # 9192 - SASL/PLAIN (SSL)
 # 9292 - SASL/SCRAM (SSL)
+# 9392 - SASL/Oauthbearer
 ```
 
 ## Security Considerations
@@ -70,6 +73,7 @@ docker-compose up -d
 
 - PLAIN: Kafka 0.9.0+
 - SCRAM: Kafka 0.10.2+
+- SASL-Oauthbearer: Kafka 2.0+
 
 ## Testing with Different Mechanisms
 
@@ -93,6 +97,20 @@ config :kafka_ex,
     mechanism_opts: %{algo: :sha256}
   }
 ```
+
+ ##  OAUTHBEARER
+ ```elixir
+ config :kafka_ex,
+   brokers: [{"localhost", 9394}],
+   use_ssl: true,
+   sasl: %{
+     mechanism: :oauthbearer,
+     mechanism_opts: %{
+       token_provider: &MyOAuth.get_token/0,
+       extensions: %{"traceId" => "optional"}
+     }
+   }
+ ```
 
 ## Integration with Existing Code
 
