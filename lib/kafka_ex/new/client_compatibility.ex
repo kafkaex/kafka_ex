@@ -240,6 +240,30 @@ defmodule KafkaEx.New.ClientCompatibility do
         {:reply, Adapter.api_versions(state.api_versions), state}
       end
 
+      def handle_call({:consumer_group_metadata, _consumer_group}, _from, state) do
+        unless consumer_group?(state) do
+          raise KafkaEx.ConsumerGroupRequiredError, "consumer metadata update"
+        end
+
+        consumer_group = state.consumer_group_for_auto_commit
+        request = Adapter.consumer_metadata_request(consumer_group)
+
+        {response, updated_state} =
+          kayrock_network_request(
+            request,
+            NodeSelector.consumer_group(consumer_group),
+            state
+          )
+
+        response =
+          case response do
+            {:ok, resp} -> Adapter.consumer_metadata_response(resp)
+            {:error, reason} -> %KafkaEx.Protocol.ConsumerMetadata.Response{error_code: reason}
+          end
+
+        {:reply, response, updated_state}
+      end
+
       def handle_call(:consumer_group, _from, state) do
         {:reply, state.consumer_group_for_auto_commit, state}
       end

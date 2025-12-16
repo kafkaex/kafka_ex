@@ -1308,4 +1308,131 @@ defmodule KafkaEx.New.KafkaExAPITest do
       assert is_integer(versions_v1.throttle_time_ms)
     end
   end
+
+  describe "find_coordinator/2" do
+    test "finds coordinator for consumer group", %{client: client} do
+      consumer_group = generate_random_string()
+
+      {:ok, result} = API.find_coordinator(client, consumer_group)
+
+      assert %KafkaEx.New.Kafka.FindCoordinator{} = result
+      assert result.error_code == :no_error
+      assert result.coordinator != nil
+      assert is_integer(result.coordinator.node_id)
+      assert is_binary(result.coordinator.host)
+      assert is_integer(result.coordinator.port)
+    end
+
+    test "returns coordinator with throttle_time_ms (V1)", %{client: client} do
+      consumer_group = generate_random_string()
+
+      {:ok, result} = API.find_coordinator(client, consumer_group, api_version: 1)
+
+      assert result.error_code == :no_error
+      assert is_integer(result.throttle_time_ms)
+      assert result.throttle_time_ms >= 0
+    end
+
+    test "V0 returns coordinator without throttle_time_ms", %{client: client} do
+      consumer_group = generate_random_string()
+
+      {:ok, result} = API.find_coordinator(client, consumer_group, api_version: 0)
+
+      assert result.error_code == :no_error
+      assert result.coordinator != nil
+      # V0 does not have throttle_time_ms
+      assert is_nil(result.throttle_time_ms)
+    end
+
+    test "same group returns same coordinator", %{client: client} do
+      consumer_group = generate_random_string()
+
+      {:ok, result1} = API.find_coordinator(client, consumer_group)
+      {:ok, result2} = API.find_coordinator(client, consumer_group)
+
+      # Same group should return same coordinator
+      assert result1.coordinator.node_id == result2.coordinator.node_id
+    end
+
+    test "different groups may have different coordinators", %{client: client} do
+      # Create multiple groups - they may or may not have different coordinators
+      # depending on partitioning, but all should succeed
+      groups = for _ <- 1..5, do: generate_random_string()
+
+      results =
+        Enum.map(groups, fn group ->
+          {:ok, result} = API.find_coordinator(client, group)
+          result
+        end)
+
+      # All should succeed
+      Enum.each(results, fn result ->
+        assert result.error_code == :no_error
+        assert result.coordinator != nil
+      end)
+    end
+
+    test "coordinator is one of the cluster brokers", %{client: client} do
+      consumer_group = generate_random_string()
+
+      {:ok, coordinator_result} = API.find_coordinator(client, consumer_group)
+      {:ok, metadata} = API.cluster_metadata(client)
+
+      # The coordinator should be one of the known brokers
+      broker_ids = Enum.map(Map.values(metadata.brokers), & &1.node_id)
+      assert coordinator_result.coordinator.node_id in broker_ids
+    end
+
+    test "can use coordinator for group operations", %{client: client} do
+      topic_name = generate_random_string()
+      consumer_group = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      # Find coordinator
+      {:ok, coordinator_result} = API.find_coordinator(client, consumer_group)
+      assert coordinator_result.error_code == :no_error
+
+      # Use the same group for join_group - should work
+      {member_id, generation_id} = join_to_group(client, topic_name, consumer_group)
+
+      assert is_binary(member_id)
+      assert is_integer(generation_id)
+
+      # Leave group
+      {:ok, _} = API.leave_group(client, consumer_group, member_id)
+    end
+  end
+
+  describe "find_coordinator/3" do
+    test "finds coordinator with explicit V1", %{client: client} do
+      consumer_group = generate_random_string()
+
+      {:ok, result} = API.find_coordinator(client, consumer_group, api_version: 1)
+
+      assert result.error_code == :no_error
+      assert result.coordinator != nil
+      assert is_integer(result.throttle_time_ms)
+    end
+
+    test "finds coordinator with explicit V0", %{client: client} do
+      consumer_group = generate_random_string()
+
+      {:ok, result} = API.find_coordinator(client, consumer_group, api_version: 0)
+
+      assert result.error_code == :no_error
+      assert result.coordinator != nil
+      # V0 doesn't have throttle_time_ms
+      assert is_nil(result.throttle_time_ms)
+    end
+
+    test "coordinator_type :group is default", %{client: client} do
+      consumer_group = generate_random_string()
+
+      {:ok, result1} = API.find_coordinator(client, consumer_group)
+      {:ok, result2} = API.find_coordinator(client, consumer_group, coordinator_type: :group)
+
+      # Both should return the same coordinator
+      assert result1.coordinator.node_id == result2.coordinator.node_id
+    end
+  end
 end

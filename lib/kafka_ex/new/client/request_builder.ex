@@ -8,8 +8,11 @@ defmodule KafkaEx.New.Client.RequestBuilder do
 
   @default_api_version %{
     api_versions: 0,
+    create_topics: 1,
+    delete_topics: 1,
     describe_groups: 1,
     fetch: 3,
+    find_coordinator: 1,
     heartbeat: 1,
     join_group: 1,
     leave_group: 1,
@@ -237,6 +240,70 @@ defmodule KafkaEx.New.Client.RequestBuilder do
     case get_api_version(state, :offset_commit, request_opts) do
       {:ok, api_version} ->
         req = @protocol.build_request(:offset_commit, api_version, request_opts)
+        {:ok, req}
+
+      {:error, error_code} ->
+        {:error, error_code}
+    end
+  end
+
+  @doc """
+  Builds request for FindCoordinator API
+
+  ## Options
+
+  - `group_id` (required for V0, optional for V1): The consumer group ID
+  - `coordinator_key` (optional, V1): The key to look up (defaults to group_id)
+  - `coordinator_type` (optional, V1): 0 for group (default), 1 for transaction
+  - `api_version` (optional): API version to use (default: 1)
+  """
+  @spec find_coordinator_request(Keyword.t(), State.t()) :: {:ok, term} | {:error, :api_version_no_supported}
+  def find_coordinator_request(request_opts, state) do
+    case get_api_version(state, :find_coordinator, request_opts) do
+      {:ok, api_version} ->
+        req = @protocol.build_request(:find_coordinator, api_version, request_opts)
+        {:ok, req}
+
+      {:error, error_code} ->
+        {:error, error_code}
+    end
+  end
+
+  @doc """
+  Builds request for CreateTopics API
+
+  ## Options
+
+  - `topics` (required): List of topic configurations, each with:
+    - `:topic` - Topic name (required)
+    - `:num_partitions` - Number of partitions (default: -1 for broker default)
+    - `:replication_factor` - Replication factor (default: -1 for broker default)
+    - `:replica_assignment` - Manual replica assignment (default: [])
+    - `:config_entries` - Topic configuration entries (default: [])
+  - `timeout` (required): Request timeout in milliseconds
+  - `validate_only` (optional, V1+): If true, only validate without creating
+  - `api_version` (optional): API version to use (default: 1)
+  """
+  @spec create_topics_request(Keyword.t(), State.t()) :: {:ok, term} | {:error, :api_version_no_supported}
+  def create_topics_request(request_opts, state) do
+    case get_api_version(state, :create_topics, request_opts) do
+      {:ok, api_version} ->
+        req = @protocol.build_request(:create_topics, api_version, request_opts)
+        {:ok, req}
+
+      {:error, error_code} ->
+        {:error, error_code}
+    end
+  end
+
+  @doc """
+  Builds request for Delete Topics API
+  """
+  @spec delete_topics_request(Keyword.t(), State.t()) :: {:ok, term} | {:error, :api_version_no_supported}
+  def delete_topics_request(request_opts, state) do
+    case get_api_version(state, :delete_topics, request_opts) do
+      {:ok, api_version} ->
+        req = @protocol.build_request(:delete_topics, api_version, request_opts)
         {:ok, req}
 
       {:error, error_code} ->

@@ -8,8 +8,11 @@ defmodule KafkaEx.New.Protocols.KayrockProtocol do
 
   alias KafkaEx.New.Protocols.Kayrock, as: KayrockProtocol
   alias Kayrock.ApiVersions
+  alias Kayrock.CreateTopics
+  alias Kayrock.DeleteTopics
   alias Kayrock.DescribeGroups
   alias Kayrock.Fetch
+  alias Kayrock.FindCoordinator
   alias Kayrock.Heartbeat
   alias Kayrock.JoinGroup
   alias Kayrock.LeaveGroup
@@ -97,6 +100,24 @@ defmodule KafkaEx.New.Protocols.KayrockProtocol do
     |> KayrockProtocol.Fetch.Request.build_request(opts)
   end
 
+  def build_request(:find_coordinator, api_version, opts) do
+    api_version
+    |> FindCoordinator.get_request_struct()
+    |> KayrockProtocol.FindCoordinator.Request.build_request(opts)
+  end
+
+  def build_request(:create_topics, api_version, opts) do
+    api_version
+    |> CreateTopics.get_request_struct()
+    |> KayrockProtocol.CreateTopics.Request.build_request(opts)
+  end
+
+  def build_request(:delete_topics, api_version, opts) do
+    api_version
+    |> DeleteTopics.get_request_struct()
+    |> KayrockProtocol.DeleteTopics.Request.build_request(opts)
+  end
+
   # -----------------------------------------------------------------------------
   @doc """
   Parses response based on request type and response
@@ -148,5 +169,17 @@ defmodule KafkaEx.New.Protocols.KayrockProtocol do
 
   def parse_response(:fetch, response) do
     KayrockProtocol.Fetch.Response.parse_response(response)
+  end
+
+  def parse_response(:find_coordinator, response) do
+    KayrockProtocol.FindCoordinator.Response.parse_response(response)
+  end
+
+  def parse_response(:create_topics, response) do
+    KayrockProtocol.CreateTopics.Response.parse_response(response)
+  end
+
+  def parse_response(:delete_topics, response) do
+    KayrockProtocol.DeleteTopics.Response.parse_response(response)
   end
 end

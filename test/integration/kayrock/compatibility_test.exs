@@ -1,9 +1,4 @@
 defmodule KafkaEx.KayrockCompatibilityTest do
-  @moduledoc """
-  These are tests using the original KafkaEx API with the kayrock server
-
-  These mostly come from the original integration_test.exs file
-  """
   use ExUnit.Case
   import KafkaEx.TestHelpers
   import KafkaEx.IntegrationHelpers
@@ -2000,6 +1995,478 @@ defmodule KafkaEx.KayrockCompatibilityTest do
       assert legacy_msg.key == "rt-key"
       assert new_msg.key == "rt-key"
       assert legacy_msg.offset == new_msg.offset
+    end
+  end
+
+  # -----------------------------------------------------------------------------
+  # FindCoordinator / ConsumerMetadata Compatibility Tests
+  # -----------------------------------------------------------------------------
+
+  describe "find_coordinator/consumer_group_metadata compatibility" do
+    test "legacy consumer_group_metadata returns coordinator info", %{client: client} do
+      consumer_group = "find-coord-compat-#{:rand.uniform(100_000)}"
+
+      # Use the legacy API
+      response = KafkaEx.consumer_group_metadata(client, consumer_group)
+
+      assert %KafkaEx.Protocol.ConsumerMetadata.Response{} = response
+      assert response.error_code == :no_error
+      assert response.coordinator_id >= 0
+      assert response.coordinator_host != nil
+      assert response.coordinator_host != ""
+      assert response.coordinator_port > 0
+    end
+
+    test "new find_coordinator API returns same coordinator as legacy", %{client: client} do
+      consumer_group = "find-coord-same-#{:rand.uniform(100_000)}"
+
+      # Use legacy API
+      legacy_response = KafkaEx.consumer_group_metadata(client, consumer_group)
+      assert legacy_response.error_code == :no_error
+
+      # Use new API
+      {:ok, new_response} = KafkaExAPI.find_coordinator(client, consumer_group)
+      assert new_response.error_code == :no_error
+
+      # Both should return the same coordinator
+      assert legacy_response.coordinator_id == new_response.coordinator.node_id
+      assert legacy_response.coordinator_host == new_response.coordinator.host
+      assert legacy_response.coordinator_port == new_response.coordinator.port
+    end
+
+    test "both APIs handle invalid consumer group consistently", %{client: client} do
+      # Empty consumer group is invalid
+      legacy_response = KafkaEx.consumer_group_metadata(client, "")
+      {:ok, new_response} = KafkaExAPI.find_coordinator(client, "")
+
+      # Both should return the same error or both succeed (broker-dependent)
+      # The key is they should be consistent
+      legacy_error = legacy_response.error_code
+      new_error = new_response.error_code
+
+      assert legacy_error == new_error
+    end
+
+    test "coordinator is consistent across multiple calls", %{client: client} do
+      consumer_group = "find-coord-consistent-#{:rand.uniform(100_000)}"
+
+      # Call legacy API twice
+      legacy1 = KafkaEx.consumer_group_metadata(client, consumer_group)
+      legacy2 = KafkaEx.consumer_group_metadata(client, consumer_group)
+
+      # Call new API twice
+      {:ok, new1} = KafkaExAPI.find_coordinator(client, consumer_group)
+      {:ok, new2} = KafkaExAPI.find_coordinator(client, consumer_group)
+
+      # All should return the same coordinator (unless rebalance)
+      assert legacy1.coordinator_id == legacy2.coordinator_id
+      assert new1.coordinator.node_id == new2.coordinator.node_id
+      assert legacy1.coordinator_id == new1.coordinator.node_id
+    end
+
+    test "new API with V0 returns equivalent to legacy", %{client: client} do
+      consumer_group = "find-coord-v0-#{:rand.uniform(100_000)}"
+
+      # Legacy API uses V0 internally
+      legacy_response = KafkaEx.consumer_group_metadata(client, consumer_group)
+
+      # Force V0 on new API
+      {:ok, new_response} = KafkaExAPI.find_coordinator(client, consumer_group, api_version: 0)
+
+      assert legacy_response.error_code == :no_error
+      assert new_response.error_code == :no_error
+      assert legacy_response.coordinator_id == new_response.coordinator.node_id
+    end
+  end
+
+  # -----------------------------------------------------------------------------
+  describe "create_topics compatibility" do
+    alias KafkaEx.New.Kafka.CreateTopics
+
+    test "new API creates topic successfully", %{client: client} do
+      topic_name = "create-topics-new-api-#{:rand.uniform(100_000)}"
+
+      topics = [[topic: topic_name, num_partitions: 3, replication_factor: 1]]
+
+      {:ok, result} = KafkaExAPI.create_topics(client, topics, 10_000)
+
+      assert %CreateTopics{} = result
+      assert CreateTopics.success?(result)
+      assert length(result.topic_results) == 1
+
+      [topic_result] = result.topic_results
+      assert topic_result.topic == topic_name
+      assert topic_result.error == :no_error
+    end
+
+    test "new API returns topic_already_exists for duplicate topic", %{client: client} do
+      topic_name = "create-topics-duplicate-#{:rand.uniform(100_000)}"
+
+      topics = [[topic: topic_name, num_partitions: 1, replication_factor: 1]]
+
+      # Create first time
+      {:ok, result1} = KafkaExAPI.create_topics(client, topics, 10_000)
+      assert CreateTopics.success?(result1)
+
+      # Try to create again
+      {:ok, result2} = KafkaExAPI.create_topics(client, topics, 10_000)
+      assert not CreateTopics.success?(result2)
+
+      [topic_result] = result2.topic_results
+      assert topic_result.error == :topic_already_exists
+    end
+
+    test "new API can create multiple topics at once", %{client: client} do
+      base = :rand.uniform(100_000)
+      topic1 = "create-topics-multi-1-#{base}"
+      topic2 = "create-topics-multi-2-#{base}"
+      topic3 = "create-topics-multi-3-#{base}"
+
+      topics = [
+        [topic: topic1, num_partitions: 1, replication_factor: 1],
+        [topic: topic2, num_partitions: 2, replication_factor: 1],
+        [topic: topic3, num_partitions: 3, replication_factor: 1]
+      ]
+
+      {:ok, result} = KafkaExAPI.create_topics(client, topics, 10_000)
+
+      assert CreateTopics.success?(result)
+      assert length(result.topic_results) == 3
+
+      topic_names = Enum.map(result.topic_results, & &1.topic) |> Enum.sort()
+      assert topic_names == [topic1, topic2, topic3] |> Enum.sort()
+    end
+
+    test "legacy API creates topic successfully", %{client: client} do
+      topic_name = "create-topics-legacy-api-#{:rand.uniform(100_000)}"
+
+      request = %KafkaEx.Protocol.CreateTopics.TopicRequest{
+        topic: topic_name,
+        num_partitions: 3,
+        replication_factor: 1,
+        replica_assignment: [],
+        config_entries: []
+      }
+
+      response = KafkaEx.create_topics([request], worker_name: client, timeout: 10_000)
+
+      assert %KafkaEx.Protocol.CreateTopics.Response{} = response
+      assert [topic_error] = response.topic_errors
+      assert topic_error.topic_name == topic_name
+      assert topic_error.error_code == :no_error
+    end
+
+    test "both APIs can interoperate - new API sees topic created by legacy", %{client: client} do
+      topic_name = "create-topics-interop-1-#{:rand.uniform(100_000)}"
+
+      # Create via legacy API
+      legacy_request = %KafkaEx.Protocol.CreateTopics.TopicRequest{
+        topic: topic_name,
+        num_partitions: 2,
+        replication_factor: 1
+      }
+
+      legacy_response = KafkaEx.create_topics([legacy_request], worker_name: client, timeout: 10_000)
+      assert [topic_error] = legacy_response.topic_errors
+      assert topic_error.error_code == :no_error
+
+      # Try to create same topic via new API - should get already_exists
+      {:ok, new_result} = KafkaExAPI.create_topics(client, [[topic: topic_name]], 10_000)
+      [topic_result] = new_result.topic_results
+      assert topic_result.error == :topic_already_exists
+    end
+
+    test "both APIs can interoperate - legacy API sees topic created by new", %{client: client} do
+      topic_name = "create-topics-interop-2-#{:rand.uniform(100_000)}"
+
+      # Create via new API
+      {:ok, new_result} =
+        KafkaExAPI.create_topics(
+          client,
+          [[topic: topic_name, num_partitions: 2, replication_factor: 1]],
+          10_000
+        )
+
+      assert CreateTopics.success?(new_result)
+
+      # Try to create same topic via legacy API - should get already_exists
+      legacy_request = %KafkaEx.Protocol.CreateTopics.TopicRequest{
+        topic: topic_name,
+        num_partitions: 2,
+        replication_factor: 1
+      }
+
+      legacy_response = KafkaEx.create_topics([legacy_request], worker_name: client, timeout: 10_000)
+      assert [topic_error] = legacy_response.topic_errors
+      assert topic_error.error_code == :topic_already_exists
+    end
+
+    test "new API create_topic convenience function works", %{client: client} do
+      topic_name = "create-topic-convenience-#{:rand.uniform(100_000)}"
+
+      {:ok, result} = KafkaExAPI.create_topic(client, topic_name, num_partitions: 2)
+
+      assert CreateTopics.success?(result)
+      [topic_result] = result.topic_results
+      assert topic_result.topic == topic_name
+    end
+
+    test "new API with V0 creates topic successfully", %{client: client} do
+      topic_name = "create-topics-v0-#{:rand.uniform(100_000)}"
+
+      {:ok, result} =
+        KafkaExAPI.create_topics(
+          client,
+          [[topic: topic_name, num_partitions: 1, replication_factor: 1]],
+          10_000,
+          api_version: 0
+        )
+
+      assert CreateTopics.success?(result)
+      # V0 doesn't have error_message
+      [topic_result] = result.topic_results
+      assert topic_result.error_message == nil
+    end
+
+    test "new API with V2 includes throttle_time_ms", %{client: client} do
+      topic_name = "create-topics-v2-#{:rand.uniform(100_000)}"
+
+      {:ok, result} =
+        KafkaExAPI.create_topics(
+          client,
+          [[topic: topic_name, num_partitions: 1, replication_factor: 1]],
+          10_000,
+          api_version: 2
+        )
+
+      assert CreateTopics.success?(result)
+      # V2 has throttle_time_ms
+      assert is_integer(result.throttle_time_ms)
+    end
+
+    test "new API validate_only flag works (V1+)", %{client: client} do
+      topic_name = "create-topics-validate-#{:rand.uniform(100_000)}"
+
+      # Validate only - should succeed but not actually create
+      {:ok, result} =
+        KafkaExAPI.create_topics(
+          client,
+          [[topic: topic_name, num_partitions: 3, replication_factor: 1]],
+          10_000,
+          validate_only: true
+        )
+
+      assert CreateTopics.success?(result)
+
+      # Topic should not exist - try to create it again
+      {:ok, result2} =
+        KafkaExAPI.create_topics(
+          client,
+          [[topic: topic_name, num_partitions: 3, replication_factor: 1]],
+          10_000
+        )
+
+      # Should succeed because validate_only didn't actually create it
+      assert CreateTopics.success?(result2)
+    end
+
+    test "new API with config entries creates topic correctly", %{client: client} do
+      topic_name = "create-topics-config-#{:rand.uniform(100_000)}"
+
+      topics = [
+        [
+          topic: topic_name,
+          num_partitions: 1,
+          replication_factor: 1,
+          config_entries: [
+            {"retention.ms", "3600000"},
+            {"cleanup.policy", "delete"}
+          ]
+        ]
+      ]
+
+      {:ok, result} = KafkaExAPI.create_topics(client, topics, 10_000)
+
+      assert CreateTopics.success?(result)
+    end
+  end
+
+  # -----------------------------------------------------------------------------
+  describe "delete_topics compatibility" do
+    alias KafkaEx.New.Kafka.DeleteTopics
+
+    test "new API deletes topic successfully", %{client: client} do
+      topic_name = "delete-topics-new-api-#{:rand.uniform(100_000)}"
+
+      # First create the topic
+      {:ok, create_result} =
+        KafkaExAPI.create_topics(
+          client,
+          [[topic: topic_name, num_partitions: 1, replication_factor: 1]],
+          10_000
+        )
+
+      assert KafkaEx.New.Kafka.CreateTopics.success?(create_result)
+
+      # Now delete it
+      {:ok, result} = KafkaExAPI.delete_topics(client, [topic_name], 10_000)
+
+      assert %DeleteTopics{} = result
+      assert DeleteTopics.success?(result)
+      assert length(result.topic_results) == 1
+
+      [topic_result] = result.topic_results
+      assert topic_result.topic == topic_name
+      assert topic_result.error == :no_error
+    end
+
+    test "new API returns error for non-existent topic", %{client: client} do
+      topic_name = "delete-topics-nonexistent-#{:rand.uniform(100_000)}"
+
+      {:ok, result} = KafkaExAPI.delete_topics(client, [topic_name], 10_000)
+
+      assert not DeleteTopics.success?(result)
+
+      [topic_result] = result.topic_results
+      assert topic_result.error == :unknown_topic_or_partition
+    end
+
+    test "new API can delete multiple topics at once", %{client: client} do
+      base = :rand.uniform(100_000)
+      topic1 = "delete-topics-multi-1-#{base}"
+      topic2 = "delete-topics-multi-2-#{base}"
+      topic3 = "delete-topics-multi-3-#{base}"
+
+      # Create topics
+      topics_to_create = [
+        [topic: topic1, num_partitions: 1, replication_factor: 1],
+        [topic: topic2, num_partitions: 1, replication_factor: 1],
+        [topic: topic3, num_partitions: 1, replication_factor: 1]
+      ]
+
+      {:ok, create_result} = KafkaExAPI.create_topics(client, topics_to_create, 10_000)
+      assert KafkaEx.New.Kafka.CreateTopics.success?(create_result)
+
+      # Delete all topics
+      {:ok, result} = KafkaExAPI.delete_topics(client, [topic1, topic2, topic3], 10_000)
+
+      assert DeleteTopics.success?(result)
+      assert length(result.topic_results) == 3
+
+      topic_names = Enum.map(result.topic_results, & &1.topic) |> Enum.sort()
+      assert topic_names == [topic1, topic2, topic3] |> Enum.sort()
+    end
+
+    test "legacy API deletes topic successfully", %{client: client} do
+      topic_name = "delete-topics-legacy-api-#{:rand.uniform(100_000)}"
+
+      # First create the topic
+      create_request = %KafkaEx.Protocol.CreateTopics.TopicRequest{
+        topic: topic_name,
+        num_partitions: 1,
+        replication_factor: 1
+      }
+
+      create_response = KafkaEx.create_topics([create_request], worker_name: client, timeout: 10_000)
+      assert [topic_error] = create_response.topic_errors
+      assert topic_error.error_code == :no_error
+
+      # Delete via legacy API
+      response = KafkaEx.delete_topics([topic_name], worker_name: client, timeout: 10_000)
+
+      assert %KafkaEx.Protocol.DeleteTopics.Response{} = response
+      assert [topic_error] = response.topic_errors
+      assert topic_error.topic_name == topic_name
+      assert topic_error.error_code == :no_error
+    end
+
+    test "both APIs can interoperate - new API deletes topic created by legacy", %{client: client} do
+      topic_name = "delete-topics-interop-1-#{:rand.uniform(100_000)}"
+
+      # Create via legacy API
+      legacy_request = %KafkaEx.Protocol.CreateTopics.TopicRequest{
+        topic: topic_name,
+        num_partitions: 1,
+        replication_factor: 1
+      }
+
+      legacy_response = KafkaEx.create_topics([legacy_request], worker_name: client, timeout: 10_000)
+      assert [topic_error] = legacy_response.topic_errors
+      assert topic_error.error_code == :no_error
+
+      # Delete via new API
+      {:ok, result} = KafkaExAPI.delete_topics(client, [topic_name], 10_000)
+
+      assert DeleteTopics.success?(result)
+    end
+
+    test "both APIs can interoperate - legacy API deletes topic created by new", %{client: client} do
+      topic_name = "delete-topics-interop-2-#{:rand.uniform(100_000)}"
+
+      # Create via new API
+      {:ok, new_result} =
+        KafkaExAPI.create_topics(
+          client,
+          [[topic: topic_name, num_partitions: 1, replication_factor: 1]],
+          10_000
+        )
+
+      assert KafkaEx.New.Kafka.CreateTopics.success?(new_result)
+
+      # Delete via legacy API
+      legacy_response = KafkaEx.delete_topics([topic_name], worker_name: client, timeout: 10_000)
+      assert [topic_error] = legacy_response.topic_errors
+      assert topic_error.error_code == :no_error
+    end
+
+    test "new API with V0 works correctly", %{client: client} do
+      topic_name = "delete-topics-v0-#{:rand.uniform(100_000)}"
+
+      # First create the topic
+      {:ok, _} =
+        KafkaExAPI.create_topics(
+          client,
+          [[topic: topic_name, num_partitions: 1, replication_factor: 1]],
+          10_000
+        )
+
+      # Delete with V0
+      {:ok, result} = KafkaExAPI.delete_topics(client, [topic_name], 10_000, api_version: 0)
+
+      assert DeleteTopics.success?(result)
+      # V0 doesn't have throttle_time_ms
+      assert result.throttle_time_ms == nil
+    end
+
+    test "new API with V1 includes throttle_time_ms", %{client: client} do
+      topic_name = "delete-topics-v1-#{:rand.uniform(100_000)}"
+
+      # First create the topic
+      {:ok, _} =
+        KafkaExAPI.create_topics(
+          client,
+          [[topic: topic_name, num_partitions: 1, replication_factor: 1]],
+          10_000
+        )
+
+      # Delete with V1
+      {:ok, result} = KafkaExAPI.delete_topics(client, [topic_name], 10_000, api_version: 1)
+
+      assert DeleteTopics.success?(result)
+      # V1 has throttle_time_ms
+      assert is_integer(result.throttle_time_ms)
+    end
+
+    test "delete_topic convenience function works", %{client: client} do
+      topic_name = "delete-topics-convenience-#{:rand.uniform(100_000)}"
+
+      # First create the topic
+      {:ok, _} = KafkaExAPI.create_topic(client, topic_name, num_partitions: 1, replication_factor: 1)
+
+      # Delete using convenience function
+      {:ok, result} = KafkaExAPI.delete_topic(client, topic_name)
+
+      assert DeleteTopics.success?(result)
     end
   end
 

@@ -7,7 +7,10 @@ defmodule KafkaEx.New.Client.ResponseParser do
   alias KafkaEx.New.Kafka.ApiVersions
   alias KafkaEx.New.Kafka.ClusterMetadata
   alias KafkaEx.New.Kafka.ConsumerGroupDescription
+  alias KafkaEx.New.Kafka.CreateTopics
+  alias KafkaEx.New.Kafka.DeleteTopics
   alias KafkaEx.New.Kafka.Fetch
+  alias KafkaEx.New.Kafka.FindCoordinator
   alias KafkaEx.New.Kafka.Heartbeat
   alias KafkaEx.New.Kafka.JoinGroup
   alias KafkaEx.New.Kafka.LeaveGroup
@@ -111,5 +114,29 @@ defmodule KafkaEx.New.Client.ResponseParser do
   @spec fetch_response(term) :: {:ok, Fetch.t()} | {:error, Error.t()}
   def fetch_response(response) do
     @protocol.parse_response(:fetch, response)
+  end
+
+  @doc """
+  Parses response for FindCoordinator API
+  """
+  @spec find_coordinator_response(term) :: {:ok, FindCoordinator.t()} | {:error, Error.t()}
+  def find_coordinator_response(response) do
+    @protocol.parse_response(:find_coordinator, response)
+  end
+
+  @doc """
+  Parses response for CreateTopics API
+  """
+  @spec create_topics_response(term) :: {:ok, CreateTopics.t()} | {:error, Error.t()}
+  def create_topics_response(response) do
+    @protocol.parse_response(:create_topics, response)
+  end
+
+  @doc """
+  Parses response for DeleteTopics API
+  """
+  @spec delete_topics_response(term) :: {:ok, DeleteTopics.t()} | {:error, Error.t()}
+  def delete_topics_response(response) do
+    @protocol.parse_response(:delete_topics, response)
   end
 end

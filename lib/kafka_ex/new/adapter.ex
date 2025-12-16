@@ -13,6 +13,7 @@ defmodule KafkaEx.New.Adapter do
 
   alias KafkaEx.Protocol
   alias KafkaEx.Protocol.ApiVersions.ApiVersion
+  alias KafkaEx.Protocol.ConsumerMetadata.Response, as: ConsumerMetadataResponse
   alias KafkaEx.Protocol.CreateTopics.Response, as: CreateTopicsResponse
   alias KafkaEx.Protocol.CreateTopics.TopicError, as: CreateTopicError
   alias KafkaEx.Protocol.DeleteTopics.Response, as: DeleteTopicsResponse
@@ -37,6 +38,7 @@ defmodule KafkaEx.New.Adapter do
   alias Kayrock.DeleteTopics
   alias Kayrock.ErrorCode
   alias Kayrock.Fetch
+  alias Kayrock.FindCoordinator
   alias Kayrock.GroupProtocolMetadata
   alias Kayrock.Heartbeat
   alias Kayrock.JoinGroup
@@ -402,6 +404,39 @@ defmodule KafkaEx.New.Adapter do
       throttle_time_ms: 0
     }
   end
+
+  def consumer_metadata_request(consumer_group) do
+    %FindCoordinator.V0.Request{
+      group_id: consumer_group
+    }
+  end
+
+  def consumer_metadata_response(%FindCoordinator.V0.Response{
+        error_code: error_code,
+        coordinator: coordinator
+      }) do
+    %ConsumerMetadataResponse{
+      coordinator_id: get_coordinator_field(coordinator, :node_id, 0),
+      coordinator_host: get_coordinator_field(coordinator, :host, ""),
+      coordinator_port: get_coordinator_field(coordinator, :port, 0),
+      error_code: ErrorCode.code_to_atom(error_code)
+    }
+  end
+
+  def consumer_metadata_response(%FindCoordinator.V1.Response{
+        error_code: error_code,
+        coordinator: coordinator
+      }) do
+    %ConsumerMetadataResponse{
+      coordinator_id: get_coordinator_field(coordinator, :node_id, 0),
+      coordinator_host: get_coordinator_field(coordinator, :host, ""),
+      coordinator_port: get_coordinator_field(coordinator, :port, 0),
+      error_code: ErrorCode.code_to_atom(error_code)
+    }
+  end
+
+  defp get_coordinator_field(nil, _field, default), do: default
+  defp get_coordinator_field(coordinator, field, _default), do: Map.get(coordinator, field)
 
   def offset_fetch_request(offset_fetch_request, client_consumer_group) do
     consumer_group = offset_fetch_request.consumer_group || client_consumer_group

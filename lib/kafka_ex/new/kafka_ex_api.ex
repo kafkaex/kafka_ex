@@ -16,7 +16,10 @@ defmodule KafkaEx.New.KafkaExAPI do
   alias KafkaEx.New.Kafka.ApiVersions
   alias KafkaEx.New.Kafka.ClusterMetadata
   alias KafkaEx.New.Kafka.ConsumerGroupDescription
+  alias KafkaEx.New.Kafka.CreateTopics
+  alias KafkaEx.New.Kafka.DeleteTopics
   alias KafkaEx.New.Kafka.Fetch
+  alias KafkaEx.New.Kafka.FindCoordinator
   alias KafkaEx.New.Kafka.Heartbeat
   alias KafkaEx.New.Kafka.JoinGroup
   alias KafkaEx.New.Kafka.LeaveGroup
@@ -402,14 +405,6 @@ defmodule KafkaEx.New.KafkaExAPI do
   | V4 | Adds isolation_level, last_stable_offset, aborted_transactions |
   | V5+ | Adds log_start_offset |
   | V7 | Adds incremental fetch (session_id, epoch) |
-
-  ## Examples
-
-      iex> KafkaEx.New.KafkaExAPI.fetch(client, "my_topic", 0, 0)
-      {:ok, %Fetch{topic: "my_topic", partition: 0, records: [...], high_watermark: 100}}
-
-      iex> KafkaEx.New.KafkaExAPI.fetch(client, "my_topic", 0, 0, max_bytes: 10_000)
-      {:ok, %Fetch{...}}
   """
   @spec fetch(client, topic_name, partition_id, offset_val) :: {:ok, Fetch.t()} | {:error, error_atom}
   @spec fetch(client, topic_name, partition_id, offset_val, opts) :: {:ok, Fetch.t()} | {:error, error_atom}
@@ -434,6 +429,239 @@ defmodule KafkaEx.New.KafkaExAPI do
       {:ok, offset} -> fetch(client, topic, partition, offset, opts)
       {:error, _} = error -> error
     end
+  end
+
+  @doc """
+  Find the coordinator broker for a consumer group or transaction
+
+  Discovers which broker is the coordinator for the specified consumer group
+  (or transactional producer). This is used internally for consumer group
+  operations but can also be called directly.
+
+  ## Options
+
+    * `:coordinator_type` - 0 for group (default), 1 for transaction
+    * `:api_version` - API version to use (default: 1)
+
+  ## API Version Differences
+
+  | Version | Features |
+  |---------|----------|
+  | V0 | Basic group coordinator discovery (uses group_id) |
+  | V1 | Adds coordinator_type (group/transaction), throttle_time_ms, error_message |
+
+  ## Examples
+
+      # Find group coordinator
+      {:ok, coordinator} = KafkaExAPI.find_coordinator(client, "my-consumer-group")
+
+      # Find transaction coordinator
+      {:ok, coordinator} = KafkaExAPI.find_coordinator(client, "my-transactional-id",
+        coordinator_type: :transaction)
+  """
+  @spec find_coordinator(client, consumer_group_name) ::
+          {:ok, FindCoordinator.t()} | {:error, error_atom}
+  @spec find_coordinator(client, consumer_group_name, opts) ::
+          {:ok, FindCoordinator.t()} | {:error, error_atom}
+  def find_coordinator(client, group_id, opts \\ []) do
+    case GenServer.call(client, {:find_coordinator, group_id, opts}) do
+      {:ok, result} -> {:ok, result}
+      {:error, %{error: error_atom}} -> {:error, error_atom}
+      {:error, error_atom} -> {:error, error_atom}
+    end
+  end
+
+  @doc """
+  Creates one or more topics in the Kafka cluster.
+
+  ## Parameters
+
+    * `client` - The client pid
+    * `topics` - List of topic configurations, each being a keyword list or map with:
+      * `:topic` - Topic name (required)
+      * `:num_partitions` - Number of partitions (default: -1 for broker default)
+      * `:replication_factor` - Replication factor (default: -1 for broker default)
+      * `:replica_assignment` - Manual replica assignment (default: [])
+      * `:config_entries` - Topic configuration entries as `{name, value}` tuples (default: [])
+    * `timeout` - Request timeout in milliseconds (required)
+    * `opts` - Optional keyword list with:
+      * `:validate_only` - If true, only validate without creating topics (V1+, default: false)
+      * `:api_version` - API version to use (default: 1)
+
+  ## API Version Differences
+
+  | Version | Features |
+  |---------|----------|
+  | V0 | Basic topic creation |
+  | V1 | Adds validate_only flag, error_message in response |
+  | V2 | Adds throttle_time_ms in response |
+
+  ## Examples
+
+      # Create a topic with broker defaults
+      {:ok, result} = KafkaExAPI.create_topics(client, [
+        [topic: "my-topic"]
+      ], 10_000)
+
+      # Create a topic with custom configuration
+      {:ok, result} = KafkaExAPI.create_topics(client, [
+        [
+          topic: "my-topic",
+          num_partitions: 3,
+          replication_factor: 2,
+          config_entries: [
+            {"cleanup.policy", "compact"},
+            {"retention.ms", "86400000"}
+          ]
+        ]
+      ], 10_000)
+
+      # Validate only (V1+)
+      {:ok, result} = KafkaExAPI.create_topics(client, [
+        [topic: "my-topic", num_partitions: 3]
+      ], 10_000, validate_only: true)
+
+      # Check results
+      if CreateTopics.success?(result) do
+        IO.puts("All topics created successfully")
+      else
+        for failed <- CreateTopics.failed_topics(result) do
+          IO.puts("Failed to create \#{failed.topic}: \#{failed.error}")
+        end
+      end
+  """
+  @spec create_topics(client, list(), non_neg_integer()) ::
+          {:ok, CreateTopics.t()} | {:error, error_atom}
+  @spec create_topics(client, list(), non_neg_integer(), opts) ::
+          {:ok, CreateTopics.t()} | {:error, error_atom}
+  def create_topics(client, topics, timeout, opts \\ []) do
+    case GenServer.call(client, {:create_topics, topics, timeout, opts}) do
+      {:ok, result} -> {:ok, result}
+      {:error, %{error: error_atom}} -> {:error, error_atom}
+      {:error, error_atom} -> {:error, error_atom}
+    end
+  end
+
+  @doc """
+  Creates a single topic with the given configuration.
+
+  This is a convenience function that wraps `create_topics/4` for creating a single topic.
+
+  ## Parameters
+
+    * `client` - The client pid
+    * `topic_name` - The name of the topic to create
+    * `opts` - Keyword list with:
+      * `:num_partitions` - Number of partitions (default: -1 for broker default)
+      * `:replication_factor` - Replication factor (default: -1 for broker default)
+      * `:config_entries` - Topic configuration entries (default: [])
+      * `:timeout` - Request timeout in milliseconds (default: 10_000)
+      * `:validate_only` - If true, only validate (V1+, default: false)
+      * `:api_version` - API version to use (default: 1)
+
+  ## Examples
+
+      # Create with defaults
+      {:ok, result} = KafkaExAPI.create_topic(client, "my-topic")
+
+      # Create with specific configuration
+      {:ok, result} = KafkaExAPI.create_topic(client, "my-topic",
+        num_partitions: 6,
+        replication_factor: 3,
+        timeout: 30_000
+      )
+  """
+  @spec create_topic(client, topic_name) :: {:ok, CreateTopics.t()} | {:error, error_atom}
+  @spec create_topic(client, topic_name, opts) :: {:ok, CreateTopics.t()} | {:error, error_atom}
+  def create_topic(client, topic_name, opts \\ []) do
+    {timeout, opts} = Keyword.pop(opts, :timeout, 10_000)
+    {api_opts, topic_opts} = Keyword.split(opts, [:validate_only, :api_version])
+
+    topic_config = Keyword.merge([topic: topic_name], topic_opts)
+    create_topics(client, [topic_config], timeout, api_opts)
+  end
+
+  # ---------------------------------------------------------------------------
+  # DeleteTopics API
+  # ---------------------------------------------------------------------------
+
+  @doc """
+  Deletes topics from the Kafka cluster.
+
+  ## Parameters
+
+    * `client` - The client pid
+    * `topics` - List of topic names to delete
+    * `timeout` - Request timeout in milliseconds
+    * `opts` - Keyword list with:
+      * `:api_version` - API version to use (default: 1)
+
+  ## Returns
+
+    * `{:ok, DeleteTopics.t()}` - Result with status for each topic
+    * `{:error, error_atom}` - Error if the request failed
+
+  ## Examples
+
+      # Delete a single topic
+      {:ok, result} = KafkaExAPI.delete_topics(client, ["my-topic"], 30_000)
+
+      # Delete multiple topics
+      {:ok, result} = KafkaExAPI.delete_topics(client, ["topic1", "topic2", "topic3"], 30_000)
+
+      # Check results
+      if DeleteTopics.success?(result) do
+        IO.puts("All topics deleted successfully")
+      else
+        failed = DeleteTopics.failed_topics(result)
+        IO.inspect(failed, label: "Failed to delete")
+      end
+
+  ## API Version Differences
+
+  | Version | Features |
+  |---------|----------|
+  | V0      | Basic topic deletion |
+  | V1      | Adds throttle_time_ms in response |
+  """
+  @spec delete_topics(client, [topic_name], timeout :: non_neg_integer) ::
+          {:ok, DeleteTopics.t()} | {:error, error_atom}
+  @spec delete_topics(client, [topic_name], timeout :: non_neg_integer, opts) ::
+          {:ok, DeleteTopics.t()} | {:error, error_atom}
+  def delete_topics(client, topics, timeout, opts \\ []) do
+    case GenServer.call(client, {:delete_topics, topics, timeout, opts}) do
+      {:ok, result} -> {:ok, result}
+      {:error, %{error: error_atom}} -> {:error, error_atom}
+      {:error, error_atom} -> {:error, error_atom}
+    end
+  end
+
+  @doc """
+  Deletes a single topic from the Kafka cluster.
+
+  This is a convenience function that wraps `delete_topics/4` for deleting a single topic.
+
+  ## Parameters
+
+    * `client` - The client pid
+    * `topic_name` - The name of the topic to delete
+    * `opts` - Keyword list with:
+      * `:timeout` - Request timeout in milliseconds (default: 30_000)
+      * `:api_version` - API version to use (default: 1)
+
+  ## Examples
+
+      # Delete with defaults
+      {:ok, result} = KafkaExAPI.delete_topic(client, "my-topic")
+
+      # Delete with custom timeout
+      {:ok, result} = KafkaExAPI.delete_topic(client, "my-topic", timeout: 60_000)
+  """
+  @spec delete_topic(client, topic_name) :: {:ok, DeleteTopics.t()} | {:error, error_atom}
+  @spec delete_topic(client, topic_name, opts) :: {:ok, DeleteTopics.t()} | {:error, error_atom}
+  def delete_topic(client, topic_name, opts \\ []) do
+    {timeout, opts} = Keyword.pop(opts, :timeout, 30_000)
+    delete_topics(client, [topic_name], timeout, opts)
   end
 
   # Helper to conditionally add keys to a map only if value is not nil

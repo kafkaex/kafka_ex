@@ -5,8 +5,22 @@
 This document tracks the progress of migrating KafkaEx to use Kayrock protocol implementations for all Kafka APIs. 
 The migration aims to replace manual binary parsing with Kayrock's type-safe, versioned protocol layer.
 
-**Last Updated:** 2025-12-12
-**Overall Progress:** 12/20 APIs migrated (60%)
+**Last Updated:** 2025-12-16
+**Overall Progress:** 15/20 APIs migrated (75%)
+
+### Quick Summary
+
+| Category | Status | APIs |
+|----------|--------|------|
+| ✅ **Fully Migrated** | 15 | Metadata, ApiVersions, Produce, Fetch, ListOffsets, OffsetFetch, OffsetCommit, JoinGroup, SyncGroup, Heartbeat, LeaveGroup, DescribeGroups, FindCoordinator, CreateTopics, DeleteTopics |
+| 🟡 **Adapter Only** | 0 | - |
+| ❌ **Not Started** | 5 | CreatePartitions, DeleteRecords, DescribeConfigs, AlterConfigs, InitProducerID |
+
+### Test Status
+
+- **Unit Tests:** 1,855 passing
+- **Integration Tests:** 200+ (with Kafka cluster)
+- **Code Quality:** mix format ✅, mix credo --strict ✅
 
 ---
 
@@ -164,8 +178,8 @@ Pattern matching naturally separates them with no conflicts.
 
 | API                  | Status            | Versions | Priority | Complexity | Notes              |
 |----------------------|-------------------|----------|----------|------------|--------------------|
-| **CreateTopics**     | 🟡 Adapter Only   | v0-v5    | MEDIUM   | Medium     | Topic creation     |
-| **DeleteTopics**     | 🟡 Adapter Only   | v0-v3    | MEDIUM   | Low        | Topic deletion     |
+| **CreateTopics**     | ✅ Complete       | v0-v2    | MEDIUM   | Medium     | Topic creation     |
+| **DeleteTopics**     | ✅ Complete       | v0-v1    | MEDIUM   | Low        | Topic deletion     |
 | **CreatePartitions** | ❌ Not Started    | v0-v1    | LOW      | Low        | Partition addition |
 | **DeleteRecords**    | ❌ Not Started    | v0-v1    | LOW      | Low        | Record deletion    |
 
@@ -175,7 +189,7 @@ Pattern matching naturally separates them with no conflicts.
 |------------------------|---------------------|----------|----------|------------|--------------------------|
 | **DescribeConfigs**    | ❌ Not Started      | v0-v2    | LOW      | Medium     | Configuration inspection |
 | **AlterConfigs**       | ❌ Not Started      | v0-v1    | LOW      | Medium     | Configuration changes    |
-| **FindCoordinator**    | 🟡 Adapter Only     | v0-v2    | MEDIUM   | Low        | Coordinator discovery    |
+| **FindCoordinator**    | ✅ Complete         | v0-v1    | MEDIUM   | Low        | Coordinator discovery    |
 | **InitProducerID**     | ❌ Not Started      | v0-v2    | LOW      | Medium     | Transactional support    |
 | **AddPartitionsToTxn** | ❌ Not Started      | v0-v1    | LOW      | Medium     | Transactional support    |
 
@@ -1026,3 +1040,318 @@ Message.get_header(msg, "content-type")
 - [x] Phase 7: Integration Tests (35 tests passing)
 - [x] Phase 8: Code Quality (format, dialyzer, credo passing)
 
+
+
+---
+
+### FindCoordinator (Completed: 2025-12-12)
+
+**Summary:**
+Complete migration of FindCoordinator API to Kayrock protocol layer. This API discovers the coordinator broker for a consumer group (type=0) or transactional producer (type=1). Implements V0 and V1 protocol versions with comprehensive test coverage.
+
+**Implementation Details:**
+- **Protocol Layer:** V0 and V1 request/response handlers
+  - V0: Basic group coordinator discovery using `group_id`
+  - V1: Extended discovery with `coordinator_key`, `coordinator_type`, `throttle_time_ms`, `error_message`
+- **Data Structures:** Created `FindCoordinator` struct with coordinator broker info and helper functions
+- **Infrastructure:** Full integration with RequestBuilder, ResponseParser, KayrockProtocol, and Client
+- **Public API:** Clean interface in `KafkaEx.New.KafkaExAPI` with `find_coordinator/2,3`
+
+**Statistics:**
+- **Files Created:** 14 files
+- **Lines Added:** ~1,100 insertions
+- **Test Count:** 91 new tests + 1752 unit tests passing (100%)
+  - Protocol tests: 27 tests (V0/V1 request and response implementations)
+  - Struct tests: 11 tests (FindCoordinator struct, helper functions)
+  - Infrastructure tests: 7 tests (RequestBuilder, ResponseParser integration)
+  - Adapter tests: 25 tests (legacy ConsumerMetadata format conversion)
+  - ClientCompatibility tests: 8 tests (legacy handle_call)
+  - Integration tests: 10 tests (real Kafka cluster)
+  - Compatibility tests: 5 tests (new/legacy API interop)
+
+**Key Learnings:**
+1. **Coordinator Types:** V1 supports both group (0) and transaction (1) coordinators
+2. **API Key:** FindCoordinator uses API key 10 in Kayrock
+3. **Broker Selection:** FindCoordinator can be sent to any broker (use NodeSelector.first_available())
+4. **Error Codes:** Common errors include coordinator_not_available (15), not_coordinator (16), invalid_group_id (24)
+
+**Files Created:**
+- `lib/kafka_ex/new/kafka/find_coordinator.ex` - FindCoordinator struct with helper functions
+- `lib/kafka_ex/new/protocols/kayrock/find_coordinator.ex` - Protocol definitions
+- `lib/kafka_ex/new/protocols/kayrock/find_coordinator/request_helpers.ex` - Request building helpers
+- `lib/kafka_ex/new/protocols/kayrock/find_coordinator/response_helpers.ex` - Response parsing helpers
+- `lib/kafka_ex/new/protocols/kayrock/find_coordinator/v0_request_impl.ex` - V0 request implementation
+- `lib/kafka_ex/new/protocols/kayrock/find_coordinator/v0_response_impl.ex` - V0 response implementation
+- `lib/kafka_ex/new/protocols/kayrock/find_coordinator/v1_request_impl.ex` - V1 request implementation
+- `lib/kafka_ex/new/protocols/kayrock/find_coordinator/v1_response_impl.ex` - V1 response implementation
+- `test/kafka_ex/new/protocols/kayrock/find_coordinator/request_test.exs` - Request protocol tests
+- `test/kafka_ex/new/protocols/kayrock/find_coordinator/response_test.exs` - Response protocol tests
+- `test/kafka_ex/new/structs/find_coordinator_test.exs` - Struct tests
+- `test/kafka_ex/new/kafka_ex_api_find_coordinator_test.exs` - API tests
+- `test/kafka_ex/new/adapter/find_coordinator_test.exs` - Adapter tests
+
+**Files Modified:**
+- `lib/kafka_ex/new/protocols/kayrock_protocol.ex` - Added find_coordinator handlers
+- `lib/kafka_ex/new/client/request_builder.ex` - Added find_coordinator_request/2
+- `lib/kafka_ex/new/client/response_parser.ex` - Added find_coordinator_response/1
+- `lib/kafka_ex/new/client.ex` - Added handle_call for find_coordinator
+- `lib/kafka_ex/new/kafka_ex_api.ex` - Added find_coordinator/2,3
+- `lib/kafka_ex/new/adapter.ex` - Added consumer_metadata_request/1, consumer_metadata_response/1
+- `lib/kafka_ex/new/client_compatibility.ex` - Added handle_call for {:consumer_group_metadata, _}
+- `test/integration/kayrock/compatibility_test.exs` - Added 5 find_coordinator compatibility tests
+
+**Public API Examples:**
+```elixir
+# Find group coordinator (default)
+{:ok, result} = KafkaEx.New.KafkaExAPI.find_coordinator(client, "my-consumer-group")
+# => %FindCoordinator{
+#      coordinator: %Broker{node_id: 1, host: "broker1", port: 9092},
+#      error_code: :no_error,
+#      throttle_time_ms: 0
+#    }
+
+# Find transaction coordinator
+{:ok, result} = KafkaEx.New.KafkaExAPI.find_coordinator(client, "my-transactional-id",
+  coordinator_type: :transaction)
+
+# Use V0 API (only supports group coordinators)
+{:ok, result} = KafkaEx.New.KafkaExAPI.find_coordinator(client, "my-group",
+  api_version: 0)
+
+# Access coordinator info
+coordinator = result.coordinator
+coordinator.node_id  # Broker ID
+coordinator.host     # Broker hostname
+coordinator.port     # Broker port
+
+# Helper functions
+FindCoordinator.success?(result)           # Check if no error
+FindCoordinator.coordinator_node_id(result) # Get coordinator node ID
+```
+
+**Migration Checklist:**
+- [x] Phase 1: Data Structures (FindCoordinator struct, 11 tests)
+- [x] Phase 2: Protocol Implementation (V0, V1 request/response, 27 tests)
+- [x] Phase 3: Infrastructure Integration (RequestBuilder, ResponseParser, KayrockProtocol, Client)
+- [x] Phase 4: Backward Compatibility (Adapter consumer_metadata_request/response, 25 tests)
+- [x] Phase 5: Public API (find_coordinator/2,3, 7 tests)
+- [x] Phase 6: Unit Tests (70 tests passing)
+- [x] Phase 7: Integration Tests (10 tests passing)
+- [x] Phase 8: Code Quality (format, credo passing)
+
+---
+
+### CreateTopics (Completed: 2025-12-15)
+
+**Summary:**
+Complete migration of CreateTopics API to Kayrock protocol layer with full backward compatibility. Implements V0, V1, and V2 protocol versions with comprehensive test coverage. This API allows creating new topics with specified partitions, replication factors, and configuration options.
+
+**Implementation Details:**
+- **Protocol Layer:** V0, V1, and V2 request/response handlers
+  - V0: Basic topic creation with timeout
+  - V1: Adds validate_only flag, error_message in response
+  - V2: Adds throttle_time_ms in response
+- **Data Structures:** Created CreateTopics struct with TopicResult nested struct
+  - `success?/1` - Check if all topics created successfully
+  - `failed_topics/1` - Get list of failed topic results
+  - `successful_topics/1` - Get list of successful topic results
+  - `get_topic_result/2` - Get result for a specific topic
+- **Infrastructure:** Full integration with RequestBuilder, ResponseParser, KayrockProtocol, and Client
+- **Public API:** Clean interface in `KafkaEx.New.KafkaExAPI` with `create_topics/4` and `create_topic/3`
+- **Node Selection:** Uses `NodeSelector.controller()` as CreateTopics must be sent to the controller broker
+
+**Statistics:**
+- **Files Created:** 10 files
+- **Files Modified:** 6 files
+- **Lines Added:** ~1,200 insertions
+- **Test Count:** 65 new tests + 1809 unit tests passing (100%)
+  - Struct tests: 17 tests (CreateTopics and TopicResult structs)
+  - Request protocol tests: 22 tests (RequestHelpers, V0/V1/V2 implementations)
+  - Response protocol tests: 15 tests (ResponseHelpers, V0/V1/V2 implementations)
+  - Integration tests: 11 tests (compatibility tests)
+
+**Key Learnings:**
+1. **Controller Broker:** CreateTopics API key 19 must be sent to the controller broker
+2. **Error Messages:** V1+ includes error_message in response for better diagnostics
+3. **Throttle Time:** V2+ includes throttle_time_ms for rate limiting visibility
+4. **Validate Only:** V1+ supports dry-run validation with validate_only flag
+5. **Default Values:** num_partitions and replication_factor default to -1 (use broker defaults)
+
+**Files Created:**
+- `lib/kafka_ex/new/kafka/create_topics.ex` - CreateTopics struct with TopicResult nested struct
+- `lib/kafka_ex/new/protocols/kayrock/create_topics.ex` - Protocol definitions
+- `lib/kafka_ex/new/protocols/kayrock/create_topics/request_helpers.ex` - Request building helpers
+- `lib/kafka_ex/new/protocols/kayrock/create_topics/response_helpers.ex` - Response parsing helpers
+- `lib/kafka_ex/new/protocols/kayrock/create_topics/v0_request_impl.ex` - V0 request implementation
+- `lib/kafka_ex/new/protocols/kayrock/create_topics/v0_response_impl.ex` - V0 response implementation
+- `lib/kafka_ex/new/protocols/kayrock/create_topics/v1_request_impl.ex` - V1 request implementation
+- `lib/kafka_ex/new/protocols/kayrock/create_topics/v1_response_impl.ex` - V1 response implementation
+- `lib/kafka_ex/new/protocols/kayrock/create_topics/v2_request_impl.ex` - V2 request implementation
+- `lib/kafka_ex/new/protocols/kayrock/create_topics/v2_response_impl.ex` - V2 response implementation
+- `test/kafka_ex/new/structs/create_topics_test.exs` - Struct tests
+- `test/kafka_ex/new/protocols/kayrock/create_topics/request_test.exs` - Request protocol tests
+- `test/kafka_ex/new/protocols/kayrock/create_topics/response_test.exs` - Response protocol tests
+
+**Files Modified:**
+- `lib/kafka_ex/new/protocols/kayrock_protocol.ex` - Added create_topics handlers
+- `lib/kafka_ex/new/client/request_builder.ex` - Added create_topics_request/2
+- `lib/kafka_ex/new/client/response_parser.ex` - Added create_topics_response/1
+- `lib/kafka_ex/new/client.ex` - Added handle_call for create_topics
+- `lib/kafka_ex/new/kafka_ex_api.ex` - Added create_topics/4 and create_topic/3
+- `test/integration/kayrock/compatibility_test.exs` - Added 11 create_topics compatibility tests
+
+**Public API Examples:**
+```elixir
+# Create a single topic with defaults
+{:ok, result} = KafkaEx.New.KafkaExAPI.create_topic(client, "my-new-topic")
+
+# Create a topic with specific partitions and replication
+{:ok, result} = KafkaEx.New.KafkaExAPI.create_topic(client, "my-topic",
+  num_partitions: 6,
+  replication_factor: 3,
+  timeout: 30_000
+)
+
+# Create a topic with custom config
+{:ok, result} = KafkaEx.New.KafkaExAPI.create_topic(client, "compacted-topic",
+  num_partitions: 3,
+  replication_factor: 2,
+  config_entries: [
+    {"cleanup.policy", "compact"},
+    {"retention.ms", "86400000"}
+  ]
+)
+
+# Create multiple topics at once
+topics = [
+  [topic: "topic1", num_partitions: 3],
+  [topic: "topic2", num_partitions: 6, replication_factor: 2],
+  [topic: "topic3", num_partitions: 1, config_entries: [{"retention.ms", "3600000"}]]
+]
+{:ok, result} = KafkaEx.New.KafkaExAPI.create_topics(client, topics, 30_000)
+
+# Validate without creating (dry-run)
+{:ok, result} = KafkaEx.New.KafkaExAPI.create_topics(client, topics, 10_000,
+  validate_only: true,
+  api_version: 1
+)
+
+# Access results
+CreateTopics.success?(result)           # Check if all succeeded
+CreateTopics.failed_topics(result)      # Get failed topics
+CreateTopics.successful_topics(result)  # Get successful topics
+CreateTopics.get_topic_result(result, "my-topic")  # Get specific result
+
+# Check individual topic result
+topic_result = CreateTopics.get_topic_result(result, "my-topic")
+topic_result.topic         # Topic name
+topic_result.error         # :no_error or error atom
+topic_result.error_message # Error message (V1+, nil for V0)
+TopicResult.success?(topic_result)  # Check if this topic succeeded
+```
+
+**Migration Checklist:**
+- [x] Phase 1: Data Structures (CreateTopics + TopicResult structs, 17 tests)
+- [x] Phase 2: Protocol Implementation (V0, V1, V2 request/response, 37 tests)
+- [x] Phase 3: Infrastructure Integration (RequestBuilder, ResponseParser, KayrockProtocol, Client)
+- [x] Phase 4: Backward Compatibility (Legacy API via ClientCompatibility)
+- [x] Phase 5: Public API (create_topics/4, create_topic/3)
+- [x] Phase 6: Unit Tests (54 tests passing)
+- [x] Phase 7: Integration Tests (11 tests passing)
+- [x] Phase 8: Code Quality (format, credo passing)
+
+---
+
+### DeleteTopics (Completed: 2025-12-16)
+
+**Summary:**
+Complete migration of DeleteTopics API to Kayrock protocol layer with full backward compatibility. Implements V0 and V1 protocol versions with comprehensive test coverage. This API allows deleting topics from the Kafka cluster.
+
+**Implementation Details:**
+- **Protocol Layer:** V0 and V1 request/response handlers
+  - V0: Basic topic deletion
+  - V1: Adds throttle_time_ms in response
+- **Data Structures:** Created DeleteTopics struct with TopicResult nested struct
+  - `success?/1` - Check if all topics deleted successfully
+  - `failed_topics/1` - Get list of failed topic results
+  - `successful_topics/1` - Get list of successful topic results
+  - `get_topic_result/2` - Get result for a specific topic
+- **Infrastructure:** Full integration with RequestBuilder, ResponseParser, KayrockProtocol, and Client
+- **Public API:** Clean interface in `KafkaEx.New.KafkaExAPI` with `delete_topics/4` and `delete_topic/3`
+- **Node Selection:** Uses `NodeSelector.controller()` as DeleteTopics must be sent to the controller broker
+
+**Statistics:**
+- **Files Created:** 7 files
+- **Files Modified:** 6 files
+- **Lines Added:** ~600 insertions
+- **Test Count:** 46 new tests + 1855 unit tests passing (100%)
+  - Struct tests: 14 tests (DeleteTopics and TopicResult structs)
+  - Request protocol tests: 9 tests (RequestHelpers, V0/V1 implementations)
+  - Response protocol tests: 14 tests (ResponseHelpers, V0/V1 implementations)
+  - Integration tests: 9 tests (compatibility tests)
+
+**Key Learnings:**
+1. **Controller Broker:** DeleteTopics API key 20 must be sent to the controller broker
+2. **Simpler than CreateTopics:** No config entries, replica assignments, or validate_only flag
+3. **Throttle Time:** V1 includes throttle_time_ms for rate limiting visibility
+4. **Common Errors:** unknown_topic_or_partition (3), not_controller (41)
+
+**Files Created:**
+- `lib/kafka_ex/new/kafka/delete_topics.ex` - DeleteTopics struct with TopicResult nested struct
+- `lib/kafka_ex/new/protocols/kayrock/delete_topics.ex` - Protocol definitions
+- `lib/kafka_ex/new/protocols/kayrock/delete_topics/request_helpers.ex` - Request building helpers
+- `lib/kafka_ex/new/protocols/kayrock/delete_topics/response_helpers.ex` - Response parsing helpers
+- `lib/kafka_ex/new/protocols/kayrock/delete_topics/v0_request_impl.ex` - V0 request implementation
+- `lib/kafka_ex/new/protocols/kayrock/delete_topics/v0_response_impl.ex` - V0 response implementation
+- `lib/kafka_ex/new/protocols/kayrock/delete_topics/v1_request_impl.ex` - V1 request implementation
+- `lib/kafka_ex/new/protocols/kayrock/delete_topics/v1_response_impl.ex` - V1 response implementation
+- `test/kafka_ex/new/structs/delete_topics_test.exs` - Struct tests
+- `test/kafka_ex/new/protocols/kayrock/delete_topics/request_test.exs` - Request protocol tests
+- `test/kafka_ex/new/protocols/kayrock/delete_topics/response_test.exs` - Response protocol tests
+
+**Files Modified:**
+- `lib/kafka_ex/new/protocols/kayrock_protocol.ex` - Added delete_topics handlers
+- `lib/kafka_ex/new/client/request_builder.ex` - Added delete_topics_request/2
+- `lib/kafka_ex/new/client/response_parser.ex` - Added delete_topics_response/1
+- `lib/kafka_ex/new/client.ex` - Added handle_call for delete_topics
+- `lib/kafka_ex/new/kafka_ex_api.ex` - Added delete_topics/4 and delete_topic/3
+- `test/integration/kayrock/compatibility_test.exs` - Added 9 delete_topics compatibility tests
+
+**Public API Examples:**
+```elixir
+# Delete a single topic
+{:ok, result} = KafkaExAPI.delete_topic(client, "my-topic")
+
+# Delete a topic with custom timeout
+{:ok, result} = KafkaExAPI.delete_topic(client, "my-topic", timeout: 60_000)
+
+# Delete multiple topics at once
+{:ok, result} = KafkaExAPI.delete_topics(client, ["topic1", "topic2", "topic3"], 30_000)
+
+# Delete with specific API version
+{:ok, result} = KafkaExAPI.delete_topics(client, ["my-topic"], 10_000, api_version: 0)
+
+# Access results
+DeleteTopics.success?(result)           # Check if all succeeded
+DeleteTopics.failed_topics(result)      # Get failed topics
+DeleteTopics.successful_topics(result)  # Get successful topics
+DeleteTopics.get_topic_result(result, "my-topic")  # Get specific result
+
+# Check individual topic result
+topic_result = DeleteTopics.get_topic_result(result, "my-topic")
+topic_result.topic         # Topic name
+topic_result.error         # :no_error or error atom
+TopicResult.success?(topic_result)  # Check if this topic succeeded
+```
+
+**Migration Checklist:**
+- [x] Phase 1: Data Structures (DeleteTopics + TopicResult structs, 14 tests)
+- [x] Phase 2: Protocol Implementation (V0, V1 request/response, 23 tests)
+- [x] Phase 3: Infrastructure Integration (RequestBuilder, ResponseParser, KayrockProtocol, Client)
+- [x] Phase 4: Backward Compatibility (Legacy API via ClientCompatibility)
+- [x] Phase 5: Public API (delete_topics/4, delete_topic/3)
+- [x] Phase 6: Unit Tests (37 tests passing)
+- [x] Phase 7: Integration Tests (9 tests passing)
+- [x] Phase 8: Code Quality (format, credo passing)
+
+---
