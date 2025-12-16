@@ -17,6 +17,7 @@ defmodule KafkaEx.New.KafkaExAPI do
   alias KafkaEx.New.Kafka.ClusterMetadata
   alias KafkaEx.New.Kafka.ConsumerGroupDescription
   alias KafkaEx.New.Kafka.CreateTopics
+  alias KafkaEx.New.Kafka.DeleteTopics
   alias KafkaEx.New.Kafka.Fetch
   alias KafkaEx.New.Kafka.FindCoordinator
   alias KafkaEx.New.Kafka.Heartbeat
@@ -578,6 +579,89 @@ defmodule KafkaEx.New.KafkaExAPI do
 
     topic_config = Keyword.merge([topic: topic_name], topic_opts)
     create_topics(client, [topic_config], timeout, api_opts)
+  end
+
+  # ---------------------------------------------------------------------------
+  # DeleteTopics API
+  # ---------------------------------------------------------------------------
+
+  @doc """
+  Deletes topics from the Kafka cluster.
+
+  ## Parameters
+
+    * `client` - The client pid
+    * `topics` - List of topic names to delete
+    * `timeout` - Request timeout in milliseconds
+    * `opts` - Keyword list with:
+      * `:api_version` - API version to use (default: 1)
+
+  ## Returns
+
+    * `{:ok, DeleteTopics.t()}` - Result with status for each topic
+    * `{:error, error_atom}` - Error if the request failed
+
+  ## Examples
+
+      # Delete a single topic
+      {:ok, result} = KafkaExAPI.delete_topics(client, ["my-topic"], 30_000)
+
+      # Delete multiple topics
+      {:ok, result} = KafkaExAPI.delete_topics(client, ["topic1", "topic2", "topic3"], 30_000)
+
+      # Check results
+      if DeleteTopics.success?(result) do
+        IO.puts("All topics deleted successfully")
+      else
+        failed = DeleteTopics.failed_topics(result)
+        IO.inspect(failed, label: "Failed to delete")
+      end
+
+  ## API Version Differences
+
+  | Version | Features |
+  |---------|----------|
+  | V0      | Basic topic deletion |
+  | V1      | Adds throttle_time_ms in response |
+  """
+  @spec delete_topics(client, [topic_name], timeout :: non_neg_integer) ::
+          {:ok, DeleteTopics.t()} | {:error, error_atom}
+  @spec delete_topics(client, [topic_name], timeout :: non_neg_integer, opts) ::
+          {:ok, DeleteTopics.t()} | {:error, error_atom}
+  def delete_topics(client, topics, timeout, opts \\ []) do
+    case GenServer.call(client, {:delete_topics, topics, timeout, opts}) do
+      {:ok, result} -> {:ok, result}
+      {:error, %{error: error_atom}} -> {:error, error_atom}
+      {:error, error_atom} -> {:error, error_atom}
+    end
+  end
+
+  @doc """
+  Deletes a single topic from the Kafka cluster.
+
+  This is a convenience function that wraps `delete_topics/4` for deleting a single topic.
+
+  ## Parameters
+
+    * `client` - The client pid
+    * `topic_name` - The name of the topic to delete
+    * `opts` - Keyword list with:
+      * `:timeout` - Request timeout in milliseconds (default: 30_000)
+      * `:api_version` - API version to use (default: 1)
+
+  ## Examples
+
+      # Delete with defaults
+      {:ok, result} = KafkaExAPI.delete_topic(client, "my-topic")
+
+      # Delete with custom timeout
+      {:ok, result} = KafkaExAPI.delete_topic(client, "my-topic", timeout: 60_000)
+  """
+  @spec delete_topic(client, topic_name) :: {:ok, DeleteTopics.t()} | {:error, error_atom}
+  @spec delete_topic(client, topic_name, opts) :: {:ok, DeleteTopics.t()} | {:error, error_atom}
+  def delete_topic(client, topic_name, opts \\ []) do
+    {timeout, opts} = Keyword.pop(opts, :timeout, 30_000)
+    delete_topics(client, [topic_name], timeout, opts)
   end
 
   # Helper to conditionally add keys to a map only if value is not nil

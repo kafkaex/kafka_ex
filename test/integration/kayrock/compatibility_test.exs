@@ -2292,4 +2292,183 @@ defmodule KafkaEx.KayrockCompatibilityTest do
   end
 
   # -----------------------------------------------------------------------------
+  describe "delete_topics compatibility" do
+    alias KafkaEx.New.Kafka.DeleteTopics
+
+    test "new API deletes topic successfully", %{client: client} do
+      topic_name = "delete-topics-new-api-#{:rand.uniform(100_000)}"
+
+      # First create the topic
+      {:ok, create_result} =
+        KafkaExAPI.create_topics(
+          client,
+          [[topic: topic_name, num_partitions: 1, replication_factor: 1]],
+          10_000
+        )
+
+      assert KafkaEx.New.Kafka.CreateTopics.success?(create_result)
+
+      # Now delete it
+      {:ok, result} = KafkaExAPI.delete_topics(client, [topic_name], 10_000)
+
+      assert %DeleteTopics{} = result
+      assert DeleteTopics.success?(result)
+      assert length(result.topic_results) == 1
+
+      [topic_result] = result.topic_results
+      assert topic_result.topic == topic_name
+      assert topic_result.error == :no_error
+    end
+
+    test "new API returns error for non-existent topic", %{client: client} do
+      topic_name = "delete-topics-nonexistent-#{:rand.uniform(100_000)}"
+
+      {:ok, result} = KafkaExAPI.delete_topics(client, [topic_name], 10_000)
+
+      assert not DeleteTopics.success?(result)
+
+      [topic_result] = result.topic_results
+      assert topic_result.error == :unknown_topic_or_partition
+    end
+
+    test "new API can delete multiple topics at once", %{client: client} do
+      base = :rand.uniform(100_000)
+      topic1 = "delete-topics-multi-1-#{base}"
+      topic2 = "delete-topics-multi-2-#{base}"
+      topic3 = "delete-topics-multi-3-#{base}"
+
+      # Create topics
+      topics_to_create = [
+        [topic: topic1, num_partitions: 1, replication_factor: 1],
+        [topic: topic2, num_partitions: 1, replication_factor: 1],
+        [topic: topic3, num_partitions: 1, replication_factor: 1]
+      ]
+
+      {:ok, create_result} = KafkaExAPI.create_topics(client, topics_to_create, 10_000)
+      assert KafkaEx.New.Kafka.CreateTopics.success?(create_result)
+
+      # Delete all topics
+      {:ok, result} = KafkaExAPI.delete_topics(client, [topic1, topic2, topic3], 10_000)
+
+      assert DeleteTopics.success?(result)
+      assert length(result.topic_results) == 3
+
+      topic_names = Enum.map(result.topic_results, & &1.topic) |> Enum.sort()
+      assert topic_names == [topic1, topic2, topic3] |> Enum.sort()
+    end
+
+    test "legacy API deletes topic successfully", %{client: client} do
+      topic_name = "delete-topics-legacy-api-#{:rand.uniform(100_000)}"
+
+      # First create the topic
+      create_request = %KafkaEx.Protocol.CreateTopics.TopicRequest{
+        topic: topic_name,
+        num_partitions: 1,
+        replication_factor: 1
+      }
+
+      create_response = KafkaEx.create_topics([create_request], worker_name: client, timeout: 10_000)
+      assert [topic_error] = create_response.topic_errors
+      assert topic_error.error_code == :no_error
+
+      # Delete via legacy API
+      response = KafkaEx.delete_topics([topic_name], worker_name: client, timeout: 10_000)
+
+      assert %KafkaEx.Protocol.DeleteTopics.Response{} = response
+      assert [topic_error] = response.topic_errors
+      assert topic_error.topic_name == topic_name
+      assert topic_error.error_code == :no_error
+    end
+
+    test "both APIs can interoperate - new API deletes topic created by legacy", %{client: client} do
+      topic_name = "delete-topics-interop-1-#{:rand.uniform(100_000)}"
+
+      # Create via legacy API
+      legacy_request = %KafkaEx.Protocol.CreateTopics.TopicRequest{
+        topic: topic_name,
+        num_partitions: 1,
+        replication_factor: 1
+      }
+
+      legacy_response = KafkaEx.create_topics([legacy_request], worker_name: client, timeout: 10_000)
+      assert [topic_error] = legacy_response.topic_errors
+      assert topic_error.error_code == :no_error
+
+      # Delete via new API
+      {:ok, result} = KafkaExAPI.delete_topics(client, [topic_name], 10_000)
+
+      assert DeleteTopics.success?(result)
+    end
+
+    test "both APIs can interoperate - legacy API deletes topic created by new", %{client: client} do
+      topic_name = "delete-topics-interop-2-#{:rand.uniform(100_000)}"
+
+      # Create via new API
+      {:ok, new_result} =
+        KafkaExAPI.create_topics(
+          client,
+          [[topic: topic_name, num_partitions: 1, replication_factor: 1]],
+          10_000
+        )
+
+      assert KafkaEx.New.Kafka.CreateTopics.success?(new_result)
+
+      # Delete via legacy API
+      legacy_response = KafkaEx.delete_topics([topic_name], worker_name: client, timeout: 10_000)
+      assert [topic_error] = legacy_response.topic_errors
+      assert topic_error.error_code == :no_error
+    end
+
+    test "new API with V0 works correctly", %{client: client} do
+      topic_name = "delete-topics-v0-#{:rand.uniform(100_000)}"
+
+      # First create the topic
+      {:ok, _} =
+        KafkaExAPI.create_topics(
+          client,
+          [[topic: topic_name, num_partitions: 1, replication_factor: 1]],
+          10_000
+        )
+
+      # Delete with V0
+      {:ok, result} = KafkaExAPI.delete_topics(client, [topic_name], 10_000, api_version: 0)
+
+      assert DeleteTopics.success?(result)
+      # V0 doesn't have throttle_time_ms
+      assert result.throttle_time_ms == nil
+    end
+
+    test "new API with V1 includes throttle_time_ms", %{client: client} do
+      topic_name = "delete-topics-v1-#{:rand.uniform(100_000)}"
+
+      # First create the topic
+      {:ok, _} =
+        KafkaExAPI.create_topics(
+          client,
+          [[topic: topic_name, num_partitions: 1, replication_factor: 1]],
+          10_000
+        )
+
+      # Delete with V1
+      {:ok, result} = KafkaExAPI.delete_topics(client, [topic_name], 10_000, api_version: 1)
+
+      assert DeleteTopics.success?(result)
+      # V1 has throttle_time_ms
+      assert is_integer(result.throttle_time_ms)
+    end
+
+    test "delete_topic convenience function works", %{client: client} do
+      topic_name = "delete-topics-convenience-#{:rand.uniform(100_000)}"
+
+      # First create the topic
+      {:ok, _} = KafkaExAPI.create_topic(client, topic_name, num_partitions: 1, replication_factor: 1)
+
+      # Delete using convenience function
+      {:ok, result} = KafkaExAPI.delete_topic(client, topic_name)
+
+      assert DeleteTopics.success?(result)
+    end
+  end
+
+  # -----------------------------------------------------------------------------
 end

@@ -5,20 +5,20 @@
 This document tracks the progress of migrating KafkaEx to use Kayrock protocol implementations for all Kafka APIs. 
 The migration aims to replace manual binary parsing with Kayrock's type-safe, versioned protocol layer.
 
-**Last Updated:** 2025-12-15
-**Overall Progress:** 14/20 APIs migrated (70%)
+**Last Updated:** 2025-12-16
+**Overall Progress:** 15/20 APIs migrated (75%)
 
 ### Quick Summary
 
 | Category | Status | APIs |
 |----------|--------|------|
-| ✅ **Fully Migrated** | 14 | Metadata, ApiVersions, Produce, Fetch, ListOffsets, OffsetFetch, OffsetCommit, JoinGroup, SyncGroup, Heartbeat, LeaveGroup, DescribeGroups, FindCoordinator, CreateTopics |
-| 🟡 **Adapter Only** | 1 | DeleteTopics |
+| ✅ **Fully Migrated** | 15 | Metadata, ApiVersions, Produce, Fetch, ListOffsets, OffsetFetch, OffsetCommit, JoinGroup, SyncGroup, Heartbeat, LeaveGroup, DescribeGroups, FindCoordinator, CreateTopics, DeleteTopics |
+| 🟡 **Adapter Only** | 0 | - |
 | ❌ **Not Started** | 5 | CreatePartitions, DeleteRecords, DescribeConfigs, AlterConfigs, InitProducerID |
 
 ### Test Status
 
-- **Unit Tests:** 1,809 passing
+- **Unit Tests:** 1,855 passing
 - **Integration Tests:** 200+ (with Kafka cluster)
 - **Code Quality:** mix format ✅, mix credo --strict ✅
 
@@ -179,7 +179,7 @@ Pattern matching naturally separates them with no conflicts.
 | API                  | Status            | Versions | Priority | Complexity | Notes              |
 |----------------------|-------------------|----------|----------|------------|--------------------|
 | **CreateTopics**     | ✅ Complete       | v0-v2    | MEDIUM   | Medium     | Topic creation     |
-| **DeleteTopics**     | 🟡 Adapter Only   | v0-v3    | MEDIUM   | Low        | Topic deletion     |
+| **DeleteTopics**     | ✅ Complete       | v0-v1    | MEDIUM   | Low        | Topic deletion     |
 | **CreatePartitions** | ❌ Not Started    | v0-v1    | LOW      | Low        | Partition addition |
 | **DeleteRecords**    | ❌ Not Started    | v0-v1    | LOW      | Low        | Record deletion    |
 
@@ -1258,6 +1258,100 @@ TopicResult.success?(topic_result)  # Check if this topic succeeded
 - [x] Phase 5: Public API (create_topics/4, create_topic/3)
 - [x] Phase 6: Unit Tests (54 tests passing)
 - [x] Phase 7: Integration Tests (11 tests passing)
+- [x] Phase 8: Code Quality (format, credo passing)
+
+---
+
+### DeleteTopics (Completed: 2025-12-16)
+
+**Summary:**
+Complete migration of DeleteTopics API to Kayrock protocol layer with full backward compatibility. Implements V0 and V1 protocol versions with comprehensive test coverage. This API allows deleting topics from the Kafka cluster.
+
+**Implementation Details:**
+- **Protocol Layer:** V0 and V1 request/response handlers
+  - V0: Basic topic deletion
+  - V1: Adds throttle_time_ms in response
+- **Data Structures:** Created DeleteTopics struct with TopicResult nested struct
+  - `success?/1` - Check if all topics deleted successfully
+  - `failed_topics/1` - Get list of failed topic results
+  - `successful_topics/1` - Get list of successful topic results
+  - `get_topic_result/2` - Get result for a specific topic
+- **Infrastructure:** Full integration with RequestBuilder, ResponseParser, KayrockProtocol, and Client
+- **Public API:** Clean interface in `KafkaEx.New.KafkaExAPI` with `delete_topics/4` and `delete_topic/3`
+- **Node Selection:** Uses `NodeSelector.controller()` as DeleteTopics must be sent to the controller broker
+
+**Statistics:**
+- **Files Created:** 7 files
+- **Files Modified:** 6 files
+- **Lines Added:** ~600 insertions
+- **Test Count:** 46 new tests + 1855 unit tests passing (100%)
+  - Struct tests: 14 tests (DeleteTopics and TopicResult structs)
+  - Request protocol tests: 9 tests (RequestHelpers, V0/V1 implementations)
+  - Response protocol tests: 14 tests (ResponseHelpers, V0/V1 implementations)
+  - Integration tests: 9 tests (compatibility tests)
+
+**Key Learnings:**
+1. **Controller Broker:** DeleteTopics API key 20 must be sent to the controller broker
+2. **Simpler than CreateTopics:** No config entries, replica assignments, or validate_only flag
+3. **Throttle Time:** V1 includes throttle_time_ms for rate limiting visibility
+4. **Common Errors:** unknown_topic_or_partition (3), not_controller (41)
+
+**Files Created:**
+- `lib/kafka_ex/new/kafka/delete_topics.ex` - DeleteTopics struct with TopicResult nested struct
+- `lib/kafka_ex/new/protocols/kayrock/delete_topics.ex` - Protocol definitions
+- `lib/kafka_ex/new/protocols/kayrock/delete_topics/request_helpers.ex` - Request building helpers
+- `lib/kafka_ex/new/protocols/kayrock/delete_topics/response_helpers.ex` - Response parsing helpers
+- `lib/kafka_ex/new/protocols/kayrock/delete_topics/v0_request_impl.ex` - V0 request implementation
+- `lib/kafka_ex/new/protocols/kayrock/delete_topics/v0_response_impl.ex` - V0 response implementation
+- `lib/kafka_ex/new/protocols/kayrock/delete_topics/v1_request_impl.ex` - V1 request implementation
+- `lib/kafka_ex/new/protocols/kayrock/delete_topics/v1_response_impl.ex` - V1 response implementation
+- `test/kafka_ex/new/structs/delete_topics_test.exs` - Struct tests
+- `test/kafka_ex/new/protocols/kayrock/delete_topics/request_test.exs` - Request protocol tests
+- `test/kafka_ex/new/protocols/kayrock/delete_topics/response_test.exs` - Response protocol tests
+
+**Files Modified:**
+- `lib/kafka_ex/new/protocols/kayrock_protocol.ex` - Added delete_topics handlers
+- `lib/kafka_ex/new/client/request_builder.ex` - Added delete_topics_request/2
+- `lib/kafka_ex/new/client/response_parser.ex` - Added delete_topics_response/1
+- `lib/kafka_ex/new/client.ex` - Added handle_call for delete_topics
+- `lib/kafka_ex/new/kafka_ex_api.ex` - Added delete_topics/4 and delete_topic/3
+- `test/integration/kayrock/compatibility_test.exs` - Added 9 delete_topics compatibility tests
+
+**Public API Examples:**
+```elixir
+# Delete a single topic
+{:ok, result} = KafkaExAPI.delete_topic(client, "my-topic")
+
+# Delete a topic with custom timeout
+{:ok, result} = KafkaExAPI.delete_topic(client, "my-topic", timeout: 60_000)
+
+# Delete multiple topics at once
+{:ok, result} = KafkaExAPI.delete_topics(client, ["topic1", "topic2", "topic3"], 30_000)
+
+# Delete with specific API version
+{:ok, result} = KafkaExAPI.delete_topics(client, ["my-topic"], 10_000, api_version: 0)
+
+# Access results
+DeleteTopics.success?(result)           # Check if all succeeded
+DeleteTopics.failed_topics(result)      # Get failed topics
+DeleteTopics.successful_topics(result)  # Get successful topics
+DeleteTopics.get_topic_result(result, "my-topic")  # Get specific result
+
+# Check individual topic result
+topic_result = DeleteTopics.get_topic_result(result, "my-topic")
+topic_result.topic         # Topic name
+topic_result.error         # :no_error or error atom
+TopicResult.success?(topic_result)  # Check if this topic succeeded
+```
+
+**Migration Checklist:**
+- [x] Phase 1: Data Structures (DeleteTopics + TopicResult structs, 14 tests)
+- [x] Phase 2: Protocol Implementation (V0, V1 request/response, 23 tests)
+- [x] Phase 3: Infrastructure Integration (RequestBuilder, ResponseParser, KayrockProtocol, Client)
+- [x] Phase 4: Backward Compatibility (Legacy API via ClientCompatibility)
+- [x] Phase 5: Public API (delete_topics/4, delete_topic/3)
+- [x] Phase 6: Unit Tests (37 tests passing)
+- [x] Phase 7: Integration Tests (9 tests passing)
 - [x] Phase 8: Code Quality (format, credo passing)
 
 ---

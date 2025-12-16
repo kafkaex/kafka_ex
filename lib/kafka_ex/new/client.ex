@@ -291,6 +291,13 @@ defmodule KafkaEx.New.Client do
     end
   end
 
+  def handle_call({:delete_topics, topics, timeout, opts}, _from, state) do
+    case delete_topics_request(topics, timeout, opts, state) do
+      {:error, error} -> {:reply, {:error, error}, state}
+      {result, updated_state} -> {:reply, result, updated_state}
+    end
+  end
+
   def handle_call({:kayrock_request, request, node_selector}, _from, state) do
     {response, updated_state} = kayrock_network_request(request, node_selector, state)
 
@@ -495,6 +502,17 @@ defmodule KafkaEx.New.Client do
     end
   end
 
+  defp delete_topics_request(topics, timeout, opts, state) do
+    # DeleteTopics must be sent to the controller broker
+    node_selector = NodeSelector.controller()
+    req_data = [{:topics, topics}, {:timeout, timeout} | opts]
+
+    case RequestBuilder.delete_topics_request(req_data, state) do
+      {:ok, request} -> handle_delete_topics_request(request, node_selector, state)
+      {:error, error} -> {:error, error}
+    end
+  end
+
   defp api_versions_request(opts, state) do
     node_selector = NodeSelector.random()
 
@@ -566,6 +584,10 @@ defmodule KafkaEx.New.Client do
 
   defp handle_create_topics_request(request, node_selector, state) do
     handle_request_with_retry(request, &ResponseParser.create_topics_response/1, node_selector, state)
+  end
+
+  defp handle_delete_topics_request(request, node_selector, state) do
+    handle_request_with_retry(request, &ResponseParser.delete_topics_response/1, node_selector, state)
   end
 
   defp handle_metadata_request(request, node_selector, state) do

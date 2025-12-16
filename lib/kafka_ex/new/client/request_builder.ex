@@ -9,6 +9,7 @@ defmodule KafkaEx.New.Client.RequestBuilder do
   @default_api_version %{
     api_versions: 0,
     create_topics: 1,
+    delete_topics: 1,
     describe_groups: 1,
     fetch: 3,
     find_coordinator: 1,
@@ -288,6 +289,21 @@ defmodule KafkaEx.New.Client.RequestBuilder do
     case get_api_version(state, :create_topics, request_opts) do
       {:ok, api_version} ->
         req = @protocol.build_request(:create_topics, api_version, request_opts)
+        {:ok, req}
+
+      {:error, error_code} ->
+        {:error, error_code}
+    end
+  end
+
+  @doc """
+  Builds request for Delete Topics API
+  """
+  @spec delete_topics_request(Keyword.t(), State.t()) :: {:ok, term} | {:error, :api_version_no_supported}
+  def delete_topics_request(request_opts, state) do
+    case get_api_version(state, :delete_topics, request_opts) do
+      {:ok, api_version} ->
+        req = @protocol.build_request(:delete_topics, api_version, request_opts)
         {:ok, req}
 
       {:error, error_code} ->
