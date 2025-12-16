@@ -16,6 +16,7 @@ defmodule KafkaEx.New.KafkaExAPI do
   alias KafkaEx.New.Kafka.ApiVersions
   alias KafkaEx.New.Kafka.ClusterMetadata
   alias KafkaEx.New.Kafka.ConsumerGroupDescription
+  alias KafkaEx.New.Kafka.CreateTopics
   alias KafkaEx.New.Kafka.Fetch
   alias KafkaEx.New.Kafka.FindCoordinator
   alias KafkaEx.New.Kafka.Heartbeat
@@ -467,6 +468,116 @@ defmodule KafkaEx.New.KafkaExAPI do
       {:error, %{error: error_atom}} -> {:error, error_atom}
       {:error, error_atom} -> {:error, error_atom}
     end
+  end
+
+  @doc """
+  Creates one or more topics in the Kafka cluster.
+
+  ## Parameters
+
+    * `client` - The client pid
+    * `topics` - List of topic configurations, each being a keyword list or map with:
+      * `:topic` - Topic name (required)
+      * `:num_partitions` - Number of partitions (default: -1 for broker default)
+      * `:replication_factor` - Replication factor (default: -1 for broker default)
+      * `:replica_assignment` - Manual replica assignment (default: [])
+      * `:config_entries` - Topic configuration entries as `{name, value}` tuples (default: [])
+    * `timeout` - Request timeout in milliseconds (required)
+    * `opts` - Optional keyword list with:
+      * `:validate_only` - If true, only validate without creating topics (V1+, default: false)
+      * `:api_version` - API version to use (default: 1)
+
+  ## API Version Differences
+
+  | Version | Features |
+  |---------|----------|
+  | V0 | Basic topic creation |
+  | V1 | Adds validate_only flag, error_message in response |
+  | V2 | Adds throttle_time_ms in response |
+
+  ## Examples
+
+      # Create a topic with broker defaults
+      {:ok, result} = KafkaExAPI.create_topics(client, [
+        [topic: "my-topic"]
+      ], 10_000)
+
+      # Create a topic with custom configuration
+      {:ok, result} = KafkaExAPI.create_topics(client, [
+        [
+          topic: "my-topic",
+          num_partitions: 3,
+          replication_factor: 2,
+          config_entries: [
+            {"cleanup.policy", "compact"},
+            {"retention.ms", "86400000"}
+          ]
+        ]
+      ], 10_000)
+
+      # Validate only (V1+)
+      {:ok, result} = KafkaExAPI.create_topics(client, [
+        [topic: "my-topic", num_partitions: 3]
+      ], 10_000, validate_only: true)
+
+      # Check results
+      if CreateTopics.success?(result) do
+        IO.puts("All topics created successfully")
+      else
+        for failed <- CreateTopics.failed_topics(result) do
+          IO.puts("Failed to create \#{failed.topic}: \#{failed.error}")
+        end
+      end
+  """
+  @spec create_topics(client, list(), non_neg_integer()) ::
+          {:ok, CreateTopics.t()} | {:error, error_atom}
+  @spec create_topics(client, list(), non_neg_integer(), opts) ::
+          {:ok, CreateTopics.t()} | {:error, error_atom}
+  def create_topics(client, topics, timeout, opts \\ []) do
+    case GenServer.call(client, {:create_topics, topics, timeout, opts}) do
+      {:ok, result} -> {:ok, result}
+      {:error, %{error: error_atom}} -> {:error, error_atom}
+      {:error, error_atom} -> {:error, error_atom}
+    end
+  end
+
+  @doc """
+  Creates a single topic with the given configuration.
+
+  This is a convenience function that wraps `create_topics/4` for creating a single topic.
+
+  ## Parameters
+
+    * `client` - The client pid
+    * `topic_name` - The name of the topic to create
+    * `opts` - Keyword list with:
+      * `:num_partitions` - Number of partitions (default: -1 for broker default)
+      * `:replication_factor` - Replication factor (default: -1 for broker default)
+      * `:config_entries` - Topic configuration entries (default: [])
+      * `:timeout` - Request timeout in milliseconds (default: 10_000)
+      * `:validate_only` - If true, only validate (V1+, default: false)
+      * `:api_version` - API version to use (default: 1)
+
+  ## Examples
+
+      # Create with defaults
+      {:ok, result} = KafkaExAPI.create_topic(client, "my-topic")
+
+      # Create with specific configuration
+      {:ok, result} = KafkaExAPI.create_topic(client, "my-topic",
+        num_partitions: 6,
+        replication_factor: 3,
+        timeout: 30_000
+      )
+  """
+  @spec create_topic(client, topic_name) :: {:ok, CreateTopics.t()} | {:error, error_atom}
+  @spec create_topic(client, topic_name, opts) :: {:ok, CreateTopics.t()} | {:error, error_atom}
+  def create_topic(client, topic_name, opts \\ []) do
+    {timeout, opts} = Keyword.pop(opts, :timeout, 10_000)
+    {api_opts, topic_opts} = Keyword.split(opts, [:validate_only, :api_version])
+
+    topic_config = Keyword.merge([topic: topic_name], topic_opts)
+    create_topics(client, [topic_config], timeout, api_opts)
   end
 
   # Helper to conditionally add keys to a map only if value is not nil

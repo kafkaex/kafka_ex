@@ -7,6 +7,7 @@ defmodule KafkaEx.New.Client.ResponseParser do
   alias KafkaEx.New.Kafka.ApiVersions
   alias KafkaEx.New.Kafka.ClusterMetadata
   alias KafkaEx.New.Kafka.ConsumerGroupDescription
+  alias KafkaEx.New.Kafka.CreateTopics
   alias KafkaEx.New.Kafka.Fetch
   alias KafkaEx.New.Kafka.FindCoordinator
   alias KafkaEx.New.Kafka.Heartbeat
@@ -120,5 +121,13 @@ defmodule KafkaEx.New.Client.ResponseParser do
   @spec find_coordinator_response(term) :: {:ok, FindCoordinator.t()} | {:error, Error.t()}
   def find_coordinator_response(response) do
     @protocol.parse_response(:find_coordinator, response)
+  end
+
+  @doc """
+  Parses response for CreateTopics API
+  """
+  @spec create_topics_response(term) :: {:ok, CreateTopics.t()} | {:error, Error.t()}
+  def create_topics_response(response) do
+    @protocol.parse_response(:create_topics, response)
   end
 end
