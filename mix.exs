@@ -52,7 +52,10 @@ defmodule KafkaEx.Mixfile do
       {:excoveralls, "~> 0.18", only: :test, runtime: false},
       {:ex_doc, "~> 0.23", only: :dev, runtime: false},
       {:hammox, "~> 0.5.0", only: :test},
-      {:snappyer, "~> 1.2", only: [:dev, :test]}
+      {:snappyer, "~> 1.2", only: [:dev, :test]},
+      {:aws_credentials, "~> 1.0", only: [:dev, :test]},
+      {:aws_signature, "~> 0.4.2", only: [:dev, :test]},
+      {:jason, "~> 1.0", optional: true}
     ]
   end
 
