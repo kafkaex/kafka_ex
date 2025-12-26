@@ -15,7 +15,7 @@ defmodule KafkaEx.NetworkClient do
   def create_socket(host, port, ssl_options \\ [], use_ssl \\ false, auth_opts \\ nil) do
     case Socket.create(format_host(host), port, build_socket_options(ssl_options), use_ssl) do
       {:ok, socket} ->
-        case maybe_authenticate_sasl(socket, auth_opts) do
+        case maybe_authenticate_sasl(socket, enrich_auth_opts(auth_opts, host, port)) do
           :ok ->
             :ok = Socket.setopts(socket, [:binary, {:packet, 4}, {:active, true}])
             socket
@@ -136,5 +136,11 @@ defmodule KafkaEx.NetworkClient do
 
   defp broker_address_str(broker) do
     "#{inspect(broker.host)}:#{inspect(broker.port)}"
+  end
+
+  defp enrich_auth_opts(nil, _host, _port), do: nil
+
+  defp enrich_auth_opts(%AuthConfig{mechanism_opts: opts} = cfg, host, port) do
+    %{cfg | mechanism_opts: Map.merge(opts || %{}, %{broker_host: host, broker_port: port})}
   end
 end

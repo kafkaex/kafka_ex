@@ -11,6 +11,8 @@ defmodule KafkaEx.Auth.Config do
     ## Supported mechanisms
       * `:plain` – username/password over TLS (required)
       * `:scram` – SCRAM-SHA (supports both SHA-256 and SHA-512 algorithms)
+      * `:oauthbearer` – OAuth 2.0 bearer token authentication (KIP-255, KIP-342)
+      * `:msk_iam` – AWS MSK IAM authentication using SigV4
 
     ## Configuration
 
@@ -62,9 +64,9 @@ defmodule KafkaEx.Auth.Config do
             mechanism_opts: %{}
 
   @type t :: %__MODULE__{
-          mechanism: :plain | :scram,
-          username: String.t(),
-          password: String.t(),
+          mechanism: :plain | :scram | :oauthbearer | :msk_iam,
+          username: String.t() | nil,
+          password: String.t() | nil,
           mechanism_opts: map()
         }
 
@@ -115,30 +117,46 @@ defmodule KafkaEx.Auth.Config do
 
   defp validate_config(%{mechanism: mech} = cfg) do
     case mech do
-      :plain ->
-        require_keys!(cfg, [:username, :password])
-        cfg
-
-      :scram ->
-        require_keys!(cfg, [:username, :password])
-        cfg
-
-      :oauthbearer ->
-        opts = cfg[:mechanism_opts] || %{}
-
-        unless is_function(opts[:token_provider], 0) do
-          raise ArgumentError, "oauthbearer requires mechanism_opts.token_provider/0"
-        end
-
-        if is_map(opts[:extensions]) and Map.has_key?(opts[:extensions], "auth") do
-          raise ArgumentError, "'auth' is a reserved extension name"
-        end
-
-        Map.merge(%{username: nil, password: nil}, cfg)
-
-      _ ->
-        raise ArgumentError, "Unsupported SASL mechanism: #{inspect(mech)}"
+      :plain -> validate_plain(cfg)
+      :scram -> validate_scram(cfg)
+      :oauthbearer -> validate_oauthbearer(cfg)
+      :msk_iam -> validate_msk_iam(cfg)
+      _ -> raise ArgumentError, "Unsupported SASL mechanism: #{inspect(mech)}"
     end
+  end
+
+  defp validate_plain(cfg) do
+    require_keys!(cfg, [:username, :password])
+    cfg
+  end
+
+  defp validate_scram(cfg) do
+    require_keys!(cfg, [:username, :password])
+    cfg
+  end
+
+  defp validate_oauthbearer(cfg) do
+    opts = cfg[:mechanism_opts] || %{}
+
+    unless is_function(opts[:token_provider], 0) do
+      raise ArgumentError, "oauthbearer requires mechanism_opts.token_provider/0"
+    end
+
+    if is_map(opts[:extensions]) and Map.has_key?(opts[:extensions], "auth") do
+      raise ArgumentError, "'auth' is a reserved extension name"
+    end
+
+    Map.merge(%{username: nil, password: nil}, cfg)
+  end
+
+  defp validate_msk_iam(cfg) do
+    opts = cfg[:mechanism_opts] || %{}
+
+    unless opts[:region] do
+      raise ArgumentError, "msk_iam requires mechanism_opts.region"
+    end
+
+    Map.merge(%{username: nil, password: nil}, cfg)
   end
 
   defp require_keys!(map, keys) do
@@ -149,6 +167,8 @@ defmodule KafkaEx.Auth.Config do
 
   defimpl Inspect do
     import Inspect.Algebra
+
+    @sensitive_keys [:access_key_id, :secret_access_key, :session_token]
 
     def inspect(%KafkaEx.Auth.Config{} = c, _opts) do
       concat([
@@ -161,9 +181,16 @@ defmodule KafkaEx.Auth.Config do
         ", ",
         "password=***REDACTED***, ",
         "mechanism_opts=",
-        inspect(c.mechanism_opts),
+        inspect(redact_opts(c.mechanism_opts)),
         ">"
       ])
+    end
+
+    defp redact_opts(opts) do
+      Map.new(opts, fn
+        {k, _v} when k in @sensitive_keys -> {k, "***REDACTED***"}
+        {k, v} -> {k, v}
+      end)
     end
   end
 end

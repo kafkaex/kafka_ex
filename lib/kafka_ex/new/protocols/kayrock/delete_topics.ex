@@ -6,9 +6,8 @@ defmodule KafkaEx.New.Protocols.Kayrock.DeleteTopics do
   - V0: Basic topic deletion
   - V1: Adds throttle_time_ms in response
   """
-
+  alias KafkaEx.New.Client.Error
   alias KafkaEx.New.Kafka.DeleteTopics
-  alias KafkaEx.New.Structs.Error
 
   defprotocol Request do
     @moduledoc """

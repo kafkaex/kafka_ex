@@ -418,6 +418,7 @@ Ports:
 9092-9094 - No authentication (SSL)
 9192-9194 - SASL/PLAIN (SSL)
 9292-9294 - SASL/SCRAM (SSL)
+9392-9394 - SASL/OAUTHBEARER (SSL)
 
 To launch the included test cluster, run
 
