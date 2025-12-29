@@ -6,7 +6,7 @@ defmodule KafkaEx.Integration.FetchKayrockTest do
   @moduletag :integration
 
   alias KafkaEx.New.Client
-  alias KafkaEx.New.KafkaExAPI, as: API
+  alias KafkaEx.API, as: API
   alias KafkaEx.New.Kafka.Fetch
   alias KafkaEx.New.Kafka.Fetch.Record
 

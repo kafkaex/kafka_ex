@@ -71,7 +71,7 @@ defmodule KafkaEx.Protocol.Fetch do
             headers: [{key :: binary, value :: binary}],
             topic: binary,
             partition: integer,
-            # timestamp supported for `kafka_version: "kayrock"` ONLY
+            # message timestamp (milliseconds since epoch)
             timestamp: integer
           }
   end

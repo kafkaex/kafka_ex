@@ -1,4 +1,4 @@
-defmodule KafkaEx.New.KafkaExAPITest do
+defmodule KafkaEx.APIIntegrationTest do
   use ExUnit.Case, async: true
   import KafkaEx.TestHelpers
   import KafkaEx.IntegrationHelpers
@@ -6,7 +6,7 @@ defmodule KafkaEx.New.KafkaExAPITest do
   @moduletag :integration
 
   alias KafkaEx.New.Client
-  alias KafkaEx.New.KafkaExAPI, as: API
+  alias KafkaEx.API, as: API
 
   setup do
     {:ok, args} = KafkaEx.build_worker_options([])
@@ -699,16 +699,7 @@ defmodule KafkaEx.New.KafkaExAPITest do
       Process.sleep(200)
 
       # Join another member for v0 test
-      request2 = %KafkaEx.Protocol.JoinGroup.Request{
-        group_name: consumer_group,
-        member_id: "",
-        topics: [topic_name],
-        session_timeout: 6000
-      }
-
-      response2 = KafkaEx.join_group(request2, worker_name: client, timeout: 10000)
-      member_id_2 = response2.member_id
-      generation_id_2 = response2.generation_id
+      {member_id_2, generation_id_2} = join_to_group(client, topic_name, consumer_group)
 
       # v0
       {:ok, result_v0} = API.sync_group(client, consumer_group, generation_id_2, member_id_2, api_version: 0)
@@ -1001,7 +992,12 @@ defmodule KafkaEx.New.KafkaExAPITest do
           %{
             member_id: member_id,
             member_assignment: %Kayrock.MemberAssignment{
-              partition_assignments: [%{topic: topic_name, partitions: [0]}]
+              partition_assignments: [
+                %Kayrock.MemberAssignment.PartitionAssignment{
+                  topic: topic_name,
+                  partitions: [0]
+                }
+              ]
             }
           }
         ]
@@ -1015,7 +1011,7 @@ defmodule KafkaEx.New.KafkaExAPITest do
             group_assignment: group_assignment
           )
 
-        assert sync_response.partition_assignment.partition_assignments != []
+        assert sync_response.partition_assignments != []
       else
         # Follower waits for assignment
         {:ok, sync_response} =
@@ -1027,7 +1023,7 @@ defmodule KafkaEx.New.KafkaExAPITest do
             group_assignment: []
           )
 
-        assert sync_response.partition_assignment != nil
+        assert sync_response.partition_assignments != nil
       end
 
       # Step 3: Verify group membership

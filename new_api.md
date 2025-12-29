@@ -1,21 +1,19 @@
 # KafkaEx 1.0 API
 
-This document describes the design approach and gives an overview of thew new
-client API.  The API itself is documented in `KafkaEx.New.KafkaExAPI`.  The
-current plan is for `KafkaEx.New.KafkaExAPI` to replace `KafkaEx` in the v1.0
-release.
+This document describes the design approach and gives an overview of the new
+client API. The API itself is documented in `KafkaEx.New.KafkaExAPI`. This
+module will become `KafkaEx.API` in v1.0.
 
 The new API is designed to continue to provide a useful Kafka client API
-foremost, to address some of the limitations and inconveniences of the
-existing API (both in terms of usage and maintenance).  A central goal of the
-new API is to allow us to support new Kafka features more rapidly than in the
-past.  
+foremost, to address some of the limitations and inconveniences of the legacy
+API (both in terms of usage and maintenance). A central goal of the new API is
+to allow us to support new Kafka features more rapidly than in the past.
 
 ## Status
 
-The new API is still in very early stages of development.  We will try to keep
-this section up-to-date with respect to what features have been implemented.
-`KafkaEx.New.KafkaExAPI` is the source of truth for this summary.
+The new client (`KafkaEx.New.Client`) is now the default and only client
+implementation. The legacy version-specific servers have been removed.
+`KafkaEx.New.KafkaExAPI` is the source of truth for available features.
 
 Features implemented:
 
@@ -29,9 +27,9 @@ Features implemented:
 
 ## Major Differences from the Legacy API
 
-*   There is currently no supervisor for clients.  It is assumed that the user
-    will manage these when not used in a consumer group.  (This does not apply to
-    clients started via the legacy `create_worker` API, which are started under the standard
+*   There is currently no supervisor for clients. It is assumed that the user
+    will manage these when not used in a consumer group. (This does not apply to
+    clients started via `create_worker` API, which are started under the standard
     supervision tree.)
 *   The client does not automatically fetch metadata for all topics as this can
     lead to timeouts on large clusters.  There should be no observable impact here

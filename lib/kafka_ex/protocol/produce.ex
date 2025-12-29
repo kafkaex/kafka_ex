@@ -53,7 +53,7 @@ defmodule KafkaEx.Protocol.Produce do
     it is defaulted to nil
     - value: is the message to be written to Kafka logs.
     - headers: is a list of keys and values that adds metadata to messages
-    - timestamp: timestamp (`kafka_version: "kayrock"` ONLY)
+    - timestamp: message timestamp (milliseconds since epoch)
     """
     defstruct key: nil, value: nil, headers: nil, timestamp: nil
 
