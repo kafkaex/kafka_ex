@@ -616,9 +616,7 @@ defmodule KafkaEx do
   This takes the same arguments as `create_worker/2` except that it adds
 
   - `server_impl` - This is the GenServer that will be used for the
-    client genserver implementation - e.g., `KafkaEx.Server0P8P0`,
-    `KafkaEx.Server0P10AndLater`, `KafkaEx.New.Client`.  Defaults to the value
-    determined by the `kafka_version` setting.
+    client genserver implementation. Defaults to `KafkaEx.New.Client`.
   """
   @spec start_link_worker(atom, [
           KafkaEx.worker_setting() | {:server_impl, module}

@@ -45,9 +45,7 @@ defmodule KafkaEx.Config do
 
   @doc false
   def server_impl do
-    :kafka_ex
-    |> Application.get_env(:kafka_version, :default)
-    |> server
+    KafkaEx.New.Client
   end
 
   @doc false
@@ -96,12 +94,6 @@ defmodule KafkaEx.Config do
   else
     defp trim(string), do: String.trim(string)
   end
-
-  defp server("0.8.0"), do: KafkaEx.Server0P8P0
-  defp server("0.8.2"), do: KafkaEx.Server0P8P2
-  defp server("0.9.0"), do: KafkaEx.Server0P9P0
-  defp server("kayrock"), do: KafkaEx.New.Client
-  defp server(_), do: KafkaEx.Server0P10AndLater
 
   # ssl_options should be an empty list by default if use_ssl is false
   defp ssl_options(false, []), do: []

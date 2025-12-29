@@ -28,9 +28,7 @@ defmodule KafkaEx.ConsumerGroup do
   `KafkaEx.ConsumerGroup` configured to use that module.
 
   The api versions of some of the underlying messages can be specified in the
-  `:api_versions` option.  Note that these will be ignored (api version 0 used)
-  unless you have `kafka_version: "kayrock"` set in the KafkaEx application
-  config.  The following versions can be specified:
+  `:api_versions` option.  The following versions can be specified:
 
   * `:fetch` - Fetch requests - use v2+ for newer versions of Kafka
   * `:offset_fetch` - Offset fetch requests - use v1+ for offsets stored in

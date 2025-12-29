@@ -145,16 +145,10 @@ defmodule KafkaEx.KayrockCompatibilityConsumerGroupImplementationTest do
   end
 
   setup_all do
-    kafka_version = Application.get_env(:kafka_ex, :kafka_version)
-
-    Application.put_env(:kafka_ex, :kafka_version, "kayrock")
-
     :ok = Application.stop(:kafka_ex)
     {:ok, _} = Application.ensure_all_started(:kafka_ex)
 
     on_exit(fn ->
-      Application.put_env(:kafka_ex, :kafka_version, kafka_version)
-
       :ok = Application.stop(:kafka_ex)
       {:ok, _} = Application.ensure_all_started(:kafka_ex)
     end)
