@@ -36,7 +36,7 @@ config :kafka_ex,
   # The client_id is the logical grouping of a set of kafka clients.
   client_id: "kafka_ex",
   # Set this value to true if you do not want the default
-  # `KafkaEx.Server` worker to start during application start-up -
+  # KafkaEx worker to start during application start-up -
   # i.e., if you want to start your own set of named workers
   disable_default_worker: false,
   # Timeout value, in msec, for synchronous operations (e.g., network calls).
@@ -73,11 +73,7 @@ config :kafka_ex,
     certfile: File.cwd!() <> "/ssl/cert.pem",
     keyfile: File.cwd!() <> "/ssl/key.pem"
   ],
-  snappy_module: :snappyer,
-  # set this to the version of the kafka broker that you are using
-  # include only major.minor.patch versions.  must be at least 0.8.0
-  # use "kayrock" for the new client
-  kafka_version: "0.10.1"
+  snappy_module: :snappyer
 
 # SASL Authentication (optional)
 

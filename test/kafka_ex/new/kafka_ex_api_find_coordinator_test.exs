@@ -1,4 +1,4 @@
-defmodule KafkaEx.New.KafkaExAPIFindCoordinatorTest do
+defmodule KafkaEx.APIFindCoordinatorTest do
   use ExUnit.Case, async: true
 
   alias KafkaEx.New.Client.RequestBuilder

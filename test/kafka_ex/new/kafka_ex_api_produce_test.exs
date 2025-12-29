@@ -1,7 +1,7 @@
-defmodule KafkaEx.New.KafkaExAPIProduceTest do
+defmodule KafkaEx.APIProduceTest do
   use ExUnit.Case, async: false
 
-  alias KafkaEx.New.KafkaExAPI
+  alias KafkaEx.API, as: KafkaExAPI
   alias KafkaEx.New.Kafka.RecordMetadata
 
   # Mock GenServer for testing

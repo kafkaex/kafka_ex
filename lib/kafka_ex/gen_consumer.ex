@@ -192,12 +192,7 @@ defmodule KafkaEx.GenConsumer do
   use GenServer
 
   alias KafkaEx.Protocol.Fetch.Message
-  alias KafkaEx.Protocol.Fetch.Response, as: FetchResponse
-  alias KafkaEx.Protocol.Offset.Response, as: OffsetResponse
-  alias KafkaEx.Protocol.OffsetCommit.Request, as: OffsetCommitRequest
-  alias KafkaEx.Protocol.OffsetCommit.Response, as: OffsetCommitResponse
-  alias KafkaEx.Protocol.OffsetFetch.Request, as: OffsetFetchRequest
-  alias KafkaEx.Protocol.OffsetFetch.Response, as: OffsetFetchResponse
+  alias KafkaEx.API, as: KafkaExAPI
 
   require Logger
 
@@ -205,7 +200,8 @@ defmodule KafkaEx.GenConsumer do
   Option values used when starting a `KafkaEx.GenConsumer`.
   """
   @type option ::
-          {:commit_interval, non_neg_integer}
+          {:client, GenServer.server()}
+          | {:commit_interval, non_neg_integer}
           | {:commit_threshold, non_neg_integer}
           | {:auto_offset_reset, :none | :earliest | :latest}
           | {:api_versions, map()}
@@ -391,7 +387,7 @@ defmodule KafkaEx.GenConsumer do
       :consumer_state,
       :commit_interval,
       :commit_threshold,
-      :worker_name,
+      :client,
       :group,
       :topic,
       :partition,
@@ -425,6 +421,9 @@ defmodule KafkaEx.GenConsumer do
 
   ### Options
 
+  * `:client` - An existing `KafkaEx.New.Client` pid to use for Kafka operations.
+    If not provided, a new client will be started automatically.
+
   * `:commit_interval` - The interval in milliseconds that the consumer will
     wait to commit offsets of handled messages.  Default 5_000.
 
@@ -437,7 +436,7 @@ defmodule KafkaEx.GenConsumer do
     is specified, the error will simply be raised.
 
   * `:fetch_options` - Optional keyword list that is passed along to the
-    `KafkaEx.fetch` call.
+    fetch operation.
 
   * `:shutdown` - Optional amount of time in milliseconds that the supervisor
     will wait for a `GenConsumer` to terminate after emitting a
@@ -552,17 +551,10 @@ defmodule KafkaEx.GenConsumer do
 
     case consumer_module.init(topic, partition, extra_consumer_args) do
       {:ok, consumer_state} ->
-        worker_opts = Keyword.take(opts, [:uris, :use_ssl, :ssl_options])
-
-        {:ok, worker_name} =
-          KafkaEx.create_worker(
-            :no_name,
-            [consumer_group: group_name] ++ worker_opts
-          )
+        client = resolve_client(opts, group_name)
 
         default_fetch_options = [
-          auto_commit: false,
-          worker_name: worker_name
+          auto_commit: false
         ]
 
         given_fetch_options = Keyword.get(opts, :fetch_options, [])
@@ -575,7 +567,7 @@ defmodule KafkaEx.GenConsumer do
           commit_interval: commit_interval,
           commit_threshold: commit_threshold,
           auto_offset_reset: auto_offset_reset,
-          worker_name: worker_name,
+          client: client,
           group: group_name,
           topic: topic,
           partition: partition,
@@ -591,6 +583,25 @@ defmodule KafkaEx.GenConsumer do
 
       {:stop, reason} ->
         {:stop, reason}
+    end
+  end
+
+  # Resolves the client to use for Kafka operations
+  # Supports both new :client option and starts a new client if not provided
+  defp resolve_client(opts, group_name) do
+    case Keyword.get(opts, :client) do
+      nil ->
+        # Start a new client with provided options
+        client_opts =
+          opts
+          |> Keyword.take([:uris, :use_ssl, :ssl_options, :auth])
+          |> Keyword.put(:consumer_group, group_name)
+
+        {:ok, client} = KafkaEx.New.Client.start_link(client_opts, :no_name)
+        client
+
+      client ->
+        client
     end
   end
 
@@ -705,66 +716,62 @@ defmodule KafkaEx.GenConsumer do
 
   def terminate(_reason, %State{} = state) do
     commit(state)
-    Process.unlink(state.worker_name)
-    KafkaEx.stop_worker(state.worker_name)
+    Process.unlink(state.client)
+    GenServer.stop(state.client, :normal)
   end
 
   # Helpers
 
   defp consume(
          %State{
+           client: client,
            topic: topic,
            partition: partition,
            current_offset: offset,
            fetch_options: fetch_options
          } = state
        ) do
-    response =
-      KafkaEx.fetch(
-        topic,
-        partition,
-        Keyword.merge(
-          fetch_options,
-          offset: offset,
-          api_version: Map.fetch!(state.api_versions, :fetch)
-        )
-      )
+    fetch_opts =
+      fetch_options
+      |> Keyword.put(:api_version, Map.fetch!(state.api_versions, :fetch))
 
-    response
-    |> handle_fetch_response(state)
-  end
+    case KafkaExAPI.fetch(client, topic, partition, offset, fetch_opts) do
+      {:ok, fetch_result} ->
+        handle_new_fetch_response(fetch_result, state)
 
-  defp handle_fetch_response(
-         [
-           %FetchResponse{
-             topic: _topic,
-             partitions: [
-               response = %{error_code: error_code, partition: _partition}
-             ]
-           }
-         ],
-         state
-       ) do
-    state =
-      case error_code do
-        :offset_out_of_range ->
-          handle_offset_out_of_range(state)
+      {:error, :offset_out_of_range} ->
+        new_state = handle_offset_out_of_range(state)
+        handle_commit(:async_commit, new_state)
 
-        :no_error ->
-          state
-      end
-
-    case response do
-      %{message_set: []} ->
-        handle_commit(:async_commit, state)
-
-      %{last_offset: _, message_set: message_set} ->
-        handle_message_set(message_set, state)
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
-  defp handle_fetch_response(error, _state) do
-    {:error, error}
+  # Handle response from the new KafkaExAPI.fetch
+  defp handle_new_fetch_response(%{records: []} = _fetch_result, state) do
+    # No messages, just handle async commit
+    handle_commit(:async_commit, state)
+  end
+
+  defp handle_new_fetch_response(fetch_result, state) do
+    # Convert records to legacy Message format for backward compatibility
+    message_set = records_to_messages(fetch_result.records)
+    handle_message_set(message_set, state)
+  end
+
+  # Convert new Record structs to legacy Message structs
+  defp records_to_messages(records) do
+    Enum.map(records, fn record ->
+      %Message{
+        offset: record.offset,
+        key: record.key,
+        value: record.value,
+        attributes: record.attributes || 0,
+        crc: record.crc,
+        timestamp: record.timestamp
+      }
+    end)
   end
 
   defp handle_message_set(
@@ -791,26 +798,21 @@ defmodule KafkaEx.GenConsumer do
 
   defp handle_offset_out_of_range(
          %State{
-           worker_name: worker_name,
+           client: client,
            topic: topic,
            partition: partition,
            auto_offset_reset: auto_offset_reset
          } = state
        ) do
-    [
-      %OffsetResponse{
-        topic: ^topic,
-        partition_offsets: [
-          %{partition: ^partition, error_code: :no_error, offset: [offset]}
-        ]
-      }
-    ] =
+    offset =
       case auto_offset_reset do
         :earliest ->
-          KafkaEx.earliest_offset(topic, partition, worker_name)
+          {:ok, offset} = KafkaExAPI.earliest_offset(client, topic, partition)
+          offset
 
         :latest ->
-          KafkaEx.latest_offset(topic, partition, worker_name)
+          {:ok, offset} = KafkaExAPI.latest_offset(client, topic, partition)
+          offset
 
         _ ->
           raise "Offset out of range while consuming topic #{topic}, partition #{partition}."
@@ -858,7 +860,7 @@ defmodule KafkaEx.GenConsumer do
 
   defp commit(
          %State{
-           worker_name: worker_name,
+           client: client,
            group: group,
            topic: topic,
            partition: partition,
@@ -867,92 +869,110 @@ defmodule KafkaEx.GenConsumer do
            acked_offset: offset
          } = state
        ) do
-    request = %OffsetCommitRequest{
-      consumer_group: group,
-      topic: topic,
-      partition: partition,
-      offset: offset,
+    partitions = [
+      %{
+        partition_num: partition,
+        offset: offset,
+        member_id: member_id,
+        generation_id: generation_id
+      }
+    ]
+
+    opts = [
+      api_version: Map.fetch!(state.api_versions, :offset_commit),
       member_id: member_id,
-      generation_id: generation_id,
-      api_version: Map.fetch!(state.api_versions, :offset_fetch)
-    }
+      generation_id: generation_id
+    ]
 
-    [%OffsetCommitResponse{topic: ^topic, partitions: [partition_response]}] =
-      KafkaEx.offset_commit(worker_name, request)
+    case KafkaExAPI.commit_offset(client, group, topic, partitions, opts) do
+      {:ok, _result} ->
+        Logger.debug(fn ->
+          "Committed offset #{topic}/#{partition}@#{offset} for #{group}"
+        end)
 
-    # one of these needs to match, depending on which client
-    case partition_response do
-      # old client
-      ^partition ->
-        :ok
+        %State{
+          state
+          | committed_offset: offset,
+            last_commit: :erlang.monotonic_time(:milli_seconds)
+        }
 
-      # new client
-      %{error_code: :no_error, partition: ^partition} ->
-        :ok
+      {:error, error} ->
+        Logger.error(fn ->
+          "Failed to commit offset #{topic}/#{partition}@#{offset} for #{group}: #{inspect(error)}"
+        end)
+
+        state
     end
-
-    Logger.debug(fn ->
-      "Committed offset #{topic}/#{partition}@#{offset} for #{group}"
-    end)
-
-    %State{
-      state
-      | committed_offset: offset,
-        last_commit: :erlang.monotonic_time(:milli_seconds)
-    }
   end
 
   defp load_offsets(
          %State{
-           worker_name: worker_name,
+           client: client,
            group: group,
            topic: topic,
            partition: partition
          } = state
        ) do
-    request = %OffsetFetchRequest{
-      consumer_group: group,
-      topic: topic,
-      partition: partition,
-      api_version: Map.fetch!(state.api_versions, :offset_fetch)
-    }
+    partitions = [%{partition_num: partition}]
+    opts = [api_version: Map.fetch!(state.api_versions, :offset_fetch)]
 
-    [
-      %OffsetFetchResponse{
-        topic: ^topic,
-        partitions: [
-          %{partition: ^partition, error_code: error_code, offset: offset}
-        ]
-      }
-    ] = KafkaEx.offset_fetch(worker_name, request)
+    case KafkaExAPI.fetch_committed_offset(client, group, topic, partitions, opts) do
+      {:ok, [%{partition_offsets: [%{offset: offset, error_code: error_code}]}]} ->
+        # newer api versions will return -1 if the consumer group does not exist
+        offset = max(offset, 0)
 
-    # newer api versions will return -1 if the consumer group does not exist
-    offset = max(offset, 0)
+        case error_code do
+          :no_error ->
+            %State{
+              state
+              | current_offset: offset,
+                committed_offset: offset,
+                acked_offset: offset
+            }
 
-    case error_code do
-      :no_error ->
+          :unknown_topic_or_partition ->
+            # Topic/partition not found, start from earliest
+            {:ok, earliest} = KafkaExAPI.earliest_offset(client, topic, partition)
+
+            %State{
+              state
+              | current_offset: earliest,
+                committed_offset: earliest,
+                acked_offset: earliest
+            }
+
+          _ ->
+            # Handle other error codes by starting from earliest
+            {:ok, earliest} = KafkaExAPI.earliest_offset(client, topic, partition)
+
+            %State{
+              state
+              | current_offset: earliest,
+                committed_offset: earliest,
+                acked_offset: earliest
+            }
+        end
+
+      {:ok, []} ->
+        # No committed offset found, start from earliest
+        {:ok, earliest} = KafkaExAPI.earliest_offset(client, topic, partition)
+
         %State{
           state
-          | current_offset: offset,
-            committed_offset: offset,
-            acked_offset: offset
+          | current_offset: earliest,
+            committed_offset: earliest,
+            acked_offset: earliest
         }
 
-      :unknown_topic_or_partition ->
-        [
-          %OffsetResponse{
-            topic: ^topic,
-            partition_offsets: [
-              %{partition: ^partition, error_code: :no_error, offset: [offset]}
-            ]
-          }
-        ] = KafkaEx.earliest_offset(topic, partition, worker_name)
+      {:error, _reason} ->
+        # Error fetching committed offset, start from earliest
+        {:ok, earliest} = KafkaExAPI.earliest_offset(client, topic, partition)
 
         %State{
           state
-          | current_offset: offset,
-            committed_offset: offset,
-            acked_offset: offset
+          | current_offset: earliest,
+            committed_offset: earliest,
+            acked_offset: earliest
         }
     end
   end

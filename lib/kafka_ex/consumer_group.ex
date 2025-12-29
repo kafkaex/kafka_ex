@@ -28,9 +28,7 @@ defmodule KafkaEx.ConsumerGroup do
   `KafkaEx.ConsumerGroup` configured to use that module.
 
   The api versions of some of the underlying messages can be specified in the
-  `:api_versions` option.  Note that these will be ignored (api version 0 used)
-  unless you have `kafka_version: "kayrock"` set in the KafkaEx application
-  config.  The following versions can be specified:
+  `:api_versions` option.  The following versions can be specified:
 
   * `:fetch` - Fetch requests - use v2+ for newer versions of Kafka
   * `:offset_fetch` - Offset fetch requests - use v1+ for offsets stored in
@@ -110,7 +108,7 @@ defmodule KafkaEx.ConsumerGroup do
   * `:max_restarts`, `:max_seconds` - Supervisor restart policy parameters
   * `:partition_assignment_callback` - See
      `t:KafkaEx.ConsumerGroup.PartitionAssignment.callback/0`
-  * `:uris` - See `KafkaEx.create_worker/2`
+  * `:uris` - List of Kafka broker URIs in `{"host", port}` format
 
   Note `:session_timeout` is registered with the broker and determines how long
   before the broker will de-register a consumer from which it has not heard a

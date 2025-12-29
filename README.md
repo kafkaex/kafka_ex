@@ -10,7 +10,7 @@ KafkaEx
 [![API Docs](https://img.shields.io/badge/api-docs-yellow.svg?style=flat)](http://hexdocs.pm/kafka_ex/)
 
 KafkaEx is an Elixir client for [Apache Kafka](http://kafka.apache.org/) with
-support for Kafka versions 0.8.0 and newer. KafkaEx requires Elixir 1.6+ and
+support for Kafka versions 0.10.0 and newer. KafkaEx requires Elixir 1.6+ and
 Erlang OTP 19+.
 
 See [http://hexdocs.pm/kafka_ex/](http://hexdocs.pm/kafka_ex/) for
@@ -32,63 +32,22 @@ See [Kafka Protocol Documentation](http://kafka.apache.org/protocol.html) and
  [A Guide to the Kafka Protocol](https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol)
 for details of these features.
 
-## IMPORTANT - Kayrock and The Future of KafkaEx
+## KafkaEx v1.0
 
-TL;DR:
+KafkaEx v1.0 uses [Kayrock](https://github.com/dantswain/kayrock) for Kafka
+protocol serialization, providing automatic API version negotiation with your
+Kafka brokers. This enables features like:
 
-*   This is new implementation and we need people to test it!
-*   Set `kafka_version: "kayrock"` to use the new client implementation.
-*   The new client should be compatible with existing code when used this way.
-*   Many functions now support an `api_version` parameter, see below for details,
-    e.g., how to store offsets in Kafka instead of Zookeeper.
-*   Version 1.0 of KafkaEx will be based on Kayrock and have a cleaner API - you
-    can start testing this API by using modules from the `KafkaEx.New` namespace.
-    See below for details.
-*   Version 0.11.0+ of KafkaEx is required to use Kayrock.
+*   Message timestamps and headers
+*   Offset storage in Kafka (not Zookeeper)
+*   Support for modern Kafka protocol versions
 
-To support some oft-requested features (offset storage in Kafka, message
-timestamps), we have integrated KafkaEx with
-[Kayrock](https://github.com/dantswain/kayrock) which is a library that handles
-serialization and deserialization of the Kafka message protocol in a way that
-can grow as Kafka does.
+The client automatically negotiates the appropriate API versions with your
+Kafka cluster, so no version configuration is needed.
 
-Unfortunately, the existing KafkaEx API is built in such a way that it doesn't
-easily support this growth.  This, combined with a number of other existing
-warts in the current API, has led us to the conclusion that v1.0 of KafkaEx
-should have a new and cleaner API.
+For information on the new API available in the `KafkaEx.New` namespace, see:
 
-The path we have planned to get to v1.0 is:
-
-1.  Add a Kayrock compatibility layer for the existing KafkaEx API (DONE, not released).
-2.  Expose Kayrock's API versioning through a select handful of KafkaEx API
-    functions so that users can get access to the most-requested features (e.g.,
-    offset storage in Kafka and message timestamps) (DONE, not released).
-3.  Begin designing and implementing the new API in parallel in the `KafkaEx.New`
-    namespace (EARLY PROGRESS).
-4.  Incrementally release the new API alongside the legacy API so that early
-    adopters can test it.
-5.  Once the new API is complete and stable, move it to the `KafkaEx` namespace
-    (i.e., drop the `New` part) and it will replace the legacy API.  This will be
-    released as v1.0.
-
-Users of KafkaEx can help a lot by testing the new code. At first, we need
-people to test the Kayrock-based client using compatibility mode. You can do
-this by simply setting `kafka_version: "kayrock"` in your configuration. That
-should be all you need to change. If you want to test new features enabled by
-`api_versions` options then that is also very valuable to us (see below for
-links to details). Then, as work on the new API ramps up, users can
-contribute feedback to pull requests (or even contribute pull requests!) and
-test out the new API as it becomes available.
-
-For more information on using the Kayrock-based client, see
-
-*   Github: [kayrock.md](https://github.com/kafkaex/kafka_ex/blob/master/kayrock.md)
-*   HexDocs: [kayrock-based client](kayrock.html)
-
-For more information on the v1.0 API, see
-
-*   Github:
-    [new_api.md](https://github.com/kafkaex/kafka_ex/blob/master/new_api.md)
+*   Github: [new_api.md](https://github.com/kafkaex/kafka_ex/blob/master/new_api.md)
 *   HexDocs: [New API](new_api.html)
 
 ## Using KafkaEx in an Elixir project
@@ -283,7 +242,7 @@ iex> KafkaEx.earliest_offset("foo", 0) # where 0 is the partition
 
 ### Fetch kafka logs
 
-**NOTE** You must pass `auto_commit: false` in the options for `fetch/3` when using Kafka < 0.8.2 or when using `:no_consumer_group`.
+**NOTE** You must pass `auto_commit: false` in the options for `fetch/3` when using `:no_consumer_group`.
 
 ```elixir
 iex> KafkaEx.fetch("foo", 0, offset: 5) # where 0 is the partition and 5 is the offset we want to start fetching from
@@ -319,7 +278,7 @@ iex> KafkaEx.stream("foo", 0, offset: 0) |> Enum.take(2)
  %{attributes: 0, crc: 4251893211, key: nil, offset: 1, value: "hi"}]
 ```
 
-For Kafka < 0.8.2 the `stream/3` requires `auto_commit: false`
+When using `:no_consumer_group`, you should pass `auto_commit: false`:
 
 ```elixir
 iex> KafkaEx.stream("foo", 0, offset: 0, auto_commit: false) |> Enum.take(2)
@@ -451,38 +410,16 @@ If you are not using the Docker test cluster, you may need to modify
 
 The full test suite requires Kafka 2.1.0+.
 
-##### Kafka >= 0.9.0
-
-The 0.9 client includes functionality that cannot be tested with older
-clusters.
+Run the full integration test suite:
 
 ```
 ./scripts/all_tests.sh
 ```
 
-##### Kafka = 0.9.0
-
-The 0.9 client includes functionality that cannot be tested with older
-clusters.
+Or run specific test categories:
 
 ```
-mix test --include integration --include consumer_group --include server_0_p_9_p_0
-```
-
-##### Kafka >= 0.8.2 and < 0.9.0
-
-Kafka 0.8.2 introduced the consumer group API.
-
-```
-mix test --include consumer_group --include integration
-```
-
-##### Kafka < 0.8.2
-
-If your test cluster is older, the consumer group tests must be omitted.
-
-```
-mix test --include integration --include server_0_p_8_p_0
+mix test --include integration --include consumer_group
 ```
 
 ### Static analysis
