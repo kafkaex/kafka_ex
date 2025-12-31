@@ -45,10 +45,36 @@ Kafka brokers. This enables features like:
 The client automatically negotiates the appropriate API versions with your
 Kafka cluster, so no version configuration is needed.
 
-For information on the new API available in the `KafkaEx.New` namespace, see:
+### New API: `KafkaEx.API`
+
+The `KafkaEx.API` module provides a cleaner API with explicit client arguments:
+
+```elixir
+# Start a client
+{:ok, client} = KafkaEx.API.start_client(brokers: [{"localhost", 9092}])
+
+# Produce a message
+{:ok, metadata} = KafkaEx.API.produce_one(client, "my-topic", 0, "hello")
+
+# Fetch messages
+{:ok, result} = KafkaEx.API.fetch(client, "my-topic", 0, 0)
+```
+
+You can also use it as a behaviour in your own modules:
+
+```elixir
+defmodule MyApp.Kafka do
+  use KafkaEx.API, client: MyApp.KafkaClient
+end
+
+# Call without passing client:
+MyApp.Kafka.produce_one("my-topic", 0, "hello")
+```
+
+For detailed information, see:
 
 *   Github: [new_api.md](https://github.com/kafkaex/kafka_ex/blob/master/new_api.md)
-*   HexDocs: [New API](new_api.html)
+*   HexDocs: [KafkaEx.API](https://hexdocs.pm/kafka_ex/KafkaEx.API.html)
 
 ## Using KafkaEx in an Elixir project
 
@@ -110,13 +136,11 @@ To use a consumer group, first implement a handler module using
 defmodule ExampleGenConsumer do
   use KafkaEx.GenConsumer
 
-  alias KafkaEx.Protocol.Fetch.Message
-
   require Logger
 
   # note - messages are delivered in batches
   def handle_message_set(message_set, state) do
-    for %Message{value: message} <- message_set do
+    for %Record{value: message} <- message_set do
       Logger.debug(fn -> "message: " <> inspect(message) end)
     end
     {:async_commit, state}
@@ -245,16 +269,20 @@ iex> KafkaEx.earliest_offset("foo", 0) # where 0 is the partition
 **NOTE** You must pass `auto_commit: false` in the options for `fetch/3` when using `:no_consumer_group`.
 
 ```elixir
-iex> KafkaEx.fetch("foo", 0, offset: 5) # where 0 is the partition and 5 is the offset we want to start fetching from
-[%KafkaEx.Protocol.Fetch.Response{partitions: [%{error_code: :no_error,
-     hw_mark_offset: 115,
-     message_set: [
-      %KafkaEx.Protocol.Fetch.Message{attributes: 0, crc: 4264455069, key: nil, offset: 5, value: "hey"},
-      %KafkaEx.Protocol.Fetch.Message{attributes: 0, crc: 4264455069, key: nil, offset: 6, value: "hey"},
-      %KafkaEx.Protocol.Fetch.Message{attributes: 0, crc: 4264455069, key: nil, offset: 7, value: "hey"},
-      %KafkaEx.Protocol.Fetch.Message{attributes: 0, crc: 4264455069, key: nil, offset: 8, value: "hey"},
-      %KafkaEx.Protocol.Fetch.Message{attributes: 0, crc: 4264455069, key: nil, offset: 9, value: "hey"}
-...], partition: 0}], topic: "foo"}]
+iex> KafkaEx.API.fetch(client, "foo", 0, 5) # where 0 is the partition and 5 is the offset
+{:ok, %KafkaEx.New.Kafka.Fetch{
+  topic: "foo",
+  partition: 0,
+  high_watermark: 115,
+  records: [
+    %KafkaEx.New.Kafka.Fetch.Record{offset: 5, key: nil, value: "hey", ...},
+    %KafkaEx.New.Kafka.Fetch.Record{offset: 6, key: nil, value: "hey", ...},
+    %KafkaEx.New.Kafka.Fetch.Record{offset: 7, key: nil, value: "hey", ...},
+    %KafkaEx.New.Kafka.Fetch.Record{offset: 8, key: nil, value: "hey", ...},
+    %KafkaEx.New.Kafka.Fetch.Record{offset: 9, key: nil, value: "hey", ...}
+  ],
+  last_offset: 9
+}}
 ```
 
 ### Produce kafka logs

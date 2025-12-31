@@ -1,7 +1,7 @@
-defmodule KafkaEx.New.Kafka.LeaveGroupTest do
+defmodule KafkaEx.Messages.LeaveGroupTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Kafka.LeaveGroup
+  alias KafkaEx.Messages.LeaveGroup
 
   describe "build/1" do
     test "builds leave_group with throttle_time_ms" do

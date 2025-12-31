@@ -1,8 +1,8 @@
-defmodule KafkaEx.New.Protocols.Kayrock.ResponseHelpersTest do
+defmodule KafkaEx.Protocol.Kayrock.ResponseHelpersTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.Kayrock.ResponseHelpers
-  alias KafkaEx.New.Client.Error, as: ErrorStruct
+  alias KafkaEx.Protocol.Kayrock.ResponseHelpers
+  alias KafkaEx.Client.Error, as: ErrorStruct
 
   describe "build_response/1" do
     test "returns ok tuple with list of offsets" do

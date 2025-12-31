@@ -5,10 +5,10 @@ defmodule KafkaEx.Integration.FetchKayrockTest do
 
   @moduletag :integration
 
-  alias KafkaEx.New.Client
+  alias KafkaEx.Client
   alias KafkaEx.API, as: API
-  alias KafkaEx.New.Kafka.Fetch
-  alias KafkaEx.New.Kafka.Fetch.Record
+  alias KafkaEx.Messages.Fetch
+  alias KafkaEx.Messages.Fetch.Record
 
   setup do
     {:ok, args} = KafkaEx.build_worker_options([])

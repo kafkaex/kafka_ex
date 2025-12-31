@@ -5,7 +5,7 @@ defmodule KafkaEx.APIIntegrationTest do
 
   @moduletag :integration
 
-  alias KafkaEx.New.Client
+  alias KafkaEx.Client
   alias KafkaEx.API, as: API
 
   setup do
@@ -308,7 +308,7 @@ defmodule KafkaEx.APIIntegrationTest do
       {:ok, result} = API.heartbeat(client, consumer_group, member_id, generation_id)
 
       # v1 returns Heartbeat struct with throttle_time_ms
-      assert %KafkaEx.New.Kafka.Heartbeat{throttle_time_ms: _} = result
+      assert %KafkaEx.Messages.Heartbeat{throttle_time_ms: _} = result
     end
 
     test "returns error for unknown member_id", %{client: client} do
@@ -368,7 +368,7 @@ defmodule KafkaEx.APIIntegrationTest do
       {:ok, result} = API.heartbeat(client, consumer_group, member_id, generation_id, api_version: 1)
 
       # v1 returns Heartbeat struct
-      assert %KafkaEx.New.Kafka.Heartbeat{throttle_time_ms: _} = result
+      assert %KafkaEx.Messages.Heartbeat{throttle_time_ms: _} = result
     end
 
     test "supports api_version option", %{client: client} do
@@ -385,7 +385,7 @@ defmodule KafkaEx.APIIntegrationTest do
 
       # v1
       {:ok, result_v1} = API.heartbeat(client, consumer_group, member_id, generation_id, api_version: 1)
-      assert %KafkaEx.New.Kafka.Heartbeat{} = result_v1
+      assert %KafkaEx.Messages.Heartbeat{} = result_v1
     end
 
     test "handles custom timeout option", %{client: client} do
@@ -400,7 +400,7 @@ defmodule KafkaEx.APIIntegrationTest do
       {:ok, result} = API.heartbeat(client, consumer_group, member_id, generation_id, timeout: 10_000)
 
       # v1 returns Heartbeat struct
-      assert %KafkaEx.New.Kafka.Heartbeat{throttle_time_ms: _} = result
+      assert %KafkaEx.Messages.Heartbeat{throttle_time_ms: _} = result
     end
   end
 
@@ -417,7 +417,7 @@ defmodule KafkaEx.APIIntegrationTest do
       {:ok, result} = API.leave_group(client, consumer_group, member_id)
 
       # v1 returns LeaveGroup struct with throttle_time_ms
-      assert %KafkaEx.New.Kafka.LeaveGroup{throttle_time_ms: _} = result
+      assert %KafkaEx.Messages.LeaveGroup{throttle_time_ms: _} = result
     end
 
     test "returns error for unknown member_id", %{client: client} do
@@ -519,7 +519,7 @@ defmodule KafkaEx.APIIntegrationTest do
       {:ok, result} = API.leave_group(client, consumer_group, member_id, api_version: 1)
 
       # v1 returns LeaveGroup struct
-      assert %KafkaEx.New.Kafka.LeaveGroup{throttle_time_ms: _} = result
+      assert %KafkaEx.Messages.LeaveGroup{throttle_time_ms: _} = result
     end
 
     test "supports api_version option", %{client: client} do
@@ -543,7 +543,7 @@ defmodule KafkaEx.APIIntegrationTest do
 
       # Leave with v1
       {:ok, result_v1} = API.leave_group(client, consumer_group_2, member_id_2, api_version: 1)
-      assert %KafkaEx.New.Kafka.LeaveGroup{} = result_v1
+      assert %KafkaEx.Messages.LeaveGroup{} = result_v1
     end
 
     test "handles custom timeout option", %{client: client} do
@@ -558,7 +558,7 @@ defmodule KafkaEx.APIIntegrationTest do
       {:ok, result} = API.leave_group(client, consumer_group, member_id, timeout: 10_000)
 
       # v1 returns LeaveGroup struct
-      assert %KafkaEx.New.Kafka.LeaveGroup{throttle_time_ms: _} = result
+      assert %KafkaEx.Messages.LeaveGroup{throttle_time_ms: _} = result
     end
   end
 
@@ -575,7 +575,7 @@ defmodule KafkaEx.APIIntegrationTest do
       {:ok, result} = API.sync_group(client, consumer_group, generation_id, member_id)
 
       # Should succeed and return SyncGroup struct
-      assert %KafkaEx.New.Kafka.SyncGroup{partition_assignments: _} = result
+      assert %KafkaEx.Messages.SyncGroup{partition_assignments: _} = result
     end
 
     test "returns error for unknown member_id", %{client: client} do
@@ -612,7 +612,7 @@ defmodule KafkaEx.APIIntegrationTest do
       # Sync with explicit empty assignments
       {:ok, result} = API.sync_group(client, consumer_group, generation_id, member_id, group_assignment: [])
 
-      assert %KafkaEx.New.Kafka.SyncGroup{} = result
+      assert %KafkaEx.Messages.SyncGroup{} = result
     end
 
     test "handles zero generation_id", %{client: client} do
@@ -641,7 +641,7 @@ defmodule KafkaEx.APIIntegrationTest do
       # Sync group
       {:ok, sync_result} = API.sync_group(client, consumer_group, generation_id, member_id)
 
-      assert %KafkaEx.New.Kafka.SyncGroup{} = sync_result
+      assert %KafkaEx.Messages.SyncGroup{} = sync_result
 
       # Verify group is stable after sync
       {:ok, group} = API.describe_group(client, consumer_group)
@@ -678,7 +678,7 @@ defmodule KafkaEx.APIIntegrationTest do
       {:ok, result} = API.sync_group(client, consumer_group, generation_id, member_id, api_version: 1)
 
       # v1 returns SyncGroup struct with throttle_time_ms
-      assert %KafkaEx.New.Kafka.SyncGroup{throttle_time_ms: throttle} = result
+      assert %KafkaEx.Messages.SyncGroup{throttle_time_ms: throttle} = result
       # v1 should include throttle_time_ms (may be 0 or greater)
       assert is_integer(throttle) or is_nil(throttle)
     end
@@ -693,7 +693,7 @@ defmodule KafkaEx.APIIntegrationTest do
 
       # v1 (default)
       {:ok, result_v1} = API.sync_group(client, consumer_group, generation_id_1, member_id_1, api_version: 1)
-      assert %KafkaEx.New.Kafka.SyncGroup{throttle_time_ms: _} = result_v1
+      assert %KafkaEx.Messages.SyncGroup{throttle_time_ms: _} = result_v1
 
       # Give time for first sync to complete
       Process.sleep(200)
@@ -703,7 +703,7 @@ defmodule KafkaEx.APIIntegrationTest do
 
       # v0
       {:ok, result_v0} = API.sync_group(client, consumer_group, generation_id_2, member_id_2, api_version: 0)
-      assert %KafkaEx.New.Kafka.SyncGroup{throttle_time_ms: nil} = result_v0
+      assert %KafkaEx.Messages.SyncGroup{throttle_time_ms: nil} = result_v0
     end
 
     test "handles custom timeout option", %{client: client} do
@@ -717,7 +717,7 @@ defmodule KafkaEx.APIIntegrationTest do
       # Sync with custom timeout
       {:ok, result} = API.sync_group(client, consumer_group, generation_id, member_id, timeout: 10_000)
 
-      assert %KafkaEx.New.Kafka.SyncGroup{} = result
+      assert %KafkaEx.Messages.SyncGroup{} = result
     end
 
     test "sync with explicit empty group_assignment", %{client: client} do
@@ -739,7 +739,7 @@ defmodule KafkaEx.APIIntegrationTest do
           api_version: 1
         )
 
-      assert %KafkaEx.New.Kafka.SyncGroup{throttle_time_ms: _} = result
+      assert %KafkaEx.Messages.SyncGroup{throttle_time_ms: _} = result
     end
 
     test "multiple sync_group calls with same generation_id", %{client: client} do
@@ -752,12 +752,12 @@ defmodule KafkaEx.APIIntegrationTest do
 
       # First sync
       {:ok, result1} = API.sync_group(client, consumer_group, generation_id, member_id)
-      assert %KafkaEx.New.Kafka.SyncGroup{} = result1
+      assert %KafkaEx.Messages.SyncGroup{} = result1
 
       # Second sync with same generation_id should succeed
       # (though in real usage, sync_group is typically called once per generation)
       {:ok, result2} = API.sync_group(client, consumer_group, generation_id, member_id)
-      assert %KafkaEx.New.Kafka.SyncGroup{} = result2
+      assert %KafkaEx.Messages.SyncGroup{} = result2
     end
 
     test "sync_group followed by heartbeat maintains group membership", %{client: client} do
@@ -936,7 +936,7 @@ defmodule KafkaEx.APIIntegrationTest do
         )
 
       # Use the helper function from the struct
-      alias KafkaEx.New.Kafka.JoinGroup
+      alias KafkaEx.Messages.JoinGroup
       assert JoinGroup.leader?(response) == true
     end
 
@@ -984,7 +984,7 @@ defmodule KafkaEx.APIIntegrationTest do
       generation_id = join_response.generation_id
 
       # Step 2: Sync (as leader, provide assignments)
-      alias KafkaEx.New.Kafka.JoinGroup
+      alias KafkaEx.Messages.JoinGroup
 
       if JoinGroup.leader?(join_response) do
         # Leader assigns partitions to members
@@ -1260,7 +1260,7 @@ defmodule KafkaEx.APIIntegrationTest do
     end
 
     test "essential Kafka APIs are present", %{client: client} do
-      alias KafkaEx.New.Kafka.ApiVersions
+      alias KafkaEx.Messages.ApiVersions
 
       {:ok, versions} = API.api_versions(client)
 
@@ -1311,7 +1311,7 @@ defmodule KafkaEx.APIIntegrationTest do
 
       {:ok, result} = API.find_coordinator(client, consumer_group)
 
-      assert %KafkaEx.New.Kafka.FindCoordinator{} = result
+      assert %KafkaEx.Messages.FindCoordinator{} = result
       assert result.error_code == :no_error
       assert result.coordinator != nil
       assert is_integer(result.coordinator.node_id)

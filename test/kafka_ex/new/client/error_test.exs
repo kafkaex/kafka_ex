@@ -1,7 +1,7 @@
-defmodule KafkaEx.New.Client.ErrorTest do
+defmodule KafkaEx.Client.ErrorTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Client.Error
+  alias KafkaEx.Client.Error
 
   describe "build/2 with integer error code" do
     test "builds error with no_error code (0)" do

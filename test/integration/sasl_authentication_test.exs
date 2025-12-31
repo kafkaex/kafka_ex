@@ -1,6 +1,8 @@
 defmodule KafkaEx.Integration.SaslAuthenticationTest do
   use ExUnit.Case
 
+  alias KafkaEx.API
+
   @moduletag :integration
 
   describe "SASL/PLAIN authentication" do
@@ -20,11 +22,10 @@ defmodule KafkaEx.Integration.SaslAuthenticationTest do
 
       {:ok, _pid} = KafkaEx.create_worker(:plain_worker, opts)
 
-      assert :ok =
-               KafkaEx.produce("test_topic", 0, "test_message", worker_name: :plain_worker)
+      {:ok, _} = API.produce_one(:plain_worker, "test_topic", 0, "test_message")
 
-      metadata = KafkaEx.metadata(worker_name: :plain_worker)
-      assert %KafkaEx.Protocol.Metadata.Response{} = metadata
+      {:ok, metadata} = API.metadata(:plain_worker)
+      assert %KafkaEx.Cluster.ClusterMetadata{} = metadata
     end
   end
 
@@ -49,11 +50,10 @@ defmodule KafkaEx.Integration.SaslAuthenticationTest do
 
         {:ok, _pid} = KafkaEx.create_worker(worker_name, opts)
 
-        assert :ok =
-                 KafkaEx.produce("test_topic", 0, "scram_test_message", worker_name: worker_name)
+        {:ok, _} = API.produce_one(worker_name, "test_topic", 0, "scram_test_message")
 
-        metadata = KafkaEx.metadata(worker_name: worker_name)
-        assert %KafkaEx.Protocol.Metadata.Response{} = metadata
+        {:ok, metadata} = API.metadata(worker_name)
+        assert %KafkaEx.Cluster.ClusterMetadata{} = metadata
       end
     end
   end

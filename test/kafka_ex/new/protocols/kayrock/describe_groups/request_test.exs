@@ -1,7 +1,7 @@
-defmodule KafkaEx.New.Protocols.Kayrock.DescribeGroups.RequestTest do
+defmodule KafkaEx.Protocol.Kayrock.DescribeGroups.RequestTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.Kayrock.DescribeGroups.Request,
+  alias KafkaEx.Protocol.Kayrock.DescribeGroups.Request,
     as: DescribeGroupsRequest
 
   alias Kayrock.DescribeGroups.V0

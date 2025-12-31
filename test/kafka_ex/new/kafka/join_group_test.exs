@@ -1,8 +1,8 @@
-defmodule KafkaEx.New.Kafka.JoinGroupTest do
+defmodule KafkaEx.Messages.JoinGroupTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Kafka.JoinGroup
-  alias KafkaEx.New.Kafka.JoinGroup.Member
+  alias KafkaEx.Messages.JoinGroup
+  alias KafkaEx.Messages.JoinGroup.Member
 
   describe "build/1" do
     test "builds join_group with all required fields" do

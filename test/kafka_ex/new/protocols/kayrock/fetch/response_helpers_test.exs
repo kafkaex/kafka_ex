@@ -1,8 +1,9 @@
-defmodule KafkaEx.New.Protocols.Kayrock.Fetch.ResponseHelpersTest do
+defmodule KafkaEx.Protocol.Kayrock.Fetch.ResponseHelpersTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.Kayrock.Fetch.ResponseHelpers
-  alias KafkaEx.New.Kafka.Fetch.Record
+  alias KafkaEx.Protocol.Kayrock.Fetch.ResponseHelpers
+  alias KafkaEx.Messages.Fetch.Record
+  alias KafkaEx.Messages.Header
 
   describe "extract_first_partition_response/1" do
     test "extracts first partition response" do
@@ -133,7 +134,7 @@ defmodule KafkaEx.New.Protocols.Kayrock.Fetch.ResponseHelpersTest do
       [rec1, rec2] = records
 
       assert rec1.offset == 0
-      assert rec1.headers == [{"h1", "v1"}]
+      assert rec1.headers == [%Header{key: "h1", value: "v1"}]
       assert rec1.topic == "test_topic"
       assert rec1.timestamp_type == :create_time
 
@@ -188,7 +189,7 @@ defmodule KafkaEx.New.Protocols.Kayrock.Fetch.ResponseHelpersTest do
       assert [] == ResponseHelpers.convert_headers([])
     end
 
-    test "converts RecordHeader list to tuples" do
+    test "converts RecordHeader list to Header structs" do
       headers = [
         %Kayrock.RecordBatch.RecordHeader{key: "header1", value: "value1"},
         %Kayrock.RecordBatch.RecordHeader{key: "header2", value: "value2"}
@@ -196,7 +197,10 @@ defmodule KafkaEx.New.Protocols.Kayrock.Fetch.ResponseHelpersTest do
 
       result = ResponseHelpers.convert_headers(headers)
 
-      assert [{"header1", "value1"}, {"header2", "value2"}] = result
+      assert [
+               %Header{key: "header1", value: "value1"},
+               %Header{key: "header2", value: "value2"}
+             ] = result
     end
   end
 

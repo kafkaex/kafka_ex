@@ -1,8 +1,8 @@
-defmodule KafkaEx.New.Protocols.Kayrock.Metadata.ResponseTest do
+defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.Kayrock.Metadata.Response, as: MetadataResponse
-  alias KafkaEx.New.Kafka.{Broker, ClusterMetadata, Topic}
+  alias KafkaEx.Protocol.Kayrock.Metadata.Response, as: MetadataResponse
+  alias KafkaEx.Cluster.{Broker, ClusterMetadata, Topic}
   alias Kayrock.Metadata.V0
   alias Kayrock.Metadata.V1
   alias Kayrock.Metadata.V2

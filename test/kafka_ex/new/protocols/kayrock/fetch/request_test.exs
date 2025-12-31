@@ -1,7 +1,7 @@
-defmodule KafkaEx.New.Protocols.Kayrock.Fetch.RequestTest do
+defmodule KafkaEx.Protocol.Kayrock.Fetch.RequestTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.Kayrock.Fetch.Request
+  alias KafkaEx.Protocol.Kayrock.Fetch.Request
 
   @base_opts [
     topic: "test-topic",

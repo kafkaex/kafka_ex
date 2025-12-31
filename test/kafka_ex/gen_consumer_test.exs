@@ -1,11 +1,11 @@
-defmodule KafkaEx.GenConsumerTest do
+defmodule KafkaEx.Consumer.GenConsumerTest do
   use ExUnit.Case
   import ExUnit.CaptureLog
 
   # non-integration GenConsumer tests
 
   defmodule TestConsumer do
-    use KafkaEx.GenConsumer
+    use KafkaEx.Consumer.GenConsumer
 
     def handle_message_set(_, state), do: state
   end

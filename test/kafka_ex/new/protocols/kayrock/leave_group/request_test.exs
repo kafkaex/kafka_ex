@@ -1,8 +1,8 @@
-defmodule KafkaEx.New.Protocols.Kayrock.LeaveGroup.RequestTest do
+defmodule KafkaEx.Protocol.Kayrock.LeaveGroup.RequestTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.Kayrock.LeaveGroup
-  alias KafkaEx.New.Protocols.Kayrock.LeaveGroup.RequestHelpers
+  alias KafkaEx.Protocol.Kayrock.LeaveGroup
+  alias KafkaEx.Protocol.Kayrock.LeaveGroup.RequestHelpers
 
   describe "RequestHelpers.extract_common_fields/1" do
     test "extracts all required fields from opts" do

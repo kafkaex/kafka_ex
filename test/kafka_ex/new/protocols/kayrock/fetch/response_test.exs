@@ -1,8 +1,9 @@
-defmodule KafkaEx.New.Protocols.Kayrock.Fetch.ResponseTest do
+defmodule KafkaEx.Protocol.Kayrock.Fetch.ResponseTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.Kayrock.Fetch.Response
-  alias KafkaEx.New.Kafka.Fetch
+  alias KafkaEx.Protocol.Kayrock.Fetch.Response
+  alias KafkaEx.Messages.Fetch
+  alias KafkaEx.Messages.Header
 
   # Helper to build a basic successful response structure
   defp build_response(topic, partition, error_code, high_watermark, messages, extra_fields \\ %{}) do
@@ -267,7 +268,11 @@ defmodule KafkaEx.New.Protocols.Kayrock.Fetch.ResponseTest do
       assert {:ok, fetch} = Response.parse_response(response)
 
       [record] = fetch.records
-      assert record.headers == [{"content-type", "text/plain"}, {"trace-id", "abc123"}]
+
+      assert record.headers == [
+               %Header{key: "content-type", value: "text/plain"},
+               %Header{key: "trace-id", value: "abc123"}
+             ]
     end
   end
 
@@ -369,7 +374,7 @@ defmodule KafkaEx.New.Protocols.Kayrock.Fetch.ResponseTest do
       [r1, r2] = fetch.records
       assert r1.key == "k1"
       assert r1.value == "v1"
-      assert r2.headers == [{"h", "v"}]
+      assert r2.headers == [%Header{key: "h", value: "v"}]
     end
   end
 

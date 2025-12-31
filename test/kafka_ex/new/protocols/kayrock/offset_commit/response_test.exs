@@ -1,9 +1,9 @@
-defmodule KafkaEx.New.Protocols.Kayrock.OffsetCommit.ResponseTest do
+defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.ResponseTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.Kayrock.OffsetCommit
-  alias KafkaEx.New.Kafka.Offset
-  alias KafkaEx.New.Kafka.Offset.PartitionOffset
+  alias KafkaEx.Protocol.Kayrock.OffsetCommit
+  alias KafkaEx.Messages.Offset
+  alias KafkaEx.Messages.Offset.PartitionOffset
 
   describe "V0 Response implementation" do
     test "parses successful commit response with single partition" do

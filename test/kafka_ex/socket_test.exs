@@ -1,4 +1,4 @@
-defmodule KafkaEx.Socket.Test do
+defmodule KafkaEx.Network.Socket.Test do
   use ExUnit.Case, async: false
   import KafkaEx.TestHelpers
 
@@ -15,7 +15,7 @@ defmodule KafkaEx.Socket.Test do
 
     test "create a non SSL socket", context do
       {:ok, socket} =
-        KafkaEx.Socket.create(
+        KafkaEx.Network.Socket.create(
           ~c"localhost",
           context[:port],
           [:binary, {:packet, 0}],
@@ -23,36 +23,36 @@ defmodule KafkaEx.Socket.Test do
         )
 
       assert socket.ssl == false
-      KafkaEx.Socket.close(socket)
+      KafkaEx.Network.Socket.close(socket)
     end
 
     test "send and receive using a non SSL socket", context do
       {:ok, socket} =
-        KafkaEx.Socket.create(
+        KafkaEx.Network.Socket.create(
           ~c"localhost",
           context[:port],
           [:binary, {:packet, 0}, {:active, false}],
           false
         )
 
-      KafkaEx.Socket.send(socket, ~c"ping")
-      assert {:ok, "ping"} == KafkaEx.Socket.recv(socket, 0)
-      KafkaEx.Socket.close(socket)
+      KafkaEx.Network.Socket.send(socket, ~c"ping")
+      assert {:ok, "ping"} == KafkaEx.Network.Socket.recv(socket, 0)
+      KafkaEx.Network.Socket.close(socket)
     end
 
     test "retrieve info from a non SSL socket", context do
       {:ok, socket} =
-        KafkaEx.Socket.create(
+        KafkaEx.Network.Socket.create(
           ~c"localhost",
           context[:port],
           [:binary, {:packet, 0}, {:active, false}],
           false
         )
 
-      info = KafkaEx.Socket.info(socket)
+      info = KafkaEx.Network.Socket.info(socket)
       assert info[:name] == ~c"tcp_inet"
-      KafkaEx.Socket.close(socket)
-      assert {:error, :closed} == KafkaEx.Socket.send(socket, ~c"ping")
+      KafkaEx.Network.Socket.close(socket)
+      assert {:error, :closed} == KafkaEx.Network.Socket.send(socket, ~c"ping")
     end
   end
 
@@ -75,29 +75,29 @@ defmodule KafkaEx.Socket.Test do
 
     test "create a SSL socket", context do
       {:ok, socket} =
-        KafkaEx.Socket.create(~c"localhost", context[:ssl_port], context[:ssl_opts], true)
+        KafkaEx.Network.Socket.create(~c"localhost", context[:ssl_port], context[:ssl_opts], true)
 
       assert socket.ssl == true
-      KafkaEx.Socket.close(socket)
+      KafkaEx.Network.Socket.close(socket)
     end
 
     test "send and receive using a SSL socket", context do
       {:ok, socket} =
-        KafkaEx.Socket.create(~c"localhost", context[:ssl_port], context[:ssl_opts], true)
+        KafkaEx.Network.Socket.create(~c"localhost", context[:ssl_port], context[:ssl_opts], true)
 
-      KafkaEx.Socket.send(socket, ~c"ping")
-      assert {:ok, "ping"} == KafkaEx.Socket.recv(socket, 0)
-      KafkaEx.Socket.close(socket)
+      KafkaEx.Network.Socket.send(socket, ~c"ping")
+      assert {:ok, "ping"} == KafkaEx.Network.Socket.recv(socket, 0)
+      KafkaEx.Network.Socket.close(socket)
     end
 
     test "retrieve info from a SSL socket", context do
       {:ok, socket} =
-        KafkaEx.Socket.create(~c"localhost", context[:ssl_port], context[:ssl_opts], true)
+        KafkaEx.Network.Socket.create(~c"localhost", context[:ssl_port], context[:ssl_opts], true)
 
-      info = KafkaEx.Socket.info(socket)
+      info = KafkaEx.Network.Socket.info(socket)
       assert info[:name] == ~c"tcp_inet"
-      KafkaEx.Socket.close(socket)
-      assert {:error, :closed} == KafkaEx.Socket.send(socket, ~c"ping")
+      KafkaEx.Network.Socket.close(socket)
+      assert {:error, :closed} == KafkaEx.Network.Socket.send(socket, ~c"ping")
     end
   end
 end

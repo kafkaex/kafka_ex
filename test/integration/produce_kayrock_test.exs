@@ -5,9 +5,9 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
 
   @moduletag :integration
 
-  alias KafkaEx.New.Client
-  alias KafkaEx.New.KafkaExAPI, as: API
-  alias KafkaEx.New.Kafka.RecordMetadata
+  alias KafkaEx.Client
+  alias KafkaEx.API, as: API
+  alias KafkaEx.Messages.RecordMetadata
 
   setup do
     {:ok, args} = KafkaEx.build_worker_options([])
@@ -463,20 +463,13 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
       {:ok, produce_result} = API.produce(client, topic_name, 0, [%{value: "round trip test"}])
       offset = produce_result.base_offset
 
-      # Fetch the message using legacy API
-      fetch_response =
-        KafkaEx.fetch(
-          topic_name,
-          0,
-          offset: offset,
-          worker_name: client
-        )
+      # Fetch the message using new API
+      {:ok, fetch_result} = API.fetch(client, topic_name, 0, offset)
 
       # Verify message was fetched
-      assert [%{partitions: [%{message_set: messages}]}] = fetch_response
-      assert length(messages) >= 1
-      [message | _] = messages
-      assert message.value == "round trip test"
+      assert length(fetch_result.records) >= 1
+      [record | _] = fetch_result.records
+      assert record.value == "round trip test"
     end
 
     test "produced messages with key can be fetched with key", %{client: client} do
@@ -490,18 +483,11 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
       offset = produce_result.base_offset
 
       # Fetch the message
-      fetch_response =
-        KafkaEx.fetch(
-          topic_name,
-          0,
-          offset: offset,
-          worker_name: client
-        )
+      {:ok, fetch_result} = API.fetch(client, topic_name, 0, offset)
 
-      assert [%{partitions: [%{message_set: messages}]}] = fetch_response
-      [message | _] = messages
-      assert message.value == "keyed message"
-      assert message.key == "my-key"
+      [record | _] = fetch_result.records
+      assert record.value == "keyed message"
+      assert record.key == "my-key"
     end
 
     test "multiple produced messages can be fetched in order", %{client: client} do
@@ -514,18 +500,11 @@ defmodule KafkaEx.Integration.ProduceKayrockTest do
       {:ok, _result3} = API.produce(client, topic_name, 0, [%{value: "third"}])
 
       # Fetch all messages
-      fetch_response =
-        KafkaEx.fetch(
-          topic_name,
-          0,
-          offset: result1.base_offset,
-          worker_name: client
-        )
+      {:ok, fetch_result} = API.fetch(client, topic_name, 0, result1.base_offset)
 
-      assert [%{partitions: [%{message_set: messages}]}] = fetch_response
-      assert length(messages) >= 3
+      assert length(fetch_result.records) >= 3
 
-      values = Enum.map(messages, & &1.value)
+      values = Enum.map(fetch_result.records, & &1.value)
       assert "first" in values
       assert "second" in values
       assert "third" in values

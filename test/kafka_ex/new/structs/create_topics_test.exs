@@ -1,8 +1,8 @@
-defmodule KafkaEx.New.Kafka.CreateTopicsTest do
+defmodule KafkaEx.Messages.CreateTopicsTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Kafka.CreateTopics
-  alias KafkaEx.New.Kafka.CreateTopics.TopicResult
+  alias KafkaEx.Messages.CreateTopics
+  alias KafkaEx.Messages.CreateTopics.TopicResult
 
   describe "CreateTopics struct" do
     test "build/1 creates struct with defaults" do

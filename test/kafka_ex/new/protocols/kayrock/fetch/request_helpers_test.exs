@@ -1,7 +1,7 @@
-defmodule KafkaEx.New.Protocols.Kayrock.Fetch.RequestHelpersTest do
+defmodule KafkaEx.Protocol.Kayrock.Fetch.RequestHelpersTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.Kayrock.Fetch.RequestHelpers
+  alias KafkaEx.Protocol.Kayrock.Fetch.RequestHelpers
 
   describe "extract_common_fields/1" do
     test "extracts required fields" do

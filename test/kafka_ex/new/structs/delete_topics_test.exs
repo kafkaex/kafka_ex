@@ -1,8 +1,8 @@
-defmodule KafkaEx.New.Kafka.DeleteTopicsTest do
+defmodule KafkaEx.Messages.DeleteTopicsTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Kafka.DeleteTopics
-  alias KafkaEx.New.Kafka.DeleteTopics.TopicResult
+  alias KafkaEx.Messages.DeleteTopics
+  alias KafkaEx.Messages.DeleteTopics.TopicResult
 
   describe "DeleteTopics struct" do
     test "build/1 creates struct with defaults" do

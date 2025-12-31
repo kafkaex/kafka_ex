@@ -1,11 +1,11 @@
-defmodule KafkaEx.New.Client.RequestBuilderTest do
+defmodule KafkaEx.Client.RequestBuilderTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Client.RequestBuilder
+  alias KafkaEx.Client.RequestBuilder
 
   describe "describe_groups_request/2" do
     test "returns request for DescribeGroups API" do
-      state = %KafkaEx.New.Client.State{api_versions: %{15 => {0, 1}}}
+      state = %KafkaEx.Client.State{api_versions: %{15 => {0, 1}}}
       group_names = ["group1", "group2"]
 
       expected_request = %Kayrock.DescribeGroups.V1.Request{group_ids: group_names}
@@ -16,7 +16,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns request with custom API version" do
-      state = %KafkaEx.New.Client.State{api_versions: %{15 => {0, 1}}}
+      state = %KafkaEx.Client.State{api_versions: %{15 => {0, 1}}}
       group_names = ["group1", "group2"]
 
       expected_request = %Kayrock.DescribeGroups.V0.Request{group_ids: group_names}
@@ -27,7 +27,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns error when api version is not supported" do
-      state = %KafkaEx.New.Client.State{api_versions: %{15 => {0, 1}}}
+      state = %KafkaEx.Client.State{api_versions: %{15 => {0, 1}}}
       group_names = ["group1", "group2"]
 
       {:error, error_value} = RequestBuilder.describe_groups_request([group_names: group_names, api_version: 3], state)
@@ -38,7 +38,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
 
   describe "lists_offset_request/2" do
     test "returns request for ListOffsets API" do
-      state = %KafkaEx.New.Client.State{api_versions: %{2 => {0, 2}}}
+      state = %KafkaEx.Client.State{api_versions: %{2 => {0, 2}}}
       topic_data = [{"test-topic", [%{partition_num: 1, timestamp: :latest}]}]
 
       {:ok, request} = RequestBuilder.lists_offset_request([topics: topic_data], state)
@@ -52,7 +52,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns request with custom API version" do
-      state = %KafkaEx.New.Client.State{api_versions: %{2 => {0, 2}}}
+      state = %KafkaEx.Client.State{api_versions: %{2 => {0, 2}}}
       topic_data = [{"test-topic", [%{partition_num: 1, timestamp: :latest}]}]
 
       {:ok, request} = RequestBuilder.lists_offset_request([topics: topic_data, api_version: 2], state)
@@ -67,7 +67,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns error when api version is not supported" do
-      state = %KafkaEx.New.Client.State{api_versions: %{2 => {0, 2}}}
+      state = %KafkaEx.Client.State{api_versions: %{2 => {0, 2}}}
       topic_data = [{"test-topic", [%{partition_num: 1, timestamp: :latest}]}]
 
       {:error, error_value} = RequestBuilder.lists_offset_request([topics: topic_data, api_version: 3], state)
@@ -78,7 +78,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
 
   describe "offset_fetch_request/2" do
     test "returns request for OffsetFetch API with default version" do
-      state = %KafkaEx.New.Client.State{api_versions: %{9 => {0, 3}}}
+      state = %KafkaEx.Client.State{api_versions: %{9 => {0, 3}}}
       group_id = "test-group"
       topics = [{"test-topic", [%{partition_num: 0}]}]
 
@@ -95,7 +95,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns request with custom API version" do
-      state = %KafkaEx.New.Client.State{api_versions: %{9 => {0, 3}}}
+      state = %KafkaEx.Client.State{api_versions: %{9 => {0, 3}}}
       group_id = "consumer-group"
       topics = [{"my-topic", [%{partition_num: 1}, %{partition_num: 2}]}]
 
@@ -112,7 +112,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns error when api version is not supported" do
-      state = %KafkaEx.New.Client.State{api_versions: %{9 => {0, 2}}}
+      state = %KafkaEx.Client.State{api_versions: %{9 => {0, 2}}}
       group_id = "test-group"
       topics = [{"test-topic", [%{partition_num: 0}]}]
 
@@ -125,7 +125,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
 
   describe "offset_commit_request/2" do
     test "returns request for OffsetCommit API v1 (default)" do
-      state = %KafkaEx.New.Client.State{api_versions: %{8 => {0, 3}}}
+      state = %KafkaEx.Client.State{api_versions: %{8 => {0, 3}}}
       group_id = "test-group"
       topics = [{"test-topic", [%{partition_num: 0, offset: 100}]}]
 
@@ -144,7 +144,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns request with v1 (generation_id and member_id)" do
-      state = %KafkaEx.New.Client.State{api_versions: %{8 => {0, 3}}}
+      state = %KafkaEx.Client.State{api_versions: %{8 => {0, 3}}}
       group_id = "consumer-group"
       topics = [{"my-topic", [%{partition_num: 1, offset: 200}]}]
 
@@ -173,7 +173,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns request with v2 and custom retention_time" do
-      state = %KafkaEx.New.Client.State{api_versions: %{8 => {0, 3}}}
+      state = %KafkaEx.Client.State{api_versions: %{8 => {0, 3}}}
       group_id = "retention-group"
       topics = [{"topic-a", [%{partition_num: 0, offset: 300}]}]
 
@@ -204,7 +204,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns request with v0 (no generation_id or member_id)" do
-      state = %KafkaEx.New.Client.State{api_versions: %{8 => {0, 3}}}
+      state = %KafkaEx.Client.State{api_versions: %{8 => {0, 3}}}
       group_id = "legacy-group"
       topics = [{"legacy-topic", [%{partition_num: 0, offset: 50}]}]
 
@@ -229,7 +229,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns error when api version is not supported" do
-      state = %KafkaEx.New.Client.State{api_versions: %{8 => {0, 2}}}
+      state = %KafkaEx.Client.State{api_versions: %{8 => {0, 2}}}
       group_id = "test-group"
       topics = [{"test-topic", [%{partition_num: 0, offset: 100}]}]
 
@@ -242,7 +242,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
 
   describe "heartbeat_request/2" do
     test "returns request for Heartbeat API v1 (default)" do
-      state = %KafkaEx.New.Client.State{api_versions: %{12 => {0, 1}}}
+      state = %KafkaEx.Client.State{api_versions: %{12 => {0, 1}}}
       group_id = "test-group"
       member_id = "consumer-123"
       generation_id = 5
@@ -265,7 +265,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns request for Heartbeat API v0 when explicitly requested" do
-      state = %KafkaEx.New.Client.State{api_versions: %{12 => {0, 1}}}
+      state = %KafkaEx.Client.State{api_versions: %{12 => {0, 1}}}
       group_id = "test-group"
       member_id = "consumer-123"
       generation_id = 5
@@ -288,7 +288,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns request for Heartbeat API v1" do
-      state = %KafkaEx.New.Client.State{api_versions: %{12 => {0, 1}}}
+      state = %KafkaEx.Client.State{api_versions: %{12 => {0, 1}}}
       group_id = "consumer-group"
       member_id = "member-abc"
       generation_id = 10
@@ -316,7 +316,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "handles generation_id 0" do
-      state = %KafkaEx.New.Client.State{api_versions: %{12 => {0, 1}}}
+      state = %KafkaEx.Client.State{api_versions: %{12 => {0, 1}}}
 
       {:ok, request} =
         RequestBuilder.heartbeat_request(
@@ -332,7 +332,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "handles empty member_id" do
-      state = %KafkaEx.New.Client.State{api_versions: %{12 => {0, 1}}}
+      state = %KafkaEx.Client.State{api_versions: %{12 => {0, 1}}}
 
       {:ok, request} =
         RequestBuilder.heartbeat_request(
@@ -348,7 +348,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns error when api version is not supported" do
-      state = %KafkaEx.New.Client.State{api_versions: %{12 => {0, 1}}}
+      state = %KafkaEx.Client.State{api_versions: %{12 => {0, 1}}}
 
       {:error, error_value} =
         RequestBuilder.heartbeat_request(
@@ -365,7 +365,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "uses correct default api version when not specified" do
-      state = %KafkaEx.New.Client.State{api_versions: %{12 => {0, 1}}}
+      state = %KafkaEx.Client.State{api_versions: %{12 => {0, 1}}}
 
       {:ok, request} =
         RequestBuilder.heartbeat_request(
@@ -382,7 +382,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "can explicitly request v0 when needed" do
-      state = %KafkaEx.New.Client.State{api_versions: %{12 => {0, 1}}}
+      state = %KafkaEx.Client.State{api_versions: %{12 => {0, 1}}}
 
       {:ok, request} =
         RequestBuilder.heartbeat_request(
@@ -401,7 +401,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
 
   describe "leave_group_request/2" do
     test "returns request for LeaveGroup API v1 (default)" do
-      state = %KafkaEx.New.Client.State{api_versions: %{13 => {0, 2}}}
+      state = %KafkaEx.Client.State{api_versions: %{13 => {0, 2}}}
       group_id = "test-group"
       member_id = "consumer-123"
 
@@ -422,7 +422,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns request for LeaveGroup API v0 when explicitly requested" do
-      state = %KafkaEx.New.Client.State{api_versions: %{13 => {0, 2}}}
+      state = %KafkaEx.Client.State{api_versions: %{13 => {0, 2}}}
       group_id = "test-group"
       member_id = "consumer-123"
 
@@ -443,7 +443,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns request for LeaveGroup API v1" do
-      state = %KafkaEx.New.Client.State{api_versions: %{13 => {0, 2}}}
+      state = %KafkaEx.Client.State{api_versions: %{13 => {0, 2}}}
       group_id = "consumer-group"
       member_id = "member-abc"
 
@@ -468,7 +468,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "handles empty member_id" do
-      state = %KafkaEx.New.Client.State{api_versions: %{13 => {0, 2}}}
+      state = %KafkaEx.Client.State{api_versions: %{13 => {0, 2}}}
 
       {:ok, request} =
         RequestBuilder.leave_group_request(
@@ -483,7 +483,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "handles unicode characters in group_id and member_id" do
-      state = %KafkaEx.New.Client.State{api_versions: %{13 => {0, 2}}}
+      state = %KafkaEx.Client.State{api_versions: %{13 => {0, 2}}}
 
       {:ok, request} =
         RequestBuilder.leave_group_request(
@@ -499,7 +499,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns error when api version is not supported" do
-      state = %KafkaEx.New.Client.State{api_versions: %{13 => {0, 1}}}
+      state = %KafkaEx.Client.State{api_versions: %{13 => {0, 1}}}
 
       {:error, error_value} =
         RequestBuilder.leave_group_request(
@@ -515,7 +515,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "uses correct default api version when not specified" do
-      state = %KafkaEx.New.Client.State{api_versions: %{13 => {0, 2}}}
+      state = %KafkaEx.Client.State{api_versions: %{13 => {0, 2}}}
 
       {:ok, request} =
         RequestBuilder.leave_group_request(
@@ -531,7 +531,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "can explicitly request v0 when needed" do
-      state = %KafkaEx.New.Client.State{api_versions: %{13 => {0, 2}}}
+      state = %KafkaEx.Client.State{api_versions: %{13 => {0, 2}}}
 
       {:ok, request} =
         RequestBuilder.leave_group_request(
@@ -549,7 +549,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
 
   describe "join_group_request/2" do
     test "returns request for JoinGroup API v1 (default)" do
-      state = %KafkaEx.New.Client.State{api_versions: %{11 => {0, 2}}}
+      state = %KafkaEx.Client.State{api_versions: %{11 => {0, 2}}}
       group_id = "test-group"
       member_id = ""
       session_timeout = 30_000
@@ -586,7 +586,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns request for JoinGroup API v0 when explicitly requested" do
-      state = %KafkaEx.New.Client.State{api_versions: %{11 => {0, 2}}}
+      state = %KafkaEx.Client.State{api_versions: %{11 => {0, 2}}}
       group_id = "legacy-group"
       member_id = "member-123"
       session_timeout = 10_000
@@ -623,7 +623,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns request for JoinGroup API v2" do
-      state = %KafkaEx.New.Client.State{api_versions: %{11 => {0, 2}}}
+      state = %KafkaEx.Client.State{api_versions: %{11 => {0, 2}}}
 
       group_protocols = [
         %{protocol_name: "assign", protocol_metadata: <<>>}
@@ -657,7 +657,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "uses custom protocol_type when provided" do
-      state = %KafkaEx.New.Client.State{api_versions: %{11 => {0, 2}}}
+      state = %KafkaEx.Client.State{api_versions: %{11 => {0, 2}}}
 
       {:ok, request} =
         RequestBuilder.join_group_request(
@@ -676,7 +676,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "defaults to consumer protocol_type" do
-      state = %KafkaEx.New.Client.State{api_versions: %{11 => {0, 2}}}
+      state = %KafkaEx.Client.State{api_versions: %{11 => {0, 2}}}
 
       {:ok, request} =
         RequestBuilder.join_group_request(
@@ -694,7 +694,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "handles multiple group protocols" do
-      state = %KafkaEx.New.Client.State{api_versions: %{11 => {0, 2}}}
+      state = %KafkaEx.Client.State{api_versions: %{11 => {0, 2}}}
 
       group_protocols = [
         %{protocol_name: "roundrobin", protocol_metadata: <<1>>},
@@ -719,7 +719,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns error when requested API version not supported" do
-      state = %KafkaEx.New.Client.State{api_versions: %{11 => {0, 1}}}
+      state = %KafkaEx.Client.State{api_versions: %{11 => {0, 1}}}
 
       result =
         RequestBuilder.join_group_request(
@@ -740,7 +740,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
 
   describe "sync_group_request/2" do
     test "returns request for SyncGroup API v1 (default)" do
-      state = %KafkaEx.New.Client.State{api_versions: %{14 => {0, 1}}}
+      state = %KafkaEx.Client.State{api_versions: %{14 => {0, 1}}}
       group_id = "test-group"
       member_id = "consumer-123"
       generation_id = 5
@@ -768,7 +768,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns request for SyncGroup API v0 when explicitly requested" do
-      state = %KafkaEx.New.Client.State{api_versions: %{14 => {0, 1}}}
+      state = %KafkaEx.Client.State{api_versions: %{14 => {0, 1}}}
       group_id = "legacy-group"
       member_id = "member-abc"
       generation_id = 10
@@ -797,7 +797,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns request with group_assignment for leader" do
-      state = %KafkaEx.New.Client.State{api_versions: %{14 => {0, 1}}}
+      state = %KafkaEx.Client.State{api_versions: %{14 => {0, 1}}}
 
       assignments = [
         %{member_id: "member-1", member_assignment: <<1, 2, 3>>},
@@ -819,7 +819,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "handles generation_id 0" do
-      state = %KafkaEx.New.Client.State{api_versions: %{14 => {0, 1}}}
+      state = %KafkaEx.Client.State{api_versions: %{14 => {0, 1}}}
 
       {:ok, request} =
         RequestBuilder.sync_group_request(
@@ -835,7 +835,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "handles empty member_id" do
-      state = %KafkaEx.New.Client.State{api_versions: %{14 => {0, 1}}}
+      state = %KafkaEx.Client.State{api_versions: %{14 => {0, 1}}}
 
       {:ok, request} =
         RequestBuilder.sync_group_request(
@@ -851,7 +851,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "handles unicode characters in group_id and member_id" do
-      state = %KafkaEx.New.Client.State{api_versions: %{14 => {0, 1}}}
+      state = %KafkaEx.Client.State{api_versions: %{14 => {0, 1}}}
 
       {:ok, request} =
         RequestBuilder.sync_group_request(
@@ -868,7 +868,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns error when api version is not supported" do
-      state = %KafkaEx.New.Client.State{api_versions: %{14 => {0, 1}}}
+      state = %KafkaEx.Client.State{api_versions: %{14 => {0, 1}}}
 
       {:error, error_value} =
         RequestBuilder.sync_group_request(
@@ -885,7 +885,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "uses correct default api version when not specified" do
-      state = %KafkaEx.New.Client.State{api_versions: %{14 => {0, 1}}}
+      state = %KafkaEx.Client.State{api_versions: %{14 => {0, 1}}}
 
       {:ok, request} =
         RequestBuilder.sync_group_request(
@@ -904,7 +904,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
 
   describe "produce_request/2" do
     test "returns request for Produce API v3 (default)" do
-      state = %KafkaEx.New.Client.State{api_versions: %{0 => {0, 3}}}
+      state = %KafkaEx.Client.State{api_versions: %{0 => {0, 3}}}
       messages = [%{value: "hello", key: "key1"}]
       {:ok, request} = RequestBuilder.produce_request([topic: "test-topic", partition: 0, messages: messages], state)
 
@@ -916,7 +916,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns request for Produce API v0 when explicitly requested" do
-      state = %KafkaEx.New.Client.State{api_versions: %{0 => {0, 3}}}
+      state = %KafkaEx.Client.State{api_versions: %{0 => {0, 3}}}
       messages = [%{value: "hello"}]
 
       {:ok, request} =
@@ -927,7 +927,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns request with custom acks and timeout" do
-      state = %KafkaEx.New.Client.State{api_versions: %{0 => {0, 3}}}
+      state = %KafkaEx.Client.State{api_versions: %{0 => {0, 3}}}
       messages = [%{value: "data"}]
 
       {:ok, request} =
@@ -941,7 +941,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns request with compression" do
-      state = %KafkaEx.New.Client.State{api_versions: %{0 => {0, 3}}}
+      state = %KafkaEx.Client.State{api_versions: %{0 => {0, 3}}}
       messages = [%{value: "data"}]
 
       {:ok, request} =
@@ -956,7 +956,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns request with transactional_id for V3" do
-      state = %KafkaEx.New.Client.State{api_versions: %{0 => {0, 3}}}
+      state = %KafkaEx.Client.State{api_versions: %{0 => {0, 3}}}
       messages = [%{value: "tx-data"}]
 
       {:ok, request} =
@@ -969,7 +969,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "uses MessageSet for V0-V2" do
-      state = %KafkaEx.New.Client.State{api_versions: %{0 => {0, 3}}}
+      state = %KafkaEx.Client.State{api_versions: %{0 => {0, 3}}}
       messages = [%{value: "hello", key: "k1"}]
 
       {:ok, request} =
@@ -981,7 +981,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "uses RecordBatch for V3+" do
-      state = %KafkaEx.New.Client.State{api_versions: %{0 => {0, 3}}}
+      state = %KafkaEx.Client.State{api_versions: %{0 => {0, 3}}}
       messages = [%{value: "hello", key: "k1"}]
 
       {:ok, request} =
@@ -993,7 +993,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns error when api version is not supported" do
-      state = %KafkaEx.New.Client.State{api_versions: %{0 => {0, 2}}}
+      state = %KafkaEx.Client.State{api_versions: %{0 => {0, 2}}}
       messages = [%{value: "data"}]
 
       {:error, error_value} =
@@ -1003,7 +1003,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "handles multiple messages" do
-      state = %KafkaEx.New.Client.State{api_versions: %{0 => {0, 3}}}
+      state = %KafkaEx.Client.State{api_versions: %{0 => {0, 3}}}
 
       messages = [
         %{value: "msg1", key: "k1"},
@@ -1026,7 +1026,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "handles messages with headers (V3+)" do
-      state = %KafkaEx.New.Client.State{api_versions: %{0 => {0, 3}}}
+      state = %KafkaEx.Client.State{api_versions: %{0 => {0, 3}}}
 
       messages = [
         %{
@@ -1054,7 +1054,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
 
   describe "fetch_request/2" do
     test "builds a basic fetch request" do
-      state = %KafkaEx.New.Client.State{api_versions: %{1 => {0, 7}}}
+      state = %KafkaEx.Client.State{api_versions: %{1 => {0, 7}}}
 
       opts = [
         topic: "test_topic",
@@ -1073,7 +1073,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "builds V0 fetch request" do
-      state = %KafkaEx.New.Client.State{api_versions: %{1 => {0, 7}}}
+      state = %KafkaEx.Client.State{api_versions: %{1 => {0, 7}}}
 
       opts = [
         topic: "test_topic",
@@ -1087,7 +1087,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "builds V4 fetch request with isolation_level" do
-      state = %KafkaEx.New.Client.State{api_versions: %{1 => {0, 7}}}
+      state = %KafkaEx.Client.State{api_versions: %{1 => {0, 7}}}
 
       opts = [
         topic: "test_topic",
@@ -1103,7 +1103,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "builds V5 fetch request with log_start_offset" do
-      state = %KafkaEx.New.Client.State{api_versions: %{1 => {0, 7}}}
+      state = %KafkaEx.Client.State{api_versions: %{1 => {0, 7}}}
 
       opts = [
         topic: "test_topic",
@@ -1121,7 +1121,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "builds V7 fetch request with session fields" do
-      state = %KafkaEx.New.Client.State{api_versions: %{1 => {0, 7}}}
+      state = %KafkaEx.Client.State{api_versions: %{1 => {0, 7}}}
 
       opts = [
         topic: "test_topic",
@@ -1139,7 +1139,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "returns error when api version not supported" do
-      state = %KafkaEx.New.Client.State{api_versions: %{}}
+      state = %KafkaEx.Client.State{api_versions: %{}}
 
       opts = [
         topic: "test_topic",
@@ -1152,7 +1152,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "uses default options when not specified" do
-      state = %KafkaEx.New.Client.State{api_versions: %{1 => {0, 7}}}
+      state = %KafkaEx.Client.State{api_versions: %{1 => {0, 7}}}
 
       opts = [
         topic: "test_topic",
@@ -1169,7 +1169,7 @@ defmodule KafkaEx.New.Client.RequestBuilderTest do
     end
 
     test "allows custom max_bytes, max_wait_time, and min_bytes" do
-      state = %KafkaEx.New.Client.State{api_versions: %{1 => {0, 7}}}
+      state = %KafkaEx.Client.State{api_versions: %{1 => {0, 7}}}
 
       opts = [
         topic: "test_topic",

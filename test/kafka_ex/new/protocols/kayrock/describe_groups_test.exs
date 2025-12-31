@@ -1,7 +1,7 @@
-defmodule KafkaEx.New.Protocols.Kayrock.DescribeGroupsTest do
+defmodule KafkaEx.Protocol.Kayrock.DescribeGroupsTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.Kayrock.DescribeGroups, as: KayrockDescribeGroups
+  alias KafkaEx.Protocol.Kayrock.DescribeGroups, as: KayrockDescribeGroups
 
   alias Kayrock.DescribeGroups.V0
 
@@ -48,22 +48,22 @@ defmodule KafkaEx.New.Protocols.Kayrock.DescribeGroupsTest do
 
       assert {:ok,
               [
-                %KafkaEx.New.Kafka.ConsumerGroupDescription{
+                %KafkaEx.Messages.ConsumerGroupDescription{
                   group_id: "succeeded",
                   state: "stable",
                   protocol_type: "protocol_type",
                   protocol: "protocol",
                   members: [
-                    %KafkaEx.New.Kafka.ConsumerGroupDescription.Member{
+                    %KafkaEx.Messages.ConsumerGroupDescription.Member{
                       member_id: "member_id",
                       client_id: "client_id",
                       client_host: "client_host",
                       member_metadata: "member_metadata",
-                      member_assignment: %KafkaEx.New.Kafka.ConsumerGroupDescription.Member.MemberAssignment{
+                      member_assignment: %KafkaEx.Messages.ConsumerGroupDescription.Member.MemberAssignment{
                         version: 0,
                         user_data: "user_data",
                         partition_assignments: [
-                          %KafkaEx.New.Kafka.ConsumerGroupDescription.Member.MemberAssignment.PartitionAssignment{
+                          %KafkaEx.Messages.ConsumerGroupDescription.Member.MemberAssignment.PartitionAssignment{
                             topic: "test-topic",
                             partitions: [1, 2, 3]
                           }

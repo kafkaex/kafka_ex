@@ -1,7 +1,7 @@
-defmodule KafkaEx.New.Kafka.RecordMetadataTest do
+defmodule KafkaEx.Messages.RecordMetadataTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Kafka.RecordMetadata
+  alias KafkaEx.Messages.RecordMetadata
 
   describe "build/1" do
     test "builds record metadata with required fields" do

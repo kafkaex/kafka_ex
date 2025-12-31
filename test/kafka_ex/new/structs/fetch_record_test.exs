@@ -1,7 +1,8 @@
-defmodule KafkaEx.New.Kafka.Fetch.RecordTest do
+defmodule KafkaEx.Messages.Fetch.RecordTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Kafka.Fetch.Record
+  alias KafkaEx.Messages.Fetch.Record
+  alias KafkaEx.Messages.Header
 
   describe "Record.build/1" do
     test "builds a record with required fields" do
@@ -12,6 +13,8 @@ defmodule KafkaEx.New.Kafka.Fetch.RecordTest do
     end
 
     test "builds a record with all optional fields" do
+      headers = [Header.new("h1", "v1"), Header.new("h2", "v2")]
+
       record =
         Record.build(
           offset: 100,
@@ -19,7 +22,7 @@ defmodule KafkaEx.New.Kafka.Fetch.RecordTest do
           value: "my_value",
           timestamp: 1_234_567_890,
           timestamp_type: :create_time,
-          headers: [{"h1", "v1"}, {"h2", "v2"}],
+          headers: headers,
           serialized_key_size: 6,
           serialized_value_size: 8,
           leader_epoch: 5,
@@ -34,7 +37,7 @@ defmodule KafkaEx.New.Kafka.Fetch.RecordTest do
       assert record.value == "my_value"
       assert record.timestamp == 1_234_567_890
       assert record.timestamp_type == :create_time
-      assert record.headers == [{"h1", "v1"}, {"h2", "v2"}]
+      assert record.headers == headers
       assert record.serialized_key_size == 6
       assert record.serialized_value_size == 8
       assert record.leader_epoch == 5
@@ -98,7 +101,7 @@ defmodule KafkaEx.New.Kafka.Fetch.RecordTest do
 
   describe "Record.has_headers?/1" do
     test "returns true when headers are present" do
-      record = Record.build(offset: 0, value: "test", headers: [{"key", "value"}])
+      record = Record.build(offset: 0, value: "test", headers: [Header.new("key", "value")])
       assert Record.has_headers?(record) == true
     end
 
@@ -119,7 +122,7 @@ defmodule KafkaEx.New.Kafka.Fetch.RecordTest do
         Record.build(
           offset: 0,
           value: "test",
-          headers: [{"header1", "value1"}, {"header2", "value2"}]
+          headers: [Header.new("header1", "value1"), Header.new("header2", "value2")]
         )
 
       assert Record.get_header(record, "header1") == "value1"
@@ -131,7 +134,7 @@ defmodule KafkaEx.New.Kafka.Fetch.RecordTest do
         Record.build(
           offset: 0,
           value: "test",
-          headers: [{"header1", "value1"}]
+          headers: [Header.new("header1", "value1")]
         )
 
       assert Record.get_header(record, "nonexistent") == nil

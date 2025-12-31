@@ -1,10 +1,10 @@
-defmodule KafkaEx.NetworkClientTest do
+defmodule KafkaEx.Network.NetworkClientTest do
   use ExUnit.Case, async: true
   import KafkaEx.TestHelpers
 
   use Hammox.Protect,
-    module: KafkaEx.NetworkClient,
-    behaviour: KafkaEx.NetworkClient.Behaviour
+    module: KafkaEx.Network.NetworkClient,
+    behaviour: KafkaEx.Network.Behaviour
 
   describe "close_socket/1" do
     test "closes the socket" do
@@ -16,7 +16,7 @@ defmodule KafkaEx.NetworkClientTest do
           {:packet, 0}
         ])
 
-      kafka_ex_socket = %KafkaEx.Socket{socket: socket}
+      kafka_ex_socket = %KafkaEx.Network.Socket{socket: socket}
 
       assert :ok == close_socket(kafka_ex_socket)
       assert {:error, :closed} == :gen_tcp.send(socket, <<>>)
@@ -49,6 +49,24 @@ defmodule KafkaEx.NetworkClientTest do
     test "returns nil if socket creation fails" do
       port = get_free_port(3040)
       assert nil == create_socket("localhost", port, [], true)
+    end
+  end
+
+  describe "send_sync_request/3" do
+    test "returns {:error, :not_connected} when broker socket is nil" do
+      broker = %{socket: nil, host: "localhost", port: 9092}
+      assert {:error, :not_connected} == KafkaEx.Network.NetworkClient.send_sync_request(broker, <<>>, 1000)
+    end
+
+    test "returns {:error, :no_broker} when broker is nil" do
+      assert {:error, :no_broker} == KafkaEx.Network.NetworkClient.send_sync_request(nil, <<>>, 1000)
+    end
+  end
+
+  describe "send_async_request/2" do
+    test "returns {:error, :not_connected} when broker socket is nil" do
+      broker = %{socket: nil, host: "localhost", port: 9092}
+      assert {:error, :not_connected} == KafkaEx.Network.NetworkClient.send_async_request(broker, <<>>)
     end
   end
 

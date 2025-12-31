@@ -1,8 +1,8 @@
-defmodule KafkaEx.New.Protocols.Kayrock.CreateTopics.RequestTest do
+defmodule KafkaEx.Protocol.Kayrock.CreateTopics.RequestTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.Kayrock.CreateTopics
-  alias KafkaEx.New.Protocols.Kayrock.CreateTopics.RequestHelpers
+  alias KafkaEx.Protocol.Kayrock.CreateTopics
+  alias KafkaEx.Protocol.Kayrock.CreateTopics.RequestHelpers
 
   describe "RequestHelpers.extract_common_fields/1" do
     test "extracts required fields" do

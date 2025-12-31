@@ -1,6 +1,8 @@
 defmodule KafkaEx.Integration.OAuthBearerAuthenticationTest do
   use ExUnit.Case
 
+  alias KafkaEx.API
+
   @moduletag :integration
   @moduletag :oauthbearer
 
@@ -22,9 +24,9 @@ defmodule KafkaEx.Integration.OAuthBearerAuthenticationTest do
 
       {:ok, _pid} = KafkaEx.create_worker(:oauth_worker, opts)
 
-      assert KafkaEx.produce("test_topic", 0, "oauth_msg", worker_name: :oauth_worker) == :ok
-      # probably redundant, but whatever
-      assert %KafkaEx.Protocol.Metadata.Response{} = KafkaEx.metadata(worker_name: :oauth_worker)
+      {:ok, _} = API.produce_one(:oauth_worker, "test_topic", 0, "oauth_msg")
+      {:ok, metadata} = API.metadata(:oauth_worker)
+      assert %KafkaEx.Cluster.ClusterMetadata{} = metadata
     end
 
     @tag sasl: :oauthbearer
@@ -46,8 +48,8 @@ defmodule KafkaEx.Integration.OAuthBearerAuthenticationTest do
       ]
 
       {:ok, _pid} = KafkaEx.create_worker(:oauth_ext_worker, opts)
-      # probably redundant, but whatever
-      assert %KafkaEx.Protocol.Metadata.Response{} = KafkaEx.metadata(worker_name: :oauth_ext_worker)
+      {:ok, metadata} = API.metadata(:oauth_ext_worker)
+      assert %KafkaEx.Cluster.ClusterMetadata{} = metadata
     end
 
     @tag sasl: :oauthbearer

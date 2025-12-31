@@ -40,7 +40,7 @@ defmodule KafkaEx.Auth.SASL do
   alias KafkaEx.Auth.Config
   alias KafkaEx.Auth.SASL.CodecBinary
   alias KafkaEx.Auth.SASL.VersionSupport
-  alias KafkaEx.Socket
+  alias KafkaEx.Network.Socket
 
   import Bitwise, only: [&&&: 2]
 

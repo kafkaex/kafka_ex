@@ -1,7 +1,7 @@
-defmodule KafkaEx.New.Kafka.TopicTest do
+defmodule KafkaEx.Cluster.TopicTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Kafka.Topic
+  alias KafkaEx.Cluster.Topic
 
   describe "from_topic_metadata/1" do
     setup do
@@ -40,7 +40,7 @@ defmodule KafkaEx.New.Kafka.TopicTest do
       topic = Topic.from_topic_metadata(metadata)
 
       assert topic.partitions == [
-               %KafkaEx.New.Kafka.PartitionInfo{
+               %KafkaEx.Cluster.PartitionInfo{
                  partition_id: 123,
                  leader: 321,
                  replicas: [],

@@ -1,7 +1,7 @@
-defmodule KafkaEx.New.Protocols.Kayrock.ApiVersions.RequestTest do
+defmodule KafkaEx.Protocol.Kayrock.ApiVersions.RequestTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.Kayrock.ApiVersions
+  alias KafkaEx.Protocol.Kayrock.ApiVersions
 
   describe "V0 request building" do
     test "builds V0 request with no parameters" do

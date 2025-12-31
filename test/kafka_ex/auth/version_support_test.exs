@@ -3,7 +3,7 @@ defmodule KafkaEx.Auth.VersionSupportTest do
   use ExUnit.Case
   alias KafkaEx.Auth.SASL.VersionSupport
   alias KafkaEx.Auth.Config
-  alias KafkaEx.Socket
+  alias KafkaEx.Network.Socket
 
   describe "sasl_support_level/0" do
     test "returns full support" do

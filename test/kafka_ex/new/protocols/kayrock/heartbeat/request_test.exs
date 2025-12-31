@@ -1,8 +1,8 @@
-defmodule KafkaEx.New.Protocols.Kayrock.Heartbeat.RequestTest do
+defmodule KafkaEx.Protocol.Kayrock.Heartbeat.RequestTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.Kayrock.Heartbeat
-  alias KafkaEx.New.Protocols.Kayrock.Heartbeat.RequestHelpers
+  alias KafkaEx.Protocol.Kayrock.Heartbeat
+  alias KafkaEx.Protocol.Kayrock.Heartbeat.RequestHelpers
 
   describe "RequestHelpers.extract_common_fields/1" do
     test "extracts all required fields from opts" do

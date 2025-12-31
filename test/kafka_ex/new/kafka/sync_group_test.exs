@@ -1,8 +1,8 @@
-defmodule KafkaEx.New.Kafka.SyncGroupTest do
+defmodule KafkaEx.Messages.SyncGroupTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Kafka.ConsumerGroupDescription.Member.MemberAssignment.PartitionAssignment
-  alias KafkaEx.New.Kafka.SyncGroup
+  alias KafkaEx.Messages.ConsumerGroupDescription.Member.MemberAssignment.PartitionAssignment
+  alias KafkaEx.Messages.SyncGroup
 
   describe "build/1" do
     test "builds sync_group with throttle_time_ms" do

@@ -1,8 +1,8 @@
-defmodule KafkaEx.New.Protocols.Kayrock.Heartbeat.ResponseTest do
+defmodule KafkaEx.Protocol.Kayrock.Heartbeat.ResponseTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.Kayrock.Heartbeat
-  alias KafkaEx.New.Kafka.Heartbeat, as: HeartbeatStruct
+  alias KafkaEx.Protocol.Kayrock.Heartbeat
+  alias KafkaEx.Messages.Heartbeat, as: HeartbeatStruct
 
   describe "V0 Response implementation" do
     test "parses successful response with no error" do

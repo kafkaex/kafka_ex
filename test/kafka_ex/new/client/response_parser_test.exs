@@ -1,13 +1,13 @@
-defmodule KafkaEx.New.Client.ResponseParserTest do
+defmodule KafkaEx.Client.ResponseParserTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Client.ResponseParser
-  alias KafkaEx.New.Kafka.Heartbeat
-  alias KafkaEx.New.Kafka.JoinGroup
-  alias KafkaEx.New.Kafka.JoinGroup.Member
-  alias KafkaEx.New.Kafka.LeaveGroup
-  alias KafkaEx.New.Kafka.Offset
-  alias KafkaEx.New.Kafka.Offset.PartitionOffset
+  alias KafkaEx.Client.ResponseParser
+  alias KafkaEx.Messages.Heartbeat
+  alias KafkaEx.Messages.JoinGroup
+  alias KafkaEx.Messages.JoinGroup.Member
+  alias KafkaEx.Messages.LeaveGroup
+  alias KafkaEx.Messages.Offset
+  alias KafkaEx.Messages.Offset.PartitionOffset
 
   describe "offset_fetch_response/1" do
     test "parses successful OffsetFetch v1 response" do
@@ -581,7 +581,7 @@ defmodule KafkaEx.New.Client.ResponseParserTest do
   end
 
   describe "produce_response/1" do
-    alias KafkaEx.New.Kafka.RecordMetadata
+    alias KafkaEx.Messages.RecordMetadata
 
     test "parses successful Produce v0 response" do
       response = %Kayrock.Produce.V0.Response{

@@ -1,7 +1,7 @@
-defmodule KafkaEx.New.Kafka.TopicPartitionTest do
+defmodule KafkaEx.Cluster.TopicPartitionTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Kafka.TopicPartition
+  alias KafkaEx.Cluster.TopicPartition
 
   describe "new/2" do
     test "creates topic-partition with valid inputs" do

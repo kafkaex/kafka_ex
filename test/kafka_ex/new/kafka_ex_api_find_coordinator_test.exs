@@ -1,9 +1,9 @@
 defmodule KafkaEx.APIFindCoordinatorTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Client.RequestBuilder
-  alias KafkaEx.New.Client.ResponseParser
-  alias KafkaEx.New.Client.State
+  alias KafkaEx.Client.RequestBuilder
+  alias KafkaEx.Client.ResponseParser
+  alias KafkaEx.Client.State
 
   # FindCoordinator API key is 10
   @find_coordinator_api_key 10

@@ -1,9 +1,9 @@
-defmodule KafkaEx.New.Protocols.Kayrock.CreateTopics.ResponseTest do
+defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.Kayrock.CreateTopics
-  alias KafkaEx.New.Kafka.CreateTopics, as: CreateTopicsStruct
-  alias KafkaEx.New.Protocols.Kayrock.CreateTopics.ResponseHelpers
+  alias KafkaEx.Protocol.Kayrock.CreateTopics
+  alias KafkaEx.Messages.CreateTopics, as: CreateTopicsStruct
+  alias KafkaEx.Protocol.Kayrock.CreateTopics.ResponseHelpers
 
   describe "ResponseHelpers.parse_topic_results/2" do
     test "parses successful topics without error_message" do
