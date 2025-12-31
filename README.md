@@ -45,10 +45,36 @@ Kafka brokers. This enables features like:
 The client automatically negotiates the appropriate API versions with your
 Kafka cluster, so no version configuration is needed.
 
-For information on the new API available in the `KafkaEx.New` namespace, see:
+### New API: `KafkaEx.API`
+
+The `KafkaEx.API` module provides a cleaner API with explicit client arguments:
+
+```elixir
+# Start a client
+{:ok, client} = KafkaEx.API.start_client(brokers: [{"localhost", 9092}])
+
+# Produce a message
+{:ok, metadata} = KafkaEx.API.produce_one(client, "my-topic", 0, "hello")
+
+# Fetch messages
+{:ok, result} = KafkaEx.API.fetch(client, "my-topic", 0, 0)
+```
+
+You can also use it as a behaviour in your own modules:
+
+```elixir
+defmodule MyApp.Kafka do
+  use KafkaEx.API, client: MyApp.KafkaClient
+end
+
+# Call without passing client:
+MyApp.Kafka.produce_one("my-topic", 0, "hello")
+```
+
+For detailed information, see:
 
 *   Github: [new_api.md](https://github.com/kafkaex/kafka_ex/blob/master/new_api.md)
-*   HexDocs: [New API](new_api.html)
+*   HexDocs: [KafkaEx.API](https://hexdocs.pm/kafka_ex/KafkaEx.API.html)
 
 ## Using KafkaEx in an Elixir project
 

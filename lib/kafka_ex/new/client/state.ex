@@ -57,9 +57,10 @@ defmodule KafkaEx.New.Client.State do
 
   def select_broker(%__MODULE__{cluster_metadata: cluster_metadata}, selector) do
     with {:ok, node_id} <- ClusterMetadata.select_node(cluster_metadata, selector),
-         broker <- ClusterMetadata.broker_by_node_id(cluster_metadata, node_id) do
+         broker when not is_nil(broker) <- ClusterMetadata.broker_by_node_id(cluster_metadata, node_id) do
       {:ok, broker}
     else
+      nil -> {:error, :broker_not_found}
       err -> err
     end
   end

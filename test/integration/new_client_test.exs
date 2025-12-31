@@ -6,7 +6,7 @@ defmodule KafkaEx.New.Client.Test do
   alias KafkaEx.New.Client
 
   alias KafkaEx.New.Kafka.ClusterMetadata
-  alias KafkaEx.New.KafkaExAPI
+  alias KafkaEx.API, as: KafkaExAPI
   alias KafkaEx.New.Kafka.Topic
   alias KafkaEx.New.Client.NodeSelector
 

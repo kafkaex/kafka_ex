@@ -1,15 +1,16 @@
 defmodule KafkaEx.Stream do
   @moduledoc false
 
-  alias KafkaEx.Protocol.Fetch.Request, as: FetchRequest
-  alias KafkaEx.Protocol.Fetch.Response, as: FetchResponse
-  alias KafkaEx.Protocol.OffsetCommit.Request, as: OffsetCommitRequest
-  alias KafkaEx.Server
+  alias KafkaEx.API, as: KafkaExAPI
+  alias KafkaEx.Protocol.Fetch.Message
 
-  defstruct worker_name: nil,
-            fetch_request: %FetchRequest{},
+  defstruct client: nil,
+            topic: nil,
+            partition: nil,
+            offset: 0,
             consumer_group: nil,
             no_wait_at_logend: false,
+            fetch_options: [],
             api_versions: %{fetch: 0, offset_fetch: 0, offset_commit: 0}
 
   @type t :: %__MODULE__{}
@@ -20,7 +21,7 @@ defmodule KafkaEx.Stream do
       # start_fun, next_fun, and after_fun callbacks
 
       # the state payload for the stream is just the offset
-      start_fun = fn -> data.fetch_request.offset end
+      start_fun = fn -> data.offset end
 
       # each iteration we need to take care of fetching and (possibly)
       # committing offsets
@@ -106,11 +107,11 @@ defmodule KafkaEx.Stream do
     # first, determine if we even need to commit an offset
     defp maybe_commit_offset(
            fetch_response,
-           %KafkaEx.Stream{
-             fetch_request: %FetchRequest{auto_commit: auto_commit}
-           } = stream_data,
+           %KafkaEx.Stream{} = stream_data,
            acc
          ) do
+      auto_commit = Keyword.get(stream_data.fetch_options, :auto_commit, false)
+
       if need_commit?(fetch_response, auto_commit) do
         offset_to_commit = last_offset(acc, fetch_response.message_set)
         commit_offset(stream_data, offset_to_commit)
@@ -144,30 +145,55 @@ defmodule KafkaEx.Stream do
     end
 
     defp commit_offset(%KafkaEx.Stream{} = stream_data, offset) do
-      Server.call(stream_data.worker_name, {
-        :offset_commit,
-        %OffsetCommitRequest{
-          consumer_group: stream_data.consumer_group,
-          topic: stream_data.fetch_request.topic,
-          partition: stream_data.fetch_request.partition,
-          offset: offset,
-          metadata: "",
-          api_version: Map.fetch!(stream_data.api_versions, :offset_commit)
-        }
-      })
+      partitions = [%{partition_num: stream_data.partition, offset: offset}]
+
+      opts = [
+        api_version: Map.fetch!(stream_data.api_versions, :offset_commit)
+      ]
+
+      KafkaExAPI.commit_offset(
+        stream_data.client,
+        stream_data.consumer_group,
+        stream_data.topic,
+        partitions,
+        opts
+      )
     end
 
     ######################################################################
 
     # make the actual fetch request
     defp fetch_response(data, offset) do
-      req = data.fetch_request
+      opts =
+        data.fetch_options
+        |> Keyword.put(:api_version, Map.fetch!(data.api_versions, :fetch))
 
-      # note we set auto_commit: false in the actual request because the stream
-      # processor handles commits on its own
-      data.worker_name
-      |> Server.call({:fetch, %{req | offset: offset, auto_commit: false}})
-      |> FetchResponse.partition_messages(req.topic, req.partition)
+      case KafkaExAPI.fetch(data.client, data.topic, data.partition, offset, opts) do
+        {:ok, fetch_result} ->
+          # Convert to legacy format expected by stream_control
+          %{
+            error_code: :no_error,
+            last_offset: fetch_result.last_offset,
+            message_set: records_to_messages(fetch_result.records)
+          }
+
+        {:error, error} ->
+          %{error_code: error}
+      end
+    end
+
+    # Convert new Record structs to legacy Message structs
+    defp records_to_messages(records) do
+      Enum.map(records, fn record ->
+        %Message{
+          offset: record.offset,
+          key: record.key,
+          value: record.value,
+          attributes: record.attributes || 0,
+          crc: record.crc,
+          timestamp: record.timestamp
+        }
+      end)
     end
   end
 end
