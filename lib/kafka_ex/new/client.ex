@@ -50,7 +50,7 @@ defmodule KafkaEx.New.Client do
   Send a Kayrock request to the appropriate broker
   Broker metadata will be updated if necessary
   """
-  @spec send_request(KafkaEx.New.KafkaExAPI.client(), map, KafkaEx.New.Client.NodeSelector.t(), pos_integer | nil) ::
+  @spec send_request(KafkaEx.API.client(), map, KafkaEx.New.Client.NodeSelector.t(), pos_integer | nil) ::
           {:ok, term} | {:error, term}
   def send_request(server, request, node_selector, timeout \\ nil) do
     GenServer.call(server, {:kayrock_request, request, node_selector}, timeout_val(timeout))
@@ -304,8 +304,10 @@ defmodule KafkaEx.New.Client do
     {:reply, response, updated_state}
   end
 
-  # injects backwards-compatible handle_call clauses
-  use KafkaEx.New.ClientCompatibility
+  # Simple handler for consumer group name retrieval
+  def handle_call(:consumer_group, _from, state) do
+    {:reply, state.consumer_group_for_auto_commit, state}
+  end
 
   @impl true
   def handle_info(:update_metadata, state) do
@@ -749,17 +751,27 @@ defmodule KafkaEx.New.Client do
         error_code = ErrorCode.code_to_atom(error_code)
         Logger.warning("Unable to find consumer group coordinator for #{inspect(consumer_group)}: Error #{error_code}")
         updated_state
+
+      {:error, error} ->
+        Logger.warning(
+          "Unable to find consumer group coordinator for #{inspect(consumer_group)}: Error #{inspect(error)}"
+        )
+
+        updated_state
     end
   end
 
   defp first_broker_response(request, brokers, timeout) do
-    brokers
-    |> Enum.shuffle()
-    |> Enum.find_value(brokers, fn broker ->
-      if Broker.connected?(broker) do
-        try_broker(broker, request, timeout)
-      end
-    end)
+    result =
+      brokers
+      |> Enum.shuffle()
+      |> Enum.find_value(fn broker ->
+        if Broker.connected?(broker) do
+          try_broker(broker, request, timeout)
+        end
+      end)
+
+    result || {:error, :no_connected_broker}
   end
 
   defp try_broker(broker, request, timeout) do
@@ -783,19 +795,6 @@ defmodule KafkaEx.New.Client do
     timeout || Application.get_env(:kafka_ex, :sync_timeout, @sync_timeout)
   end
 
-  defp default_partitioner do
-    Application.get_env(:kafka_ex, :partitioner, KafkaEx.DefaultPartitioner)
-  end
-
-  defp consumer_group_if_auto_commit?(true, state), do: consumer_group?(state)
-  defp consumer_group_if_auto_commit?(false, _state), do: true
-
-  # note within the GenServer state, we've already validated the
-  # consumer group, so it can only be either :no_consumer_group or a
-  # valid binary consumer group name
-  defp consumer_group?(%State{consumer_group_for_auto_commit: :no_consumer_group}), do: false
-  defp consumer_group?(_), do: true
-
   defp get_api_versions(state, request_version \\ 0) do
     request = ApiVersions.get_request_struct(request_version)
     {{ok_or_error, response}, state_out} = kayrock_network_request(request, NodeSelector.first_available(), state)
@@ -817,6 +816,9 @@ defmodule KafkaEx.New.Client do
     case send_request do
       :no_broker ->
         {{:error, :no_broker}, updated_state}
+
+      {:error, _} = error ->
+        {error, updated_state}
 
       _ ->
         response = run_client_request(client_request(request, updated_state), send_request, synchronous)
@@ -906,15 +908,19 @@ defmodule KafkaEx.New.Client do
          network_timeout,
          _synchronous
        ) do
-    {:ok, broker} = State.select_broker(state, node_selector)
+    case State.select_broker(state, node_selector) do
+      {:ok, broker} ->
+        {fn wire_request ->
+           NetworkClient.send_sync_request(
+             broker,
+             wire_request,
+             network_timeout
+           )
+         end, state}
 
-    {fn wire_request ->
-       NetworkClient.send_sync_request(
-         broker,
-         wire_request,
-         network_timeout
-       )
-     end, state}
+      {:error, _} = error ->
+        {error, state}
+    end
   end
 
   defp deserialize(data, request) do

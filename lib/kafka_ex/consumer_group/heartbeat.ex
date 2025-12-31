@@ -25,12 +25,11 @@ defmodule KafkaEx.ConsumerGroup.Heartbeat do
 
   use GenServer
   require Logger
-  alias KafkaEx.Protocol.Heartbeat.Request, as: HeartbeatRequest
-  alias KafkaEx.Protocol.Heartbeat.Response, as: HeartbeatResponse
+  alias KafkaEx.API, as: KafkaExAPI
 
   defmodule State do
     @moduledoc false
-    defstruct [:worker_name, :heartbeat_request, :heartbeat_interval]
+    defstruct [:client, :group_name, :member_id, :generation_id, :heartbeat_interval]
   end
 
   def start_link(options) do
@@ -41,18 +40,14 @@ defmodule KafkaEx.ConsumerGroup.Heartbeat do
         group_name: group_name,
         member_id: member_id,
         generation_id: generation_id,
-        worker_name: worker_name,
+        client: client,
         heartbeat_interval: heartbeat_interval
       }) do
-    heartbeat_request = %HeartbeatRequest{
+    state = %State{
+      client: client,
       group_name: group_name,
       member_id: member_id,
-      generation_id: generation_id
-    }
-
-    state = %State{
-      worker_name: worker_name,
-      heartbeat_request: heartbeat_request,
+      generation_id: generation_id,
       heartbeat_interval: heartbeat_interval
     }
 
@@ -62,24 +57,35 @@ defmodule KafkaEx.ConsumerGroup.Heartbeat do
   def handle_info(
         :timeout,
         %State{
-          worker_name: worker_name,
-          heartbeat_request: heartbeat_request,
+          client: client,
+          group_name: group_name,
+          member_id: member_id,
+          generation_id: generation_id,
           heartbeat_interval: heartbeat_interval
         } = state
       ) do
-    case KafkaEx.heartbeat(heartbeat_request, worker_name: worker_name) do
-      %HeartbeatResponse{error_code: :no_error} ->
+    case KafkaExAPI.heartbeat(client, group_name, member_id, generation_id) do
+      {:ok, :no_error} ->
         {:noreply, state, heartbeat_interval}
 
-      %HeartbeatResponse{error_code: :rebalance_in_progress} ->
+      {:ok, %{error_code: :no_error}} ->
+        {:noreply, state, heartbeat_interval}
+
+      {:ok, %{error_code: :rebalance_in_progress}} ->
         {:stop, {:shutdown, :rebalance}, state}
 
-      %HeartbeatResponse{error_code: :unknown_member_id} ->
+      {:ok, %{error_code: :unknown_member_id}} ->
         {:stop, {:shutdown, :rebalance}, state}
 
-      %HeartbeatResponse{error_code: error_code} ->
+      {:ok, %{error_code: error_code}} ->
         Logger.warning("Heartbeat failed, got error code #{error_code}")
         {:stop, {:shutdown, {:error, error_code}}, state}
+
+      {:error, :rebalance_in_progress} ->
+        {:stop, {:shutdown, :rebalance}, state}
+
+      {:error, :unknown_member_id} ->
+        {:stop, {:shutdown, :rebalance}, state}
 
       {:error, reason} ->
         Logger.warning("Heartbeat failed, got error reason #{inspect(reason)}")

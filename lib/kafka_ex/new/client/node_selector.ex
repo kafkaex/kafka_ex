@@ -3,7 +3,7 @@ defmodule KafkaEx.New.Client.NodeSelector do
   Defines node selector functions and macros
   """
 
-  alias KafkaEx.New.KafkaExAPI
+  alias KafkaEx.API, as: KafkaExAPI
 
   defstruct strategy: nil,
             node_id: nil,
