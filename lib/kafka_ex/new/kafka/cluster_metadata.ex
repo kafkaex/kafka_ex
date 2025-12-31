@@ -9,7 +9,7 @@ defmodule KafkaEx.New.Kafka.ClusterMetadata do
   alias KafkaEx.New.Client.NodeSelector
   alias KafkaEx.New.Kafka.Broker
   alias KafkaEx.New.Kafka.Topic
-  alias KafkaEx.New.KafkaExAPI
+  alias KafkaEx.API, as: KafkaExAPI
 
   defstruct brokers: %{},
             controller_id: nil,

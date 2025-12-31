@@ -108,7 +108,7 @@ defmodule KafkaEx.ConsumerGroup do
   * `:max_restarts`, `:max_seconds` - Supervisor restart policy parameters
   * `:partition_assignment_callback` - See
      `t:KafkaEx.ConsumerGroup.PartitionAssignment.callback/0`
-  * `:uris` - See `KafkaEx.create_worker/2`
+  * `:uris` - List of Kafka broker URIs in `{"host", port}` format
 
   Note `:session_timeout` is registered with the broker and determines how long
   before the broker will de-register a consumer from which it has not heard a

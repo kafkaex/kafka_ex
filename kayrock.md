@@ -8,7 +8,7 @@ The client is defined in the module `KafkaEx.New.Client`.
 **NOTE** In many places below we recommend using "version N and up". The KafkaEx
 legacy API compatibility supports versions 0 to 3. Using version 3 should
 generally be safe and achieve the desired outcomes. The new API
-(`KafkaEx.New.KafkaExAPI`) is designed to handle newer versions.
+(`KafkaEx.API`) is designed to handle newer versions.
 
 Contents:
 
@@ -33,8 +33,8 @@ Or with explicit module specification:
 {:ok, pid} = KafkaEx.start_link_worker(:no_name, server_impl: KafkaEx.New.Client)
 ```
 
-The client is compatible with both the legacy `KafkaEx` API and the new API
-defined in `KafkaEx.New.KafkaExAPI`.
+The client is compatible with the `KafkaEx.API` module which provides the primary
+API for interacting with Kafka.
 
 ## Common Use Case - Store Offsets In Kafka
 
