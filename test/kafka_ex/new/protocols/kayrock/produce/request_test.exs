@@ -1,8 +1,8 @@
-defmodule KafkaEx.New.Protocols.Kayrock.Produce.RequestTest do
+defmodule KafkaEx.Protocol.Kayrock.Produce.RequestTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.Kayrock.Produce.Request
-  alias KafkaEx.New.Protocols.Kayrock.Produce.RequestHelpers
+  alias KafkaEx.Protocol.Kayrock.Produce.Request
+  alias KafkaEx.Protocol.Kayrock.Produce.RequestHelpers
   alias Kayrock.MessageSet
   alias Kayrock.MessageSet.Message
   alias Kayrock.RecordBatch

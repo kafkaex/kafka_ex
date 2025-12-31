@@ -1,17 +1,17 @@
-defmodule KafkaEx.New.Protocols.Kayrock.ListOffsets.ResponseTest do
+defmodule KafkaEx.Protocol.Kayrock.ListOffsets.ResponseTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.Kayrock.ListOffsets.Response, as: ListOffsetsResponse
+  alias KafkaEx.Protocol.Kayrock.ListOffsets.Response, as: ListOffsetsResponse
 
   alias Kayrock.ListOffsets.V0
   alias Kayrock.ListOffsets.V1
   alias Kayrock.ListOffsets.V2
 
   describe "parse_response/1" do
-    @expected_offset %KafkaEx.New.Kafka.Offset{
+    @expected_offset %KafkaEx.Messages.Offset{
       topic: "test-topic",
       partition_offsets: [
-        %KafkaEx.New.Kafka.Offset.PartitionOffset{
+        %KafkaEx.Messages.Offset.PartitionOffset{
           partition: 1,
           error_code: :no_error,
           offset: 0,
@@ -45,7 +45,7 @@ defmodule KafkaEx.New.Protocols.Kayrock.ListOffsets.ResponseTest do
         correlation_id: 3
       }
 
-      expected_error = %KafkaEx.New.Client.Error{
+      expected_error = %KafkaEx.Client.Error{
         error: :stale_controller_epoch,
         metadata: %{partition: 0, topic: "test-topic"}
       }
@@ -82,7 +82,7 @@ defmodule KafkaEx.New.Protocols.Kayrock.ListOffsets.ResponseTest do
         correlation_id: 3
       }
 
-      expected_error = %KafkaEx.New.Client.Error{
+      expected_error = %KafkaEx.Client.Error{
         error: :offset_out_of_range,
         metadata: %{partition: 1, topic: "test-topic"}
       }
@@ -121,7 +121,7 @@ defmodule KafkaEx.New.Protocols.Kayrock.ListOffsets.ResponseTest do
         correlation_id: 3
       }
 
-      expected_error = %KafkaEx.New.Client.Error{
+      expected_error = %KafkaEx.Client.Error{
         error: :offset_out_of_range,
         metadata: %{partition: 1, topic: "test-topic"}
       }

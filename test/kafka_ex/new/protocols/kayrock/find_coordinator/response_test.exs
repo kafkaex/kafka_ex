@@ -1,8 +1,8 @@
-defmodule KafkaEx.New.Protocols.Kayrock.FindCoordinator.ResponseTest do
+defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.ResponseTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.Kayrock.FindCoordinator.Response
-  alias KafkaEx.New.Kafka.FindCoordinator
+  alias KafkaEx.Protocol.Kayrock.FindCoordinator.Response
+  alias KafkaEx.Messages.FindCoordinator
 
   # Helper to build coordinator struct
   defp build_coordinator(node_id, host, port) do

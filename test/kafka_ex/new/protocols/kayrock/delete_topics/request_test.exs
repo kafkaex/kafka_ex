@@ -1,8 +1,8 @@
-defmodule KafkaEx.New.Protocols.Kayrock.DeleteTopics.RequestTest do
+defmodule KafkaEx.Protocol.Kayrock.DeleteTopics.RequestTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.Kayrock.DeleteTopics
-  alias KafkaEx.New.Protocols.Kayrock.DeleteTopics.RequestHelpers
+  alias KafkaEx.Protocol.Kayrock.DeleteTopics
+  alias KafkaEx.Protocol.Kayrock.DeleteTopics.RequestHelpers
 
   describe "RequestHelpers.extract_common_fields/1" do
     test "extracts required fields" do

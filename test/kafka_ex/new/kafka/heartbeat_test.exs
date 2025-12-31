@@ -1,7 +1,7 @@
-defmodule KafkaEx.New.Kafka.HeartbeatTest do
+defmodule KafkaEx.Messages.HeartbeatTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Kafka.Heartbeat
+  alias KafkaEx.Messages.Heartbeat
 
   describe "build/1" do
     test "builds heartbeat with throttle_time_ms" do

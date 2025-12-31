@@ -1,7 +1,7 @@
-defmodule KafkaEx.New.Kafka.OffsetAndMetadataTest do
+defmodule KafkaEx.Messages.OffsetAndMetadataTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Kafka.OffsetAndMetadata
+  alias KafkaEx.Messages.OffsetAndMetadata
 
   describe "new/1" do
     test "creates with offset only" do

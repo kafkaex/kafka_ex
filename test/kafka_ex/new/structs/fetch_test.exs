@@ -1,8 +1,8 @@
-defmodule KafkaEx.New.Kafka.FetchTest do
+defmodule KafkaEx.Messages.FetchTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Kafka.Fetch
-  alias KafkaEx.New.Kafka.Fetch.Record
+  alias KafkaEx.Messages.Fetch
+  alias KafkaEx.Messages.Fetch.Record
 
   describe "Fetch.build/1" do
     test "builds a fetch result with required fields" do

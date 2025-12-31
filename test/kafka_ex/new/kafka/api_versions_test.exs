@@ -1,7 +1,7 @@
-defmodule KafkaEx.New.Kafka.ApiVersionsTest do
+defmodule KafkaEx.Messages.ApiVersionsTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Kafka.ApiVersions
+  alias KafkaEx.Messages.ApiVersions
 
   describe "build/1" do
     test "builds struct with default empty values" do

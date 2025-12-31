@@ -1,7 +1,7 @@
-defmodule KafkaEx.New.ConsumerGroupDescriptionTest do
+defmodule KafkaEx.Messages.ConsumerGroupDescriptionTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Kafka.ConsumerGroupDescription
+  alias KafkaEx.Messages.ConsumerGroupDescription
 
   describe "from_describe_group_response/1" do
     test "returns a consumer group description struct" do

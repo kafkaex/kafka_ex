@@ -1,7 +1,7 @@
-defmodule KafkaEx.New.Client.NodeSelectorTest do
+defmodule KafkaEx.Client.NodeSelectorTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Client.NodeSelector
+  alias KafkaEx.Client.NodeSelector
 
   describe "node_id/1" do
     test "build selector based on node id strategy" do

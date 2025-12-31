@@ -1,7 +1,7 @@
-defmodule KafkaEx.New.Kafka.ConsumerGroupDescription.Member.MemberAssignmentTest do
+defmodule KafkaEx.Messages.ConsumerGroupDescription.Member.MemberAssignmentTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Kafka.ConsumerGroupDescription.Member.MemberAssignment
+  alias KafkaEx.Messages.ConsumerGroupDescription.Member.MemberAssignment
 
   describe "from_describe_group_response/1" do
     test "returns a MemberAssignment struct without partitions" do

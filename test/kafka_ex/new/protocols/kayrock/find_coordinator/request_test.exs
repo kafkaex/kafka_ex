@@ -1,7 +1,7 @@
-defmodule KafkaEx.New.Protocols.Kayrock.FindCoordinator.RequestTest do
+defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.RequestTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.Kayrock.FindCoordinator.Request
+  alias KafkaEx.Protocol.Kayrock.FindCoordinator.Request
 
   describe "V0 Request implementation" do
     test "builds V0 request with group_id" do

@@ -1,7 +1,7 @@
-defmodule KafkaEx.Utils.MurmurTest do
+defmodule KafkaEx.Support.MurmurTest do
   use ExUnit.Case
 
-  alias KafkaEx.Utils.Murmur
+  alias KafkaEx.Support.Murmur
 
   test "murmur2 correctly encodes strings" do
     # Taken from https://github.com/apache/kafka/blob/8ab0994919752cd4870e771221ba934a6a539a67/clients/src/test/java/org/apache/kafka/common/utils/UtilsTest.java#L66-L78

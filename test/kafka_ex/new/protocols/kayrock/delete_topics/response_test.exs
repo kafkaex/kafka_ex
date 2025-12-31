@@ -1,9 +1,9 @@
-defmodule KafkaEx.New.Protocols.Kayrock.DeleteTopics.ResponseTest do
+defmodule KafkaEx.Protocol.Kayrock.DeleteTopics.ResponseTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.Kayrock.DeleteTopics
-  alias KafkaEx.New.Kafka.DeleteTopics, as: DeleteTopicsStruct
-  alias KafkaEx.New.Protocols.Kayrock.DeleteTopics.ResponseHelpers
+  alias KafkaEx.Protocol.Kayrock.DeleteTopics
+  alias KafkaEx.Messages.DeleteTopics, as: DeleteTopicsStruct
+  alias KafkaEx.Protocol.Kayrock.DeleteTopics.ResponseHelpers
 
   describe "ResponseHelpers.parse_topic_results/1" do
     test "parses successful topics" do

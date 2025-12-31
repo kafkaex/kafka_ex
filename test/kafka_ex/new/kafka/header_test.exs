@@ -1,7 +1,7 @@
-defmodule KafkaEx.New.Kafka.HeaderTest do
+defmodule KafkaEx.Messages.HeaderTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Kafka.Header
+  alias KafkaEx.Messages.Header
 
   describe "new/2" do
     test "creates header with key and value" do

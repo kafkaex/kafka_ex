@@ -1,8 +1,8 @@
-defmodule KafkaEx.New.Protocols.Kayrock.JoinGroup.RequestTest do
+defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.Kayrock.JoinGroup
-  alias KafkaEx.New.Protocols.Kayrock.JoinGroup.RequestHelpers
+  alias KafkaEx.Protocol.Kayrock.JoinGroup
+  alias KafkaEx.Protocol.Kayrock.JoinGroup.RequestHelpers
 
   describe "RequestHelpers.extract_common_fields/1" do
     test "extracts all required fields" do

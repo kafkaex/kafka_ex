@@ -1,7 +1,7 @@
-defmodule KafkaEx.New.Kafka.Offset.PartitionOffsetTest do
+defmodule KafkaEx.Messages.Offset.PartitionOffsetTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Kafka.Offset.PartitionOffset
+  alias KafkaEx.Messages.Offset.PartitionOffset
 
   describe "build/1 - ListOffsets API" do
     test "returns struct with timestamp (most common case)" do

@@ -55,28 +55,28 @@ defmodule KafkaEx.API do
       end
   """
 
-  alias KafkaEx.New.Kafka.ApiVersions
-  alias KafkaEx.New.Kafka.ClusterMetadata
-  alias KafkaEx.New.Kafka.ConsumerGroupDescription
-  alias KafkaEx.New.Kafka.CreateTopics
-  alias KafkaEx.New.Kafka.DeleteTopics
-  alias KafkaEx.New.Kafka.Fetch
-  alias KafkaEx.New.Kafka.FindCoordinator
-  alias KafkaEx.New.Kafka.Heartbeat
-  alias KafkaEx.New.Kafka.JoinGroup
-  alias KafkaEx.New.Kafka.LeaveGroup
-  alias KafkaEx.New.Kafka.Offset
-  alias KafkaEx.New.Kafka.RecordMetadata
-  alias KafkaEx.New.Kafka.SyncGroup
-  alias KafkaEx.New.Kafka.Topic
+  alias KafkaEx.Messages.ApiVersions
+  alias KafkaEx.Cluster.ClusterMetadata
+  alias KafkaEx.Messages.ConsumerGroupDescription
+  alias KafkaEx.Messages.CreateTopics
+  alias KafkaEx.Messages.DeleteTopics
+  alias KafkaEx.Messages.Fetch
+  alias KafkaEx.Messages.FindCoordinator
+  alias KafkaEx.Messages.Heartbeat
+  alias KafkaEx.Messages.JoinGroup
+  alias KafkaEx.Messages.LeaveGroup
+  alias KafkaEx.Messages.Offset
+  alias KafkaEx.Messages.RecordMetadata
+  alias KafkaEx.Messages.SyncGroup
+  alias KafkaEx.Cluster.Topic
 
   # Types
   @type node_id :: non_neg_integer
-  @type topic_name :: KafkaEx.Types.topic()
-  @type partition_id :: KafkaEx.Types.partition()
-  @type consumer_group_name :: KafkaEx.Types.consumer_group_name()
-  @type offset_val :: KafkaEx.Types.offset()
-  @type timestamp_request :: KafkaEx.Types.timestamp_request()
+  @type topic_name :: KafkaEx.Support.Types.topic()
+  @type partition_id :: KafkaEx.Support.Types.partition()
+  @type consumer_group_name :: KafkaEx.Support.Types.consumer_group_name()
+  @type offset_val :: KafkaEx.Support.Types.offset()
+  @type timestamp_request :: KafkaEx.Support.Types.timestamp_request()
   @type error_atom :: atom
   @type client :: GenServer.server()
   @type correlation_id :: non_neg_integer
@@ -221,7 +221,7 @@ defmodule KafkaEx.API do
 
     * `:brokers` - List of broker tuples, e.g., `[{"localhost", 9092}]`
     * `:client_id` - Client identifier string
-    * All options supported by `KafkaEx.New.Client.start_link/1`
+    * All options supported by `KafkaEx.Client.start_link/1`
 
   ## Examples
 
@@ -236,7 +236,7 @@ defmodule KafkaEx.API do
   """
   @spec start_client(opts) :: {:ok, pid} | {:error, term}
   def start_client(opts \\ []) do
-    KafkaEx.New.Client.start_link(opts)
+    KafkaEx.Client.start_link(opts)
   end
 
   @doc """
@@ -254,7 +254,7 @@ defmodule KafkaEx.API do
   def child_spec(opts) do
     %{
       id: Keyword.get(opts, :name, __MODULE__),
-      start: {KafkaEx.New.Client, :start_link, [opts]},
+      start: {KafkaEx.Client, :start_link, [opts]},
       type: :worker,
       restart: :permanent
     }
@@ -670,18 +670,54 @@ defmodule KafkaEx.API do
 
     * `client` - The client pid
     * `topic` - Topic name
-    * `partition` - Partition number
+    * `partition` - Partition number, or `nil` to use partitioner
     * `messages` - List of message maps with `:value`, optional `:key`, `:timestamp`, `:headers`
-    * `opts` - Options including `:api_version`, `:required_acks`, `:timeout`
+    * `opts` - Options including:
+      * `:api_version` - API version to use
+      * `:required_acks` - Number of acks required (default: 1)
+      * `:timeout` - Request timeout
+      * `:partitioner` - Custom partitioner module (default: configured or `KafkaEx.Producer.Partitioner.Default`)
+
+  ## Partitioning
+
+  When `partition` is `nil`, the partitioner is used to determine the partition:
+
+    * If message has a `:key`, the default partitioner uses murmur2 hash for consistent partitioning
+    * If message has no `:key`, a random partition is selected
+
+  You can configure the default partitioner globally:
+
+      config :kafka_ex, partitioner: MyApp.CustomPartitioner
+
+  Or per-request:
+
+      KafkaEx.API.produce(client, "topic", nil, messages, partitioner: MyApp.CustomPartitioner)
 
   ## Examples
 
+      # Explicit partition
       messages = [%{value: "hello"}, %{key: "k1", value: "world"}]
       {:ok, metadata} = KafkaEx.API.produce(client, "my-topic", 0, messages)
+
+      # Use partitioner (partition determined by key)
+      {:ok, metadata} = KafkaEx.API.produce(client, "my-topic", nil, [%{key: "user-123", value: "data"}])
+
+      # Use custom partitioner
+      {:ok, metadata} = KafkaEx.API.produce(client, "my-topic", nil, messages,
+        partitioner: MyApp.RoundRobinPartitioner)
   """
-  @spec produce(client, topic_name, partition_id, [map()]) :: {:ok, RecordMetadata.t()} | {:error, error_atom}
-  @spec produce(client, topic_name, partition_id, [map()], opts) :: {:ok, RecordMetadata.t()} | {:error, error_atom}
-  def produce(client, topic, partition, messages, opts \\ []) do
+  @spec produce(client, topic_name, partition_id | nil, [map()]) :: {:ok, RecordMetadata.t()} | {:error, error_atom}
+  @spec produce(client, topic_name, partition_id | nil, [map()], opts) ::
+          {:ok, RecordMetadata.t()} | {:error, error_atom}
+  def produce(client, topic, partition, messages, opts \\ [])
+
+  def produce(client, topic, nil, messages, opts) do
+    with {:ok, resolved_partition} <- resolve_partition(client, topic, messages, opts) do
+      produce(client, topic, resolved_partition, messages, opts)
+    end
+  end
+
+  def produce(client, topic, partition, messages, opts) when is_integer(partition) do
     case GenServer.call(client, {:produce, topic, partition, messages, opts}) do
       {:ok, result} -> {:ok, result}
       {:error, %{error: error_atom}} -> {:error, error_atom}
@@ -696,11 +732,16 @@ defmodule KafkaEx.API do
 
   ## Examples
 
+      # Explicit partition
       {:ok, metadata} = KafkaEx.API.produce_one(client, "my-topic", 0, "hello")
       {:ok, metadata} = KafkaEx.API.produce_one(client, "my-topic", 0, "hello", key: "my-key")
+
+      # Use partitioner (key-based partitioning)
+      {:ok, metadata} = KafkaEx.API.produce_one(client, "my-topic", nil, "hello", key: "user-123")
   """
-  @spec produce_one(client, topic_name, partition_id, binary) :: {:ok, RecordMetadata.t()} | {:error, error_atom}
-  @spec produce_one(client, topic_name, partition_id, binary, opts) :: {:ok, RecordMetadata.t()} | {:error, error_atom}
+  @spec produce_one(client, topic_name, partition_id | nil, binary) :: {:ok, RecordMetadata.t()} | {:error, error_atom}
+  @spec produce_one(client, topic_name, partition_id | nil, binary, opts) ::
+          {:ok, RecordMetadata.t()} | {:error, error_atom}
   def produce_one(client, topic, partition, value, opts \\ []) do
     {message_opts, produce_opts} = Keyword.split(opts, [:key, :timestamp, :headers])
 
@@ -711,6 +752,36 @@ defmodule KafkaEx.API do
       |> maybe_put(:headers, Keyword.get(message_opts, :headers))
 
     produce(client, topic, partition, [message], produce_opts)
+  end
+
+  # Resolves partition using the configured partitioner
+  defp resolve_partition(client, topic, messages, opts) do
+    partitioner = Keyword.get(opts, :partitioner, KafkaEx.Producer.Partitioner.get_partitioner())
+
+    # Get the first message's key and value for partitioning
+    # (assuming all messages in a batch should go to the same partition)
+    first_message = List.first(messages) || %{}
+    key = Map.get(first_message, :key)
+    value = Map.get(first_message, :value, "")
+
+    # Get partition count from metadata
+    case topics_metadata(client, [topic], true) do
+      {:ok, [topic_info]} ->
+        partition_count = map_size(topic_info.partition_leaders)
+
+        if partition_count > 0 do
+          partition = partitioner.assign_partition(topic, key, value, partition_count)
+          {:ok, partition}
+        else
+          {:error, :no_partitions_available}
+        end
+
+      {:ok, []} ->
+        {:error, :topic_not_found}
+
+      {:error, _} = error ->
+        error
+    end
   end
 
   # ---------------------------------------------------------------------------

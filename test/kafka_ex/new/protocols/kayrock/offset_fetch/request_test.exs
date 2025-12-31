@@ -1,8 +1,8 @@
-defmodule KafkaEx.New.Protocols.Kayrock.OffsetFetch.RequestTest do
+defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.RequestTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.Kayrock.OffsetFetch
-  alias KafkaEx.New.Protocols.Kayrock.OffsetFetch.RequestHelpers
+  alias KafkaEx.Protocol.Kayrock.OffsetFetch
+  alias KafkaEx.Protocol.Kayrock.OffsetFetch.RequestHelpers
 
   describe "RequestHelpers.extract_common_fields/1" do
     test "extracts group_id from opts" do

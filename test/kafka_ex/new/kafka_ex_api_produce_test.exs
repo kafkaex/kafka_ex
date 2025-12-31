@@ -2,7 +2,7 @@ defmodule KafkaEx.APIProduceTest do
   use ExUnit.Case, async: false
 
   alias KafkaEx.API, as: KafkaExAPI
-  alias KafkaEx.New.Kafka.RecordMetadata
+  alias KafkaEx.Messages.RecordMetadata
 
   # Mock GenServer for testing
   defmodule MockClient do

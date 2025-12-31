@@ -1,7 +1,7 @@
-defmodule KafkaEx.New.Protocols.Kayrock.Metadata.RequestTest do
+defmodule KafkaEx.Protocol.Kayrock.Metadata.RequestTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.Kayrock.Metadata.Request, as: MetadataRequest
+  alias KafkaEx.Protocol.Kayrock.Metadata.Request, as: MetadataRequest
   alias Kayrock.Metadata.V0
   alias Kayrock.Metadata.V1
   alias Kayrock.Metadata.V2

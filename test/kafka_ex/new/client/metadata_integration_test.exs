@@ -1,10 +1,10 @@
-defmodule KafkaEx.New.Client.MetadataIntegrationTest do
+defmodule KafkaEx.Client.MetadataIntegrationTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Client.{RequestBuilder, ResponseParser}
-  alias KafkaEx.New.Client.State
-  alias KafkaEx.New.Kafka.ClusterMetadata
-  alias KafkaEx.New.Protocols.KayrockProtocol
+  alias KafkaEx.Client.{RequestBuilder, ResponseParser}
+  alias KafkaEx.Client.State
+  alias KafkaEx.Cluster.ClusterMetadata
+  alias KafkaEx.Protocol.KayrockProtocol
   alias Kayrock.Metadata
 
   describe "RequestBuilder.metadata_request/2" do

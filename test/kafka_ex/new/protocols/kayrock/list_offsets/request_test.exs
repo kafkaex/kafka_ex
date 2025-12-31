@@ -1,7 +1,7 @@
-defmodule KafkaEx.New.Protocols.Kayrock.ListOffsets.RequestTest do
+defmodule KafkaEx.Protocol.Kayrock.ListOffsets.RequestTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.Kayrock.ListOffsets.Request, as: ListOffsetsRequest
+  alias KafkaEx.Protocol.Kayrock.ListOffsets.Request, as: ListOffsetsRequest
 
   alias Kayrock.ListOffsets.V0
   alias Kayrock.ListOffsets.V1

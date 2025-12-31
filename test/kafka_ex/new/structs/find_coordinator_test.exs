@@ -1,8 +1,8 @@
-defmodule KafkaEx.New.Kafka.FindCoordinatorTest do
+defmodule KafkaEx.Messages.FindCoordinatorTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Kafka.Broker
-  alias KafkaEx.New.Kafka.FindCoordinator
+  alias KafkaEx.Cluster.Broker
+  alias KafkaEx.Messages.FindCoordinator
 
   describe "build/1" do
     test "creates struct with default values" do

@@ -1,7 +1,7 @@
-defmodule KafkaEx.New.Kafka.OffsetTest do
+defmodule KafkaEx.Messages.OffsetTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Kafka.Offset
+  alias KafkaEx.Messages.Offset
 
   describe "from_list_offset/2" do
     test "creates offset with v0 partition responses" do

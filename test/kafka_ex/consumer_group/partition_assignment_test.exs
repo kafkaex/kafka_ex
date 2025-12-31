@@ -1,7 +1,7 @@
-defmodule KafkaEx.ConsumerGroup.PartitionAssignmentTest do
+defmodule KafkaEx.Consumer.ConsumerGroup.PartitionAssignmentTest do
   use ExUnit.Case
 
-  alias KafkaEx.ConsumerGroup.PartitionAssignment
+  alias KafkaEx.Consumer.ConsumerGroup.PartitionAssignment
 
   test "round robin partition assignment works" do
     topic = "topic"

@@ -100,7 +100,7 @@ defmodule KafkaEx do
   """
   @spec consumer_group(atom | pid) :: binary | :no_consumer_group
   def consumer_group(worker \\ Config.default_worker()) do
-    KafkaEx.Server.call(worker, :consumer_group)
+    GenServer.call(worker, :consumer_group)
   end
 
   @doc """
@@ -108,7 +108,7 @@ defmodule KafkaEx do
 
   Takes the same arguments as `create_worker/2` plus:
 
-  - `server_impl` - The GenServer module for the client (default: `KafkaEx.New.Client`)
+  - `server_impl` - The GenServer module for the client (default: `KafkaEx.Client`)
   """
   @spec start_link_worker(atom, [KafkaEx.worker_setting() | {:server_impl, module}]) ::
           GenServer.on_start()
@@ -128,7 +128,7 @@ defmodule KafkaEx do
   def build_worker_options(worker_init) do
     defaults = [
       uris: Config.brokers(),
-      consumer_group: Config.consumer_group(),
+      consumer_group: Config.default_consumer_group(),
       use_ssl: Config.use_ssl(),
       ssl_options: Config.ssl_options(),
       auth: Config.auth_config()

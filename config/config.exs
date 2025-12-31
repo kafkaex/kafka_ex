@@ -28,11 +28,12 @@ config :kafka_ex,
   # will invoke your callback when fetching the `:brokers` configuration.
   # Note that when using this approach you must return a list of host/port pairs.
   #
-  # the default consumer group for worker processes, must be a binary (string)
-  #    NOTE if you are on Kafka < 0.8.2 or if you want to disable the use of
-  #    consumer groups, set this to :no_consumer_group (this is the
-  #    only exception to the requirement that this value be a binary)
-  consumer_group: "kafka_ex",
+  # Default consumer group for worker processes, must be a binary (string)
+  # Set to :no_consumer_group to disable consumer group functionality
+  default_consumer_group: "kafka_ex",
+  # Partitioner for produce requests when partition is not specified
+  # Options: KafkaEx.DefaultPartitioner (default), KafkaEx.LegacyPartitioner
+  partitioner: KafkaEx.DefaultPartitioner,
   # The client_id is the logical grouping of a set of kafka clients.
   client_id: "kafka_ex",
   # Set this value to true if you do not want the default

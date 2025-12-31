@@ -1,4 +1,4 @@
-defmodule KafkaEx.CompressionTest do
+defmodule KafkaEx.Support.CompressionTest do
   use ExUnit.Case, async: true
 
   test "snappy decompression works with chunked messages" do
@@ -14,6 +14,6 @@ defmodule KafkaEx.CompressionTest do
 
     ## enable :snappyer module, and test it
     Application.put_env(:kafka_ex, :snappy_module, :snappyer)
-    assert expected == KafkaEx.Compression.decompress(2, data)
+    assert expected == KafkaEx.Support.Compression.decompress(2, data)
   end
 end

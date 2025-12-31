@@ -36,7 +36,7 @@ defmodule KafkaEx.Auth.SASL.VersionSupport do
   Currently validates:
   - PLAIN mechanism requires TLS for security
   """
-  @spec validate_config(KafkaEx.Auth.Config.t(), KafkaEx.Socket.t()) :: :ok | {:error, term()}
+  @spec validate_config(KafkaEx.Auth.Config.t(), KafkaEx.Network.Socket.t()) :: :ok | {:error, term()}
   def validate_config(%KafkaEx.Auth.Config{mechanism: :plain}, socket) when not socket.ssl do
     {:error, :plain_requires_tls}
   end

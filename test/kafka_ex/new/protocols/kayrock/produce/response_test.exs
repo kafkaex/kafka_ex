@@ -1,9 +1,9 @@
-defmodule KafkaEx.New.Protocols.Kayrock.Produce.ResponseTest do
+defmodule KafkaEx.Protocol.Kayrock.Produce.ResponseTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.New.Protocols.Kayrock.Produce.Response
-  alias KafkaEx.New.Protocols.Kayrock.Produce.ResponseHelpers
-  alias KafkaEx.New.Client.Error
+  alias KafkaEx.Protocol.Kayrock.Produce.Response
+  alias KafkaEx.Protocol.Kayrock.Produce.ResponseHelpers
+  alias KafkaEx.Client.Error
 
   describe "ResponseHelpers.extract_first_partition_response/1" do
     test "extracts first topic and partition" do
