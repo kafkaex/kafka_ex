@@ -1,4 +1,4 @@
-defmodule KafkaEx.Client.Test do
+defmodule KafkaEx.Integration.ClientTest do
   use ExUnit.Case
   import KafkaEx.TestHelpers
   import KafkaEx.IntegrationHelpers
@@ -14,7 +14,7 @@ defmodule KafkaEx.Client.Test do
   alias Kayrock.RecordBatch.Record
   alias Kayrock.RecordBatch.RecordHeader
 
-  @moduletag :new_client
+  @moduletag :integration
 
   setup do
     {:ok, args} = KafkaEx.build_worker_options([])

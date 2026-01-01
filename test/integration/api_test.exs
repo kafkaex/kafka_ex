@@ -1,4 +1,4 @@
-defmodule KafkaEx.APIIntegrationTest do
+defmodule KafkaEx.Integration.APITest do
   use ExUnit.Case, async: true
   import KafkaEx.TestHelpers
   import KafkaEx.IntegrationHelpers

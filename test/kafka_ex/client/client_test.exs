@@ -8,8 +8,6 @@ defmodule KafkaEx.ClientTest do
   alias KafkaEx.Cluster.Broker
   alias KafkaEx.Cluster.ClusterMetadata
 
-  @moduletag :new_client
-
   describe "handle_call/3 - offset_fetch" do
     test "returns error for invalid consumer group" do
       state = %State{consumer_group_for_auto_commit: :no_consumer_group}

@@ -72,11 +72,8 @@ defmodule KafkaEx do
     server_impl = Config.server_impl()
 
     case build_worker_options(worker_init) do
-      {:ok, worker_init} ->
-        KafkaEx.Supervisor.start_child(server_impl, [worker_init, name])
-
-      {:error, error} ->
-        {:error, error}
+      {:ok, worker_init} -> KafkaEx.Supervisor.start_child(server_impl, [worker_init, name])
+      {:error, error} -> {:error, error}
     end
   end
 
@@ -85,10 +82,7 @@ defmodule KafkaEx do
 
   Returns `:ok` on success or `{:error, reason}` on failure.
   """
-  @spec stop_worker(atom | pid) ::
-          :ok
-          | {:error, :not_found}
-          | {:error, :simple_one_for_one}
+  @spec stop_worker(atom | pid) :: :ok | {:error, :not_found} | {:error, :simple_one_for_one}
   def stop_worker(worker) do
     KafkaEx.Supervisor.stop_child(worker)
   end
@@ -110,8 +104,7 @@ defmodule KafkaEx do
 
   - `server_impl` - The GenServer module for the client (default: `KafkaEx.Client`)
   """
-  @spec start_link_worker(atom, [KafkaEx.worker_setting() | {:server_impl, module}]) ::
-          GenServer.on_start()
+  @spec start_link_worker(atom, [KafkaEx.worker_setting() | {:server_impl, module}]) :: GenServer.on_start()
   def start_link_worker(name, worker_init \\ []) do
     {server_impl, worker_init} = Keyword.pop(worker_init, :server_impl, Config.server_impl())
     {:ok, full_worker_init} = build_worker_options(worker_init)
@@ -123,8 +116,7 @@ defmodule KafkaEx do
 
   Returns `{:error, :invalid_consumer_group}` if consumer group is invalid.
   """
-  @spec build_worker_options(worker_init) ::
-          {:ok, worker_init} | {:error, :invalid_consumer_group}
+  @spec build_worker_options(worker_init) :: {:ok, worker_init} | {:error, :invalid_consumer_group}
   def build_worker_options(worker_init) do
     defaults = [
       uris: Config.brokers(),

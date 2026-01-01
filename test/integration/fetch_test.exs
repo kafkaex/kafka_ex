@@ -1,4 +1,4 @@
-defmodule KafkaEx.Integration.FetchKayrockTest do
+defmodule KafkaEx.Integration.FetchTest do
   use ExUnit.Case, async: true
   import KafkaEx.TestHelpers
   import KafkaEx.IntegrationHelpers
