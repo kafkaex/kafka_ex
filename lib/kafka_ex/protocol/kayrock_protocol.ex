@@ -5,6 +5,8 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
   and will become a separated package.
   """
 
+  alias KafkaEx.Protocol.Kayrock, as: KayrockProtocol
+
   alias Kayrock.ApiVersions
   alias Kayrock.CreateTopics
   alias Kayrock.DeleteTopics

@@ -8,11 +8,7 @@ defmodule KafkaEx.Messages.SyncGroup do
   alias KafkaEx.Messages.ConsumerGroupDescription.Member.MemberAssignment.PartitionAssignment
 
   defstruct [:throttle_time_ms, :partition_assignments]
-
-  @type t :: %__MODULE__{
-          throttle_time_ms: nil | non_neg_integer(),
-          partition_assignments: [PartitionAssignment.t()]
-        }
+  @type t :: %__MODULE__{throttle_time_ms: nil | non_neg_integer(), partition_assignments: [PartitionAssignment.t()]}
 
   @doc """
   Builds a SyncGroup struct from response data.

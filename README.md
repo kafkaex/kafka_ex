@@ -92,7 +92,7 @@ defmodule MyApp.Mixfile do
   defp deps do
     [
       # add to your existing deps
-      {:kafka_ex, "~> 0.11"},
+      {:kafka_ex, "~> 1.0"},
       # If using snappy-erlang-nif (snappy) compression
       {:snappy, git: "https://github.com/fdmanana/snappy-erlang-nif"}
       # if using snappyer (snappy) compression
@@ -130,11 +130,11 @@ Upgrade respectively to 21.3.8.15 or 22.3.2 to solve this.
 ### Consumer Groups
 
 To use a consumer group, first implement a handler module using
-`KafkaEx.GenConsumer`.
+`KafkaEx.Consumer.GenConsumer`.
 
 ```elixir
 defmodule ExampleGenConsumer do
-  use KafkaEx.GenConsumer
+  use KafkaEx.Consumer.GenConsumer
 
   require Logger
 
@@ -148,10 +148,10 @@ defmodule ExampleGenConsumer do
 end
 ```
 
-Then add a `KafkaEx.ConsumerGroup` to your application's supervision
+Then add a `KafkaEx.Consumer.ConsumerGroup` to your application's supervision
 tree and configure it to use the implementation module.
 
-See the `KafkaEx.GenConsumer` and `KafkaEx.ConsumerGroup` documentation for
+See the `KafkaEx.Consumer.GenConsumer` and `KafkaEx.Consumer.ConsumerGroup` documentation for
 details.
 
 ### Create a KafkaEx Worker
@@ -270,16 +270,16 @@ iex> KafkaEx.earliest_offset("foo", 0) # where 0 is the partition
 
 ```elixir
 iex> KafkaEx.API.fetch(client, "foo", 0, 5) # where 0 is the partition and 5 is the offset
-{:ok, %KafkaEx.New.Kafka.Fetch{
+{:ok, %KafkaEx.Messages.Fetch{
   topic: "foo",
   partition: 0,
   high_watermark: 115,
   records: [
-    %KafkaEx.New.Kafka.Fetch.Record{offset: 5, key: nil, value: "hey", ...},
-    %KafkaEx.New.Kafka.Fetch.Record{offset: 6, key: nil, value: "hey", ...},
-    %KafkaEx.New.Kafka.Fetch.Record{offset: 7, key: nil, value: "hey", ...},
-    %KafkaEx.New.Kafka.Fetch.Record{offset: 8, key: nil, value: "hey", ...},
-    %KafkaEx.New.Kafka.Fetch.Record{offset: 9, key: nil, value: "hey", ...}
+    %KafkaEx.Messages.Fetch.Record{offset: 5, key: nil, value: "hey", ...},
+    %KafkaEx.Messages.Fetch.Record{offset: 6, key: nil, value: "hey", ...},
+    %KafkaEx.Messages.Fetch.Record{offset: 7, key: nil, value: "hey", ...},
+    %KafkaEx.Messages.Fetch.Record{offset: 8, key: nil, value: "hey", ...},
+    %KafkaEx.Messages.Fetch.Record{offset: 9, key: nil, value: "hey", ...}
   ],
   last_offset: 9
 }}
@@ -416,7 +416,7 @@ To launch the included test cluster, run
 The `docker_up.sh` script will attempt to determine an IP address for your
 computer on an active network interface.
 
-The test cluster runs Kafka 0.11.0.1.
+The test cluster runs Kafka 2.8+.
 
 ### Running the KafkaEx Tests
 
@@ -481,4 +481,4 @@ It can be changed to snappy by using this:
 config :kafka_ex, snappy_module: :snappy
 ```
 
-Snappy erlang nif is deprecated and will be dropped 1.0.0 release.
+Note: The legacy snappy-erlang-nif package has been deprecated.

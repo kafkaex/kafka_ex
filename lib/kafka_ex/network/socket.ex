@@ -9,9 +9,7 @@ defmodule KafkaEx.Network.Socket do
 
   @doc """
   Creates a socket.
-
-  For more information about the available options, see `:ssl.connect/3` for ssl
-  or `:gen_tcp.connect/3` for non ssl.
+  For more information about the available options, see `:ssl.connect/3` for ssl or `:gen_tcp.connect/3` for non ssl.
   """
   @spec create(:inet.ip_address(), non_neg_integer, [] | [...]) :: {:ok, KafkaEx.Network.Socket.t()} | {:error, any}
   def create(host, port, socket_options \\ [], is_ssl \\ false) do
