@@ -1,8 +1,40 @@
 defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
-  @moduledoc false
+  @moduledoc """
+  Manages membership in a Kafka consumer group.
 
-  # actual consumer group management implementation
+  This module implements the Kafka consumer group protocol, handling:
 
+  - **Group Membership**: Joining and leaving consumer groups via JoinGroup/LeaveGroup requests
+  - **Partition Assignment**: Coordinating partition distribution among group members
+  - **Rebalancing**: Triggering rebalances when members join/leave or partitions change
+  - **Heartbeats**: Maintaining group membership through periodic heartbeat messages
+
+  ## Consumer Group Protocol Flow
+
+  1. **Join Phase**: Send `JoinGroupRequest` to group coordinator. The coordinator
+     blocks until all members have joined, then elects a leader.
+
+  2. **Sync Phase**: The leader computes partition assignments and sends them via
+     `SyncGroupRequest`. All members receive their assignments in the response.
+
+  3. **Consume Phase**: Members consume from assigned partitions while sending
+     periodic heartbeats to maintain membership.
+
+  4. **Rebalance**: When the coordinator signals a rebalance (via heartbeat response),
+     members stop consuming, commit offsets, and rejoin the group.
+
+  ## Options
+
+  The following options can be passed when starting a consumer group:
+
+  - `:heartbeat_interval` - Interval between heartbeats in ms (default: 5000)
+  - `:session_timeout` - Session timeout in ms (default: 30000)
+  - `:session_timeout_padding` - Extra time added to request timeouts (default: 10000)
+  - `:rebalance_timeout` - Time allowed for consumers to rejoin during rebalance (default: `session_timeout * 3`)
+  - `:partition_assignment_callback` - Function for custom partition assignment (default: round-robin)
+
+  Options can also be configured globally via application config under `:kafka_ex`.
+  """
   use GenServer
 
   alias KafkaEx.Consumer.ConsumerGroup
@@ -19,6 +51,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
       :heartbeat_interval,
       :session_timeout,
       :session_timeout_padding,
+      :rebalance_timeout,
       :gen_consumer_module,
       :consumer_module,
       :consumer_opts,
@@ -40,89 +73,65 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   @heartbeat_interval 5_000
   @session_timeout 30_000
   @session_timeout_padding 10_000
+  # Default rebalance_timeout multiplier (relative to session_timeout)
+  # In Java client, rebalance_timeout = max.poll.interval.ms (default 5 min)
+  # We use session_timeout * 3 as reasonable default
+  @rebalance_timeout_multiplier 3
   @max_join_retries 6
+
+  # Gets a value from opts, falling back to application config, then to default
+  defp get_with_default(opts, key, default) do
+    Keyword.get(opts, key, Application.get_env(:kafka_ex, key, default))
+  end
 
   @type assignments :: [{binary(), integer()}]
 
   # Client API
 
   @doc false
-  # use `KafkaEx.Consumer.ConsumerGroup.start_link/4` instead
-  @spec start_link({
-          {module, module},
-          binary,
-          [binary],
-          KafkaEx.GenConsumer.options()
-        }) :: GenServer.on_start()
-  def start_link({
-        {gen_consumer_module, consumer_module},
-        group_name,
-        topics,
-        opts
-      }) do
+  @spec start_link({{module, module}, binary, [binary], KafkaEx.GenConsumer.options()}) :: GenServer.on_start()
+  def start_link({{gen_consumer_module, consumer_module}, group_name, topics, opts}) do
     gen_server_opts = Keyword.get(opts, :gen_server_opts, [])
     consumer_opts = Keyword.drop(opts, [:gen_server_opts])
-
-    GenServer.start_link(
-      __MODULE__,
-      {{gen_consumer_module, consumer_module}, group_name, topics, consumer_opts},
-      gen_server_opts
-    )
+    opts = {{gen_consumer_module, consumer_module}, group_name, topics, consumer_opts}
+    GenServer.start_link(__MODULE__, opts, gen_server_opts)
   end
 
   # GenServer callbacks
 
   def init({{gen_consumer_module, consumer_module}, group_name, topics, opts}) do
-    heartbeat_interval =
-      Keyword.get(
-        opts,
-        :heartbeat_interval,
-        Application.get_env(:kafka_ex, :heartbeat_interval, @heartbeat_interval)
-      )
-
-    session_timeout =
-      Keyword.get(
-        opts,
-        :session_timeout,
-        Application.get_env(:kafka_ex, :session_timeout, @session_timeout)
-      )
-
-    session_timeout_padding =
-      Keyword.get(
-        opts,
-        :session_timeout_padding,
-        Application.get_env(
-          :kafka_ex,
-          :session_timeout_padding,
-          @session_timeout_padding
-        )
-      )
+    heartbeat_interval = get_with_default(opts, :heartbeat_interval, @heartbeat_interval)
+    session_timeout = get_with_default(opts, :session_timeout, @session_timeout)
+    session_timeout_padding = get_with_default(opts, :session_timeout_padding, @session_timeout_padding)
+    # rebalance_timeout: time allowed for consumers to rejoin during rebalance
+    # Default to session_timeout * multiplier if not provided
+    rebalance_timeout = get_with_default(opts, :rebalance_timeout, session_timeout * @rebalance_timeout_multiplier)
 
     partition_assignment_callback =
-      Keyword.get(
-        opts,
-        :partition_assignment_callback,
-        &PartitionAssignment.round_robin/2
-      )
+      Keyword.get(opts, :partition_assignment_callback, &PartitionAssignment.round_robin/2)
 
     supervisor_pid = Keyword.fetch!(opts, :supervisor_pid)
 
     consumer_opts =
-      Keyword.drop(
-        opts,
-        [
-          :supervisor_pid,
-          :heartbeat_interval,
-          :session_timeout,
-          :partition_assignment_callback
-        ]
-      )
+      Keyword.drop(opts, [
+        :supervisor_pid,
+        :heartbeat_interval,
+        :session_timeout,
+        :session_timeout_padding,
+        :rebalance_timeout,
+        :partition_assignment_callback
+      ])
 
+    # Use Config defaults for connection options if not provided
     client_opts =
-      opts
-      |> Keyword.take([:uris, :use_ssl, :ssl_options, :auth])
-      |> Keyword.put(:consumer_group, group_name)
-      |> Keyword.put(:initial_topics, topics)
+      [
+        uris: Keyword.get(opts, :uris, KafkaEx.Config.brokers()),
+        use_ssl: Keyword.get(opts, :use_ssl, KafkaEx.Config.use_ssl()),
+        ssl_options: Keyword.get(opts, :ssl_options, KafkaEx.Config.ssl_options()),
+        auth: Keyword.get(opts, :auth, KafkaEx.Config.auth_config()),
+        consumer_group: group_name,
+        initial_topics: topics
+      ]
 
     {:ok, client} = KafkaEx.Client.start_link(client_opts, :no_name)
 
@@ -132,6 +141,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
       heartbeat_interval: heartbeat_interval,
       session_timeout: session_timeout,
       session_timeout_padding: session_timeout_padding,
+      rebalance_timeout: rebalance_timeout,
       consumer_module: consumer_module,
       gen_consumer_module: gen_consumer_module,
       partition_assignment_callback: partition_assignment_callback,
@@ -181,29 +191,19 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   # If `member_id` and `generation_id` aren't set, we haven't yet joined the
   # group. `member_id` and `generation_id` are initialized by
   # `JoinGroupResponse`.
-  def handle_info(
-        :timeout,
-        %State{generation_id: nil, member_id: nil} = state
-      ) do
+  def handle_info(:timeout, %State{generation_id: nil, member_id: nil} = state) do
     {:ok, new_state} = join(state)
-
     {:noreply, new_state}
   end
 
   # If the heartbeat gets an error, we need to rebalance.
-  def handle_info(
-        {:EXIT, heartbeat_timer, {:shutdown, :rebalance}},
-        %State{heartbeat_timer: heartbeat_timer} = state
-      ) do
+  def handle_info({:EXIT, timer, {:shutdown, :rebalance}}, %State{heartbeat_timer: timer} = state) do
     {:ok, state} = rebalance(state)
     {:noreply, state}
   end
 
   # If the heartbeat gets an unrecoverable error.
-  def handle_info(
-        {:EXIT, _heartbeat_timer, {:shutdown, {:error, reason}}},
-        %State{} = state
-      ) do
+  def handle_info({:EXIT, _heartbeat_timer, {:shutdown, {:error, reason}}}, %State{} = state) do
     {:stop, {:shutdown, {:error, reason}}, state}
   end
 
@@ -248,6 +248,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
            client: client,
            session_timeout: session_timeout,
            session_timeout_padding: session_timeout_padding,
+           rebalance_timeout: rebalance_timeout,
            group_name: group_name,
            topics: topics,
            member_id: member_id
@@ -257,6 +258,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     opts = [
       topics: topics,
       session_timeout: session_timeout,
+      rebalance_timeout: rebalance_timeout,
       timeout: session_timeout + session_timeout_padding
     ]
 
@@ -265,13 +267,12 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     # crash the client if we receive an error, but do it with a meaningful
     # error message
     case join_response do
-      {:ok, %{error_code: :no_error} = response} ->
+      {:ok, %KafkaEx.Messages.JoinGroup{} = response} ->
         on_successful_join(state, response)
 
       {:error, :no_broker} ->
         if attempt_number >= @max_join_retries do
-          raise "Unable to join consumer group #{state.group_name} after " <>
-                  "#{@max_join_retries} attempts"
+          raise "Unable to join consumer group #{state.group_name} after #{@max_join_retries} attempts"
         end
 
         Logger.warning(
@@ -282,21 +283,15 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
         :timer.sleep(1000)
         join(state, attempt_number + 1)
 
-      {:ok, %{error_code: error_code}} ->
-        raise "Error joining consumer group #{group_name}: " <>
-                "#{inspect(error_code)}"
-
       {:error, reason} ->
-        raise "Error joining consumer group #{group_name}: " <>
-                "#{inspect(reason)}"
+        raise "Error joining consumer group #{group_name}: #{inspect(reason)}"
     end
   end
 
   defp on_successful_join(state, join_response) do
-    Logger.debug(fn ->
-      "Joined consumer group #{state.group_name} generation " <>
-        "#{join_response.generation_id} as #{join_response.member_id}"
-    end)
+    Logger.debug(
+      "Joined consumer group #{state.group_name} generation:#{join_response.generation_id}-#{join_response.member_id}"
+    )
 
     new_state = %State{
       state
@@ -305,18 +300,14 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
         generation_id: join_response.generation_id
     }
 
-    # Check if this member is the leader (leader_id matches member_id)
     is_leader = join_response.leader_id == join_response.member_id
 
     assignments =
       if is_leader do
-        # Leader is responsible for assigning partitions to all group members.
         partitions = assignable_partitions(new_state)
-        # Extract member IDs from the members list
         member_ids = Enum.map(join_response.members, & &1.member_id)
         assign_partitions(new_state, member_ids, partitions)
       else
-        # Follower does not assign partitions; must be empty.
         []
       end
 
@@ -345,51 +336,34 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
          } = state,
          assignments
        ) do
-    # Convert assignments to Kayrock format
-    group_assignment = format_assignments_for_kayrock(assignments)
+    # Convert assignments to protocol-agnostic format (protocol layer handles Kayrock conversion)
+    group_assignment = format_assignments_for_sync_group(assignments)
+    opts = [group_assignment: group_assignment, timeout: session_timeout + session_timeout_padding]
 
-    opts = [
-      group_assignment: group_assignment,
-      timeout: session_timeout + session_timeout_padding
-    ]
-
-    {:ok, sync_response} =
-      KafkaExAPI.sync_group(client, group_name, generation_id, member_id, opts)
-
-    case sync_response.error_code do
-      :no_error ->
-        # On a high-latency connection, the join/sync process takes a long
-        # time. Send a heartbeat as soon as possible to avoid hitting the
-        # session timeout.
+    case KafkaExAPI.sync_group(client, group_name, generation_id, member_id, opts) do
+      {:ok, sync_response} ->
         {:ok, state} = start_heartbeat_timer(state)
         {:ok, state} = stop_consumer(state)
-        # Convert partition_assignments to the format expected by start_consumer
         consumer_assignments = extract_consumer_assignments(sync_response.partition_assignments)
         start_consumer(state, consumer_assignments)
 
-      :rebalance_in_progress ->
+      {:error, :rebalance_in_progress} ->
         rebalance(state)
+
+      {:error, reason} ->
+        raise "Error syncing consumer group #{group_name}: #{inspect(reason)}"
     end
   end
 
-  # Convert assignments from Manager format to Kayrock format for sync_group request
+  # Convert assignments from Manager format to protocol-agnostic format for sync_group request
   # Input: [{member_id, [{topic, [partition_ids]}]}]
-  # Output: [%{member_id: ..., member_assignment: %Kayrock.MemberAssignment{...}}]
-  defp format_assignments_for_kayrock(assignments) do
+  # Output: [%{member_id: ..., topic_partitions: [{topic, [partitions]}]}]
+  # The protocol layer handles conversion to Kayrock structs
+  defp format_assignments_for_sync_group(assignments) do
     Enum.map(assignments, fn {member_id, topic_partitions} ->
       %{
         member_id: member_id,
-        member_assignment: %Kayrock.MemberAssignment{
-          version: 0,
-          partition_assignments:
-            Enum.map(topic_partitions, fn {topic, partitions} ->
-              %Kayrock.MemberAssignment.PartitionAssignment{
-                topic: topic,
-                partitions: partitions
-              }
-            end),
-          user_data: ""
-        }
+        topic_partitions: topic_partitions
       }
     end)
   end
@@ -409,33 +383,13 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   # broker that the member is leaving the group without having to wait for the
   # session timeout to expire. Leaving a group triggers a rebalance for the
   # remaining group members.
-  defp leave(
-         %State{
-           client: client,
-           group_name: group_name,
-           member_id: member_id
-         } = state
-       ) do
-    leave_group_response = KafkaExAPI.leave_group(client, group_name, member_id)
-
-    case leave_group_response do
-      {:ok, :no_error} ->
-        Logger.debug(fn -> "Left consumer group #{group_name}" end)
-
-      {:ok, %{error_code: :no_error}} ->
-        Logger.debug(fn -> "Left consumer group #{group_name}" end)
-
-      {:ok, %{error_code: error_code}} ->
-        Logger.warning(fn ->
-          "Received error #{inspect(error_code)}, " <>
-            "consumer group manager will exit regardless."
-        end)
+  defp leave(%State{client: client, group_name: group_name, member_id: member_id} = state) do
+    case KafkaExAPI.leave_group(client, group_name, member_id) do
+      {:ok, %KafkaEx.Messages.LeaveGroup{}} ->
+        Logger.debug("Left consumer group #{group_name}")
 
       {:error, reason} ->
-        Logger.warning(fn ->
-          "Received error #{inspect(reason)}, " <>
-            "consumer group manager will exit regardless."
-        end)
+        Logger.warning("Received error #{inspect(reason)}, consumer group manager will exit regardless.")
     end
 
     {:ok, state}
@@ -458,13 +412,10 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   # messages.
   defp start_heartbeat_timer(%State{} = state) do
     {:ok, timer} = Heartbeat.start_link(state)
-
     {:ok, %State{state | heartbeat_timer: timer}}
   end
 
-  # Stops the heartbeat process.
-  defp stop_heartbeat_timer(%State{heartbeat_timer: nil} = state),
-    do: {:ok, state}
+  defp stop_heartbeat_timer(%State{heartbeat_timer: nil} = state), do: {:ok, state}
 
   defp stop_heartbeat_timer(%State{heartbeat_timer: heartbeat_timer} = state) do
     if Process.alive?(heartbeat_timer) do
@@ -491,11 +442,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
          assignments
        ) do
     # add member_id and generation_id to the consumer opts
-    consumer_opts =
-      Keyword.merge(consumer_opts,
-        generation_id: generation_id,
-        member_id: member_id
-      )
+    consumer_opts = Keyword.merge(consumer_opts, generation_id: generation_id, member_id: member_id)
 
     {:ok, consumer_supervisor_pid} =
       ConsumerGroup.start_consumer(
@@ -548,7 +495,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
 
   # Extract partition IDs for a topic from cluster metadata
   defp get_partitions_for_topic(cluster_metadata, topic_name) do
-    case Enum.find(cluster_metadata.topics, fn t -> t.name == topic_name end) do
+    case Map.get(cluster_metadata.topics, topic_name) do
       nil -> []
       topic -> Enum.map(topic.partitions, & &1.partition_id)
     end
@@ -568,25 +515,13 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   # of topic/partition tuples, obtained from `assignable_partitions/1`. The
   # return value is a complete list of member assignments in the format needed
   # by `SyncGroupResponse`.
-  defp assign_partitions(
-         %State{partition_assignment_callback: partition_assignment_callback},
-         members,
-         partitions
-       ) do
+  defp assign_partitions(%State{partition_assignment_callback: partition_assignment_callback}, members, partitions) do
     # Delegate partition assignment to GenConsumer module.
-    assignments = partition_assignment_callback.(members, partitions)
+    assignments = partition_assignment_callback.(members, partitions) |> Map.new()
 
-    # Convert assignments to format expected by Kafka protocol.
-    packed_assignments =
-      Enum.map(assignments, fn {member, topic_partitions} ->
-        {member, pack_assignments(topic_partitions)}
-      end)
-
-    assignments_map = Enum.into(packed_assignments, %{})
-
-    # Fill in empty assignments for missing member IDs.
+    # Convert assignments to protocol format, filling in empty assignments for missing members.
     Enum.map(members, fn member ->
-      {member, Map.get(assignments_map, member, [])}
+      {member, pack_assignments(Map.get(assignments, member, []))}
     end)
   end
 

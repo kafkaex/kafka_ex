@@ -3,6 +3,307 @@ defmodule KafkaEx.Client.RequestBuilderTest do
 
   alias KafkaEx.Client.RequestBuilder
 
+  describe "api_versions_request/2" do
+    test "returns request for ApiVersions API v0" do
+      state = %KafkaEx.Client.State{api_versions: %{18 => {0, 1}}}
+
+      {:ok, request} = RequestBuilder.api_versions_request([api_version: 0], state)
+
+      assert match?(%Kayrock.ApiVersions.V0.Request{}, request)
+    end
+
+    test "returns request for ApiVersions API v1" do
+      state = %KafkaEx.Client.State{api_versions: %{18 => {0, 1}}}
+
+      {:ok, request} = RequestBuilder.api_versions_request([api_version: 1], state)
+
+      assert match?(%Kayrock.ApiVersions.V1.Request{}, request)
+    end
+
+    test "uses default version when not specified" do
+      state = %KafkaEx.Client.State{api_versions: %{18 => {0, 1}}}
+
+      {:ok, request} = RequestBuilder.api_versions_request([], state)
+
+      # Default is v0 per @default_api_version
+      assert match?(%Kayrock.ApiVersions.V0.Request{}, request)
+    end
+
+    test "returns error when api version is not supported" do
+      state = %KafkaEx.Client.State{api_versions: %{18 => {0, 0}}}
+
+      {:error, error_value} = RequestBuilder.api_versions_request([api_version: 2], state)
+
+      assert error_value == :api_version_no_supported
+    end
+  end
+
+  describe "metadata_request/2" do
+    test "returns request for Metadata API with specific topics" do
+      state = %KafkaEx.Client.State{api_versions: %{3 => {0, 2}}}
+      topics = ["topic1", "topic2"]
+
+      {:ok, request} = RequestBuilder.metadata_request([topics: topics], state)
+
+      assert match?(%Kayrock.Metadata.V1.Request{}, request)
+      assert request.topics == topics
+    end
+
+    test "returns request for Metadata API v0" do
+      state = %KafkaEx.Client.State{api_versions: %{3 => {0, 2}}}
+      topics = ["test-topic"]
+
+      {:ok, request} = RequestBuilder.metadata_request([topics: topics, api_version: 0], state)
+
+      assert match?(%Kayrock.Metadata.V0.Request{}, request)
+      assert request.topics == topics
+    end
+
+    test "returns request for Metadata API v2" do
+      state = %KafkaEx.Client.State{api_versions: %{3 => {0, 2}}}
+      topics = ["topic-a", "topic-b"]
+
+      {:ok, request} = RequestBuilder.metadata_request([topics: topics, api_version: 2], state)
+
+      assert match?(%Kayrock.Metadata.V2.Request{}, request)
+      assert request.topics == topics
+    end
+
+    test "returns request for all topics when topics is nil" do
+      state = %KafkaEx.Client.State{api_versions: %{3 => {0, 2}}}
+
+      {:ok, request} = RequestBuilder.metadata_request([topics: nil], state)
+
+      # V1+ uses nil for all topics
+      assert request.topics == nil
+    end
+
+    test "returns request for all topics when topics not provided" do
+      state = %KafkaEx.Client.State{api_versions: %{3 => {0, 2}}}
+
+      {:ok, request} = RequestBuilder.metadata_request([], state)
+
+      assert request.topics == nil
+    end
+
+    test "returns error when api version is not supported" do
+      state = %KafkaEx.Client.State{api_versions: %{3 => {0, 1}}}
+
+      {:error, error_value} = RequestBuilder.metadata_request([topics: ["topic"], api_version: 5], state)
+
+      assert error_value == :api_version_no_supported
+    end
+  end
+
+  describe "find_coordinator_request/2" do
+    test "returns request for FindCoordinator API v0" do
+      state = %KafkaEx.Client.State{api_versions: %{10 => {0, 1}}}
+      group_id = "test-group"
+
+      {:ok, request} = RequestBuilder.find_coordinator_request([group_id: group_id, api_version: 0], state)
+
+      assert match?(%Kayrock.FindCoordinator.V0.Request{}, request)
+      assert request.group_id == group_id
+    end
+
+    test "returns request for FindCoordinator API v1 (default)" do
+      state = %KafkaEx.Client.State{api_versions: %{10 => {0, 1}}}
+      group_id = "consumer-group"
+
+      {:ok, request} = RequestBuilder.find_coordinator_request([group_id: group_id], state)
+
+      assert match?(%Kayrock.FindCoordinator.V1.Request{}, request)
+      assert request.coordinator_key == group_id
+      assert request.coordinator_type == 0
+    end
+
+    test "returns request for FindCoordinator API v1 with transaction coordinator" do
+      state = %KafkaEx.Client.State{api_versions: %{10 => {0, 1}}}
+
+      {:ok, request} =
+        RequestBuilder.find_coordinator_request(
+          [coordinator_key: "my-transactional-id", coordinator_type: 1],
+          state
+        )
+
+      assert match?(%Kayrock.FindCoordinator.V1.Request{}, request)
+      assert request.coordinator_key == "my-transactional-id"
+      assert request.coordinator_type == 1
+    end
+
+    test "returns error when api version is not supported" do
+      state = %KafkaEx.Client.State{api_versions: %{10 => {0, 1}}}
+
+      {:error, error_value} =
+        RequestBuilder.find_coordinator_request([group_id: "group", api_version: 3], state)
+
+      assert error_value == :api_version_no_supported
+    end
+  end
+
+  describe "create_topics_request/2" do
+    test "returns request for CreateTopics API v0" do
+      state = %KafkaEx.Client.State{api_versions: %{19 => {0, 2}}}
+
+      topics = [
+        %{topic: "new-topic", num_partitions: 3, replication_factor: 1}
+      ]
+
+      {:ok, request} =
+        RequestBuilder.create_topics_request(
+          [topics: topics, timeout: 30_000, api_version: 0],
+          state
+        )
+
+      assert match?(%Kayrock.CreateTopics.V0.Request{}, request)
+      assert request.timeout == 30_000
+      assert length(request.create_topic_requests) == 1
+    end
+
+    test "returns request for CreateTopics API v1 (default)" do
+      state = %KafkaEx.Client.State{api_versions: %{19 => {0, 2}}}
+
+      topics = [
+        %{topic: "topic-a", num_partitions: 1, replication_factor: 1},
+        %{topic: "topic-b", num_partitions: 2, replication_factor: 2}
+      ]
+
+      {:ok, request} =
+        RequestBuilder.create_topics_request(
+          [topics: topics, timeout: 15_000],
+          state
+        )
+
+      assert match?(%Kayrock.CreateTopics.V1.Request{}, request)
+      assert request.timeout == 15_000
+      assert length(request.create_topic_requests) == 2
+    end
+
+    test "returns request for CreateTopics API v1 with validate_only" do
+      state = %KafkaEx.Client.State{api_versions: %{19 => {0, 2}}}
+
+      topics = [%{topic: "validate-topic", num_partitions: 1, replication_factor: 1}]
+
+      {:ok, request} =
+        RequestBuilder.create_topics_request(
+          [topics: topics, timeout: 10_000, validate_only: true],
+          state
+        )
+
+      assert match?(%Kayrock.CreateTopics.V1.Request{}, request)
+      assert request.validate_only == true
+    end
+
+    test "returns request with topic config entries" do
+      state = %KafkaEx.Client.State{api_versions: %{19 => {0, 2}}}
+
+      topics = [
+        %{
+          topic: "configured-topic",
+          num_partitions: 1,
+          replication_factor: 1,
+          config_entries: [
+            %{config_name: "cleanup.policy", config_value: "compact"},
+            %{config_name: "retention.ms", config_value: "86400000"}
+          ]
+        }
+      ]
+
+      {:ok, request} =
+        RequestBuilder.create_topics_request(
+          [topics: topics, timeout: 30_000],
+          state
+        )
+
+      [topic_config] = request.create_topic_requests
+      assert length(topic_config.config_entries) == 2
+    end
+
+    test "returns error when api version is not supported" do
+      state = %KafkaEx.Client.State{api_versions: %{19 => {0, 1}}}
+
+      topics = [%{topic: "topic", num_partitions: 1, replication_factor: 1}]
+
+      {:error, error_value} =
+        RequestBuilder.create_topics_request(
+          [topics: topics, timeout: 30_000, api_version: 5],
+          state
+        )
+
+      assert error_value == :api_version_no_supported
+    end
+  end
+
+  describe "delete_topics_request/2" do
+    test "returns request for DeleteTopics API v0" do
+      state = %KafkaEx.Client.State{api_versions: %{20 => {0, 1}}}
+      topics = ["topic-to-delete"]
+
+      {:ok, request} =
+        RequestBuilder.delete_topics_request(
+          [topics: topics, timeout: 30_000, api_version: 0],
+          state
+        )
+
+      assert match?(%Kayrock.DeleteTopics.V0.Request{}, request)
+      assert request.topics == topics
+      assert request.timeout == 30_000
+    end
+
+    test "returns request for DeleteTopics API v1 (default)" do
+      state = %KafkaEx.Client.State{api_versions: %{20 => {0, 1}}}
+      topics = ["delete-me-1", "delete-me-2"]
+
+      {:ok, request} =
+        RequestBuilder.delete_topics_request(
+          [topics: topics, timeout: 15_000],
+          state
+        )
+
+      assert match?(%Kayrock.DeleteTopics.V1.Request{}, request)
+      assert request.topics == topics
+      assert request.timeout == 15_000
+    end
+
+    test "handles single topic deletion" do
+      state = %KafkaEx.Client.State{api_versions: %{20 => {0, 1}}}
+
+      {:ok, request} =
+        RequestBuilder.delete_topics_request(
+          [topics: ["single-topic"], timeout: 30_000],
+          state
+        )
+
+      assert request.topics == ["single-topic"]
+    end
+
+    test "handles multiple topics deletion" do
+      state = %KafkaEx.Client.State{api_versions: %{20 => {0, 1}}}
+      topics = ["topic-1", "topic-2", "topic-3", "topic-4"]
+
+      {:ok, request} =
+        RequestBuilder.delete_topics_request(
+          [topics: topics, timeout: 60_000],
+          state
+        )
+
+      assert length(request.topics) == 4
+      assert request.timeout == 60_000
+    end
+
+    test "returns error when api version is not supported" do
+      state = %KafkaEx.Client.State{api_versions: %{20 => {0, 0}}}
+
+      {:error, error_value} =
+        RequestBuilder.delete_topics_request(
+          [topics: ["topic"], timeout: 30_000, api_version: 3],
+          state
+        )
+
+      assert error_value == :api_version_no_supported
+    end
+  end
+
   describe "describe_groups_request/2" do
     test "returns request for DescribeGroups API" do
       state = %KafkaEx.Client.State{api_versions: %{15 => {0, 1}}}

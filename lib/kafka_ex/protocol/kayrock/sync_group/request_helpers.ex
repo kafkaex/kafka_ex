@@ -13,11 +13,13 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.RequestHelpers do
           group_assignment: [map()]
         }
   def extract_common_fields(opts) do
+    raw_assignment = Keyword.get(opts, :group_assignment, [])
+
     %{
       group_id: Keyword.fetch!(opts, :group_id),
       generation_id: Keyword.fetch!(opts, :generation_id),
       member_id: Keyword.fetch!(opts, :member_id),
-      group_assignment: Keyword.get(opts, :group_assignment, [])
+      group_assignment: convert_group_assignment(raw_assignment)
     }
   end
 
@@ -39,5 +41,41 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.RequestHelpers do
     |> Map.put(:generation_id, generation_id)
     |> Map.put(:member_id, member_id)
     |> Map.put(:group_assignment, group_assignment)
+  end
+
+  # Converts group assignment from protocol-agnostic format to Kayrock structs.
+  # Accepts multiple input formats for flexibility:
+  # 1. Already Kayrock format (passthrough): [%{member_id: ..., member_assignment: %Kayrock.MemberAssignment{}}]
+  # 2. Simple format: [%{member_id: ..., topic_partitions: [{topic, [partitions]}]}]
+  defp convert_group_assignment(assignments) when is_list(assignments) do
+    Enum.map(assignments, &convert_member_assignment/1)
+  end
+
+  defp convert_member_assignment(%{member_id: _member_id, member_assignment: %Kayrock.MemberAssignment{}} = assignment) do
+    # Already in Kayrock format, passthrough
+    assignment
+  end
+
+  defp convert_member_assignment(%{member_id: member_id, topic_partitions: topic_partitions}) do
+    # Convert from simple format to Kayrock format
+    %{
+      member_id: member_id,
+      member_assignment: %Kayrock.MemberAssignment{
+        version: 0,
+        partition_assignments:
+          Enum.map(topic_partitions, fn {topic, partitions} ->
+            %Kayrock.MemberAssignment.PartitionAssignment{
+              topic: topic,
+              partitions: partitions
+            }
+          end),
+        user_data: ""
+      }
+    }
+  end
+
+  defp convert_member_assignment(%{member_id: _} = assignment) do
+    # Other map format, passthrough (handles edge cases)
+    assignment
   end
 end

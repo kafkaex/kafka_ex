@@ -2,8 +2,6 @@ defmodule KafkaEx.Auth.SASL.CodecBinaryTest do
   use ExUnit.Case, async: true
   alias KafkaEx.Auth.SASL.CodecBinary
 
-  @moduletag :sasl
-
   describe "api_versions_request/3" do
     test "builds correct request with default client_id" do
       corr = 123

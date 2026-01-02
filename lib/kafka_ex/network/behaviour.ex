@@ -23,10 +23,8 @@ defmodule KafkaEx.Network.Behaviour do
   Creates a socket to the given host and port.
   """
   @callback create_socket(host, host_port) :: kafka_ex_socket | nil
-  @callback create_socket(host, host_port, KafkaEx.ssl_options()) ::
-              kafka_ex_socket | nil
-  @callback create_socket(host, host_port, KafkaEx.ssl_options(), use_ssl) ::
-              kafka_ex_socket | nil
+  @callback create_socket(host, host_port, KafkaEx.ssl_options()) :: kafka_ex_socket | nil
+  @callback create_socket(host, host_port, KafkaEx.ssl_options(), use_ssl) :: kafka_ex_socket | nil
 
   @callback create_socket(host, host_port, KafkaEx.ssl_options(), use_ssl, auth :: KafkaEx.Auth.Config.t() | nil) ::
               kafka_ex_socket | nil
@@ -39,14 +37,12 @@ defmodule KafkaEx.Network.Behaviour do
   @doc """
   Send request asynchronously to broker.
   """
-  @callback send_async_request(kafka_ex_broker, request_data) ::
-              :ok | {:error, :closed | :inet.posix()}
+  @callback send_async_request(kafka_ex_broker, request_data) :: :ok | {:error, :closed | :inet.posix()}
 
   @doc """
   Send request synchronously to broker.
   """
-  @callback send_sync_request(kafka_ex_broker, iodata, timeout) ::
-              response_data | {:error, any()}
+  @callback send_sync_request(kafka_ex_broker, iodata, timeout) :: response_data | {:error, any()}
 
   @doc """
   Returns the host in Erlang IP address format if the host is an IP address.

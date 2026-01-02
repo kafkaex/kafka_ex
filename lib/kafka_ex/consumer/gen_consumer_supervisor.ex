@@ -61,7 +61,12 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
     start_link_result =
       DynamicSupervisor.start_link(
         __MODULE__,
-        {{gen_consumer_module, consumer_module}, group_name, assignments, opts}
+        {
+          {gen_consumer_module, consumer_module},
+          group_name,
+          assignments,
+          opts
+        }
       )
 
     child_spec_builder = fn topic, partition ->
@@ -100,12 +105,7 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
           ],
           KafkaEx.GenConsumer.options()
         ) :: Elixir.Supervisor.on_start()
-  def start_link(
-        {gen_consumer_module, consumer_module},
-        group_name,
-        assignments,
-        opts \\ []
-      ) do
+  def start_link({gen_consumer_module, consumer_module}, group_name, assignments, opts \\ []) do
     start_link(%{
       gen_consumer_module: gen_consumer_module,
       consumer_module: consumer_module,

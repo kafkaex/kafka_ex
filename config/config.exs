@@ -32,8 +32,8 @@ config :kafka_ex,
   # Set to :no_consumer_group to disable consumer group functionality
   default_consumer_group: "kafka_ex",
   # Partitioner for produce requests when partition is not specified
-  # Options: KafkaEx.DefaultPartitioner (default), KafkaEx.LegacyPartitioner
-  partitioner: KafkaEx.DefaultPartitioner,
+  # Options: KafkaEx.Producer.Partitioner.Default (default), KafkaEx.Producer.Partitioner.Legacy
+  partitioner: KafkaEx.Producer.Partitioner.Default,
   # The client_id is the logical grouping of a set of kafka clients.
   client_id: "kafka_ex",
   # Set this value to true if you do not want the default
