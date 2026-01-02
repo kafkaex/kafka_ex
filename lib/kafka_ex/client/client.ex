@@ -791,6 +791,32 @@ defmodule KafkaEx.Client do
     end)
   end
 
+  @max_reconnect_attempts 3
+  defp ensure_any_broker_connected(state) do
+    brokers = State.brokers(state)
+    connected = Enum.filter(brokers, &Broker.connected?/1)
+
+    if Enum.empty?(connected) do
+      brokers_to_try = Enum.take(brokers, @max_reconnect_attempts)
+      reconnect_any_broker(brokers_to_try, state)
+    else
+      {state, connected}
+    end
+  end
+
+  defp reconnect_any_broker([], state), do: {state, []}
+
+  defp reconnect_any_broker([broker | rest], state) do
+    reconnected = reconnect_broker(broker, state)
+
+    if Broker.connected?(reconnected) do
+      updated_state = update_broker_in_state(state, reconnected)
+      {updated_state, [reconnected]}
+    else
+      reconnect_any_broker(rest, state)
+    end
+  end
+
   defp broker_for_partition_with_update(state, topic, partition) do
     node = NodeSelector.topic_partition(topic, partition)
     select_broker_with_update(state, node, &update_metadata(&1, [topic]))
@@ -833,14 +859,9 @@ defmodule KafkaEx.Client do
 
   defp first_broker_response(request, [broker | rest], timeout, _last_error) do
     case try_broker(broker, request, timeout) do
-      nil ->
-        first_broker_response(request, rest, timeout, {:error, :broker_failed})
-
-      {:error, _} = error ->
-        first_broker_response(request, rest, timeout, error)
-
-      response ->
-        response
+      nil -> first_broker_response(request, rest, timeout, {:error, :broker_failed})
+      {:error, _} = error -> first_broker_response(request, rest, timeout, error)
+      response -> response
     end
   end
 
@@ -917,7 +938,14 @@ defmodule KafkaEx.Client do
   end
 
   defp get_send_request_function(%NodeSelector{strategy: :first_available}, state, network_timeout, _synchronous) do
-    {fn wire_request -> first_broker_response(wire_request, State.brokers(state), network_timeout) end, state}
+    # Ensure at least one broker is connected before trying to send
+    {updated_state, connected_brokers} = ensure_any_broker_connected(state)
+
+    if Enum.empty?(connected_brokers) do
+      {:no_broker, updated_state}
+    else
+      {fn wire_request -> first_broker_response(wire_request, connected_brokers, network_timeout) end, updated_state}
+    end
   end
 
   defp get_send_request_function(

@@ -4,7 +4,10 @@ ExUnit.start()
 ExUnit.configure(
   timeout: 120 * 1000,
   exclude: [
-    integration: true,
-    sasl: true
+    auth: true,
+    consume: true,
+    consumer_group: true,
+    lifecycle: true,
+    produce: true
   ]
 )

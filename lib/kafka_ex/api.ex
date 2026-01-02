@@ -496,7 +496,10 @@ defmodule KafkaEx.API do
   @spec join_group(client, consumer_group_name, member_id) :: {:ok, JoinGroup.t()} | {:error, error_atom}
   @spec join_group(client, consumer_group_name, member_id, opts) :: {:ok, JoinGroup.t()} | {:error, error_atom}
   def join_group(client, consumer_group, member_id, opts \\ []) do
-    case GenServer.call(client, {:join_group, consumer_group, member_id, opts}) do
+    timeout = Keyword.get(opts, :timeout, Keyword.get(opts, :rebalance_timeout, 60_000) + 10_000)
+    call_opts = Keyword.delete(opts, :timeout)
+
+    case GenServer.call(client, {:join_group, consumer_group, member_id, call_opts}, timeout) do
       {:ok, result} -> {:ok, result}
       {:error, %{error: error_atom}} -> {:error, error_atom}
       {:error, error_atom} -> {:error, error_atom}
@@ -519,7 +522,11 @@ defmodule KafkaEx.API do
   @spec sync_group(client, consumer_group_name, generation_id, member_id, opts) ::
           {:ok, SyncGroup.t()} | {:error, error_atom}
   def sync_group(client, consumer_group, generation_id, member_id, opts \\ []) do
-    case GenServer.call(client, {:sync_group, consumer_group, generation_id, member_id, opts}) do
+    # SyncGroup can block until all members sync or session_timeout
+    timeout = Keyword.get(opts, :timeout, 35_000)
+    call_opts = Keyword.delete(opts, :timeout)
+
+    case GenServer.call(client, {:sync_group, consumer_group, generation_id, member_id, call_opts}, timeout) do
       {:ok, result} -> {:ok, result}
       {:error, %{error: error_atom}} -> {:error, error_atom}
       {:error, error_atom} -> {:error, error_atom}
@@ -559,10 +566,9 @@ defmodule KafkaEx.API do
 
       {:ok, result} = KafkaEx.API.heartbeat(client, "my-group", member_id, generation_id)
   """
-  @spec heartbeat(client, consumer_group_name, member_id, generation_id) ::
-          {:ok, :no_error | Heartbeat.t()} | {:error, error_atom}
+  @spec heartbeat(client, consumer_group_name, member_id, generation_id) :: {:ok, Heartbeat.t()} | {:error, error_atom}
   @spec heartbeat(client, consumer_group_name, member_id, generation_id, opts) ::
-          {:ok, :no_error | Heartbeat.t()} | {:error, error_atom}
+          {:ok, Heartbeat.t()} | {:error, error_atom}
   def heartbeat(client, consumer_group, member_id, generation_id, opts \\ []) do
     case GenServer.call(client, {:heartbeat, consumer_group, member_id, generation_id, opts}) do
       {:ok, result} -> {:ok, result}
@@ -592,10 +598,8 @@ defmodule KafkaEx.API do
       {:ok, coordinator} = KafkaEx.API.find_coordinator(client, "my-transactional-id",
         coordinator_type: :transaction)
   """
-  @spec find_coordinator(client, consumer_group_name) ::
-          {:ok, FindCoordinator.t()} | {:error, error_atom}
-  @spec find_coordinator(client, consumer_group_name, opts) ::
-          {:ok, FindCoordinator.t()} | {:error, error_atom}
+  @spec find_coordinator(client, consumer_group_name) :: {:ok, FindCoordinator.t()} | {:error, error_atom}
+  @spec find_coordinator(client, consumer_group_name, opts) :: {:ok, FindCoordinator.t()} | {:error, error_atom}
   def find_coordinator(client, group_id, opts \\ []) do
     case GenServer.call(client, {:find_coordinator, group_id, opts}) do
       {:ok, result} -> {:ok, result}
@@ -860,9 +864,7 @@ defmodule KafkaEx.API do
       ## Examples
 
       # Create a topic with broker defaults
-    {:ok, result} = KafkaEx.API.create_topics(client, [
-        [topic: "my-topic"]
-      ], 10_000)
+      {:ok, result} = KafkaEx.API.create_topics(client, [[topic: "my-topic"]], 10_000)
 
       # Create a topic with custom configuration
       {:ok, result} = KafkaEx.API.create_topics(client, [
@@ -924,11 +926,7 @@ defmodule KafkaEx.API do
       {:ok, result} = KafkaEx.API.create_topic(client, "my-topic")
 
       # Create with specific configuration
-      {:ok, result} = KafkaEx.API.create_topic(client, "my-topic",
-        num_partitions: 6,
-        replication_factor: 3,
-        timeout: 30_000
-      )
+      {:ok, result} = KafkaEx.API.create_topic(client, "my-topic",num_partitions: 6, replication_factor: 3, timeout: 30_000)
   """
   @spec create_topic(client, topic_name) :: {:ok, CreateTopics.t()} | {:error, error_atom}
   @spec create_topic(client, topic_name, opts) :: {:ok, CreateTopics.t()} | {:error, error_atom}
@@ -972,10 +970,8 @@ defmodule KafkaEx.API do
         IO.inspect(failed, label: "Failed to delete")
       end
   """
-  @spec delete_topics(client, [topic_name], timeout :: non_neg_integer) ::
-          {:ok, DeleteTopics.t()} | {:error, error_atom}
-  @spec delete_topics(client, [topic_name], timeout :: non_neg_integer, opts) ::
-          {:ok, DeleteTopics.t()} | {:error, error_atom}
+  @spec delete_topics(client, [topic_name], timeout) :: {:ok, DeleteTopics.t()} | {:error, error_atom}
+  @spec delete_topics(client, [topic_name], timeout, opts) :: {:ok, DeleteTopics.t()} | {:error, error_atom}
   def delete_topics(client, topics, timeout, opts \\ []) do
     case GenServer.call(client, {:delete_topics, topics, timeout, opts}) do
       {:ok, result} -> {:ok, result}

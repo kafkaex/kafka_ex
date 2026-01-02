@@ -65,21 +65,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Heartbeat do
         } = state
       ) do
     case KafkaExAPI.heartbeat(client, group_name, member_id, generation_id) do
-      {:ok, :no_error} ->
+      {:ok, %KafkaEx.Messages.Heartbeat{}} ->
         {:noreply, state, heartbeat_interval}
-
-      {:ok, %{error_code: :no_error}} ->
-        {:noreply, state, heartbeat_interval}
-
-      {:ok, %{error_code: :rebalance_in_progress}} ->
-        {:stop, {:shutdown, :rebalance}, state}
-
-      {:ok, %{error_code: :unknown_member_id}} ->
-        {:stop, {:shutdown, :rebalance}, state}
-
-      {:ok, %{error_code: error_code}} ->
-        Logger.warning("Heartbeat failed, got error code #{error_code}")
-        {:stop, {:shutdown, {:error, error_code}}, state}
 
       {:error, :rebalance_in_progress} ->
         {:stop, {:shutdown, :rebalance}, state}

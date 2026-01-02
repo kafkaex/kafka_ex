@@ -1,8 +1,6 @@
 defmodule KafkaEx.Auth.ScramInternalTest do
   use ExUnit.Case, async: true
 
-  @moduletag :sasl
-
   alias KafkaEx.Auth.ScramFlow.Internal
 
   describe "client_first_message/1" do

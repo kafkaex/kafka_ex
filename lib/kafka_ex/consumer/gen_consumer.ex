@@ -589,11 +589,14 @@ defmodule KafkaEx.Consumer.GenConsumer do
   defp resolve_client(opts, group_name) do
     case Keyword.get(opts, :client) do
       nil ->
-        # Start a new client with provided options
-        client_opts =
-          opts
-          |> Keyword.take([:uris, :use_ssl, :ssl_options, :auth])
-          |> Keyword.put(:consumer_group, group_name)
+        # Start a new client with Config defaults for connection options
+        client_opts = [
+          uris: Keyword.get(opts, :uris, KafkaEx.Config.brokers()),
+          use_ssl: Keyword.get(opts, :use_ssl, KafkaEx.Config.use_ssl()),
+          ssl_options: Keyword.get(opts, :ssl_options, KafkaEx.Config.ssl_options()),
+          auth: Keyword.get(opts, :auth, KafkaEx.Config.auth_config()),
+          consumer_group: group_name
+        ]
 
         {:ok, client} = KafkaEx.Client.start_link(client_opts, :no_name)
         client
@@ -916,7 +919,8 @@ defmodule KafkaEx.Consumer.GenConsumer do
            client: client,
            group: group,
            topic: topic,
-           partition: partition
+           partition: partition,
+           auto_offset_reset: auto_offset_reset
          } = state
        ) do
     partitions = [%{partition_num: partition}]
@@ -924,62 +928,38 @@ defmodule KafkaEx.Consumer.GenConsumer do
 
     case KafkaExAPI.fetch_committed_offset(client, group, topic, partitions, opts) do
       {:ok, [%{partition_offsets: [%{offset: offset, error_code: error_code}]}]} ->
-        # newer api versions will return -1 if the consumer group does not exist
-        offset = max(offset, 0)
-
         case error_code do
-          :no_error ->
-            %State{
-              state
-              | current_offset: offset,
-                committed_offset: offset,
-                acked_offset: offset
-            }
-
-          :unknown_topic_or_partition ->
-            # Topic/partition not found, start from earliest
-            {:ok, earliest} = KafkaExAPI.earliest_offset(client, topic, partition)
-
-            %State{
-              state
-              | current_offset: earliest,
-                committed_offset: earliest,
-                acked_offset: earliest
-            }
+          :no_error when offset >= 0 ->
+            %State{state | current_offset: offset, committed_offset: offset, acked_offset: offset}
 
           _ ->
-            # Handle other error codes by starting from earliest
-            {:ok, earliest} = KafkaExAPI.earliest_offset(client, topic, partition)
-
-            %State{
-              state
-              | current_offset: earliest,
-                committed_offset: earliest,
-                acked_offset: earliest
-            }
+            start_from_auto_offset_reset(state, auto_offset_reset)
         end
 
       {:ok, []} ->
-        # No committed offset found, start from earliest
-        {:ok, earliest} = KafkaExAPI.earliest_offset(client, topic, partition)
-
-        %State{
-          state
-          | current_offset: earliest,
-            committed_offset: earliest,
-            acked_offset: earliest
-        }
+        start_from_auto_offset_reset(state, auto_offset_reset)
 
       {:error, _reason} ->
-        # Error fetching committed offset, start from earliest
-        {:ok, earliest} = KafkaExAPI.earliest_offset(client, topic, partition)
-
-        %State{
-          state
-          | current_offset: earliest,
-            committed_offset: earliest,
-            acked_offset: earliest
-        }
+        start_from_auto_offset_reset(state, auto_offset_reset)
     end
+  end
+
+  defp start_from_auto_offset_reset(%State{client: client, topic: topic, partition: partition} = state, reset) do
+    offset =
+      case reset do
+        :latest ->
+          {:ok, latest} = KafkaExAPI.latest_offset(client, topic, partition)
+          latest
+
+        :earliest ->
+          {:ok, earliest} = KafkaExAPI.earliest_offset(client, topic, partition)
+          earliest
+
+        _ ->
+          {:ok, earliest} = KafkaExAPI.earliest_offset(client, topic, partition)
+          earliest
+      end
+
+    %State{state | current_offset: offset, committed_offset: offset, acked_offset: offset}
   end
 end
