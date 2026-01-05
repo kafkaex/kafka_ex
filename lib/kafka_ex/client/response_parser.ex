@@ -6,9 +6,9 @@ defmodule KafkaEx.Client.ResponseParser do
   alias KafkaEx.Client.Error
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Messages.ApiVersions
+  alias KafkaEx.Messages.ConsumerGroupDescription
   alias KafkaEx.Messages.CreateTopics
   alias KafkaEx.Messages.DeleteTopics
-  alias KafkaEx.Messages.ConsumerGroupDescription
   alias KafkaEx.Messages.Fetch
   alias KafkaEx.Messages.FindCoordinator
   alias KafkaEx.Messages.Heartbeat
