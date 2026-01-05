@@ -89,7 +89,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   # Client API
 
   @doc false
-  @spec start_link({{module, module}, binary, [binary], KafkaEx.GenConsumer.options()}) :: GenServer.on_start()
+  @spec start_link({{module, module}, binary, [binary], Keyword.t()}) :: GenServer.on_start()
   def start_link({{gen_consumer_module, consumer_module}, group_name, topics, opts}) do
     gen_server_opts = Keyword.get(opts, :gen_server_opts, [])
     consumer_opts = Keyword.drop(opts, [:gen_server_opts])
@@ -99,12 +99,13 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
 
   # GenServer callbacks
 
+  # Dialyzer reports no_return because KafkaEx.Client.start_link can raise on init failure.
+  # However, the function does return normally when client starts successfully.
+  @dialyzer {:nowarn_function, init: 1}
   def init({{gen_consumer_module, consumer_module}, group_name, topics, opts}) do
     heartbeat_interval = get_with_default(opts, :heartbeat_interval, @heartbeat_interval)
     session_timeout = get_with_default(opts, :session_timeout, @session_timeout)
     session_timeout_padding = get_with_default(opts, :session_timeout_padding, @session_timeout_padding)
-    # rebalance_timeout: time allowed for consumers to rejoin during rebalance
-    # Default to session_timeout * multiplier if not provided
     rebalance_timeout = get_with_default(opts, :rebalance_timeout, session_timeout * @rebalance_timeout_multiplier)
 
     partition_assignment_callback =
@@ -125,35 +126,42 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     # Use Config defaults for connection options if not provided
     client_opts =
       [
-        uris: Keyword.get(opts, :uris, KafkaEx.Config.brokers()),
+        uris: Keyword.get(opts, :uris) || KafkaEx.Config.brokers(),
         use_ssl: Keyword.get(opts, :use_ssl, KafkaEx.Config.use_ssl()),
         ssl_options: Keyword.get(opts, :ssl_options, KafkaEx.Config.ssl_options()),
-        auth: Keyword.get(opts, :auth, KafkaEx.Config.auth_config()),
+        auth: Keyword.get(opts, :auth) || KafkaEx.Config.auth_config(),
         consumer_group: group_name,
         initial_topics: topics
       ]
 
-    {:ok, client} = KafkaEx.Client.start_link(client_opts, :no_name)
+    case KafkaEx.Client.start_link(client_opts, :no_name) do
+      {:ok, client} ->
+        state = %State{
+          supervisor_pid: supervisor_pid,
+          client: client,
+          heartbeat_interval: heartbeat_interval,
+          session_timeout: session_timeout,
+          session_timeout_padding: session_timeout_padding,
+          rebalance_timeout: rebalance_timeout,
+          consumer_module: consumer_module,
+          gen_consumer_module: gen_consumer_module,
+          partition_assignment_callback: partition_assignment_callback,
+          consumer_opts: consumer_opts,
+          group_name: group_name,
+          topics: topics,
+          member_id: nil
+        }
 
-    state = %State{
-      supervisor_pid: supervisor_pid,
-      client: client,
-      heartbeat_interval: heartbeat_interval,
-      session_timeout: session_timeout,
-      session_timeout_padding: session_timeout_padding,
-      rebalance_timeout: rebalance_timeout,
-      consumer_module: consumer_module,
-      gen_consumer_module: gen_consumer_module,
-      partition_assignment_callback: partition_assignment_callback,
-      consumer_opts: consumer_opts,
-      group_name: group_name,
-      topics: topics,
-      member_id: nil
-    }
+        Process.flag(:trap_exit, true)
 
-    Process.flag(:trap_exit, true)
+        {:ok, state, 0}
 
-    {:ok, state, 0}
+      {:error, reason} ->
+        {:stop, reason}
+
+      :ignore ->
+        :ignore
+    end
   end
 
   ######################################################################

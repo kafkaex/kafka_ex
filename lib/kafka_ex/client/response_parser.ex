@@ -4,19 +4,19 @@ defmodule KafkaEx.Client.ResponseParser do
   It's main decision point which protocol to use for parsing response
   """
   alias KafkaEx.Client.Error
-  alias KafkaEx.Cluster.ApiVersions
   alias KafkaEx.Cluster.ClusterMetadata
-  alias KafkaEx.Cluster.ConsumerGroupDescription
-  alias KafkaEx.Cluster.CreateTopics
-  alias KafkaEx.Cluster.DeleteTopics
-  alias KafkaEx.Cluster.Fetch
-  alias KafkaEx.Cluster.FindCoordinator
-  alias KafkaEx.Cluster.Heartbeat
-  alias KafkaEx.Cluster.JoinGroup
-  alias KafkaEx.Cluster.LeaveGroup
-  alias KafkaEx.Cluster.Offset
-  alias KafkaEx.Cluster.RecordMetadata
-  alias KafkaEx.Cluster.SyncGroup
+  alias KafkaEx.Messages.ApiVersions
+  alias KafkaEx.Messages.CreateTopics
+  alias KafkaEx.Messages.DeleteTopics
+  alias KafkaEx.Messages.ConsumerGroupDescription
+  alias KafkaEx.Messages.Fetch
+  alias KafkaEx.Messages.FindCoordinator
+  alias KafkaEx.Messages.Heartbeat
+  alias KafkaEx.Messages.JoinGroup
+  alias KafkaEx.Messages.LeaveGroup
+  alias KafkaEx.Messages.Offset
+  alias KafkaEx.Messages.RecordMetadata
+  alias KafkaEx.Messages.SyncGroup
 
   @protocol Application.compile_env(:kafka_ex, :protocol, KafkaEx.Protocol.KayrockProtocol)
 

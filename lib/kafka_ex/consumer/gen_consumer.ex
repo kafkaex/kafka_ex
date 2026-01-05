@@ -778,11 +778,6 @@ defmodule KafkaEx.Consumer.GenConsumer do
     handle_message_set(fetch_result.records, state)
   end
 
-  # Guard clause: empty message set should not reach here, but handle gracefully
-  defp handle_message_set([], state) do
-    handle_commit(:async_commit, state)
-  end
-
   defp handle_message_set(
          message_set,
          %State{
@@ -878,14 +873,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
            acked_offset: offset
          } = state
        ) do
-    partitions = [
-      %{
-        partition_num: partition,
-        offset: offset,
-        member_id: member_id,
-        generation_id: generation_id
-      }
-    ]
+    partitions = [%{partition_num: partition, offset: offset}]
 
     opts = [
       api_version: Map.fetch!(state.api_versions, :offset_commit),
@@ -895,21 +883,11 @@ defmodule KafkaEx.Consumer.GenConsumer do
 
     case KafkaExAPI.commit_offset(client, group, topic, partitions, opts) do
       {:ok, _result} ->
-        Logger.debug(fn ->
-          "Committed offset #{topic}/#{partition}@#{offset} for #{group}"
-        end)
-
-        %State{
-          state
-          | committed_offset: offset,
-            last_commit: :erlang.monotonic_time(:milli_seconds)
-        }
+        Logger.debug("Committed offset #{topic}/#{partition}@#{offset} for #{group}")
+        %State{state | committed_offset: offset, last_commit: :erlang.monotonic_time(:milli_seconds)}
 
       {:error, error} ->
-        Logger.error(fn ->
-          "Failed to commit offset #{topic}/#{partition}@#{offset} for #{group}: #{inspect(error)}"
-        end)
-
+        Logger.error("Failed to commit offset #{topic}/#{partition}@#{offset} for #{group}: #{inspect(error)}")
         state
     end
   end

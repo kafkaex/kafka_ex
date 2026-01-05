@@ -339,7 +339,7 @@ defmodule KafkaEx.API do
 
       {:ok, topics} = KafkaEx.API.topics_metadata(client, ["my-topic"])
   """
-  @spec topics_metadata(client, [topic_name], boolean) :: {:ok, [Topic.t()]}
+  @spec topics_metadata(client, [topic_name], boolean) :: {:ok, [Topic.t()]} | {:error, error_atom}
   def topics_metadata(client, topics, allow_topic_creation \\ false) do
     GenServer.call(client, {:topic_metadata, topics, allow_topic_creation})
   end

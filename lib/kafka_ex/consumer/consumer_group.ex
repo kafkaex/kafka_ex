@@ -120,7 +120,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
   avoid timing out when joining/syncing consumer groups.
   """
   @type option ::
-          KafkaEx.GenConsumer.option()
+          GenConsumer.option()
           | {:heartbeat_interval, pos_integer}
           | {:session_timeout, pos_integer}
           | {:session_timeout_padding, pos_integer}
