@@ -15,7 +15,7 @@ defmodule KafkaEx.Cluster.ClusterMetadata do
 
   @type t :: %__MODULE__{
           brokers: %{KafkaExAPI.node_id() => Broker.t()},
-          controller_id: KafkaExAPI.node_id(),
+          controller_id: KafkaExAPI.node_id() | nil,
           topics: %{KafkaExAPI.topic_name() => Topic.t()},
           consumer_group_coordinators: %{KafkaExAPI.consumer_group_name() => KafkaExAPI.node_id()}
         }
@@ -160,7 +160,7 @@ defmodule KafkaEx.Cluster.ClusterMetadata do
   Returns a `t:Broker.t/0` for the given `t:KafkaExAPI.node_id/0` or `nil` if
   there is no known broker with that node id
   """
-  @spec broker_by_node_id(t, KafkaExAPI.node_id()) :: Broker.t()
+  @spec broker_by_node_id(t, KafkaExAPI.node_id()) :: Broker.t() | nil
   def broker_by_node_id(%__MODULE__{brokers: brokers}, node_id) do
     Map.get(brokers, node_id)
   end

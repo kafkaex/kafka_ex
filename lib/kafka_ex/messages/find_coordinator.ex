@@ -16,7 +16,7 @@ defmodule KafkaEx.Messages.FindCoordinator do
   - **V1**: Uses `coordinator_key` + `coordinator_type`, adds `throttle_time_ms` and `error_message`
   """
 
-  alias KafkaEx.Messages.Broker
+  alias KafkaEx.Cluster.Broker
 
   defstruct [
     :coordinator,

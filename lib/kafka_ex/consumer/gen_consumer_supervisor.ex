@@ -49,7 +49,7 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
           assignments: [
             {topic_name :: binary, partition_id :: non_neg_integer}
           ],
-          opts: KafkaEx.GenConsumer.options()
+          opts: KafkaEx.Consumer.GenConsumer.options()
         }) :: Supervisor.on_start()
   def start_link(%{
         gen_consumer_module: gen_consumer_module,
@@ -85,34 +85,6 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
       error ->
         error
     end
-  end
-
-  @deprecated "Use start_link/1 instead"
-  @doc """
-  Starts a `GenConsumer.Supervisor` process linked to the current process.
-
-  Refer to `start_link/1` for documentation of each parameter.
-
-  ### Return Values
-
-  Same as `start_link/1`.
-  """
-  @spec start_link(
-          {gen_consumer_module :: module, consumer_module :: module},
-          consumer_group_name :: binary,
-          assigned_partitions :: [
-            {topic_name :: binary, partition_id :: non_neg_integer}
-          ],
-          KafkaEx.GenConsumer.options()
-        ) :: Elixir.Supervisor.on_start()
-  def start_link({gen_consumer_module, consumer_module}, group_name, assignments, opts \\ []) do
-    start_link(%{
-      gen_consumer_module: gen_consumer_module,
-      consumer_module: consumer_module,
-      group_name: group_name,
-      assignments: assignments,
-      opts: opts
-    })
   end
 
   @doc """

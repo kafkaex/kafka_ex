@@ -83,21 +83,6 @@ defmodule KafkaEx.Consumer.GenConsumer.SupervisorTest do
     end
   end
 
-  describe "start_link/4 (deprecated tuple version)" do
-    test "starts supervisor with valid arguments" do
-      assert {:ok, pid} =
-               GenConsumerSupervisor.start_link(
-                 {MockGenConsumer, MockConsumer},
-                 "test-group",
-                 [{"test-topic", 0}],
-                 []
-               )
-
-      assert Process.alive?(pid)
-      Process.exit(pid, :normal)
-    end
-  end
-
   describe "child_pids/1" do
     test "returns list of child pids" do
       config = %{
