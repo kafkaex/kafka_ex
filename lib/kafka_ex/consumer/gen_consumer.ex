@@ -401,6 +401,26 @@ defmodule KafkaEx.Consumer.GenConsumer do
       :fetch_options,
       :api_versions
     ]
+
+    @type t :: %__MODULE__{
+            consumer_module: module(),
+            consumer_state: term(),
+            commit_interval: pos_integer(),
+            commit_threshold: non_neg_integer(),
+            client: pid(),
+            group: binary(),
+            topic: binary(),
+            partition: non_neg_integer(),
+            member_id: binary() | nil,
+            generation_id: integer() | nil,
+            current_offset: integer() | nil,
+            committed_offset: integer() | nil,
+            acked_offset: integer() | nil,
+            last_commit: integer() | nil,
+            auto_offset_reset: :none | :earliest | :latest,
+            fetch_options: Keyword.t(),
+            api_versions: map()
+          }
   end
 
   @commit_interval 5_000

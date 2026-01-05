@@ -30,6 +30,14 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Heartbeat do
   defmodule State do
     @moduledoc false
     defstruct [:client, :group_name, :member_id, :generation_id, :heartbeat_interval]
+
+    @type t :: %__MODULE__{
+            client: pid(),
+            group_name: binary(),
+            member_id: binary(),
+            generation_id: integer(),
+            heartbeat_interval: pos_integer()
+          }
   end
 
   def start_link(options) do
