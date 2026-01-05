@@ -37,10 +37,12 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   """
   use GenServer
 
+  alias KafkaEx.API, as: KafkaExAPI
+  alias KafkaEx.Client
+  alias KafkaEx.Config
   alias KafkaEx.Consumer.ConsumerGroup
   alias KafkaEx.Consumer.ConsumerGroup.Heartbeat
   alias KafkaEx.Consumer.ConsumerGroup.PartitionAssignment
-  alias KafkaEx.API, as: KafkaExAPI
   require Logger
 
   defmodule State do
@@ -126,15 +128,15 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     # Use Config defaults for connection options if not provided
     client_opts =
       [
-        uris: Keyword.get(opts, :uris) || KafkaEx.Config.brokers(),
-        use_ssl: Keyword.get(opts, :use_ssl, KafkaEx.Config.use_ssl()),
-        ssl_options: Keyword.get(opts, :ssl_options, KafkaEx.Config.ssl_options()),
-        auth: Keyword.get(opts, :auth) || KafkaEx.Config.auth_config(),
+        uris: Keyword.get(opts, :uris) || Config.brokers(),
+        use_ssl: Keyword.get(opts, :use_ssl, Config.use_ssl()),
+        ssl_options: Keyword.get(opts, :ssl_options, Config.ssl_options()),
+        auth: Keyword.get(opts, :auth) || Config.auth_config(),
         consumer_group: group_name,
         initial_topics: topics
       ]
 
-    case KafkaEx.Client.start_link(client_opts, :no_name) do
+    case Client.start_link(client_opts, :no_name) do
       {:ok, client} ->
         state = %State{
           supervisor_pid: supervisor_pid,
@@ -525,7 +527,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   # by `SyncGroupResponse`.
   defp assign_partitions(%State{partition_assignment_callback: partition_assignment_callback}, members, partitions) do
     # Delegate partition assignment to GenConsumer module.
-    assignments = partition_assignment_callback.(members, partitions) |> Map.new()
+    assignments = Map.new(partition_assignment_callback.(members, partitions))
 
     # Convert assignments to protocol format, filling in empty assignments for missing members.
     Enum.map(members, fn member ->

@@ -189,8 +189,10 @@ defmodule KafkaEx.Consumer.GenConsumer do
 
   use GenServer
 
-  alias KafkaEx.Messages.Fetch.Record
   alias KafkaEx.API, as: KafkaExAPI
+  alias KafkaEx.Client
+  alias KafkaEx.Config
+  alias KafkaEx.Messages.Fetch.Record
 
   require Logger
 
@@ -591,14 +593,14 @@ defmodule KafkaEx.Consumer.GenConsumer do
       nil ->
         # Start a new client with Config defaults for connection options
         client_opts = [
-          uris: Keyword.get(opts, :uris, KafkaEx.Config.brokers()),
-          use_ssl: Keyword.get(opts, :use_ssl, KafkaEx.Config.use_ssl()),
-          ssl_options: Keyword.get(opts, :ssl_options, KafkaEx.Config.ssl_options()),
-          auth: Keyword.get(opts, :auth, KafkaEx.Config.auth_config()),
+          uris: Keyword.get(opts, :uris, Config.brokers()),
+          use_ssl: Keyword.get(opts, :use_ssl, Config.use_ssl()),
+          ssl_options: Keyword.get(opts, :ssl_options, Config.ssl_options()),
+          auth: Keyword.get(opts, :auth, Config.auth_config()),
           consumer_group: group_name
         ]
 
-        {:ok, client} = KafkaEx.Client.start_link(client_opts, :no_name)
+        {:ok, client} = Client.start_link(client_opts, :no_name)
         client
 
       client ->

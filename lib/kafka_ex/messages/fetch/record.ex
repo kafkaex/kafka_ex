@@ -20,8 +20,8 @@ defmodule KafkaEx.Messages.Fetch.Record do
   - `leader_epoch` - the leader epoch (optional, for newer formats)
   """
 
-  alias KafkaEx.Messages.Header
   alias KafkaEx.Cluster.TopicPartition
+  alias KafkaEx.Messages.Header
 
   @type timestamp_type :: :create_time | :log_append_time | nil
 

@@ -7,8 +7,8 @@ defmodule KafkaEx.Protocol.Kayrock.DeleteTopics do
   - V1: Adds throttle_time_ms in response
   """
 
-  alias KafkaEx.Messages.DeleteTopics
   alias KafkaEx.Client.Error
+  alias KafkaEx.Messages.DeleteTopics
 
   defprotocol Request do
     @moduledoc """

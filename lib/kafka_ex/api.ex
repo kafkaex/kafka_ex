@@ -55,8 +55,10 @@ defmodule KafkaEx.API do
       end
   """
 
-  alias KafkaEx.Messages.ApiVersions
+  alias KafkaEx.Client
   alias KafkaEx.Cluster.ClusterMetadata
+  alias KafkaEx.Cluster.Topic
+  alias KafkaEx.Messages.ApiVersions
   alias KafkaEx.Messages.ConsumerGroupDescription
   alias KafkaEx.Messages.CreateTopics
   alias KafkaEx.Messages.DeleteTopics
@@ -68,7 +70,7 @@ defmodule KafkaEx.API do
   alias KafkaEx.Messages.Offset
   alias KafkaEx.Messages.RecordMetadata
   alias KafkaEx.Messages.SyncGroup
-  alias KafkaEx.Cluster.Topic
+  alias KafkaEx.Producer.Partitioner
 
   # Types
   @type node_id :: non_neg_integer
@@ -94,9 +96,10 @@ defmodule KafkaEx.API do
   @doc false
   defmacro __using__(opts) do
     client_config = Keyword.get(opts, :client)
+    api_module = __MODULE__
 
     quote do
-      @behaviour KafkaEx.API.Behaviour
+      @behaviour unquote(api_module).Behaviour
 
       # Client accessor - can be overridden
       if unquote(client_config) do
@@ -111,101 +114,101 @@ defmodule KafkaEx.API do
 
       # Offset functions
       def latest_offset(topic, partition, opts \\ []) do
-        KafkaEx.API.latest_offset(client(), topic, partition, opts)
+        unquote(api_module).latest_offset(client(), topic, partition, opts)
       end
 
       def earliest_offset(topic, partition, opts \\ []) do
-        KafkaEx.API.earliest_offset(client(), topic, partition, opts)
+        unquote(api_module).earliest_offset(client(), topic, partition, opts)
       end
 
       def list_offsets(topic_partitions, opts \\ []) do
-        KafkaEx.API.list_offsets(client(), topic_partitions, opts)
+        unquote(api_module).list_offsets(client(), topic_partitions, opts)
       end
 
       # Metadata functions
       def metadata(opts \\ []) do
-        KafkaEx.API.metadata(client(), opts)
+        unquote(api_module).metadata(client(), opts)
       end
 
       def cluster_metadata do
-        KafkaEx.API.cluster_metadata(client())
+        unquote(api_module).cluster_metadata(client())
       end
 
       def topics_metadata(topics, allow_creation \\ false) do
-        KafkaEx.API.topics_metadata(client(), topics, allow_creation)
+        unquote(api_module).topics_metadata(client(), topics, allow_creation)
       end
 
       def api_versions(opts \\ []) do
-        KafkaEx.API.api_versions(client(), opts)
+        unquote(api_module).api_versions(client(), opts)
       end
 
       # Produce functions
       def produce(topic, partition, messages, opts \\ []) do
-        KafkaEx.API.produce(client(), topic, partition, messages, opts)
+        unquote(api_module).produce(client(), topic, partition, messages, opts)
       end
 
       def produce_one(topic, partition, value, opts \\ []) do
-        KafkaEx.API.produce_one(client(), topic, partition, value, opts)
+        unquote(api_module).produce_one(client(), topic, partition, value, opts)
       end
 
       # Fetch functions
       def fetch(topic, partition, offset, opts \\ []) do
-        KafkaEx.API.fetch(client(), topic, partition, offset, opts)
+        unquote(api_module).fetch(client(), topic, partition, offset, opts)
       end
 
       def fetch_all(topic, partition, opts \\ []) do
-        KafkaEx.API.fetch_all(client(), topic, partition, opts)
+        unquote(api_module).fetch_all(client(), topic, partition, opts)
       end
 
       # Consumer group functions
       def describe_group(group, opts \\ []) do
-        KafkaEx.API.describe_group(client(), group, opts)
+        unquote(api_module).describe_group(client(), group, opts)
       end
 
       def join_group(group, member_id, opts \\ []) do
-        KafkaEx.API.join_group(client(), group, member_id, opts)
+        unquote(api_module).join_group(client(), group, member_id, opts)
       end
 
       def sync_group(group, generation_id, member_id, opts \\ []) do
-        KafkaEx.API.sync_group(client(), group, generation_id, member_id, opts)
+        unquote(api_module).sync_group(client(), group, generation_id, member_id, opts)
       end
 
       def leave_group(group, member_id, opts \\ []) do
-        KafkaEx.API.leave_group(client(), group, member_id, opts)
+        unquote(api_module).leave_group(client(), group, member_id, opts)
       end
 
       def heartbeat(group, member_id, generation_id, opts \\ []) do
-        KafkaEx.API.heartbeat(client(), group, member_id, generation_id, opts)
+        unquote(api_module).heartbeat(client(), group, member_id, generation_id, opts)
       end
 
       def find_coordinator(group_id, opts \\ []) do
-        KafkaEx.API.find_coordinator(client(), group_id, opts)
+        unquote(api_module).find_coordinator(client(), group_id, opts)
       end
 
       # Offset management functions
       def fetch_committed_offset(group, topic, partitions, opts \\ []) do
-        KafkaEx.API.fetch_committed_offset(client(), group, topic, partitions, opts)
+        unquote(api_module).fetch_committed_offset(client(), group, topic, partitions, opts)
       end
 
       def commit_offset(group, topic, partitions, opts \\ []) do
-        KafkaEx.API.commit_offset(client(), group, topic, partitions, opts)
+        unquote(api_module).commit_offset(client(), group, topic, partitions, opts)
       end
 
       # Topic management functions
       def create_topics(topics, timeout, opts \\ []) do
-        KafkaEx.API.create_topics(client(), topics, timeout, opts)
+        unquote(api_module).create_topics(client(), topics, timeout, opts)
       end
 
       def create_topic(topic_name, opts \\ []) do
-        KafkaEx.API.create_topic(client(), topic_name, opts)
+        unquote(api_module).create_topic(client(), topic_name, opts)
       end
 
       def delete_topics(topics, timeout, opts \\ []) do
-        KafkaEx.API.delete_topics(client(), topics, timeout, opts)
+        unquote(api_module).delete_topics(client(), topics, timeout, opts)
       end
 
       def delete_topic(topic_name, opts \\ []) do
-        KafkaEx.API.delete_topic(client(), topic_name, opts)
+        unquote(api_module).delete_topic(client(), topic_name, opts)
       end
     end
   end
@@ -236,7 +239,7 @@ defmodule KafkaEx.API do
   """
   @spec start_client(opts) :: {:ok, pid} | {:error, term}
   def start_client(opts \\ []) do
-    KafkaEx.Client.start_link(opts)
+    Client.start_link(opts)
   end
 
   @doc """
@@ -760,7 +763,7 @@ defmodule KafkaEx.API do
 
   # Resolves partition using the configured partitioner
   defp resolve_partition(client, topic, messages, opts) do
-    partitioner = Keyword.get(opts, :partitioner, KafkaEx.Producer.Partitioner.get_partitioner())
+    partitioner = Keyword.get(opts, :partitioner, Partitioner.get_partitioner())
 
     # Get the first message's key and value for partitioning
     # (assuming all messages in a batch should go to the same partition)
