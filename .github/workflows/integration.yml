@@ -11,8 +11,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  legacy-tests:
-    name: Legacy Server Tests (0.8, 0.9, 0.10.x)
+  # Phase 1: Consumer Group Tests (24 tests)
+  consumer-group-tests:
+    name: Consumer Group Tests
     runs-on: ubuntu-22.04
     timeout-minutes: 20
 
@@ -39,12 +40,9 @@ jobs:
       - name: Restore dependencies cache
         uses: actions/cache@v4
         with:
-          path: |
-            deps
-            _build
+          path: deps/_build
           key: ${{ runner.os }}-mix-${{ matrix.pair.otp }}-${{ matrix.pair.elixir }}-${{ hashFiles('**/mix.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-mix-${{ matrix.pair.otp }}-${{ matrix.pair.elixir }}-
+          restore-keys: ${{ runner.os }}-mix-${{ matrix.pair.otp }}-${{ matrix.pair.elixir }}-
 
       - name: Install dependencies
         run: |
@@ -56,13 +54,14 @@ jobs:
       - name: Docker-compose up
         run: ./scripts/docker_up.sh
 
-      - name: Run Legacy Server Tests
-        run: ./scripts/ci_tests_legacy.sh
+      - name: Run Consumer Group Tests
+        run: ./scripts/ci_tests_consumer_group.sh
 
-  integration-tests:
-    name: Integration Tests (New Client, Consumer Groups, Integration)
+  # Phase 2: Produce Tests (32 tests)
+  produce-tests:
+    name: Produce Tests
     runs-on: ubuntu-22.04
-    timeout-minutes: 20
+    timeout-minutes: 15
 
     env:
       MIX_ENV: test
@@ -87,12 +86,9 @@ jobs:
       - name: Restore dependencies cache
         uses: actions/cache@v4
         with:
-          path: |
-            deps
-            _build
+          path: deps/_build
           key: ${{ runner.os }}-mix-${{ matrix.pair.otp }}-${{ matrix.pair.elixir }}-${{ hashFiles('**/mix.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-mix-${{ matrix.pair.otp }}-${{ matrix.pair.elixir }}-
+          restore-keys: ${{ runner.os }}-mix-${{ matrix.pair.otp }}-${{ matrix.pair.elixir }}-
 
       - name: Install dependencies
         run: |
@@ -104,13 +100,106 @@ jobs:
       - name: Docker-compose up
         run: ./scripts/docker_up.sh
 
-      - name: Run Integration Tests
-        run: ./scripts/ci_tests_integration.sh
+      - name: Run Produce Tests
+        run: ./scripts/ci_tests_produce.sh
 
+  # Phase 3: Consume Tests (23 tests)
+  consume-tests:
+    name: Consume Tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+
+    env:
+      MIX_ENV: test
+
+    strategy:
+      fail-fast: false
+      matrix:
+        pair:
+          - elixir: 1.18
+            otp: 27.2
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Elixir & Erlang
+        uses: erlef/setup-beam@v1.18
+        with:
+          elixir-version: ${{ matrix.pair.elixir }}
+          otp-version: ${{ matrix.pair.otp }}
+
+      - name: Restore dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: deps/_build
+          key: ${{ runner.os }}-mix-${{ matrix.pair.otp }}-${{ matrix.pair.elixir }}-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-${{ matrix.pair.otp }}-${{ matrix.pair.elixir }}-
+
+      - name: Install dependencies
+        run: |
+          mix local.rebar --force
+          mix local.hex --force
+          mix deps.get
+          mix deps.compile
+
+      - name: Docker-compose up
+        run: ./scripts/docker_up.sh
+
+      - name: Run Consume Tests
+        run: ./scripts/ci_tests_consume.sh
+
+  # Phase 4: Lifecycle Tests (52 tests)
+  lifecycle-tests:
+    name: Lifecycle Tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+
+    env:
+      MIX_ENV: test
+
+    strategy:
+      fail-fast: false
+      matrix:
+        pair:
+          - elixir: 1.18
+            otp: 27.2
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Elixir & Erlang
+        uses: erlef/setup-beam@v1.18
+        with:
+          elixir-version: ${{ matrix.pair.elixir }}
+          otp-version: ${{ matrix.pair.otp }}
+
+      - name: Restore dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: deps/_build
+          key: ${{ runner.os }}-mix-${{ matrix.pair.otp }}-${{ matrix.pair.elixir }}-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-${{ matrix.pair.otp }}-${{ matrix.pair.elixir }}-
+
+      - name: Install dependencies
+        run: |
+          mix local.rebar --force
+          mix local.hex --force
+          mix deps.get
+          mix deps.compile
+
+      - name: Docker-compose up
+        run: ./scripts/docker_up.sh
+
+      - name: Run Lifecycle Tests
+        run: ./scripts/ci_tests_lifecycle.sh
+
+  # Phase 5: Auth Tests (39 tests)
   auth-tests:
-    name: Authentication Tests (SASL)
+    name: Auth Tests
     runs-on: ubuntu-22.04
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     env:
       MIX_ENV: test
@@ -135,12 +224,9 @@ jobs:
       - name: Restore dependencies cache
         uses: actions/cache@v4
         with:
-          path: |
-            deps
-            _build
+          path: deps/_build
           key: ${{ runner.os }}-mix-${{ matrix.pair.otp }}-${{ matrix.pair.elixir }}-${{ hashFiles('**/mix.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-mix-${{ matrix.pair.otp }}-${{ matrix.pair.elixir }}-
+          restore-keys: ${{ runner.os }}-mix-${{ matrix.pair.otp }}-${{ matrix.pair.elixir }}-
 
       - name: Install dependencies
         run: |
@@ -152,5 +238,5 @@ jobs:
       - name: Docker-compose up
         run: ./scripts/docker_up.sh
 
-      - name: Run SASL Authentication Tests
+      - name: Run Auth Tests
         run: ./scripts/ci_tests_auth.sh
