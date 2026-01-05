@@ -12,7 +12,16 @@ defmodule KafkaEx.Consumer.Stream do
             fetch_options: [],
             api_versions: %{fetch: 0, offset_fetch: 0, offset_commit: 0}
 
-  @type t :: %__MODULE__{}
+  @type t :: %__MODULE__{
+          client: pid() | nil,
+          topic: binary() | nil,
+          partition: non_neg_integer() | nil,
+          offset: integer(),
+          consumer_group: binary() | nil,
+          no_wait_at_logend: boolean(),
+          fetch_options: Keyword.t(),
+          api_versions: map()
+        }
 
   defimpl Enumerable do
     def reduce(%KafkaEx.Consumer.Stream{} = data, acc, fun) do

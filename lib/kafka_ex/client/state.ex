@@ -22,7 +22,21 @@ defmodule KafkaEx.Client.State do
     metadata_timer_ref: nil
   )
 
-  @type t :: %__MODULE__{}
+  @type t :: %__MODULE__{
+          bootstrap_uris: [{binary(), pos_integer()}],
+          cluster_metadata: ClusterMetadata.t(),
+          correlation_id: non_neg_integer(),
+          consumer_group_for_auto_commit: binary() | nil,
+          metadata_update_interval: pos_integer() | nil,
+          consumer_group_update_interval: pos_integer() | nil,
+          worker_name: atom() | pid(),
+          ssl_options: Keyword.t(),
+          auth: term(),
+          use_ssl: boolean(),
+          api_versions: map(),
+          allow_auto_topic_creation: boolean(),
+          metadata_timer_ref: reference() | nil
+        }
 
   @default_metadata_update_interval 30_000
   @default_consumer_group_update_interval 30_000
@@ -32,18 +46,9 @@ defmodule KafkaEx.Client.State do
     %__MODULE__{
       bootstrap_uris: Keyword.get(args, :uris, []),
       worker_name: worker_name,
-      metadata_update_interval:
-        Keyword.get(
-          args,
-          :metadata_update_interval,
-          @default_metadata_update_interval
-        ),
+      metadata_update_interval: Keyword.get(args, :metadata_update_interval, @default_metadata_update_interval),
       consumer_group_update_interval:
-        Keyword.get(
-          args,
-          :consumer_group_update_interval,
-          @default_consumer_group_update_interval
-        ),
+        Keyword.get(args, :consumer_group_update_interval, @default_consumer_group_update_interval),
       allow_auto_topic_creation: Keyword.get(args, :allow_auto_topic_creation, true),
       use_ssl: Keyword.get(args, :use_ssl, false),
       ssl_options: Keyword.get(args, :ssl_options, []),
@@ -66,47 +71,20 @@ defmodule KafkaEx.Client.State do
     end
   end
 
-  def update_brokers(
-        %__MODULE__{cluster_metadata: cluster_metadata} = state,
-        cb
-      )
-      when is_function(cb, 1) do
-    %{
-      state
-      | cluster_metadata: ClusterMetadata.update_brokers(cluster_metadata, cb)
-    }
+  def update_brokers(%__MODULE__{cluster_metadata: cluster_metadata} = state, cb) when is_function(cb, 1) do
+    %{state | cluster_metadata: ClusterMetadata.update_brokers(cluster_metadata, cb)}
   end
 
-  def put_consumer_group_coordinator(
-        %__MODULE__{cluster_metadata: cluster_metadata} = state,
-        consumer_group,
-        coordinator_node_id
-      ) do
-    %{
-      state
-      | cluster_metadata:
-          ClusterMetadata.put_consumer_group_coordinator(
-            cluster_metadata,
-            consumer_group,
-            coordinator_node_id
-          )
-    }
+  def put_consumer_group_coordinator(%__MODULE__{cluster_metadata: cluster_metadata} = state, group, node_id) do
+    new_metadata = ClusterMetadata.put_consumer_group_coordinator(cluster_metadata, group, node_id)
+    %{state | cluster_metadata: new_metadata}
   end
 
-  def remove_topics(
-        %__MODULE__{cluster_metadata: cluster_metadata} = state,
-        topics
-      ) do
-    %{
-      state
-      | cluster_metadata: ClusterMetadata.remove_topics(cluster_metadata, topics)
-    }
+  def remove_topics(%__MODULE__{cluster_metadata: cluster_metadata} = state, topics) do
+    %{state | cluster_metadata: ClusterMetadata.remove_topics(cluster_metadata, topics)}
   end
 
-  def topics_metadata(
-        %__MODULE__{cluster_metadata: cluster_metadata},
-        wanted_topics
-      ) do
+  def topics_metadata(%__MODULE__{cluster_metadata: cluster_metadata}, wanted_topics) do
     ClusterMetadata.topics_metadata(cluster_metadata, wanted_topics)
   end
 
@@ -116,17 +94,9 @@ defmodule KafkaEx.Client.State do
 
   def ingest_api_versions(%__MODULE__{} = state, %{api_versions: api_versions}) do
     api_versions =
-      Enum.into(
-        api_versions,
-        %{},
-        fn %{
-             api_key: api_key,
-             min_version: min_version,
-             max_version: max_version
-           } ->
-          {api_key, {min_version, max_version}}
-        end
-      )
+      Enum.into(api_versions, %{}, fn %{api_key: api_key, min_version: min_version, max_version: max_version} ->
+        {api_key, {min_version, max_version}}
+      end)
 
     %{state | api_versions: api_versions}
   end

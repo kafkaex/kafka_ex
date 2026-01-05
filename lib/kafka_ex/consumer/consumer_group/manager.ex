@@ -69,7 +69,27 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
       :heartbeat_timer
     ]
 
-    @type t :: %__MODULE__{}
+    @type t :: %__MODULE__{
+            supervisor_pid: pid(),
+            client: pid(),
+            heartbeat_interval: pos_integer(),
+            session_timeout: pos_integer(),
+            session_timeout_padding: pos_integer(),
+            rebalance_timeout: pos_integer(),
+            gen_consumer_module: module(),
+            consumer_module: module(),
+            consumer_opts: Keyword.t(),
+            partition_assignment_callback: function(),
+            group_name: binary(),
+            topics: [binary()],
+            member_id: binary() | nil,
+            leader_id: binary() | nil,
+            consumer_supervisor_pid: pid() | nil,
+            members: [binary()] | nil,
+            generation_id: integer() | nil,
+            assignments: [{binary(), integer()}] | nil,
+            heartbeat_timer: reference() | nil
+          }
   end
 
   @heartbeat_interval 5_000
