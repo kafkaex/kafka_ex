@@ -3,32 +3,44 @@ defmodule KafkaEx.Network.NetworkClient do
   KafkaEx implementation of Client used to connect to Kafka Broker
   """
   @behaviour KafkaEx.Network.Behaviour
-
   require Logger
 
   alias KafkaEx.Auth.Config, as: AuthConfig
   alias KafkaEx.Auth.SASL
   alias KafkaEx.Auth.SASL.VersionSupport
   alias KafkaEx.Network.Socket
+  alias KafkaEx.Telemetry
 
   @impl true
   def create_socket(host, port, ssl_options \\ [], use_ssl \\ false, auth_opts \\ nil) do
+    metadata = Telemetry.connection_metadata(host, port, use_ssl)
+
+    Telemetry.span([:kafka_ex, :connection], metadata, fn ->
+      do_create_socket(host, port, ssl_options, use_ssl, auth_opts)
+    end)
+  end
+
+  defp do_create_socket(host, port, ssl_options, use_ssl, auth_opts) do
     case Socket.create(format_host(host), port, build_socket_options(ssl_options), use_ssl) do
       {:ok, socket} ->
-        case maybe_authenticate_sasl(socket, auth_opts) do
-          :ok ->
-            :ok = Socket.setopts(socket, [:binary, {:packet, 4}, {:active, true}])
-            socket
-
-          {:error, reason} ->
-            _ = Socket.close(socket)
-            Logger.error("SASL authentication failed for #{inspect_broker(host, port)}}: #{inspect(reason)}")
-            nil
-        end
+        finish_socket_setup(socket, auth_opts, host, port)
 
       {:error, reason} ->
         Logger.error("Could not connect to #{inspect_broker(host, port)} because of error #{inspect(reason)}")
-        nil
+        {nil, %{success: false, error: reason}}
+    end
+  end
+
+  defp finish_socket_setup(socket, auth_opts, host, port) do
+    case maybe_authenticate_sasl(socket, auth_opts) do
+      :ok ->
+        :ok = Socket.setopts(socket, [:binary, {:packet, 4}, {:active, true}])
+        {socket, %{success: true}}
+
+      {:error, reason} ->
+        _ = Socket.close(socket)
+        Logger.error("SASL authentication failed for #{inspect_broker(host, port)}}: #{inspect(reason)}")
+        {nil, %{success: false, error: reason}}
     end
   end
 
