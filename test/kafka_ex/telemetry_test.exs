@@ -32,6 +32,30 @@ defmodule KafkaEx.TelemetryTest do
       assert [:kafka_ex, :connection, :stop] in events
       assert [:kafka_ex, :connection, :exception] in events
     end
+
+    test "includes produce events" do
+      events = Telemetry.events()
+
+      assert [:kafka_ex, :produce, :start] in events
+      assert [:kafka_ex, :produce, :stop] in events
+      assert [:kafka_ex, :produce, :exception] in events
+    end
+
+    test "includes fetch events" do
+      events = Telemetry.events()
+
+      assert [:kafka_ex, :fetch, :start] in events
+      assert [:kafka_ex, :fetch, :stop] in events
+      assert [:kafka_ex, :fetch, :exception] in events
+    end
+
+    test "includes consumer events" do
+      events = Telemetry.events()
+
+      assert [:kafka_ex, :consumer, :commit, :start] in events
+      assert [:kafka_ex, :consumer, :commit, :stop] in events
+      assert [:kafka_ex, :consumer, :commit, :exception] in events
+    end
   end
 
   describe "request_events/0" do
@@ -55,6 +79,41 @@ defmodule KafkaEx.TelemetryTest do
       Enum.each(events, fn event ->
         assert Enum.at(event, 1) == :connection
       end)
+    end
+  end
+
+  describe "produce_events/0" do
+    test "returns only produce events" do
+      events = Telemetry.produce_events()
+
+      assert length(events) == 3
+
+      Enum.each(events, fn event ->
+        assert Enum.at(event, 1) == :produce
+      end)
+    end
+  end
+
+  describe "fetch_events/0" do
+    test "returns only fetch events" do
+      events = Telemetry.fetch_events()
+
+      assert length(events) == 3
+
+      Enum.each(events, fn event ->
+        assert Enum.at(event, 1) == :fetch
+      end)
+    end
+  end
+
+  describe "consumer_events/0" do
+    test "returns only consumer events" do
+      events = Telemetry.consumer_events()
+
+      assert length(events) == 3
+      assert [:kafka_ex, :consumer, :commit, :start] in events
+      assert [:kafka_ex, :consumer, :commit, :stop] in events
+      assert [:kafka_ex, :consumer, :commit, :exception] in events
     end
   end
 
@@ -140,6 +199,28 @@ defmodule KafkaEx.TelemetryTest do
     end
   end
 
+  describe "produce_metadata/4" do
+    test "creates produce metadata" do
+      metadata = Telemetry.produce_metadata("test-topic", 0, "test-client", 1)
+
+      assert metadata.topic == "test-topic"
+      assert metadata.partition == 0
+      assert metadata.client_id == "test-client"
+      assert metadata.required_acks == 1
+    end
+  end
+
+  describe "fetch_metadata/4" do
+    test "creates fetch metadata" do
+      metadata = Telemetry.fetch_metadata("test-topic", 0, 100, "test-client")
+
+      assert metadata.topic == "test-topic"
+      assert metadata.partition == 0
+      assert metadata.offset == 100
+      assert metadata.client_id == "test-client"
+    end
+  end
+
   describe "span/3" do
     test "emits start and stop events" do
       ref = make_ref()
@@ -213,4 +294,16 @@ defmodule KafkaEx.TelemetryTest do
       :telemetry.detach(ref)
     end
   end
+
+  describe "commit_metadata/4" do
+    test "creates commit metadata" do
+      metadata = Telemetry.commit_metadata("test-group", "test-client", "test-topic", 3)
+
+      assert metadata.group_id == "test-group"
+      assert metadata.client_id == "test-client"
+      assert metadata.topic == "test-topic"
+      assert metadata.partition_count == 3
+    end
+  end
+
 end

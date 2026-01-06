@@ -418,12 +418,24 @@ defmodule KafkaEx.Client do
   end
 
   defp offset_commit_request(consumer_group, {topic, partitions_data}, opts, state) do
+    client_id = Config.client_id()
+    partition_count = length(partitions_data)
+    metadata = Telemetry.commit_metadata(consumer_group, client_id, topic, partition_count)
+
+    Telemetry.span([:kafka_ex, :consumer, :commit], metadata, fn ->
+      do_offset_commit_request(consumer_group, {topic, partitions_data}, opts, state, metadata)
+    end)
+  end
+
+  defp do_offset_commit_request(consumer_group, {topic, partitions_data}, opts, state, metadata) do
     node_selector = NodeSelector.consumer_group(consumer_group)
     req_data = [{:group_id, consumer_group}, {:topics, [{topic, partitions_data}]} | opts]
 
-    case RequestBuilder.offset_commit_request(req_data, state) do
-      {:ok, request} -> handle_offset_commit_request(request, node_selector, state)
-      {:error, error} -> {:error, error}
+    with {:ok, request} <- RequestBuilder.offset_commit_request(req_data, state),
+         {result, updated_state} <- handle_offset_commit_request(request, node_selector, state) do
+      {{result, updated_state}, metadata}
+    else
+      {:error, error} -> {{:error, error}, metadata}
     end
   end
 
@@ -474,22 +486,60 @@ defmodule KafkaEx.Client do
   end
 
   defp produce_request(topic, partition, messages, opts, state) do
+    message_count = length(messages)
+    required_acks = Keyword.get(opts, :required_acks, 1)
+    client_id = Config.client_id()
+
+    metadata = Telemetry.produce_metadata(topic, partition, client_id, required_acks)
+    start_measurements = %{message_count: message_count}
+
+    Telemetry.span([:kafka_ex, :produce], Map.merge(metadata, start_measurements), fn ->
+      do_produce_request(topic, partition, messages, opts, state, metadata)
+    end)
+  end
+
+  defp do_produce_request(topic, partition, messages, opts, state, metadata) do
     node_selector = NodeSelector.topic_partition(topic, partition)
     req_data = [{:topic, topic}, {:partition, partition}, {:messages, messages} | opts]
 
-    case RequestBuilder.produce_request(req_data, state) do
-      {:ok, request} -> handle_produce_request(request, node_selector, state)
-      {:error, error} -> {:error, error}
+    with {:ok, request} <- RequestBuilder.produce_request(req_data, state),
+         {{:ok, result}, updated_state} <- handle_produce_request(request, node_selector, state) do
+      stop_metadata = add_offset_to_metadata(metadata, result)
+      {{{:ok, result}, updated_state}, stop_metadata}
+    else
+      {:error, error} -> {{:error, error}, metadata}
+      error_result -> {error_result, metadata}
+    end
+  end
+
+  defp add_offset_to_metadata(metadata, result) do
+    case Map.get(result, :base_offset) do
+      nil -> metadata
+      offset -> Map.put(metadata, :offset, offset)
     end
   end
 
   defp fetch_request(topic, partition, offset, opts, state) do
+    client_id = Config.client_id()
+    metadata = Telemetry.fetch_metadata(topic, partition, offset, client_id)
+
+    Telemetry.span([:kafka_ex, :fetch], metadata, fn ->
+      do_fetch_request(topic, partition, offset, opts, state, metadata)
+    end)
+  end
+
+  defp do_fetch_request(topic, partition, offset, opts, state, metadata) do
     node_selector = NodeSelector.topic_partition(topic, partition)
     req_data = [{:topic, topic}, {:partition, partition}, {:offset, offset} | opts]
 
-    case RequestBuilder.fetch_request(req_data, state) do
-      {:ok, request} -> handle_fetch_request(request, node_selector, state)
-      {:error, error} -> {:error, error}
+    with {:ok, request} <- RequestBuilder.fetch_request(req_data, state),
+         {{:ok, result}, updated_state} <- handle_fetch_request(request, node_selector, state) do
+      message_count = length(Map.get(result, :records, []))
+      stop_metadata = Map.put(metadata, :message_count, message_count)
+      {{{:ok, result}, updated_state}, stop_metadata}
+    else
+      {:error, error} -> {{:error, error}, metadata}
+      error_result -> {error_result, metadata}
     end
   end
 
