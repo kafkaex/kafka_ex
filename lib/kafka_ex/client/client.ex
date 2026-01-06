@@ -13,6 +13,7 @@ defmodule KafkaEx.Client do
 
   alias KafkaEx.Config
   alias KafkaEx.Network.NetworkClient
+  alias KafkaEx.Telemetry
 
   alias KafkaEx.Client.Error
   alias KafkaEx.Client.NodeSelector
@@ -922,23 +923,27 @@ defmodule KafkaEx.Client do
          synchronous
        )
        when not is_nil(client_id) and not is_nil(correlation_id) do
+    metadata = Telemetry.request_metadata(client_request, %{})
+
+    Telemetry.span([:kafka_ex, :request], metadata, fn ->
+      do_run_client_request(client_request, send_request, synchronous)
+    end)
+  end
+
+  defp do_run_client_request(client_request, send_request, synchronous) do
     wire_request = Request.serialize(client_request)
 
-    case(send_request.(wire_request)) do
-      {:error, reason} ->
-        {:error, reason}
+    result =
+      case send_request.(wire_request) do
+        {:error, reason} -> {:error, reason}
+        data when synchronous -> {:ok, deserialize(data, client_request)}
+        data -> data
+      end
 
-      data ->
-        if synchronous do
-          {:ok, deserialize(data, client_request)}
-        else
-          data
-        end
-    end
+    {result, %{}}
   end
 
   defp get_send_request_function(%NodeSelector{strategy: :first_available}, state, network_timeout, _synchronous) do
-    # Ensure at least one broker is connected before trying to send
     {updated_state, connected_brokers} = ensure_any_broker_connected(state)
 
     if Enum.empty?(connected_brokers) do
