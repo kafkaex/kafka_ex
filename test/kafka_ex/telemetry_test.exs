@@ -305,5 +305,4 @@ defmodule KafkaEx.TelemetryTest do
       assert metadata.partition_count == 3
     end
   end
-
 end

@@ -171,7 +171,10 @@ defmodule KafkaEx.Telemetry do
 
   defp add_result_to_metadata({{:ok, _}, _state}, metadata), do: Map.put(metadata, :result, :ok)
   defp add_result_to_metadata({:ok, _}, metadata), do: Map.put(metadata, :result, :ok)
-  defp add_result_to_metadata({{:error, error}, _state}, metadata), do: Map.merge(metadata, %{result: :error, error: error})
+
+  defp add_result_to_metadata({{:error, error}, _state}, metadata),
+    do: Map.merge(metadata, %{result: :error, error: error})
+
   defp add_result_to_metadata({:error, error}, metadata), do: Map.merge(metadata, %{result: :error, error: error})
   defp add_result_to_metadata(_other, metadata), do: metadata
 
