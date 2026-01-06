@@ -15,6 +15,7 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
   alias Kayrock.FindCoordinator
   alias Kayrock.Heartbeat
   alias Kayrock.JoinGroup
+  alias Kayrock.KafkaSchemaMetadata
   alias Kayrock.LeaveGroup
   alias Kayrock.ListOffsets
   alias Kayrock.Metadata
@@ -22,6 +23,24 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
   alias Kayrock.OffsetFetch
   alias Kayrock.Produce
   alias Kayrock.SyncGroup
+
+  # -----------------------------------------------------------------------------
+  @doc """
+  Extracts operation name and API version from a Kayrock request struct.
+
+  Returns `{operation, api_version}` tuple where:
+    - `operation` is an atom like `:metadata`, `:produce`, `:fetch`, etc.
+    - `api_version` is an integer like 0, 1, 2, etc.
+  """
+  @spec request_info(struct()) :: {atom(), non_neg_integer()}
+  def request_info(request) do
+    api_key = request.__struct__.api_key()
+    api_version = request.__struct__.api_vsn()
+    operation = KafkaSchemaMetadata.api_key(api_key)
+    {operation, api_version}
+  rescue
+    _ -> {:unknown, 0}
+  end
 
   # -----------------------------------------------------------------------------
   @doc """

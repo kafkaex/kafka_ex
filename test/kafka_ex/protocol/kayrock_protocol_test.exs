@@ -150,4 +150,38 @@ defmodule KafkaEx.Protocol.KayrockProtocolTest do
       assert request != nil
     end
   end
+
+  describe "request_info/1" do
+    test "extracts operation and version from metadata request" do
+      request = %Kayrock.Metadata.V1.Request{topics: []}
+      assert KayrockProtocol.request_info(request) == {:metadata, 1}
+    end
+
+    test "extracts operation and version from produce request" do
+      request = %Kayrock.Produce.V2.Request{acks: 1, timeout: 5000, topic_data: []}
+      assert KayrockProtocol.request_info(request) == {:produce, 2}
+    end
+
+    test "extracts operation and version from fetch request" do
+      request = %Kayrock.Fetch.V3.Request{
+        replica_id: -1,
+        max_wait_time: 500,
+        min_bytes: 1,
+        max_bytes: 1_000_000,
+        topics: []
+      }
+
+      assert KayrockProtocol.request_info(request) == {:fetch, 3}
+    end
+
+    test "extracts operation and version from api_versions request" do
+      request = %Kayrock.ApiVersions.V0.Request{}
+      assert KayrockProtocol.request_info(request) == {:api_versions, 0}
+    end
+
+    test "returns unknown for non-Kayrock struct" do
+      request = %{__struct__: SomeUnknown.Module}
+      assert KayrockProtocol.request_info(request) == {:unknown, 0}
+    end
+  end
 end
