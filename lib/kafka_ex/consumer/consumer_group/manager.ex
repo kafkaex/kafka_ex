@@ -43,6 +43,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   alias KafkaEx.Consumer.ConsumerGroup
   alias KafkaEx.Consumer.ConsumerGroup.Heartbeat
   alias KafkaEx.Consumer.ConsumerGroup.PartitionAssignment
+  alias KafkaEx.Telemetry
   require Logger
 
   defmodule State do
@@ -228,7 +229,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
 
   # If the heartbeat gets an error, we need to rebalance.
   def handle_info({:EXIT, timer, {:shutdown, :rebalance}}, %State{heartbeat_timer: timer} = state) do
-    {:ok, state} = rebalance(state)
+    {:ok, state} = rebalance(state, :heartbeat_timeout)
     {:noreply, state}
   end
 
@@ -378,7 +379,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
         start_consumer(state, consumer_assignments)
 
       {:error, :rebalance_in_progress} ->
-        rebalance(state)
+        rebalance(state, :rebalance_in_progress)
 
       {:error, reason} ->
         raise "Error syncing consumer group #{group_name}: #{inspect(reason)}"
@@ -429,7 +430,14 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   # the group with `JoinGroupRequest` (see join/1). To keep the state
   # synchronized during the join/sync phase, each member pauses its consumers
   # and commits its offsets before rejoining the group.
-  defp rebalance(%State{} = state) do
+  defp rebalance(%State{} = state, reason) do
+    Telemetry.emit_rebalance(
+      state.group_name,
+      state.member_id || "",
+      state.generation_id,
+      reason
+    )
+
     {:ok, state} = stop_heartbeat_timer(state)
     {:ok, state} = stop_consumer(state)
     join(state)

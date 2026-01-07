@@ -193,6 +193,187 @@ defmodule KafkaEx.Integration.Lifecycle.TelemetryTest do
     end
   end
 
+  describe "consumer group telemetry events" do
+    test "join group span emits start and stop events", %{ref: ref, handler: handler, client: client} do
+      :telemetry.attach_many(ref, Telemetry.consumer_group_events(), handler, nil)
+
+      topic_name = "telemetry-join-test-#{:rand.uniform(100_000)}"
+      group_name = "telemetry-join-group-#{:rand.uniform(100_000)}"
+      {:ok, _} = API.create_topics(client, [[topic: topic_name, num_partitions: 1, replication_factor: 1]], 10_000)
+      Process.sleep(500)
+
+      # Join group
+      {:ok, join_result} =
+        API.join_group(client, group_name, "",
+          topics: [topic_name],
+          session_timeout: 30_000,
+          rebalance_timeout: 60_000
+        )
+
+      # Verify start event
+      assert_receive {:telemetry, ^ref, [:kafka_ex, :consumer, :join, :start], start_measurements, start_metadata}, 5000
+      assert Map.has_key?(start_measurements, :system_time)
+      assert start_metadata.group_id == group_name
+      assert start_metadata.member_id == ""
+      assert start_metadata.topics == [topic_name]
+
+      # Verify stop event
+      assert_receive {:telemetry, ^ref, [:kafka_ex, :consumer, :join, :stop], stop_measurements, stop_metadata}, 5000
+      assert Map.has_key?(stop_measurements, :duration)
+      assert stop_measurements.duration > 0
+      assert stop_metadata.result == :ok
+      assert stop_metadata.generation_id == join_result.generation_id
+      assert is_boolean(stop_metadata.is_leader)
+
+      # Leave group to clean up
+      API.leave_group(client, group_name, join_result.member_id)
+    end
+
+    test "sync group span emits start and stop events", %{ref: ref, handler: handler, client: client} do
+      :telemetry.attach_many(ref, Telemetry.consumer_group_events(), handler, nil)
+
+      topic_name = "telemetry-sync-test-#{:rand.uniform(100_000)}"
+      group_name = "telemetry-sync-group-#{:rand.uniform(100_000)}"
+      {:ok, _} = API.create_topics(client, [[topic: topic_name, num_partitions: 1, replication_factor: 1]], 10_000)
+      Process.sleep(500)
+
+      # Join group first
+      {:ok, join_result} =
+        API.join_group(client, group_name, "",
+          topics: [topic_name],
+          session_timeout: 30_000,
+          rebalance_timeout: 60_000
+        )
+
+      # Flush join events
+      flush_messages(ref)
+
+      # Sync group (as leader, provide assignments)
+      assignments =
+        if join_result.leader_id == join_result.member_id do
+          [%{member_id: join_result.member_id, topic_partitions: [{topic_name, [0]}]}]
+        else
+          []
+        end
+
+      {:ok, _sync_result} =
+        API.sync_group(client, group_name, join_result.generation_id, join_result.member_id,
+          group_assignment: assignments
+        )
+
+      # Verify start event
+      assert_receive {:telemetry, ^ref, [:kafka_ex, :consumer, :sync, :start], start_measurements, start_metadata}, 5000
+      assert Map.has_key?(start_measurements, :system_time)
+      assert start_metadata.group_id == group_name
+      assert start_metadata.member_id == join_result.member_id
+      assert start_metadata.generation_id == join_result.generation_id
+      assert is_boolean(start_metadata.is_leader)
+
+      # Verify stop event
+      assert_receive {:telemetry, ^ref, [:kafka_ex, :consumer, :sync, :stop], stop_measurements, stop_metadata}, 5000
+      assert Map.has_key?(stop_measurements, :duration)
+      assert stop_measurements.duration > 0
+      assert stop_metadata.result == :ok
+      assert is_integer(stop_metadata.assigned_partitions)
+
+      # Leave group to clean up
+      API.leave_group(client, group_name, join_result.member_id)
+    end
+
+    test "heartbeat span emits start and stop events", %{ref: ref, handler: handler, client: client} do
+      :telemetry.attach_many(ref, Telemetry.consumer_group_events(), handler, nil)
+
+      topic_name = "telemetry-heartbeat-test-#{:rand.uniform(100_000)}"
+      group_name = "telemetry-heartbeat-group-#{:rand.uniform(100_000)}"
+      {:ok, _} = API.create_topics(client, [[topic: topic_name, num_partitions: 1, replication_factor: 1]], 10_000)
+      Process.sleep(500)
+
+      # Join group first
+      {:ok, join_result} =
+        API.join_group(client, group_name, "",
+          topics: [topic_name],
+          session_timeout: 30_000,
+          rebalance_timeout: 60_000
+        )
+
+      # Sync group
+      assignments =
+        if join_result.leader_id == join_result.member_id do
+          [%{member_id: join_result.member_id, topic_partitions: [{topic_name, [0]}]}]
+        else
+          []
+        end
+
+      {:ok, _} =
+        API.sync_group(client, group_name, join_result.generation_id, join_result.member_id,
+          group_assignment: assignments
+        )
+
+      # Flush join/sync events
+      flush_messages(ref)
+
+      # Send heartbeat
+      {:ok, _} = API.heartbeat(client, group_name, join_result.member_id, join_result.generation_id)
+
+      # Verify start event
+      assert_receive {:telemetry, ^ref, [:kafka_ex, :consumer, :heartbeat, :start], start_measurements, start_metadata},
+                     5000
+
+      assert Map.has_key?(start_measurements, :system_time)
+      assert start_metadata.group_id == group_name
+      assert start_metadata.member_id == join_result.member_id
+      assert start_metadata.generation_id == join_result.generation_id
+
+      # Verify stop event
+      assert_receive {:telemetry, ^ref, [:kafka_ex, :consumer, :heartbeat, :stop], stop_measurements, stop_metadata},
+                     5000
+
+      assert Map.has_key?(stop_measurements, :duration)
+      assert stop_measurements.duration > 0
+      assert stop_metadata.result == :ok
+
+      # Leave group to clean up
+      API.leave_group(client, group_name, join_result.member_id)
+    end
+
+    test "leave group span emits start and stop events", %{ref: ref, handler: handler, client: client} do
+      :telemetry.attach_many(ref, Telemetry.consumer_group_events(), handler, nil)
+
+      topic_name = "telemetry-leave-test-#{:rand.uniform(100_000)}"
+      group_name = "telemetry-leave-group-#{:rand.uniform(100_000)}"
+      {:ok, _} = API.create_topics(client, [[topic: topic_name, num_partitions: 1, replication_factor: 1]], 10_000)
+      Process.sleep(500)
+
+      # Join group first
+      {:ok, join_result} =
+        API.join_group(client, group_name, "",
+          topics: [topic_name],
+          session_timeout: 30_000,
+          rebalance_timeout: 60_000
+        )
+
+      # Flush join events
+      flush_messages(ref)
+
+      # Leave group
+      {:ok, _} = API.leave_group(client, group_name, join_result.member_id)
+
+      # Verify start event
+      assert_receive {:telemetry, ^ref, [:kafka_ex, :consumer, :leave, :start], start_measurements, start_metadata},
+                     5000
+
+      assert Map.has_key?(start_measurements, :system_time)
+      assert start_metadata.group_id == group_name
+      assert start_metadata.member_id == join_result.member_id
+
+      # Verify stop event
+      assert_receive {:telemetry, ^ref, [:kafka_ex, :consumer, :leave, :stop], stop_measurements, stop_metadata}, 5000
+      assert Map.has_key?(stop_measurements, :duration)
+      assert stop_measurements.duration > 0
+      assert stop_metadata.result == :ok
+    end
+  end
+
   defp flush_messages(ref) do
     receive do
       {:telemetry, ^ref, _, _, _} -> flush_messages(ref)
