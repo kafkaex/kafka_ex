@@ -97,6 +97,60 @@ defmodule KafkaEx.Telemetry do
   * `[:kafka_ex, :consumer, :commit, :exception]` - Emitted when an offset commit fails
     * Measurements: `%{duration: integer()}`
     * Metadata: Start metadata plus `%{kind: atom(), reason: term(), stacktrace: list()}`
+
+  ### Consumer Group Events
+
+  * `[:kafka_ex, :consumer, :join, :start]` - Emitted when joining a consumer group
+    * Measurements: `%{system_time: integer()}`
+    * Metadata: `%{group_id: binary(), member_id: binary(), topics: [binary()]}`
+
+  * `[:kafka_ex, :consumer, :join, :stop]` - Emitted when join group completes
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Same as start event plus `%{result: :ok | :error, generation_id: integer(), is_leader: boolean(), error: term()}`
+
+  * `[:kafka_ex, :consumer, :join, :exception]` - Emitted when join group fails with exception
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Start metadata plus `%{kind: atom(), reason: term(), stacktrace: list()}`
+
+  * `[:kafka_ex, :consumer, :sync, :start]` - Emitted when syncing consumer group state
+    * Measurements: `%{system_time: integer()}`
+    * Metadata: `%{group_id: binary(), member_id: binary(), generation_id: integer(), is_leader: boolean()}`
+
+  * `[:kafka_ex, :consumer, :sync, :stop]` - Emitted when sync group completes
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Same as start event plus `%{result: :ok | :error, assigned_partitions: integer(), error: term()}`
+
+  * `[:kafka_ex, :consumer, :sync, :exception]` - Emitted when sync group fails with exception
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Start metadata plus `%{kind: atom(), reason: term(), stacktrace: list()}`
+
+  * `[:kafka_ex, :consumer, :heartbeat, :start]` - Emitted when sending a heartbeat
+    * Measurements: `%{system_time: integer()}`
+    * Metadata: `%{group_id: binary(), member_id: binary(), generation_id: integer()}`
+
+  * `[:kafka_ex, :consumer, :heartbeat, :stop]` - Emitted when heartbeat completes
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Same as start event plus `%{result: :ok | :error, error: term()}`
+
+  * `[:kafka_ex, :consumer, :heartbeat, :exception]` - Emitted when heartbeat fails with exception
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Start metadata plus `%{kind: atom(), reason: term(), stacktrace: list()}`
+
+  * `[:kafka_ex, :consumer, :leave, :start]` - Emitted when leaving a consumer group
+    * Measurements: `%{system_time: integer()}`
+    * Metadata: `%{group_id: binary(), member_id: binary()}`
+
+  * `[:kafka_ex, :consumer, :leave, :stop]` - Emitted when leave group completes
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Same as start event plus `%{result: :ok | :error, error: term()}`
+
+  * `[:kafka_ex, :consumer, :leave, :exception]` - Emitted when leave group fails with exception
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Start metadata plus `%{kind: atom(), reason: term(), stacktrace: list()}`
+
+  * `[:kafka_ex, :consumer, :rebalance]` - Emitted when a consumer group rebalance is triggered
+    * Measurements: `%{count: 1}`
+    * Metadata: `%{group_id: binary(), member_id: binary(), generation_id: integer(), reason: atom()}`
   """
 
   @protocol Application.compile_env(:kafka_ex, :protocol, KafkaEx.Protocol.KayrockProtocol)
@@ -121,11 +175,37 @@ defmodule KafkaEx.Telemetry do
   @consumer_commit_stop [:kafka_ex, :consumer, :commit, :stop]
   @consumer_commit_exception [:kafka_ex, :consumer, :commit, :exception]
 
+  @consumer_join_start [:kafka_ex, :consumer, :join, :start]
+  @consumer_join_stop [:kafka_ex, :consumer, :join, :stop]
+  @consumer_join_exception [:kafka_ex, :consumer, :join, :exception]
+
+  @consumer_sync_start [:kafka_ex, :consumer, :sync, :start]
+  @consumer_sync_stop [:kafka_ex, :consumer, :sync, :stop]
+  @consumer_sync_exception [:kafka_ex, :consumer, :sync, :exception]
+
+  @consumer_heartbeat_start [:kafka_ex, :consumer, :heartbeat, :start]
+  @consumer_heartbeat_stop [:kafka_ex, :consumer, :heartbeat, :stop]
+  @consumer_heartbeat_exception [:kafka_ex, :consumer, :heartbeat, :exception]
+
+  @consumer_leave_start [:kafka_ex, :consumer, :leave, :start]
+  @consumer_leave_stop [:kafka_ex, :consumer, :leave, :stop]
+  @consumer_leave_exception [:kafka_ex, :consumer, :leave, :exception]
+
+  @consumer_rebalance [:kafka_ex, :consumer, :rebalance]
+
   @request_events [@request_start, @request_stop, @request_exception]
   @connection_events [@connection_start, @connection_stop, @connection_exception]
   @produce_events [@produce_start, @produce_stop, @produce_exception]
   @fetch_events [@fetch_start, @fetch_stop, @fetch_exception]
-  @consumer_events [@consumer_commit_start, @consumer_commit_stop, @consumer_commit_exception]
+  @consumer_commit_events [@consumer_commit_start, @consumer_commit_stop, @consumer_commit_exception]
+  @consumer_join_events [@consumer_join_start, @consumer_join_stop, @consumer_join_exception]
+  @consumer_sync_events [@consumer_sync_start, @consumer_sync_stop, @consumer_sync_exception]
+  @consumer_heartbeat_events [@consumer_heartbeat_start, @consumer_heartbeat_stop, @consumer_heartbeat_exception]
+  @consumer_leave_events [@consumer_leave_start, @consumer_leave_stop, @consumer_leave_exception]
+  @consumer_group_events @consumer_join_events ++
+                           @consumer_sync_events ++
+                           @consumer_heartbeat_events ++ @consumer_leave_events ++ [@consumer_rebalance]
+  @consumer_events @consumer_commit_events ++ @consumer_group_events
 
   @doc """
   Returns the list of all telemetry events emitted by KafkaEx.
@@ -151,9 +231,13 @@ defmodule KafkaEx.Telemetry do
   @spec fetch_events() :: [list(atom())]
   def fetch_events, do: @fetch_events
 
-  @doc "Returns consumer-related telemetry events."
+  @doc "Returns consumer-related telemetry events (includes commit and group events)."
   @spec consumer_events() :: [list(atom())]
   def consumer_events, do: @consumer_events
+
+  @doc "Returns consumer group lifecycle events (join, sync, heartbeat, leave, rebalance)."
+  @spec consumer_group_events() :: [list(atom())]
+  def consumer_group_events, do: @consumer_group_events
 
   # ---------------------------------------------------------------------------
   # Helper functions for emitting events
@@ -229,5 +313,60 @@ defmodule KafkaEx.Telemetry do
       topic: topic,
       partition_count: partition_count
     }
+  end
+
+  @doc false
+  @spec join_group_metadata(binary(), binary(), [binary()]) :: map()
+  def join_group_metadata(group_id, member_id, topics) do
+    %{
+      group_id: group_id,
+      member_id: member_id,
+      topics: topics
+    }
+  end
+
+  @doc false
+  @spec sync_group_metadata(binary(), binary(), integer(), boolean()) :: map()
+  def sync_group_metadata(group_id, member_id, generation_id, is_leader) do
+    %{
+      group_id: group_id,
+      member_id: member_id,
+      generation_id: generation_id,
+      is_leader: is_leader
+    }
+  end
+
+  @doc false
+  @spec heartbeat_metadata(binary(), binary(), integer()) :: map()
+  def heartbeat_metadata(group_id, member_id, generation_id) do
+    %{
+      group_id: group_id,
+      member_id: member_id,
+      generation_id: generation_id
+    }
+  end
+
+  @doc false
+  @spec leave_group_metadata(binary(), binary()) :: map()
+  def leave_group_metadata(group_id, member_id) do
+    %{
+      group_id: group_id,
+      member_id: member_id
+    }
+  end
+
+  @doc false
+  @spec emit_rebalance(binary(), binary(), integer() | nil, atom()) :: :ok
+  def emit_rebalance(group_id, member_id, generation_id, reason) do
+    :telemetry.execute(
+      @consumer_rebalance,
+      %{count: 1},
+      %{
+        group_id: group_id,
+        member_id: member_id,
+        generation_id: generation_id,
+        reason: reason
+      }
+    )
   end
 end

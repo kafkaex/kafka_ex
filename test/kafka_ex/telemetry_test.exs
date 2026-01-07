@@ -56,6 +56,24 @@ defmodule KafkaEx.TelemetryTest do
       assert [:kafka_ex, :consumer, :commit, :stop] in events
       assert [:kafka_ex, :consumer, :commit, :exception] in events
     end
+
+    test "includes consumer group events" do
+      events = Telemetry.events()
+
+      assert [:kafka_ex, :consumer, :join, :start] in events
+      assert [:kafka_ex, :consumer, :join, :stop] in events
+      assert [:kafka_ex, :consumer, :join, :exception] in events
+      assert [:kafka_ex, :consumer, :sync, :start] in events
+      assert [:kafka_ex, :consumer, :sync, :stop] in events
+      assert [:kafka_ex, :consumer, :sync, :exception] in events
+      assert [:kafka_ex, :consumer, :heartbeat, :start] in events
+      assert [:kafka_ex, :consumer, :heartbeat, :stop] in events
+      assert [:kafka_ex, :consumer, :heartbeat, :exception] in events
+      assert [:kafka_ex, :consumer, :leave, :start] in events
+      assert [:kafka_ex, :consumer, :leave, :stop] in events
+      assert [:kafka_ex, :consumer, :leave, :exception] in events
+      assert [:kafka_ex, :consumer, :rebalance] in events
+    end
   end
 
   describe "request_events/0" do
@@ -107,13 +125,55 @@ defmodule KafkaEx.TelemetryTest do
   end
 
   describe "consumer_events/0" do
-    test "returns only consumer events" do
+    test "returns all consumer events including commit and group events" do
       events = Telemetry.consumer_events()
 
-      assert length(events) == 3
+      # 3 commit events + 12 group events (join, sync, heartbeat, leave x 3) + 1 rebalance = 16
+      assert length(events) == 16
+
+      # Commit events
       assert [:kafka_ex, :consumer, :commit, :start] in events
       assert [:kafka_ex, :consumer, :commit, :stop] in events
       assert [:kafka_ex, :consumer, :commit, :exception] in events
+
+      # Group lifecycle events
+      assert [:kafka_ex, :consumer, :join, :start] in events
+      assert [:kafka_ex, :consumer, :join, :stop] in events
+      assert [:kafka_ex, :consumer, :join, :exception] in events
+      assert [:kafka_ex, :consumer, :sync, :start] in events
+      assert [:kafka_ex, :consumer, :sync, :stop] in events
+      assert [:kafka_ex, :consumer, :sync, :exception] in events
+      assert [:kafka_ex, :consumer, :heartbeat, :start] in events
+      assert [:kafka_ex, :consumer, :heartbeat, :stop] in events
+      assert [:kafka_ex, :consumer, :heartbeat, :exception] in events
+      assert [:kafka_ex, :consumer, :leave, :start] in events
+      assert [:kafka_ex, :consumer, :leave, :stop] in events
+      assert [:kafka_ex, :consumer, :leave, :exception] in events
+      assert [:kafka_ex, :consumer, :rebalance] in events
+    end
+  end
+
+  describe "consumer_group_events/0" do
+    test "returns only consumer group lifecycle events" do
+      events = Telemetry.consumer_group_events()
+
+      # 12 group events (join, sync, heartbeat, leave x 3) + 1 rebalance = 13
+      assert length(events) == 13
+
+      # Group lifecycle events
+      assert [:kafka_ex, :consumer, :join, :start] in events
+      assert [:kafka_ex, :consumer, :join, :stop] in events
+      assert [:kafka_ex, :consumer, :join, :exception] in events
+      assert [:kafka_ex, :consumer, :sync, :start] in events
+      assert [:kafka_ex, :consumer, :sync, :stop] in events
+      assert [:kafka_ex, :consumer, :sync, :exception] in events
+      assert [:kafka_ex, :consumer, :heartbeat, :start] in events
+      assert [:kafka_ex, :consumer, :heartbeat, :stop] in events
+      assert [:kafka_ex, :consumer, :heartbeat, :exception] in events
+      assert [:kafka_ex, :consumer, :leave, :start] in events
+      assert [:kafka_ex, :consumer, :leave, :stop] in events
+      assert [:kafka_ex, :consumer, :leave, :exception] in events
+      assert [:kafka_ex, :consumer, :rebalance] in events
     end
   end
 
@@ -303,6 +363,71 @@ defmodule KafkaEx.TelemetryTest do
       assert metadata.client_id == "test-client"
       assert metadata.topic == "test-topic"
       assert metadata.partition_count == 3
+    end
+  end
+
+  describe "join_group_metadata/3" do
+    test "creates join group metadata" do
+      metadata = Telemetry.join_group_metadata("test-group", "member-1", ["topic-a", "topic-b"])
+
+      assert metadata.group_id == "test-group"
+      assert metadata.member_id == "member-1"
+      assert metadata.topics == ["topic-a", "topic-b"]
+    end
+  end
+
+  describe "sync_group_metadata/4" do
+    test "creates sync group metadata" do
+      metadata = Telemetry.sync_group_metadata("test-group", "member-1", 5, true)
+
+      assert metadata.group_id == "test-group"
+      assert metadata.member_id == "member-1"
+      assert metadata.generation_id == 5
+      assert metadata.is_leader == true
+    end
+  end
+
+  describe "heartbeat_metadata/3" do
+    test "creates heartbeat metadata" do
+      metadata = Telemetry.heartbeat_metadata("test-group", "member-1", 5)
+
+      assert metadata.group_id == "test-group"
+      assert metadata.member_id == "member-1"
+      assert metadata.generation_id == 5
+    end
+  end
+
+  describe "leave_group_metadata/2" do
+    test "creates leave group metadata" do
+      metadata = Telemetry.leave_group_metadata("test-group", "member-1")
+
+      assert metadata.group_id == "test-group"
+      assert metadata.member_id == "member-1"
+    end
+  end
+
+  describe "emit_rebalance/4" do
+    test "emits rebalance event" do
+      ref = make_ref()
+      test_pid = self()
+
+      handler = fn event, measurements, metadata, _config ->
+        send(test_pid, {:telemetry_event, ref, event, measurements, metadata})
+      end
+
+      :telemetry.attach(ref, [:kafka_ex, :consumer, :rebalance], handler, nil)
+
+      Telemetry.emit_rebalance("test-group", "member-1", 5, :heartbeat_timeout)
+
+      assert_receive {:telemetry_event, ^ref, [:kafka_ex, :consumer, :rebalance], measurements, metadata}
+
+      assert measurements.count == 1
+      assert metadata.group_id == "test-group"
+      assert metadata.member_id == "member-1"
+      assert metadata.generation_id == 5
+      assert metadata.reason == :heartbeat_timeout
+
+      :telemetry.detach(ref)
     end
   end
 end
