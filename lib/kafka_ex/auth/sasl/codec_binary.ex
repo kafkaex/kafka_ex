@@ -52,27 +52,14 @@ defmodule KafkaEx.Auth.SASL.CodecBinary do
   @spec api_versions_request(non_neg_integer(), non_neg_integer(), binary()) :: binary()
   @impl true
   def api_versions_request(corr, ver, client_id \\ "kafka_ex") do
-    <<
-      @api_versions_key::16,
-      ver::16,
-      corr::32,
-      byte_size(client_id)::16,
-      client_id::binary
-    >>
+    <<@api_versions_key::16, ver::16, corr::32, byte_size(client_id)::16, client_id::binary>>
   end
 
   @spec handshake_request(binary(), non_neg_integer(), non_neg_integer(), binary()) :: binary()
   @impl true
   def handshake_request(mech, corr, ver, client_id \\ "kafka_ex") do
-    <<
-      @sasl_handshake_key::16,
-      ver::16,
-      corr::32,
-      byte_size(client_id)::16,
-      client_id::binary,
-      byte_size(mech)::16,
-      mech::binary
-    >>
+    <<@sasl_handshake_key::16, ver::16, corr::32, byte_size(client_id)::16, client_id::binary, byte_size(mech)::16,
+      mech::binary>>
   end
 
   @spec authenticate_request(binary() | nil, non_neg_integer(), non_neg_integer(), binary()) :: binary()
@@ -92,11 +79,7 @@ defmodule KafkaEx.Auth.SASL.CodecBinary do
         write_tagged_fields_empty()
       ])
 
-    body =
-      IO.iodata_to_binary([
-        compact_bytes(auth_bytes),
-        write_tagged_fields_empty()
-      ])
+    body = IO.iodata_to_binary([compact_bytes(auth_bytes), write_tagged_fields_empty()])
 
     <<header::binary, body::binary>>
   end
@@ -116,8 +99,7 @@ defmodule KafkaEx.Auth.SASL.CodecBinary do
 
   # ---------- Parsers  ----------
 
-  @spec parse_api_versions_response(binary(), non_neg_integer()) ::
-          map() | {:error, atom()}
+  @spec parse_api_versions_response(binary(), non_neg_integer()) :: map() | {:error, atom()}
   @impl true
   def parse_api_versions_response(data, _expected_corr) when byte_size(data) < 4 do
     # Too short to even have a correlation ID
@@ -146,18 +128,13 @@ defmodule KafkaEx.Auth.SASL.CodecBinary do
   end
 
   defp parse_api_array(0, _rest, acc), do: acc
-
-  defp parse_api_array(_n, data, acc) when byte_size(data) < 6 do
-    # Can't parse more entries, return what we have
-    acc
-  end
+  defp parse_api_array(_n, data, acc) when byte_size(data) < 6, do: acc
 
   defp parse_api_array(n, <<key::16, min::16, max::16, rest::binary>>, acc) do
     parse_api_array(n - 1, rest, Map.put(acc, key, {min, max}))
   end
 
-  @spec parse_handshake_response(binary(), non_neg_integer(), binary(), non_neg_integer()) ::
-          :ok | {:error, term()}
+  @spec parse_handshake_response(binary(), non_neg_integer(), binary(), non_neg_integer()) :: :ok | {:error, term()}
   @impl true
   def parse_handshake_response(data, _expected_corr, _mech, _ver) when byte_size(data) < 4 do
     {:error, :incomplete_response}
@@ -177,19 +154,10 @@ defmodule KafkaEx.Auth.SASL.CodecBinary do
 
   defp parse_handshake_body(<<error_code::16, rest::binary>>, mech, ver) do
     cond do
-      error_code != 0 ->
-        {:error, {:handshake_failed, kafka_error_name(error_code)}}
-
-      ver == 0 ->
-        # v0 has no mechanism list
-        :ok
-
-      ver >= 1 ->
-        # v1+ has mechanism list to verify
-        verify_mechanisms(rest, mech)
-
-      true ->
-        :ok
+      error_code != 0 -> {:error, {:handshake_failed, kafka_error_name(error_code)}}
+      ver == 0 -> :ok
+      ver >= 1 -> verify_mechanisms(rest, mech)
+      true -> :ok
     end
   end
 
@@ -351,14 +319,8 @@ defmodule KafkaEx.Auth.SASL.CodecBinary do
   @spec pick_supported_version(map(), non_neg_integer(), [non_neg_integer()]) :: non_neg_integer()
   def pick_supported_version(api_versions, api_key, preferred_versions) do
     case Map.get(api_versions, api_key) do
-      nil ->
-        # API not supported, use v0
-        0
-
-      {min_v, max_v} ->
-        preferred_versions
-        |> Enum.filter(&(&1 >= min_v and &1 <= max_v))
-        |> Enum.max(fn -> 0 end)
+      nil -> 0
+      {min_v, max_v} -> preferred_versions |> Enum.filter(&(&1 >= min_v and &1 <= max_v)) |> Enum.max(fn -> 0 end)
     end
   end
 
@@ -375,7 +337,6 @@ defmodule KafkaEx.Auth.SASL.CodecBinary do
   end
 
   defp compact_bytes(nil), do: <<0>>
-  # Empty bytes = length 1
   defp compact_bytes(<<>>), do: <<1>>
 
   defp compact_bytes(bin) when is_binary(bin) do

@@ -39,8 +39,7 @@ defmodule KafkaEx.Auth.SASL do
 
   alias KafkaEx.Auth.Config
   alias KafkaEx.Auth.SASL.CodecBinary
-  alias KafkaEx.Auth.SASL.VersionSupport
-  alias KafkaEx.Socket
+  alias KafkaEx.Network.Socket
 
   import Bitwise, only: [&&&: 2]
 
@@ -76,18 +75,13 @@ defmodule KafkaEx.Auth.SASL do
   # -------- Internals --------
 
   defp fetch_api_versions_if_needed(socket) do
-    if VersionSupport.check_api_versions?() do
-      # Kafka 0.10.0+ - actually make the API versions call
-      corr = next_correlation_id()
-      req = CodecBinary.api_versions_request(corr, 0)
+    # With Kayrock-based client, always fetch API versions (Kafka 0.10.0+)
+    corr = next_correlation_id()
+    req = CodecBinary.api_versions_request(corr, 0)
 
-      case send_and_receive(socket, req) do
-        {:ok, resp} -> CodecBinary.parse_api_versions_response(resp, corr)
-        {:error, _} -> %{}
-      end
-    else
-      # Kafka 0.9.x - SKIP the network call entirely
-      %{}
+    case send_and_receive(socket, req) do
+      {:ok, resp} -> CodecBinary.parse_api_versions_response(resp, corr)
+      {:error, _} -> %{}
     end
   end
 

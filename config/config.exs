@@ -28,15 +28,16 @@ config :kafka_ex,
   # will invoke your callback when fetching the `:brokers` configuration.
   # Note that when using this approach you must return a list of host/port pairs.
   #
-  # the default consumer group for worker processes, must be a binary (string)
-  #    NOTE if you are on Kafka < 0.8.2 or if you want to disable the use of
-  #    consumer groups, set this to :no_consumer_group (this is the
-  #    only exception to the requirement that this value be a binary)
-  consumer_group: "kafka_ex",
+  # Default consumer group for worker processes, must be a binary (string)
+  # Set to :no_consumer_group to disable consumer group functionality
+  default_consumer_group: "kafka_ex",
+  # Partitioner for produce requests when partition is not specified
+  # Options: KafkaEx.Producer.Partitioner.Default (default), KafkaEx.Producer.Partitioner.Legacy
+  partitioner: KafkaEx.Producer.Partitioner.Default,
   # The client_id is the logical grouping of a set of kafka clients.
   client_id: "kafka_ex",
   # Set this value to true if you do not want the default
-  # `KafkaEx.Server` worker to start during application start-up -
+  # KafkaEx worker to start during application start-up -
   # i.e., if you want to start your own set of named workers
   disable_default_worker: false,
   # Timeout value, in msec, for synchronous operations (e.g., network calls).
@@ -73,11 +74,7 @@ config :kafka_ex,
     certfile: File.cwd!() <> "/ssl/cert.pem",
     keyfile: File.cwd!() <> "/ssl/key.pem"
   ],
-  snappy_module: :snappyer,
-  # set this to the version of the kafka broker that you are using
-  # include only major.minor.patch versions.  must be at least 0.8.0
-  # use "kayrock" for the new client
-  kafka_version: "0.10.1"
+  snappy_module: :snappyer
 
 # SASL Authentication (optional)
 

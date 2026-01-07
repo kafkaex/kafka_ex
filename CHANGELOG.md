@@ -1,6 +1,51 @@
 # KafkaEx Changelog
 
-## Unreleased
+## 1.0.0-rc.1 - 2025-01-01
+
+### Breaking Changes
+
+* Removed legacy server implementations (Server0P8P0, Server0P8P2, Server0P9P0, Server0P10AndLater)
+* Removed `kafka_version` configuration option - Kayrock is now the only implementation
+* Kayrock is now the default and only client implementation
+* Module reorganization:
+  * `KafkaEx.GenConsumer` → `KafkaEx.Consumer.GenConsumer`
+  * `KafkaEx.ConsumerGroup` → `KafkaEx.Consumer.ConsumerGroup`
+  * `KafkaEx.New.Kafka.*` → `KafkaEx.Messages.*`
+  * `KafkaEx.New.Client` → `KafkaEx.Client`
+  * `KafkaEx.New.KafkaExAPI` → `KafkaEx.API`
+
+### Added
+
+* `KafkaEx.API` module as primary API with explicit client-based functions
+* Automatic API version negotiation with Kafka brokers
+* Full message headers support
+* SASL authentication support (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, OAUTHBEARER)
+* Heartbeat API (v0-v3) with new API support
+* LeaveGroup API (v0-v3) with new API support
+* SyncGroup API (v0-v3) with new API support
+* Graceful shutdown for GenConsumer
+
+### Changed
+
+* All functions now use Kayrock for protocol handling
+* Improved error handling with structured errors (`KafkaEx.Client.Error`)
+* Codebase reorganized by domain (cluster, client, consumer, producer, messages)
+* Test structure reorganized to match new module organization
+
+### Removed
+
+* Legacy `KafkaEx.produce/4` and `KafkaEx.fetch/3` - use `KafkaEx.API` functions
+* `KafkaEx.Server0P8P0`, `KafkaEx.Server0P8P2`, `KafkaEx.Server0P9P0`, `KafkaEx.Server0P10AndLater`
+* `kafka_version` configuration option
+* Legacy snappy-erlang-nif dependency (snappyer is now the default)
+
+### Migration
+
+See UPGRADING.md for detailed migration instructions.
+
+---
+
+## 0.14
 
 ## Features
 

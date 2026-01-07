@@ -48,7 +48,19 @@ defmodule KafkaEx.Auth.ScramFlow.Internal do
     :server_signature
   ]
 
-  @type t :: %__MODULE__{}
+  @type t :: %__MODULE__{
+          algorithm: :sha256 | :sha512,
+          username: binary(),
+          password: binary(),
+          client_nonce: binary() | nil,
+          client_first_bare: binary() | nil,
+          server_first_raw: binary() | nil,
+          server_nonce: binary() | nil,
+          salt: binary() | nil,
+          iterations: pos_integer() | nil,
+          auth_message: binary() | nil,
+          server_signature: binary() | nil
+        }
   @type algo :: :sha256 | :sha512
 
   @spec client_first(%__MODULE__{}) :: {binary(), %__MODULE__{}}
