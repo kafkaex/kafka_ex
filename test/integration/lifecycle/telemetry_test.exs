@@ -55,6 +55,12 @@ defmodule KafkaEx.Integration.Lifecycle.TelemetryTest do
       assert stop_metadata.bytes_sent > 0
       assert is_integer(stop_metadata.bytes_received)
       assert stop_metadata.bytes_received > 0
+
+      # Verify broker info is included in stop metadata (actual broker used)
+      assert is_map(stop_metadata.broker)
+      assert is_binary(stop_metadata.broker.host)
+      assert is_integer(stop_metadata.broker.port)
+      assert is_integer(stop_metadata.broker.node_id)
     end
 
     test "request span includes bytes_sent even on error", %{ref: ref, handler: handler, client: client} do

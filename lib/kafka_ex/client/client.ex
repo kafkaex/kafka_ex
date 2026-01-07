@@ -968,14 +968,14 @@ defmodule KafkaEx.Client do
   end
 
   defp first_broker_response(_request, [], _timeout, last_error) do
-    last_error || {:error, :no_connected_broker}
+    {last_error || {:error, :no_connected_broker}, nil}
   end
 
   defp first_broker_response(request, [broker | rest], timeout, _last_error) do
     case try_broker(broker, request, timeout) do
       nil -> first_broker_response(request, rest, timeout, {:error, :broker_failed})
       {:error, _} = error -> first_broker_response(request, rest, timeout, error)
-      response -> response
+      response -> {response, broker}
     end
   end
 
@@ -1032,25 +1032,32 @@ defmodule KafkaEx.Client do
          synchronous
        )
        when not is_nil(client_id) and not is_nil(correlation_id) do
-    metadata = Telemetry.request_metadata(client_request, %{})
+    # Start with empty broker info - will be populated after send
+    start_metadata = Telemetry.request_metadata(client_request, %{})
 
-    Telemetry.span([:kafka_ex, :request], metadata, fn ->
-      do_run_client_request(client_request, send_request, synchronous, metadata)
+    Telemetry.span([:kafka_ex, :request], start_metadata, fn ->
+      do_run_client_request(client_request, send_request, synchronous, start_metadata)
     end)
   end
 
-  defp do_run_client_request(client_request, send_request, synchronous, metadata) do
+  defp do_run_client_request(client_request, send_request, synchronous, start_metadata) do
     wire_request = Request.serialize(client_request)
     bytes_sent = IO.iodata_length(wire_request)
 
-    {result, bytes_received} =
+    {result, bytes_received, broker_info} =
       case send_request.(wire_request) do
-        {:error, reason} -> {{:error, reason}, 0}
-        data when synchronous -> {{:ok, deserialize(data, client_request)}, byte_size(data)}
-        data -> {data, byte_size(data)}
+        {{:error, reason}, broker} ->
+          {{:error, reason}, 0, broker_to_telemetry_info(broker)}
+
+        {data, broker} when synchronous ->
+          {{:ok, deserialize(data, client_request)}, byte_size(data), broker_to_telemetry_info(broker)}
+
+        {data, broker} ->
+          {data, byte_size(data), broker_to_telemetry_info(broker)}
       end
 
-    stop_metadata = Map.merge(metadata, %{bytes_sent: bytes_sent, bytes_received: bytes_received})
+    additional_stop_metadata = %{bytes_sent: bytes_sent, bytes_received: bytes_received, broker: broker_info}
+    stop_metadata = Map.merge(start_metadata, additional_stop_metadata)
     {result, stop_metadata}
   end
 
@@ -1074,9 +1081,9 @@ defmodule KafkaEx.Client do
 
     if broker do
       if synchronous do
-        {fn wire_request -> NetworkClient.send_sync_request(broker, wire_request, network_timeout) end, updated_state}
+        {send_sync_request_fn(broker, network_timeout), updated_state}
       else
-        {fn wire_request -> NetworkClient.send_async_request(broker, wire_request) end, updated_state}
+        {send_async_request_fn(broker), updated_state}
       end
     else
       {:no_broker, updated_state}
@@ -1095,7 +1102,7 @@ defmodule KafkaEx.Client do
     {broker, updated_state} = broker_for_consumer_group_with_update(state, consumer_group)
 
     if broker do
-      {fn wire_request -> NetworkClient.send_sync_request(broker, wire_request, network_timeout) end, updated_state}
+      {send_sync_request_fn(broker, network_timeout), updated_state}
     else
       {:no_broker, updated_state}
     end
@@ -1107,8 +1114,7 @@ defmodule KafkaEx.Client do
         {connected_broker, updated_state} = ensure_broker_connected(broker, state)
 
         if connected_broker do
-          {fn wire_request -> NetworkClient.send_sync_request(connected_broker, wire_request, network_timeout) end,
-           updated_state}
+          {send_sync_request_fn(connected_broker, network_timeout), updated_state}
         else
           {:no_broker, updated_state}
         end
@@ -1117,6 +1123,21 @@ defmodule KafkaEx.Client do
         {error, state}
     end
   end
+
+  defp send_sync_request_fn(broker, network_timeout) do
+    fn wire_request ->
+      {NetworkClient.send_sync_request(broker, wire_request, network_timeout), broker}
+    end
+  end
+
+  defp send_async_request_fn(broker) do
+    fn wire_request ->
+      {NetworkClient.send_async_request(broker, wire_request), broker}
+    end
+  end
+
+  defp broker_to_telemetry_info(nil), do: %{}
+  defp broker_to_telemetry_info(broker), do: %{node_id: broker.node_id, host: broker.host, port: broker.port}
 
   defp deserialize(data, request) do
     {resp, _} = Request.response_deserializer(request).(data)

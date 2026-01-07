@@ -24,13 +24,15 @@ defmodule KafkaEx.Telemetry do
 
   * `[:kafka_ex, :request, :start]` - Emitted when a Kafka protocol request begins
     * Measurements: `%{system_time: integer()}`
-    * Metadata: `%{operation: atom(), api_version: integer(), correlation_id: integer(),  client_id: binary(), broker: map()}`
+    * Metadata: `%{operation: atom(), api_version: integer(), correlation_id: integer(), client_id: binary(), broker: map()}`
+    * Note: `broker` is empty `%{}` at start (actual broker determined after send)
 
   * `[:kafka_ex, :request, :stop]` - Emitted when a Kafka protocol request completes
     * Measurements: `%{duration: integer()}`
-    * Metadata: Same as start event plus `%{bytes_sent: integer(), bytes_received: integer()}`
+    * Metadata: Same as start event plus `%{bytes_sent: integer(), bytes_received: integer(), broker: map()}`
       * `bytes_sent` - Number of bytes sent in the request
       * `bytes_received` - Number of bytes received in the response (0 on error)
+      * `broker` - Map with `node_id`, `host`, `port` of the broker that handled the request
 
   * `[:kafka_ex, :request, :exception]` - Emitted when a Kafka protocol request fails
     * Measurements: `%{duration: integer()}`
