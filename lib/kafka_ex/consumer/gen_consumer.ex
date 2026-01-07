@@ -193,6 +193,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
   alias KafkaEx.Client
   alias KafkaEx.Config
   alias KafkaEx.Messages.Fetch.Record
+  alias KafkaEx.Telemetry
 
   require Logger
 
@@ -804,11 +805,22 @@ defmodule KafkaEx.Consumer.GenConsumer do
          message_set,
          %State{
            consumer_module: consumer_module,
-           consumer_state: consumer_state
+           consumer_state: consumer_state,
+           group: group,
+           topic: topic,
+           partition: partition
          } = state
        ) do
+    message_count = length(message_set)
+    consumer_module_name = inspect(consumer_module)
+    metadata = Telemetry.consumer_process_metadata(group, topic, partition, consumer_module_name)
+    start_measurements = %{message_count: message_count}
+
     {sync_status, new_consumer_state} =
-      consumer_module.handle_message_set(message_set, consumer_state)
+      :telemetry.span([:kafka_ex, :consumer, :process], Map.merge(metadata, start_measurements), fn ->
+        result = consumer_module.handle_message_set(message_set, consumer_state)
+        {result, %{commit_mode: elem(result, 0)}}
+      end)
 
     %Record{offset: last_offset} = List.last(message_set)
 

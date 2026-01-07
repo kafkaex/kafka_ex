@@ -129,7 +129,7 @@ defmodule KafkaEx.Client do
 
   defp close_all_sockets(state) do
     Enum.each(State.brokers(state), fn broker ->
-      NetworkClient.close_socket(broker.socket)
+      NetworkClient.close_socket(broker, broker.socket, :init_error)
     end)
   end
 
@@ -349,7 +349,7 @@ defmodule KafkaEx.Client do
 
     # Close all broker sockets
     Enum.each(State.brokers(state), fn broker ->
-      NetworkClient.close_socket(broker.socket)
+      NetworkClient.close_socket(broker, broker.socket, :shutdown)
     end)
   end
 
@@ -372,7 +372,7 @@ defmodule KafkaEx.Client do
 
         for broker <- brokers_to_close do
           Logger.debug("Closing connection to #{Broker.to_string(broker)}")
-          NetworkClient.close_socket(broker.socket)
+          NetworkClient.close_socket(broker, broker.socket, :metadata_update)
         end
 
         updated_state =
@@ -649,13 +649,34 @@ defmodule KafkaEx.Client do
   end
 
   defp metadata_request(topics, opts, state) do
+    client_id = Config.client_id()
+    topic_list = if is_list(topics), do: topics, else: [topics]
+    metadata = Telemetry.metadata_update_metadata(client_id, topic_list)
+
+    Telemetry.span([:kafka_ex, :metadata, :update], metadata, fn ->
+      do_metadata_request(topics, opts, state)
+    end)
+  end
+
+  defp do_metadata_request(topics, opts, state) do
     # Metadata can be fetched from any broker, use random selection
     node_selector = NodeSelector.random()
     req_data = [{:topics, topics} | opts]
 
     case RequestBuilder.metadata_request(req_data, state) do
-      {:ok, request} -> handle_metadata_request(request, node_selector, state)
-      {:error, error} -> {:error, error}
+      {:ok, request} ->
+        case handle_metadata_request(request, node_selector, state) do
+          {{:ok, cluster_metadata}, _updated_state} = result ->
+            broker_count = map_size(cluster_metadata.brokers)
+            topic_count = map_size(cluster_metadata.topics)
+            {result, %{broker_count: broker_count, topic_count: topic_count}}
+
+          error_result ->
+            {error_result, %{}}
+        end
+
+      {:error, error} ->
+        {{:error, error}, %{}}
     end
   end
 
@@ -768,9 +789,7 @@ defmodule KafkaEx.Client do
 
       false ->
         # Close existing socket if present to prevent resource leak
-        if broker.socket do
-          NetworkClient.close_socket(broker.socket)
-        end
+        NetworkClient.close_socket(broker, broker.socket, :reconnecting)
 
         socket = NetworkClient.create_socket(broker.host, broker.port, state.ssl_options, state.use_ssl, state.auth)
         %{broker | socket: socket}
@@ -968,14 +987,14 @@ defmodule KafkaEx.Client do
   end
 
   defp first_broker_response(_request, [], _timeout, last_error) do
-    last_error || {:error, :no_connected_broker}
+    {last_error || {:error, :no_connected_broker}, nil}
   end
 
   defp first_broker_response(request, [broker | rest], timeout, _last_error) do
     case try_broker(broker, request, timeout) do
       nil -> first_broker_response(request, rest, timeout, {:error, :broker_failed})
       {:error, _} = error -> first_broker_response(request, rest, timeout, error)
-      response -> response
+      response -> {response, broker}
     end
   end
 
@@ -994,10 +1013,7 @@ defmodule KafkaEx.Client do
     end
   end
 
-  defp timeout_val(nil) do
-    Application.get_env(:kafka_ex, :sync_timeout, @default_call_timeout)
-  end
-
+  defp timeout_val(nil), do: Application.get_env(:kafka_ex, :sync_timeout, @default_call_timeout)
   defp timeout_val(timeout) when is_integer(timeout), do: timeout
 
   defp config_sync_timeout(timeout \\ nil) do
@@ -1011,8 +1027,6 @@ defmodule KafkaEx.Client do
   end
 
   defp kayrock_network_request(request, node_selector, state, network_timeout \\ nil) do
-    # produce request have an acks field and if this is 0 then we do not want to
-    # wait for a response from the broker
     synchronous = if Map.get(request, :acks) == 0, do: false, else: true
     network_timeout = config_sync_timeout(network_timeout)
     {send_request, updated_state} = get_send_request_function(node_selector, state, network_timeout, synchronous)
@@ -1025,7 +1039,8 @@ defmodule KafkaEx.Client do
         {error, updated_state}
 
       _ ->
-        response = run_client_request(client_request(request, updated_state), send_request, synchronous)
+        request = client_request(request, updated_state)
+        response = run_client_request(request, send_request, synchronous)
         {response, State.increment_correlation_id(updated_state)}
     end
   end
@@ -1036,24 +1051,33 @@ defmodule KafkaEx.Client do
          synchronous
        )
        when not is_nil(client_id) and not is_nil(correlation_id) do
-    metadata = Telemetry.request_metadata(client_request, %{})
+    # Start with empty broker info - will be populated after send
+    start_metadata = Telemetry.request_metadata(client_request, %{})
 
-    Telemetry.span([:kafka_ex, :request], metadata, fn ->
-      do_run_client_request(client_request, send_request, synchronous)
+    Telemetry.span([:kafka_ex, :request], start_metadata, fn ->
+      do_run_client_request(client_request, send_request, synchronous, start_metadata)
     end)
   end
 
-  defp do_run_client_request(client_request, send_request, synchronous) do
+  defp do_run_client_request(client_request, send_request, synchronous, start_metadata) do
     wire_request = Request.serialize(client_request)
+    bytes_sent = IO.iodata_length(wire_request)
 
-    result =
+    {result, bytes_received, broker_info} =
       case send_request.(wire_request) do
-        {:error, reason} -> {:error, reason}
-        data when synchronous -> {:ok, deserialize(data, client_request)}
-        data -> data
+        {{:error, reason}, broker} ->
+          {{:error, reason}, 0, broker_to_telemetry_info(broker)}
+
+        {data, broker} when synchronous ->
+          {{:ok, deserialize(data, client_request)}, byte_size(data), broker_to_telemetry_info(broker)}
+
+        {data, broker} ->
+          {data, byte_size(data), broker_to_telemetry_info(broker)}
       end
 
-    {result, %{}}
+    additional_stop_metadata = %{bytes_sent: bytes_sent, bytes_received: bytes_received, broker: broker_info}
+    stop_metadata = Map.merge(start_metadata, additional_stop_metadata)
+    {result, stop_metadata}
   end
 
   defp get_send_request_function(%NodeSelector{strategy: :first_available}, state, network_timeout, _synchronous) do
@@ -1076,9 +1100,9 @@ defmodule KafkaEx.Client do
 
     if broker do
       if synchronous do
-        {fn wire_request -> NetworkClient.send_sync_request(broker, wire_request, network_timeout) end, updated_state}
+        {send_sync_request_fn(broker, network_timeout), updated_state}
       else
-        {fn wire_request -> NetworkClient.send_async_request(broker, wire_request) end, updated_state}
+        {send_async_request_fn(broker), updated_state}
       end
     else
       {:no_broker, updated_state}
@@ -1097,7 +1121,7 @@ defmodule KafkaEx.Client do
     {broker, updated_state} = broker_for_consumer_group_with_update(state, consumer_group)
 
     if broker do
-      {fn wire_request -> NetworkClient.send_sync_request(broker, wire_request, network_timeout) end, updated_state}
+      {send_sync_request_fn(broker, network_timeout), updated_state}
     else
       {:no_broker, updated_state}
     end
@@ -1109,8 +1133,7 @@ defmodule KafkaEx.Client do
         {connected_broker, updated_state} = ensure_broker_connected(broker, state)
 
         if connected_broker do
-          {fn wire_request -> NetworkClient.send_sync_request(connected_broker, wire_request, network_timeout) end,
-           updated_state}
+          {send_sync_request_fn(connected_broker, network_timeout), updated_state}
         else
           {:no_broker, updated_state}
         end
@@ -1119,6 +1142,21 @@ defmodule KafkaEx.Client do
         {error, state}
     end
   end
+
+  defp send_sync_request_fn(broker, network_timeout) do
+    fn wire_request ->
+      {NetworkClient.send_sync_request(broker, wire_request, network_timeout), broker}
+    end
+  end
+
+  defp send_async_request_fn(broker) do
+    fn wire_request ->
+      {NetworkClient.send_async_request(broker, wire_request), broker}
+    end
+  end
+
+  defp broker_to_telemetry_info(nil), do: %{}
+  defp broker_to_telemetry_info(broker), do: %{node_id: broker.node_id, host: broker.host, port: broker.port}
 
   defp deserialize(data, request) do
     {resp, _} = Request.response_deserializer(request).(data)
@@ -1145,10 +1183,12 @@ defmodule KafkaEx.Client do
     {topic_metadata, %{updated_state | allow_auto_topic_creation: allow_auto_topic_creation}}
   end
 
-  defp close_broker_by_socket(state, socket) do
+  defp close_broker_by_socket(state, socket, reason \\ :remote_closed) do
     State.update_brokers(state, fn broker ->
       if Broker.has_socket?(broker, socket) do
         Logger.debug("#{Broker.to_string(broker)} closed connection")
+        # Socket is already closed (received :tcp_closed/:ssl_closed), just emit telemetry
+        NetworkClient.close_socket(broker, socket, reason)
         Broker.put_socket(broker, nil)
       else
         broker
