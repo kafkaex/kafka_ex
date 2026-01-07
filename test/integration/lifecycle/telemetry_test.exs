@@ -46,9 +46,33 @@ defmodule KafkaEx.Integration.Lifecycle.TelemetryTest do
       assert is_binary(start_metadata.client_id)
 
       # Verify stop event
-      assert_receive {:telemetry, ^ref, [:kafka_ex, :request, :stop], stop_measurements, _}, 5000
+      assert_receive {:telemetry, ^ref, [:kafka_ex, :request, :stop], stop_measurements, stop_metadata}, 5000
       assert Map.has_key?(stop_measurements, :duration)
       assert stop_measurements.duration > 0
+
+      # Verify bytes sent and received
+      assert is_integer(stop_metadata.bytes_sent)
+      assert stop_metadata.bytes_sent > 0
+      assert is_integer(stop_metadata.bytes_received)
+      assert stop_metadata.bytes_received > 0
+    end
+
+    test "request span includes bytes_sent even on error", %{ref: ref, handler: handler, client: client} do
+      :telemetry.attach_many(ref, Telemetry.request_events(), handler, nil)
+
+      # Flush startup events
+      flush_messages(ref)
+
+      # Try to produce to invalid partition - this will fail
+      {:error, _} = API.produce(client, "non-existent-topic", 999, [%{value: "test"}])
+
+      # Find the produce request events (there may be multiple request events)
+      # We just need to verify that bytes_sent is present in at least one stop event
+      assert_receive {:telemetry, ^ref, [:kafka_ex, :request, :stop], _stop_measurements, stop_metadata}, 5000
+      assert is_integer(stop_metadata.bytes_sent)
+      assert stop_metadata.bytes_sent > 0
+      assert is_integer(stop_metadata.bytes_received)
+      # bytes_received could be 0 (on network error) or > 0 (on Kafka error response)
     end
 
     test "connection span emits start and stop events", %{ref: ref, handler: handler} do

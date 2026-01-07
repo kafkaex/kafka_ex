@@ -994,10 +994,7 @@ defmodule KafkaEx.Client do
     end
   end
 
-  defp timeout_val(nil) do
-    Application.get_env(:kafka_ex, :sync_timeout, @default_call_timeout)
-  end
-
+  defp timeout_val(nil), do: Application.get_env(:kafka_ex, :sync_timeout, @default_call_timeout)
   defp timeout_val(timeout) when is_integer(timeout), do: timeout
 
   defp config_sync_timeout(timeout \\ nil) do
@@ -1011,8 +1008,6 @@ defmodule KafkaEx.Client do
   end
 
   defp kayrock_network_request(request, node_selector, state, network_timeout \\ nil) do
-    # produce request have an acks field and if this is 0 then we do not want to
-    # wait for a response from the broker
     synchronous = if Map.get(request, :acks) == 0, do: false, else: true
     network_timeout = config_sync_timeout(network_timeout)
     {send_request, updated_state} = get_send_request_function(node_selector, state, network_timeout, synchronous)
@@ -1025,7 +1020,8 @@ defmodule KafkaEx.Client do
         {error, updated_state}
 
       _ ->
-        response = run_client_request(client_request(request, updated_state), send_request, synchronous)
+        request = client_request(request, updated_state)
+        response = run_client_request(request, send_request, synchronous)
         {response, State.increment_correlation_id(updated_state)}
     end
   end
@@ -1039,21 +1035,23 @@ defmodule KafkaEx.Client do
     metadata = Telemetry.request_metadata(client_request, %{})
 
     Telemetry.span([:kafka_ex, :request], metadata, fn ->
-      do_run_client_request(client_request, send_request, synchronous)
+      do_run_client_request(client_request, send_request, synchronous, metadata)
     end)
   end
 
-  defp do_run_client_request(client_request, send_request, synchronous) do
+  defp do_run_client_request(client_request, send_request, synchronous, metadata) do
     wire_request = Request.serialize(client_request)
+    bytes_sent = IO.iodata_length(wire_request)
 
-    result =
+    {result, bytes_received} =
       case send_request.(wire_request) do
-        {:error, reason} -> {:error, reason}
-        data when synchronous -> {:ok, deserialize(data, client_request)}
-        data -> data
+        {:error, reason} -> {{:error, reason}, 0}
+        data when synchronous -> {{:ok, deserialize(data, client_request)}, byte_size(data)}
+        data -> {data, byte_size(data)}
       end
 
-    {result, %{}}
+    stop_metadata = Map.merge(metadata, %{bytes_sent: bytes_sent, bytes_received: bytes_received})
+    {result, stop_metadata}
   end
 
   defp get_send_request_function(%NodeSelector{strategy: :first_available}, state, network_timeout, _synchronous) do

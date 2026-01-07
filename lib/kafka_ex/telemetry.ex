@@ -28,7 +28,9 @@ defmodule KafkaEx.Telemetry do
 
   * `[:kafka_ex, :request, :stop]` - Emitted when a Kafka protocol request completes
     * Measurements: `%{duration: integer()}`
-    * Metadata: Same as start event
+    * Metadata: Same as start event plus `%{bytes_sent: integer(), bytes_received: integer()}`
+      * `bytes_sent` - Number of bytes sent in the request
+      * `bytes_received` - Number of bytes received in the response (0 on error)
 
   * `[:kafka_ex, :request, :exception]` - Emitted when a Kafka protocol request fails
     * Measurements: `%{duration: integer()}`
