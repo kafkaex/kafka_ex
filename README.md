@@ -113,6 +113,74 @@ for a description of configuration variables, including the Kafka broker list
 
 You can also override options when creating a worker, see below.
 
+## Telemetry
+
+KafkaEx emits [telemetry](https://hexdocs.pm/telemetry/) events for observability. 
+These events enable monitoring of connections, requests, consumers, and more.
+
+### Event Categories
+
+| Category   | Events   | Description                                                |
+|------------|----------|------------------------------------------------------------|
+| Connection | 4        | Connect, disconnect, reconnect, close                      |
+| Request    | 4        | Request start/stop/exception, retry                        |
+| Produce    | 4        | Produce start/stop/exception, batch metrics                |
+| Fetch      | 4        | Fetch start/stop/exception, messages received              |
+| Offset     | 4        | Commit/fetch offset operations                             |
+| Consumer   | 8        | Group join, sync, heartbeat, rebalance, message processing |
+| Metadata   | 4        | Cluster metadata updates                                   |
+| SASL Auth  | 6        | PLAIN/SCRAM authentication spans                           |
+
+### Example: Attaching a Handler
+
+```elixir
+defmodule MyApp.KafkaTelemetry do
+  require Logger
+
+  def attach do
+    :telemetry.attach_many(
+      "my-kafka-handler",
+      [
+        [:kafka_ex, :connection, :connect],
+        [:kafka_ex, :request, :stop],
+        [:kafka_ex, :produce, :stop],
+        [:kafka_ex, :fetch, :stop]
+      ],
+      &handle_event/4,
+      nil
+    )
+  end
+
+  def handle_event([:kafka_ex, :connection, :connect], measurements, metadata, _config) do
+    Logger.info("Connected to #{metadata.host}:#{metadata.port}")
+  end
+
+  def handle_event([:kafka_ex, :request, :stop], measurements, metadata, _config) do
+    Logger.debug("Request #{metadata.api_key} took #{measurements.duration / 1_000_000}ms")
+  end
+
+  def handle_event([:kafka_ex, :produce, :stop], measurements, metadata, _config) do
+    Logger.info("Produced #{measurements.message_count} messages to #{metadata.topic}")
+  end
+
+  def handle_event([:kafka_ex, :fetch, :stop], measurements, metadata, _config) do
+    Logger.info("Fetched #{measurements.message_count} messages from #{metadata.topic}")
+  end
+end
+```
+
+Then in your application startup:
+
+```elixir
+# application.ex
+def start(_type, _args) do
+  MyApp.KafkaTelemetry.attach()
+  # ...
+end
+```
+
+For the complete list of events and their metadata, see [KafkaEx.Telemetry](https://hexdocs.pm/kafka_ex/KafkaEx.Telemetry.html).
+
 ## Timeouts with SSL
 
 When using certain versions of OTP,
