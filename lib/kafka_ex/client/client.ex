@@ -440,36 +440,88 @@ defmodule KafkaEx.Client do
   end
 
   defp heartbeat_request(consumer_group, member_id, generation_id, opts, state) do
+    metadata = Telemetry.heartbeat_metadata(consumer_group, member_id, generation_id)
+
+    Telemetry.span([:kafka_ex, :consumer, :heartbeat], metadata, fn ->
+      do_heartbeat_request(consumer_group, member_id, generation_id, opts, state, metadata)
+    end)
+  end
+
+  defp do_heartbeat_request(consumer_group, member_id, generation_id, opts, state, metadata) do
     node_selector = NodeSelector.consumer_group(consumer_group)
     req_data = [{:group_id, consumer_group}, {:member_id, member_id}, {:generation_id, generation_id} | opts]
 
-    case RequestBuilder.heartbeat_request(req_data, state) do
-      {:ok, request} -> handle_heartbeat_request(request, node_selector, state)
-      {:error, error} -> {:error, error}
+    with {:ok, request} <- RequestBuilder.heartbeat_request(req_data, state),
+         {result, updated_state} <- handle_heartbeat_request(request, node_selector, state) do
+      {{result, updated_state}, metadata}
+    else
+      {:error, error} -> {{:error, error}, metadata}
     end
   end
 
   defp join_group_request(consumer_group, member_id, opts, state) do
+    topics = Keyword.get(opts, :topics, [])
+    metadata = Telemetry.join_group_metadata(consumer_group, member_id || "", topics)
+
+    Telemetry.span([:kafka_ex, :consumer, :join], metadata, fn ->
+      do_join_group_request(consumer_group, member_id, opts, state, metadata)
+    end)
+  end
+
+  defp do_join_group_request(consumer_group, member_id, opts, state, metadata) do
     node_selector = NodeSelector.consumer_group(consumer_group)
     req_data = [{:group_id, consumer_group}, {:member_id, member_id} | opts]
 
-    case RequestBuilder.join_group_request(req_data, state) do
-      {:ok, request} -> handle_join_group_request(request, node_selector, state)
-      {:error, error} -> {:error, error}
+    with {:ok, request} <- RequestBuilder.join_group_request(req_data, state),
+         {{:ok, result}, updated_state} <- handle_join_group_request(request, node_selector, state) do
+      stop_metadata = add_join_group_result_metadata(metadata, result)
+      {{{:ok, result}, updated_state}, stop_metadata}
+    else
+      {:error, error} -> {{:error, error}, metadata}
+      error_result -> {error_result, metadata}
     end
   end
 
+  defp add_join_group_result_metadata(metadata, result) do
+    is_leader = result.leader_id == result.member_id
+
+    metadata
+    |> Map.put(:generation_id, result.generation_id)
+    |> Map.put(:is_leader, is_leader)
+  end
+
   defp leave_group_request(consumer_group, member_id, opts, state) do
+    metadata = Telemetry.leave_group_metadata(consumer_group, member_id)
+
+    Telemetry.span([:kafka_ex, :consumer, :leave], metadata, fn ->
+      do_leave_group_request(consumer_group, member_id, opts, state, metadata)
+    end)
+  end
+
+  defp do_leave_group_request(consumer_group, member_id, opts, state, metadata) do
     node_selector = NodeSelector.consumer_group(consumer_group)
     req_data = [{:group_id, consumer_group}, {:member_id, member_id} | opts]
 
-    case RequestBuilder.leave_group_request(req_data, state) do
-      {:ok, request} -> handle_leave_group_request(request, node_selector, state)
-      {:error, error} -> {:error, error}
+    with {:ok, request} <- RequestBuilder.leave_group_request(req_data, state),
+         {result, updated_state} <- handle_leave_group_request(request, node_selector, state) do
+      {{result, updated_state}, metadata}
+    else
+      {:error, error} -> {{:error, error}, metadata}
     end
   end
 
   defp sync_group_request(consumer_group, generation_id, member_id, opts, state) do
+    # Leader sends non-empty group_assignment, followers send empty
+    group_assignment = Keyword.get(opts, :group_assignment, [])
+    is_leader = group_assignment != []
+    metadata = Telemetry.sync_group_metadata(consumer_group, member_id, generation_id, is_leader)
+
+    Telemetry.span([:kafka_ex, :consumer, :sync], metadata, fn ->
+      do_sync_group_request(consumer_group, generation_id, member_id, opts, state, metadata)
+    end)
+  end
+
+  defp do_sync_group_request(consumer_group, generation_id, member_id, opts, state, metadata) do
     node_selector = NodeSelector.consumer_group(consumer_group)
 
     req_data = [
@@ -479,10 +531,21 @@ defmodule KafkaEx.Client do
       | opts
     ]
 
-    case RequestBuilder.sync_group_request(req_data, state) do
-      {:ok, request} -> handle_sync_group_request(request, node_selector, state)
-      {:error, error} -> {:error, error}
+    with {:ok, request} <- RequestBuilder.sync_group_request(req_data, state),
+         {{:ok, result}, updated_state} <- handle_sync_group_request(request, node_selector, state) do
+      assigned_partitions = count_assigned_partitions(result.partition_assignments)
+      stop_metadata = Map.put(metadata, :assigned_partitions, assigned_partitions)
+      {{{:ok, result}, updated_state}, stop_metadata}
+    else
+      {:error, error} -> {{:error, error}, metadata}
+      error_result -> {error_result, metadata}
     end
+  end
+
+  defp count_assigned_partitions(partition_assignments) do
+    Enum.reduce(partition_assignments, 0, fn assignment, acc ->
+      acc + length(assignment.partitions)
+    end)
   end
 
   defp produce_request(topic, partition, messages, opts, state) do
