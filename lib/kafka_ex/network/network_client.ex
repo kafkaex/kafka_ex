@@ -32,21 +32,58 @@ defmodule KafkaEx.Network.NetworkClient do
   end
 
   defp finish_socket_setup(socket, auth_opts, host, port) do
-    case maybe_authenticate_sasl(socket, auth_opts) do
+    case do_authenticate_sasl(socket, auth_opts, host, port) do
       :ok ->
         :ok = Socket.setopts(socket, [:binary, {:packet, 4}, {:active, true}])
         {socket, %{success: true}}
 
       {:error, reason} ->
-        _ = Socket.close(socket)
+        close_socket(%{host: host, port: port}, socket, :auth_error)
         Logger.error("SASL authentication failed for #{inspect_broker(host, port)}}: #{inspect(reason)}")
         {nil, %{success: false, error: reason}}
     end
   end
 
+  defp do_authenticate_sasl(_socket, nil, _host, _port), do: :ok
+
+  defp do_authenticate_sasl(socket, %AuthConfig{} = cfg, host, port) do
+    mechanism = get_mechanism_name(cfg)
+    metadata = Telemetry.auth_metadata(host, port, mechanism)
+
+    Telemetry.span([:kafka_ex, :auth], metadata, fn ->
+      result = maybe_authenticate_sasl(socket, cfg)
+      {result, %{}}
+    end)
+  end
+
+  defp get_mechanism_name(%AuthConfig{mechanism: :plain}), do: "PLAIN"
+  defp get_mechanism_name(%AuthConfig{mechanism: :scram, mechanism_opts: %{algo: :sha512}}), do: "SCRAM-SHA-512"
+  defp get_mechanism_name(%AuthConfig{mechanism: :scram}), do: "SCRAM-SHA-256"
+  defp get_mechanism_name(%AuthConfig{mechanism: :oauthbearer}), do: "OAUTHBEARER"
+  defp get_mechanism_name(%AuthConfig{mechanism: mech}), do: to_string(mech)
+
   @impl true
   def close_socket(nil), do: :ok
   def close_socket(socket), do: Socket.close(socket)
+
+  @doc """
+  Closes a socket and emits telemetry event.
+
+  This is the preferred way to close sockets when the broker context is available,
+  as it emits `[:kafka_ex, :connection, :close]` telemetry event with the close reason.
+
+  ## Parameters
+    - `broker` - Broker struct or map with `:host` and `:port` keys
+    - `socket` - The socket to close (nil is a no-op)
+    - `reason` - Why the socket is being closed (e.g., :shutdown, :timeout, :send_error)
+  """
+  @spec close_socket(map(), any(), atom()) :: :ok
+  def close_socket(_broker, nil, _reason), do: :ok
+
+  def close_socket(%{host: host, port: port}, socket, reason) do
+    Telemetry.emit_connection_close(host, port, reason)
+    Socket.close(socket)
+  end
 
   @impl true
   def send_async_request(%{socket: nil}, _data) do
@@ -83,8 +120,7 @@ defmodule KafkaEx.Network.NetworkClient do
             {_, reason} ->
               broker_str = inspect_broker(broker.host, broker.port)
               Logger.error("Sending data to broker #{broker_str} failed with #{inspect(reason)}")
-              Socket.close(socket)
-
+              close_socket(broker, socket, :send_error)
               {:error, reason}
           end
 
@@ -93,7 +129,7 @@ defmodule KafkaEx.Network.NetworkClient do
       {:error, reason} ->
         broker_str = inspect_broker(broker.host, broker.port)
         Logger.error("Setting socket options for broker #{broker_str} failed with #{inspect(reason)}")
-        Socket.close(socket)
+        close_socket(broker, socket, :send_error)
         {:error, reason}
     end
   end
@@ -108,10 +144,14 @@ defmodule KafkaEx.Network.NetworkClient do
         :ok = Socket.setopts(socket, [:binary, {:packet, 4}, {:active, true}])
         data
 
+      {:error, :timeout} ->
+        Logger.error("Receiving data from #{inspect_broker(broker.host, broker.port)} timed out")
+        close_socket(broker, socket, :timeout)
+        {:error, :timeout}
+
       {:error, reason} ->
         Logger.error("Receiving data from #{inspect_broker(broker.host, broker.port)} failed with #{inspect(reason)}")
-        Socket.close(socket)
-
+        close_socket(broker, socket, :recv_error)
         {:error, reason}
     end
   end
@@ -126,8 +166,6 @@ defmodule KafkaEx.Network.NetworkClient do
         String.to_charlist(host)
     end
   end
-
-  defp maybe_authenticate_sasl(_socket, nil), do: :ok
 
   defp maybe_authenticate_sasl(socket, %AuthConfig{} = cfg) do
     case VersionSupport.validate_config(cfg, socket) do

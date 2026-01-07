@@ -129,7 +129,7 @@ defmodule KafkaEx.Client do
 
   defp close_all_sockets(state) do
     Enum.each(State.brokers(state), fn broker ->
-      NetworkClient.close_socket(broker.socket)
+      NetworkClient.close_socket(broker, broker.socket, :init_error)
     end)
   end
 
@@ -349,7 +349,7 @@ defmodule KafkaEx.Client do
 
     # Close all broker sockets
     Enum.each(State.brokers(state), fn broker ->
-      NetworkClient.close_socket(broker.socket)
+      NetworkClient.close_socket(broker, broker.socket, :shutdown)
     end)
   end
 
@@ -372,7 +372,7 @@ defmodule KafkaEx.Client do
 
         for broker <- brokers_to_close do
           Logger.debug("Closing connection to #{Broker.to_string(broker)}")
-          NetworkClient.close_socket(broker.socket)
+          NetworkClient.close_socket(broker, broker.socket, :metadata_update)
         end
 
         updated_state =
@@ -649,13 +649,34 @@ defmodule KafkaEx.Client do
   end
 
   defp metadata_request(topics, opts, state) do
+    client_id = Config.client_id()
+    topic_list = if is_list(topics), do: topics, else: [topics]
+    metadata = Telemetry.metadata_update_metadata(client_id, topic_list)
+
+    Telemetry.span([:kafka_ex, :metadata, :update], metadata, fn ->
+      do_metadata_request(topics, opts, state)
+    end)
+  end
+
+  defp do_metadata_request(topics, opts, state) do
     # Metadata can be fetched from any broker, use random selection
     node_selector = NodeSelector.random()
     req_data = [{:topics, topics} | opts]
 
     case RequestBuilder.metadata_request(req_data, state) do
-      {:ok, request} -> handle_metadata_request(request, node_selector, state)
-      {:error, error} -> {:error, error}
+      {:ok, request} ->
+        case handle_metadata_request(request, node_selector, state) do
+          {{:ok, cluster_metadata}, _updated_state} = result ->
+            broker_count = map_size(cluster_metadata.brokers)
+            topic_count = map_size(cluster_metadata.topics)
+            {result, %{broker_count: broker_count, topic_count: topic_count}}
+
+          error_result ->
+            {error_result, %{}}
+        end
+
+      {:error, error} ->
+        {{:error, error}, %{}}
     end
   end
 
@@ -768,9 +789,7 @@ defmodule KafkaEx.Client do
 
       false ->
         # Close existing socket if present to prevent resource leak
-        if broker.socket do
-          NetworkClient.close_socket(broker.socket)
-        end
+        NetworkClient.close_socket(broker, broker.socket, :reconnecting)
 
         socket = NetworkClient.create_socket(broker.host, broker.port, state.ssl_options, state.use_ssl, state.auth)
         %{broker | socket: socket}
@@ -1164,10 +1183,12 @@ defmodule KafkaEx.Client do
     {topic_metadata, %{updated_state | allow_auto_topic_creation: allow_auto_topic_creation}}
   end
 
-  defp close_broker_by_socket(state, socket) do
+  defp close_broker_by_socket(state, socket, reason \\ :remote_closed) do
     State.update_brokers(state, fn broker ->
       if Broker.has_socket?(broker, socket) do
         Logger.debug("#{Broker.to_string(broker)} closed connection")
+        # Socket is already closed (received :tcp_closed/:ssl_closed), just emit telemetry
+        NetworkClient.close_socket(broker, socket, reason)
         Broker.put_socket(broker, nil)
       else
         broker
