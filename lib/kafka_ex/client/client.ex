@@ -751,23 +751,46 @@ defmodule KafkaEx.Client do
             {{:ok, result}, state_out}
 
           {:error, [error | _]} ->
-            request_name = request.__struct__
-            Logger.warning("Unable to send request #{inspect(request_name)}, failed with error #{inspect(error)}")
-            handle_request_with_retry(request, parser_fn, node_selector, state, retry_count - 1, error)
+            handle_request_error(request, parser_fn, node_selector, state, retry_count, error)
 
           {:error, %Error{} = error} ->
-            request_name = request.__struct__
-            Logger.warning("Unable to send request #{inspect(request_name)}, failed with error #{inspect(error)}")
-            handle_request_with_retry(request, parser_fn, node_selector, state, retry_count - 1, error)
+            handle_request_error(request, parser_fn, node_selector, state, retry_count, error)
         end
 
       {_, _state_out} ->
-        request_name = request.__struct__
-        Logger.warning("Unable to send request #{inspect(request_name)}, failed with error unknown")
         error = Error.build(:unknown, %{})
-        handle_request_with_retry(request, parser_fn, node_selector, state, retry_count - 1, error)
+        handle_request_error(request, parser_fn, node_selector, state, retry_count, error)
     end
   end
+
+  defp handle_request_error(request, parser_fn, node_selector, state, retry_count, error) do
+    request_name = request.__struct__
+    error_atom = extract_error_atom(error)
+    Logger.warning("Request #{inspect(request_name)} failed with error #{inspect(error_atom)}")
+
+    # Refresh metadata for leadership-related errors before retrying
+    updated_state =
+      if requires_metadata_refresh?(error_atom) do
+        Logger.info("Refreshing metadata due to #{inspect(error_atom)} error")
+        update_metadata(state)
+      else
+        state
+      end
+
+    handle_request_with_retry(request, parser_fn, node_selector, updated_state, retry_count - 1, error)
+  end
+
+  defp extract_error_atom(%Error{error: error}), do: error
+  defp extract_error_atom(error) when is_atom(error), do: error
+  defp extract_error_atom(_), do: :unknown
+
+  # Errors that indicate the client has stale metadata and should refresh before retrying.
+  defp requires_metadata_refresh?(:not_leader_for_partition), do: true
+  defp requires_metadata_refresh?(:leader_not_available), do: true
+  defp requires_metadata_refresh?(:unknown_topic_or_partition), do: true
+  defp requires_metadata_refresh?(:not_leader_or_follower), do: true
+  defp requires_metadata_refresh?(:fenced_leader_epoch), do: true
+  defp requires_metadata_refresh?(_), do: false
 
   # ----------------------------------------------------------------------------------------------------
   defp maybe_connect_broker(broker, state) do
@@ -776,9 +799,7 @@ defmodule KafkaEx.Client do
         broker
 
       false ->
-        # Close existing socket if present to prevent resource leak
         NetworkClient.close_socket(broker, broker.socket, :reconnecting)
-
         socket = NetworkClient.create_socket(broker.host, broker.port, state.ssl_options, state.use_ssl, state.auth)
         %{broker | socket: socket}
     end
