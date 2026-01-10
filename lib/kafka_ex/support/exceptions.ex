@@ -73,3 +73,19 @@ defmodule KafkaEx.SyncGroupError do
     %__MODULE__{message: message, group_name: group_name, reason: reason}
   end
 end
+
+defmodule KafkaEx.MetadataUpdateError do
+  @moduledoc """
+  Raised when periodic metadata updates fail after exhausting all retry attempts.
+
+  This triggers a GenServer crash, allowing the supervisor to restart the client
+  with fresh broker connections.
+  """
+  defexception [:message, :attempts]
+
+  def exception(opts) do
+    attempts = Keyword.fetch!(opts, :attempts)
+    message = "Periodic metadata update failed after #{attempts} attempts"
+    %__MODULE__{message: message, attempts: attempts}
+  end
+end

@@ -319,9 +319,11 @@ defmodule KafkaEx.Client do
     {:reply, state.consumer_group_for_auto_commit, state}
   end
 
+  @max_metadata_update_retries 3
+
   @impl true
   def handle_info(:update_metadata, state) do
-    {:noreply, update_metadata(state)}
+    {:noreply, update_metadata_with_retry(state, @max_metadata_update_retries)}
   end
 
   def handle_info({:tcp_closed, socket}, state) do
@@ -334,23 +336,24 @@ defmodule KafkaEx.Client do
     {:noreply, state_out}
   end
 
+  defp update_metadata_with_retry(_state, retries_left) when retries_left <= 0 do
+    raise KafkaEx.MetadataUpdateError, attempts: @max_metadata_update_retries
+  end
+
+  defp update_metadata_with_retry(state, retries_left) do
+    update_metadata(state)
+  rescue
+    error ->
+      Logger.warning("Periodic metadata update failed (#{retries_left - 1} retries left): #{inspect(error)}")
+      Process.sleep(500)
+      update_metadata_with_retry(state, retries_left - 1)
+  end
+
   @impl true
   def terminate(reason, state) do
-    Logger.log(
-      :debug,
-      "Shutting down worker #{inspect(state.worker_name)}, " <>
-        "reason: #{inspect(reason)}"
-    )
-
-    # Cancel the metadata update timer
-    if state.metadata_timer_ref do
-      :timer.cancel(state.metadata_timer_ref)
-    end
-
-    # Close all broker sockets
-    Enum.each(State.brokers(state), fn broker ->
-      NetworkClient.close_socket(broker, broker.socket, :shutdown)
-    end)
+    Logger.debug("Shutting down worker #{inspect(state.worker_name)}, reason: #{inspect(reason)}")
+    if state.metadata_timer_ref, do: :timer.cancel(state.metadata_timer_ref), else: nil
+    Enum.each(State.brokers(state), &NetworkClient.close_socket(&1, &1.socket, :shutdown))
   end
 
   defp update_metadata(state, topics \\ []) do
@@ -370,17 +373,10 @@ defmodule KafkaEx.Client do
         {updated_cluster_metadata, brokers_to_close} =
           ClusterMetadata.merge_brokers(updated_state.cluster_metadata, new_cluster_metadata)
 
-        for broker <- brokers_to_close do
-          Logger.debug("Closing connection to #{Broker.to_string(broker)}")
-          NetworkClient.close_socket(broker, broker.socket, :metadata_update)
-        end
+        :ok = Enum.each(brokers_to_close, &NetworkClient.close_socket(&1, &1.socket, :metadata_update))
 
-        updated_state =
-          State.update_brokers(
-            %{updated_state | cluster_metadata: updated_cluster_metadata},
-            &maybe_connect_broker(&1, state)
-          )
-
+        state_with_meta = %{updated_state | cluster_metadata: updated_cluster_metadata}
+        updated_state = State.update_brokers(state_with_meta, &maybe_connect_broker(&1, state))
         updated_state
     end
   end
@@ -523,13 +519,7 @@ defmodule KafkaEx.Client do
 
   defp do_sync_group_request(consumer_group, generation_id, member_id, opts, state, metadata) do
     node_selector = NodeSelector.consumer_group(consumer_group)
-
-    req_data = [
-      {:group_id, consumer_group},
-      {:generation_id, generation_id},
-      {:member_id, member_id}
-      | opts
-    ]
+    req_data = [{:group_id, consumer_group}, {:generation_id, generation_id}, {:member_id, member_id} | opts]
 
     with {:ok, request} <- RequestBuilder.sync_group_request(req_data, state),
          {{:ok, result}, updated_state} <- handle_sync_group_request(request, node_selector, state) do
@@ -543,9 +533,7 @@ defmodule KafkaEx.Client do
   end
 
   defp count_assigned_partitions(partition_assignments) do
-    Enum.reduce(partition_assignments, 0, fn assignment, acc ->
-      acc + length(assignment.partitions)
-    end)
+    Enum.reduce(partition_assignments, &(&2 + length(&1.partitions)))
   end
 
   defp produce_request(topic, partition, messages, opts, state) do
@@ -854,9 +842,7 @@ defmodule KafkaEx.Client do
         end
 
       _ ->
-        message = "Unable to fetch metadata from any brokers. Timeout is #{sync_timeout}."
-        Logger.log(:error, message)
-        raise message
+        Logger.error("Unable to fetch metadata from any brokers. Timeout is #{sync_timeout}.")
         {state_out, nil}
     end
   end
@@ -1069,7 +1055,7 @@ defmodule KafkaEx.Client do
           {{:error, reason}, 0, broker_to_telemetry_info(broker)}
 
         {data, broker} when synchronous ->
-          {{:ok, deserialize(data, client_request)}, byte_size(data), broker_to_telemetry_info(broker)}
+          {deserialize(data, client_request), byte_size(data), broker_to_telemetry_info(broker)}
 
         {data, broker} ->
           {data, byte_size(data), broker_to_telemetry_info(broker)}
@@ -1160,19 +1146,17 @@ defmodule KafkaEx.Client do
 
   defp deserialize(data, request) do
     {resp, _} = Request.response_deserializer(request).(data)
-    resp
+    {:ok, resp}
   rescue
-    _ ->
+    error ->
       Logger.error(
         "Failed to parse a response from the server: " <>
           inspect(data, limit: :infinity) <>
-          " for request #{inspect(request, limit: :infinity)}"
+          " for request #{inspect(request, limit: :infinity)} " <>
+          "error: #{inspect(error)}"
       )
 
-      Kernel.reraise(
-        "Parse error during #{inspect(request)} response deserializer. Couldn't parse: #{inspect(data)}",
-        __STACKTRACE__
-      )
+      {:error, :parse_error}
   end
 
   defp fetch_topics_metadata(state, topics, allow_topic_creation) do

@@ -164,4 +164,27 @@ defmodule KafkaEx.Support.ExceptionsTest do
       assert Map.has_key?(exception, :reason)
     end
   end
+
+  describe "KafkaEx.MetadataUpdateError" do
+    test "formats message with attempts" do
+      exception = KafkaEx.MetadataUpdateError.exception(attempts: 3)
+
+      assert exception.message == "Periodic metadata update failed after 3 attempts"
+      assert exception.attempts == 3
+    end
+
+    test "can be raised and caught" do
+      assert_raise KafkaEx.MetadataUpdateError, ~r/failed after \d+ attempts/, fn ->
+        raise KafkaEx.MetadataUpdateError, attempts: 5
+      end
+    end
+
+    test "exception struct contains all fields" do
+      exception = KafkaEx.MetadataUpdateError.exception(attempts: 3)
+
+      assert %KafkaEx.MetadataUpdateError{} = exception
+      assert Map.has_key?(exception, :message)
+      assert Map.has_key?(exception, :attempts)
+    end
+  end
 end
