@@ -261,6 +261,8 @@ defmodule KafkaEx.Config do
   end
 
   defp otp_version do
-    :erlang.system_info(:otp_release) |> List.to_integer()
+    :otp_release
+    |> :erlang.system_info()
+    |> List.to_integer()
   end
 end
