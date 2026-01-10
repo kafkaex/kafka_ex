@@ -2,6 +2,7 @@ defmodule KafkaEx.Consumer.Stream do
   @moduledoc false
 
   alias KafkaEx.API, as: KafkaExAPI
+  alias KafkaEx.Support.Retry
 
   defstruct client: nil,
             topic: nil,
@@ -127,29 +128,31 @@ defmodule KafkaEx.Consumer.Stream do
     end
 
     # Commit retry settings (issue #425)
+    # Uses KafkaEx.Support.Retry for unified retry logic with exponential backoff
     @commit_max_retries 3
-    @commit_retry_base_delay_ms 100
+    @commit_base_delay_ms 100
 
     defp commit_offset(%KafkaEx.Consumer.Stream{} = stream_data, offset) do
-      commit_offset_with_retry(stream_data, offset, @commit_max_retries)
-    end
-
-    defp commit_offset_with_retry(stream_data, offset, retries_left) do
       partitions = [%{partition_num: stream_data.partition, offset: offset}]
       opts = [api_version: Map.fetch!(stream_data.api_versions, :offset_commit)]
 
-      case KafkaExAPI.commit_offset(stream_data.client, stream_data.consumer_group, stream_data.topic, partitions, opts) do
-        {:ok, result} ->
-          {:ok, result}
-
-        {:error, error} when retries_left > 0 and error in [:timeout, :request_timed_out, :coordinator_not_available, :not_coordinator] ->
-          delay = trunc(@commit_retry_base_delay_ms * :math.pow(2, @commit_max_retries - retries_left))
-          Process.sleep(delay)
-          commit_offset_with_retry(stream_data, offset, retries_left - 1)
-
-        {:error, error} ->
-          {:error, error}
+      commit_fn = fn ->
+        KafkaExAPI.commit_offset(
+          stream_data.client,
+          stream_data.consumer_group,
+          stream_data.topic,
+          partitions,
+          opts
+        )
       end
+
+      retry_opts = [
+        max_retries: @commit_max_retries,
+        base_delay_ms: @commit_base_delay_ms,
+        retryable?: &Retry.commit_retryable?/1
+      ]
+
+      Retry.with_retry(commit_fn, retry_opts)
     end
 
     ######################################################################

@@ -22,6 +22,7 @@ defmodule KafkaEx.Client do
   alias KafkaEx.Client.State
   alias KafkaEx.Cluster.Broker
   alias KafkaEx.Cluster.ClusterMetadata
+  alias KafkaEx.Support.Retry
 
   alias Kayrock.ApiVersions
   alias Kayrock.ErrorCode
@@ -731,7 +732,17 @@ defmodule KafkaEx.Client do
   end
 
   defp handle_produce_request(request, node_selector, state) do
-    handle_request_with_retry(request, &ResponseParser.produce_response/1, node_selector, state)
+    # Produce requests should only retry on leadership errors to avoid duplicates.
+    # Timeout errors are NOT safe to retry because the message may have been written
+    # but the response was lost. Use Kafka's idempotent producer for true exactly-once.
+    handle_request_with_retry(
+      request,
+      &ResponseParser.produce_response/1,
+      node_selector,
+      state,
+      @retry_count,
+      &Retry.produce_retryable?/1
+    )
   end
 
   defp handle_fetch_request(request, node_selector, state) do
@@ -762,13 +773,29 @@ defmodule KafkaEx.Client do
   end
 
   # ----------------------------------------------------------------------------------------------------
-  defp handle_request_with_retry(_, _, _, _, retry_count \\ @retry_count, _last_error \\ nil)
+  # Request retry logic with optional retryable filter
+  #
+  # The `retryable?` parameter allows callers to specify which errors should trigger a retry.
+  # This is important for produce requests where blind retries can cause duplicate messages.
+  # By default, all errors are retried (backwards compatible behavior).
+  #
+  # For produce requests, use `&Retry.produce_retryable?/1` to only retry leadership errors.
+  # ----------------------------------------------------------------------------------------------------
+  defp handle_request_with_retry(
+         request,
+         parser_fn,
+         node_selector,
+         state,
+         retry_count \\ @retry_count,
+         retryable? \\ fn _ -> true end,
+         last_error \\ nil
+       )
 
-  defp handle_request_with_retry(_, _, _, state, 0, last_error) do
+  defp handle_request_with_retry(_, _, _, state, 0, _retryable?, last_error) do
     {{:error, last_error}, state}
   end
 
-  defp handle_request_with_retry(request, parser_fn, node_selector, state, retry_count, _last_error) do
+  defp handle_request_with_retry(request, parser_fn, node_selector, state, retry_count, retryable?, _last_error) do
     case kayrock_network_request(request, node_selector, state) do
       {{:ok, response}, state_out} ->
         case parser_fn.(response) do
@@ -776,33 +803,40 @@ defmodule KafkaEx.Client do
             {{:ok, result}, state_out}
 
           {:error, [error | _]} ->
-            handle_request_error(request, parser_fn, node_selector, state, retry_count, error)
+            handle_request_error(request, parser_fn, node_selector, state, retry_count, retryable?, error)
 
           {:error, %Error{} = error} ->
-            handle_request_error(request, parser_fn, node_selector, state, retry_count, error)
+            handle_request_error(request, parser_fn, node_selector, state, retry_count, retryable?, error)
         end
 
       {_, _state_out} ->
         error = Error.build(:unknown, %{})
-        handle_request_error(request, parser_fn, node_selector, state, retry_count, error)
+        handle_request_error(request, parser_fn, node_selector, state, retry_count, retryable?, error)
     end
   end
 
-  defp handle_request_error(request, parser_fn, node_selector, state, retry_count, error) do
+  defp handle_request_error(request, parser_fn, node_selector, state, retry_count, retryable?, error) do
     request_name = request.__struct__
     error_atom = extract_error_atom(error)
     Logger.warning("Request #{inspect(request_name)} failed with error #{inspect(error_atom)}")
 
-    # Refresh metadata for leadership-related errors before retrying
-    updated_state =
-      if requires_metadata_refresh?(error_atom) do
-        Logger.info("Refreshing metadata due to #{inspect(error_atom)} error")
-        update_metadata(state)
-      else
-        state
-      end
+    # Check if this error is retryable
+    if retryable?.(error_atom) do
+      # Refresh metadata for leadership-related errors before retrying
+      updated_state =
+        if requires_metadata_refresh?(error_atom) do
+          Logger.info("Refreshing metadata due to #{inspect(error_atom)} error")
+          update_metadata(state)
+        else
+          state
+        end
 
-    handle_request_with_retry(request, parser_fn, node_selector, updated_state, retry_count - 1, error)
+      handle_request_with_retry(request, parser_fn, node_selector, updated_state, retry_count - 1, retryable?, error)
+    else
+      # Non-retryable error - fail immediately
+      Logger.info("Error #{inspect(error_atom)} is not retryable for #{inspect(request_name)}, failing immediately")
+      {{:error, error}, state}
+    end
   end
 
   defp extract_error_atom(%Error{error: error}), do: error
@@ -1061,6 +1095,8 @@ defmodule KafkaEx.Client do
   # ApiVersions negotiation with retry and exponential backoff (issue #433)
   # Handles intermittent parse errors that can occur during initial connection,
   # especially in high-latency environments or during broker restarts.
+  # Note: Uses manual retry loop instead of Retry.with_retry because we need to
+  # thread state changes through retries (the state is updated after each request).
   defp get_api_versions_with_retry(state, retries_left \\ @api_versions_max_retries)
 
   defp get_api_versions_with_retry(state, retries_left) do
@@ -1068,26 +1104,27 @@ defmodule KafkaEx.Client do
       {:ok, api_versions, updated_state} ->
         {:ok, api_versions, updated_state}
 
-      {:error, error, updated_state} when retries_left > 0 and error in [:parse_error, :timeout, :closed] ->
-        delay = api_versions_retry_delay(@api_versions_max_retries - retries_left)
+      {:error, error, updated_state} when retries_left > 0 ->
+        if Retry.transient_error?(error) do
+          attempt = @api_versions_max_retries - retries_left
+          delay = Retry.backoff_delay(attempt, @api_versions_retry_base_delay_ms)
 
-        Logger.warning(
-          "ApiVersions negotiation failed with #{inspect(error)}, " <>
-            "retrying in #{delay}ms (#{retries_left - 1} retries left)"
-        )
+          Logger.warning(
+            "ApiVersions negotiation failed with #{inspect(error)}, " <>
+              "retrying in #{delay}ms (#{retries_left - 1} retries left)"
+          )
 
-        Process.sleep(delay)
-        get_api_versions_with_retry(updated_state, retries_left - 1)
+          Process.sleep(delay)
+          get_api_versions_with_retry(updated_state, retries_left - 1)
+        else
+          Logger.error("ApiVersions negotiation failed with non-retryable error: #{inspect(error)}")
+          {:error, error, updated_state}
+        end
 
       {:error, error, updated_state} ->
         Logger.error("ApiVersions negotiation failed after #{@api_versions_max_retries} attempts: #{inspect(error)}")
         {:error, error, updated_state}
     end
-  end
-
-  # Exponential backoff: 100ms, 200ms, 400ms
-  defp api_versions_retry_delay(attempt) do
-    trunc(@api_versions_retry_base_delay_ms * :math.pow(2, attempt))
   end
 
   defp kayrock_network_request(request, node_selector, state, network_timeout \\ nil) do
