@@ -428,6 +428,11 @@ defmodule KafkaEx.Consumer.GenConsumer do
   @commit_threshold 100
   @auto_offset_reset :none
 
+  # Commit retry settings (issue #425)
+  # Retries with exponential backoff: 100ms, 200ms, 400ms (total ~700ms wait)
+  @commit_max_retries 3
+  @commit_retry_base_delay_ms 100
+
   # Client API
 
   @doc """
@@ -896,7 +901,13 @@ defmodule KafkaEx.Consumer.GenConsumer do
     state
   end
 
-  defp commit(
+  defp commit(state) do
+    commit_with_retry(state, @commit_max_retries)
+  end
+
+  # Commit with retry and exponential backoff (issue #425)
+  # Handles transient failures like timeouts, especially in high-latency environments (AWS MSK)
+  defp commit_with_retry(
          %State{
            client: client,
            group: group,
@@ -905,7 +916,8 @@ defmodule KafkaEx.Consumer.GenConsumer do
            member_id: member_id,
            generation_id: generation_id,
            acked_offset: offset
-         } = state
+         } = state,
+         retries_left
        ) do
     partitions = [%{partition_num: partition, offset: offset}]
 
@@ -920,10 +932,23 @@ defmodule KafkaEx.Consumer.GenConsumer do
         Logger.debug("Committed offset #{topic}/#{partition}@#{offset} for #{group}")
         %State{state | committed_offset: offset, last_commit: :erlang.monotonic_time(:milli_seconds)}
 
+      {:error, error} when retries_left > 0 and error in [:timeout, :request_timed_out, :coordinator_not_available, :not_coordinator] ->
+        # Transient error - retry with exponential backoff
+        delay = commit_retry_delay(@commit_max_retries - retries_left)
+        Logger.warning("Commit timeout for #{topic}/#{partition}@#{offset}, retrying in #{delay}ms (#{retries_left - 1} retries left)")
+        Process.sleep(delay)
+        commit_with_retry(state, retries_left - 1)
+
       {:error, error} ->
+        # Non-retryable error or retries exhausted
         Logger.error("Failed to commit offset #{topic}/#{partition}@#{offset} for #{group}: #{inspect(error)}")
         state
     end
+  end
+
+  # Exponential backoff: 100ms, 200ms, 400ms, ...
+  defp commit_retry_delay(attempt) do
+    trunc(@commit_retry_base_delay_ms * :math.pow(2, attempt))
   end
 
   defp load_offsets(
