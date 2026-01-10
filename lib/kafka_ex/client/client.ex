@@ -66,6 +66,11 @@ defmodule KafkaEx.Client do
   @reconnect_max_retries 3
   @reconnect_delay_ms 500
 
+  # ApiVersions negotiation retry settings (issue #433)
+  # Handles intermittent parse errors during initial connection
+  @api_versions_max_retries 3
+  @api_versions_retry_base_delay_ms 100
+
   @impl true
   def init([args, name]) do
     state = State.static_init(args, name || self())
@@ -93,14 +98,34 @@ defmodule KafkaEx.Client do
     try do
       check_brokers_sockets!(brokers)
 
-      {ok_or_err, api_versions, state} = get_api_versions(state)
+      # ApiVersions negotiation with retry (issue #433)
+      {ok_or_err, api_versions_or_error, state} = get_api_versions_with_retry(state)
 
-      if ok_or_err == :error do
-        sleep_for_reconnect()
-        raise "Brokers sockets are closed"
+      case {ok_or_err, api_versions_or_error} do
+        {:error, :parse_error} ->
+          sleep_for_reconnect()
+
+          raise "ApiVersions negotiation failed: unable to parse broker response after #{@api_versions_max_retries} retries. " <>
+                  "This may indicate network issues, broker instability, or protocol incompatibility."
+
+        {:error, :no_broker} ->
+          sleep_for_reconnect()
+
+          raise "ApiVersions negotiation failed: no broker available. " <>
+                  "Check that brokers are reachable at the configured addresses."
+
+        {:error, reason} ->
+          sleep_for_reconnect()
+
+          raise "ApiVersions negotiation failed: #{inspect(reason)}. " <>
+                  "Check broker connectivity and network configuration."
+
+        {:ok, api_versions} ->
+          :no_error = ErrorCode.code_to_atom(api_versions.error_code)
+          api_versions
       end
 
-      :no_error = ErrorCode.code_to_atom(api_versions.error_code)
+      api_versions = api_versions_or_error
 
       initial_topics = Keyword.get(args, :initial_topics, [])
 
@@ -1031,6 +1056,38 @@ defmodule KafkaEx.Client do
     request = ApiVersions.get_request_struct(request_version)
     {{ok_or_error, response}, state_out} = kayrock_network_request(request, NodeSelector.first_available(), state)
     {ok_or_error, response, state_out}
+  end
+
+  # ApiVersions negotiation with retry and exponential backoff (issue #433)
+  # Handles intermittent parse errors that can occur during initial connection,
+  # especially in high-latency environments or during broker restarts.
+  defp get_api_versions_with_retry(state, retries_left \\ @api_versions_max_retries)
+
+  defp get_api_versions_with_retry(state, retries_left) do
+    case get_api_versions(state) do
+      {:ok, api_versions, updated_state} ->
+        {:ok, api_versions, updated_state}
+
+      {:error, error, updated_state} when retries_left > 0 and error in [:parse_error, :timeout, :closed] ->
+        delay = api_versions_retry_delay(@api_versions_max_retries - retries_left)
+
+        Logger.warning(
+          "ApiVersions negotiation failed with #{inspect(error)}, " <>
+            "retrying in #{delay}ms (#{retries_left - 1} retries left)"
+        )
+
+        Process.sleep(delay)
+        get_api_versions_with_retry(updated_state, retries_left - 1)
+
+      {:error, error, updated_state} ->
+        Logger.error("ApiVersions negotiation failed after #{@api_versions_max_retries} attempts: #{inspect(error)}")
+        {:error, error, updated_state}
+    end
+  end
+
+  # Exponential backoff: 100ms, 200ms, 400ms
+  defp api_versions_retry_delay(attempt) do
+    trunc(@api_versions_retry_base_delay_ms * :math.pow(2, attempt))
   end
 
   defp kayrock_network_request(request, node_selector, state, network_timeout \\ nil) do
