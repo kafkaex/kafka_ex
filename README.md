@@ -10,8 +10,8 @@ KafkaEx
 [![API Docs](https://img.shields.io/badge/api-docs-yellow.svg?style=flat)](http://hexdocs.pm/kafka_ex/)
 
 KafkaEx is an Elixir client for [Apache Kafka](http://kafka.apache.org/) with
-support for Kafka versions 0.10.0 and newer. KafkaEx requires Elixir 1.6+ and
-Erlang OTP 19+.
+support for Kafka versions 0.10.0 and newer. KafkaEx requires Elixir 1.14+ and
+Erlang OTP 24+.
 
 See [http://hexdocs.pm/kafka_ex/](http://hexdocs.pm/kafka_ex/) for
 documentation,
@@ -180,6 +180,28 @@ end
 ```
 
 For the complete list of events and their metadata, see [KafkaEx.Telemetry](https://hexdocs.pm/kafka_ex/KafkaEx.Telemetry.html).
+
+## Error Handling and Resilience
+
+KafkaEx v1.0 includes significant improvements to error handling and retry logic:
+
+### Automatic Retries with Exponential Backoff
+
+*   **Producer requests** - Automatically retry on leadership-related errors (`not_leader_for_partition`, `leader_not_available`) with metadata refresh
+*   **Offset commits** - Retry transient errors (timeout, coordinator not available) with exponential backoff
+*   **API version negotiation** - Retry parse errors during initial connection
+
+### Consumer Group Resilience
+
+Consumer groups handle transient errors gracefully following the Java client pattern (KAFKA-6829):
+
+*   `unknown_topic_or_partition` triggers retry instead of crash
+*   Heartbeat errors trigger rejoin for recoverable errors
+*   Exponential backoff for join retries (1s→10s, up to 6 attempts)
+
+### Safe Produce Retry Policy
+
+**Important**: Produce requests only retry on leadership errors where we know the message wasn't written. Timeout errors are NOT retried to prevent potential duplicate messages. For truly idempotent produces, enable `enable.idempotence=true` on your Kafka cluster (requires Kafka 0.11+).
 
 ## Timeouts with SSL
 
@@ -508,14 +530,19 @@ The full test suite requires Kafka 2.1.0+.
 
 Run the full integration test suite:
 
-```
-./scripts/all_tests.sh
+```bash
+./scripts/docker_up.sh
+MIX_ENV=test mix test --include integration --exclude sasl
 ```
 
-Or run specific test categories:
+Or run specific test categories using the CI scripts:
 
-```
-mix test --include integration --include consumer_group
+```bash
+./scripts/ci_tests_consumer_group.sh
+./scripts/ci_tests_produce.sh
+./scripts/ci_tests_consume.sh
+./scripts/ci_tests_lifecycle.sh
+./scripts/ci_tests_auth.sh
 ```
 
 ### Static analysis

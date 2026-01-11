@@ -100,7 +100,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   # In Java client, rebalance_timeout = max.poll.interval.ms (default 5 min)
   # We use session_timeout * 3 as reasonable default
   @rebalance_timeout_multiplier 3
+
   @max_join_retries 6
+  @max_topic_retries 5
 
   # Gets a value from opts, falling back to application config, then to default
   defp get_with_default(opts, key, default) do
@@ -233,9 +235,17 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     {:noreply, state}
   end
 
-  # If the heartbeat gets an unrecoverable error.
+  # If the heartbeat gets an error, attempt to rejoin for recoverable errors.
+  # Recoverable errors: coordinator changed or temporarily unavailable
   def handle_info({:EXIT, _heartbeat_timer, {:shutdown, {:error, reason}}}, %State{} = state) do
-    {:stop, {:shutdown, {:error, reason}}, state}
+    if recoverable_error?(reason) do
+      Logger.warning("Heartbeat failed with #{inspect(reason)}, attempting to rejoin group")
+      {:ok, new_state} = rebalance(state, {:heartbeat_error, reason})
+      {:noreply, new_state}
+    else
+      Logger.error("Heartbeat failed with unrecoverable error: #{inspect(reason)}")
+      {:stop, {:shutdown, {:error, reason}}, state}
+    end
   end
 
   # When terminating, inform the group coordinator that this member is leaving
@@ -295,28 +305,53 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
 
     join_response = KafkaExAPI.join_group(client, group_name, member_id || "", opts)
 
-    # crash the client if we receive an error, but do it with a meaningful
-    # error message
+    # Handle response - retry for recoverable errors, crash for unrecoverable
     case join_response do
       {:ok, %KafkaEx.Messages.JoinGroup{} = response} ->
         on_successful_join(state, response)
 
-      {:error, :no_broker} ->
-        if attempt_number >= @max_join_retries do
-          raise "Unable to join consumer group #{state.group_name} after #{@max_join_retries} attempts"
-        end
-
-        Logger.warning(
-          "Unable to join consumer group #{inspect(group_name)}.  " <>
-            "Will sleep 1 second and try again (attempt number #{attempt_number})"
-        )
-
-        :timer.sleep(1000)
-        join(state, attempt_number + 1)
-
       {:error, reason} ->
-        raise "Error joining consumer group #{group_name}: #{inspect(reason)}"
+        handle_join_error(state, group_name, reason, attempt_number)
     end
+  end
+
+  # Handle join errors - check recoverability FIRST, then check retry count
+  # This ensures unrecoverable errors always get the correct error message
+  defp handle_join_error(state, group_name, reason, attempt_number) do
+    if recoverable_error?(reason) do
+      handle_recoverable_join_error(state, group_name, reason, attempt_number)
+    else
+      raise KafkaEx.JoinGroupError, group_name: group_name, reason: reason
+    end
+  end
+
+  defp handle_recoverable_join_error(state, _group_name, reason, attempt_number)
+       when attempt_number >= @max_join_retries do
+    raise KafkaEx.JoinGroupRetriesExhaustedError,
+      group_name: state.group_name,
+      last_error: reason,
+      attempts: @max_join_retries
+  end
+
+  defp handle_recoverable_join_error(state, group_name, reason, attempt_number) do
+    sleep_time = calculate_join_backoff(attempt_number)
+
+    Logger.warning(
+      "Unable to join consumer group #{inspect(group_name)}: #{inspect(reason)}. " <>
+        "Will retry in #{div(sleep_time, 1000)}s (attempt #{attempt_number}/#{@max_join_retries})"
+    )
+
+    :timer.sleep(sleep_time)
+    join(state, attempt_number + 1)
+  end
+
+  # Exponential backoff for join retries: 1s, 2s, 4s... capped at 10s
+  @join_retry_base_delay_ms 1000
+  @join_retry_max_delay_ms 10_000
+
+  defp calculate_join_backoff(attempt_number) do
+    delay = @join_retry_base_delay_ms * round(:math.pow(2, attempt_number - 1))
+    min(delay, @join_retry_max_delay_ms)
   end
 
   defp on_successful_join(state, join_response) do
@@ -382,7 +417,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
         rebalance(state, :rebalance_in_progress)
 
       {:error, reason} ->
-        raise "Error syncing consumer group #{group_name}: #{inspect(reason)}"
+        raise KafkaEx.SyncGroupError, group_name: group_name, reason: reason
     end
   end
 
@@ -446,8 +481,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   ### Timer Management
 
   # Starts a heartbeat process to send heartbeats in the background to keep the
-  # consumers active even if it takes a long time to process a batch of
-  # messages.
+  # consumers active even if it takes a long time to process a batch of messages.
   defp start_heartbeat_timer(%State{} = state) do
     {:ok, timer} = Heartbeat.start_link(state)
     {:ok, %State{state | heartbeat_timer: timer}}
@@ -481,22 +515,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
        ) do
     # add member_id and generation_id to the consumer opts
     consumer_opts = Keyword.merge(consumer_opts, generation_id: generation_id, member_id: member_id)
-
-    {:ok, consumer_supervisor_pid} =
-      ConsumerGroup.start_consumer(
-        pid,
-        {gen_consumer_module, consumer_module},
-        group_name,
-        assignments,
-        consumer_opts
-      )
-
-    state = %{
-      state
-      | assignments: assignments,
-        consumer_supervisor_pid: consumer_supervisor_pid
-    }
-
+    consumer_modules = {gen_consumer_module, consumer_module}
+    {:ok, supervisor_pid} = ConsumerGroup.start_consumer(pid, consumer_modules, group_name, assignments, consumer_opts)
+    state = %{state | assignments: assignments, consumer_supervisor_pid: supervisor_pid}
     {:ok, state}
   end
 
@@ -513,22 +534,59 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   # interest to this consumer group. This function returns a list of
   # topic/partition tuples that can be passed to a GenConsumer's
   # `assign_partitions` method.
-  defp assignable_partitions(%State{
-         client: client,
-         topics: topics,
-         group_name: group_name
-       }) do
+  #
+  # If any topics are missing from metadata (UNKNOWN_TOPIC_OR_PARTITION),
+  # retries with exponential backoff following the Java client pattern.
+  defp assignable_partitions(state), do: assignable_partitions(state, 1)
+
+  defp assignable_partitions(%State{client: client, topics: topics, group_name: group_name} = state, attempt) do
     {:ok, cluster_metadata} = KafkaExAPI.metadata(client)
+    {found_partitions, missing_topics} = partition_topics_by_availability(cluster_metadata, topics)
 
-    Enum.flat_map(topics, fn topic ->
-      partitions = get_partitions_for_topic(cluster_metadata, topic)
+    handle_topic_availability(state, found_partitions, missing_topics, group_name, attempt)
+  end
 
-      warn_if_no_partitions(partitions, group_name, topic)
-
-      Enum.map(partitions, fn partition ->
-        {topic, partition}
-      end)
+  defp partition_topics_by_availability(cluster_metadata, topics) do
+    Enum.reduce(topics, {[], []}, fn topic, {found_acc, missing_acc} ->
+      case get_partitions_for_topic(cluster_metadata, topic) do
+        [] -> {found_acc, [topic | missing_acc]}
+        partitions -> {found_acc ++ Enum.map(partitions, &{topic, &1}), missing_acc}
+      end
     end)
+  end
+
+  defp handle_topic_availability(_state, found_partitions, [], _group_name, _attempt), do: found_partitions
+
+  defp handle_topic_availability(_state, found_partitions, missing_topics, group_name, attempt)
+       when attempt >= @max_topic_retries do
+    topics = Enum.join(missing_topics, ", ")
+
+    Logger.warning(
+      "Consumer group #{group_name} could not find topics #{topics} " <>
+        "after #{@max_topic_retries} attempts (UNKNOWN_TOPIC_OR_PARTITION)"
+    )
+
+    found_partitions
+  end
+
+  defp handle_topic_availability(state, _found_partitions, missing_topics, group_name, attempt) do
+    sleep_time = calculate_topic_backoff(attempt)
+    topics = Enum.join(missing_topics, ", ")
+
+    Logger.info(
+      "Consumer group #{group_name}: topics #{topics} not found. " <>
+        "Retrying in #{sleep_time}ms (attempt #{attempt}/#{@max_topic_retries})"
+    )
+
+    :timer.sleep(sleep_time)
+    assignable_partitions(state, attempt + 1)
+  end
+
+  @topic_retry_base_delay_ms 100
+  @topic_retry_max_delay_ms 5000
+  defp calculate_topic_backoff(attempt) do
+    delay = @topic_retry_base_delay_ms * round(:math.pow(2, attempt - 1))
+    min(delay, @topic_retry_max_delay_ms)
   end
 
   # Extract partition IDs for a topic from cluster metadata
@@ -539,14 +597,6 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     end
   end
 
-  defp warn_if_no_partitions([], group_name, topic) do
-    Logger.warning(fn ->
-      "Consumer group #{group_name} encountered nonexistent topic #{topic}"
-    end)
-  end
-
-  defp warn_if_no_partitions(_partitions, _group_name, _topic), do: :ok
-
   # This function is used by the group leader to determine partition
   # assignments during the join/sync phase. `members` is provided to the leader
   # by the coordinating broker in `JoinGroupResponse`. `partitions` is a list
@@ -556,18 +606,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   defp assign_partitions(%State{partition_assignment_callback: partition_assignment_callback}, members, partitions) do
     # Delegate partition assignment to GenConsumer module.
     assignments = Map.new(partition_assignment_callback.(members, partitions))
-
-    # Convert assignments to protocol format, filling in empty assignments for missing members.
-    Enum.map(members, fn member ->
-      {member, pack_assignments(Map.get(assignments, member, []))}
-    end)
+    Enum.map(members, &{&1, pack_assignments(Map.get(assignments, &1, []))})
   end
 
-  # Converts assignments from topic/partition tuples to Kafka's protocol format.
-  #
-  # Example:
-  #
-  #   pack_assignments([{"foo", 0}, {"foo", 1}]) #=> [{"foo", [0, 1]}]
   defp pack_assignments(assignments) do
     assignments
     |> Enum.reduce(%{}, fn {topic, partition}, assignments ->
@@ -575,4 +616,17 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     end)
     |> Map.to_list()
   end
+
+  ### Error Classification
+
+  # Determines if an error is recoverable via retry/rejoin.
+  # Following Java client pattern (KAFKA-6829): UNKNOWN_TOPIC_OR_PARTITION is
+  # treated like COORDINATOR_LOAD_IN_PROGRESS - both trigger retry behavior.
+  defp recoverable_error?(:coordinator_not_available), do: true
+  defp recoverable_error?(:not_coordinator), do: true
+  defp recoverable_error?(:coordinator_load_in_progress), do: true
+  defp recoverable_error?(:unknown_topic_or_partition), do: true
+  defp recoverable_error?(:no_broker), do: true
+  defp recoverable_error?(:timeout), do: true
+  defp recoverable_error?(_), do: false
 end

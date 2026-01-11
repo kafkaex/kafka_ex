@@ -22,6 +22,7 @@ defmodule KafkaEx.Client do
   alias KafkaEx.Client.State
   alias KafkaEx.Cluster.Broker
   alias KafkaEx.Cluster.ClusterMetadata
+  alias KafkaEx.Support.Retry
 
   alias Kayrock.ApiVersions
   alias Kayrock.ErrorCode
@@ -66,6 +67,11 @@ defmodule KafkaEx.Client do
   @reconnect_max_retries 3
   @reconnect_delay_ms 500
 
+  # ApiVersions negotiation retry settings (issue #433)
+  # Handles intermittent parse errors during initial connection
+  @api_versions_max_retries 3
+  @api_versions_retry_base_delay_ms 100
+
   @impl true
   def init([args, name]) do
     state = State.static_init(args, name || self())
@@ -93,14 +99,34 @@ defmodule KafkaEx.Client do
     try do
       check_brokers_sockets!(brokers)
 
-      {ok_or_err, api_versions, state} = get_api_versions(state)
+      # ApiVersions negotiation with retry (issue #433)
+      {ok_or_err, api_versions_or_error, state} = get_api_versions_with_retry(state)
 
-      if ok_or_err == :error do
-        sleep_for_reconnect()
-        raise "Brokers sockets are closed"
+      case {ok_or_err, api_versions_or_error} do
+        {:error, :parse_error} ->
+          sleep_for_reconnect()
+
+          raise "ApiVersions negotiation failed: unable to parse broker response after #{@api_versions_max_retries} retries. " <>
+                  "This may indicate network issues, broker instability, or protocol incompatibility."
+
+        {:error, :no_broker} ->
+          sleep_for_reconnect()
+
+          raise "ApiVersions negotiation failed: no broker available. " <>
+                  "Check that brokers are reachable at the configured addresses."
+
+        {:error, reason} ->
+          sleep_for_reconnect()
+
+          raise "ApiVersions negotiation failed: #{inspect(reason)}. " <>
+                  "Check broker connectivity and network configuration."
+
+        {:ok, api_versions} ->
+          :no_error = ErrorCode.code_to_atom(api_versions.error_code)
+          api_versions
       end
 
-      :no_error = ErrorCode.code_to_atom(api_versions.error_code)
+      api_versions = api_versions_or_error
 
       initial_topics = Keyword.get(args, :initial_topics, [])
 
@@ -319,9 +345,11 @@ defmodule KafkaEx.Client do
     {:reply, state.consumer_group_for_auto_commit, state}
   end
 
+  @max_metadata_update_retries 3
+
   @impl true
   def handle_info(:update_metadata, state) do
-    {:noreply, update_metadata(state)}
+    {:noreply, update_metadata_with_retry(state, @max_metadata_update_retries)}
   end
 
   def handle_info({:tcp_closed, socket}, state) do
@@ -334,23 +362,24 @@ defmodule KafkaEx.Client do
     {:noreply, state_out}
   end
 
+  defp update_metadata_with_retry(_state, retries_left) when retries_left <= 0 do
+    raise KafkaEx.MetadataUpdateError, attempts: @max_metadata_update_retries
+  end
+
+  defp update_metadata_with_retry(state, retries_left) do
+    update_metadata(state)
+  rescue
+    error ->
+      Logger.warning("Periodic metadata update failed (#{retries_left - 1} retries left): #{inspect(error)}")
+      Process.sleep(500)
+      update_metadata_with_retry(state, retries_left - 1)
+  end
+
   @impl true
   def terminate(reason, state) do
-    Logger.log(
-      :debug,
-      "Shutting down worker #{inspect(state.worker_name)}, " <>
-        "reason: #{inspect(reason)}"
-    )
-
-    # Cancel the metadata update timer
-    if state.metadata_timer_ref do
-      :timer.cancel(state.metadata_timer_ref)
-    end
-
-    # Close all broker sockets
-    Enum.each(State.brokers(state), fn broker ->
-      NetworkClient.close_socket(broker, broker.socket, :shutdown)
-    end)
+    Logger.debug("Shutting down worker #{inspect(state.worker_name)}, reason: #{inspect(reason)}")
+    if state.metadata_timer_ref, do: :timer.cancel(state.metadata_timer_ref), else: nil
+    Enum.each(State.brokers(state), &NetworkClient.close_socket(&1, &1.socket, :shutdown))
   end
 
   defp update_metadata(state, topics \\ []) do
@@ -370,17 +399,10 @@ defmodule KafkaEx.Client do
         {updated_cluster_metadata, brokers_to_close} =
           ClusterMetadata.merge_brokers(updated_state.cluster_metadata, new_cluster_metadata)
 
-        for broker <- brokers_to_close do
-          Logger.debug("Closing connection to #{Broker.to_string(broker)}")
-          NetworkClient.close_socket(broker, broker.socket, :metadata_update)
-        end
+        :ok = Enum.each(brokers_to_close, &NetworkClient.close_socket(&1, &1.socket, :metadata_update))
 
-        updated_state =
-          State.update_brokers(
-            %{updated_state | cluster_metadata: updated_cluster_metadata},
-            &maybe_connect_broker(&1, state)
-          )
-
+        state_with_meta = %{updated_state | cluster_metadata: updated_cluster_metadata}
+        updated_state = State.update_brokers(state_with_meta, &maybe_connect_broker(&1, state))
         updated_state
     end
   end
@@ -523,13 +545,7 @@ defmodule KafkaEx.Client do
 
   defp do_sync_group_request(consumer_group, generation_id, member_id, opts, state, metadata) do
     node_selector = NodeSelector.consumer_group(consumer_group)
-
-    req_data = [
-      {:group_id, consumer_group},
-      {:generation_id, generation_id},
-      {:member_id, member_id}
-      | opts
-    ]
+    req_data = [{:group_id, consumer_group}, {:generation_id, generation_id}, {:member_id, member_id} | opts]
 
     with {:ok, request} <- RequestBuilder.sync_group_request(req_data, state),
          {{:ok, result}, updated_state} <- handle_sync_group_request(request, node_selector, state) do
@@ -543,9 +559,7 @@ defmodule KafkaEx.Client do
   end
 
   defp count_assigned_partitions(partition_assignments) do
-    Enum.reduce(partition_assignments, 0, fn assignment, acc ->
-      acc + length(assignment.partitions)
-    end)
+    Enum.reduce(partition_assignments, &(&2 + length(&1.partitions)))
   end
 
   defp produce_request(topic, partition, messages, opts, state) do
@@ -718,7 +732,17 @@ defmodule KafkaEx.Client do
   end
 
   defp handle_produce_request(request, node_selector, state) do
-    handle_request_with_retry(request, &ResponseParser.produce_response/1, node_selector, state)
+    # Produce requests should only retry on leadership errors to avoid duplicates.
+    # Timeout errors are NOT safe to retry because the message may have been written
+    # but the response was lost. Use Kafka's idempotent producer for true exactly-once.
+    handle_request_with_retry(
+      request,
+      &ResponseParser.produce_response/1,
+      node_selector,
+      state,
+      @retry_count,
+      &Retry.produce_retryable?/1
+    )
   end
 
   defp handle_fetch_request(request, node_selector, state) do
@@ -749,13 +773,29 @@ defmodule KafkaEx.Client do
   end
 
   # ----------------------------------------------------------------------------------------------------
-  defp handle_request_with_retry(_, _, _, _, retry_count \\ @retry_count, _last_error \\ nil)
+  # Request retry logic with optional retryable filter
+  #
+  # The `retryable?` parameter allows callers to specify which errors should trigger a retry.
+  # This is important for produce requests where blind retries can cause duplicate messages.
+  # By default, all errors are retried (backwards compatible behavior).
+  #
+  # For produce requests, use `&Retry.produce_retryable?/1` to only retry leadership errors.
+  # ----------------------------------------------------------------------------------------------------
+  defp handle_request_with_retry(
+         request,
+         parser_fn,
+         node_selector,
+         state,
+         retry_count \\ @retry_count,
+         retryable? \\ fn _ -> true end,
+         last_error \\ nil
+       )
 
-  defp handle_request_with_retry(_, _, _, state, 0, last_error) do
+  defp handle_request_with_retry(_, _, _, state, 0, _retryable?, last_error) do
     {{:error, last_error}, state}
   end
 
-  defp handle_request_with_retry(request, parser_fn, node_selector, state, retry_count, _last_error) do
+  defp handle_request_with_retry(request, parser_fn, node_selector, state, retry_count, retryable?, _last_error) do
     case kayrock_network_request(request, node_selector, state) do
       {{:ok, response}, state_out} ->
         case parser_fn.(response) do
@@ -763,23 +803,53 @@ defmodule KafkaEx.Client do
             {{:ok, result}, state_out}
 
           {:error, [error | _]} ->
-            request_name = request.__struct__
-            Logger.warning("Unable to send request #{inspect(request_name)}, failed with error #{inspect(error)}")
-            handle_request_with_retry(request, parser_fn, node_selector, state, retry_count - 1, error)
+            handle_request_error(request, parser_fn, node_selector, state, retry_count, retryable?, error)
 
           {:error, %Error{} = error} ->
-            request_name = request.__struct__
-            Logger.warning("Unable to send request #{inspect(request_name)}, failed with error #{inspect(error)}")
-            handle_request_with_retry(request, parser_fn, node_selector, state, retry_count - 1, error)
+            handle_request_error(request, parser_fn, node_selector, state, retry_count, retryable?, error)
         end
 
       {_, _state_out} ->
-        request_name = request.__struct__
-        Logger.warning("Unable to send request #{inspect(request_name)}, failed with error unknown")
         error = Error.build(:unknown, %{})
-        handle_request_with_retry(request, parser_fn, node_selector, state, retry_count - 1, error)
+        handle_request_error(request, parser_fn, node_selector, state, retry_count, retryable?, error)
     end
   end
+
+  defp handle_request_error(request, parser_fn, node_selector, state, retry_count, retryable?, error) do
+    request_name = request.__struct__
+    error_atom = extract_error_atom(error)
+    Logger.warning("Request #{inspect(request_name)} failed with error #{inspect(error_atom)}")
+
+    # Check if this error is retryable
+    if retryable?.(error_atom) do
+      # Refresh metadata for leadership-related errors before retrying
+      updated_state =
+        if requires_metadata_refresh?(error_atom) do
+          Logger.info("Refreshing metadata due to #{inspect(error_atom)} error")
+          update_metadata(state)
+        else
+          state
+        end
+
+      handle_request_with_retry(request, parser_fn, node_selector, updated_state, retry_count - 1, retryable?, error)
+    else
+      # Non-retryable error - fail immediately
+      Logger.info("Error #{inspect(error_atom)} is not retryable for #{inspect(request_name)}, failing immediately")
+      {{:error, error}, state}
+    end
+  end
+
+  defp extract_error_atom(%Error{error: error}), do: error
+  defp extract_error_atom(error) when is_atom(error), do: error
+  defp extract_error_atom(_), do: :unknown
+
+  # Errors that indicate the client has stale metadata and should refresh before retrying.
+  defp requires_metadata_refresh?(:not_leader_for_partition), do: true
+  defp requires_metadata_refresh?(:leader_not_available), do: true
+  defp requires_metadata_refresh?(:unknown_topic_or_partition), do: true
+  defp requires_metadata_refresh?(:not_leader_or_follower), do: true
+  defp requires_metadata_refresh?(:fenced_leader_epoch), do: true
+  defp requires_metadata_refresh?(_), do: false
 
   # ----------------------------------------------------------------------------------------------------
   defp maybe_connect_broker(broker, state) do
@@ -788,9 +858,7 @@ defmodule KafkaEx.Client do
         broker
 
       false ->
-        # Close existing socket if present to prevent resource leak
         NetworkClient.close_socket(broker, broker.socket, :reconnecting)
-
         socket = NetworkClient.create_socket(broker.host, broker.port, state.ssl_options, state.use_ssl, state.auth)
         %{broker | socket: socket}
     end
@@ -854,9 +922,7 @@ defmodule KafkaEx.Client do
         end
 
       _ ->
-        message = "Unable to fetch metadata from any brokers. Timeout is #{sync_timeout}."
-        Logger.log(:error, message)
-        raise message
+        Logger.error("Unable to fetch metadata from any brokers. Timeout is #{sync_timeout}.")
         {state_out, nil}
     end
   end
@@ -1026,6 +1092,41 @@ defmodule KafkaEx.Client do
     {ok_or_error, response, state_out}
   end
 
+  # ApiVersions negotiation with retry and exponential backoff (issue #433)
+  # Handles intermittent parse errors that can occur during initial connection,
+  # especially in high-latency environments or during broker restarts.
+  # Note: Uses manual retry loop instead of Retry.with_retry because we need to
+  # thread state changes through retries (the state is updated after each request).
+  defp get_api_versions_with_retry(state, retries_left \\ @api_versions_max_retries)
+
+  defp get_api_versions_with_retry(state, retries_left) do
+    case get_api_versions(state) do
+      {:ok, api_versions, updated_state} ->
+        {:ok, api_versions, updated_state}
+
+      {:error, error, updated_state} when retries_left > 0 ->
+        if Retry.transient_error?(error) do
+          attempt = @api_versions_max_retries - retries_left
+          delay = Retry.backoff_delay(attempt, @api_versions_retry_base_delay_ms)
+
+          Logger.warning(
+            "ApiVersions negotiation failed with #{inspect(error)}, " <>
+              "retrying in #{delay}ms (#{retries_left - 1} retries left)"
+          )
+
+          Process.sleep(delay)
+          get_api_versions_with_retry(updated_state, retries_left - 1)
+        else
+          Logger.error("ApiVersions negotiation failed with non-retryable error: #{inspect(error)}")
+          {:error, error, updated_state}
+        end
+
+      {:error, error, updated_state} ->
+        Logger.error("ApiVersions negotiation failed after #{@api_versions_max_retries} attempts: #{inspect(error)}")
+        {:error, error, updated_state}
+    end
+  end
+
   defp kayrock_network_request(request, node_selector, state, network_timeout \\ nil) do
     synchronous = if Map.get(request, :acks) == 0, do: false, else: true
     network_timeout = config_sync_timeout(network_timeout)
@@ -1069,7 +1170,7 @@ defmodule KafkaEx.Client do
           {{:error, reason}, 0, broker_to_telemetry_info(broker)}
 
         {data, broker} when synchronous ->
-          {{:ok, deserialize(data, client_request)}, byte_size(data), broker_to_telemetry_info(broker)}
+          {deserialize(data, client_request), byte_size(data), broker_to_telemetry_info(broker)}
 
         {data, broker} ->
           {data, byte_size(data), broker_to_telemetry_info(broker)}
@@ -1160,19 +1261,17 @@ defmodule KafkaEx.Client do
 
   defp deserialize(data, request) do
     {resp, _} = Request.response_deserializer(request).(data)
-    resp
+    {:ok, resp}
   rescue
-    _ ->
+    error ->
       Logger.error(
         "Failed to parse a response from the server: " <>
           inspect(data, limit: :infinity) <>
-          " for request #{inspect(request, limit: :infinity)}"
+          " for request #{inspect(request, limit: :infinity)} " <>
+          "error: #{inspect(error)}"
       )
 
-      Kernel.reraise(
-        "Parse error during #{inspect(request)} response deserializer. Couldn't parse: #{inspect(data)}",
-        __STACKTRACE__
-      )
+      {:error, :parse_error}
   end
 
   defp fetch_topics_metadata(state, topics, allow_topic_creation) do

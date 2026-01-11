@@ -193,6 +193,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
   alias KafkaEx.Client
   alias KafkaEx.Config
   alias KafkaEx.Messages.Fetch.Record
+  alias KafkaEx.Support.Retry
   alias KafkaEx.Telemetry
 
   require Logger
@@ -427,6 +428,11 @@ defmodule KafkaEx.Consumer.GenConsumer do
   @commit_interval 5_000
   @commit_threshold 100
   @auto_offset_reset :none
+
+  # Commit retry settings (issue #425)
+  # Uses KafkaEx.Support.Retry for unified retry logic with exponential backoff
+  @commit_max_retries 3
+  @commit_base_delay_ms 100
 
   # Client API
 
@@ -896,7 +902,14 @@ defmodule KafkaEx.Consumer.GenConsumer do
     state
   end
 
-  defp commit(
+  defp commit(state) do
+    commit_with_retry(state)
+  end
+
+  # Commit with retry and exponential backoff (issue #425)
+  # Uses KafkaEx.Support.Retry for unified retry logic.
+  # Handles transient failures like timeouts, especially in high-latency environments (AWS MSK)
+  defp commit_with_retry(
          %State{
            client: client,
            group: group,
@@ -915,7 +928,23 @@ defmodule KafkaEx.Consumer.GenConsumer do
       generation_id: generation_id
     ]
 
-    case KafkaExAPI.commit_offset(client, group, topic, partitions, opts) do
+    commit_fn = fn ->
+      KafkaExAPI.commit_offset(client, group, topic, partitions, opts)
+    end
+
+    retry_opts = [
+      max_retries: @commit_max_retries,
+      base_delay_ms: @commit_base_delay_ms,
+      retryable?: &Retry.commit_retryable?/1,
+      on_retry: fn error, attempt, delay ->
+        Logger.warning(
+          "Commit failed for #{topic}/#{partition}@#{offset} with #{inspect(error)}, " <>
+            "retrying in #{delay}ms (attempt #{attempt}/#{@commit_max_retries})"
+        )
+      end
+    ]
+
+    case Retry.with_retry(commit_fn, retry_opts) do
       {:ok, _result} ->
         Logger.debug("Committed offset #{topic}/#{partition}@#{offset} for #{group}")
         %State{state | committed_offset: offset, last_commit: :erlang.monotonic_time(:milli_seconds)}

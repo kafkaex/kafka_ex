@@ -213,11 +213,56 @@ defmodule KafkaEx.Config do
     []
   end
 
+  defp ssl_options(true, []) do
+    if otp_version() >= 26 do
+      raise ArgumentError, """
+      SSL is enabled but ssl_options is empty.
+
+      OTP 26+ changed SSL defaults to require explicit certificate verification.
+      You must configure ssl_options in your KafkaEx config.
+
+      For development/testing (insecure - disables certificate verification):
+
+          config :kafka_ex,
+            use_ssl: true,
+            ssl_options: [verify: :verify_none]
+
+      For production (recommended - uses system CA certificates):
+
+          config :kafka_ex,
+            use_ssl: true,
+            ssl_options: [
+              verify: :verify_peer,
+              cacerts: :public_key.cacerts_get()
+            ]
+
+      For custom CA certificate:
+
+          config :kafka_ex,
+            use_ssl: true,
+            ssl_options: [
+              verify: :verify_peer,
+              cacertfile: "/path/to/ca-cert.pem"
+            ]
+
+      See: https://www.erlang.org/blog/otp-26-highlights/ for details on OTP 26 SSL changes.
+      """
+    else
+      []
+    end
+  end
+
   defp ssl_options(true, options) do
     if Keyword.keyword?(options) do
       options
     else
       raise(ArgumentError, "SSL is enabled and invalid ssl_options were provided: #{inspect(options)}")
     end
+  end
+
+  defp otp_version do
+    :otp_release
+    |> :erlang.system_info()
+    |> List.to_integer()
   end
 end

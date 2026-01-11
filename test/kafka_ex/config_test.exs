@@ -47,6 +47,65 @@ defmodule KafkaEx.ConfigTest do
     assert_raise(ArgumentError, ~r/invalid ssl_options/, &Config.ssl_options/0)
   end
 
+  describe "OTP 26+ SSL compatibility" do
+    setup do
+      use_ssl = Application.get_env(:kafka_ex, :use_ssl)
+      ssl_options = Application.get_env(:kafka_ex, :ssl_options)
+
+      on_exit(fn ->
+        Application.put_env(:kafka_ex, :use_ssl, use_ssl)
+        Application.put_env(:kafka_ex, :ssl_options, ssl_options)
+      end)
+    end
+
+    test "ssl_options raises helpful error when empty on OTP 26+" do
+      otp_version = :erlang.system_info(:otp_release) |> List.to_integer()
+
+      if otp_version >= 26 do
+        Application.put_env(:kafka_ex, :use_ssl, true)
+        Application.put_env(:kafka_ex, :ssl_options, [])
+
+        error =
+          assert_raise ArgumentError, fn ->
+            Config.ssl_options()
+          end
+
+        # Verify error message contains helpful guidance
+        assert error.message =~ "SSL is enabled but ssl_options is empty"
+        assert error.message =~ "OTP 26+"
+        assert error.message =~ "verify: :verify_none"
+        assert error.message =~ "verify: :verify_peer"
+        assert error.message =~ "cacerts: :public_key.cacerts_get()"
+        assert error.message =~ "cacertfile:"
+      else
+        IO.inspect("Skipping test as OTP version is #{otp_version}")
+      end
+    end
+
+    test "ssl_options works with verify_none on OTP 26+" do
+      Application.put_env(:kafka_ex, :use_ssl, true)
+      Application.put_env(:kafka_ex, :ssl_options, verify: :verify_none)
+
+      assert [verify: :verify_none] == Config.ssl_options()
+    end
+
+    test "ssl_options works with verify_peer and cacerts on OTP 26+" do
+      Application.put_env(:kafka_ex, :use_ssl, true)
+      cacerts = :public_key.cacerts_get()
+
+      Application.put_env(:kafka_ex, :ssl_options, verify: :verify_peer, cacerts: cacerts)
+
+      assert [verify: :verify_peer, cacerts: cacerts] == Config.ssl_options()
+    end
+
+    test "ssl_options works with verify_peer and cacertfile on OTP 26+" do
+      Application.put_env(:kafka_ex, :use_ssl, true)
+      Application.put_env(:kafka_ex, :ssl_options, verify: :verify_peer, cacertfile: "/path/to/ca-cert.pem")
+
+      assert [verify: :verify_peer, cacertfile: "/path/to/ca-cert.pem"] == Config.ssl_options()
+    end
+  end
+
   test "brokers with list of hosts" do
     brokers = [{"example.com", 9092}]
     Application.put_env(:kafka_ex, :brokers, brokers)
