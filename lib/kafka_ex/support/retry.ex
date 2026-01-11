@@ -123,20 +123,23 @@ defmodule KafkaEx.Support.Retry do
         {:ok, result}
 
       {:error, error} ->
-        if attempt < max - 1 and retryable?.(error) do
-          delay = backoff_delay(attempt, base, max_delay)
-
-          if on_retry do
-            on_retry.(error, attempt + 1, delay)
-          end
-
-          Process.sleep(delay)
-          do_retry(fun, attempt + 1, max, base, max_delay, retryable?, on_retry, error)
-        else
-          {:error, error}
-        end
+        maybe_retry(fun, attempt, max, base, max_delay, retryable?, on_retry, error)
     end
   end
+
+  defp maybe_retry(fun, attempt, max, base, max_delay, retryable?, on_retry, error) do
+    if attempt < max - 1 and retryable?.(error) do
+      delay = backoff_delay(attempt, base, max_delay)
+      invoke_on_retry(on_retry, error, attempt + 1, delay)
+      Process.sleep(delay)
+      do_retry(fun, attempt + 1, max, base, max_delay, retryable?, on_retry, error)
+    else
+      {:error, error}
+    end
+  end
+
+  defp invoke_on_retry(nil, _error, _attempt, _delay), do: :ok
+  defp invoke_on_retry(on_retry, error, attempt, delay), do: on_retry.(error, attempt, delay)
 
   # ---------------------------------------------------------------------------
   # Error Classifiers

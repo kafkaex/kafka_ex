@@ -37,7 +37,8 @@ defmodule KafkaEx.Consumer.CommitRetryTest do
       # Total: 100 + 200 + 400 = 700ms
       total = Enum.sum(Enum.map(0..2, &commit_retry_delay/1))
       assert total == 700
-      assert total < 1_000  # Should complete within 1 second
+      # Should complete within 1 second
+      assert total < 1_000
     end
   end
 
@@ -98,7 +99,8 @@ defmodule KafkaEx.Consumer.CommitRetryTest do
     test "retries eventually exhaust" do
       # Simulate retry countdown
       retries = Enum.take_while(@commit_max_retries..0//-1, fn n -> n >= 0 end)
-      assert length(retries) == 4  # 3, 2, 1, 0
+      # 3, 2, 1, 0
+      assert length(retries) == 4
     end
 
     test "first retry uses attempt 0 delay" do

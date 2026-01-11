@@ -479,7 +479,8 @@ defmodule KafkaEx.Telemetry do
   end
 
   @doc false
-  @spec emit_rebalance(binary(), binary(), integer() | nil, atom()) :: :ok
+  @spec emit_rebalance(binary(), binary(), integer() | nil, atom() | {:heartbeat_error, atom()}) ::
+          :ok
   def emit_rebalance(group_id, member_id, generation_id, reason) do
     :telemetry.execute(
       @consumer_rebalance,
