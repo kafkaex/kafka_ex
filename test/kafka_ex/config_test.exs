@@ -90,12 +90,16 @@ defmodule KafkaEx.ConfigTest do
     end
 
     test "ssl_options works with verify_peer and cacerts on OTP 26+" do
-      Application.put_env(:kafka_ex, :use_ssl, true)
-      cacerts = :public_key.cacerts_get()
+      otp_version = :erlang.system_info(:otp_release) |> List.to_integer()
 
-      Application.put_env(:kafka_ex, :ssl_options, verify: :verify_peer, cacerts: cacerts)
+      if otp_version >= 26 do
+        Application.put_env(:kafka_ex, :use_ssl, true)
+        cacerts = :public_key.cacerts_get()
 
-      assert [verify: :verify_peer, cacerts: cacerts] == Config.ssl_options()
+        Application.put_env(:kafka_ex, :ssl_options, verify: :verify_peer, cacerts: cacerts)
+
+        assert [verify: :verify_peer, cacerts: cacerts] == Config.ssl_options()
+      end
     end
 
     test "ssl_options works with verify_peer and cacertfile on OTP 26+" do
