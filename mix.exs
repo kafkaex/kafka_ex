@@ -18,10 +18,18 @@ defmodule KafkaEx.Mixfile do
         flags: [:error_handling]
       ],
       test_coverage: [tool: ExCoveralls],
-      preferred_cli_env: [coveralls: :test],
+      preferred_cli_env: [
+        coveralls: :test,
+        "coveralls.detail": :test,
+        "coveralls.html": :test,
+        "test.unit": :test,
+        "test.integration": :test,
+        "test.chaos": :test
+      ],
       description: description(),
       package: package(),
       deps: deps(),
+      aliases: aliases(),
       docs: [
         main: "readme",
         extras: [
@@ -53,12 +61,25 @@ defmodule KafkaEx.Mixfile do
       {:excoveralls, "~> 0.18", only: :test, runtime: false},
       {:ex_doc, "~> 0.23", only: :dev, runtime: false},
       {:hammox, "~> 0.5.0", only: :test},
-      {:snappyer, "~> 1.2", only: [:dev, :test]}
+      {:snappyer, "~> 1.2", only: [:dev, :test]},
+      # Error handling tests (testcontainers + toxiproxy)
+      {:testcontainers, "~> 1.14", only: :test},
+      {:toxiproxy_ex, "~> 2.0", only: :test}
     ]
   end
 
   defp description do
     "Kafka client for Elixir/Erlang."
+  end
+
+  defp aliases do
+    [
+      "test.unit":
+        "test --exclude auth --exclude consume --exclude consumer_group --exclude chaos --exclude lifecycle --exclude produce",
+      "test.integration":
+        "test --include auth --include consume --include consumer_group --include lifecycle --include produce",
+      "test.chaos": "test --only chaos"
+    ]
   end
 
   defp elixirc_paths(:test), do: ["lib", "test/support"]

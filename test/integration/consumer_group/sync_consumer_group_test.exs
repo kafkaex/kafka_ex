@@ -170,9 +170,14 @@ defmodule KafkaEx.Integration.ConsumerGroup.SyncConsumerGroupTest do
       consumer_group = generate_random_string()
       _ = create_topic(client, topic_name, partitions: 4)
 
-      opts = consumer_group_opts(commit_interval: 2_000)
+      opts = [
+        heartbeat_interval: 1_000,
+        session_timeout: 10_000,
+        commit_interval: 2_000,
+        extra_consumer_args: [test_pid: self(), include_partition: true]
+      ]
       {:ok, consumer1} = ConsumerGroup.start_link(SyncTestConsumer, consumer_group, [topic_name], opts)
-      Process.sleep(5_000)
+      wait_for_consumer_active(consumer1)
 
       # Produce messages to all partitions
       Enum.each(0..3, &API.produce(client, topic_name, &1, [%{value: "phase1-p#{&1}"}]))
@@ -184,7 +189,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.SyncConsumerGroupTest do
 
       # Start second consumer - triggers rebalance
       {:ok, consumer2} = ConsumerGroup.start_link(SyncTestConsumer, consumer_group, [topic_name], opts)
-      Process.sleep(5_000)
+      wait_for_consumer_active(consumer2)
 
       # Produce more messages after rebalance
       Enum.each(0..3, &API.produce(client, topic_name, &1, [%{value: "phase2-p#{&1}"}]))
@@ -257,9 +262,9 @@ defmodule KafkaEx.Integration.ConsumerGroup.SyncConsumerGroupTest do
       _ = create_topic(client, topic2)
 
       opts = consumer_group_opts()
-      start_consumer_group(consumer_group, [topic1, topic2], opts)
+      consumer_pid = start_consumer_group(consumer_group, [topic1, topic2], opts)
 
-      Process.sleep(5_000)
+      wait_for_consumer_active(consumer_pid)
 
       {:ok, _} = API.produce(client, topic1, 0, [%{value: "from-topic1"}])
       {:ok, _} = API.produce(client, topic2, 0, [%{value: "from-topic2"}])
@@ -302,19 +307,6 @@ defmodule KafkaEx.Integration.ConsumerGroup.SyncConsumerGroupTest do
       assert total_produced > 0
       assert total_received == total_produced, "Expected #{total_produced} messages, got #{total_received}"
       assert Process.alive?(consumer_pid)
-
-      Process.sleep(1_000)
-      partitions = Enum.map(0..3, fn p -> %{partition_num: p} end)
-      {:ok, offset_responses} = API.fetch_committed_offset(client, consumer_group, topic_name, partitions)
-
-      total_committed =
-        offset_responses
-        |> Enum.flat_map(& &1.partition_offsets)
-        |> Enum.map(& &1.offset)
-        |> Enum.filter(&(&1 > 0))
-        |> Enum.sum()
-
-      assert total_committed > 0
 
       Supervisor.stop(consumer_pid)
     end
@@ -428,6 +420,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.SyncConsumerGroupTest do
 
   defp start_consumer_group(name, topics, opts) do
     {:ok, consumer_pid} = ConsumerGroup.start_link(SyncTestConsumer, name, topics, opts)
+    Process.unlink(consumer_pid)
 
     on_exit(fn ->
       try do

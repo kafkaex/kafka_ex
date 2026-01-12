@@ -559,7 +559,9 @@ defmodule KafkaEx.Client do
   end
 
   defp count_assigned_partitions(partition_assignments) do
-    Enum.reduce(partition_assignments, &(&2 + length(&1.partitions)))
+    Enum.reduce(partition_assignments, 0, fn assignment, acc ->
+      acc + length(assignment.partitions)
+    end)
   end
 
   defp produce_request(topic, partition, messages, opts, state) do

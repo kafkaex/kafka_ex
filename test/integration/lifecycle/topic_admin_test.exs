@@ -27,9 +27,7 @@ defmodule KafkaEx.Integration.Lifecycle.TopicAdminTest do
       assert CreateTopics.success?(result)
 
       # Wait for metadata propagation and verify topic exists
-      Process.sleep(200)
-      {:ok, metadata} = API.metadata(client, [topic_name])
-      topic = Map.get(metadata.topics, topic_name)
+      topic = wait_for_topic_in_metadata(client, topic_name)
       assert topic != nil
     end
 
@@ -58,9 +56,8 @@ defmodule KafkaEx.Integration.Lifecycle.TopicAdminTest do
 
       assert CreateTopics.success?(result)
 
-      # Verify partition count
-      {:ok, metadata} = API.metadata(client, [topic_name])
-      topic = Map.get(metadata.topics, topic_name)
+      # Verify partition count (retry since metadata may not be ready immediately)
+      topic = wait_for_topic_in_metadata(client, topic_name)
       assert length(topic.partitions) == 4
     end
 
@@ -72,9 +69,7 @@ defmodule KafkaEx.Integration.Lifecycle.TopicAdminTest do
       assert CreateTopics.success?(result)
 
       # Wait for metadata propagation and verify topic was created
-      Process.sleep(200)
-      {:ok, metadata} = API.metadata(client, [topic_name])
-      topic = Map.get(metadata.topics, topic_name)
+      topic = wait_for_topic_in_metadata(client, topic_name)
       assert topic != nil
       assert length(topic.partitions) == 2
     end
@@ -105,12 +100,9 @@ defmodule KafkaEx.Integration.Lifecycle.TopicAdminTest do
       assert CreateTopics.success?(result)
 
       # Wait for metadata propagation and verify all topics exist
-      Process.sleep(300)
-      {:ok, metadata} = API.metadata(client, [topic1, topic2, topic3])
-
-      t1 = Map.get(metadata.topics, topic1)
-      t2 = Map.get(metadata.topics, topic2)
-      t3 = Map.get(metadata.topics, topic3)
+      t1 = wait_for_topic_in_metadata(client, topic1)
+      t2 = wait_for_topic_in_metadata(client, topic2)
+      t3 = wait_for_topic_in_metadata(client, topic3)
 
       assert length(t1.partitions) == 2
       assert length(t2.partitions) == 3
@@ -147,9 +139,9 @@ defmodule KafkaEx.Integration.Lifecycle.TopicAdminTest do
       # Create topic first
       {:ok, _} = API.create_topic(client, topic_name)
 
-      # Verify it exists
-      {:ok, metadata1} = API.metadata(client, [topic_name])
-      assert Map.has_key?(metadata1.topics, topic_name)
+      # Verify it exists (retry for metadata propagation)
+      topic = wait_for_topic_in_metadata(client, topic_name)
+      assert topic != nil
 
       # Delete it
       {:ok, result} = API.delete_topic(client, topic_name)
@@ -271,9 +263,8 @@ defmodule KafkaEx.Integration.Lifecycle.TopicAdminTest do
       # May succeed or fail depending on deletion timing
       case CreateTopics.success?(result) do
         true ->
-          # New topic should have 4 partitions
-          {:ok, metadata} = API.metadata(client, [topic_name])
-          topic = Map.get(metadata.topics, topic_name)
+          # New topic should have 4 partitions (retry since metadata may not be ready)
+          topic = wait_for_topic_in_metadata(client, topic_name)
           assert length(topic.partitions) == 4
 
         false ->

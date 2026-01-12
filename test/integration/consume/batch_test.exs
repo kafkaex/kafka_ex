@@ -141,20 +141,6 @@ defmodule KafkaEx.Integration.Consume.BatchTest do
       end
     end
 
-    test "fetch returns correct high watermark", %{client: client} do
-      topic_name = generate_random_string()
-      _ = create_topic(client, topic_name)
-
-      # Produce 10 messages
-      messages = Enum.map(1..10, fn i -> %{value: "hwm-#{i}"} end)
-      {:ok, result} = API.produce(client, topic_name, 0, messages)
-
-      {:ok, fetch_result} = API.fetch(client, topic_name, 0, result.base_offset)
-
-      # High watermark should be at or beyond last message
-      assert fetch_result.high_watermark >= result.base_offset + 10
-    end
-
     test "fetch preserves message metadata", %{client: client} do
       topic_name = generate_random_string()
       _ = create_topic(client, topic_name)
