@@ -9,6 +9,7 @@ KafkaEx supports SASL authentication for secure Kafka clusters. Multiple mechani
 - **SCRAM-SHA-512** - Secure challenge-response with stronger hash (Kafka 0.10.2+)
 - **SCRAM-SHA-512** - Secure challenge-response with stronger hash (Kafka 0.10.2+)
 - **OAUTHBEARER**   - Token-based authentication using OAuth 2.0 bearer tokens (Kafka 2.0+)
+- **MSK_IAM**       - AWS IAM authentication for Amazon MSK (MSK 2.7.1+)
 
 ## Configuration
 
@@ -112,6 +113,99 @@ config :kafka_ex,
    }
  ```
 
+## AWS MSK IAM (msk_iam)
+
+AWS MSK IAM authentication for Amazon MSK clusters using IAM credentials.
+
+```elixir
+config :kafka_ex,
+  brokers: [{"b-1.mycluster.kafka.us-east-1.amazonaws.com", 9098}],
+  use_ssl: true,
+  sasl: %{
+    mechanism: :msk_iam,
+    mechanism_opts: %{
+      region: "us-east-1"
+    }
+  }
+```
+
+### Credentials Resolution
+
+Credentials are resolved in order:
+
+1. `credential_provider` - custom 0-arity function returning `{:ok, access_key, secret_key}` or `{:ok, access_key, secret_key, session_token}`
+2. `access_key_id` + `secret_access_key` - explicit credentials in config
+3. `aws_credentials` - automatic discovery supporting:
+   - Environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`)
+   - IRSA (IAM Roles for Service Accounts on EKS)
+   - Instance metadata (EC2, ECS task roles)
+   - Credential files (`~/.aws/credentials`)
+   - Web Identity Token (`AWS_WEB_IDENTITY_TOKEN_FILE`)
+
+### Explicit Credentials
+
+```elixir
+mechanism_opts: %{
+  region: "us-east-1",
+  access_key_id: System.get_env("AWS_ACCESS_KEY_ID"),
+  secret_access_key: System.get_env("AWS_SECRET_ACCESS_KEY"),
+  session_token: System.get_env("AWS_SESSION_TOKEN")
+}
+```
+
+### Custom Credentials Provider
+
+```elixir
+mechanism_opts: %{
+  region: "us-east-1",
+  credential_provider: fn ->
+    {:ok, "AKIA...", "secret...", "session..."}
+  end
+}
+```
+
+### Dependencies
+
+Add to `mix.exs`:
+
+```elixir
+{:aws_signature, "~> 0.4"},   # SigV4 signing
+{:aws_credentials, "~> 1.0"}  # credential discovery (IRSA, instance metadata, etc.)
+```
+
+`aws_credentials` is optional if you provide explicit credentials or a custom `credential_provider`.
+
+### IAM Policy
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["kafka-cluster:Connect", "kafka-cluster:DescribeCluster"],
+      "Resource": "arn:aws:kafka:us-east-1:123456789:cluster/my-cluster/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["kafka-cluster:*Topic*", "kafka-cluster:ReadData", "kafka-cluster:WriteData"],
+      "Resource": "arn:aws:kafka:us-east-1:123456789:topic/my-cluster/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["kafka-cluster:AlterGroup", "kafka-cluster:DescribeGroup"],
+      "Resource": "arn:aws:kafka:us-east-1:123456789:group/my-cluster/*"
+    }
+  ]
+}
+```
+
+### Notes
+
+- Port **9098** (not 9092/9094)
+- Requires MSK with Kafka 2.7.1+
+- Host is injected automatically from connection context for SigV4 signing
+
 ## Integration with Existing Code
 
 SASL authentication is transparent to the rest of your KafkaEx usage:
@@ -129,6 +223,8 @@ messages = KafkaEx.fetch("my-topic", 0, offset: 0)
 - **Authentication failed**: Check credentials and ensure the user exists in Kafka with the correct SASL mechanism configured
 - **SSL handshake error**: Verify SSL certificates or use verify: :verify_none for testing (not production!)
 - **Unsupported mechanism**: Ensure your Kafka version supports the mechanism (SCRAM requires 0.10.2+)
+- **MSK connection timeout**: Ensure security groups allow port 9098
+- **MSK auth failed**: Verify IAM policy includes `kafka-cluster:Connect`
 
 ## Advanced: Custom Authentication
 

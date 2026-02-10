@@ -34,4 +34,47 @@ defmodule KafkaEx.Auth.ConfigTest do
       Config.new(%{mechanism: :plain})
     end
   end
+
+  describe "Inspect redaction" do
+    test "redacts AWS credentials in mechanism_opts" do
+      cfg =
+        Config.new(%{
+          mechanism: :msk_iam,
+          mechanism_opts: %{
+            region: "us-east-1",
+            access_key_id: "AKIATEST123",
+            secret_access_key: "verysecretkey",
+            session_token: "sessiontoken123"
+          }
+        })
+
+      inspected = inspect(cfg)
+
+      refute inspected =~ "AKIATEST123"
+      refute inspected =~ "verysecretkey"
+      refute inspected =~ "sessiontoken123"
+      assert inspected =~ "***REDACTED***"
+      assert inspected =~ "us-east-1"
+    end
+
+    test "keeps non-sensitive fields visible" do
+      cfg =
+        Config.new(%{
+          mechanism: :msk_iam,
+          mechanism_opts: %{
+            region: "eu-west-1",
+            broker_host: "b-1.test.kafka.amazonaws.com",
+            broker_port: 9098,
+            secret_access_key: "mysecretvalue"
+          }
+        })
+
+      inspected = inspect(cfg)
+
+      assert inspected =~ "eu-west-1"
+      assert inspected =~ "b-1.test.kafka.amazonaws.com"
+      assert inspected =~ "9098"
+      refute inspected =~ "mysecretvalue"
+    end
+  end
 end

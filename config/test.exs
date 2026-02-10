@@ -14,3 +14,6 @@ config :kafka_ex, sync_timeout: 60_000
 config :logger, :console,
   format: "$time [$level] [$metadata] $message\n",
   metadata: [:module, :function, :pid]
+
+config :aws_credentials,
+  credential_providers: []
