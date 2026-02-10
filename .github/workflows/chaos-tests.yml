@@ -1,0 +1,85 @@
+name: Chaos Tests
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  chaos-tests:
+    name: Chaos Tests (Network Resilience)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+
+    env:
+      MIX_ENV: test
+      ENABLE_TESTCONTAINERS: "true"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Elixir & Erlang
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.18"
+          otp-version: "27.2"
+
+      - name: Restore dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-27.2-1.18-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-27.2-1.18-
+
+      - name: Install dependencies
+        run: |
+          mix local.rebar --force
+          mix local.hex --force
+          mix deps.get
+          mix deps.compile
+
+      - name: Compile application
+        run: mix compile --warnings-as-errors
+
+      - name: Check Docker availability
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Pull Docker images
+        run: |
+          docker pull confluentinc/cp-kafka:7.4.3
+          docker pull ghcr.io/shopify/toxiproxy:2.9.0
+
+      - name: Run Chaos Tests
+        id: test-run
+        continue-on-error: true
+        run: mix test.chaos
+
+      - name: Retry failed tests (1st retry)
+        id: retry-1
+        if: steps.test-run.outcome == 'failure'
+        continue-on-error: true
+        run: mix test --only chaos --failed
+
+      - name: Retry failed tests (2nd retry)
+        if: steps.retry-1.outcome == 'failure'
+        run: mix test --only chaos --failed
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-test-results
+          path: |
+            _build/test/logs/
+          retention-days: 7

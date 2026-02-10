@@ -23,10 +23,28 @@ defmodule KafkaEx.Network.Socket do
   Closes the socket.
 
   For more information, see `:ssl.close/1` for ssl or `:gen_tcp.send/1` for non ssl.
+
+  Handles both Socket structs and raw ports (for tcp_closed/ssl_closed handlers).
   """
-  @spec close(KafkaEx.Network.Socket.t()) :: :ok
+  @spec close(KafkaEx.Network.Socket.t() | port() | reference() | nil) :: :ok
+  def close(nil), do: :ok
   def close(%KafkaEx.Network.Socket{ssl: true} = socket), do: :ssl.close(socket.socket)
-  def close(socket), do: :gen_tcp.close(socket.socket)
+  def close(%KafkaEx.Network.Socket{} = socket), do: :gen_tcp.close(socket.socket)
+
+  # Handle raw ports (from tcp_closed messages)
+  # Socket may already be closed, ignore errors
+  def close(port) when is_port(port) do
+    :gen_tcp.close(port)
+  catch
+    _, _ -> :ok
+  end
+
+  # Handle raw SSL socket references (from ssl_closed messages)
+  def close(ssl_socket) when is_reference(ssl_socket) or is_tuple(ssl_socket) do
+    :ssl.close(ssl_socket)
+  catch
+    _, _ -> :ok
+  end
 
   @doc """
   Sends data over the socket.

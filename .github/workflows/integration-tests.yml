@@ -1,0 +1,302 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  consumer-group-tests:
+    name: Consumer Group Tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+
+    env:
+      MIX_ENV: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Elixir & Erlang
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.18"
+          otp-version: "27.2"
+
+      - name: Restore dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-27.2-1.18-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-27.2-1.18-
+
+      - name: Install dependencies
+        run: |
+          mix local.rebar --force
+          mix local.hex --force
+          mix deps.get
+          mix deps.compile
+
+      - name: Check Docker availability
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Docker-compose up
+        run: ./scripts/docker_up.sh
+
+      - name: Run Consumer Group Tests
+        id: test-run
+        continue-on-error: true
+        run: ./scripts/ci_tests_consumer_group.sh
+
+      - name: Retry failed tests (1st retry)
+        id: retry-1
+        if: steps.test-run.outcome == 'failure'
+        continue-on-error: true
+        run: mix test --only consumer_group --failed
+
+      - name: Retry failed tests (2nd retry)
+        if: steps.retry-1.outcome == 'failure'
+        run: mix test --only consumer_group --failed
+
+  produce-tests:
+    name: Produce Tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+
+    env:
+      MIX_ENV: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Elixir & Erlang
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.18"
+          otp-version: "27.2"
+
+      - name: Restore dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-27.2-1.18-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-27.2-1.18-
+
+      - name: Install dependencies
+        run: |
+          mix local.rebar --force
+          mix local.hex --force
+          mix deps.get
+          mix deps.compile
+
+      - name: Check Docker availability
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Docker-compose up
+        run: ./scripts/docker_up.sh
+
+      - name: Run Produce Tests
+        id: test-run
+        continue-on-error: true
+        run: ./scripts/ci_tests_produce.sh
+
+      - name: Retry failed tests (1st retry)
+        id: retry-1
+        if: steps.test-run.outcome == 'failure'
+        continue-on-error: true
+        run: mix test --only produce --failed
+
+      - name: Retry failed tests (2nd retry)
+        if: steps.retry-1.outcome == 'failure'
+        run: mix test --only produce --failed
+
+  consume-tests:
+    name: Consume Tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+
+    env:
+      MIX_ENV: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Elixir & Erlang
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.18"
+          otp-version: "27.2"
+
+      - name: Restore dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-27.2-1.18-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-27.2-1.18-
+
+      - name: Install dependencies
+        run: |
+          mix local.rebar --force
+          mix local.hex --force
+          mix deps.get
+          mix deps.compile
+
+      - name: Check Docker availability
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Docker-compose up
+        run: ./scripts/docker_up.sh
+
+      - name: Run Consume Tests
+        id: test-run
+        continue-on-error: true
+        run: ./scripts/ci_tests_consume.sh
+
+      - name: Retry failed tests (1st retry)
+        id: retry-1
+        if: steps.test-run.outcome == 'failure'
+        continue-on-error: true
+        run: mix test --only consume --failed
+
+      - name: Retry failed tests (2nd retry)
+        if: steps.retry-1.outcome == 'failure'
+        run: mix test --only consume --failed
+
+  lifecycle-tests:
+    name: Lifecycle Tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+
+    env:
+      MIX_ENV: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Elixir & Erlang
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.18"
+          otp-version: "27.2"
+
+      - name: Restore dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-27.2-1.18-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-27.2-1.18-
+
+      - name: Install dependencies
+        run: |
+          mix local.rebar --force
+          mix local.hex --force
+          mix deps.get
+          mix deps.compile
+
+      - name: Check Docker availability
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Docker-compose up
+        run: ./scripts/docker_up.sh
+
+      - name: Run Lifecycle Tests
+        id: test-run
+        continue-on-error: true
+        run: ./scripts/ci_tests_lifecycle.sh
+
+      - name: Retry failed tests (1st retry)
+        id: retry-1
+        if: steps.test-run.outcome == 'failure'
+        continue-on-error: true
+        run: mix test --only lifecycle --failed
+
+      - name: Retry failed tests (2nd retry)
+        if: steps.retry-1.outcome == 'failure'
+        run: mix test --only lifecycle --failed
+
+  auth-tests:
+    name: Auth Tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+
+    env:
+      MIX_ENV: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Elixir & Erlang
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.18"
+          otp-version: "27.2"
+
+      - name: Restore dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-27.2-1.18-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-27.2-1.18-
+
+      - name: Install dependencies
+        run: |
+          mix local.rebar --force
+          mix local.hex --force
+          mix deps.get
+          mix deps.compile
+
+      - name: Check Docker availability
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Docker-compose up
+        run: ./scripts/docker_up.sh
+
+      - name: Run Auth Tests
+        id: test-run
+        continue-on-error: true
+        run: ./scripts/ci_tests_auth.sh
+
+      - name: Retry failed tests (1st retry)
+        id: retry-1
+        if: steps.test-run.outcome == 'failure'
+        continue-on-error: true
+        run: mix test --only auth --failed
+
+      - name: Retry failed tests (2nd retry)
+        if: steps.retry-1.outcome == 'failure'
+        run: mix test --only auth --failed

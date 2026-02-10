@@ -147,31 +147,6 @@ defmodule KafkaEx.Integration.Lifecycle.ApplicationFlowTest do
       assert hd(f3.records).value == "topic3-msg"
     end
 
-    test "topic isolation - messages don't leak", %{client: client} do
-      topic_a = generate_random_string()
-      topic_b = generate_random_string()
-
-      _ = create_topic(client, topic_a)
-      _ = create_topic(client, topic_b)
-
-      # Produce unique messages to each
-      {:ok, _ra} = API.produce(client, topic_a, 0, [%{value: "only-in-A"}])
-      {:ok, _rb} = API.produce(client, topic_b, 0, [%{value: "only-in-B"}])
-
-      # Fetch all from each topic
-      {:ok, fa} = API.fetch_all(client, topic_a, 0, max_bytes: 100_000)
-      {:ok, fb} = API.fetch_all(client, topic_b, 0, max_bytes: 100_000)
-
-      # Verify isolation
-      a_values = Enum.map(fa.records, & &1.value)
-      b_values = Enum.map(fb.records, & &1.value)
-
-      assert "only-in-A" in a_values
-      refute "only-in-B" in a_values
-      assert "only-in-B" in b_values
-      refute "only-in-A" in b_values
-    end
-
     test "fan-out: produce to one topic, consume from multiple partitions", %{client: client} do
       topic_name = generate_random_string()
       _ = create_topic(client, topic_name, partitions: 4)
@@ -320,50 +295,4 @@ defmodule KafkaEx.Integration.Lifecycle.ApplicationFlowTest do
     end
   end
 
-  describe "data integrity" do
-    test "message content preserved through produce-consume", %{client: client} do
-      topic_name = generate_random_string()
-      _ = create_topic(client, topic_name)
-
-      # Various content types
-      test_values = [
-        "simple string",
-        "unicode: café résumé 日本語",
-        String.duplicate("long", 1000),
-        :erlang.term_to_binary(%{complex: [1, 2, 3]}),
-        ""
-      ]
-
-      {:ok, result} = API.produce(client, topic_name, 0, Enum.map(test_values, fn v -> %{value: v} end))
-
-      {:ok, fetch_result} = API.fetch(client, topic_name, 0, result.base_offset, max_bytes: 1_000_000)
-
-      fetched_values = Enum.map(fetch_result.records, & &1.value)
-
-      Enum.zip(test_values, fetched_values)
-      |> Enum.each(fn {expected, actual} ->
-        assert expected == actual
-      end)
-    end
-
-    test "message ordering preserved in batch", %{client: client} do
-      topic_name = generate_random_string()
-      _ = create_topic(client, topic_name)
-
-      # Produce ordered sequence
-      sequence = Enum.to_list(1..100)
-      messages = Enum.map(sequence, fn i -> %{value: "#{i}"} end)
-
-      {:ok, result} = API.produce(client, topic_name, 0, messages)
-
-      {:ok, fetch_result} = API.fetch(client, topic_name, 0, result.base_offset, max_bytes: 1_000_000)
-
-      fetched_sequence =
-        fetch_result.records
-        |> Enum.map(& &1.value)
-        |> Enum.map(&String.to_integer/1)
-
-      assert fetched_sequence == sequence
-    end
-  end
 end

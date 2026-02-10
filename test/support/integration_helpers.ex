@@ -54,6 +54,56 @@ defmodule KafkaEx.IntegrationHelpers do
   end
 
   @doc """
+  Waits for topic to be fully available in metadata with partitions ready.
+  Returns the topic metadata map on success.
+  """
+  def wait_for_topic_in_metadata(client, topic_name, retries \\ 20) do
+    {:ok, metadata} = API.metadata(client, [topic_name])
+    topic = Map.get(metadata.topics, topic_name)
+
+    if topic != nil do
+      topic
+    else
+      if retries > 0 do
+        Process.sleep(500)
+        wait_for_topic_in_metadata(client, topic_name, retries - 1)
+      else
+        raise "Topic #{topic_name} not found in metadata after retries"
+      end
+    end
+  end
+
+  @doc """
+  Waits for a consumer group supervisor to become active via polling.
+  Replaces fragile Process.sleep calls in tests.
+  """
+  def wait_for_consumer_active(consumer_pid, timeout \\ 15_000) do
+    deadline = System.monotonic_time(:millisecond) + timeout
+    do_wait_for_active(consumer_pid, deadline)
+  end
+
+  defp do_wait_for_active(consumer_pid, deadline) do
+    if System.monotonic_time(:millisecond) >= deadline do
+      raise "Consumer group did not become active within timeout"
+    end
+
+    try do
+      if KafkaEx.Consumer.ConsumerGroup.active?(consumer_pid) do
+        # Extra settling time for fetch loop to start
+        Process.sleep(500)
+        :ok
+      else
+        Process.sleep(200)
+        do_wait_for_active(consumer_pid, deadline)
+      end
+    catch
+      :exit, _ ->
+        Process.sleep(200)
+        do_wait_for_active(consumer_pid, deadline)
+    end
+  end
+
+  @doc """
   Connects topic & consumer group
   """
   def join_to_group(client, topic, consumer_group) do

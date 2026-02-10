@@ -28,7 +28,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.ResilienceTest do
       # Start first consumer
       opts = consumer_group_opts()
       {:ok, consumer1} = ConsumerGroup.start_link(AsyncTestConsumer, consumer_group, [topic_name], opts)
-      Process.sleep(3_000)
+      wait_for_consumer_active(consumer1)
 
       # Rapidly add and remove consumers to trigger rebalances
       Enum.each(1..3, fn i ->
@@ -37,19 +37,30 @@ defmodule KafkaEx.Integration.ConsumerGroup.ResilienceTest do
 
         # Produce messages during rebalance
         {:ok, _} = API.produce(client, topic_name, rem(i, 4), [%{value: "rebalance-msg-#{i}"}])
-        Supervisor.stop(temp_consumer)
+        try do
+          Supervisor.stop(temp_consumer)
+        catch
+          :exit, _ -> :ok
+        end
         Process.sleep(1_000)
       end)
+
+      # Wait for consumer1 to stabilize after rebalances
+      wait_for_consumer_active(consumer1)
 
       # Original consumer should still be alive and working
       assert Process.alive?(consumer1), "Consumer should survive rapid rebalances"
 
       # Produce final message and verify consumer receives it
       {:ok, _} = API.produce(client, topic_name, 0, [%{value: "final-message"}])
-      received = receive_messages_until(1, 10_000)
+      received = receive_messages_until_found("final-message", 15_000)
       assert "final-message" in received, "Consumer should receive messages after rebalances"
 
-      Supervisor.stop(consumer1)
+      try do
+        Supervisor.stop(consumer1)
+      catch
+        :exit, _ -> :ok
+      end
     end
 
     @tag timeout: 60_000
@@ -69,7 +80,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.ResilienceTest do
         ConsumerGroup.start_link(AsyncTestConsumer, consumer_group, [existing_topic, nonexistent_topic], opts)
 
       # Wait for consumer to stabilize (it should retry and eventually give up on missing topic)
-      Process.sleep(8_000)
+      wait_for_consumer_active(consumer, 20_000)
 
       # Consumer should still be alive despite missing topic
       assert Process.alive?(consumer), "Consumer should survive missing topic (KAFKA-6829 pattern)"
@@ -79,7 +90,11 @@ defmodule KafkaEx.Integration.ConsumerGroup.ResilienceTest do
       received = receive_messages_until(1, 10_000)
       assert "test-message" in received, "Consumer should receive from available topic"
 
-      Supervisor.stop(consumer)
+      try do
+        Supervisor.stop(consumer)
+      catch
+        :exit, _ -> :ok
+      end
     end
 
     @tag timeout: 60_000
@@ -183,6 +198,23 @@ defmodule KafkaEx.Integration.ConsumerGroup.ResilienceTest do
       {:messages_received, messages} -> receive_messages_until(count, timeout, acc ++ messages)
     after
       timeout -> acc
+    end
+  end
+
+  defp receive_messages_until_found(target, timeout) do
+    receive_messages_until_found(target, timeout, [])
+  end
+
+  defp receive_messages_until_found(target, timeout, acc) do
+    if target in acc do
+      acc
+    else
+      receive do
+        {:messages_received, messages} ->
+          receive_messages_until_found(target, timeout, acc ++ messages)
+      after
+        timeout -> acc
+      end
     end
   end
 

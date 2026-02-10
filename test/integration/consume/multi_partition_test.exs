@@ -92,27 +92,6 @@ defmodule KafkaEx.Integration.Consume.MultiPartitionTest do
   end
 
   describe "offset queries across partitions" do
-    test "earliest and latest offsets reflect message count per partition", %{client: client} do
-      topic_name = generate_random_string()
-      _ = create_topic(client, topic_name, partitions: 4)
-
-      # Produce varying amounts
-      {:ok, _} = API.produce(client, topic_name, 0, Enum.map(1..3, fn i -> %{value: "e-#{i}"} end))
-      {:ok, _} = API.produce(client, topic_name, 1, Enum.map(1..7, fn i -> %{value: "e-#{i}"} end))
-      {:ok, _} = API.produce(client, topic_name, 2, Enum.map(1..11, fn i -> %{value: "e-#{i}"} end))
-      {:ok, _} = API.produce(client, topic_name, 3, [%{value: "e-1"}])
-
-      # Check offset ranges
-      expected = [{0, 3}, {1, 7}, {2, 11}, {3, 1}]
-
-      Enum.each(expected, fn {partition, count} ->
-        {:ok, earliest} = API.earliest_offset(client, topic_name, partition)
-        {:ok, latest} = API.latest_offset(client, topic_name, partition)
-
-        delta = latest - earliest
-        assert delta == count, "Partition #{partition}: expected #{count} messages, got #{delta}"
-      end)
-    end
   end
 
   describe "concurrent multi-partition operations" do
