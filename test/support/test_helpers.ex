@@ -1,6 +1,7 @@
 defmodule KafkaEx.TestHelpers do
-  alias KafkaEx.New.Client
-  alias KafkaEx.New.Client.NodeSelector
+  alias KafkaEx.API
+  alias KafkaEx.Client
+  alias KafkaEx.Client.NodeSelector
   require Logger
 
   @doc """
@@ -76,11 +77,10 @@ defmodule KafkaEx.TestHelpers do
   end
 
   def latest_offset_number(topic, partition_id, worker \\ :kafka_ex) do
-    offset =
-      KafkaEx.latest_offset(topic, partition_id, worker)
-      |> first_partition_offset
-
-    offset || 0
+    case API.latest_offset(worker, topic, partition_id) do
+      {:ok, offset} -> offset
+      {:error, _} -> 0
+    end
   end
 
   def latest_consumer_offset_number(
@@ -90,15 +90,13 @@ defmodule KafkaEx.TestHelpers do
         worker \\ :kafka_ex,
         api_version \\ 0
       ) do
-    request = %KafkaEx.Protocol.OffsetFetch.Request{
-      topic: topic,
-      partition: partition,
-      consumer_group: consumer_group,
-      api_version: api_version
-    }
+    partitions = [%{partition_num: partition}]
 
-    resp = KafkaEx.offset_fetch(worker, request)
-    resp |> KafkaEx.Protocol.OffsetFetch.Response.last_offset()
+    case API.fetch_committed_offset(worker, consumer_group, topic, partitions, api_version: api_version) do
+      {:ok, [%{partition_offsets: [%{offset: offset} | _]} | _]} -> offset
+      {:ok, _} -> -1
+      {:error, _} -> -1
+    end
   end
 
   def ensure_append_timestamp_topic(client, topic_name) do
@@ -158,19 +156,6 @@ defmodule KafkaEx.TestHelpers do
 
     unless topic_name in topics do
       wait_for_topic_to_appear(client, topic_name, attempts - 1)
-    end
-  end
-
-  defp first_partition_offset({:ok, response}), do: first_partition_offset(response)
-  defp first_partition_offset({:error, error}), do: first_partition_offset(error)
-  defp first_partition_offset(:topic_not_found), do: nil
-
-  defp first_partition_offset(response) do
-    [%{partition_offsets: partition_offsets}] = response
-
-    case hd(partition_offsets) do
-      %{offset: [offset | _]} -> offset
-      %{offset: offset} -> offset
     end
   end
 

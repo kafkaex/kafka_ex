@@ -1,1 +1,1 @@
-Hammox.defmock(KafkaEx.NetworkClientMock, for: KafkaEx.NetworkClient.Behaviour)
+Hammox.defmock(KafkaEx.NetworkClientMock, for: KafkaEx.Network.Behaviour)

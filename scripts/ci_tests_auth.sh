@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Runs authentication tests for CI
+# Runs auth tests for CI (Phase 5 from INTEGRATION_TEST_ROADMAP.md)
 #
-# Tests SASL authentication (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)
+# Tests SASL/PLAIN, SASL/SCRAM, OAUTHBEARER, and SSL authentication
 #
 # This script could be used for local testing.
 
@@ -15,8 +15,8 @@ export MIX_ENV=test
 
 TEST_COMMAND=${TEST_COMMAND:-test}
 
-# Run SASL authentication tests with retry logic
+# Run auth tests with retry logic
 mix $TEST_COMMAND \
-  --only sasl "$@" \
+  --only auth "$@" \
   || mix $TEST_COMMAND --failed \
   || mix $TEST_COMMAND --failed

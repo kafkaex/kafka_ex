@@ -1,0 +1,510 @@
+defmodule KafkaEx.Telemetry do
+  @moduledoc """
+  Telemetry events emitted by KafkaEx.
+
+  KafkaEx uses the `:telemetry` library to emit events that can be used
+  for observability. This module documents all events and provides
+  helper functions.
+
+  ## Attaching Handlers
+
+  To receive telemetry events, attach a handler:
+
+      :telemetry.attach("my-handler", [:kafka_ex, :request, :stop], &MyModule.handle_event/4, nil)
+
+  Or attach to multiple events:
+
+    :telemetry.attach_many("my-handler", KafkaEx.Telemetry.events(), &MyModule.handle_event/4, nil)
+
+  ## Events
+
+  ### Request Events
+
+  Low-level Kafka protocol request/response events.
+
+  * `[:kafka_ex, :request, :start]` - Emitted when a Kafka protocol request begins
+    * Measurements: `%{system_time: integer()}`
+    * Metadata: `%{operation: atom(), api_version: integer(), correlation_id: integer(), client_id: binary(), broker: map()}`
+    * Note: `broker` is empty `%{}` at start (actual broker determined after send)
+
+  * `[:kafka_ex, :request, :stop]` - Emitted when a Kafka protocol request completes
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Same as start event plus `%{bytes_sent: integer(), bytes_received: integer(), broker: map()}`
+      * `bytes_sent` - Number of bytes sent in the request
+      * `bytes_received` - Number of bytes received in the response (0 on error)
+      * `broker` - Map with `node_id`, `host`, `port` of the broker that handled the request
+
+  * `[:kafka_ex, :request, :exception]` - Emitted when a Kafka protocol request fails
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Start metadata plus `%{kind: atom(), reason: term(), stacktrace: list()}`
+
+  ### Connection Events
+
+  * `[:kafka_ex, :connection, :start]` - Emitted when connecting to a broker
+    * Measurements: `%{system_time: integer()}`
+    * Metadata: `%{host: binary(), port: integer(), ssl: boolean()}`
+
+  * `[:kafka_ex, :connection, :stop]` - Emitted when connection is established
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Same as start event plus `%{success: boolean()}`
+
+  * `[:kafka_ex, :connection, :exception]` - Emitted when connection fails with exception
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Start metadata plus `%{kind: atom(), reason: term(), stacktrace: list()}`
+
+  * `[:kafka_ex, :connection, :close]` - Emitted when a connection is closed
+    * Measurements: `%{count: 1}`
+    * Metadata: `%{host: binary(), port: integer(), reason: atom()}`
+      * `reason` - Why the connection closed:
+        * `:remote_closed` - Remote broker closed the connection
+        * `:timeout` - Request timed out
+        * `:send_error` - Error sending data
+        * `:recv_error` - Error receiving data
+        * `:shutdown` - Client shutdown
+        * `:init_error` - Error during client initialization
+        * `:metadata_update` - Broker removed due to cluster topology change
+        * `:reconnecting` - Socket closed before reconnection attempt
+
+  ### Authentication Events
+
+  * `[:kafka_ex, :auth, :start]` - Emitted when SASL authentication begins
+    * Measurements: `%{system_time: integer()}`
+    * Metadata: `%{host: binary(), port: integer(), mechanism: binary()}`
+      * `mechanism` - The SASL mechanism name ("PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512", "OAUTHBEARER")
+
+  * `[:kafka_ex, :auth, :stop]` - Emitted when SASL authentication completes
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Same as start event plus `%{result: :ok | :error, error: term()}`
+      * `result` - `:ok` on success, `:error` on failure
+      * `error` - Error reason (only on failure)
+
+  * `[:kafka_ex, :auth, :exception]` - Emitted when SASL authentication fails with exception
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Start metadata plus `%{kind: atom(), reason: term(), stacktrace: list()}`
+
+  ### Produce Events
+
+  * `[:kafka_ex, :produce, :start]` - Emitted when a produce operation begins
+    * Measurements: `%{system_time: integer(), message_count: integer()}`
+    * Metadata: `%{topic: binary(), partition: integer(), client_id: binary(), required_acks: integer()}`
+
+  * `[:kafka_ex, :produce, :stop]` - Emitted when a produce operation completes
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Same as start event plus `%{result: :ok | :error, offset: integer(), error: term()}`
+      * `result` - `:ok` on success, `:error` on failure
+      * `offset` - Base offset (only on success when acks > 0)
+      * `error` - Error reason (only on failure)
+
+  * `[:kafka_ex, :produce, :exception]` - Emitted when a produce operation fails
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Start metadata plus `%{kind: atom(), reason: term(), stacktrace: list()}`
+
+  ### Fetch Events
+
+  * `[:kafka_ex, :fetch, :start]` - Emitted when a fetch operation begins
+    * Measurements: `%{system_time: integer()}`
+    * Metadata: `%{topic: binary(), partition: integer(), offset: integer(), client_id: binary()}`
+
+  * `[:kafka_ex, :fetch, :stop]` - Emitted when a fetch operation completes
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Same as start event plus `%{result: :ok | :error, message_count: integer(), error: term()}`
+      * `result` - `:ok` on success, `:error` on failure
+      * `message_count` - Number of messages fetched (only on success)
+      * `error` - Error reason (only on failure)
+
+  * `[:kafka_ex, :fetch, :exception]` - Emitted when a fetch operation fails
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Start metadata plus `%{kind: atom(), reason: term(), stacktrace: list()}`
+
+  ### Consumer Events
+
+  * `[:kafka_ex, :consumer, :commit, :start]` - Emitted when an offset commit begins
+    * Measurements: `%{system_time: integer()}`
+    * Metadata: `%{group_id: binary(), client_id: binary(), topic: binary(), partition_count: integer()}`
+
+  * `[:kafka_ex, :consumer, :commit, :stop]` - Emitted when an offset commit completes
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Same as start event plus `%{result: :ok | :error, error: term()}`
+      * `result` - `:ok` on success, `:error` on failure
+      * `error` - Error reason (only on failure)
+
+  * `[:kafka_ex, :consumer, :commit, :exception]` - Emitted when an offset commit fails
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Start metadata plus `%{kind: atom(), reason: term(), stacktrace: list()}`
+
+  ### Consumer Group Events
+
+  * `[:kafka_ex, :consumer, :join, :start]` - Emitted when joining a consumer group
+    * Measurements: `%{system_time: integer()}`
+    * Metadata: `%{group_id: binary(), member_id: binary(), topics: [binary()]}`
+
+  * `[:kafka_ex, :consumer, :join, :stop]` - Emitted when join group completes
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Same as start event plus `%{result: :ok | :error, generation_id: integer(), is_leader: boolean(), error: term()}`
+
+  * `[:kafka_ex, :consumer, :join, :exception]` - Emitted when join group fails with exception
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Start metadata plus `%{kind: atom(), reason: term(), stacktrace: list()}`
+
+  * `[:kafka_ex, :consumer, :sync, :start]` - Emitted when syncing consumer group state
+    * Measurements: `%{system_time: integer()}`
+    * Metadata: `%{group_id: binary(), member_id: binary(), generation_id: integer(), is_leader: boolean()}`
+
+  * `[:kafka_ex, :consumer, :sync, :stop]` - Emitted when sync group completes
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Same as start event plus `%{result: :ok | :error, assigned_partitions: integer(), error: term()}`
+
+  * `[:kafka_ex, :consumer, :sync, :exception]` - Emitted when sync group fails with exception
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Start metadata plus `%{kind: atom(), reason: term(), stacktrace: list()}`
+
+  * `[:kafka_ex, :consumer, :heartbeat, :start]` - Emitted when sending a heartbeat
+    * Measurements: `%{system_time: integer()}`
+    * Metadata: `%{group_id: binary(), member_id: binary(), generation_id: integer()}`
+
+  * `[:kafka_ex, :consumer, :heartbeat, :stop]` - Emitted when heartbeat completes
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Same as start event plus `%{result: :ok | :error, error: term()}`
+
+  * `[:kafka_ex, :consumer, :heartbeat, :exception]` - Emitted when heartbeat fails with exception
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Start metadata plus `%{kind: atom(), reason: term(), stacktrace: list()}`
+
+  * `[:kafka_ex, :consumer, :leave, :start]` - Emitted when leaving a consumer group
+    * Measurements: `%{system_time: integer()}`
+    * Metadata: `%{group_id: binary(), member_id: binary()}`
+
+  * `[:kafka_ex, :consumer, :leave, :stop]` - Emitted when leave group completes
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Same as start event plus `%{result: :ok | :error, error: term()}`
+
+  * `[:kafka_ex, :consumer, :leave, :exception]` - Emitted when leave group fails with exception
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Start metadata plus `%{kind: atom(), reason: term(), stacktrace: list()}`
+
+  * `[:kafka_ex, :consumer, :rebalance]` - Emitted when a consumer group rebalance is triggered
+    * Measurements: `%{count: 1}`
+    * Metadata: `%{group_id: binary(), member_id: binary(), generation_id: integer(), reason: atom()}`
+
+  ### Metadata Events
+
+  * `[:kafka_ex, :metadata, :update, :start]` - Emitted when a metadata request begins
+    * Measurements: `%{system_time: integer()}`
+    * Metadata: `%{client_id: binary(), topics: [binary()]}`
+
+  * `[:kafka_ex, :metadata, :update, :stop]` - Emitted when a metadata request completes
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Same as start event plus `%{result: :ok | :error, broker_count: integer(), topic_count: integer(), error: term()}`
+      * `result` - `:ok` on success, `:error` on failure
+      * `broker_count` - Number of brokers in the cluster (only on success)
+      * `topic_count` - Number of topics in the response (only on success)
+      * `error` - Error reason (only on failure)
+
+  * `[:kafka_ex, :metadata, :update, :exception]` - Emitted when a metadata request fails with exception
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Start metadata plus `%{kind: atom(), reason: term(), stacktrace: list()}`
+
+  ### Consumer Processing Events
+
+  * `[:kafka_ex, :consumer, :process, :start]` - Emitted when GenConsumer begins processing a message batch
+    * Measurements: `%{system_time: integer(), message_count: integer()}`
+    * Metadata: `%{group_id: binary(), topic: binary(), partition: integer(), consumer_module: binary()}`
+
+  * `[:kafka_ex, :consumer, :process, :stop]` - Emitted when GenConsumer finishes processing a message batch
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Same as start event plus `%{commit_mode: :async_commit | :sync_commit}`
+      * `commit_mode` - The commit mode returned by the consumer callback
+
+  * `[:kafka_ex, :consumer, :process, :exception]` - Emitted when GenConsumer message processing fails
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Start metadata plus `%{kind: atom(), reason: term(), stacktrace: list()}`
+  """
+
+  @protocol Application.compile_env(:kafka_ex, :protocol, KafkaEx.Protocol.KayrockProtocol)
+
+  @request_start [:kafka_ex, :request, :start]
+  @request_stop [:kafka_ex, :request, :stop]
+  @request_exception [:kafka_ex, :request, :exception]
+
+  @connection_start [:kafka_ex, :connection, :start]
+  @connection_stop [:kafka_ex, :connection, :stop]
+  @connection_exception [:kafka_ex, :connection, :exception]
+  @connection_close [:kafka_ex, :connection, :close]
+
+  @auth_start [:kafka_ex, :auth, :start]
+  @auth_stop [:kafka_ex, :auth, :stop]
+  @auth_exception [:kafka_ex, :auth, :exception]
+
+  @produce_start [:kafka_ex, :produce, :start]
+  @produce_stop [:kafka_ex, :produce, :stop]
+  @produce_exception [:kafka_ex, :produce, :exception]
+
+  @fetch_start [:kafka_ex, :fetch, :start]
+  @fetch_stop [:kafka_ex, :fetch, :stop]
+  @fetch_exception [:kafka_ex, :fetch, :exception]
+
+  @consumer_commit_start [:kafka_ex, :consumer, :commit, :start]
+  @consumer_commit_stop [:kafka_ex, :consumer, :commit, :stop]
+  @consumer_commit_exception [:kafka_ex, :consumer, :commit, :exception]
+
+  @consumer_join_start [:kafka_ex, :consumer, :join, :start]
+  @consumer_join_stop [:kafka_ex, :consumer, :join, :stop]
+  @consumer_join_exception [:kafka_ex, :consumer, :join, :exception]
+
+  @consumer_sync_start [:kafka_ex, :consumer, :sync, :start]
+  @consumer_sync_stop [:kafka_ex, :consumer, :sync, :stop]
+  @consumer_sync_exception [:kafka_ex, :consumer, :sync, :exception]
+
+  @consumer_heartbeat_start [:kafka_ex, :consumer, :heartbeat, :start]
+  @consumer_heartbeat_stop [:kafka_ex, :consumer, :heartbeat, :stop]
+  @consumer_heartbeat_exception [:kafka_ex, :consumer, :heartbeat, :exception]
+
+  @consumer_leave_start [:kafka_ex, :consumer, :leave, :start]
+  @consumer_leave_stop [:kafka_ex, :consumer, :leave, :stop]
+  @consumer_leave_exception [:kafka_ex, :consumer, :leave, :exception]
+
+  @consumer_rebalance [:kafka_ex, :consumer, :rebalance]
+
+  @metadata_update_start [:kafka_ex, :metadata, :update, :start]
+  @metadata_update_stop [:kafka_ex, :metadata, :update, :stop]
+  @metadata_update_exception [:kafka_ex, :metadata, :update, :exception]
+
+  @consumer_process_start [:kafka_ex, :consumer, :process, :start]
+  @consumer_process_stop [:kafka_ex, :consumer, :process, :stop]
+  @consumer_process_exception [:kafka_ex, :consumer, :process, :exception]
+
+  @request_events [@request_start, @request_stop, @request_exception]
+  @connection_events [@connection_start, @connection_stop, @connection_exception, @connection_close]
+  @auth_events [@auth_start, @auth_stop, @auth_exception]
+  @produce_events [@produce_start, @produce_stop, @produce_exception]
+  @fetch_events [@fetch_start, @fetch_stop, @fetch_exception]
+  @consumer_commit_events [@consumer_commit_start, @consumer_commit_stop, @consumer_commit_exception]
+  @consumer_join_events [@consumer_join_start, @consumer_join_stop, @consumer_join_exception]
+  @consumer_sync_events [@consumer_sync_start, @consumer_sync_stop, @consumer_sync_exception]
+  @consumer_heartbeat_events [@consumer_heartbeat_start, @consumer_heartbeat_stop, @consumer_heartbeat_exception]
+  @consumer_leave_events [@consumer_leave_start, @consumer_leave_stop, @consumer_leave_exception]
+  @consumer_group_events @consumer_join_events ++
+                           @consumer_sync_events ++
+                           @consumer_heartbeat_events ++ @consumer_leave_events ++ [@consumer_rebalance]
+  @consumer_process_events [@consumer_process_start, @consumer_process_stop, @consumer_process_exception]
+  @consumer_events @consumer_commit_events ++ @consumer_group_events ++ @consumer_process_events
+  @metadata_events [@metadata_update_start, @metadata_update_stop, @metadata_update_exception]
+
+  @doc """
+  Returns the list of all telemetry events emitted by KafkaEx.
+  """
+  @spec events() :: [list(atom())]
+  def events do
+    @request_events ++
+      @connection_events ++
+      @auth_events ++ @produce_events ++ @fetch_events ++ @consumer_events ++ @metadata_events
+  end
+
+  @doc "Returns request-related telemetry events."
+  @spec request_events() :: [list(atom())]
+  def request_events, do: @request_events
+
+  @doc "Returns connection-related telemetry events."
+  @spec connection_events() :: [list(atom())]
+  def connection_events, do: @connection_events
+
+  @doc "Returns authentication-related telemetry events."
+  @spec auth_events() :: [list(atom())]
+  def auth_events, do: @auth_events
+
+  @doc "Returns produce-related telemetry events."
+  @spec produce_events() :: [list(atom())]
+  def produce_events, do: @produce_events
+
+  @doc "Returns fetch-related telemetry events."
+  @spec fetch_events() :: [list(atom())]
+  def fetch_events, do: @fetch_events
+
+  @doc "Returns consumer-related telemetry events (includes commit and group events)."
+  @spec consumer_events() :: [list(atom())]
+  def consumer_events, do: @consumer_events
+
+  @doc "Returns consumer group lifecycle events (join, sync, heartbeat, leave, rebalance)."
+  @spec consumer_group_events() :: [list(atom())]
+  def consumer_group_events, do: @consumer_group_events
+
+  @doc "Returns metadata update-related telemetry events."
+  @spec metadata_events() :: [list(atom())]
+  def metadata_events, do: @metadata_events
+
+  @doc "Returns consumer message processing telemetry events."
+  @spec consumer_process_events() :: [list(atom())]
+  def consumer_process_events, do: @consumer_process_events
+
+  # ---------------------------------------------------------------------------
+  # Helper functions for emitting events
+  # ---------------------------------------------------------------------------
+
+  @doc false
+  @spec span(list(atom()), map(), (-> {result, map()})) :: result when result: any()
+  def span(event_prefix, metadata, fun) do
+    :telemetry.span(event_prefix, metadata, fn ->
+      {result, stop_metadata} = fun.()
+      stop_metadata_with_result = add_result_to_metadata(result, stop_metadata)
+      {result, stop_metadata_with_result}
+    end)
+  end
+
+  defp add_result_to_metadata({{:ok, _}, _state}, metadata), do: Map.put(metadata, :result, :ok)
+  defp add_result_to_metadata({:ok, _}, metadata), do: Map.put(metadata, :result, :ok)
+
+  defp add_result_to_metadata({{:error, error}, _state}, metadata),
+    do: Map.merge(metadata, %{result: :error, error: error})
+
+  defp add_result_to_metadata({:error, error}, metadata), do: Map.merge(metadata, %{result: :error, error: error})
+  defp add_result_to_metadata(_other, metadata), do: metadata
+
+  @doc false
+  @spec request_metadata(struct(), map()) :: map()
+  def request_metadata(request, broker_info) do
+    {operation, api_version} = @protocol.request_info(request)
+
+    %{
+      operation: operation,
+      api_version: api_version,
+      correlation_id: Map.get(request, :correlation_id),
+      client_id: Map.get(request, :client_id),
+      broker: broker_info
+    }
+  end
+
+  @doc false
+  @spec connection_metadata(binary() | charlist(), integer(), boolean()) :: map()
+  def connection_metadata(host, port, ssl) do
+    %{host: to_string(host), port: port, ssl: ssl}
+  end
+
+  @doc false
+  @spec auth_metadata(binary() | charlist(), integer(), binary()) :: map()
+  def auth_metadata(host, port, mechanism) do
+    %{host: to_string(host), port: port, mechanism: mechanism}
+  end
+
+  @doc false
+  @spec produce_metadata(binary(), integer(), binary(), integer()) :: map()
+  def produce_metadata(topic, partition, client_id, required_acks) do
+    %{
+      topic: topic,
+      partition: partition,
+      client_id: client_id,
+      required_acks: required_acks
+    }
+  end
+
+  @doc false
+  @spec fetch_metadata(binary(), integer(), integer(), binary()) :: map()
+  def fetch_metadata(topic, partition, offset, client_id) do
+    %{
+      topic: topic,
+      partition: partition,
+      offset: offset,
+      client_id: client_id
+    }
+  end
+
+  @doc false
+  @spec commit_metadata(binary(), binary(), binary(), integer()) :: map()
+  def commit_metadata(group_id, client_id, topic, partition_count) do
+    %{
+      group_id: group_id,
+      client_id: client_id,
+      topic: topic,
+      partition_count: partition_count
+    }
+  end
+
+  @doc false
+  @spec join_group_metadata(binary(), binary(), [binary()]) :: map()
+  def join_group_metadata(group_id, member_id, topics) do
+    %{
+      group_id: group_id,
+      member_id: member_id,
+      topics: topics
+    }
+  end
+
+  @doc false
+  @spec sync_group_metadata(binary(), binary(), integer(), boolean()) :: map()
+  def sync_group_metadata(group_id, member_id, generation_id, is_leader) do
+    %{
+      group_id: group_id,
+      member_id: member_id,
+      generation_id: generation_id,
+      is_leader: is_leader
+    }
+  end
+
+  @doc false
+  @spec heartbeat_metadata(binary(), binary(), integer()) :: map()
+  def heartbeat_metadata(group_id, member_id, generation_id) do
+    %{
+      group_id: group_id,
+      member_id: member_id,
+      generation_id: generation_id
+    }
+  end
+
+  @doc false
+  @spec leave_group_metadata(binary(), binary()) :: map()
+  def leave_group_metadata(group_id, member_id) do
+    %{
+      group_id: group_id,
+      member_id: member_id
+    }
+  end
+
+  @doc false
+  @spec metadata_update_metadata(binary(), [binary()]) :: map()
+  def metadata_update_metadata(client_id, topics) do
+    %{
+      client_id: client_id,
+      topics: topics
+    }
+  end
+
+  @doc false
+  @spec consumer_process_metadata(binary(), binary(), non_neg_integer(), binary()) :: map()
+  def consumer_process_metadata(group_id, topic, partition, consumer_module) do
+    %{
+      group_id: group_id,
+      topic: topic,
+      partition: partition,
+      consumer_module: consumer_module
+    }
+  end
+
+  @doc false
+  @spec emit_rebalance(binary(), binary(), integer() | nil, atom() | {:heartbeat_error, atom()}) ::
+          :ok
+  def emit_rebalance(group_id, member_id, generation_id, reason) do
+    :telemetry.execute(
+      @consumer_rebalance,
+      %{count: 1},
+      %{
+        group_id: group_id,
+        member_id: member_id,
+        generation_id: generation_id,
+        reason: reason
+      }
+    )
+  end
+
+  @doc false
+  @spec emit_connection_close(binary(), integer(), atom()) :: :ok
+  def emit_connection_close(host, port, reason) do
+    :telemetry.execute(
+      @connection_close,
+      %{count: 1},
+      %{
+        host: to_string(host),
+        port: port,
+        reason: reason
+      }
+    )
+  end
+end

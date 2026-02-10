@@ -3,7 +3,7 @@ defmodule KafkaEx.Mixfile do
   use Mix.Project
 
   @source_url "https://github.com/kafkaex/kafka_ex"
-  @version "0.15.0"
+  @version "1.0.0-rc.1"
 
   def project do
     [
@@ -18,10 +18,18 @@ defmodule KafkaEx.Mixfile do
         flags: [:error_handling]
       ],
       test_coverage: [tool: ExCoveralls],
-      preferred_cli_env: [coveralls: :test],
+      preferred_cli_env: [
+        coveralls: :test,
+        "coveralls.detail": :test,
+        "coveralls.html": :test,
+        "test.unit": :test,
+        "test.integration": :test,
+        "test.chaos": :test
+      ],
       description: description(),
       package: package(),
       deps: deps(),
+      aliases: aliases(),
       docs: [
         main: "readme",
         extras: [
@@ -47,6 +55,7 @@ defmodule KafkaEx.Mixfile do
   defp deps do
     [
       {:kayrock, "~> 0.2.0"},
+      {:telemetry, "~> 1.2"},
       {:credo, "~> 1.1", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: :dev, runtime: false},
       {:excoveralls, "~> 0.18", only: :test, runtime: false},
@@ -55,12 +64,25 @@ defmodule KafkaEx.Mixfile do
       {:snappyer, "~> 1.2", only: [:dev, :test]},
       {:aws_credentials, "~> 1.0", only: [:dev, :test]},
       {:aws_signature, "~> 0.4.2", only: [:dev, :test]},
-      {:jason, "~> 1.0", optional: true}
+      {:jason, "~> 1.0", optional: true},
+      # Error handling tests (testcontainers + toxiproxy)
+      {:testcontainers, "~> 1.14", only: :test},
+      {:toxiproxy_ex, "~> 2.0", only: :test}
     ]
   end
 
   defp description do
     "Kafka client for Elixir/Erlang."
+  end
+
+  defp aliases do
+    [
+      "test.unit":
+        "test --exclude auth --exclude consume --exclude consumer_group --exclude chaos --exclude lifecycle --exclude produce",
+      "test.integration":
+        "test --include auth --include consume --include consumer_group --include lifecycle --include produce",
+      "test.chaos": "test --only chaos"
+    ]
   end
 
   defp elixirc_paths(:test), do: ["lib", "test/support"]

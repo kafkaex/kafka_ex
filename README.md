@@ -10,8 +10,8 @@ KafkaEx
 [![API Docs](https://img.shields.io/badge/api-docs-yellow.svg?style=flat)](http://hexdocs.pm/kafka_ex/)
 
 KafkaEx is an Elixir client for [Apache Kafka](http://kafka.apache.org/) with
-support for Kafka versions 0.8.0 and newer. KafkaEx requires Elixir 1.6+ and
-Erlang OTP 19+.
+support for Kafka versions 0.10.0 and newer. KafkaEx requires Elixir 1.14+ and
+Erlang OTP 24+.
 
 See [http://hexdocs.pm/kafka_ex/](http://hexdocs.pm/kafka_ex/) for
 documentation,
@@ -32,64 +32,49 @@ See [Kafka Protocol Documentation](http://kafka.apache.org/protocol.html) and
  [A Guide to the Kafka Protocol](https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol)
 for details of these features.
 
-## IMPORTANT - Kayrock and The Future of KafkaEx
+## KafkaEx v1.0
 
-TL;DR:
+KafkaEx v1.0 uses [Kayrock](https://github.com/dantswain/kayrock) for Kafka
+protocol serialization, providing automatic API version negotiation with your
+Kafka brokers. This enables features like:
 
-*   This is new implementation and we need people to test it!
-*   Set `kafka_version: "kayrock"` to use the new client implementation.
-*   The new client should be compatible with existing code when used this way.
-*   Many functions now support an `api_version` parameter, see below for details,
-    e.g., how to store offsets in Kafka instead of Zookeeper.
-*   Version 1.0 of KafkaEx will be based on Kayrock and have a cleaner API - you
-    can start testing this API by using modules from the `KafkaEx.New` namespace.
-    See below for details.
-*   Version 0.11.0+ of KafkaEx is required to use Kayrock.
+*   Message timestamps and headers
+*   Offset storage in Kafka (not Zookeeper)
+*   Support for modern Kafka protocol versions
 
-To support some oft-requested features (offset storage in Kafka, message
-timestamps), we have integrated KafkaEx with
-[Kayrock](https://github.com/dantswain/kayrock) which is a library that handles
-serialization and deserialization of the Kafka message protocol in a way that
-can grow as Kafka does.
+The client automatically negotiates the appropriate API versions with your
+Kafka cluster, so no version configuration is needed.
 
-Unfortunately, the existing KafkaEx API is built in such a way that it doesn't
-easily support this growth.  This, combined with a number of other existing
-warts in the current API, has led us to the conclusion that v1.0 of KafkaEx
-should have a new and cleaner API.
+### New API: `KafkaEx.API`
 
-The path we have planned to get to v1.0 is:
+The `KafkaEx.API` module provides a cleaner API with explicit client arguments:
 
-1.  Add a Kayrock compatibility layer for the existing KafkaEx API (DONE, not released).
-2.  Expose Kayrock's API versioning through a select handful of KafkaEx API
-    functions so that users can get access to the most-requested features (e.g.,
-    offset storage in Kafka and message timestamps) (DONE, not released).
-3.  Begin designing and implementing the new API in parallel in the `KafkaEx.New`
-    namespace (EARLY PROGRESS).
-4.  Incrementally release the new API alongside the legacy API so that early
-    adopters can test it.
-5.  Once the new API is complete and stable, move it to the `KafkaEx` namespace
-    (i.e., drop the `New` part) and it will replace the legacy API.  This will be
-    released as v1.0.
+```elixir
+# Start a client
+{:ok, client} = KafkaEx.API.start_client(brokers: [{"localhost", 9092}])
 
-Users of KafkaEx can help a lot by testing the new code. At first, we need
-people to test the Kayrock-based client using compatibility mode. You can do
-this by simply setting `kafka_version: "kayrock"` in your configuration. That
-should be all you need to change. If you want to test new features enabled by
-`api_versions` options then that is also very valuable to us (see below for
-links to details). Then, as work on the new API ramps up, users can
-contribute feedback to pull requests (or even contribute pull requests!) and
-test out the new API as it becomes available.
+# Produce a message
+{:ok, metadata} = KafkaEx.API.produce_one(client, "my-topic", 0, "hello")
 
-For more information on using the Kayrock-based client, see
+# Fetch messages
+{:ok, result} = KafkaEx.API.fetch(client, "my-topic", 0, 0)
+```
 
-*   Github: [kayrock.md](https://github.com/kafkaex/kafka_ex/blob/master/kayrock.md)
-*   HexDocs: [kayrock-based client](kayrock.html)
+You can also use it as a behaviour in your own modules:
 
-For more information on the v1.0 API, see
+```elixir
+defmodule MyApp.Kafka do
+  use KafkaEx.API, client: MyApp.KafkaClient
+end
 
-*   Github:
-    [new_api.md](https://github.com/kafkaex/kafka_ex/blob/master/new_api.md)
-*   HexDocs: [New API](new_api.html)
+# Call without passing client:
+MyApp.Kafka.produce_one("my-topic", 0, "hello")
+```
+
+For detailed information, see:
+
+*   Github: [new_api.md](https://github.com/kafkaex/kafka_ex/blob/master/new_api.md)
+*   HexDocs: [KafkaEx.API](https://hexdocs.pm/kafka_ex/KafkaEx.API.html)
 
 ## Using KafkaEx in an Elixir project
 
@@ -107,7 +92,7 @@ defmodule MyApp.Mixfile do
   defp deps do
     [
       # add to your existing deps
-      {:kafka_ex, "~> 0.11"},
+      {:kafka_ex, "~> 1.0"},
       # If using snappy-erlang-nif (snappy) compression
       {:snappy, git: "https://github.com/fdmanana/snappy-erlang-nif"}
       # if using snappyer (snappy) compression
@@ -128,6 +113,96 @@ for a description of configuration variables, including the Kafka broker list
 
 You can also override options when creating a worker, see below.
 
+## Telemetry
+
+KafkaEx emits [telemetry](https://hexdocs.pm/telemetry/) events for observability. 
+These events enable monitoring of connections, requests, consumers, and more.
+
+### Event Categories
+
+| Category   | Events   | Description                                                |
+|------------|----------|------------------------------------------------------------|
+| Connection | 4        | Connect, disconnect, reconnect, close                      |
+| Request    | 4        | Request start/stop/exception, retry                        |
+| Produce    | 4        | Produce start/stop/exception, batch metrics                |
+| Fetch      | 4        | Fetch start/stop/exception, messages received              |
+| Offset     | 4        | Commit/fetch offset operations                             |
+| Consumer   | 8        | Group join, sync, heartbeat, rebalance, message processing |
+| Metadata   | 4        | Cluster metadata updates                                   |
+| SASL Auth  | 6        | PLAIN/SCRAM authentication spans                           |
+
+### Example: Attaching a Handler
+
+```elixir
+defmodule MyApp.KafkaTelemetry do
+  require Logger
+
+  def attach do
+    :telemetry.attach_many(
+      "my-kafka-handler",
+      [
+        [:kafka_ex, :connection, :connect],
+        [:kafka_ex, :request, :stop],
+        [:kafka_ex, :produce, :stop],
+        [:kafka_ex, :fetch, :stop]
+      ],
+      &handle_event/4,
+      nil
+    )
+  end
+
+  def handle_event([:kafka_ex, :connection, :connect], measurements, metadata, _config) do
+    Logger.info("Connected to #{metadata.host}:#{metadata.port}")
+  end
+
+  def handle_event([:kafka_ex, :request, :stop], measurements, metadata, _config) do
+    Logger.debug("Request #{metadata.api_key} took #{measurements.duration / 1_000_000}ms")
+  end
+
+  def handle_event([:kafka_ex, :produce, :stop], measurements, metadata, _config) do
+    Logger.info("Produced #{measurements.message_count} messages to #{metadata.topic}")
+  end
+
+  def handle_event([:kafka_ex, :fetch, :stop], measurements, metadata, _config) do
+    Logger.info("Fetched #{measurements.message_count} messages from #{metadata.topic}")
+  end
+end
+```
+
+Then in your application startup:
+
+```elixir
+# application.ex
+def start(_type, _args) do
+  MyApp.KafkaTelemetry.attach()
+  # ...
+end
+```
+
+For the complete list of events and their metadata, see [KafkaEx.Telemetry](https://hexdocs.pm/kafka_ex/KafkaEx.Telemetry.html).
+
+## Error Handling and Resilience
+
+KafkaEx v1.0 includes significant improvements to error handling and retry logic:
+
+### Automatic Retries with Exponential Backoff
+
+*   **Producer requests** - Automatically retry on leadership-related errors (`not_leader_for_partition`, `leader_not_available`) with metadata refresh
+*   **Offset commits** - Retry transient errors (timeout, coordinator not available) with exponential backoff
+*   **API version negotiation** - Retry parse errors during initial connection
+
+### Consumer Group Resilience
+
+Consumer groups handle transient errors gracefully following the Java client pattern (KAFKA-6829):
+
+*   `unknown_topic_or_partition` triggers retry instead of crash
+*   Heartbeat errors trigger rejoin for recoverable errors
+*   Exponential backoff for join retries (1s→10s, up to 6 attempts)
+
+### Safe Produce Retry Policy
+
+**Important**: Produce requests only retry on leadership errors where we know the message wasn't written. Timeout errors are NOT retried to prevent potential duplicate messages. For truly idempotent produces, enable `enable.idempotence=true` on your Kafka cluster (requires Kafka 0.11+).
+
 ## Timeouts with SSL
 
 When using certain versions of OTP,
@@ -145,19 +220,17 @@ Upgrade respectively to 21.3.8.15 or 22.3.2 to solve this.
 ### Consumer Groups
 
 To use a consumer group, first implement a handler module using
-`KafkaEx.GenConsumer`.
+`KafkaEx.Consumer.GenConsumer`.
 
 ```elixir
 defmodule ExampleGenConsumer do
-  use KafkaEx.GenConsumer
-
-  alias KafkaEx.Protocol.Fetch.Message
+  use KafkaEx.Consumer.GenConsumer
 
   require Logger
 
   # note - messages are delivered in batches
   def handle_message_set(message_set, state) do
-    for %Message{value: message} <- message_set do
+    for %Record{value: message} <- message_set do
       Logger.debug(fn -> "message: " <> inspect(message) end)
     end
     {:async_commit, state}
@@ -165,10 +238,10 @@ defmodule ExampleGenConsumer do
 end
 ```
 
-Then add a `KafkaEx.ConsumerGroup` to your application's supervision
+Then add a `KafkaEx.Consumer.ConsumerGroup` to your application's supervision
 tree and configure it to use the implementation module.
 
-See the `KafkaEx.GenConsumer` and `KafkaEx.ConsumerGroup` documentation for
+See the `KafkaEx.Consumer.GenConsumer` and `KafkaEx.Consumer.ConsumerGroup` documentation for
 details.
 
 ### Create a KafkaEx Worker
@@ -283,19 +356,23 @@ iex> KafkaEx.earliest_offset("foo", 0) # where 0 is the partition
 
 ### Fetch kafka logs
 
-**NOTE** You must pass `auto_commit: false` in the options for `fetch/3` when using Kafka < 0.8.2 or when using `:no_consumer_group`.
+**NOTE** You must pass `auto_commit: false` in the options for `fetch/3` when using `:no_consumer_group`.
 
 ```elixir
-iex> KafkaEx.fetch("foo", 0, offset: 5) # where 0 is the partition and 5 is the offset we want to start fetching from
-[%KafkaEx.Protocol.Fetch.Response{partitions: [%{error_code: :no_error,
-     hw_mark_offset: 115,
-     message_set: [
-      %KafkaEx.Protocol.Fetch.Message{attributes: 0, crc: 4264455069, key: nil, offset: 5, value: "hey"},
-      %KafkaEx.Protocol.Fetch.Message{attributes: 0, crc: 4264455069, key: nil, offset: 6, value: "hey"},
-      %KafkaEx.Protocol.Fetch.Message{attributes: 0, crc: 4264455069, key: nil, offset: 7, value: "hey"},
-      %KafkaEx.Protocol.Fetch.Message{attributes: 0, crc: 4264455069, key: nil, offset: 8, value: "hey"},
-      %KafkaEx.Protocol.Fetch.Message{attributes: 0, crc: 4264455069, key: nil, offset: 9, value: "hey"}
-...], partition: 0}], topic: "foo"}]
+iex> KafkaEx.API.fetch(client, "foo", 0, 5) # where 0 is the partition and 5 is the offset
+{:ok, %KafkaEx.Messages.Fetch{
+  topic: "foo",
+  partition: 0,
+  high_watermark: 115,
+  records: [
+    %KafkaEx.Messages.Fetch.Record{offset: 5, key: nil, value: "hey", ...},
+    %KafkaEx.Messages.Fetch.Record{offset: 6, key: nil, value: "hey", ...},
+    %KafkaEx.Messages.Fetch.Record{offset: 7, key: nil, value: "hey", ...},
+    %KafkaEx.Messages.Fetch.Record{offset: 8, key: nil, value: "hey", ...},
+    %KafkaEx.Messages.Fetch.Record{offset: 9, key: nil, value: "hey", ...}
+  ],
+  last_offset: 9
+}}
 ```
 
 ### Produce kafka logs
@@ -319,7 +396,7 @@ iex> KafkaEx.stream("foo", 0, offset: 0) |> Enum.take(2)
  %{attributes: 0, crc: 4251893211, key: nil, offset: 1, value: "hi"}]
 ```
 
-For Kafka < 0.8.2 the `stream/3` requires `auto_commit: false`
+When using `:no_consumer_group`, you should pass `auto_commit: false`:
 
 ```elixir
 iex> KafkaEx.stream("foo", 0, offset: 0, auto_commit: false) |> Enum.take(2)
@@ -429,7 +506,7 @@ To launch the included test cluster, run
 The `docker_up.sh` script will attempt to determine an IP address for your
 computer on an active network interface.
 
-The test cluster runs Kafka 0.11.0.1.
+The test cluster runs Kafka 2.8+.
 
 ### Running the KafkaEx Tests
 
@@ -451,38 +528,21 @@ If you are not using the Docker test cluster, you may need to modify
 
 The full test suite requires Kafka 2.1.0+.
 
-##### Kafka >= 0.9.0
+Run the full integration test suite:
 
-The 0.9 client includes functionality that cannot be tested with older
-clusters.
-
-```
-./scripts/all_tests.sh
+```bash
+./scripts/docker_up.sh
+MIX_ENV=test mix test --include integration --exclude sasl
 ```
 
-##### Kafka = 0.9.0
+Or run specific test categories using the CI scripts:
 
-The 0.9 client includes functionality that cannot be tested with older
-clusters.
-
-```
-mix test --include integration --include consumer_group --include server_0_p_9_p_0
-```
-
-##### Kafka >= 0.8.2 and < 0.9.0
-
-Kafka 0.8.2 introduced the consumer group API.
-
-```
-mix test --include consumer_group --include integration
-```
-
-##### Kafka < 0.8.2
-
-If your test cluster is older, the consumer group tests must be omitted.
-
-```
-mix test --include integration --include server_0_p_8_p_0
+```bash
+./scripts/ci_tests_consumer_group.sh
+./scripts/ci_tests_produce.sh
+./scripts/ci_tests_consume.sh
+./scripts/ci_tests_lifecycle.sh
+./scripts/ci_tests_auth.sh
 ```
 
 ### Static analysis
@@ -516,4 +576,4 @@ It can be changed to snappy by using this:
 config :kafka_ex, snappy_module: :snappy
 ```
 
-Snappy erlang nif is deprecated and will be dropped 1.0.0 release.
+Note: The legacy snappy-erlang-nif package has been deprecated.
