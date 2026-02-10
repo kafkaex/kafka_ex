@@ -490,7 +490,6 @@ defmodule KafkaEx.Chaos.ConsumerGroupTest do
       # Consumer should be active and functional
       assert Process.alive?(cg_pid2)
     end
-
   end
 
   # ---------------------------------------------------------------------------

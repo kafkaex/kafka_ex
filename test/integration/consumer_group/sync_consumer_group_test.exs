@@ -176,6 +176,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.SyncConsumerGroupTest do
         commit_interval: 2_000,
         extra_consumer_args: [test_pid: self(), include_partition: true]
       ]
+
       {:ok, consumer1} = ConsumerGroup.start_link(SyncTestConsumer, consumer_group, [topic_name], opts)
       wait_for_consumer_active(consumer1)
 

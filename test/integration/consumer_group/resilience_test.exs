@@ -37,11 +37,13 @@ defmodule KafkaEx.Integration.ConsumerGroup.ResilienceTest do
 
         # Produce messages during rebalance
         {:ok, _} = API.produce(client, topic_name, rem(i, 4), [%{value: "rebalance-msg-#{i}"}])
+
         try do
           Supervisor.stop(temp_consumer)
         catch
           :exit, _ -> :ok
         end
+
         Process.sleep(1_000)
       end)
 

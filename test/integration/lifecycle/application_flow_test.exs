@@ -294,5 +294,4 @@ defmodule KafkaEx.Integration.Lifecycle.ApplicationFlowTest do
       assert hd(fetch_result.records).value == "topic2-after-delete"
     end
   end
-
 end
