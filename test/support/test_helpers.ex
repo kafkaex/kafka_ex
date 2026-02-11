@@ -2,6 +2,7 @@ defmodule KafkaEx.TestHelpers do
   alias KafkaEx.API
   alias KafkaEx.Client
   alias KafkaEx.Client.NodeSelector
+  alias KafkaEx.Test.KayrockFixtures, as: Fixtures
   require Logger
 
   @doc """
@@ -103,7 +104,7 @@ defmodule KafkaEx.TestHelpers do
     resp =
       Client.send_request(
         client,
-        %Kayrock.CreateTopics.V0.Request{
+        Fixtures.build_request(:create_topics, 0,
           topics: [
             %{
               name: topic_name,
@@ -119,14 +120,11 @@ defmodule KafkaEx.TestHelpers do
             }
           ],
           timeout_ms: 1000
-        },
+        ),
         NodeSelector.controller()
       )
 
-    {:ok,
-     %Kayrock.CreateTopics.V0.Response{
-       topics: [%{error_code: error_code}]
-     }} = resp
+    {:ok, %{topics: [%{error_code: error_code}]}} = resp
 
     wait_for_topic_to_appear(client, topic_name)
 
@@ -148,7 +146,7 @@ defmodule KafkaEx.TestHelpers do
     {:ok, %{topics: topic_entries}} =
       Client.send_request(
         client,
-        %Kayrock.Metadata.V0.Request{},
+        Fixtures.build_request(:metadata, 0),
         NodeSelector.topic_partition(topic_name, 0)
       )
 

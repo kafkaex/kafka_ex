@@ -4,12 +4,14 @@ defmodule KafkaEx.Messages.ConsumerGroupDescriptionTest do
   alias KafkaEx.Messages.ConsumerGroupDescription
 
   describe "from_describe_group_response/1" do
-    test "returns a consumer group description struct" do
+    test "returns a consumer group description struct from Kayrock response" do
+      # Use Kayrock's actual field names (group_state, protocol_data) to prevent drift
       response = %{
         group_id: "test-group",
-        state: "Stable",
+        group_state: "Stable",
         protocol_type: "consumer",
-        protocol: "range",
+        protocol_data: "range",
+        error_code: 0,
         members: [
           %{
             member_id: "test-member",

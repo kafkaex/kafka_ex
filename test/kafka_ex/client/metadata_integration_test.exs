@@ -5,7 +5,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
   alias KafkaEx.Client.State
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Protocol.KayrockProtocol
-  alias Kayrock.Metadata
+  alias KafkaEx.Test.KayrockFixtures, as: Fixtures
 
   describe "RequestBuilder.metadata_request/2" do
     test "builds request for all topics (nil)" do
@@ -13,7 +13,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
 
       {:ok, request} = RequestBuilder.metadata_request([topics: nil], state)
 
-      assert %Metadata.V1.Request{} = request
+      assert Fixtures.request_type?(request, :metadata, 1)
       assert request.topics == nil
     end
 
@@ -22,7 +22,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
 
       {:ok, request} = RequestBuilder.metadata_request([topics: []], state)
 
-      assert %Metadata.V1.Request{} = request
+      assert Fixtures.request_type?(request, :metadata, 1)
       assert request.topics == nil
     end
 
@@ -31,7 +31,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
 
       {:ok, request} = RequestBuilder.metadata_request([topics: ["topic1", "topic2"]], state)
 
-      assert %Metadata.V1.Request{} = request
+      assert Fixtures.request_type?(request, :metadata, 1)
       assert request.topics == ["topic1", "topic2"]
     end
 
@@ -40,7 +40,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
 
       {:ok, request} = RequestBuilder.metadata_request([topics: nil, api_version: 0], state)
 
-      assert %Metadata.V0.Request{} = request
+      assert Fixtures.request_type?(request, :metadata, 0)
       assert request.topics == []
     end
 
@@ -50,7 +50,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
 
       {:ok, request} = RequestBuilder.metadata_request([topics: ["test"], api_version: 2], state)
 
-      assert %Metadata.V2.Request{} = request
+      assert Fixtures.request_type?(request, :metadata, 2)
       assert request.topics == ["test"]
     end
 
@@ -65,7 +65,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
 
   describe "ResponseParser.metadata_response/1" do
     test "parses V0 response with single broker and topic" do
-      response = %Metadata.V0.Response{
+      response = Fixtures.build_response(:metadata, 0,
         brokers: [
           %{node_id: 1, host: "broker1.local", port: 9092}
         ],
@@ -84,7 +84,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
             ]
           }
         ]
-      }
+      )
 
       {:ok, cluster_metadata} = ResponseParser.metadata_response(response)
 
@@ -96,7 +96,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
     end
 
     test "parses V1 response with controller and rack" do
-      response = %Metadata.V1.Response{
+      response = Fixtures.build_response(:metadata, 1,
         brokers: [
           %{node_id: 1, host: "broker1.local", port: 9092, rack: "rack-1"},
           %{node_id: 2, host: "broker2.local", port: 9092, rack: "rack-2"}
@@ -112,7 +112,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
             ]
           }
         ]
-      }
+      )
 
       {:ok, cluster_metadata} = ResponseParser.metadata_response(response)
 
@@ -123,14 +123,14 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
     end
 
     test "parses V2 response with cluster_id" do
-      response = %Metadata.V2.Response{
+      response = Fixtures.build_response(:metadata, 2,
         brokers: [
           %{node_id: 1, host: "broker1.local", port: 9092, rack: nil}
         ],
         cluster_id: "test-cluster-id",
         controller_id: 1,
         topics: []
-      }
+      )
 
       {:ok, cluster_metadata} = ResponseParser.metadata_response(response)
 
@@ -139,7 +139,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
     end
 
     test "filters out topics with errors" do
-      response = %Metadata.V1.Response{
+      response = Fixtures.build_response(:metadata, 1,
         brokers: [
           %{node_id: 1, host: "broker1.local", port: 9092, rack: nil}
         ],
@@ -161,7 +161,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
             partitions: []
           }
         ]
-      }
+      )
 
       {:ok, cluster_metadata} = ResponseParser.metadata_response(response)
 
@@ -171,11 +171,11 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
     end
 
     test "handles empty response" do
-      response = %Metadata.V1.Response{
+      response = Fixtures.build_response(:metadata, 1,
         brokers: [],
         controller_id: -1,
         topics: []
-      }
+      )
 
       {:ok, cluster_metadata} = ResponseParser.metadata_response(response)
 
@@ -189,11 +189,11 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
     test "builds and parses V0 request/response" do
       # Build request
       request = KayrockProtocol.build_request(:metadata, 0, topics: ["topic1"])
-      assert %Metadata.V0.Request{} = request
+      assert Fixtures.request_type?(request, :metadata, 0)
       assert request.topics == ["topic1"]
 
       # Parse response
-      response = %Metadata.V0.Response{
+      response = Fixtures.build_response(:metadata, 0,
         brokers: [%{node_id: 1, host: "localhost", port: 9092}],
         topics: [
           %{
@@ -204,7 +204,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
             ]
           }
         ]
-      }
+      )
 
       {:ok, cluster_metadata} = KayrockProtocol.parse_response(:metadata, response)
       assert %ClusterMetadata{} = cluster_metadata
@@ -214,15 +214,15 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
     test "builds and parses V1 request/response" do
       # Build request
       request = KayrockProtocol.build_request(:metadata, 1, topics: nil)
-      assert %Metadata.V1.Request{} = request
+      assert Fixtures.request_type?(request, :metadata, 1)
       assert request.topics == nil
 
       # Parse response
-      response = %Metadata.V1.Response{
+      response = Fixtures.build_response(:metadata, 1,
         brokers: [%{node_id: 1, host: "localhost", port: 9092, rack: "us-east-1a"}],
         controller_id: 1,
         topics: []
-      }
+      )
 
       {:ok, cluster_metadata} = KayrockProtocol.parse_response(:metadata, response)
       assert cluster_metadata.controller_id == 1
@@ -232,16 +232,16 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
     test "builds and parses V2 request/response" do
       # Build request
       request = KayrockProtocol.build_request(:metadata, 2, topics: ["test"])
-      assert %Metadata.V2.Request{} = request
+      assert Fixtures.request_type?(request, :metadata, 2)
       assert request.topics == ["test"]
 
       # Parse response
-      response = %Metadata.V2.Response{
+      response = Fixtures.build_response(:metadata, 2,
         brokers: [%{node_id: 1, host: "localhost", port: 9092, rack: nil}],
         cluster_id: "prod-cluster",
         controller_id: 1,
         topics: []
-      }
+      )
 
       {:ok, cluster_metadata} = KayrockProtocol.parse_response(:metadata, response)
       assert cluster_metadata.controller_id == 1

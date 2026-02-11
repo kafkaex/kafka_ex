@@ -11,6 +11,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.LifecycleTest do
   alias KafkaEx.Messages.SyncGroup
   alias KafkaEx.Messages.Heartbeat
   alias KafkaEx.Messages.LeaveGroup
+  alias KafkaEx.Test.KayrockFixtures, as: Fixtures
 
   setup do
     {:ok, args} = KafkaEx.build_worker_options([])
@@ -33,7 +34,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.LifecycleTest do
       group_protocols = [
         %{
           name: "assign",
-          metadata: %Kayrock.GroupProtocolMetadata{topics: [topic_name]}
+          metadata: Fixtures.group_protocol_metadata(topics: [topic_name])
         }
       ]
 
@@ -50,14 +51,14 @@ defmodule KafkaEx.Integration.ConsumerGroup.LifecycleTest do
       group_assignment = [
         %{
           member_id: member_id,
-          assignment: %Kayrock.MemberAssignment{
+          assignment: Fixtures.member_assignment(
             partition_assignments: [
-              %Kayrock.MemberAssignment.PartitionAssignment{
+              Fixtures.partition_assignment(
                 topic: topic_name,
                 partitions: [0]
-              }
+              )
             ]
-          }
+          )
         }
       ]
 
@@ -104,7 +105,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.LifecycleTest do
       group_protocols = [
         %{
           name: "assign",
-          metadata: %Kayrock.GroupProtocolMetadata{topics: [topic_name]}
+          metadata: Fixtures.group_protocol_metadata(topics: [topic_name])
         }
       ]
 
@@ -119,14 +120,14 @@ defmodule KafkaEx.Integration.ConsumerGroup.LifecycleTest do
       group_assignment = [
         %{
           member_id: member_id,
-          assignment: %Kayrock.MemberAssignment{
+          assignment: Fixtures.member_assignment(
             partition_assignments: [
-              %Kayrock.MemberAssignment.PartitionAssignment{
+              Fixtures.partition_assignment(
                 topic: topic_name,
                 partitions: [0]
-              }
+              )
             ]
-          }
+          )
         }
       ]
 
@@ -153,7 +154,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.LifecycleTest do
       group_protocols = [
         %{
           name: "assign",
-          metadata: %Kayrock.GroupProtocolMetadata{topics: [topic_name]}
+          metadata: Fixtures.group_protocol_metadata(topics: [topic_name])
         }
       ]
 
@@ -167,14 +168,14 @@ defmodule KafkaEx.Integration.ConsumerGroup.LifecycleTest do
       group_assignment = [
         %{
           member_id: member_id,
-          assignment: %Kayrock.MemberAssignment{
+          assignment: Fixtures.member_assignment(
             partition_assignments: [
-              %Kayrock.MemberAssignment.PartitionAssignment{
+              Fixtures.partition_assignment(
                 topic: topic_name,
                 partitions: [0]
-              }
+              )
             ]
-          }
+          )
         }
       ]
 

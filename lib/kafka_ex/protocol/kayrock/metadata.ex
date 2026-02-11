@@ -40,7 +40,13 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata do
 
     Each Kayrock.Metadata version (V0, V1, V2, etc.) implements this protocol
     to transform request options into the appropriate Kayrock request struct.
+
+    For versions without a specific implementation (V3+), falls back to the
+    `Any` implementation which handles all standard fields including
+    `allow_auto_topic_creation` (V4+).
     """
+
+    @fallback_to_any true
 
     @doc """
     Builds a Metadata request from options.
@@ -48,7 +54,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata do
     ## Options
 
     - `:topics` - List of topic names to fetch metadata for, or `nil`/`[]` for all topics
-    - `:allow_auto_topic_creation` - Whether to auto-create topics (V4+, reserved for future)
+    - `:allow_auto_topic_creation` - Whether to auto-create topics (V4+)
 
     ## Returns
 
@@ -64,7 +70,12 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata do
 
     Each Kayrock.Metadata version (V0, V1, V2, etc.) implements this protocol
     to transform the Kayrock response into a ClusterMetadata struct.
+
+    For versions without a specific implementation (V3+), falls back to the
+    `Any` implementation which delegates to `ResponseHelpers.to_cluster_metadata/1`.
     """
+
+    @fallback_to_any true
 
     @doc """
     Parses a Metadata response into ClusterMetadata.

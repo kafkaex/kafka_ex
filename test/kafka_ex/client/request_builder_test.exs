@@ -2,6 +2,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
   use ExUnit.Case, async: true
 
   alias KafkaEx.Client.RequestBuilder
+  alias KafkaEx.Test.KayrockFixtures, as: Fixtures
 
   describe "api_versions_request/2" do
     test "returns request for ApiVersions API v0" do
@@ -9,7 +10,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
 
       {:ok, request} = RequestBuilder.api_versions_request([api_version: 0], state)
 
-      assert match?(%Kayrock.ApiVersions.V0.Request{}, request)
+      assert Fixtures.request_type?(request, :api_versions, 0)
     end
 
     test "returns request for ApiVersions API v1" do
@@ -17,7 +18,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
 
       {:ok, request} = RequestBuilder.api_versions_request([api_version: 1], state)
 
-      assert match?(%Kayrock.ApiVersions.V1.Request{}, request)
+      assert Fixtures.request_type?(request, :api_versions, 1)
     end
 
     test "uses default version when not specified" do
@@ -26,7 +27,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       {:ok, request} = RequestBuilder.api_versions_request([], state)
 
       # Default is v0 per @default_api_version
-      assert match?(%Kayrock.ApiVersions.V0.Request{}, request)
+      assert Fixtures.request_type?(request, :api_versions, 0)
     end
 
     test "returns error when api version is not supported" do
@@ -45,7 +46,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
 
       {:ok, request} = RequestBuilder.metadata_request([topics: topics], state)
 
-      assert match?(%Kayrock.Metadata.V1.Request{}, request)
+      assert Fixtures.request_type?(request, :metadata, 1)
       assert request.topics == topics
     end
 
@@ -55,7 +56,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
 
       {:ok, request} = RequestBuilder.metadata_request([topics: topics, api_version: 0], state)
 
-      assert match?(%Kayrock.Metadata.V0.Request{}, request)
+      assert Fixtures.request_type?(request, :metadata, 0)
       assert request.topics == topics
     end
 
@@ -65,7 +66,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
 
       {:ok, request} = RequestBuilder.metadata_request([topics: topics, api_version: 2], state)
 
-      assert match?(%Kayrock.Metadata.V2.Request{}, request)
+      assert Fixtures.request_type?(request, :metadata, 2)
       assert request.topics == topics
     end
 
@@ -102,7 +103,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
 
       {:ok, request} = RequestBuilder.find_coordinator_request([group_id: group_id, api_version: 0], state)
 
-      assert match?(%Kayrock.FindCoordinator.V0.Request{}, request)
+      assert Fixtures.request_type?(request, :find_coordinator, 0)
       assert request.key == group_id
     end
 
@@ -112,7 +113,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
 
       {:ok, request} = RequestBuilder.find_coordinator_request([group_id: group_id], state)
 
-      assert match?(%Kayrock.FindCoordinator.V1.Request{}, request)
+      assert Fixtures.request_type?(request, :find_coordinator, 1)
       assert request.key == group_id
       assert request.key_type == 0
     end
@@ -126,7 +127,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      assert match?(%Kayrock.FindCoordinator.V1.Request{}, request)
+      assert Fixtures.request_type?(request, :find_coordinator, 1)
       assert request.key == "my-transactional-id"
       assert request.key_type == 1
     end
@@ -155,7 +156,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      assert match?(%Kayrock.CreateTopics.V0.Request{}, request)
+      assert Fixtures.request_type?(request, :create_topics, 0)
       assert request.timeout_ms == 30_000
       assert length(request.topics) == 1
     end
@@ -174,7 +175,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      assert match?(%Kayrock.CreateTopics.V1.Request{}, request)
+      assert Fixtures.request_type?(request, :create_topics, 1)
       assert request.timeout_ms == 15_000
       assert length(request.topics) == 2
     end
@@ -190,7 +191,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      assert match?(%Kayrock.CreateTopics.V1.Request{}, request)
+      assert Fixtures.request_type?(request, :create_topics, 1)
       assert request.validate_only == true
     end
 
@@ -245,7 +246,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      assert match?(%Kayrock.DeleteTopics.V0.Request{}, request)
+      assert Fixtures.request_type?(request, :delete_topics, 0)
       assert request.topic_names == topics
       assert request.timeout_ms == 30_000
     end
@@ -260,7 +261,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      assert match?(%Kayrock.DeleteTopics.V1.Request{}, request)
+      assert Fixtures.request_type?(request, :delete_topics, 1)
       assert request.topic_names == topics
       assert request.timeout_ms == 15_000
     end
@@ -309,7 +310,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       state = %KafkaEx.Client.State{api_versions: %{15 => {0, 1}}}
       group_names = ["group1", "group2"]
 
-      expected_request = %Kayrock.DescribeGroups.V1.Request{groups: group_names}
+      expected_request = Fixtures.build_request(:describe_groups, 1, groups: group_names)
 
       {:ok, request} = RequestBuilder.describe_groups_request([group_names: group_names], state)
 
@@ -320,7 +321,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       state = %KafkaEx.Client.State{api_versions: %{15 => {0, 1}}}
       group_names = ["group1", "group2"]
 
-      expected_request = %Kayrock.DescribeGroups.V0.Request{groups: group_names}
+      expected_request = Fixtures.build_request(:describe_groups, 0, groups: group_names)
 
       {:ok, request} = RequestBuilder.describe_groups_request([group_names: group_names, api_version: 0], state)
 
@@ -344,10 +345,10 @@ defmodule KafkaEx.Client.RequestBuilderTest do
 
       {:ok, request} = RequestBuilder.lists_offset_request([topics: topic_data], state)
 
-      expected_request = %Kayrock.ListOffsets.V1.Request{
+      expected_request = Fixtures.build_request(:list_offsets, 1,
         replica_id: -1,
         topics: [%{partitions: [%{timestamp: -1, partition: 1}], topic: "test-topic"}]
-      }
+      )
 
       assert expected_request == request
     end
@@ -358,11 +359,11 @@ defmodule KafkaEx.Client.RequestBuilderTest do
 
       {:ok, request} = RequestBuilder.lists_offset_request([topics: topic_data, api_version: 2], state)
 
-      expected_request = %Kayrock.ListOffsets.V2.Request{
+      expected_request = Fixtures.build_request(:list_offsets, 2,
         replica_id: -1,
         isolation_level: 0,
         topics: [%{partitions: [%{timestamp: -1, partition: 1}], topic: "test-topic"}]
-      }
+      )
 
       assert expected_request == request
     end
@@ -385,12 +386,12 @@ defmodule KafkaEx.Client.RequestBuilderTest do
 
       {:ok, request} = RequestBuilder.offset_fetch_request([group_id: group_id, topics: topics], state)
 
-      expected_request = %Kayrock.OffsetFetch.V1.Request{
+      expected_request = Fixtures.build_request(:offset_fetch, 1,
         client_id: nil,
         correlation_id: nil,
         group_id: "test-group",
         topics: [%{name: "test-topic", partition_indexes: [0]}]
-      }
+      )
 
       assert expected_request == request
     end
@@ -402,12 +403,12 @@ defmodule KafkaEx.Client.RequestBuilderTest do
 
       {:ok, request} = RequestBuilder.offset_fetch_request([group_id: group_id, topics: topics, api_version: 2], state)
 
-      expected_request = %Kayrock.OffsetFetch.V2.Request{
+      expected_request = Fixtures.build_request(:offset_fetch, 2,
         client_id: nil,
         correlation_id: nil,
         group_id: "consumer-group",
         topics: [%{name: "my-topic", partition_indexes: [1, 2]}]
-      }
+      )
 
       assert expected_request == request
     end
@@ -432,7 +433,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
 
       {:ok, request} = RequestBuilder.offset_commit_request([group_id: group_id, topics: topics], state)
 
-      expected_request = %Kayrock.OffsetCommit.V1.Request{
+      expected_request = Fixtures.build_request(:offset_commit, 1,
         client_id: nil,
         correlation_id: nil,
         group_id: "test-group",
@@ -444,7 +445,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
             partitions: [%{partition_index: 0, committed_offset: 100, commit_timestamp: -1, committed_metadata: ""}]
           }
         ]
-      }
+      )
 
       assert expected_request == request
     end
@@ -466,7 +467,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = %Kayrock.OffsetCommit.V1.Request{
+      expected_request = Fixtures.build_request(:offset_commit, 1,
         client_id: nil,
         correlation_id: nil,
         group_id: "consumer-group",
@@ -478,7 +479,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
             partitions: [%{partition_index: 1, committed_offset: 200, commit_timestamp: -1, committed_metadata: ""}]
           }
         ]
-      }
+      )
 
       assert expected_request == request
     end
@@ -501,7 +502,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = %Kayrock.OffsetCommit.V2.Request{
+      expected_request = Fixtures.build_request(:offset_commit, 2,
         client_id: nil,
         correlation_id: nil,
         group_id: "retention-group",
@@ -509,7 +510,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         member_id: "member-abc",
         retention_time_ms: 86_400_000,
         topics: [%{name: "topic-a", partitions: [%{partition_index: 0, committed_offset: 300, committed_metadata: ""}]}]
-      }
+      )
 
       assert expected_request == request
     end
@@ -529,14 +530,14 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = %Kayrock.OffsetCommit.V0.Request{
+      expected_request = Fixtures.build_request(:offset_commit, 0,
         client_id: nil,
         correlation_id: nil,
         group_id: "legacy-group",
         topics: [
           %{name: "legacy-topic", partitions: [%{partition_index: 0, committed_offset: 50, committed_metadata: ""}]}
         ]
-      }
+      )
 
       assert expected_request == request
     end
@@ -566,13 +567,13 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = %Kayrock.Heartbeat.V1.Request{
+      expected_request = Fixtures.build_request(:heartbeat, 1,
         client_id: nil,
         correlation_id: nil,
         group_id: "test-group",
         member_id: "consumer-123",
         generation_id: 5
-      }
+      )
 
       assert expected_request == request
     end
@@ -589,13 +590,13 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = %Kayrock.Heartbeat.V0.Request{
+      expected_request = Fixtures.build_request(:heartbeat, 0,
         client_id: nil,
         correlation_id: nil,
         group_id: "test-group",
         member_id: "consumer-123",
         generation_id: 5
-      }
+      )
 
       assert expected_request == request
     end
@@ -617,13 +618,13 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = %Kayrock.Heartbeat.V1.Request{
+      expected_request = Fixtures.build_request(:heartbeat, 1,
         client_id: nil,
         correlation_id: nil,
         group_id: "consumer-group",
         member_id: "member-abc",
         generation_id: 10
-      }
+      )
 
       assert expected_request == request
     end
@@ -691,7 +692,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         )
 
       # Should use v1 as default (changed from v0 for better throttle visibility)
-      assert match?(%Kayrock.Heartbeat.V1.Request{}, request)
+      assert Fixtures.request_type?(request, :heartbeat, 1)
     end
 
     test "can explicitly request v0 when needed" do
@@ -708,7 +709,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      assert match?(%Kayrock.Heartbeat.V0.Request{}, request)
+      assert Fixtures.request_type?(request, :heartbeat, 0)
     end
   end
 
@@ -724,12 +725,12 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = %Kayrock.LeaveGroup.V1.Request{
+      expected_request = Fixtures.build_request(:leave_group, 1,
         client_id: nil,
         correlation_id: nil,
         group_id: "test-group",
         member_id: "consumer-123"
-      }
+      )
 
       assert expected_request == request
     end
@@ -745,12 +746,12 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = %Kayrock.LeaveGroup.V0.Request{
+      expected_request = Fixtures.build_request(:leave_group, 0,
         client_id: nil,
         correlation_id: nil,
         group_id: "test-group",
         member_id: "consumer-123"
-      }
+      )
 
       assert expected_request == request
     end
@@ -770,12 +771,12 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = %Kayrock.LeaveGroup.V1.Request{
+      expected_request = Fixtures.build_request(:leave_group, 1,
         client_id: nil,
         correlation_id: nil,
         group_id: "consumer-group",
         member_id: "member-abc"
-      }
+      )
 
       assert expected_request == request
     end
@@ -840,7 +841,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         )
 
       # Should use v1 as default (changed from v0 for better throttle visibility)
-      assert match?(%Kayrock.LeaveGroup.V1.Request{}, request)
+      assert Fixtures.request_type?(request, :leave_group, 1)
     end
 
     test "can explicitly request v0 when needed" do
@@ -856,7 +857,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      assert match?(%Kayrock.LeaveGroup.V0.Request{}, request)
+      assert Fixtures.request_type?(request, :leave_group, 0)
     end
   end
 
@@ -884,7 +885,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = %Kayrock.JoinGroup.V1.Request{
+      expected_request = Fixtures.build_request(:join_group, 1,
         client_id: nil,
         correlation_id: nil,
         group_id: "test-group",
@@ -893,7 +894,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         rebalance_timeout_ms: 60_000,
         protocol_type: "consumer",
         protocols: group_protocols
-      }
+      )
 
       assert expected_request == request
     end
@@ -920,7 +921,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = %Kayrock.JoinGroup.V0.Request{
+      expected_request = Fixtures.build_request(:join_group, 0,
         client_id: nil,
         correlation_id: nil,
         group_id: "legacy-group",
@@ -928,7 +929,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         session_timeout_ms: 10_000,
         protocol_type: "consumer",
         protocols: group_protocols
-      }
+      )
 
       assert expected_request == request
       # V0 doesn't have rebalance_timeout_ms
@@ -955,7 +956,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = %Kayrock.JoinGroup.V2.Request{
+      expected_request = Fixtures.build_request(:join_group, 2,
         client_id: nil,
         correlation_id: nil,
         group_id: "my-group",
@@ -964,7 +965,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         rebalance_timeout_ms: 90_000,
         protocol_type: "consumer",
         protocols: group_protocols
-      }
+      )
 
       assert expected_request == request
     end
@@ -1068,14 +1069,14 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = %Kayrock.SyncGroup.V1.Request{
+      expected_request = Fixtures.build_request(:sync_group, 1,
         client_id: nil,
         correlation_id: nil,
         group_id: "test-group",
         member_id: "consumer-123",
         generation_id: 5,
         assignments: []
-      }
+      )
 
       assert expected_request == request
     end
@@ -1097,14 +1098,14 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = %Kayrock.SyncGroup.V0.Request{
+      expected_request = Fixtures.build_request(:sync_group, 0,
         client_id: nil,
         correlation_id: nil,
         group_id: "legacy-group",
         member_id: "member-abc",
         generation_id: 10,
         assignments: []
-      }
+      )
 
       assert expected_request == request
     end
@@ -1211,7 +1212,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         )
 
       # Should use v1 as default (for throttle visibility)
-      assert match?(%Kayrock.SyncGroup.V1.Request{}, request)
+      assert Fixtures.request_type?(request, :sync_group, 1)
     end
   end
 
@@ -1222,7 +1223,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       {:ok, request} = RequestBuilder.produce_request([topic: "test-topic", partition: 0, messages: messages], state)
 
       # V3 uses RecordBatch
-      assert match?(%Kayrock.Produce.V3.Request{}, request)
+      assert Fixtures.request_type?(request, :produce, 3)
       assert request.acks == -1
       assert request.timeout == 5000
       assert [%{topic: "test-topic", data: [%{partition: 0}]}] = request.topic_data
@@ -1235,7 +1236,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       {:ok, request} =
         RequestBuilder.produce_request([topic: "events", partition: 1, messages: messages, api_version: 0], state)
 
-      assert match?(%Kayrock.Produce.V0.Request{}, request)
+      assert Fixtures.request_type?(request, :produce, 0)
       assert [%{topic: "events", data: [%{partition: 1}]}] = request.topic_data
     end
 
@@ -1263,7 +1264,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      assert match?(%Kayrock.Produce.V3.Request{}, request)
+      assert Fixtures.request_type?(request, :produce, 3)
       [%{data: [%{record_set: record_batch}]}] = request.topic_data
       assert record_batch.attributes == 1
     end
@@ -1288,9 +1289,9 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       {:ok, request} =
         RequestBuilder.produce_request([topic: "test", partition: 0, messages: messages, api_version: 2], state)
 
-      assert match?(%Kayrock.Produce.V2.Request{}, request)
+      assert Fixtures.request_type?(request, :produce, 2)
       [%{data: [%{record_set: message_set}]}] = request.topic_data
-      assert match?(%Kayrock.MessageSet{}, message_set)
+      assert Fixtures.message_set?(message_set)
     end
 
     test "uses RecordBatch for V3+" do
@@ -1300,9 +1301,9 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       {:ok, request} =
         RequestBuilder.produce_request([topic: "test", partition: 0, messages: messages, api_version: 3], state)
 
-      assert match?(%Kayrock.Produce.V3.Request{}, request)
+      assert Fixtures.request_type?(request, :produce, 3)
       [%{data: [%{record_set: record_batch}]}] = request.topic_data
-      assert match?(%Kayrock.RecordBatch{}, record_batch)
+      assert Fixtures.record_batch?(record_batch)
     end
 
     test "returns error when api version is not supported" do
@@ -1378,7 +1379,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
 
       assert {:ok, request} = RequestBuilder.fetch_request(opts, state)
 
-      assert request.__struct__ == Kayrock.Fetch.V3.Request
+      assert Fixtures.request_type?(request, :fetch, 3)
       assert request.replica_id == -1
       assert [%{topic: "test_topic", partitions: [partition]}] = request.topics
       assert partition.partition == 0
@@ -1396,7 +1397,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       ]
 
       assert {:ok, request} = RequestBuilder.fetch_request(opts, state)
-      assert request.__struct__ == Kayrock.Fetch.V0.Request
+      assert Fixtures.request_type?(request, :fetch, 0)
     end
 
     test "builds V4 fetch request with isolation_level" do
@@ -1411,7 +1412,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       ]
 
       assert {:ok, request} = RequestBuilder.fetch_request(opts, state)
-      assert request.__struct__ == Kayrock.Fetch.V4.Request
+      assert Fixtures.request_type?(request, :fetch, 4)
       assert request.isolation_level == 1
     end
 
@@ -1427,7 +1428,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       ]
 
       assert {:ok, request} = RequestBuilder.fetch_request(opts, state)
-      assert request.__struct__ == Kayrock.Fetch.V5.Request
+      assert Fixtures.request_type?(request, :fetch, 5)
 
       [%{partitions: [partition]}] = request.topics
       assert partition.log_start_offset == 50
@@ -1446,7 +1447,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       ]
 
       assert {:ok, request} = RequestBuilder.fetch_request(opts, state)
-      assert request.__struct__ == Kayrock.Fetch.V7.Request
+      assert Fixtures.request_type?(request, :fetch, 7)
       assert request.session_id == 123
       assert request.session_epoch == 5
     end
@@ -1476,7 +1477,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       assert {:ok, request} = RequestBuilder.fetch_request(opts, state)
 
       # Default is V3
-      assert request.__struct__ == Kayrock.Fetch.V3.Request
+      assert Fixtures.request_type?(request, :fetch, 3)
       assert request.max_wait_time == 10_000
       assert request.min_bytes == 1
     end

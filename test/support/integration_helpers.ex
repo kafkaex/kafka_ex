@@ -2,6 +2,7 @@ defmodule KafkaEx.IntegrationHelpers do
   @moduledoc false
 
   alias KafkaEx.API
+  alias KafkaEx.Test.KayrockFixtures, as: Fixtures
 
   @doc """
   Creates basic topic and waits for it to be available in metadata.
@@ -110,9 +111,7 @@ defmodule KafkaEx.IntegrationHelpers do
     group_protocols = [
       %{
         name: "assign",
-        metadata: %Kayrock.GroupProtocolMetadata{
-          topics: [topic]
-        }
+        metadata: Fixtures.group_protocol_metadata(topics: [topic])
       }
     ]
 
