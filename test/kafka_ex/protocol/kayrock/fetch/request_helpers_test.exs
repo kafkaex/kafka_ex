@@ -64,7 +64,7 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.RequestHelpersTest do
       assert [%{topic: "test_topic", partitions: [partition]}] = topics
       assert partition.partition == 0
       assert partition.fetch_offset == 100
-      assert partition.max_bytes == 1_000_000
+      assert partition.partition_max_bytes == 1_000_000
       refute Map.has_key?(partition, :log_start_offset)
     end
 
@@ -81,7 +81,7 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.RequestHelpersTest do
       assert [%{topic: "test_topic", partitions: [partition]}] = topics
       assert partition.partition == 0
       assert partition.fetch_offset == 100
-      assert partition.max_bytes == 1_000_000
+      assert partition.partition_max_bytes == 1_000_000
       assert partition.log_start_offset == 0
     end
 
@@ -168,17 +168,17 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.RequestHelpersTest do
 
   describe "add_session_fields/3" do
     test "adds session fields for V7+" do
-      request = %{session_id: nil, epoch: nil, forgetten_topics_data: nil}
+      request = %{session_id: nil, session_epoch: nil, forgotten_topics_data: nil}
 
       result = RequestHelpers.add_session_fields(request, [], 7)
 
       assert result.session_id == 0
-      assert result.epoch == -1
-      assert result.forgetten_topics_data == []
+      assert result.session_epoch == -1
+      assert result.forgotten_topics_data == []
     end
 
     test "allows custom session fields" do
-      request = %{session_id: nil, epoch: nil, forgetten_topics_data: nil}
+      request = %{session_id: nil, session_epoch: nil, forgotten_topics_data: nil}
 
       opts = [
         session_id: 123,
@@ -189,12 +189,12 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.RequestHelpersTest do
       result = RequestHelpers.add_session_fields(request, opts, 7)
 
       assert result.session_id == 123
-      assert result.epoch == 5
-      assert result.forgetten_topics_data == [%{topic: "old_topic"}]
+      assert result.session_epoch == 5
+      assert result.forgotten_topics_data == [%{topic: "old_topic"}]
     end
 
     test "does not modify request for V0-V6" do
-      request = %{session_id: nil, epoch: nil, forgetten_topics_data: nil}
+      request = %{session_id: nil, session_epoch: nil, forgotten_topics_data: nil}
 
       result = RequestHelpers.add_session_fields(request, [session_id: 123], 6)
 

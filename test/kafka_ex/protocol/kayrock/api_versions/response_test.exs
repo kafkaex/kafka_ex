@@ -9,7 +9,7 @@ defmodule KafkaEx.Protocol.Kayrock.ApiVersions.ResponseTest do
     test "parses successful V0 response with multiple APIs" do
       response = %Kayrock.ApiVersions.V0.Response{
         error_code: 0,
-        api_versions: [
+        api_keys: [
           %{api_key: 0, min_version: 0, max_version: 3},
           %{api_key: 1, min_version: 0, max_version: 11},
           %{api_key: 3, min_version: 0, max_version: 2},
@@ -32,7 +32,7 @@ defmodule KafkaEx.Protocol.Kayrock.ApiVersions.ResponseTest do
       response = %Kayrock.ApiVersions.V0.Response{
         error_code: 35,
         # :unsupported_version
-        api_versions: []
+        api_keys: []
       }
 
       {:error, error} = ApiVersions.Response.parse_response(response)
@@ -46,7 +46,7 @@ defmodule KafkaEx.Protocol.Kayrock.ApiVersions.ResponseTest do
     test "parses successful V1 response with throttle_time_ms" do
       response = %Kayrock.ApiVersions.V1.Response{
         error_code: 0,
-        api_versions: [
+        api_keys: [
           %{api_key: 3, min_version: 0, max_version: 2}
         ],
         throttle_time_ms: 100
@@ -62,7 +62,7 @@ defmodule KafkaEx.Protocol.Kayrock.ApiVersions.ResponseTest do
     test "handles V1 error with throttle_time_ms" do
       response = %Kayrock.ApiVersions.V1.Response{
         error_code: 35,
-        api_versions: [],
+        api_keys: [],
         throttle_time_ms: 1000
       }
 

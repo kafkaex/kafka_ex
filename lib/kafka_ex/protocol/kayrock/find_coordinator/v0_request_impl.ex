@@ -4,6 +4,6 @@ defimpl KafkaEx.Protocol.Kayrock.FindCoordinator.Request, for: Kayrock.FindCoord
   def build_request(request, opts) do
     group_id = RequestHelpers.extract_group_id(opts)
 
-    %{request | group_id: group_id}
+    %{request | key: group_id}
   end
 end

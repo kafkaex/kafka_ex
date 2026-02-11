@@ -8,8 +8,8 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseTest do
   describe "ResponseHelpers.parse_topic_results/2" do
     test "parses successful topics without error_message" do
       topic_errors = [
-        %{topic: "topic1", error_code: 0},
-        %{topic: "topic2", error_code: 0}
+        %{name: "topic1", error_code: 0},
+        %{name: "topic2", error_code: 0}
       ]
 
       result = ResponseHelpers.parse_topic_results(topic_errors, false)
@@ -21,8 +21,8 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseTest do
 
     test "parses topics with errors" do
       topic_errors = [
-        %{topic: "topic1", error_code: 0},
-        %{topic: "topic2", error_code: 36}
+        %{name: "topic1", error_code: 0},
+        %{name: "topic2", error_code: 36}
       ]
 
       result = ResponseHelpers.parse_topic_results(topic_errors, false)
@@ -36,8 +36,8 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseTest do
 
     test "includes error_message when has_error_message? is true" do
       topic_errors = [
-        %{topic: "topic1", error_code: 0, error_message: nil},
-        %{topic: "topic2", error_code: 36, error_message: "Topic already exists"}
+        %{name: "topic1", error_code: 0, error_message: nil},
+        %{name: "topic2", error_code: 36, error_message: "Topic already exists"}
       ]
 
       result = ResponseHelpers.parse_topic_results(topic_errors, true)
@@ -50,7 +50,7 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseTest do
 
   describe "ResponseHelpers.build_response/2" do
     test "builds response without throttle_time_ms" do
-      topic_results = ResponseHelpers.parse_topic_results([%{topic: "t1", error_code: 0}], false)
+      topic_results = ResponseHelpers.parse_topic_results([%{name: "t1", error_code: 0}], false)
 
       result = ResponseHelpers.build_response(topic_results)
 
@@ -60,7 +60,7 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseTest do
     end
 
     test "builds response with throttle_time_ms" do
-      topic_results = ResponseHelpers.parse_topic_results([%{topic: "t1", error_code: 0}], false)
+      topic_results = ResponseHelpers.parse_topic_results([%{name: "t1", error_code: 0}], false)
 
       result = ResponseHelpers.build_response(topic_results, 100)
 
@@ -71,9 +71,9 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseTest do
   describe "V0 Response implementation" do
     test "parses successful response" do
       response = %Kayrock.CreateTopics.V0.Response{
-        topic_errors: [
-          %{topic: "topic1", error_code: 0},
-          %{topic: "topic2", error_code: 0}
+        topics: [
+          %{name: "topic1", error_code: 0},
+          %{name: "topic2", error_code: 0}
         ]
       }
 
@@ -86,10 +86,10 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseTest do
 
     test "parses response with errors" do
       response = %Kayrock.CreateTopics.V0.Response{
-        topic_errors: [
-          %{topic: "topic1", error_code: 0},
-          %{topic: "topic2", error_code: 36},
-          %{topic: "topic3", error_code: 37}
+        topics: [
+          %{name: "topic1", error_code: 0},
+          %{name: "topic2", error_code: 36},
+          %{name: "topic3", error_code: 37}
         ]
       }
 
@@ -104,8 +104,8 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseTest do
 
     test "V0 does not include error_message" do
       response = %Kayrock.CreateTopics.V0.Response{
-        topic_errors: [
-          %{topic: "topic1", error_code: 36}
+        topics: [
+          %{name: "topic1", error_code: 36}
         ]
       }
 
@@ -119,8 +119,8 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseTest do
   describe "V1 Response implementation" do
     test "parses successful response" do
       response = %Kayrock.CreateTopics.V1.Response{
-        topic_errors: [
-          %{topic: "topic1", error_code: 0, error_message: nil}
+        topics: [
+          %{name: "topic1", error_code: 0, error_message: nil}
         ]
       }
 
@@ -130,8 +130,8 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseTest do
 
     test "parses response with error_message" do
       response = %Kayrock.CreateTopics.V1.Response{
-        topic_errors: [
-          %{topic: "topic1", error_code: 36, error_message: "Topic 'topic1' already exists."}
+        topics: [
+          %{name: "topic1", error_code: 36, error_message: "Topic 'topic1' already exists."}
         ]
       }
 
@@ -144,7 +144,7 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseTest do
 
     test "V1 does not include throttle_time_ms" do
       response = %Kayrock.CreateTopics.V1.Response{
-        topic_errors: [%{topic: "topic1", error_code: 0, error_message: nil}]
+        topics: [%{name: "topic1", error_code: 0, error_message: nil}]
       }
 
       assert {:ok, result} = CreateTopics.Response.parse_response(response)
@@ -156,8 +156,8 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseTest do
     test "parses successful response with throttle_time_ms" do
       response = %Kayrock.CreateTopics.V2.Response{
         throttle_time_ms: 50,
-        topic_errors: [
-          %{topic: "topic1", error_code: 0, error_message: nil}
+        topics: [
+          %{name: "topic1", error_code: 0, error_message: nil}
         ]
       }
 
@@ -169,8 +169,8 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseTest do
     test "parses response with error and error_message" do
       response = %Kayrock.CreateTopics.V2.Response{
         throttle_time_ms: 0,
-        topic_errors: [
-          %{topic: "topic1", error_code: 38, error_message: "Invalid replication factor"}
+        topics: [
+          %{name: "topic1", error_code: 38, error_message: "Invalid replication factor"}
         ]
       }
 
@@ -184,7 +184,7 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseTest do
     test "handles zero throttle time" do
       response = %Kayrock.CreateTopics.V2.Response{
         throttle_time_ms: 0,
-        topic_errors: [%{topic: "topic1", error_code: 0, error_message: nil}]
+        topics: [%{name: "topic1", error_code: 0, error_message: nil}]
       }
 
       assert {:ok, result} = CreateTopics.Response.parse_response(response)
@@ -195,12 +195,12 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseTest do
   describe "Version comparison" do
     test "all versions return CreateTopics struct on success" do
       for {response_mod, topic_errors, extra_fields} <- [
-            {Kayrock.CreateTopics.V0.Response, [%{topic: "t", error_code: 0}], %{}},
-            {Kayrock.CreateTopics.V1.Response, [%{topic: "t", error_code: 0, error_message: nil}], %{}},
-            {Kayrock.CreateTopics.V2.Response, [%{topic: "t", error_code: 0, error_message: nil}],
+            {Kayrock.CreateTopics.V0.Response, [%{name: "t", error_code: 0}], %{}},
+            {Kayrock.CreateTopics.V1.Response, [%{name: "t", error_code: 0, error_message: nil}], %{}},
+            {Kayrock.CreateTopics.V2.Response, [%{name: "t", error_code: 0, error_message: nil}],
              %{throttle_time_ms: 0}}
           ] do
-        response = struct(response_mod, Map.merge(%{topic_errors: topic_errors}, extra_fields))
+        response = struct(response_mod, Map.merge(%{topics: topic_errors}, extra_fields))
         assert {:ok, %CreateTopicsStruct{}} = CreateTopics.Response.parse_response(response)
       end
     end
@@ -208,7 +208,7 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseTest do
     test "V1 and V2 include error_message while V0 does not" do
       # V0 - no error_message field expected in response
       v0_response = %Kayrock.CreateTopics.V0.Response{
-        topic_errors: [%{topic: "t", error_code: 36}]
+        topics: [%{name: "t", error_code: 36}]
       }
 
       {:ok, v0_result} = CreateTopics.Response.parse_response(v0_response)
@@ -217,7 +217,7 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseTest do
 
       # V1 - has error_message
       v1_response = %Kayrock.CreateTopics.V1.Response{
-        topic_errors: [%{topic: "t", error_code: 36, error_message: "Already exists"}]
+        topics: [%{name: "t", error_code: 36, error_message: "Already exists"}]
       }
 
       {:ok, v1_result} = CreateTopics.Response.parse_response(v1_response)
@@ -227,7 +227,7 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseTest do
       # V2 - has error_message and throttle_time_ms
       v2_response = %Kayrock.CreateTopics.V2.Response{
         throttle_time_ms: 10,
-        topic_errors: [%{topic: "t", error_code: 36, error_message: "Already exists"}]
+        topics: [%{name: "t", error_code: 36, error_message: "Already exists"}]
       }
 
       {:ok, v2_result} = CreateTopics.Response.parse_response(v2_response)
@@ -240,7 +240,7 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseTest do
   describe "Edge cases" do
     test "handles empty topic list" do
       response = %Kayrock.CreateTopics.V0.Response{
-        topic_errors: []
+        topics: []
       }
 
       assert {:ok, result} = CreateTopics.Response.parse_response(response)
@@ -250,7 +250,7 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseTest do
 
     test "handles nil error_message in V1" do
       response = %Kayrock.CreateTopics.V1.Response{
-        topic_errors: [%{topic: "t", error_code: 0, error_message: nil}]
+        topics: [%{name: "t", error_code: 0, error_message: nil}]
       }
 
       assert {:ok, result} = CreateTopics.Response.parse_response(response)

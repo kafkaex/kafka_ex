@@ -11,7 +11,7 @@ defimpl KafkaEx.Protocol.Kayrock.ApiVersions.Response, for: Kayrock.ApiVersions.
   Converts the Kayrock response format into our internal ApiVersions struct with a map-based api_versions.
   """
   @spec parse_response(Kayrock.ApiVersions.V0.Response.t()) :: {:ok, ApiVersions.t()} | {:error, Error.t()}
-  def parse_response(%{error_code: 0, api_versions: versions}) do
+  def parse_response(%{error_code: 0, api_keys: versions}) do
     apis = Enum.into(versions, %{}, &{&1.api_key, %{min_version: &1.min_version, max_version: &1.max_version}})
     {:ok, ApiVersions.build(api_versions: apis, throttle_time_ms: nil)}
   end

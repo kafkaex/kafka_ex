@@ -39,8 +39,8 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.RequestTest do
 
     test "extracts fields with group_assignment" do
       assignments = [
-        %{member_id: "member-1", member_assignment: <<1, 2, 3>>},
-        %{member_id: "member-2", member_assignment: <<4, 5, 6>>}
+        %{member_id: "member-1", assignment: <<1, 2, 3>>},
+        %{member_id: "member-2", assignment: <<4, 5, 6>>}
       ]
 
       opts = [
@@ -146,7 +146,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.RequestTest do
                group_id: "test-group",
                generation_id: 5,
                member_id: "member-123",
-               group_assignment: []
+               assignments: []
              }
     end
 
@@ -170,8 +170,8 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.RequestTest do
       request = %Kayrock.SyncGroup.V0.Request{}
 
       assignments = [
-        %{member_id: "member-1", member_assignment: <<1, 2, 3>>},
-        %{member_id: "member-2", member_assignment: <<4, 5, 6>>}
+        %{member_id: "member-1", assignment: <<1, 2, 3>>},
+        %{member_id: "member-2", assignment: <<4, 5, 6>>}
       ]
 
       opts = [
@@ -189,7 +189,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.RequestTest do
                group_id: "consumer-group-1",
                generation_id: 3,
                member_id: "leader-member",
-               group_assignment: assignments
+               assignments: assignments
              }
     end
 
@@ -273,7 +273,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.RequestTest do
                group_id: "test-group",
                generation_id: 5,
                member_id: "member-123",
-               group_assignment: []
+               assignments: []
              }
     end
 
@@ -297,8 +297,8 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.RequestTest do
       request = %Kayrock.SyncGroup.V1.Request{}
 
       assignments = [
-        %{member_id: "member-1", member_assignment: <<1, 2, 3>>},
-        %{member_id: "member-2", member_assignment: <<4, 5, 6>>}
+        %{member_id: "member-1", assignment: <<1, 2, 3>>},
+        %{member_id: "member-2", assignment: <<4, 5, 6>>}
       ]
 
       opts = [
@@ -316,7 +316,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.RequestTest do
                group_id: "consumer-group-1",
                generation_id: 3,
                member_id: "leader-member",
-               group_assignment: assignments
+               assignments: assignments
              }
     end
 

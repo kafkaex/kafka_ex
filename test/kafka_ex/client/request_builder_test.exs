@@ -103,7 +103,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       {:ok, request} = RequestBuilder.find_coordinator_request([group_id: group_id, api_version: 0], state)
 
       assert match?(%Kayrock.FindCoordinator.V0.Request{}, request)
-      assert request.group_id == group_id
+      assert request.key == group_id
     end
 
     test "returns request for FindCoordinator API v1 (default)" do
@@ -113,8 +113,8 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       {:ok, request} = RequestBuilder.find_coordinator_request([group_id: group_id], state)
 
       assert match?(%Kayrock.FindCoordinator.V1.Request{}, request)
-      assert request.coordinator_key == group_id
-      assert request.coordinator_type == 0
+      assert request.key == group_id
+      assert request.key_type == 0
     end
 
     test "returns request for FindCoordinator API v1 with transaction coordinator" do
@@ -127,8 +127,8 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         )
 
       assert match?(%Kayrock.FindCoordinator.V1.Request{}, request)
-      assert request.coordinator_key == "my-transactional-id"
-      assert request.coordinator_type == 1
+      assert request.key == "my-transactional-id"
+      assert request.key_type == 1
     end
 
     test "returns error when api version is not supported" do
@@ -156,8 +156,8 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         )
 
       assert match?(%Kayrock.CreateTopics.V0.Request{}, request)
-      assert request.timeout == 30_000
-      assert length(request.create_topic_requests) == 1
+      assert request.timeout_ms == 30_000
+      assert length(request.topics) == 1
     end
 
     test "returns request for CreateTopics API v1 (default)" do
@@ -175,8 +175,8 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         )
 
       assert match?(%Kayrock.CreateTopics.V1.Request{}, request)
-      assert request.timeout == 15_000
-      assert length(request.create_topic_requests) == 2
+      assert request.timeout_ms == 15_000
+      assert length(request.topics) == 2
     end
 
     test "returns request for CreateTopics API v1 with validate_only" do
@@ -215,8 +215,8 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      [topic_config] = request.create_topic_requests
-      assert length(topic_config.config_entries) == 2
+      [topic_config] = request.topics
+      assert length(topic_config.configs) == 2
     end
 
     test "returns error when api version is not supported" do
@@ -246,8 +246,8 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         )
 
       assert match?(%Kayrock.DeleteTopics.V0.Request{}, request)
-      assert request.topics == topics
-      assert request.timeout == 30_000
+      assert request.topic_names == topics
+      assert request.timeout_ms == 30_000
     end
 
     test "returns request for DeleteTopics API v1 (default)" do
@@ -261,8 +261,8 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         )
 
       assert match?(%Kayrock.DeleteTopics.V1.Request{}, request)
-      assert request.topics == topics
-      assert request.timeout == 15_000
+      assert request.topic_names == topics
+      assert request.timeout_ms == 15_000
     end
 
     test "handles single topic deletion" do
@@ -274,7 +274,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      assert request.topics == ["single-topic"]
+      assert request.topic_names == ["single-topic"]
     end
 
     test "handles multiple topics deletion" do
@@ -287,8 +287,8 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      assert length(request.topics) == 4
-      assert request.timeout == 60_000
+      assert length(request.topic_names) == 4
+      assert request.timeout_ms == 60_000
     end
 
     test "returns error when api version is not supported" do
@@ -309,7 +309,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       state = %KafkaEx.Client.State{api_versions: %{15 => {0, 1}}}
       group_names = ["group1", "group2"]
 
-      expected_request = %Kayrock.DescribeGroups.V1.Request{group_ids: group_names}
+      expected_request = %Kayrock.DescribeGroups.V1.Request{groups: group_names}
 
       {:ok, request} = RequestBuilder.describe_groups_request([group_names: group_names], state)
 
@@ -320,7 +320,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       state = %KafkaEx.Client.State{api_versions: %{15 => {0, 1}}}
       group_names = ["group1", "group2"]
 
-      expected_request = %Kayrock.DescribeGroups.V0.Request{group_ids: group_names}
+      expected_request = %Kayrock.DescribeGroups.V0.Request{groups: group_names}
 
       {:ok, request} = RequestBuilder.describe_groups_request([group_names: group_names, api_version: 0], state)
 
@@ -389,7 +389,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         client_id: nil,
         correlation_id: nil,
         group_id: "test-group",
-        topics: [%{topic: "test-topic", partitions: [%{partition: 0}]}]
+        topics: [%{name: "test-topic", partition_indexes: [0]}]
       }
 
       assert expected_request == request
@@ -406,7 +406,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         client_id: nil,
         correlation_id: nil,
         group_id: "consumer-group",
-        topics: [%{topic: "my-topic", partitions: [%{partition: 1}, %{partition: 2}]}]
+        topics: [%{name: "my-topic", partition_indexes: [1, 2]}]
       }
 
       assert expected_request == request
@@ -438,7 +438,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         group_id: "test-group",
         generation_id: -1,
         member_id: "",
-        topics: [%{topic: "test-topic", partitions: [%{partition: 0, offset: 100, timestamp: -1, metadata: ""}]}]
+        topics: [%{name: "test-topic", partitions: [%{partition_index: 0, committed_offset: 100, commit_timestamp: -1, committed_metadata: ""}]}]
       }
 
       assert expected_request == request
@@ -467,7 +467,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         group_id: "consumer-group",
         generation_id: 5,
         member_id: "member-123",
-        topics: [%{topic: "my-topic", partitions: [%{partition: 1, offset: 200, timestamp: -1, metadata: ""}]}]
+        topics: [%{name: "my-topic", partitions: [%{partition_index: 1, committed_offset: 200, commit_timestamp: -1, committed_metadata: ""}]}]
       }
 
       assert expected_request == request
@@ -497,8 +497,8 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         group_id: "retention-group",
         generation_id: 10,
         member_id: "member-abc",
-        retention_time: 86_400_000,
-        topics: [%{topic: "topic-a", partitions: [%{partition: 0, offset: 300, metadata: ""}]}]
+        retention_time_ms: 86_400_000,
+        topics: [%{name: "topic-a", partitions: [%{partition_index: 0, committed_offset: 300, committed_metadata: ""}]}]
       }
 
       assert expected_request == request
@@ -523,7 +523,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         client_id: nil,
         correlation_id: nil,
         group_id: "legacy-group",
-        topics: [%{topic: "legacy-topic", partitions: [%{partition: 0, offset: 50, metadata: ""}]}]
+        topics: [%{name: "legacy-topic", partitions: [%{partition_index: 0, committed_offset: 50, committed_metadata: ""}]}]
       }
 
       assert expected_request == request
@@ -857,7 +857,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       rebalance_timeout = 60_000
 
       group_protocols = [
-        %{protocol_name: "assign", protocol_metadata: <<0, 1, 2>>}
+        %{name: "assign", metadata: <<0, 1, 2>>}
       ]
 
       {:ok, request} =
@@ -877,10 +877,10 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         correlation_id: nil,
         group_id: "test-group",
         member_id: "",
-        session_timeout: 30_000,
-        rebalance_timeout: 60_000,
+        session_timeout_ms: 30_000,
+        rebalance_timeout_ms: 60_000,
         protocol_type: "consumer",
-        group_protocols: group_protocols
+        protocols: group_protocols
       }
 
       assert expected_request == request
@@ -893,7 +893,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       session_timeout = 10_000
 
       group_protocols = [
-        %{protocol_name: "roundrobin", protocol_metadata: <<1, 2, 3>>}
+        %{name: "roundrobin", metadata: <<1, 2, 3>>}
       ]
 
       {:ok, request} =
@@ -913,21 +913,21 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         correlation_id: nil,
         group_id: "legacy-group",
         member_id: "member-123",
-        session_timeout: 10_000,
+        session_timeout_ms: 10_000,
         protocol_type: "consumer",
-        group_protocols: group_protocols
+        protocols: group_protocols
       }
 
       assert expected_request == request
-      # V0 doesn't have rebalance_timeout
-      refute Map.has_key?(request, :rebalance_timeout)
+      # V0 doesn't have rebalance_timeout_ms
+      refute Map.has_key?(request, :rebalance_timeout_ms)
     end
 
     test "returns request for JoinGroup API v2" do
       state = %KafkaEx.Client.State{api_versions: %{11 => {0, 2}}}
 
       group_protocols = [
-        %{protocol_name: "assign", protocol_metadata: <<>>}
+        %{name: "assign", metadata: <<>>}
       ]
 
       {:ok, request} =
@@ -948,10 +948,10 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         correlation_id: nil,
         group_id: "my-group",
         member_id: "member-456",
-        session_timeout: 45_000,
-        rebalance_timeout: 90_000,
+        session_timeout_ms: 45_000,
+        rebalance_timeout_ms: 90_000,
         protocol_type: "consumer",
-        group_protocols: group_protocols
+        protocols: group_protocols
       }
 
       assert expected_request == request
@@ -998,9 +998,9 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       state = %KafkaEx.Client.State{api_versions: %{11 => {0, 2}}}
 
       group_protocols = [
-        %{protocol_name: "roundrobin", protocol_metadata: <<1>>},
-        %{protocol_name: "range", protocol_metadata: <<2>>},
-        %{protocol_name: "sticky", protocol_metadata: <<3>>}
+        %{name: "roundrobin", metadata: <<1>>},
+        %{name: "range", metadata: <<2>>},
+        %{name: "sticky", metadata: <<3>>}
       ]
 
       {:ok, request} =
@@ -1015,8 +1015,8 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      assert length(request.group_protocols) == 3
-      assert request.group_protocols == group_protocols
+      assert length(request.protocols) == 3
+      assert request.protocols == group_protocols
     end
 
     test "returns error when requested API version not supported" do
@@ -1062,7 +1062,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         group_id: "test-group",
         member_id: "consumer-123",
         generation_id: 5,
-        group_assignment: []
+        assignments: []
       }
 
       assert expected_request == request
@@ -1091,7 +1091,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         group_id: "legacy-group",
         member_id: "member-abc",
         generation_id: 10,
-        group_assignment: []
+        assignments: []
       }
 
       assert expected_request == request
@@ -1101,8 +1101,8 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       state = %KafkaEx.Client.State{api_versions: %{14 => {0, 1}}}
 
       assignments = [
-        %{member_id: "member-1", member_assignment: <<1, 2, 3>>},
-        %{member_id: "member-2", member_assignment: <<4, 5, 6>>}
+        %{member_id: "member-1", assignment: <<1, 2, 3>>},
+        %{member_id: "member-2", assignment: <<4, 5, 6>>}
       ]
 
       {:ok, request} =
@@ -1116,7 +1116,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      assert request.group_assignment == assignments
+      assert request.assignments == assignments
     end
 
     test "handles generation_id 0" do
@@ -1436,7 +1436,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       assert {:ok, request} = RequestBuilder.fetch_request(opts, state)
       assert request.__struct__ == Kayrock.Fetch.V7.Request
       assert request.session_id == 123
-      assert request.epoch == 5
+      assert request.session_epoch == 5
     end
 
     test "returns error when api version not supported" do
@@ -1486,7 +1486,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       assert request.max_wait_time == 5_000
       assert request.min_bytes == 100
       [%{partitions: [partition]}] = request.topics
-      assert partition.max_bytes == 500_000
+      assert partition.partition_max_bytes == 500_000
     end
   end
 end

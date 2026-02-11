@@ -8,11 +8,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseHelpersTest do
   describe "parse_response_without_top_level_error/1" do
     test "parses successful response" do
       response = %{
-        responses: [
+        topics: [
           %{
-            topic: "test-topic",
-            partition_responses: [
-              %{partition: 0, error_code: 0, offset: 100, metadata: "meta"}
+            name: "test-topic",
+            partitions: [
+              %{partition_index: 0, error_code: 0, committed_offset: 100, metadata: "meta"}
             ]
           }
         ]
@@ -29,11 +29,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseHelpersTest do
 
     test "handles nil metadata" do
       response = %{
-        responses: [
+        topics: [
           %{
-            topic: "test-topic",
-            partition_responses: [
-              %{partition: 0, error_code: 0, offset: 50, metadata: nil}
+            name: "test-topic",
+            partitions: [
+              %{partition_index: 0, error_code: 0, committed_offset: 50, metadata: nil}
             ]
           }
         ]
@@ -46,14 +46,14 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseHelpersTest do
 
     test "parses response with multiple topics" do
       response = %{
-        responses: [
+        topics: [
           %{
-            topic: "topic1",
-            partition_responses: [%{partition: 0, error_code: 0, offset: 100, metadata: ""}]
+            name: "topic1",
+            partitions: [%{partition_index: 0, error_code: 0, committed_offset: 100, metadata: ""}]
           },
           %{
-            topic: "topic2",
-            partition_responses: [%{partition: 0, error_code: 0, offset: 200, metadata: ""}]
+            name: "topic2",
+            partitions: [%{partition_index: 0, error_code: 0, committed_offset: 200, metadata: ""}]
           }
         ]
       }
@@ -64,10 +64,10 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseHelpersTest do
 
     test "returns error for partition-level error" do
       response = %{
-        responses: [
+        topics: [
           %{
-            topic: "test-topic",
-            partition_responses: [%{partition: 0, error_code: 3, offset: -1, metadata: ""}]
+            name: "test-topic",
+            partitions: [%{partition_index: 0, error_code: 3, committed_offset: -1, metadata: ""}]
           }
         ]
       }
@@ -88,11 +88,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseHelpersTest do
     test "parses successful response when error_code is 0" do
       response = %{
         error_code: 0,
-        responses: [
+        topics: [
           %{
-            topic: "test-topic",
-            partition_responses: [
-              %{partition: 0, error_code: 0, offset: 100, metadata: ""}
+            name: "test-topic",
+            partitions: [
+              %{partition_index: 0, error_code: 0, committed_offset: 100, metadata: ""}
             ]
           }
         ]
@@ -104,10 +104,10 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseHelpersTest do
     test "returns partition error even when top-level error is 0" do
       response = %{
         error_code: 0,
-        responses: [
+        topics: [
           %{
-            topic: "test-topic",
-            partition_responses: [%{partition: 0, error_code: 3, offset: -1, metadata: ""}]
+            name: "test-topic",
+            partitions: [%{partition_index: 0, error_code: 3, committed_offset: -1, metadata: ""}]
           }
         ]
       }

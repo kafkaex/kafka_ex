@@ -9,7 +9,7 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestHelpersTest do
         group_id: "my-group",
         session_timeout: 30_000,
         member_id: "",
-        group_protocols: [%{protocol_name: "range", protocol_metadata: <<>>}]
+        group_protocols: [%{name: "range", metadata: <<>>}]
       ]
 
       result = RequestHelpers.extract_common_fields(opts)
@@ -84,8 +84,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestHelpersTest do
 
       assert length(result.group_protocols) == 1
       [protocol] = result.group_protocols
-      assert protocol.protocol_name == "assign"
-      assert protocol.protocol_metadata.topics == ["topic-1", "topic-2"]
+      assert protocol.name == "assign"
+      assert protocol.metadata.topics == ["topic-1", "topic-2"]
     end
 
     test "uses provided group_protocols over topics" do
@@ -94,15 +94,15 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestHelpersTest do
         session_timeout: 30_000,
         member_id: "",
         topics: ["ignored-topic"],
-        group_protocols: [%{protocol_name: "custom", protocol_metadata: <<1, 2, 3>>}]
+        group_protocols: [%{name: "custom", metadata: <<1, 2, 3>>}]
       ]
 
       result = RequestHelpers.extract_common_fields(opts)
 
       assert length(result.group_protocols) == 1
       [protocol] = result.group_protocols
-      assert protocol.protocol_name == "custom"
-      assert protocol.protocol_metadata == <<1, 2, 3>>
+      assert protocol.name == "custom"
+      assert protocol.metadata == <<1, 2, 3>>
     end
   end
 
@@ -112,9 +112,9 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestHelpersTest do
 
       assert length(result) == 1
       [protocol] = result
-      assert protocol.protocol_name == "assign"
-      assert %Kayrock.GroupProtocolMetadata{} = protocol.protocol_metadata
-      assert protocol.protocol_metadata.topics == ["topic-a", "topic-b"]
+      assert protocol.name == "assign"
+      assert %Kayrock.GroupProtocolMetadata{} = protocol.metadata
+      assert protocol.metadata.topics == ["topic-a", "topic-b"]
     end
 
     test "handles empty topics list" do
@@ -122,7 +122,7 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestHelpersTest do
 
       assert length(result) == 1
       [protocol] = result
-      assert protocol.protocol_metadata.topics == []
+      assert protocol.metadata.topics == []
     end
   end
 
@@ -134,16 +134,16 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestHelpersTest do
         group_id: "test-group",
         session_timeout: 30_000,
         member_id: "member-1",
-        group_protocols: [%{protocol_name: "range", protocol_metadata: <<>>}]
+        group_protocols: [%{name: "range", metadata: <<>>}]
       ]
 
       result = RequestHelpers.build_v0_request(template, opts)
 
       assert result.group_id == "test-group"
-      assert result.session_timeout == 30_000
+      assert result.session_timeout_ms == 30_000
       assert result.member_id == "member-1"
       assert result.protocol_type == "consumer"
-      assert length(result.group_protocols) == 1
+      assert length(result.protocols) == 1
     end
   end
 
@@ -156,14 +156,14 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestHelpersTest do
         session_timeout: 30_000,
         rebalance_timeout: 60_000,
         member_id: "member-1",
-        group_protocols: [%{protocol_name: "range", protocol_metadata: <<>>}]
+        group_protocols: [%{name: "range", metadata: <<>>}]
       ]
 
       result = RequestHelpers.build_v1_or_v2_request(template, opts)
 
       assert result.group_id == "test-group"
-      assert result.session_timeout == 30_000
-      assert result.rebalance_timeout == 60_000
+      assert result.session_timeout_ms == 30_000
+      assert result.rebalance_timeout_ms == 60_000
       assert result.member_id == "member-1"
     end
 

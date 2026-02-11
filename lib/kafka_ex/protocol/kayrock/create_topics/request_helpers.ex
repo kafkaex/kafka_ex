@@ -40,11 +40,11 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.RequestHelpers do
 
   def build_topic_request(topic_config) when is_map(topic_config) do
     %{
-      topic: Map.fetch!(topic_config, :topic),
+      name: Map.fetch!(topic_config, :topic),
       num_partitions: Map.get(topic_config, :num_partitions, -1),
       replication_factor: Map.get(topic_config, :replication_factor, -1),
-      replica_assignment: build_replica_assignments(Map.get(topic_config, :replica_assignment, [])),
-      config_entries: build_config_entries(Map.get(topic_config, :config_entries, []))
+      assignments: build_replica_assignments(Map.get(topic_config, :replica_assignment, [])),
+      configs: build_config_entries(Map.get(topic_config, :config_entries, []))
     }
   end
 
@@ -56,10 +56,10 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.RequestHelpers do
     Enum.map(assignments, fn assignment ->
       case assignment do
         %{partition: partition, replicas: replicas} ->
-          %{partition: partition, replicas: replicas}
+          %{partition_index: partition, broker_ids: replicas}
 
         {partition, replicas} when is_list(replicas) ->
-          %{partition: partition, replicas: replicas}
+          %{partition_index: partition, broker_ids: replicas}
 
         _ ->
           assignment
@@ -74,11 +74,11 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.RequestHelpers do
   def build_config_entries(entries) when is_list(entries) do
     Enum.map(entries, fn entry ->
       case entry do
-        %{config_name: name, config_value: value} ->
-          %{config_name: name, config_value: value}
+        %{config_name: config_name, config_value: config_value} ->
+          %{name: config_name, value: config_value}
 
         {name, value} ->
-          %{config_name: to_string(name), config_value: value}
+          %{name: to_string(name), value: value}
 
         _ ->
           entry
@@ -104,8 +104,8 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.RequestHelpers do
     create_topic_requests = Enum.map(topics, &build_topic_request/1)
 
     request_template
-    |> Map.put(:create_topic_requests, create_topic_requests)
-    |> Map.put(:timeout, timeout)
+    |> Map.put(:topics, create_topic_requests)
+    |> Map.put(:timeout_ms, timeout)
     |> Map.put(:validate_only, validate_only)
   end
 end

@@ -24,8 +24,8 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.ResponseHelpers do
   All versions share the same response parsing logic.
   """
   @spec parse_response(map()) :: {:ok, list(Offset.t())} | {:error, any()}
-  def parse_response(%{responses: responses}) do
-    responses
+  def parse_response(%{topics: topics}) do
+    topics
     |> fail_fast_iterate_topics(&parse_partition_responses/2)
     |> build_response()
   end
@@ -38,12 +38,12 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.ResponseHelpers do
     fail_fast_iterate_partitions(partition_responses, topic, &build_commit_result/2)
   end
 
-  defp build_commit_result(topic, %{partition: partition, error_code: 0}) do
+  defp build_commit_result(topic, %{partition_index: partition, error_code: 0}) do
     data = %{partition: partition, error_code: :no_error}
     {:ok, Offset.from_list_offset(topic, [data])}
   end
 
-  defp build_commit_result(topic, %{error_code: error_code, partition: partition}) do
+  defp build_commit_result(topic, %{error_code: error_code, partition_index: partition}) do
     {:error, {error_code, topic, partition}}
   end
 end

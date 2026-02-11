@@ -10,7 +10,7 @@ defmodule KafkaEx.Cluster.ClusterMetadataTest do
           %{node_id: 2, host: "broker2.example.com", port: 9092, rack: "rack-b"}
         ],
         controller_id: 1,
-        topic_metadata: []
+        topics: []
       }
 
       cluster = ClusterMetadata.from_metadata_v1_response(response)
@@ -35,14 +35,14 @@ defmodule KafkaEx.Cluster.ClusterMetadataTest do
           %{node_id: 1, host: "broker1.example.com", port: 9092, rack: nil}
         ],
         controller_id: 1,
-        topic_metadata: [
+        topics: [
           %{
-            topic: "test-topic",
+            name: "test-topic",
             error_code: 0,
             is_internal: false,
-            partition_metadata: [
-              %{error_code: 0, partition: 0, leader: 1, replicas: [1], isr: [1]},
-              %{error_code: 0, partition: 1, leader: 1, replicas: [1], isr: [1]}
+            partitions: [
+              %{error_code: 0, partition_index: 0, leader_id: 1, replica_nodes: [1], isr_nodes: [1]},
+              %{error_code: 0, partition_index: 1, leader_id: 1, replica_nodes: [1], isr_nodes: [1]}
             ]
           }
         ]
@@ -64,20 +64,20 @@ defmodule KafkaEx.Cluster.ClusterMetadataTest do
           %{node_id: 1, host: "broker1.example.com", port: 9092, rack: nil}
         ],
         controller_id: 1,
-        topic_metadata: [
+        topics: [
           %{
-            topic: "good-topic",
+            name: "good-topic",
             error_code: 0,
             is_internal: false,
-            partition_metadata: [
-              %{error_code: 0, partition: 0, leader: 1, replicas: [1], isr: [1]}
+            partitions: [
+              %{error_code: 0, partition_index: 0, leader_id: 1, replica_nodes: [1], isr_nodes: [1]}
             ]
           },
           %{
-            topic: "error-topic",
+            name: "error-topic",
             error_code: 3,
             is_internal: false,
-            partition_metadata: []
+            partitions: []
           }
         ]
       }
@@ -93,7 +93,7 @@ defmodule KafkaEx.Cluster.ClusterMetadataTest do
       response = %{
         brokers: [],
         controller_id: nil,
-        topic_metadata: []
+        topics: []
       }
 
       cluster = ClusterMetadata.from_metadata_v1_response(response)
@@ -195,19 +195,19 @@ defmodule KafkaEx.Cluster.ClusterMetadataTest do
     test "returns node based on topic & partition id" do
       topic_one =
         KafkaEx.Cluster.Topic.from_topic_metadata(%{
-          topic: "topic-one",
+          name: "topic-one",
           is_internal: false,
-          partition_metadata: [
-            %{error_code: 0, partition: 0, leader: 123, replicas: [], isr: []}
+          partitions: [
+            %{error_code: 0, partition_index: 0, leader_id: 123, replica_nodes: [], isr_nodes: []}
           ]
         })
 
       topic_two =
         KafkaEx.Cluster.Topic.from_topic_metadata(%{
-          topic: "topic-two",
+          name: "topic-two",
           is_internal: false,
-          partition_metadata: [
-            %{error_code: 0, partition: 0, leader: 321, replicas: [], isr: []}
+          partitions: [
+            %{error_code: 0, partition_index: 0, leader_id: 321, replica_nodes: [], isr_nodes: []}
           ]
         })
 
@@ -226,10 +226,10 @@ defmodule KafkaEx.Cluster.ClusterMetadataTest do
     test "returns error when topic does not exist" do
       topic =
         KafkaEx.Cluster.Topic.from_topic_metadata(%{
-          topic: "topic-one",
+          name: "topic-one",
           is_internal: false,
-          partition_metadata: [
-            %{error_code: 0, partition: 0, leader: 123, replicas: [], isr: []}
+          partitions: [
+            %{error_code: 0, partition_index: 0, leader_id: 123, replica_nodes: [], isr_nodes: []}
           ]
         })
 
@@ -248,10 +248,10 @@ defmodule KafkaEx.Cluster.ClusterMetadataTest do
     test "returns error when partition does not exist" do
       topic =
         KafkaEx.Cluster.Topic.from_topic_metadata(%{
-          topic: "topic-one",
+          name: "topic-one",
           is_internal: false,
-          partition_metadata: [
-            %{error_code: 0, partition: 0, leader: 123, replicas: [], isr: []}
+          partitions: [
+            %{error_code: 0, partition_index: 0, leader_id: 123, replica_nodes: [], isr_nodes: []}
           ]
         })
 
@@ -435,19 +435,19 @@ defmodule KafkaEx.Cluster.ClusterMetadataTest do
     test "test removes topic based on its name" do
       topic_one =
         KafkaEx.Cluster.Topic.from_topic_metadata(%{
-          topic: "topic-one",
+          name: "topic-one",
           is_internal: false,
-          partition_metadata: [
-            %{error_code: 0, partition: 0, leader: 123, replicas: [], isr: []}
+          partitions: [
+            %{error_code: 0, partition_index: 0, leader_id: 123, replica_nodes: [], isr_nodes: []}
           ]
         })
 
       topic_two =
         KafkaEx.Cluster.Topic.from_topic_metadata(%{
-          topic: "topic-two",
+          name: "topic-two",
           is_internal: false,
-          partition_metadata: [
-            %{error_code: 0, partition: 0, leader: 321, replicas: [], isr: []}
+          partitions: [
+            %{error_code: 0, partition_index: 0, leader_id: 321, replica_nodes: [], isr_nodes: []}
           ]
         })
 

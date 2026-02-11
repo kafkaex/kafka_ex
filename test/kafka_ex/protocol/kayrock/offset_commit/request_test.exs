@@ -84,8 +84,8 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestTest do
       result = RequestHelpers.build_partitions(partitions, false)
 
       assert [
-               %{partition: 0, offset: 100, metadata: "meta1"},
-               %{partition: 1, offset: 200, metadata: ""}
+               %{partition_index: 0, committed_offset: 100, committed_metadata: "meta1"},
+               %{partition_index: 1, committed_offset: 200, committed_metadata: ""}
              ] = result
     end
 
@@ -98,8 +98,8 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestTest do
       result = RequestHelpers.build_partitions(partitions, true)
 
       assert [
-               %{partition: 0, offset: 100, metadata: "", timestamp: 1_234_567_890},
-               %{partition: 1, offset: 200, metadata: "", timestamp: -1}
+               %{partition_index: 0, committed_offset: 100, committed_metadata: "", commit_timestamp: 1_234_567_890},
+               %{partition_index: 1, committed_offset: 200, committed_metadata: "", commit_timestamp: -1}
              ] = result
     end
 
@@ -108,7 +108,7 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestTest do
 
       result = RequestHelpers.build_partitions(partitions, false)
 
-      assert [%{partition: 0, offset: 100, metadata: ""}] = result
+      assert [%{partition_index: 0, committed_offset: 100, committed_metadata: ""}] = result
     end
 
     test "uses default -1 for missing timestamp when include_timestamp is true" do
@@ -116,7 +116,7 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestTest do
 
       result = RequestHelpers.build_partitions(partitions, true)
 
-      assert [%{partition: 0, offset: 100, metadata: "", timestamp: -1}] = result
+      assert [%{partition_index: 0, committed_offset: 100, committed_metadata: "", commit_timestamp: -1}] = result
     end
   end
 
@@ -133,14 +133,14 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestTest do
 
       assert [
                %{
-                 topic: "topic1",
-                 partitions: [%{partition: 0, offset: 100, metadata: ""}]
+                 name: "topic1",
+                 partitions: [%{partition_index: 0, committed_offset: 100, committed_metadata: ""}]
                },
                %{
-                 topic: "topic2",
+                 name: "topic2",
                  partitions: [
-                   %{partition: 0, offset: 200, metadata: ""},
-                   %{partition: 1, offset: 300, metadata: ""}
+                   %{partition_index: 0, committed_offset: 200, committed_metadata: ""},
+                   %{partition_index: 1, committed_offset: 300, committed_metadata: ""}
                  ]
                }
              ] = result
@@ -157,8 +157,8 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestTest do
 
       assert [
                %{
-                 topic: "topic1",
-                 partitions: [%{partition: 0, offset: 100, metadata: "", timestamp: 1_234_567_890}]
+                 name: "topic1",
+                 partitions: [%{partition_index: 0, committed_offset: 100, committed_metadata: "", commit_timestamp: 1_234_567_890}]
                }
              ] = result
     end
@@ -178,10 +178,10 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestTest do
 
       assert [
                %{
-                 topic: "topic1",
+                 name: "topic1",
                  partitions: [
-                   %{partition: 0, offset: 100, metadata: "custom"},
-                   %{partition: 1, offset: 200, metadata: ""}
+                   %{partition_index: 0, committed_offset: 100, committed_metadata: "custom"},
+                   %{partition_index: 1, committed_offset: 200, committed_metadata: ""}
                  ]
                }
              ] = result
@@ -215,9 +215,9 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestTest do
                group_id: "test-group",
                topics: [
                  %{
-                   topic: "test-topic",
+                   name: "test-topic",
                    partitions: [
-                     %{partition: 0, offset: 100, metadata: ""}
+                     %{partition_index: 0, committed_offset: 100, committed_metadata: ""}
                    ]
                  }
                ]
@@ -242,9 +242,9 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestTest do
                group_id: "consumer-group",
                topics: [
                  %{
-                   topic: "topic-1",
+                   name: "topic-1",
                    partitions: [
-                     %{partition: 0, offset: 42, metadata: "consumer-instance-1"}
+                     %{partition_index: 0, committed_offset: 42, committed_metadata: "consumer-instance-1"}
                    ]
                  }
                ]
@@ -274,11 +274,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestTest do
                group_id: "multi-partition-group",
                topics: [
                  %{
-                   topic: "topic-1",
+                   name: "topic-1",
                    partitions: [
-                     %{partition: 0, offset: 10, metadata: ""},
-                     %{partition: 1, offset: 20, metadata: ""},
-                     %{partition: 2, offset: 30, metadata: ""}
+                     %{partition_index: 0, committed_offset: 10, committed_metadata: ""},
+                     %{partition_index: 1, committed_offset: 20, committed_metadata: ""},
+                     %{partition_index: 2, committed_offset: 30, committed_metadata: ""}
                    ]
                  }
                ]
@@ -304,14 +304,14 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestTest do
                group_id: "multi-topic-group",
                topics: [
                  %{
-                   topic: "topic-a",
-                   partitions: [%{partition: 0, offset: 100, metadata: ""}]
+                   name: "topic-a",
+                   partitions: [%{partition_index: 0, committed_offset: 100, committed_metadata: ""}]
                  },
                  %{
-                   topic: "topic-b",
+                   name: "topic-b",
                    partitions: [
-                     %{partition: 0, offset: 200, metadata: ""},
-                     %{partition: 1, offset: 300, metadata: ""}
+                     %{partition_index: 0, committed_offset: 200, committed_metadata: ""},
+                     %{partition_index: 1, committed_offset: 300, committed_metadata: ""}
                    ]
                  }
                ]
@@ -360,9 +360,9 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestTest do
                member_id: "consumer-1",
                topics: [
                  %{
-                   topic: "test-topic",
+                   name: "test-topic",
                    partitions: [
-                     %{partition: 0, offset: 100, timestamp: 1_234_567_890, metadata: ""}
+                     %{partition_index: 0, committed_offset: 100, commit_timestamp: 1_234_567_890, committed_metadata: ""}
                    ]
                  }
                ]
@@ -389,9 +389,9 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestTest do
                member_id: "",
                topics: [
                  %{
-                   topic: "topic-1",
+                   name: "topic-1",
                    partitions: [
-                     %{partition: 0, offset: 42, timestamp: -1, metadata: ""}
+                     %{partition_index: 0, committed_offset: 42, commit_timestamp: -1, committed_metadata: ""}
                    ]
                  }
                ]
@@ -420,9 +420,9 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestTest do
                member_id: "member-abc",
                topics: [
                  %{
-                   topic: "topic-1",
+                   name: "topic-1",
                    partitions: [
-                     %{partition: 0, offset: 500, timestamp: 9_999_999, metadata: "custom-meta"}
+                     %{partition_index: 0, committed_offset: 500, commit_timestamp: 9_999_999, committed_metadata: "custom-meta"}
                    ]
                  }
                ]
@@ -452,9 +452,9 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestTest do
       assert result.member_id == "consumer-x"
       topic = hd(result.topics)
       assert length(topic.partitions) == 3
-      assert Enum.at(topic.partitions, 0) == %{partition: 0, offset: 10, timestamp: 100, metadata: ""}
-      assert Enum.at(topic.partitions, 1) == %{partition: 1, offset: 20, timestamp: 200, metadata: ""}
-      assert Enum.at(topic.partitions, 2) == %{partition: 2, offset: 30, timestamp: 300, metadata: ""}
+      assert Enum.at(topic.partitions, 0) == %{partition_index: 0, committed_offset: 10, commit_timestamp: 100, committed_metadata: ""}
+      assert Enum.at(topic.partitions, 1) == %{partition_index: 1, committed_offset: 20, commit_timestamp: 200, committed_metadata: ""}
+      assert Enum.at(topic.partitions, 2) == %{partition_index: 2, committed_offset: 30, commit_timestamp: 300, committed_metadata: ""}
     end
 
     test "builds request with multiple topics" do
@@ -473,8 +473,8 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestTest do
       result = OffsetCommit.Request.build_request(request, opts)
 
       assert length(result.topics) == 2
-      assert Enum.at(result.topics, 0).topic == "topic-a"
-      assert Enum.at(result.topics, 1).topic == "topic-b"
+      assert Enum.at(result.topics, 0).name == "topic-a"
+      assert Enum.at(result.topics, 1).name == "topic-b"
     end
   end
 
@@ -500,12 +500,12 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestTest do
                group_id: "v2-group",
                generation_id: 10,
                member_id: "member-v2",
-               retention_time: 86_400_000,
+               retention_time_ms: 86_400_000,
                topics: [
                  %{
-                   topic: "test-topic",
+                   name: "test-topic",
                    partitions: [
-                     %{partition: 0, offset: 100, metadata: ""}
+                     %{partition_index: 0, committed_offset: 100, committed_metadata: ""}
                    ]
                  }
                ]
@@ -530,12 +530,12 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestTest do
                group_id: "default-retention-group",
                generation_id: -1,
                member_id: "",
-               retention_time: -1,
+               retention_time_ms: -1,
                topics: [
                  %{
-                   topic: "topic-1",
+                   name: "topic-1",
                    partitions: [
-                     %{partition: 0, offset: 42, metadata: ""}
+                     %{partition_index: 0, committed_offset: 42, committed_metadata: ""}
                    ]
                  }
                ]
@@ -558,11 +558,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestTest do
       result = OffsetCommit.Request.build_request(request, opts)
 
       partition = hd(hd(result.topics).partitions)
-      assert partition.partition == 0
-      assert partition.offset == 200
-      assert partition.metadata == "meta-1"
+      assert partition.partition_index == 0
+      assert partition.committed_offset == 200
+      assert partition.committed_metadata == "meta-1"
       # Note: V2 does not have timestamp field
-      refute Map.has_key?(partition, :timestamp)
+      refute Map.has_key?(partition, :commit_timestamp)
     end
 
     test "builds request with multiple partitions" do
@@ -585,7 +585,7 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestTest do
 
       result = OffsetCommit.Request.build_request(request, opts)
 
-      assert result.retention_time == 7_200_000
+      assert result.retention_time_ms == 7_200_000
       topic = hd(result.topics)
       assert length(topic.partitions) == 3
     end
@@ -607,8 +607,8 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestTest do
       result = OffsetCommit.Request.build_request(request, opts)
 
       assert length(result.topics) == 2
-      assert Enum.at(result.topics, 0).topic == "topic-a"
-      assert Enum.at(result.topics, 1).topic == "topic-b"
+      assert Enum.at(result.topics, 0).name == "topic-a"
+      assert Enum.at(result.topics, 1).name == "topic-b"
     end
   end
 end

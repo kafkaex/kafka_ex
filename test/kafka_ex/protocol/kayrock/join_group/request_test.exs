@@ -11,7 +11,7 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestTest do
         session_timeout: 30000,
         member_id: "member-123",
         protocol_type: "consumer",
-        group_protocols: [%{protocol_name: "assign", protocol_metadata: <<>>}]
+        group_protocols: [%{name: "assign", metadata: <<>>}]
       ]
 
       result = RequestHelpers.extract_common_fields(opts)
@@ -20,7 +20,7 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestTest do
       assert result.session_timeout == 30000
       assert result.member_id == "member-123"
       assert result.protocol_type == "consumer"
-      assert result.group_protocols == [%{protocol_name: "assign", protocol_metadata: <<>>}]
+      assert result.group_protocols == [%{name: "assign", metadata: <<>>}]
     end
 
     test "uses default protocol_type if not provided" do
@@ -58,16 +58,16 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestTest do
         session_timeout: 30000,
         member_id: "member-123",
         protocol_type: "consumer",
-        group_protocols: [%{protocol_name: "assign", protocol_metadata: <<0, 1, 2>>}]
+        group_protocols: [%{name: "assign", metadata: <<0, 1, 2>>}]
       ]
 
       result = RequestHelpers.build_v0_request(template, opts)
 
       assert result.group_id == "test-group"
-      assert result.session_timeout == 30000
+      assert result.session_timeout_ms == 30000
       assert result.member_id == "member-123"
       assert result.protocol_type == "consumer"
-      assert result.group_protocols == [%{protocol_name: "assign", protocol_metadata: <<0, 1, 2>>}]
+      assert result.protocols == [%{name: "assign", metadata: <<0, 1, 2>>}]
       assert result.existing_field == "value"
     end
   end
@@ -88,8 +88,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestTest do
       result = RequestHelpers.build_v1_or_v2_request(template, opts)
 
       assert result.group_id == "test-group"
-      assert result.session_timeout == 30000
-      assert result.rebalance_timeout == 60000
+      assert result.session_timeout_ms == 30000
+      assert result.rebalance_timeout_ms == 60000
       assert result.member_id == "member-123"
     end
 
@@ -117,7 +117,7 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestTest do
         group_id: "test-group",
         session_timeout: 30000,
         member_id: "member-123",
-        group_protocols: [%{protocol_name: "assign", protocol_metadata: <<>>}]
+        group_protocols: [%{name: "assign", metadata: <<>>}]
       ]
 
       result = JoinGroup.Request.build_request(request, opts)
@@ -126,10 +126,10 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestTest do
                client_id: nil,
                correlation_id: nil,
                group_id: "test-group",
-               session_timeout: 30000,
+               session_timeout_ms: 30000,
                member_id: "member-123",
                protocol_type: "consumer",
-               group_protocols: [%{protocol_name: "assign", protocol_metadata: <<>>}]
+               protocols: [%{name: "assign", metadata: <<>>}]
              }
     end
 
@@ -168,8 +168,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestTest do
       request = %Kayrock.JoinGroup.V0.Request{}
 
       protocols = [
-        %{protocol_name: "range", protocol_metadata: <<1, 2, 3>>},
-        %{protocol_name: "roundrobin", protocol_metadata: <<4, 5, 6>>}
+        %{name: "range", metadata: <<1, 2, 3>>},
+        %{name: "roundrobin", metadata: <<4, 5, 6>>}
       ]
 
       opts = [
@@ -181,7 +181,7 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestTest do
 
       result = JoinGroup.Request.build_request(request, opts)
 
-      assert result.group_protocols == protocols
+      assert result.protocols == protocols
     end
 
     test "preserves existing correlation_id and client_id if present" do
@@ -212,7 +212,7 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestTest do
 
       result = JoinGroup.Request.build_request(request, opts)
 
-      assert result.session_timeout == 2_147_483_647
+      assert result.session_timeout_ms == 2_147_483_647
     end
   end
 
@@ -225,7 +225,7 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestTest do
         session_timeout: 30000,
         rebalance_timeout: 60000,
         member_id: "member-123",
-        group_protocols: [%{protocol_name: "assign", protocol_metadata: <<>>}]
+        group_protocols: [%{name: "assign", metadata: <<>>}]
       ]
 
       result = JoinGroup.Request.build_request(request, opts)
@@ -234,11 +234,11 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestTest do
                client_id: nil,
                correlation_id: nil,
                group_id: "test-group",
-               session_timeout: 30000,
-               rebalance_timeout: 60000,
+               session_timeout_ms: 30000,
+               rebalance_timeout_ms: 60000,
                member_id: "member-123",
                protocol_type: "consumer",
-               group_protocols: [%{protocol_name: "assign", protocol_metadata: <<>>}]
+               protocols: [%{name: "assign", metadata: <<>>}]
              }
     end
 
@@ -255,7 +255,7 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestTest do
 
       result = JoinGroup.Request.build_request(request, opts)
 
-      assert result.rebalance_timeout == 300_000
+      assert result.rebalance_timeout_ms == 300_000
     end
 
     test "raises error when rebalance_timeout is missing" do
@@ -283,7 +283,7 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestTest do
         session_timeout: 30000,
         rebalance_timeout: 60000,
         member_id: "member-123",
-        group_protocols: [%{protocol_name: "assign", protocol_metadata: <<>>}]
+        group_protocols: [%{name: "assign", metadata: <<>>}]
       ]
 
       result = JoinGroup.Request.build_request(request, opts)
@@ -292,11 +292,11 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestTest do
                client_id: nil,
                correlation_id: nil,
                group_id: "test-group",
-               session_timeout: 30000,
-               rebalance_timeout: 60000,
+               session_timeout_ms: 30000,
+               rebalance_timeout_ms: 60000,
                member_id: "member-123",
                protocol_type: "consumer",
-               group_protocols: [%{protocol_name: "assign", protocol_metadata: <<>>}]
+               protocols: [%{name: "assign", metadata: <<>>}]
              }
     end
 
@@ -314,8 +314,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestTest do
       result = JoinGroup.Request.build_request(request, opts)
 
       assert result.group_id == "test-group"
-      assert result.session_timeout == 30000
-      assert result.rebalance_timeout == 60000
+      assert result.session_timeout_ms == 30000
+      assert result.rebalance_timeout_ms == 60000
     end
   end
 end

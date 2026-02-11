@@ -21,11 +21,11 @@ defmodule KafkaEx.Client.ResponseParserTest do
   describe "offset_fetch_response/1" do
     test "parses successful OffsetFetch v1 response" do
       response = %Kayrock.OffsetFetch.V1.Response{
-        responses: [
+        topics: [
           %{
-            topic: "test-topic",
-            partition_responses: [
-              %{partition: 0, offset: 100, metadata: "meta", error_code: 0}
+            name: "test-topic",
+            partitions: [
+              %{partition_index: 0, committed_offset: 100, metadata: "meta", error_code: 0}
             ]
           }
         ]
@@ -50,12 +50,12 @@ defmodule KafkaEx.Client.ResponseParserTest do
     test "parses OffsetFetch v2 response with error_code" do
       response = %Kayrock.OffsetFetch.V2.Response{
         error_code: 0,
-        responses: [
+        topics: [
           %{
-            topic: "topic-a",
-            partition_responses: [
-              %{partition: 0, offset: 200, metadata: "", error_code: 0},
-              %{partition: 1, offset: 300, metadata: "data", error_code: 0}
+            name: "topic-a",
+            partitions: [
+              %{partition_index: 0, committed_offset: 200, metadata: "", error_code: 0},
+              %{partition_index: 1, committed_offset: 300, metadata: "data", error_code: 0}
             ]
           }
         ]
@@ -67,11 +67,11 @@ defmodule KafkaEx.Client.ResponseParserTest do
 
     test "returns error for failed OffsetFetch response" do
       response = %Kayrock.OffsetFetch.V1.Response{
-        responses: [
+        topics: [
           %{
-            topic: "error-topic",
-            partition_responses: [
-              %{partition: 0, offset: -1, metadata: "", error_code: 15}
+            name: "error-topic",
+            partitions: [
+              %{partition_index: 0, committed_offset: -1, metadata: "", error_code: 15}
             ]
           }
         ]
@@ -85,11 +85,11 @@ defmodule KafkaEx.Client.ResponseParserTest do
   describe "offset_commit_response/1" do
     test "parses successful OffsetCommit v2 response" do
       response = %Kayrock.OffsetCommit.V2.Response{
-        responses: [
+        topics: [
           %{
-            topic: "commit-topic",
-            partition_responses: [
-              %{partition: 0, error_code: 0}
+            name: "commit-topic",
+            partitions: [
+              %{partition_index: 0, error_code: 0}
             ]
           }
         ]
@@ -114,12 +114,12 @@ defmodule KafkaEx.Client.ResponseParserTest do
     test "parses OffsetCommit v3 response with throttle_time_ms" do
       response = %Kayrock.OffsetCommit.V3.Response{
         throttle_time_ms: 100,
-        responses: [
+        topics: [
           %{
-            topic: "throttled-topic",
-            partition_responses: [
-              %{partition: 0, error_code: 0},
-              %{partition: 1, error_code: 0}
+            name: "throttled-topic",
+            partitions: [
+              %{partition_index: 0, error_code: 0},
+              %{partition_index: 1, error_code: 0}
             ]
           }
         ]
@@ -131,11 +131,11 @@ defmodule KafkaEx.Client.ResponseParserTest do
 
     test "returns error for failed OffsetCommit response" do
       response = %Kayrock.OffsetCommit.V2.Response{
-        responses: [
+        topics: [
           %{
-            topic: "error-topic",
-            partition_responses: [
-              %{partition: 0, error_code: 16}
+            name: "error-topic",
+            partitions: [
+              %{partition_index: 0, error_code: 16}
             ]
           }
         ]
@@ -247,12 +247,12 @@ defmodule KafkaEx.Client.ResponseParserTest do
       response = %Kayrock.JoinGroup.V0.Response{
         error_code: 0,
         generation_id: 5,
-        group_protocol: "assign",
-        leader_id: "leader-123",
+        protocol_name: "assign",
+        leader: "leader-123",
         member_id: "member-456",
         members: [
-          %{member_id: "member-456", member_metadata: <<1, 2, 3>>},
-          %{member_id: "member-789", member_metadata: <<4, 5, 6>>}
+          %{member_id: "member-456", metadata: <<1, 2, 3>>},
+          %{member_id: "member-789", metadata: <<4, 5, 6>>}
         ]
       }
 
@@ -274,8 +274,8 @@ defmodule KafkaEx.Client.ResponseParserTest do
       response = %Kayrock.JoinGroup.V1.Response{
         error_code: 0,
         generation_id: 10,
-        group_protocol: "roundrobin",
-        leader_id: "leader-abc",
+        protocol_name: "roundrobin",
+        leader: "leader-abc",
         member_id: "member-abc",
         members: []
       }
@@ -297,11 +297,11 @@ defmodule KafkaEx.Client.ResponseParserTest do
         error_code: 0,
         throttle_time_ms: 150,
         generation_id: 3,
-        group_protocol: "range",
-        leader_id: "leader-xyz",
+        protocol_name: "range",
+        leader: "leader-xyz",
         member_id: "member-xyz",
         members: [
-          %{member_id: "member-xyz", member_metadata: <<>>}
+          %{member_id: "member-xyz", metadata: <<>>}
         ]
       }
 
@@ -323,8 +323,8 @@ defmodule KafkaEx.Client.ResponseParserTest do
         error_code: 0,
         throttle_time_ms: 0,
         generation_id: 1,
-        group_protocol: "assign",
-        leader_id: "leader",
+        protocol_name: "assign",
+        leader: "leader",
         member_id: "member",
         members: []
       }
@@ -335,16 +335,16 @@ defmodule KafkaEx.Client.ResponseParserTest do
 
     test "parses JoinGroup response with multiple members" do
       members = [
-        %{member_id: "member-1", member_metadata: <<1>>},
-        %{member_id: "member-2", member_metadata: <<2>>},
-        %{member_id: "member-3", member_metadata: <<3>>}
+        %{member_id: "member-1", metadata: <<1>>},
+        %{member_id: "member-2", metadata: <<2>>},
+        %{member_id: "member-3", metadata: <<3>>}
       ]
 
       response = %Kayrock.JoinGroup.V0.Response{
         error_code: 0,
         generation_id: 7,
-        group_protocol: "sticky",
-        leader_id: "member-1",
+        protocol_name: "sticky",
+        leader: "member-1",
         member_id: "member-1",
         members: members
       }
@@ -362,8 +362,8 @@ defmodule KafkaEx.Client.ResponseParserTest do
       response = %Kayrock.JoinGroup.V0.Response{
         error_code: 25,
         generation_id: 0,
-        group_protocol: "",
-        leader_id: "",
+        protocol_name: "",
+        leader: "",
         member_id: "",
         members: []
       }
@@ -376,8 +376,8 @@ defmodule KafkaEx.Client.ResponseParserTest do
       response = %Kayrock.JoinGroup.V0.Response{
         error_code: 22,
         generation_id: 0,
-        group_protocol: "",
-        leader_id: "",
+        protocol_name: "",
+        leader: "",
         member_id: "",
         members: []
       }
@@ -391,8 +391,8 @@ defmodule KafkaEx.Client.ResponseParserTest do
         error_code: 27,
         throttle_time_ms: 50,
         generation_id: 0,
-        group_protocol: "",
-        leader_id: "",
+        protocol_name: "",
+        leader: "",
         member_id: "",
         members: []
       }
@@ -405,8 +405,8 @@ defmodule KafkaEx.Client.ResponseParserTest do
       response = %Kayrock.JoinGroup.V1.Response{
         error_code: 16,
         generation_id: 0,
-        group_protocol: "",
-        leader_id: "",
+        protocol_name: "",
+        leader: "",
         member_id: "",
         members: []
       }
@@ -419,8 +419,8 @@ defmodule KafkaEx.Client.ResponseParserTest do
       response = %Kayrock.JoinGroup.V0.Response{
         error_code: 15,
         generation_id: 0,
-        group_protocol: "",
-        leader_id: "",
+        protocol_name: "",
+        leader: "",
         member_id: "",
         members: []
       }
@@ -434,8 +434,8 @@ defmodule KafkaEx.Client.ResponseParserTest do
         error_code: 30,
         throttle_time_ms: 0,
         generation_id: 0,
-        group_protocol: "",
-        leader_id: "",
+        protocol_name: "",
+        leader: "",
         member_id: "",
         members: []
       }
@@ -448,8 +448,8 @@ defmodule KafkaEx.Client.ResponseParserTest do
       response = %Kayrock.JoinGroup.V0.Response{
         error_code: 999,
         generation_id: 0,
-        group_protocol: "",
-        leader_id: "",
+        protocol_name: "",
+        leader: "",
         member_id: "",
         members: []
       }
@@ -463,8 +463,8 @@ defmodule KafkaEx.Client.ResponseParserTest do
         error_code: 999,
         throttle_time_ms: 10,
         generation_id: 0,
-        group_protocol: "",
-        leader_id: "",
+        protocol_name: "",
+        leader: "",
         member_id: "",
         members: []
       }
@@ -679,7 +679,7 @@ defmodule KafkaEx.Client.ResponseParserTest do
     test "parses successful ApiVersions v0 response" do
       response = %Kayrock.ApiVersions.V0.Response{
         error_code: 0,
-        api_versions: [
+        api_keys: [
           %{api_key: 0, min_version: 0, max_version: 8},
           %{api_key: 1, min_version: 0, max_version: 11},
           %{api_key: 3, min_version: 0, max_version: 9}
@@ -697,7 +697,7 @@ defmodule KafkaEx.Client.ResponseParserTest do
       response = %Kayrock.ApiVersions.V1.Response{
         error_code: 0,
         throttle_time_ms: 100,
-        api_versions: [
+        api_keys: [
           %{api_key: 0, min_version: 0, max_version: 9},
           %{api_key: 2, min_version: 0, max_version: 5}
         ]
@@ -712,7 +712,7 @@ defmodule KafkaEx.Client.ResponseParserTest do
     test "returns error for failed ApiVersions response" do
       response = %Kayrock.ApiVersions.V0.Response{
         error_code: 35,
-        api_versions: []
+        api_keys: []
       }
 
       assert {:error, error} = ResponseParser.api_versions_response(response)
@@ -884,12 +884,12 @@ defmodule KafkaEx.Client.ResponseParserTest do
         brokers: [
           %{node_id: 0, host: "localhost", port: 9092}
         ],
-        topic_metadata: [
+        topics: [
           %{
             error_code: 0,
-            topic: "test-topic",
-            partition_metadata: [
-              %{error_code: 0, partition: 0, leader: 0, replicas: [0], isr: [0]}
+            name: "test-topic",
+            partitions: [
+              %{error_code: 0, partition_index: 0, leader_id: 0, replica_nodes: [0], isr_nodes: [0]}
             ]
           }
         ]
@@ -910,14 +910,14 @@ defmodule KafkaEx.Client.ResponseParserTest do
           %{node_id: 2, host: "broker2", port: 9092, rack: "rack2"}
         ],
         controller_id: 1,
-        topic_metadata: [
+        topics: [
           %{
             error_code: 0,
-            topic: "events",
+            name: "events",
             is_internal: false,
-            partition_metadata: [
-              %{error_code: 0, partition: 0, leader: 1, replicas: [1, 2], isr: [1, 2]},
-              %{error_code: 0, partition: 1, leader: 2, replicas: [2, 1], isr: [2, 1]}
+            partitions: [
+              %{error_code: 0, partition_index: 0, leader_id: 1, replica_nodes: [1, 2], isr_nodes: [1, 2]},
+              %{error_code: 0, partition_index: 1, leader_id: 2, replica_nodes: [2, 1], isr_nodes: [2, 1]}
             ]
           }
         ]
@@ -935,18 +935,18 @@ defmodule KafkaEx.Client.ResponseParserTest do
     test "parses Metadata response with topic errors (filters out errored topics)" do
       response = %Kayrock.Metadata.V0.Response{
         brokers: [%{node_id: 0, host: "localhost", port: 9092}],
-        topic_metadata: [
+        topics: [
           %{
             error_code: 0,
-            topic: "good-topic",
-            partition_metadata: [
-              %{error_code: 0, partition: 0, leader: 0, replicas: [0], isr: [0]}
+            name: "good-topic",
+            partitions: [
+              %{error_code: 0, partition_index: 0, leader_id: 0, replica_nodes: [0], isr_nodes: [0]}
             ]
           },
           %{
             error_code: 3,
-            topic: "bad-topic",
-            partition_metadata: []
+            name: "bad-topic",
+            partitions: []
           }
         ]
       }
@@ -1044,7 +1044,9 @@ defmodule KafkaEx.Client.ResponseParserTest do
     test "parses successful FindCoordinator v0 response" do
       response = %Kayrock.FindCoordinator.V0.Response{
         error_code: 0,
-        coordinator: %{node_id: 1, host: "broker1", port: 9092}
+        node_id: 1,
+        host: "broker1",
+        port: 9092
       }
 
       assert {:ok, result} = ResponseParser.find_coordinator_response(response)
@@ -1060,7 +1062,9 @@ defmodule KafkaEx.Client.ResponseParserTest do
         error_code: 0,
         throttle_time_ms: 100,
         error_message: nil,
-        coordinator: %{node_id: 2, host: "broker2", port: 9093}
+        node_id: 2,
+        host: "broker2",
+        port: 9093
       }
 
       assert {:ok, result} = ResponseParser.find_coordinator_response(response)
@@ -1072,7 +1076,9 @@ defmodule KafkaEx.Client.ResponseParserTest do
     test "returns error for failed FindCoordinator response" do
       response = %Kayrock.FindCoordinator.V0.Response{
         error_code: 15,
-        coordinator: nil
+        node_id: nil,
+        host: nil,
+        port: nil
       }
 
       assert {:error, error} = ResponseParser.find_coordinator_response(response)
@@ -1084,7 +1090,9 @@ defmodule KafkaEx.Client.ResponseParserTest do
         error_code: 30,
         throttle_time_ms: 0,
         error_message: "Group authorization failed",
-        coordinator: nil
+        node_id: nil,
+        host: nil,
+        port: nil
       }
 
       assert {:error, error} = ResponseParser.find_coordinator_response(response)
@@ -1096,7 +1104,7 @@ defmodule KafkaEx.Client.ResponseParserTest do
     test "parses successful SyncGroup v0 response" do
       response = %Kayrock.SyncGroup.V0.Response{
         error_code: 0,
-        member_assignment: %Kayrock.MemberAssignment{
+        assignment: %Kayrock.MemberAssignment{
           version: 0,
           partition_assignments: [
             %Kayrock.MemberAssignment.PartitionAssignment{
@@ -1120,7 +1128,7 @@ defmodule KafkaEx.Client.ResponseParserTest do
       response = %Kayrock.SyncGroup.V1.Response{
         error_code: 0,
         throttle_time_ms: 75,
-        member_assignment: %Kayrock.MemberAssignment{
+        assignment: %Kayrock.MemberAssignment{
           version: 0,
           partition_assignments: [
             %Kayrock.MemberAssignment.PartitionAssignment{
@@ -1145,7 +1153,7 @@ defmodule KafkaEx.Client.ResponseParserTest do
     test "parses SyncGroup response with empty assignment" do
       response = %Kayrock.SyncGroup.V0.Response{
         error_code: 0,
-        member_assignment: nil
+        assignment: nil
       }
 
       assert {:ok, sync_group} = ResponseParser.sync_group_response(response)
@@ -1156,7 +1164,7 @@ defmodule KafkaEx.Client.ResponseParserTest do
     test "returns error for rebalance_in_progress" do
       response = %Kayrock.SyncGroup.V0.Response{
         error_code: 27,
-        member_assignment: nil
+        assignment: nil
       }
 
       assert {:error, error} = ResponseParser.sync_group_response(response)
@@ -1167,7 +1175,7 @@ defmodule KafkaEx.Client.ResponseParserTest do
       response = %Kayrock.SyncGroup.V1.Response{
         error_code: 25,
         throttle_time_ms: 0,
-        member_assignment: nil
+        assignment: nil
       }
 
       assert {:error, error} = ResponseParser.sync_group_response(response)
@@ -1178,8 +1186,8 @@ defmodule KafkaEx.Client.ResponseParserTest do
   describe "create_topics_response/1" do
     test "parses successful CreateTopics v0 response" do
       response = %Kayrock.CreateTopics.V0.Response{
-        topic_errors: [
-          %{topic: "new-topic", error_code: 0}
+        topics: [
+          %{name: "new-topic", error_code: 0}
         ]
       }
 
@@ -1193,9 +1201,9 @@ defmodule KafkaEx.Client.ResponseParserTest do
 
     test "parses CreateTopics v1 response with error_message" do
       response = %Kayrock.CreateTopics.V1.Response{
-        topic_errors: [
-          %{topic: "topic-a", error_code: 0, error_message: nil},
-          %{topic: "topic-b", error_code: 0, error_message: nil}
+        topics: [
+          %{name: "topic-a", error_code: 0, error_message: nil},
+          %{name: "topic-b", error_code: 0, error_message: nil}
         ]
       }
 
@@ -1206,8 +1214,8 @@ defmodule KafkaEx.Client.ResponseParserTest do
 
     test "parses CreateTopics response with topic already exists error" do
       response = %Kayrock.CreateTopics.V0.Response{
-        topic_errors: [
-          %{topic: "existing-topic", error_code: 36}
+        topics: [
+          %{name: "existing-topic", error_code: 36}
         ]
       }
 
@@ -1221,8 +1229,8 @@ defmodule KafkaEx.Client.ResponseParserTest do
   describe "delete_topics_response/1" do
     test "parses successful DeleteTopics v0 response" do
       response = %Kayrock.DeleteTopics.V0.Response{
-        topic_error_codes: [
-          %{topic: "deleted-topic", error_code: 0}
+        responses: [
+          %{name: "deleted-topic", error_code: 0}
         ]
       }
 
@@ -1237,9 +1245,9 @@ defmodule KafkaEx.Client.ResponseParserTest do
     test "parses DeleteTopics v1 response with throttle_time_ms" do
       response = %Kayrock.DeleteTopics.V1.Response{
         throttle_time_ms: 50,
-        topic_error_codes: [
-          %{topic: "topic-1", error_code: 0},
-          %{topic: "topic-2", error_code: 0}
+        responses: [
+          %{name: "topic-1", error_code: 0},
+          %{name: "topic-2", error_code: 0}
         ]
       }
 
@@ -1251,8 +1259,8 @@ defmodule KafkaEx.Client.ResponseParserTest do
 
     test "parses DeleteTopics response with unknown topic error" do
       response = %Kayrock.DeleteTopics.V0.Response{
-        topic_error_codes: [
-          %{topic: "nonexistent-topic", error_code: 3}
+        responses: [
+          %{name: "nonexistent-topic", error_code: 3}
         ]
       }
 

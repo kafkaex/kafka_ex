@@ -40,8 +40,8 @@ defmodule KafkaEx.Protocol.Kayrock.ResponseHelpersTest do
   describe "fail_fast_iterate_topics/2" do
     test "iterates over topics and accumulates results" do
       topics_data = [
-        %{topic: "topic1", partition_responses: [%{partition: 0}, %{partition: 1}]},
-        %{topic: "topic2", partition_responses: [%{partition: 0}]}
+        %{name: "topic1", partitions: [%{partition: 0}, %{partition: 1}]},
+        %{name: "topic2", partitions: [%{partition: 0}]}
       ]
 
       parser_fn = fn topic, partitions ->
@@ -57,9 +57,9 @@ defmodule KafkaEx.Protocol.Kayrock.ResponseHelpersTest do
 
     test "stops iteration on first error" do
       topics_data = [
-        %{topic: "topic1", partition_responses: [%{partition: 0}]},
-        %{topic: "bad-topic", partition_responses: [%{partition: 0}]},
-        %{topic: "topic3", partition_responses: [%{partition: 0}]}
+        %{name: "topic1", partitions: [%{partition: 0}]},
+        %{name: "bad-topic", partitions: [%{partition: 0}]},
+        %{name: "topic3", partitions: [%{partition: 0}]}
       ]
 
       parser_fn = fn topic, _partitions ->
@@ -85,7 +85,7 @@ defmodule KafkaEx.Protocol.Kayrock.ResponseHelpersTest do
 
     test "accumulates single results as list" do
       topics_data = [
-        %{topic: "topic1", partition_responses: [%{partition: 0}]}
+        %{name: "topic1", partitions: [%{partition: 0}]}
       ]
 
       parser_fn = fn topic, _partitions -> {:ok, topic} end
@@ -97,7 +97,7 @@ defmodule KafkaEx.Protocol.Kayrock.ResponseHelpersTest do
 
     test "flattens list results correctly" do
       topics_data = [
-        %{topic: "topic1", partition_responses: [%{partition: 0}, %{partition: 1}]}
+        %{name: "topic1", partitions: [%{partition: 0}, %{partition: 1}]}
       ]
 
       parser_fn = fn _topic, partitions ->

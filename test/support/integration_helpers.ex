@@ -109,8 +109,8 @@ defmodule KafkaEx.IntegrationHelpers do
   def join_to_group(client, topic, consumer_group) do
     group_protocols = [
       %{
-        protocol_name: "assign",
-        protocol_metadata: %Kayrock.GroupProtocolMetadata{
+        name: "assign",
+        metadata: %Kayrock.GroupProtocolMetadata{
           topics: [topic]
         }
       }

@@ -14,7 +14,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.ResponseTest do
 
       response = %Kayrock.SyncGroup.V0.Response{
         error_code: 0,
-        member_assignment: member_assignment
+        assignment: member_assignment
       }
 
       assert {:ok, result} = SyncGroup.Response.parse_response(response)
@@ -36,7 +36,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.ResponseTest do
 
       response = %Kayrock.SyncGroup.V0.Response{
         error_code: 0,
-        member_assignment: member_assignment
+        assignment: member_assignment
       }
 
       assert {:ok, result} = SyncGroup.Response.parse_response(response)
@@ -65,7 +65,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.ResponseTest do
 
       response = %Kayrock.SyncGroup.V0.Response{
         error_code: 0,
-        member_assignment: member_assignment
+        assignment: member_assignment
       }
 
       assert {:ok, result} = SyncGroup.Response.parse_response(response)
@@ -81,7 +81,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.ResponseTest do
 
       response = %Kayrock.SyncGroup.V0.Response{
         error_code: 25,
-        member_assignment: member_assignment
+        assignment: member_assignment
       }
 
       assert {:error, error} = SyncGroup.Response.parse_response(response)
@@ -98,7 +98,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.ResponseTest do
 
       response = %Kayrock.SyncGroup.V0.Response{
         error_code: 27,
-        member_assignment: member_assignment
+        assignment: member_assignment
       }
 
       assert {:error, error} = SyncGroup.Response.parse_response(response)
@@ -114,7 +114,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.ResponseTest do
 
       response = %Kayrock.SyncGroup.V0.Response{
         error_code: 22,
-        member_assignment: member_assignment
+        assignment: member_assignment
       }
 
       assert {:error, error} = SyncGroup.Response.parse_response(response)
@@ -130,7 +130,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.ResponseTest do
 
       response = %Kayrock.SyncGroup.V0.Response{
         error_code: 15,
-        member_assignment: member_assignment
+        assignment: member_assignment
       }
 
       assert {:error, error} = SyncGroup.Response.parse_response(response)
@@ -146,7 +146,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.ResponseTest do
 
       response = %Kayrock.SyncGroup.V0.Response{
         error_code: 16,
-        member_assignment: member_assignment
+        assignment: member_assignment
       }
 
       assert {:error, error} = SyncGroup.Response.parse_response(response)
@@ -162,7 +162,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.ResponseTest do
 
       response = %Kayrock.SyncGroup.V0.Response{
         error_code: 30,
-        member_assignment: member_assignment
+        assignment: member_assignment
       }
 
       assert {:error, error} = SyncGroup.Response.parse_response(response)
@@ -178,7 +178,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.ResponseTest do
 
       response = %Kayrock.SyncGroup.V0.Response{
         error_code: 27,
-        member_assignment: member_assignment
+        assignment: member_assignment
       }
 
       {:error, error} = SyncGroup.Response.parse_response(response)
@@ -198,7 +198,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.ResponseTest do
       response = %Kayrock.SyncGroup.V1.Response{
         throttle_time_ms: 100,
         error_code: 0,
-        member_assignment: member_assignment
+        assignment: member_assignment
       }
 
       assert {:ok, result} = SyncGroup.Response.parse_response(response)
@@ -216,7 +216,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.ResponseTest do
       response = %Kayrock.SyncGroup.V1.Response{
         throttle_time_ms: 0,
         error_code: 0,
-        member_assignment: member_assignment
+        assignment: member_assignment
       }
 
       assert {:ok, result} = SyncGroup.Response.parse_response(response)
@@ -238,7 +238,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.ResponseTest do
       response = %Kayrock.SyncGroup.V1.Response{
         throttle_time_ms: 50,
         error_code: 0,
-        member_assignment: member_assignment
+        assignment: member_assignment
       }
 
       assert {:ok, result} = SyncGroup.Response.parse_response(response)
@@ -272,7 +272,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.ResponseTest do
       response = %Kayrock.SyncGroup.V1.Response{
         throttle_time_ms: 25,
         error_code: 0,
-        member_assignment: member_assignment
+        assignment: member_assignment
       }
 
       assert {:ok, result} = SyncGroup.Response.parse_response(response)
@@ -290,7 +290,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.ResponseTest do
       response = %Kayrock.SyncGroup.V1.Response{
         throttle_time_ms: 10,
         error_code: 25,
-        member_assignment: member_assignment
+        assignment: member_assignment
       }
 
       assert {:error, error} = SyncGroup.Response.parse_response(response)
@@ -308,7 +308,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.ResponseTest do
       response = %Kayrock.SyncGroup.V1.Response{
         throttle_time_ms: 0,
         error_code: 27,
-        member_assignment: member_assignment
+        assignment: member_assignment
       }
 
       assert {:error, error} = SyncGroup.Response.parse_response(response)
@@ -325,7 +325,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.ResponseTest do
       response = %Kayrock.SyncGroup.V1.Response{
         throttle_time_ms: 5,
         error_code: 22,
-        member_assignment: member_assignment
+        assignment: member_assignment
       }
 
       assert {:error, error} = SyncGroup.Response.parse_response(response)
@@ -342,7 +342,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.ResponseTest do
       response = %Kayrock.SyncGroup.V1.Response{
         throttle_time_ms: 15,
         error_code: 15,
-        member_assignment: member_assignment
+        assignment: member_assignment
       }
 
       assert {:error, error} = SyncGroup.Response.parse_response(response)
@@ -359,7 +359,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.ResponseTest do
       response = %Kayrock.SyncGroup.V1.Response{
         throttle_time_ms: 20,
         error_code: 16,
-        member_assignment: member_assignment
+        assignment: member_assignment
       }
 
       assert {:error, error} = SyncGroup.Response.parse_response(response)
@@ -376,7 +376,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.ResponseTest do
       response = %Kayrock.SyncGroup.V1.Response{
         throttle_time_ms: 30,
         error_code: 30,
-        member_assignment: member_assignment
+        assignment: member_assignment
       }
 
       assert {:error, error} = SyncGroup.Response.parse_response(response)
@@ -393,7 +393,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.ResponseTest do
       response = %Kayrock.SyncGroup.V1.Response{
         throttle_time_ms: 40,
         error_code: 27,
-        member_assignment: member_assignment
+        assignment: member_assignment
       }
 
       {:error, error} = SyncGroup.Response.parse_response(response)

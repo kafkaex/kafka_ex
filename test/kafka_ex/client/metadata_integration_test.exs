@@ -69,17 +69,17 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
         brokers: [
           %{node_id: 1, host: "broker1.local", port: 9092}
         ],
-        topic_metadata: [
+        topics: [
           %{
             error_code: 0,
-            topic: "test-topic",
-            partition_metadata: [
+            name: "test-topic",
+            partitions: [
               %{
                 error_code: 0,
-                partition: 0,
-                leader: 1,
-                replicas: [1],
-                isr: [1]
+                partition_index: 0,
+                leader_id: 1,
+                replica_nodes: [1],
+                isr_nodes: [1]
               }
             ]
           }
@@ -102,13 +102,13 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
           %{node_id: 2, host: "broker2.local", port: 9092, rack: "rack-2"}
         ],
         controller_id: 2,
-        topic_metadata: [
+        topics: [
           %{
             error_code: 0,
-            topic: "internal-topic",
+            name: "internal-topic",
             is_internal: true,
-            partition_metadata: [
-              %{error_code: 0, partition: 0, leader: 1, replicas: [1, 2], isr: [1, 2]}
+            partitions: [
+              %{error_code: 0, partition_index: 0, leader_id: 1, replica_nodes: [1, 2], isr_nodes: [1, 2]}
             ]
           }
         ]
@@ -129,7 +129,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
         ],
         cluster_id: "test-cluster-id",
         controller_id: 1,
-        topic_metadata: []
+        topics: []
       }
 
       {:ok, cluster_metadata} = ResponseParser.metadata_response(response)
@@ -144,21 +144,21 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
           %{node_id: 1, host: "broker1.local", port: 9092, rack: nil}
         ],
         controller_id: 1,
-        topic_metadata: [
+        topics: [
           %{
             error_code: 0,
-            topic: "good-topic",
+            name: "good-topic",
             is_internal: false,
-            partition_metadata: [
-              %{error_code: 0, partition: 0, leader: 1, replicas: [1], isr: [1]}
+            partitions: [
+              %{error_code: 0, partition_index: 0, leader_id: 1, replica_nodes: [1], isr_nodes: [1]}
             ]
           },
           %{
             error_code: 3,
             # UNKNOWN_TOPIC_OR_PARTITION
-            topic: "bad-topic",
+            name: "bad-topic",
             is_internal: false,
-            partition_metadata: []
+            partitions: []
           }
         ]
       }
@@ -174,7 +174,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
       response = %Metadata.V1.Response{
         brokers: [],
         controller_id: -1,
-        topic_metadata: []
+        topics: []
       }
 
       {:ok, cluster_metadata} = ResponseParser.metadata_response(response)
@@ -195,12 +195,12 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
       # Parse response
       response = %Metadata.V0.Response{
         brokers: [%{node_id: 1, host: "localhost", port: 9092}],
-        topic_metadata: [
+        topics: [
           %{
             error_code: 0,
-            topic: "topic1",
-            partition_metadata: [
-              %{error_code: 0, partition: 0, leader: 1, replicas: [1], isr: [1]}
+            name: "topic1",
+            partitions: [
+              %{error_code: 0, partition_index: 0, leader_id: 1, replica_nodes: [1], isr_nodes: [1]}
             ]
           }
         ]
@@ -221,7 +221,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
       response = %Metadata.V1.Response{
         brokers: [%{node_id: 1, host: "localhost", port: 9092, rack: "us-east-1a"}],
         controller_id: 1,
-        topic_metadata: []
+        topics: []
       }
 
       {:ok, cluster_metadata} = KayrockProtocol.parse_response(:metadata, response)
@@ -240,7 +240,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
         brokers: [%{node_id: 1, host: "localhost", port: 9092, rack: nil}],
         cluster_id: "prod-cluster",
         controller_id: 1,
-        topic_metadata: []
+        topics: []
       }
 
       {:ok, cluster_metadata} = KayrockProtocol.parse_response(:metadata, response)

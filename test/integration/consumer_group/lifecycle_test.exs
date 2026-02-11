@@ -32,8 +32,8 @@ defmodule KafkaEx.Integration.ConsumerGroup.LifecycleTest do
       # Step 1: Join the group
       group_protocols = [
         %{
-          protocol_name: "assign",
-          protocol_metadata: %Kayrock.GroupProtocolMetadata{topics: [topic_name]}
+          name: "assign",
+          metadata: %Kayrock.GroupProtocolMetadata{topics: [topic_name]}
         }
       ]
 
@@ -50,7 +50,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.LifecycleTest do
       group_assignment = [
         %{
           member_id: member_id,
-          member_assignment: %Kayrock.MemberAssignment{
+          assignment: %Kayrock.MemberAssignment{
             partition_assignments: [
               %Kayrock.MemberAssignment.PartitionAssignment{
                 topic: topic_name,
@@ -103,8 +103,8 @@ defmodule KafkaEx.Integration.ConsumerGroup.LifecycleTest do
 
       group_protocols = [
         %{
-          protocol_name: "assign",
-          protocol_metadata: %Kayrock.GroupProtocolMetadata{topics: [topic_name]}
+          name: "assign",
+          metadata: %Kayrock.GroupProtocolMetadata{topics: [topic_name]}
         }
       ]
 
@@ -119,7 +119,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.LifecycleTest do
       group_assignment = [
         %{
           member_id: member_id,
-          member_assignment: %Kayrock.MemberAssignment{
+          assignment: %Kayrock.MemberAssignment{
             partition_assignments: [
               %Kayrock.MemberAssignment.PartitionAssignment{
                 topic: topic_name,
@@ -152,8 +152,8 @@ defmodule KafkaEx.Integration.ConsumerGroup.LifecycleTest do
 
       group_protocols = [
         %{
-          protocol_name: "assign",
-          protocol_metadata: %Kayrock.GroupProtocolMetadata{topics: [topic_name]}
+          name: "assign",
+          metadata: %Kayrock.GroupProtocolMetadata{topics: [topic_name]}
         }
       ]
 
@@ -167,7 +167,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.LifecycleTest do
       group_assignment = [
         %{
           member_id: member_id,
-          member_assignment: %Kayrock.MemberAssignment{
+          assignment: %Kayrock.MemberAssignment{
             partition_assignments: [
               %Kayrock.MemberAssignment.PartitionAssignment{
                 topic: topic_name,

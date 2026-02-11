@@ -6,10 +6,10 @@ defmodule KafkaEx.Cluster.TopicTest do
   describe "from_topic_metadata/1" do
     setup do
       metadata = %{
-        topic: "test-topic",
+        name: "test-topic",
         is_internal: false,
-        partition_metadata: [
-          %{error_code: 0, partition: 123, leader: 321, replicas: [], isr: []}
+        partitions: [
+          %{error_code: 0, partition_index: 123, leader_id: 321, replica_nodes: [], isr_nodes: []}
         ]
       }
 

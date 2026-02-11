@@ -914,13 +914,13 @@ defmodule KafkaEx.Client do
 
     case ok_or_err do
       :ok ->
-        case Enum.find(response.topic_metadata, &(&1.error_code == ErrorCode.atom_to_code!(:leader_not_available))) do
+        case Enum.find(response.topics, &(&1.error_code == ErrorCode.atom_to_code!(:leader_not_available))) do
           nil ->
             {state_out, response}
 
-          topic_metadata ->
+          topic_entry ->
             :timer.sleep(300)
-            retrieve_metadata(state, sync_timeout, topics, retry - 1, topic_metadata.error_code)
+            retrieve_metadata(state, sync_timeout, topics, retry - 1, topic_entry.error_code)
         end
 
       _ ->
@@ -1029,12 +1029,12 @@ defmodule KafkaEx.Client do
   end
 
   defp update_consumer_group_coordinator(state, consumer_group) do
-    request = %FindCoordinator.V1.Request{coordinator_key: consumer_group, coordinator_type: 0}
+    request = %FindCoordinator.V1.Request{key: consumer_group, key_type: 0}
     {response, updated_state} = kayrock_network_request(request, NodeSelector.first_available(), state)
 
     case response do
-      {:ok, %FindCoordinator.V1.Response{error_code: 0, coordinator: coordinator}} ->
-        State.put_consumer_group_coordinator(updated_state, consumer_group, coordinator.node_id)
+      {:ok, %FindCoordinator.V1.Response{error_code: 0, node_id: node_id}} ->
+        State.put_consumer_group_coordinator(updated_state, consumer_group, node_id)
 
       {:ok, %FindCoordinator.V1.Response{error_code: error_code}} ->
         error_code = ErrorCode.code_to_atom(error_code)

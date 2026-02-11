@@ -22,8 +22,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseHelpers do
     %{
       error_code: error_code,
       generation_id: generation_id,
-      group_protocol: group_protocol,
-      leader_id: leader_id,
+      protocol_name: protocol_name,
+      leader: leader,
       member_id: member_id,
       members: members
     } = response
@@ -36,8 +36,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseHelpers do
          JoinGroup.build(
            throttle_time_ms: throttle_time_extractor.(response),
            generation_id: generation_id,
-           group_protocol: group_protocol,
-           leader_id: leader_id,
+           group_protocol: protocol_name,
+           leader_id: leader,
            member_id: member_id,
            members: parsed_members
          )}
@@ -55,7 +55,7 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseHelpers do
     Enum.map(kayrock_members, fn member ->
       %JoinGroup.Member{
         member_id: member.member_id,
-        member_metadata: member.member_metadata
+        member_metadata: member.metadata
       }
     end)
   end

@@ -48,8 +48,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestHelpers do
   def build_group_protocols(topics) do
     [
       %{
-        protocol_name: "assign",
-        protocol_metadata: %Kayrock.GroupProtocolMetadata{topics: topics}
+        name: "assign",
+        metadata: %Kayrock.GroupProtocolMetadata{topics: topics}
       }
     ]
   end
@@ -69,10 +69,10 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestHelpers do
 
     request_template
     |> Map.put(:group_id, group_id)
-    |> Map.put(:session_timeout, session_timeout)
+    |> Map.put(:session_timeout_ms, session_timeout)
     |> Map.put(:member_id, member_id)
     |> Map.put(:protocol_type, protocol_type)
-    |> Map.put(:group_protocols, group_protocols)
+    |> Map.put(:protocols, group_protocols)
   end
 
   @doc """
@@ -84,6 +84,6 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestHelpers do
 
     request_template
     |> build_v0_request(opts)
-    |> Map.put(:rebalance_timeout, rebalance_timeout)
+    |> Map.put(:rebalance_timeout_ms, rebalance_timeout)
   end
 end

@@ -22,29 +22,25 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.RequestTest do
     end
   end
 
-  describe "RequestHelpers.build_partitions/1" do
-    test "builds partition list with partition numbers" do
+  describe "RequestHelpers.build_partition_indexes/1" do
+    test "builds partition index list with partition numbers" do
       partitions = [
         %{partition_num: 0},
         %{partition_num: 1},
         %{partition_num: 5}
       ]
 
-      result = RequestHelpers.build_partitions(partitions)
+      result = RequestHelpers.build_partition_indexes(partitions)
 
-      assert [
-               %{partition: 0},
-               %{partition: 1},
-               %{partition: 5}
-             ] = result
+      assert [0, 1, 5] = result
     end
 
     test "handles single partition" do
       partitions = [%{partition_num: 0}]
 
-      result = RequestHelpers.build_partitions(partitions)
+      result = RequestHelpers.build_partition_indexes(partitions)
 
-      assert [%{partition: 0}] = result
+      assert [0] = result
     end
 
     test "ignores extra fields in partition data" do
@@ -52,11 +48,9 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.RequestTest do
         %{partition_num: 0, offset: 100, metadata: "ignored"}
       ]
 
-      result = RequestHelpers.build_partitions(partitions)
+      result = RequestHelpers.build_partition_indexes(partitions)
 
-      assert [%{partition: 0}] = result
-      refute Map.has_key?(hd(result), :offset)
-      refute Map.has_key?(hd(result), :metadata)
+      assert [0] = result
     end
   end
 
@@ -73,12 +67,12 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.RequestTest do
 
       assert [
                %{
-                 topic: "topic1",
-                 partitions: [%{partition: 0}]
+                 name: "topic1",
+                 partition_indexes: [0]
                },
                %{
-                 topic: "topic2",
-                 partitions: [%{partition: 0}, %{partition: 1}]
+                 name: "topic2",
+                 partition_indexes: [0, 1]
                }
              ] = result
     end
@@ -99,12 +93,8 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.RequestTest do
 
       assert [
                %{
-                 topic: "my-topic",
-                 partitions: [
-                   %{partition: 0},
-                   %{partition: 1},
-                   %{partition: 2}
-                 ]
+                 name: "my-topic",
+                 partition_indexes: [0, 1, 2]
                }
              ] = result
     end
@@ -120,8 +110,8 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.RequestTest do
 
       assert [
                %{
-                 topic: "simple-topic",
-                 partitions: [%{partition: 0}]
+                 name: "simple-topic",
+                 partition_indexes: [0]
                }
              ] = result
     end
@@ -137,8 +127,8 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.RequestTest do
 
       assert [
                %{
-                 topic: "empty-topic",
-                 partitions: []
+                 name: "empty-topic",
+                 partition_indexes: []
                }
              ] = result
     end
@@ -162,8 +152,8 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.RequestTest do
       result = RequestHelpers.build_topics(opts)
 
       assert [
-               %{topic: "topic-a", partitions: [%{partition: 10}, %{partition: 20}]},
-               %{topic: "topic-b", partitions: [%{partition: 99}]}
+               %{name: "topic-a", partition_indexes: [10, 20]},
+               %{name: "topic-b", partition_indexes: [99]}
              ] = result
     end
   end
@@ -187,8 +177,8 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.RequestTest do
                group_id: "test-group",
                topics: [
                  %{
-                   topic: "test-topic",
-                   partitions: [%{partition: 0}]
+                   name: "test-topic",
+                   partition_indexes: [0]
                  }
                ]
              }
@@ -212,12 +202,8 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.RequestTest do
                group_id: "consumer-group",
                topics: [
                  %{
-                   topic: "topic-1",
-                   partitions: [
-                     %{partition: 0},
-                     %{partition: 1},
-                     %{partition: 2}
-                   ]
+                   name: "topic-1",
+                   partition_indexes: [0, 1, 2]
                  }
                ]
              }
@@ -242,12 +228,12 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.RequestTest do
                group_id: "multi-topic-group",
                topics: [
                  %{
-                   topic: "topic-1",
-                   partitions: [%{partition: 0}]
+                   name: "topic-1",
+                   partition_indexes: [0]
                  },
                  %{
-                   topic: "topic-2",
-                   partitions: [%{partition: 0}, %{partition: 1}]
+                   name: "topic-2",
+                   partition_indexes: [0, 1]
                  }
                ]
              }
@@ -291,8 +277,8 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.RequestTest do
                group_id: "coordinator-group",
                topics: [
                  %{
-                   topic: "kafka-topic",
-                   partitions: [%{partition: 0}]
+                   name: "kafka-topic",
+                   partition_indexes: [0]
                  }
                ]
              }
@@ -316,12 +302,8 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.RequestTest do
                group_id: "v1-group",
                topics: [
                  %{
-                   topic: "topic-1",
-                   partitions: [
-                     %{partition: 0},
-                     %{partition: 1},
-                     %{partition: 2}
-                   ]
+                   name: "topic-1",
+                   partition_indexes: [0, 1, 2]
                  }
                ]
              }
@@ -347,16 +329,16 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.RequestTest do
                group_id: "multi-v1-group",
                topics: [
                  %{
-                   topic: "topic-a",
-                   partitions: [%{partition: 0}]
+                   name: "topic-a",
+                   partition_indexes: [0]
                  },
                  %{
-                   topic: "topic-b",
-                   partitions: [%{partition: 0}, %{partition: 1}]
+                   name: "topic-b",
+                   partition_indexes: [0, 1]
                  },
                  %{
-                   topic: "topic-c",
-                   partitions: [%{partition: 0}]
+                   name: "topic-c",
+                   partition_indexes: [0]
                  }
                ]
              }

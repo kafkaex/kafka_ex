@@ -11,16 +11,17 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.ResponseHelpers do
   @doc """
   Parses coordinator data from response into a Broker struct.
 
-  Returns nil if coordinator is nil.
+  In kayrock v1, coordinator fields (node_id, host, port) are flattened
+  directly on the response struct rather than nested in a coordinator field.
   """
-  @spec parse_coordinator(map() | nil) :: Broker.t() | nil
-  def parse_coordinator(nil), do: nil
+  @spec parse_coordinator_from_response(map()) :: Broker.t() | nil
+  def parse_coordinator_from_response(%{node_id: nil}), do: nil
 
-  def parse_coordinator(coordinator) do
+  def parse_coordinator_from_response(response) do
     %Broker{
-      node_id: coordinator.node_id,
-      host: coordinator.host,
-      port: coordinator.port
+      node_id: response.node_id,
+      host: response.host,
+      port: response.port
     }
   end
 
@@ -45,7 +46,7 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.ResponseHelpers do
   """
   @spec parse_v0_response(map()) :: {:ok, FindCoordinator.t()} | {:error, Error.t()}
   def parse_v0_response(response) do
-    coordinator = parse_coordinator(response.coordinator)
+    coordinator = parse_coordinator_from_response(response)
     fields = [coordinator: coordinator]
 
     case check_error(response.error_code, fields) do
@@ -62,7 +63,7 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.ResponseHelpers do
   """
   @spec parse_v1_response(map()) :: {:ok, FindCoordinator.t()} | {:error, Error.t()}
   def parse_v1_response(response) do
-    coordinator = parse_coordinator(response.coordinator)
+    coordinator = parse_coordinator_from_response(response)
 
     fields = [
       coordinator: coordinator,

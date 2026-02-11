@@ -116,11 +116,11 @@ defmodule KafkaEx.Cluster.ClusterMetadata do
       end)
 
     topics =
-      metadata.topic_metadata
-      |> Enum.filter(fn topic_metadata -> topic_metadata.error_code == 0 end)
-      |> Enum.into(%{}, fn topic_metadata ->
-        case topic_metadata do
-          %{topic: topic_name, error_code: 0} -> {topic_name, Topic.from_topic_metadata(topic_metadata)}
+      metadata.topics
+      |> Enum.filter(fn topic_entry -> topic_entry.error_code == 0 end)
+      |> Enum.into(%{}, fn topic_entry ->
+        case topic_entry do
+          %{name: topic_name, error_code: 0} -> {topic_name, Topic.from_topic_metadata(topic_entry)}
           _ -> nil
         end
       end)

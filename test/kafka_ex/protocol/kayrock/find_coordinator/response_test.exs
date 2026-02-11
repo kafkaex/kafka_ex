@@ -4,16 +4,13 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.ResponseTest do
   alias KafkaEx.Protocol.Kayrock.FindCoordinator.Response
   alias KafkaEx.Messages.FindCoordinator
 
-  # Helper to build coordinator struct
-  defp build_coordinator(node_id, host, port) do
-    %{node_id: node_id, host: host, port: port}
-  end
-
   describe "V0 Response implementation" do
     test "parses successful response" do
       response = %Kayrock.FindCoordinator.V0.Response{
         error_code: 0,
-        coordinator: build_coordinator(1, "broker1.example.com", 9092)
+        node_id: 1,
+        host: "broker1.example.com",
+        port: 9092
       }
 
       assert {:ok, %FindCoordinator{} = result} = Response.parse_response(response)
@@ -30,7 +27,9 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.ResponseTest do
     test "parses response with error" do
       response = %Kayrock.FindCoordinator.V0.Response{
         error_code: 15,
-        coordinator: nil
+        node_id: nil,
+        host: nil,
+        port: nil
       }
 
       assert {:error, error} = Response.parse_response(response)
@@ -40,7 +39,9 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.ResponseTest do
     test "parses response with group_coordinator_not_available error" do
       response = %Kayrock.FindCoordinator.V0.Response{
         error_code: 15,
-        coordinator: nil
+        node_id: nil,
+        host: nil,
+        port: nil
       }
 
       assert {:error, error} = Response.parse_response(response)
@@ -50,7 +51,9 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.ResponseTest do
     test "parses response with not_coordinator error" do
       response = %Kayrock.FindCoordinator.V0.Response{
         error_code: 16,
-        coordinator: nil
+        node_id: nil,
+        host: nil,
+        port: nil
       }
 
       assert {:error, error} = Response.parse_response(response)
@@ -64,7 +67,9 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.ResponseTest do
         throttle_time_ms: 50,
         error_code: 0,
         error_message: nil,
-        coordinator: build_coordinator(2, "broker2.example.com", 9093)
+        node_id: 2,
+        host: "broker2.example.com",
+        port: 9093
       }
 
       assert {:ok, %FindCoordinator{} = result} = Response.parse_response(response)
@@ -82,7 +87,9 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.ResponseTest do
         throttle_time_ms: 0,
         error_code: 15,
         error_message: "Coordinator not available",
-        coordinator: nil
+        node_id: nil,
+        host: nil,
+        port: nil
       }
 
       assert {:error, error} = Response.parse_response(response)
@@ -94,7 +101,9 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.ResponseTest do
         throttle_time_ms: 1000,
         error_code: 0,
         error_message: nil,
-        coordinator: build_coordinator(3, "broker3.example.com", 9094)
+        node_id: 3,
+        host: "broker3.example.com",
+        port: 9094
       }
 
       assert {:ok, result} = Response.parse_response(response)
@@ -108,7 +117,9 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.ResponseTest do
         throttle_time_ms: 0,
         error_code: 0,
         error_message: nil,
-        coordinator: build_coordinator(5, "tx-broker.example.com", 9092)
+        node_id: 5,
+        host: "tx-broker.example.com",
+        port: 9092
       }
 
       assert {:ok, result} = Response.parse_response(response)
@@ -122,7 +133,9 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.ResponseTest do
     test "returns error for coordinator_not_available" do
       response = %Kayrock.FindCoordinator.V0.Response{
         error_code: 15,
-        coordinator: nil
+        node_id: nil,
+        host: nil,
+        port: nil
       }
 
       assert {:error, error} = Response.parse_response(response)
@@ -134,7 +147,9 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.ResponseTest do
         throttle_time_ms: 0,
         error_code: 16,
         error_message: "This is not the coordinator",
-        coordinator: nil
+        node_id: nil,
+        host: nil,
+        port: nil
       }
 
       assert {:error, error} = Response.parse_response(response)
@@ -146,7 +161,9 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.ResponseTest do
         throttle_time_ms: 0,
         error_code: 30,
         error_message: "Authorization failed",
-        coordinator: nil
+        node_id: nil,
+        host: nil,
+        port: nil
       }
 
       assert {:error, error} = Response.parse_response(response)
@@ -158,7 +175,9 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.ResponseTest do
         throttle_time_ms: 0,
         error_code: 24,
         error_message: "Invalid group ID",
-        coordinator: nil
+        node_id: nil,
+        host: nil,
+        port: nil
       }
 
       assert {:error, error} = Response.parse_response(response)
@@ -170,7 +189,9 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.ResponseTest do
     test "V0 response has no throttle_time_ms" do
       v0_response = %Kayrock.FindCoordinator.V0.Response{
         error_code: 0,
-        coordinator: build_coordinator(1, "localhost", 9092)
+        node_id: 1,
+        host: "localhost",
+        port: 9092
       }
 
       assert {:ok, result} = Response.parse_response(v0_response)
@@ -183,7 +204,9 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.ResponseTest do
         throttle_time_ms: 100,
         error_code: 0,
         error_message: nil,
-        coordinator: build_coordinator(1, "localhost", 9092)
+        node_id: 1,
+        host: "localhost",
+        port: 9092
       }
 
       assert {:ok, result} = Response.parse_response(v1_response)
@@ -196,7 +219,9 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.ResponseTest do
       # When there's an error, coordinator may be nil
       response = %Kayrock.FindCoordinator.V0.Response{
         error_code: 0,
-        coordinator: nil
+        node_id: nil,
+        host: nil,
+        port: nil
       }
 
       assert {:ok, result} = Response.parse_response(response)
@@ -208,11 +233,9 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.ResponseTest do
         throttle_time_ms: 0,
         error_code: 0,
         error_message: nil,
-        coordinator: %{
-          node_id: 42,
-          host: "kafka-broker-42.internal",
-          port: 19092
-        }
+        node_id: 42,
+        host: "kafka-broker-42.internal",
+        port: 19092
       }
 
       assert {:ok, result} = Response.parse_response(response)

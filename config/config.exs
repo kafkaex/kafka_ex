@@ -73,8 +73,7 @@ config :kafka_ex,
     cacertfile: File.cwd!() <> "/ssl/ca-cert",
     certfile: File.cwd!() <> "/ssl/cert.pem",
     keyfile: File.cwd!() <> "/ssl/key.pem"
-  ],
-  snappy_module: :snappyer
+  ]
 
 # SASL Authentication (optional)
 

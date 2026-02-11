@@ -19,8 +19,8 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseHelpers do
   Parses an OffsetFetch response without top-level error_code (V0/V1).
   """
   @spec parse_response_without_top_level_error(map()) :: {:ok, list(Offset.t())} | {:error, any()}
-  def parse_response_without_top_level_error(%{responses: responses}) do
-    responses
+  def parse_response_without_top_level_error(%{topics: topics}) do
+    topics
     |> fail_fast_iterate_topics(&parse_partition_responses/2)
     |> build_response()
   end
@@ -33,8 +33,8 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseHelpers do
     {:error, ErrorStruct.build(error_code, %{})}
   end
 
-  def parse_response_with_top_level_error(%{error_code: 0, responses: responses}) do
-    responses
+  def parse_response_with_top_level_error(%{error_code: 0, topics: topics}) do
+    topics
     |> fail_fast_iterate_topics(&parse_partition_responses/2)
     |> build_response()
   end
@@ -47,7 +47,7 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseHelpers do
     fail_fast_iterate_partitions(partition_responses, topic, &build_offset/2)
   end
 
-  defp build_offset(topic, %{partition: partition, error_code: 0, offset: offset, metadata: metadata}) do
+  defp build_offset(topic, %{partition_index: partition, error_code: 0, committed_offset: offset, metadata: metadata}) do
     data = %{
       partition: partition,
       offset: offset,
@@ -58,7 +58,7 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseHelpers do
     {:ok, Offset.from_list_offset(topic, [data])}
   end
 
-  defp build_offset(topic, %{error_code: error_code, partition: partition}) do
+  defp build_offset(topic, %{error_code: error_code, partition_index: partition}) do
     {:error, {error_code, topic, partition}}
   end
 end

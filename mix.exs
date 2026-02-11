@@ -54,18 +54,17 @@ defmodule KafkaEx.Mixfile do
 
   defp deps do
     [
-      {:kayrock, "~> 0.2.0"},
+      {:kayrock, "== 1.0.0-rc1"},
       {:telemetry, "~> 1.2"},
       {:credo, "~> 1.1", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: :dev, runtime: false},
       {:excoveralls, "~> 0.18", only: :test, runtime: false},
       {:ex_doc, "~> 0.23", only: :dev, runtime: false},
       {:hammox, "~> 0.5.0", only: :test},
-      {:snappyer, "~> 1.2", only: [:dev, :test]},
+      {:snappyer, "~> 1.2", optional: true},
       {:aws_credentials, "~> 1.0", only: [:dev, :test]},
       {:aws_signature, "~> 0.4.2", only: [:dev, :test]},
       {:jason, "~> 1.0", optional: true},
-      # Error handling tests (testcontainers + toxiproxy)
       {:testcontainers, "~> 1.14", only: :test},
       {:toxiproxy_ex, "~> 2.0", only: :test}
     ]

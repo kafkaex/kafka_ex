@@ -7,10 +7,10 @@ defmodule KafkaEx.Cluster.PartitionInfoTest do
     setup do
       metadata = %{
         error_code: 0,
-        partition: 1,
-        leader: 2,
-        replicas: [123],
-        isr: [21]
+        partition_index: 1,
+        leader_id: 2,
+        replica_nodes: [123],
+        isr_nodes: [21]
       }
 
       {:ok, %{metadata: metadata}}

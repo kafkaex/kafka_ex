@@ -67,13 +67,13 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestHelpersTest do
       assert length(result) == 2
       [topic1, topic2] = result
 
-      assert topic1.topic == "topic1"
+      assert topic1.name == "topic1"
       [p1] = topic1.partitions
-      assert p1.partition == 0
-      assert p1.offset == 100
-      refute Map.has_key?(p1, :timestamp)
+      assert p1.partition_index == 0
+      assert p1.committed_offset == 100
+      refute Map.has_key?(p1, :commit_timestamp)
 
-      assert topic2.topic == "topic2"
+      assert topic2.name == "topic2"
     end
 
     test "builds topics structure with timestamp" do
@@ -87,7 +87,7 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestHelpersTest do
 
       [topic] = result
       [partition] = topic.partitions
-      assert partition.timestamp == 1_234_567_890
+      assert partition.commit_timestamp == 1_234_567_890
     end
 
     test "uses default timestamp when include_timestamp is true but not provided" do
@@ -101,7 +101,7 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestHelpersTest do
 
       [topic] = result
       [partition] = topic.partitions
-      assert partition.timestamp == -1
+      assert partition.commit_timestamp == -1
     end
 
     test "raises on missing topics" do
@@ -123,13 +123,13 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestHelpersTest do
       assert length(result) == 2
       [p1, p2] = result
 
-      assert p1.partition == 0
-      assert p1.offset == 100
-      assert p1.metadata == "meta1"
+      assert p1.partition_index == 0
+      assert p1.committed_offset == 100
+      assert p1.committed_metadata == "meta1"
 
-      assert p2.partition == 1
-      assert p2.offset == 200
-      assert p2.metadata == ""
+      assert p2.partition_index == 1
+      assert p2.committed_offset == 200
+      assert p2.committed_metadata == ""
     end
 
     test "builds partition list with timestamp" do
@@ -138,7 +138,7 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestHelpersTest do
       result = RequestHelpers.build_partitions(partitions, true)
 
       [p] = result
-      assert p.timestamp == 9999
+      assert p.commit_timestamp == 9999
     end
   end
 
@@ -159,7 +159,7 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestHelpersTest do
       assert result.group_id == "test-group"
       assert result.generation_id == 3
       assert result.member_id == "member-1"
-      assert result.retention_time == 60_000
+      assert result.retention_time_ms == 60_000
       assert length(result.topics) == 1
     end
 
@@ -176,7 +176,7 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestHelpersTest do
       assert result.group_id == "test-group"
       assert result.generation_id == -1
       assert result.member_id == ""
-      assert result.retention_time == -1
+      assert result.retention_time_ms == -1
     end
   end
 end

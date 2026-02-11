@@ -8,8 +8,8 @@ defmodule KafkaEx.Protocol.Kayrock.DeleteTopics.ResponseTest do
   describe "ResponseHelpers.parse_topic_results/1" do
     test "parses successful topics" do
       topic_error_codes = [
-        %{topic: "topic1", error_code: 0},
-        %{topic: "topic2", error_code: 0}
+        %{name: "topic1", error_code: 0},
+        %{name: "topic2", error_code: 0}
       ]
 
       result = ResponseHelpers.parse_topic_results(topic_error_codes)
@@ -20,8 +20,8 @@ defmodule KafkaEx.Protocol.Kayrock.DeleteTopics.ResponseTest do
 
     test "parses topics with errors" do
       topic_error_codes = [
-        %{topic: "topic1", error_code: 0},
-        %{topic: "topic2", error_code: 3}
+        %{name: "topic1", error_code: 0},
+        %{name: "topic2", error_code: 3}
       ]
 
       result = ResponseHelpers.parse_topic_results(topic_error_codes)
@@ -36,7 +36,7 @@ defmodule KafkaEx.Protocol.Kayrock.DeleteTopics.ResponseTest do
 
   describe "ResponseHelpers.build_response/2" do
     test "builds response without throttle_time_ms" do
-      topic_results = ResponseHelpers.parse_topic_results([%{topic: "t1", error_code: 0}])
+      topic_results = ResponseHelpers.parse_topic_results([%{name: "t1", error_code: 0}])
 
       result = ResponseHelpers.build_response(topic_results)
 
@@ -46,7 +46,7 @@ defmodule KafkaEx.Protocol.Kayrock.DeleteTopics.ResponseTest do
     end
 
     test "builds response with throttle_time_ms" do
-      topic_results = ResponseHelpers.parse_topic_results([%{topic: "t1", error_code: 0}])
+      topic_results = ResponseHelpers.parse_topic_results([%{name: "t1", error_code: 0}])
 
       result = ResponseHelpers.build_response(topic_results, 100)
 
@@ -57,9 +57,9 @@ defmodule KafkaEx.Protocol.Kayrock.DeleteTopics.ResponseTest do
   describe "V0 Response implementation" do
     test "parses successful response" do
       response = %Kayrock.DeleteTopics.V0.Response{
-        topic_error_codes: [
-          %{topic: "topic1", error_code: 0},
-          %{topic: "topic2", error_code: 0}
+        responses: [
+          %{name: "topic1", error_code: 0},
+          %{name: "topic2", error_code: 0}
         ]
       }
 
@@ -72,10 +72,10 @@ defmodule KafkaEx.Protocol.Kayrock.DeleteTopics.ResponseTest do
 
     test "parses response with errors" do
       response = %Kayrock.DeleteTopics.V0.Response{
-        topic_error_codes: [
-          %{topic: "topic1", error_code: 0},
-          %{topic: "topic2", error_code: 3},
-          %{topic: "topic3", error_code: 41}
+        responses: [
+          %{name: "topic1", error_code: 0},
+          %{name: "topic2", error_code: 3},
+          %{name: "topic3", error_code: 41}
         ]
       }
 
@@ -90,8 +90,8 @@ defmodule KafkaEx.Protocol.Kayrock.DeleteTopics.ResponseTest do
 
     test "V0 does not include throttle_time_ms" do
       response = %Kayrock.DeleteTopics.V0.Response{
-        topic_error_codes: [
-          %{topic: "topic1", error_code: 0}
+        responses: [
+          %{name: "topic1", error_code: 0}
         ]
       }
 
@@ -104,8 +104,8 @@ defmodule KafkaEx.Protocol.Kayrock.DeleteTopics.ResponseTest do
     test "parses successful response with throttle_time_ms" do
       response = %Kayrock.DeleteTopics.V1.Response{
         throttle_time_ms: 50,
-        topic_error_codes: [
-          %{topic: "topic1", error_code: 0}
+        responses: [
+          %{name: "topic1", error_code: 0}
         ]
       }
 
@@ -117,8 +117,8 @@ defmodule KafkaEx.Protocol.Kayrock.DeleteTopics.ResponseTest do
     test "parses response with error" do
       response = %Kayrock.DeleteTopics.V1.Response{
         throttle_time_ms: 0,
-        topic_error_codes: [
-          %{topic: "topic1", error_code: 3}
+        responses: [
+          %{name: "topic1", error_code: 3}
         ]
       }
 
@@ -131,7 +131,7 @@ defmodule KafkaEx.Protocol.Kayrock.DeleteTopics.ResponseTest do
     test "handles zero throttle time" do
       response = %Kayrock.DeleteTopics.V1.Response{
         throttle_time_ms: 0,
-        topic_error_codes: [%{topic: "topic1", error_code: 0}]
+        responses: [%{name: "topic1", error_code: 0}]
       }
 
       assert {:ok, result} = DeleteTopics.Response.parse_response(response)
@@ -146,7 +146,7 @@ defmodule KafkaEx.Protocol.Kayrock.DeleteTopics.ResponseTest do
             {Kayrock.DeleteTopics.V1.Response, %{throttle_time_ms: 0}}
           ] do
         response =
-          struct(response_mod, Map.merge(%{topic_error_codes: [%{topic: "t", error_code: 0}]}, extra_fields))
+          struct(response_mod, Map.merge(%{responses: [%{name: "t", error_code: 0}]}, extra_fields))
 
         assert {:ok, %DeleteTopicsStruct{}} = DeleteTopics.Response.parse_response(response)
       end
@@ -155,7 +155,7 @@ defmodule KafkaEx.Protocol.Kayrock.DeleteTopics.ResponseTest do
     test "V1 includes throttle_time_ms while V0 does not" do
       # V0 - no throttle_time_ms
       v0_response = %Kayrock.DeleteTopics.V0.Response{
-        topic_error_codes: [%{topic: "t", error_code: 0}]
+        responses: [%{name: "t", error_code: 0}]
       }
 
       {:ok, v0_result} = DeleteTopics.Response.parse_response(v0_response)
@@ -164,7 +164,7 @@ defmodule KafkaEx.Protocol.Kayrock.DeleteTopics.ResponseTest do
       # V1 - has throttle_time_ms
       v1_response = %Kayrock.DeleteTopics.V1.Response{
         throttle_time_ms: 25,
-        topic_error_codes: [%{topic: "t", error_code: 0}]
+        responses: [%{name: "t", error_code: 0}]
       }
 
       {:ok, v1_result} = DeleteTopics.Response.parse_response(v1_response)
@@ -175,7 +175,7 @@ defmodule KafkaEx.Protocol.Kayrock.DeleteTopics.ResponseTest do
   describe "Edge cases" do
     test "handles empty topic list" do
       response = %Kayrock.DeleteTopics.V0.Response{
-        topic_error_codes: []
+        responses: []
       }
 
       assert {:ok, result} = DeleteTopics.Response.parse_response(response)

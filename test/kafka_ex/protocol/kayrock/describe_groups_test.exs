@@ -8,7 +8,7 @@ defmodule KafkaEx.Protocol.Kayrock.DescribeGroupsTest do
   describe "build_request/2" do
     test "builds request for Describe Groups API" do
       consumer_group_names = ["test-group"]
-      expected_request = %V0.Request{group_ids: consumer_group_names}
+      expected_request = %V0.Request{groups: consumer_group_names}
 
       assert KayrockDescribeGroups.Request.build_request(
                %V0.Request{},

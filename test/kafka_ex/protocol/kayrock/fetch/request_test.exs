@@ -21,7 +21,7 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.RequestTest do
       assert [%{topic: "test-topic", partitions: [partition]}] = result.topics
       assert partition.partition == 0
       assert partition.fetch_offset == 100
-      assert partition.max_bytes == 1_000_000
+      assert partition.partition_max_bytes == 1_000_000
     end
 
     test "builds V0 request with custom options" do
@@ -40,7 +40,7 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.RequestTest do
       assert result.max_wait_time == 5_000
       assert result.min_bytes == 100
       assert [%{partitions: [partition]}] = result.topics
-      assert partition.max_bytes == 500_000
+      assert partition.partition_max_bytes == 500_000
     end
 
     test "V0 request does not include log_start_offset" do
@@ -196,8 +196,8 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.RequestTest do
       assert result.isolation_level == 0
       # V7 adds session fields for incremental fetch
       assert result.session_id == 0
-      assert result.epoch == -1
-      assert result.forgetten_topics_data == []
+      assert result.session_epoch == -1
+      assert result.forgotten_topics_data == []
       assert [%{partitions: [partition]}] = result.topics
       assert partition.log_start_offset == 0
     end
@@ -216,8 +216,8 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.RequestTest do
       result = Request.build_request(template, opts)
 
       assert result.session_id == 123
-      assert result.epoch == 5
-      assert result.forgetten_topics_data == [%{topic: "old_topic"}]
+      assert result.session_epoch == 5
+      assert result.forgotten_topics_data == [%{topic: "old_topic"}]
     end
 
     test "builds V7 request with all custom options" do
@@ -243,7 +243,7 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.RequestTest do
       assert result.min_bytes == 500
       assert result.isolation_level == 1
       assert result.session_id == 42
-      assert result.epoch == 3
+      assert result.session_epoch == 3
       assert [%{topic: "events", partitions: [partition]}] = result.topics
       assert partition.partition == 2
       assert partition.fetch_offset == 500
@@ -307,8 +307,8 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.RequestTest do
       assert is_nil(Map.get(v5, :session_id)) or v5.session_id == nil
       # V7 has session fields
       assert v7.session_id == 0
-      assert v7.epoch == -1
-      assert v7.forgetten_topics_data == []
+      assert v7.session_epoch == -1
+      assert v7.forgotten_topics_data == []
     end
   end
 end
