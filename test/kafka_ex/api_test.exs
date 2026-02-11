@@ -103,6 +103,13 @@ defmodule KafkaEx.APITest do
       topic_partitions = [{"test-topic", [%{partition_num: 0, timestamp: :latest}]}]
       assert {:error, :unknown_topic} = KafkaEx.API.list_offsets(client, topic_partitions)
     end
+
+    test "passes through plain error atom" do
+      {:ok, client} = MockClient.start_link(%{list_offsets: {:error, :not_leader_for_partition}})
+
+      topic_partitions = [{"test-topic", [%{partition_num: 0, timestamp: :latest}]}]
+      assert {:error, :not_leader_for_partition} = KafkaEx.API.list_offsets(client, topic_partitions)
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -121,6 +128,18 @@ defmodule KafkaEx.APITest do
       {:ok, client} = MockClient.start_link(%{metadata: {:error, :network_error}})
 
       assert {:error, :network_error} = KafkaEx.API.metadata(client)
+    end
+  end
+
+  describe "metadata/3 with explicit topics" do
+    test "returns cluster metadata for specific topics" do
+      cluster = %ClusterMetadata{brokers: %{1 => %Broker{node_id: 1, host: "localhost", port: 9092}}}
+      {:ok, client} = MockClient.start_link(%{metadata: {:ok, cluster}})
+
+      assert {:ok, ^cluster} = KafkaEx.API.metadata(client, ["topic1", "topic2"], [])
+
+      calls = MockClient.get_calls(client)
+      assert [{:metadata, ["topic1", "topic2"]}] = calls
     end
   end
 
@@ -186,6 +205,48 @@ defmodule KafkaEx.APITest do
 
       assert {:error, :unknown_topic} = KafkaEx.API.produce(client, "test-topic", 0, [%{value: "x"}])
     end
+
+    test "resolves partition via partitioner when partition is nil" do
+      topic_info = %Topic{name: "test-topic", partition_leaders: %{0 => 1, 1 => 2, 2 => 1}}
+      metadata = %RecordMetadata{topic: "test-topic", partition: 1, base_offset: 50}
+
+      {:ok, client} =
+        MockClient.start_link(%{
+          topic_metadata: {:ok, [topic_info]},
+          produce: {:ok, metadata}
+        })
+
+      # With a key, the default partitioner will hash it deterministically
+      messages = [%{key: "user-123", value: "data"}]
+      assert {:ok, ^metadata} = KafkaEx.API.produce(client, "test-topic", nil, messages)
+
+      calls = MockClient.get_calls(client)
+      # First call should be topic_metadata, then produce
+      assert [{:topic_metadata, ["test-topic"]}, {:produce, "test-topic", _partition, ^messages}] = calls
+    end
+
+    test "returns error when topic has no partitions (nil partition)" do
+      topic_info = %Topic{name: "test-topic", partition_leaders: %{}}
+
+      {:ok, client} = MockClient.start_link(%{topic_metadata: {:ok, [topic_info]}})
+
+      assert {:error, :no_partitions_available} =
+               KafkaEx.API.produce(client, "test-topic", nil, [%{value: "x"}])
+    end
+
+    test "returns error when topic not found (nil partition)" do
+      {:ok, client} = MockClient.start_link(%{topic_metadata: {:ok, []}})
+
+      assert {:error, :topic_not_found} =
+               KafkaEx.API.produce(client, "test-topic", nil, [%{value: "x"}])
+    end
+
+    test "returns error when metadata call fails (nil partition)" do
+      {:ok, client} = MockClient.start_link(%{topic_metadata: {:error, :network_error}})
+
+      assert {:error, :network_error} =
+               KafkaEx.API.produce(client, "test-topic", nil, [%{value: "x"}])
+    end
   end
 
   describe "produce_one/5" do
@@ -207,6 +268,50 @@ defmodule KafkaEx.APITest do
 
       calls = MockClient.get_calls(client)
       assert [{:produce, "test-topic", 0, [%{value: "hello", key: "my-key"}]}] = calls
+    end
+
+    test "produces message with timestamp" do
+      metadata = %RecordMetadata{topic: "test-topic", partition: 0, base_offset: 100}
+      {:ok, client} = MockClient.start_link(%{produce: {:ok, metadata}})
+      ts = 1_700_000_000_000
+
+      assert {:ok, _} = KafkaEx.API.produce_one(client, "test-topic", 0, "hello", timestamp: ts)
+
+      calls = MockClient.get_calls(client)
+      assert [{:produce, "test-topic", 0, [%{value: "hello", timestamp: ^ts}]}] = calls
+    end
+
+    test "produces message with headers" do
+      metadata = %RecordMetadata{topic: "test-topic", partition: 0, base_offset: 100}
+      {:ok, client} = MockClient.start_link(%{produce: {:ok, metadata}})
+      headers = [{"content-type", "application/json"}]
+
+      assert {:ok, _} = KafkaEx.API.produce_one(client, "test-topic", 0, "hello", headers: headers)
+
+      calls = MockClient.get_calls(client)
+      assert [{:produce, "test-topic", 0, [%{value: "hello", headers: ^headers}]}] = calls
+    end
+
+    test "produces message with key, timestamp, and headers combined" do
+      metadata = %RecordMetadata{topic: "test-topic", partition: 0, base_offset: 100}
+      {:ok, client} = MockClient.start_link(%{produce: {:ok, metadata}})
+      ts = 1_700_000_000_000
+      headers = [{"trace-id", "abc123"}]
+
+      assert {:ok, _} =
+               KafkaEx.API.produce_one(client, "test-topic", 0, "hello",
+                 key: "k1",
+                 timestamp: ts,
+                 headers: headers
+               )
+
+      calls = MockClient.get_calls(client)
+
+      assert [{:produce, "test-topic", 0, [msg]}] = calls
+      assert msg.value == "hello"
+      assert msg.key == "k1"
+      assert msg.timestamp == ts
+      assert msg.headers == headers
     end
   end
 

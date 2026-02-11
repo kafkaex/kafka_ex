@@ -82,7 +82,7 @@ defmodule KafkaEx.Chaos.CompressionTest do
 
       ChaosTestHelpers.with_bandwidth_limit(ctx.proxy_name, 20, fn ->
         result = KafkaEx.API.produce(client, @test_topic, 0, messages, compression: :gzip)
-        assert result != nil, "Expected produce to complete under bandwidth limit"
+        assert !is_nil(result), "Expected produce to complete under bandwidth limit"
       end)
     end
 
@@ -178,7 +178,7 @@ defmodule KafkaEx.Chaos.CompressionTest do
 
       ChaosTestHelpers.with_bandwidth_limit(ctx.proxy_name, 20, fn ->
         result = KafkaEx.API.fetch(client, @test_topic, 0, produce_result.base_offset, max_bytes: 100_000)
-        assert result != nil, "Expected fetch to complete under bandwidth limit"
+        assert !is_nil(result), "Expected fetch to complete under bandwidth limit"
       end)
     end
   end

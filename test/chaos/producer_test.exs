@@ -152,7 +152,7 @@ defmodule KafkaEx.Chaos.ProducerTest do
 
       ChaosTestHelpers.with_latency(ctx.proxy_name, 200, fn ->
         result = KafkaEx.API.produce(client, @test_topic, 0, [%{key: "k", value: "v"}], required_acks: 0)
-        assert result != nil
+        assert !is_nil(result)
       end)
     end
   end
@@ -181,7 +181,7 @@ defmodule KafkaEx.Chaos.ProducerTest do
 
       ChaosTestHelpers.with_bandwidth_limit(ctx.proxy_name, 10, fn ->
         result = KafkaEx.API.produce(client, @test_topic, 0, messages)
-        assert result != nil, "Expected produce to complete under bandwidth limit"
+        assert !is_nil(result), "Expected produce to complete under bandwidth limit"
       end)
     end
   end
