@@ -438,7 +438,12 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         group_id: "test-group",
         generation_id: -1,
         member_id: "",
-        topics: [%{name: "test-topic", partitions: [%{partition_index: 0, committed_offset: 100, commit_timestamp: -1, committed_metadata: ""}]}]
+        topics: [
+          %{
+            name: "test-topic",
+            partitions: [%{partition_index: 0, committed_offset: 100, commit_timestamp: -1, committed_metadata: ""}]
+          }
+        ]
       }
 
       assert expected_request == request
@@ -467,7 +472,12 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         group_id: "consumer-group",
         generation_id: 5,
         member_id: "member-123",
-        topics: [%{name: "my-topic", partitions: [%{partition_index: 1, committed_offset: 200, commit_timestamp: -1, committed_metadata: ""}]}]
+        topics: [
+          %{
+            name: "my-topic",
+            partitions: [%{partition_index: 1, committed_offset: 200, commit_timestamp: -1, committed_metadata: ""}]
+          }
+        ]
       }
 
       assert expected_request == request
@@ -523,7 +533,9 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         client_id: nil,
         correlation_id: nil,
         group_id: "legacy-group",
-        topics: [%{name: "legacy-topic", partitions: [%{partition_index: 0, committed_offset: 50, committed_metadata: ""}]}]
+        topics: [
+          %{name: "legacy-topic", partitions: [%{partition_index: 0, committed_offset: 50, committed_metadata: ""}]}
+        ]
       }
 
       assert expected_request == request
