@@ -5,15 +5,21 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.RequestHelpers do
 
   @doc """
   Extracts and normalizes topics list from options.
+
+  Wraps plain string topics as `%{name: topic}` maps, which is the format
+  Kayrock's serializer expects for all Metadata API versions.
   """
-  @spec build_topics_list(Keyword.t()) :: [String.t()] | nil
+  @spec build_topics_list(Keyword.t()) :: [%{name: String.t()}] | nil
   def build_topics_list(opts) when is_list(opts) do
     case Keyword.get(opts, :topics) do
       nil -> nil
       [] -> nil
-      topics when is_list(topics) -> topics
+      topics when is_list(topics) -> Enum.map(topics, &wrap_topic/1)
     end
   end
+
+  defp wrap_topic(topic) when is_binary(topic), do: %{name: topic}
+  defp wrap_topic(%{name: _} = topic), do: topic
 
   @doc """
   Returns the default API version for Metadata requests.

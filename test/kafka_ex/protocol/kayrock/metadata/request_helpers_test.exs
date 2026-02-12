@@ -17,11 +17,15 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.RequestHelpersTest do
     end
 
     test "returns topics list when provided" do
-      assert RequestHelpers.build_topics_list(topics: ["topic1", "topic2"]) == ["topic1", "topic2"]
+      assert RequestHelpers.build_topics_list(topics: ["topic1", "topic2"]) == [%{name: "topic1"}, %{name: "topic2"}]
     end
 
     test "returns single topic list" do
-      assert RequestHelpers.build_topics_list(topics: ["my-topic"]) == ["my-topic"]
+      assert RequestHelpers.build_topics_list(topics: ["my-topic"]) == [%{name: "my-topic"}]
+    end
+
+    test "passes through already-wrapped topic maps" do
+      assert RequestHelpers.build_topics_list(topics: [%{name: "already-wrapped"}]) == [%{name: "already-wrapped"}]
     end
   end
 

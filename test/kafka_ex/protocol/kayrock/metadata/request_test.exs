@@ -28,12 +28,12 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.RequestTest do
     end
 
     test "builds request for specific topics" do
-      request = MetadataRequest.build_request(%V0.Request{}, topics: ["topic1", "topic2"])
+      request = MetadataRequest.build_request(%V0.Request{}, topics: [%{name: "topic1"}, %{name: "topic2"}])
 
       assert request == %V0.Request{
                client_id: nil,
                correlation_id: nil,
-               topics: ["topic1", "topic2"]
+               topics: [%{name: "topic1"}, %{name: "topic2"}]
              }
     end
 
@@ -43,7 +43,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.RequestTest do
       assert request == %V0.Request{
                client_id: nil,
                correlation_id: nil,
-               topics: ["my-topic"]
+               topics: [%{name: "my-topic"}]
              }
     end
 
@@ -57,7 +57,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.RequestTest do
       assert request == %V0.Request{
                client_id: "test-client",
                correlation_id: 42,
-               topics: ["topic1"]
+               topics: [%{name: "topic1"}]
              }
     end
   end
@@ -89,7 +89,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.RequestTest do
       assert request == %V1.Request{
                client_id: nil,
                correlation_id: nil,
-               topics: ["topic1", "topic2", "topic3"]
+               topics: [%{name: "topic1"}, %{name: "topic2"}, %{name: "topic3"}]
              }
     end
 
@@ -99,7 +99,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.RequestTest do
       assert request == %V1.Request{
                client_id: nil,
                correlation_id: nil,
-               topics: ["single-topic"]
+               topics: [%{name: "single-topic"}]
              }
     end
 
@@ -113,7 +113,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.RequestTest do
       assert request == %V1.Request{
                client_id: "my-client",
                correlation_id: 100,
-               topics: ["topic-a"]
+               topics: [%{name: "topic-a"}]
              }
     end
   end
@@ -145,7 +145,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.RequestTest do
       assert request == %V2.Request{
                client_id: nil,
                correlation_id: nil,
-               topics: ["foo", "bar", "baz"]
+               topics: [%{name: "foo"}, %{name: "bar"}, %{name: "baz"}]
              }
     end
 
@@ -155,7 +155,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.RequestTest do
       assert request == %V2.Request{
                client_id: nil,
                correlation_id: nil,
-               topics: ["test-topic"]
+               topics: [%{name: "test-topic"}]
              }
     end
 
@@ -169,7 +169,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.RequestTest do
       assert request == %V2.Request{
                client_id: "v2-client",
                correlation_id: 200,
-               topics: ["v2-topic"]
+               topics: [%{name: "v2-topic"}]
              }
     end
   end

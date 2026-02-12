@@ -535,14 +535,14 @@ Run the full integration test suite:
 MIX_ENV=test mix test --include integration --exclude sasl
 ```
 
-Or run specific test categories using the CI scripts:
+Or run specific test categories:
 
 ```bash
-./scripts/ci_tests_consumer_group.sh
-./scripts/ci_tests_produce.sh
-./scripts/ci_tests_consume.sh
-./scripts/ci_tests_lifecycle.sh
-./scripts/ci_tests_auth.sh
+MIX_ENV=test mix test --only consumer_group
+MIX_ENV=test mix test --only produce
+MIX_ENV=test mix test --only consume
+MIX_ENV=test mix test --only lifecycle
+MIX_ENV=test mix test --only auth
 ```
 
 ### Static analysis

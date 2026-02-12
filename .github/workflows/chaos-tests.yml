@@ -63,7 +63,7 @@ jobs:
       - name: Run Chaos Tests
         id: test-run
         continue-on-error: true
-        run: mix test.chaos
+        run: mix test --only chaos
 
       - name: Retry failed tests (1st retry)
         id: retry-1

@@ -57,7 +57,7 @@ jobs:
       - name: Run Consumer Group Tests
         id: test-run
         continue-on-error: true
-        run: ./scripts/ci_tests_consumer_group.sh
+        run: mix test --only consumer_group
 
       - name: Retry failed tests (1st retry)
         id: retry-1
@@ -115,7 +115,7 @@ jobs:
       - name: Run Produce Tests
         id: test-run
         continue-on-error: true
-        run: ./scripts/ci_tests_produce.sh
+        run: mix test --only produce
 
       - name: Retry failed tests (1st retry)
         id: retry-1
@@ -173,7 +173,7 @@ jobs:
       - name: Run Consume Tests
         id: test-run
         continue-on-error: true
-        run: ./scripts/ci_tests_consume.sh
+        run: mix test --only consume
 
       - name: Retry failed tests (1st retry)
         id: retry-1
@@ -231,7 +231,7 @@ jobs:
       - name: Run Lifecycle Tests
         id: test-run
         continue-on-error: true
-        run: ./scripts/ci_tests_lifecycle.sh
+        run: mix test --only lifecycle
 
       - name: Retry failed tests (1st retry)
         id: retry-1
@@ -289,7 +289,7 @@ jobs:
       - name: Run Auth Tests
         id: test-run
         continue-on-error: true
-        run: ./scripts/ci_tests_auth.sh
+        run: mix test --only auth
 
       - name: Retry failed tests (1st retry)
         id: retry-1

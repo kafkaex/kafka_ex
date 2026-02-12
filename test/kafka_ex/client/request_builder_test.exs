@@ -42,32 +42,29 @@ defmodule KafkaEx.Client.RequestBuilderTest do
   describe "metadata_request/2" do
     test "returns request for Metadata API with specific topics" do
       state = %KafkaEx.Client.State{api_versions: %{3 => {0, 2}}}
-      topics = ["topic1", "topic2"]
 
-      {:ok, request} = RequestBuilder.metadata_request([topics: topics], state)
+      {:ok, request} = RequestBuilder.metadata_request([topics: ["topic1", "topic2"]], state)
 
       assert Fixtures.request_type?(request, :metadata, 1)
-      assert request.topics == topics
+      assert request.topics == [%{name: "topic1"}, %{name: "topic2"}]
     end
 
     test "returns request for Metadata API v0" do
       state = %KafkaEx.Client.State{api_versions: %{3 => {0, 2}}}
-      topics = ["test-topic"]
 
-      {:ok, request} = RequestBuilder.metadata_request([topics: topics, api_version: 0], state)
+      {:ok, request} = RequestBuilder.metadata_request([topics: ["test-topic"], api_version: 0], state)
 
       assert Fixtures.request_type?(request, :metadata, 0)
-      assert request.topics == topics
+      assert request.topics == [%{name: "test-topic"}]
     end
 
     test "returns request for Metadata API v2" do
       state = %KafkaEx.Client.State{api_versions: %{3 => {0, 2}}}
-      topics = ["topic-a", "topic-b"]
 
-      {:ok, request} = RequestBuilder.metadata_request([topics: topics, api_version: 2], state)
+      {:ok, request} = RequestBuilder.metadata_request([topics: ["topic-a", "topic-b"], api_version: 2], state)
 
       assert Fixtures.request_type?(request, :metadata, 2)
-      assert request.topics == topics
+      assert request.topics == [%{name: "topic-a"}, %{name: "topic-b"}]
     end
 
     test "returns request for all topics when topics is nil" do

@@ -32,7 +32,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
       {:ok, request} = RequestBuilder.metadata_request([topics: ["topic1", "topic2"]], state)
 
       assert Fixtures.request_type?(request, :metadata, 1)
-      assert request.topics == ["topic1", "topic2"]
+      assert request.topics == [%{name: "topic1"}, %{name: "topic2"}]
     end
 
     test "builds request with custom API version" do
@@ -51,7 +51,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
       {:ok, request} = RequestBuilder.metadata_request([topics: ["test"], api_version: 2], state)
 
       assert Fixtures.request_type?(request, :metadata, 2)
-      assert request.topics == ["test"]
+      assert request.topics == [%{name: "test"}]
     end
 
     test "returns error for unsupported API version" do
@@ -195,7 +195,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
       # Build request
       request = KayrockProtocol.build_request(:metadata, 0, topics: ["topic1"])
       assert Fixtures.request_type?(request, :metadata, 0)
-      assert request.topics == ["topic1"]
+      assert request.topics == [%{name: "topic1"}]
 
       # Parse response
       response =
@@ -240,7 +240,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
       # Build request
       request = KayrockProtocol.build_request(:metadata, 2, topics: ["test"])
       assert Fixtures.request_type?(request, :metadata, 2)
-      assert request.topics == ["test"]
+      assert request.topics == [%{name: "test"}]
 
       # Parse response
       response =
