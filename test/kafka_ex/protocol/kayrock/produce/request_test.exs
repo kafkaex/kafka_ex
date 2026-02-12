@@ -395,4 +395,213 @@ defmodule KafkaEx.Protocol.Kayrock.Produce.RequestTest do
       assert record_batch.attributes == 4
     end
   end
+
+  describe "V6 Request implementation" do
+    test "builds V6 request with RecordBatch (same as V3-V5)" do
+      template = %Kayrock.Produce.V6.Request{}
+
+      opts = [
+        topic: "v6-topic",
+        partition: 0,
+        messages: [%{value: "v6-data", key: "v6-key"}],
+        acks: -1,
+        timeout: 5000
+      ]
+
+      result = Request.build_request(template, opts)
+
+      assert result.acks == -1
+      assert result.timeout == 5000
+      assert result.transactional_id == nil
+      assert [%{topic: "v6-topic", data: [%{partition: 0, record_set: record_batch}]}] = result.topic_data
+      assert %RecordBatch{records: [record]} = record_batch
+      assert record.value == "v6-data"
+      assert record.key == "v6-key"
+    end
+
+    test "builds V6 request with transactional_id" do
+      template = %Kayrock.Produce.V6.Request{}
+
+      opts = [
+        topic: "transactions",
+        partition: 0,
+        messages: [%{value: "tx-data"}],
+        transactional_id: "v6-tx-id"
+      ]
+
+      result = Request.build_request(template, opts)
+
+      assert result.transactional_id == "v6-tx-id"
+    end
+
+    test "builds V6 request with headers and compression" do
+      template = %Kayrock.Produce.V6.Request{}
+
+      opts = [
+        topic: "events",
+        partition: 1,
+        messages: [
+          %{
+            value: "event data",
+            key: "event-1",
+            headers: [{"event-type", "order.created"}],
+            timestamp: 1_702_300_000_000
+          }
+        ],
+        compression: :gzip
+      ]
+
+      result = Request.build_request(template, opts)
+
+      assert [%{data: [%{partition: 1, record_set: record_batch}]}] = result.topic_data
+      assert %RecordBatch{records: [record]} = record_batch
+      assert record.value == "event data"
+      assert record.key == "event-1"
+      assert record.timestamp == 1_702_300_000_000
+      assert length(record.headers) == 1
+      # gzip = 1
+      assert record_batch.attributes == 1
+    end
+  end
+
+  describe "V7 Request implementation" do
+    test "builds V7 request with RecordBatch (same as V3-V6)" do
+      template = %Kayrock.Produce.V7.Request{}
+
+      opts = [
+        topic: "v7-topic",
+        partition: 3,
+        messages: [%{value: "v7-data"}],
+        acks: 1,
+        timeout: 15_000
+      ]
+
+      result = Request.build_request(template, opts)
+
+      assert result.acks == 1
+      assert result.timeout == 15_000
+      assert result.transactional_id == nil
+      assert [%{topic: "v7-topic", data: [%{partition: 3, record_set: record_batch}]}] = result.topic_data
+      assert %RecordBatch{records: [record]} = record_batch
+      assert record.value == "v7-data"
+    end
+
+    test "builds V7 request with transactional_id" do
+      template = %Kayrock.Produce.V7.Request{}
+
+      opts = [
+        topic: "transactions",
+        partition: 0,
+        messages: [%{value: "tx-data"}],
+        transactional_id: "v7-tx-id"
+      ]
+
+      result = Request.build_request(template, opts)
+
+      assert result.transactional_id == "v7-tx-id"
+    end
+
+    test "builds V7 request with multiple messages" do
+      template = %Kayrock.Produce.V7.Request{}
+
+      opts = [
+        topic: "batch-topic",
+        partition: 0,
+        messages: [
+          %{value: "msg1", key: "k1"},
+          %{value: "msg2", key: "k2"},
+          %{value: "msg3", key: "k3"}
+        ]
+      ]
+
+      result = Request.build_request(template, opts)
+
+      assert [%{data: [%{record_set: record_batch}]}] = result.topic_data
+      assert %RecordBatch{records: records} = record_batch
+      assert length(records) == 3
+    end
+  end
+
+  describe "V8 Request implementation" do
+    test "builds V8 request with RecordBatch (same as V3-V7)" do
+      template = %Kayrock.Produce.V8.Request{}
+
+      opts = [
+        topic: "v8-topic",
+        partition: 0,
+        messages: [%{value: "v8-data", key: "v8-key"}],
+        acks: -1,
+        timeout: 5000
+      ]
+
+      result = Request.build_request(template, opts)
+
+      assert result.acks == -1
+      assert result.timeout == 5000
+      assert result.transactional_id == nil
+      assert [%{topic: "v8-topic", data: [%{partition: 0, record_set: record_batch}]}] = result.topic_data
+      assert %RecordBatch{records: [record]} = record_batch
+      assert record.value == "v8-data"
+      assert record.key == "v8-key"
+    end
+
+    test "builds V8 request with transactional_id" do
+      template = %Kayrock.Produce.V8.Request{}
+
+      opts = [
+        topic: "transactions",
+        partition: 0,
+        messages: [%{value: "tx-data"}],
+        transactional_id: "v8-tx-id"
+      ]
+
+      result = Request.build_request(template, opts)
+
+      assert result.transactional_id == "v8-tx-id"
+    end
+
+    test "builds V8 request with headers and compression" do
+      template = %Kayrock.Produce.V8.Request{}
+
+      opts = [
+        topic: "events",
+        partition: 2,
+        messages: [
+          %{
+            value: "event data",
+            headers: [{"trace-id", "xyz789"}, {"event-type", "payment.completed"}],
+            timestamp: 1_702_400_000_000
+          }
+        ],
+        compression: :snappy
+      ]
+
+      result = Request.build_request(template, opts)
+
+      assert [%{data: [%{partition: 2, record_set: record_batch}]}] = result.topic_data
+      assert %RecordBatch{records: [record]} = record_batch
+      assert record.value == "event data"
+      assert record.timestamp == 1_702_400_000_000
+      assert length(record.headers) == 2
+      # snappy = 2
+      assert record_batch.attributes == 2
+    end
+
+    test "uses default options when not specified" do
+      template = %Kayrock.Produce.V8.Request{}
+
+      opts = [
+        topic: "defaults-topic",
+        partition: 0,
+        messages: [%{value: "data"}]
+      ]
+
+      result = Request.build_request(template, opts)
+
+      assert result.acks == -1
+      assert result.timeout == 5000
+      assert result.transactional_id == nil
+      assert [%{data: [%{record_set: %RecordBatch{attributes: 0}}]}] = result.topic_data
+    end
+  end
 end

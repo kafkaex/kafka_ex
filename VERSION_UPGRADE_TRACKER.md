@@ -35,18 +35,18 @@ Track implementation of new Kayrock-supported API versions in KafkaEx.
 
 **Current:** V0-V9 (all explicit) | **Available:** V0-V9
 
-| Version | Status | Request Changes                                  | Response Changes                               | Effort | Unit | Integ | Chaos   |
-|---------|--------|--------------------------------------------------|------------------------------------------------|--------|------|-------|---------|
-| V0      | 🟢     | —                                                | —                                              | —      | 🟢   | 🟢    | ⬜       |
-| V1      | 🟢     | —                                                | —                                              | —      | 🟢   | 🟢    | ⬜       |
-| V2      | 🟢     | —                                                | —                                              | —      | 🟢   | 🟢    | ⬜       |
-| V3      | 🟢     | No changes vs V2                                 | +`throttle_time_ms`, +`cluster_id`             | Low    | 🟢   | ⬜    | ⬜       |
-| V4      | 🟢     | +`allow_auto_topic_creation`                     | No changes vs V3                               | Low    | 🟢   | ⬜    | ⬜       |
-| V5      | 🟢     | No changes vs V4                                 | +`offline_replicas` in partitions              | Low    | 🟢   | ⬜    | ⬜       |
-| V6      | 🟢     | No changes vs V5                                 | No changes vs V5                               | Low    | 🟢   | ⬜    | ⬜       |
-| V7      | 🟢     | No changes vs V6                                 | +`leader_epoch` in partitions                  | Low    | 🟢   | ⬜    | ⬜       |
-| V8      | 🟢     | +`include_cluster/topic_authorized_operations`   | +`cluster/topic_authorized_operations`         | Medium | 🟢   | ⬜    | ⬜       |
-| V9      | 🟢     | FLEX: compact arrays/strings, +`tagged_fields`   | FLEX: compact arrays/strings, +`tagged_fields` | Medium | 🟢   | ⬜    | ⬜       |
+| Version | Status | Request Changes                                  | Response Changes                               | Effort | Unit | Integ | Chaos |
+|---------|--------|--------------------------------------------------|------------------------------------------------|--------|------|-------|-------|
+| V0      | 🟢     | —                                                | —                                              | —      | 🟢   | 🟢    | ⏭️    |
+| V1      | 🟢     | —                                                | —                                              | —      | 🟢   | 🟢    | ⏭️    |
+| V2      | 🟢     | —                                                | —                                              | —      | 🟢   | 🟢    | ⏭️    |
+| V3      | 🟢     | No changes vs V2                                 | +`throttle_time_ms`, +`cluster_id`             | Low    | 🟢   | ⏭️    | ⏭️    |
+| V4      | 🟢     | +`allow_auto_topic_creation`                     | No changes vs V3                               | Low    | 🟢   | ⏭️    | ⏭️    |
+| V5      | 🟢     | No changes vs V4                                 | +`offline_replicas` in partitions              | Low    | 🟢   | ⏭️    | ⏭️    |
+| V6      | 🟢     | No changes vs V5                                 | No changes vs V5                               | Low    | 🟢   | ⏭️    | ⏭️    |
+| V7      | 🟢     | No changes vs V6                                 | +`leader_epoch` in partitions                  | Low    | 🟢   | ⏭️    | ⏭️    |
+| V8      | 🟢     | +`include_cluster/topic_authorized_operations`   | +`cluster/topic_authorized_operations`         | Medium | 🟢   | ⏭️    | ⏭️    |
+| V9      | 🟢     | FLEX: compact arrays/strings, +`tagged_fields`   | FLEX: compact arrays/strings, +`tagged_fields` | Medium | 🟢   | ⏭️    | ⏭️    |
 
 > **Note:** `Any` fallback retained for forward compatibility with unknown future versions. All V0-V9 have explicit `defimpl` impls.
 
@@ -54,14 +54,23 @@ Track implementation of new Kayrock-supported API versions in KafkaEx.
 
 ## 3. Produce (API Key 0)
 
-**Current:** V0-V5 | **Available:** V0-V8
+**Current:** V0-V8 (all explicit) | **Available:** V0-V8
 
-| Version | Status                | Request Changes  | Response Changes                                                  | Effort | Unit                  | Integ                 | Chaos                 |
-|---------|-----------------------|------------------|-------------------------------------------------------------------|--------|-----------------------|-----------------------|-----------------------|
-| V0-V5   | 🟢    | —                | —                                                                 | —      | 🟢    | 🟢    | 🟢    |
-| V6      | ⬜ | No changes vs V5 | No changes vs V5                                                  | Low    | ⬜ | ⬜ | ⬜ |
-| V7      | ⬜ | No changes vs V6 | No changes vs V6                                                  | Low    | ⬜ | ⬜ | ⬜ |
-| V8      | ⬜ | No changes vs V7 | +`record_errors` array, +`error_message` in partition_responses   | Medium | ⬜ | ⬜ | ⬜ |
+| Version | Status | Request Changes                         | Response Changes                                                | Effort | Unit | Integ | Chaos |
+|---------|--------|-----------------------------------------|-----------------------------------------------------------------|--------|------|-------|-------|
+| V0      | 🟢     | —                                       | —                                                               | —      | 🟢   | 🟢    | 🟢    |
+| V1      | 🟢     | —                                       | +`throttle_time_ms`                                             | —      | 🟢   | 🟢    | 🟢    |
+| V2      | 🟢     | —                                       | +`log_append_time`                                              | —      | 🟢   | 🟢    | 🟢    |
+| V3      | 🟢     | +`transactional_id`, RecordBatch format | Same as V2                                                      | —      | 🟢   | 🟢    | 🟢    |
+| V4      | 🟢     | No changes vs V3                        | Same as V3                                                      | —      | 🟢   | 🟢    | 🟢    |
+| V5      | 🟢     | No changes vs V4                        | +`log_start_offset`                                             | —      | 🟢   | 🟢    | 🟢    |
+| V6      | 🟢     | No changes vs V5                        | No changes vs V5                                                | Low    | 🟢   | ⏭️    | ⏭️    |
+| V7      | 🟢     | No changes vs V6                        | No changes vs V6                                                | Low    | 🟢   | ⏭️    | ⏭️    |
+| V8      | 🟢     | No changes vs V7                        | +`record_errors` array, +`error_message` in partition_responses | Medium | 🟢   | ⏭️    | ⏭️    |
+
+> **Note:** `Any` fallback retained for forward compatibility with unknown future versions. All V0-V8 have explicit `defimpl` impls. V8 `record_errors` and `error_message` fields are parsed by Kayrock but not currently exposed in `RecordMetadata` domain struct -- they are only populated in error scenarios and the error path handles them via the standard error code mechanism.
+>
+> **Integration/chaos tests skipped (⏭️) for V6-V8:** These are pure delegation layers — all request impls call the same `build_request_v3_plus/2` helper, all response impls use the same field extractor as V5. Default produce version is V3 (`@default_api_version[:produce]` = 3), so V6-V8 are only used when explicitly requested. Existing V0-V5 integration tests already cover the full produce path end-to-end. Chaos tests are version-independent (broker failures affect all versions identically). Would revisit if: default version bumped to 6+, V8 `record_errors` exposed in domain structs, or flexible versions (V9+) added.
 
 ---
 
@@ -235,9 +244,9 @@ Prioritized by: (1) most commonly used APIs first, (2) low-effort versions first
 | 2  | Fetch           | V9      | Low         | ⬜ | ⬜ | ⬜ | +current_leader_epoch              |
 | 3  | Fetch           | V10     | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
 | 4  | Fetch           | V11     | Low         | ⬜ | ⬜ | ⬜ | +rack_id                           |
-| 5  | Produce         | V6      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
-| 6  | Produce         | V7      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
-| 7  | Produce         | V8      | Medium      | ⬜ | ⬜ | ⬜ | +record_errors in response         |
+| 5  | Produce         | V6      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                         |
+| 6  | Produce         | V7      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                         |
+| 7  | Produce         | V8      | Medium      | 🟢 | ⏭️ | ⏭️ | +record_errors in response         |
 | 8  | ListOffsets     | V3      | Low         | ⬜ | ⬜ | ⬜ | +current_leader_epoch              |
 | 9  | ListOffsets     | V4      | Low         | ⬜ | ⬜ | ⬜ | +leader_epoch in response          |
 | 10 | ListOffsets     | V5      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
@@ -281,9 +290,9 @@ Prioritized by: (1) most commonly used APIs first, (2) low-effort versions first
 
 ## Summary
 
-- **Total new versions to implement:** 45 (36 remaining)
-- **Completed:** 9 versions (ApiVersions V2, V3; Metadata V3, V4, V5, V6, V7, V8, V9)
-- **Low effort:** 24 versions remaining (mostly schema-identical or single field additions)
-- **Medium effort:** 10 versions remaining (flexible version encoding changes)
+- **Total new versions to implement:** 45 (33 remaining)
+- **Completed:** 12 versions (ApiVersions V2, V3; Metadata V3-V9; Produce V6, V7, V8)
+- **Low effort:** 22 versions remaining (mostly schema-identical or single field additions)
+- **Medium effort:** 9 versions remaining (flexible version encoding changes)
 - **High effort:** 1 version (LeaveGroup V3 structural change)
 - **Medium-High effort:** 1 version (CreateTopics V5 response additions)

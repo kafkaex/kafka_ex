@@ -353,4 +353,294 @@ defmodule KafkaEx.Protocol.Kayrock.Produce.ResponseTest do
       assert error.error == :not_enough_replicas
     end
   end
+
+  describe "V6 Response implementation" do
+    test "parses successful V6 response (same schema as V5)" do
+      response = %Kayrock.Produce.V6.Response{
+        throttle_time_ms: 20,
+        responses: [
+          %{
+            topic: "v6-topic",
+            partition_responses: [
+              %{
+                partition: 0,
+                error_code: 0,
+                base_offset: 6000,
+                log_append_time: 1_702_300_000_000,
+                log_start_offset: 500
+              }
+            ]
+          }
+        ]
+      }
+
+      assert {:ok, produce} = Response.parse_response(response)
+      assert produce.topic == "v6-topic"
+      assert produce.partition == 0
+      assert produce.base_offset == 6000
+      assert produce.log_append_time == 1_702_300_000_000
+      assert produce.log_start_offset == 500
+      assert produce.throttle_time_ms == 20
+    end
+
+    test "parses V6 response with -1 log_append_time (CreateTime)" do
+      response = %Kayrock.Produce.V6.Response{
+        throttle_time_ms: 0,
+        responses: [
+          %{
+            topic: "test",
+            partition_responses: [
+              %{
+                partition: 0,
+                error_code: 0,
+                base_offset: 200,
+                log_append_time: -1,
+                log_start_offset: 0
+              }
+            ]
+          }
+        ]
+      }
+
+      assert {:ok, produce} = Response.parse_response(response)
+      assert produce.log_append_time == -1
+    end
+
+    test "parses V6 response with error" do
+      response = %Kayrock.Produce.V6.Response{
+        throttle_time_ms: 0,
+        responses: [
+          %{
+            topic: "test",
+            partition_responses: [
+              # 7 = request_timed_out
+              %{
+                partition: 0,
+                error_code: 7,
+                base_offset: -1,
+                log_append_time: -1,
+                log_start_offset: -1
+              }
+            ]
+          }
+        ]
+      }
+
+      assert {:error, error} = Response.parse_response(response)
+      assert error.error == :request_timed_out
+    end
+
+    test "returns error for empty responses" do
+      response = %Kayrock.Produce.V6.Response{throttle_time_ms: 0, responses: []}
+
+      assert {:error, error} = Response.parse_response(response)
+      assert error.error == :empty_response
+    end
+  end
+
+  describe "V7 Response implementation" do
+    test "parses successful V7 response (same schema as V5/V6)" do
+      response = %Kayrock.Produce.V7.Response{
+        throttle_time_ms: 30,
+        responses: [
+          %{
+            topic: "v7-topic",
+            partition_responses: [
+              %{
+                partition: 1,
+                error_code: 0,
+                base_offset: 7000,
+                log_append_time: 1_702_400_000_000,
+                log_start_offset: 1000
+              }
+            ]
+          }
+        ]
+      }
+
+      assert {:ok, produce} = Response.parse_response(response)
+      assert produce.topic == "v7-topic"
+      assert produce.partition == 1
+      assert produce.base_offset == 7000
+      assert produce.log_append_time == 1_702_400_000_000
+      assert produce.log_start_offset == 1000
+      assert produce.throttle_time_ms == 30
+    end
+
+    test "parses V7 response with zero throttle_time_ms" do
+      response = %Kayrock.Produce.V7.Response{
+        throttle_time_ms: 0,
+        responses: [
+          %{
+            topic: "test",
+            partition_responses: [
+              %{
+                partition: 0,
+                error_code: 0,
+                base_offset: 100,
+                log_append_time: -1,
+                log_start_offset: 0
+              }
+            ]
+          }
+        ]
+      }
+
+      assert {:ok, produce} = Response.parse_response(response)
+      assert produce.throttle_time_ms == 0
+    end
+
+    test "parses V7 response with error" do
+      response = %Kayrock.Produce.V7.Response{
+        throttle_time_ms: 0,
+        responses: [
+          %{
+            topic: "test",
+            partition_responses: [
+              # 6 = not_leader_for_partition
+              %{
+                partition: 0,
+                error_code: 6,
+                base_offset: -1,
+                log_append_time: -1,
+                log_start_offset: -1
+              }
+            ]
+          }
+        ]
+      }
+
+      assert {:error, error} = Response.parse_response(response)
+      assert error.error == :not_leader_for_partition
+    end
+
+    test "returns error for empty responses" do
+      response = %Kayrock.Produce.V7.Response{throttle_time_ms: 0, responses: []}
+
+      assert {:error, error} = Response.parse_response(response)
+      assert error.error == :empty_response
+    end
+  end
+
+  describe "V8 Response implementation" do
+    test "parses successful V8 response with all fields" do
+      response = %Kayrock.Produce.V8.Response{
+        throttle_time_ms: 5,
+        responses: [
+          %{
+            topic: "v8-topic",
+            partition_responses: [
+              %{
+                partition: 2,
+                error_code: 0,
+                base_offset: 8000,
+                log_append_time: 1_702_500_000_000,
+                log_start_offset: 2000,
+                record_errors: [],
+                error_message: nil
+              }
+            ]
+          }
+        ]
+      }
+
+      assert {:ok, produce} = Response.parse_response(response)
+      assert produce.topic == "v8-topic"
+      assert produce.partition == 2
+      assert produce.base_offset == 8000
+      assert produce.log_append_time == 1_702_500_000_000
+      assert produce.log_start_offset == 2000
+      assert produce.throttle_time_ms == 5
+    end
+
+    test "parses V8 response with zero offsets" do
+      response = %Kayrock.Produce.V8.Response{
+        throttle_time_ms: 0,
+        responses: [
+          %{
+            topic: "test",
+            partition_responses: [
+              %{
+                partition: 0,
+                error_code: 0,
+                base_offset: 0,
+                log_append_time: -1,
+                log_start_offset: 0,
+                record_errors: [],
+                error_message: nil
+              }
+            ]
+          }
+        ]
+      }
+
+      assert {:ok, produce} = Response.parse_response(response)
+      assert produce.base_offset == 0
+      assert produce.log_start_offset == 0
+    end
+
+    test "parses V8 response with error (record_errors and error_message present)" do
+      response = %Kayrock.Produce.V8.Response{
+        throttle_time_ms: 0,
+        responses: [
+          %{
+            topic: "test",
+            partition_responses: [
+              %{
+                partition: 0,
+                # 87 = invalid_record (example error that triggers record_errors)
+                error_code: 87,
+                base_offset: -1,
+                log_append_time: -1,
+                log_start_offset: -1,
+                record_errors: [
+                  %{batch_index: 0, batch_index_error_message: "Invalid timestamp"},
+                  %{batch_index: 2, batch_index_error_message: "Record too large"}
+                ],
+                error_message: "One or more records in the batch were invalid"
+              }
+            ]
+          }
+        ]
+      }
+
+      # The error path returns an error based on the error code;
+      # record_errors and error_message are not exposed in the Error struct
+      assert {:error, error} = Response.parse_response(response)
+      assert %Error{} = error
+    end
+
+    test "parses V8 response with standard error code" do
+      response = %Kayrock.Produce.V8.Response{
+        throttle_time_ms: 0,
+        responses: [
+          %{
+            topic: "test",
+            partition_responses: [
+              # 19 = not_enough_replicas
+              %{
+                partition: 0,
+                error_code: 19,
+                base_offset: -1,
+                log_append_time: -1,
+                log_start_offset: -1,
+                record_errors: [],
+                error_message: nil
+              }
+            ]
+          }
+        ]
+      }
+
+      assert {:error, error} = Response.parse_response(response)
+      assert error.error == :not_enough_replicas
+    end
+
+    test "returns error for empty responses" do
+      response = %Kayrock.Produce.V8.Response{throttle_time_ms: 0, responses: []}
+
+      assert {:error, error} = Response.parse_response(response)
+      assert error.error == :empty_response
+    end
+  end
 end
