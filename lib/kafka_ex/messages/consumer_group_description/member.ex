@@ -8,6 +8,7 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription.Member do
   current partition assignment.
   """
   alias KafkaEx.Messages.ConsumerGroupDescription.Member.MemberAssignment
+  alias KafkaEx.Messages.ConsumerGroupDescription.Member.MemberAssignment.PartitionAssignment
 
   @type t :: %__MODULE__{
           member_id: binary,
@@ -84,7 +85,7 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription.Member do
 
     partition_assignments =
       Enum.map(topic_partitions, fn {topic, partitions} ->
-        MemberAssignment.PartitionAssignment.from_describe_group_response(%{
+        PartitionAssignment.from_describe_group_response(%{
           topic: topic,
           partitions: partitions
         })
@@ -105,11 +106,13 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription.Member do
   defp deserialize_int32(<<value::32-signed, rest::binary>>), do: {value, rest}
 
   defp deserialize_array(<<count::32-signed, rest::binary>>, deserializer) when count >= 0 do
-    Enum.reduce(1..count//1, {[], rest}, fn _, {acc, data} ->
-      {item, remaining} = deserializer.(data)
-      {[item | acc], remaining}
-    end)
-    |> then(fn {items, rest} -> {Enum.reverse(items), rest} end)
+    {items, rest} =
+      Enum.reduce(1..count//1, {[], rest}, fn _, {acc, data} ->
+        {item, remaining} = deserializer.(data)
+        {[item | acc], remaining}
+      end)
+
+    {Enum.reverse(items), rest}
   end
 
   defp deserialize_array(<<_negative::32-signed, rest::binary>>, _deserializer), do: {[], rest}
