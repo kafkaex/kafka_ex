@@ -42,8 +42,8 @@ defmodule KafkaEx.Protocol.Kayrock.DeleteTopics.RequestTest do
       result = DeleteTopics.Request.build_request(request, opts)
 
       assert %Kayrock.DeleteTopics.V0.Request{} = result
-      assert result.timeout == 30_000
-      assert result.topics == ["topic1", "topic2", "topic3"]
+      assert result.timeout_ms == 30_000
+      assert result.topic_names == ["topic1", "topic2", "topic3"]
     end
 
     test "builds request with single topic" do
@@ -56,8 +56,8 @@ defmodule KafkaEx.Protocol.Kayrock.DeleteTopics.RequestTest do
 
       result = DeleteTopics.Request.build_request(request, opts)
 
-      assert result.topics == ["my-topic"]
-      assert result.timeout == 10_000
+      assert result.topic_names == ["my-topic"]
+      assert result.timeout_ms == 10_000
     end
 
     test "preserves existing correlation_id and client_id" do
@@ -90,8 +90,8 @@ defmodule KafkaEx.Protocol.Kayrock.DeleteTopics.RequestTest do
       result = DeleteTopics.Request.build_request(request, opts)
 
       assert %Kayrock.DeleteTopics.V1.Request{} = result
-      assert result.timeout == 60_000
-      assert result.topics == ["topic1", "topic2"]
+      assert result.timeout_ms == 60_000
+      assert result.topic_names == ["topic1", "topic2"]
     end
 
     test "preserves existing correlation_id and client_id" do

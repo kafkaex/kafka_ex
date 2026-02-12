@@ -179,10 +179,8 @@ defmodule KafkaEx.Chaos.MetadataTest do
       # During brief outage, cached metadata might still be returned
       # depending on implementation
       ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
-        # cluster_metadata returns cached state, so it may not fail
         result = KafkaEx.API.cluster_metadata(client)
-        # Just verify we get a response
-        assert result != nil
+        assert !is_nil(result)
       end)
 
       Process.sleep(500)
@@ -232,12 +230,12 @@ defmodule KafkaEx.Chaos.MetadataTest do
       # Slow network
       ChaosTestHelpers.with_bandwidth_limit(ctx.proxy_name, 5, fn ->
         result = KafkaEx.API.metadata(client)
-        assert result != nil
+        assert !is_nil(result)
       end)
 
       # Normal speed should work fine after
       {:ok, metadata} = KafkaEx.API.metadata(client)
-      assert metadata != nil
+      assert !is_nil(metadata)
     end
 
     test "new client gets fresh metadata after previous client failure", ctx do

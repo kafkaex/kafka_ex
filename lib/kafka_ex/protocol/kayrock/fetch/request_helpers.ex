@@ -50,7 +50,7 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.RequestHelpers do
       %{
         partition: fields.partition,
         fetch_offset: fields.offset,
-        max_bytes: fields.max_bytes
+        partition_max_bytes: fields.max_bytes
       }
 
     partition_request =
@@ -119,8 +119,8 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.RequestHelpers do
     %{
       request
       | session_id: session_id,
-        epoch: epoch,
-        forgetten_topics_data: forgotten_topics_data
+        session_epoch: epoch,
+        forgotten_topics_data: forgotten_topics_data
     }
   end
 

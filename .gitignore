@@ -14,3 +14,4 @@ cover
 
 # Dialyzer's Persistent Lookup Table
 priv/plts/
+/.claude/

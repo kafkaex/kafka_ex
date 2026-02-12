@@ -3,7 +3,6 @@ import Config
 config :ex_unit, capture_log: is_nil(System.get_env("SHOW_LOGS"))
 
 config :kafka_ex,
-  snappy_module: :snappyer,
   disable_default_worker: true
 
 config :kayrock, snappy_module: :snappyer

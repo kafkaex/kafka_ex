@@ -8,7 +8,7 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseHelpersTest do
   describe "parse_topic_results/2" do
     test "parses successful topic creation" do
       topic_errors = [
-        %{topic: "new-topic", error_code: 0}
+        %{name: "new-topic", error_code: 0}
       ]
 
       result = ResponseHelpers.parse_topic_results(topic_errors, false)
@@ -23,7 +23,7 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseHelpersTest do
 
     test "parses topic creation with error" do
       topic_errors = [
-        %{topic: "existing-topic", error_code: 36}
+        %{name: "existing-topic", error_code: 36}
       ]
 
       result = ResponseHelpers.parse_topic_results(topic_errors, false)
@@ -35,9 +35,9 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseHelpersTest do
 
     test "parses multiple topics" do
       topic_errors = [
-        %{topic: "topic1", error_code: 0},
-        %{topic: "topic2", error_code: 36},
-        %{topic: "topic3", error_code: 0}
+        %{name: "topic1", error_code: 0},
+        %{name: "topic2", error_code: 36},
+        %{name: "topic3", error_code: 0}
       ]
 
       result = ResponseHelpers.parse_topic_results(topic_errors, false)
@@ -49,7 +49,7 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseHelpersTest do
 
     test "includes error_message when has_error_message? is true" do
       topic_errors = [
-        %{topic: "topic1", error_code: 36, error_message: "Topic already exists"}
+        %{name: "topic1", error_code: 36, error_message: "Topic already exists"}
       ]
 
       result = ResponseHelpers.parse_topic_results(topic_errors, true)
@@ -60,7 +60,7 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseHelpersTest do
 
     test "ignores error_message when has_error_message? is false" do
       topic_errors = [
-        %{topic: "topic1", error_code: 0, error_message: "should be ignored"}
+        %{name: "topic1", error_code: 0, error_message: "should be ignored"}
       ]
 
       result = ResponseHelpers.parse_topic_results(topic_errors, false)

@@ -184,7 +184,10 @@ defmodule KafkaEx.Client.RequestBuilder do
     case get_api_version(state, :metadata, request_opts) do
       {:ok, api_version} ->
         topics = Keyword.get(request_opts, :topics)
-        req = @protocol.build_request(:metadata, api_version, topics: topics)
+        allow_auto_topic_creation = Keyword.get(request_opts, :allow_auto_topic_creation, false)
+
+        opts = [topics: topics, allow_auto_topic_creation: allow_auto_topic_creation]
+        req = @protocol.build_request(:metadata, api_version, opts)
         {:ok, req}
 
       {:error, error_code} ->

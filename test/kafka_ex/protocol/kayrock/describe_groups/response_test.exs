@@ -39,9 +39,9 @@ defmodule KafkaEx.Protocol.Kayrock.DescribeGroups.ResponseTest do
           %{
             group_id: "succeeded",
             error_code: 0,
-            state: "stable",
+            group_state: "stable",
             protocol_type: "protocol_type",
-            protocol: "protocol",
+            protocol_data: "protocol",
             members: [
               %{
                 member_id: "member_id",
@@ -83,9 +83,9 @@ defmodule KafkaEx.Protocol.Kayrock.DescribeGroups.ResponseTest do
           %{
             group_id: "succeeded",
             error_code: 0,
-            state: "stable",
+            group_state: "stable",
             protocol_type: "protocol_type",
-            protocol: "protocol",
+            protocol_data: "protocol",
             members: [
               %{
                 member_id: "member_id",

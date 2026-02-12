@@ -102,33 +102,6 @@ defmodule KafkaEx.Cluster.ClusterMetadata do
   end
 
   @doc """
-  Constructs a `t:t/0` from a `Kayrock.Metadata.V1.Response` struct.
-
-  The `V1` here is a minimum - this should work with higher versions of the
-  metadata response struct.
-  """
-  @spec from_metadata_v1_response(map) :: t
-  def from_metadata_v1_response(metadata) do
-    brokers =
-      Enum.into(metadata.brokers, %{}, fn broker_metadata ->
-        %{host: host, port: port, node_id: node_id, rack: rack} = broker_metadata
-        {node_id, %Broker{host: host, port: port, node_id: node_id, rack: rack}}
-      end)
-
-    topics =
-      metadata.topic_metadata
-      |> Enum.filter(fn topic_metadata -> topic_metadata.error_code == 0 end)
-      |> Enum.into(%{}, fn topic_metadata ->
-        case topic_metadata do
-          %{topic: topic_name, error_code: 0} -> {topic_name, Topic.from_topic_metadata(topic_metadata)}
-          _ -> nil
-        end
-      end)
-
-    %__MODULE__{brokers: brokers, controller_id: metadata.controller_id, topics: topics}
-  end
-
-  @doc """
   Merge two sets of cluster metadata with their brokers.
   Returns the merged metadata and a list of brokers that should have their connections closed
   because they are not present in the new metadata

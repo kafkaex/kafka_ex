@@ -10,8 +10,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseHelpersTest do
       response = %{
         error_code: 0,
         generation_id: 5,
-        group_protocol: "range",
-        leader_id: "leader-member",
+        protocol_name: "range",
+        leader: "leader-member",
         member_id: "member-123",
         members: []
       }
@@ -31,8 +31,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseHelpersTest do
       response = %{
         error_code: 0,
         generation_id: 3,
-        group_protocol: "roundrobin",
-        leader_id: "leader",
+        protocol_name: "roundrobin",
+        leader: "leader",
         member_id: "me",
         members: [],
         throttle_time_ms: 100
@@ -48,12 +48,12 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseHelpersTest do
       response = %{
         error_code: 0,
         generation_id: 1,
-        group_protocol: "range",
-        leader_id: "member-1",
+        protocol_name: "range",
+        leader: "member-1",
         member_id: "member-1",
         members: [
-          %{member_id: "member-1", member_metadata: <<1, 2, 3>>},
-          %{member_id: "member-2", member_metadata: <<4, 5, 6>>}
+          %{member_id: "member-1", metadata: <<1, 2, 3>>},
+          %{member_id: "member-2", metadata: <<4, 5, 6>>}
         ]
       }
 
@@ -71,8 +71,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseHelpersTest do
       response = %{
         error_code: 25,
         generation_id: -1,
-        group_protocol: "",
-        leader_id: "",
+        protocol_name: "",
+        leader: "",
         member_id: "",
         members: []
       }
@@ -86,8 +86,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseHelpersTest do
       response = %{
         error_code: 0,
         generation_id: 1,
-        group_protocol: "range",
-        leader_id: "leader",
+        protocol_name: "range",
+        leader: "leader",
         member_id: "member",
         members: nil
       }

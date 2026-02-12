@@ -8,7 +8,7 @@ defimpl KafkaEx.Protocol.Kayrock.SyncGroup.Response, for: Kayrock.SyncGroup.V0.R
   alias KafkaEx.Messages.SyncGroup
   alias KafkaEx.Messages.ConsumerGroupDescription.Member.MemberAssignment.PartitionAssignment
 
-  def parse_response(%Kayrock.SyncGroup.V0.Response{error_code: error_code, member_assignment: member_assignment}) do
+  def parse_response(%Kayrock.SyncGroup.V0.Response{error_code: error_code, assignment: member_assignment}) do
     case ErrorCode.code_to_atom(error_code) do
       :no_error ->
         partition_assignments = extract_partition_assignments(member_assignment)

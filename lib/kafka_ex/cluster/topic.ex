@@ -19,15 +19,15 @@ defmodule KafkaEx.Cluster.Topic do
 
   @doc false
   def from_topic_metadata(%{
-        topic: name,
-        partition_metadata: partition_metadata,
+        name: name,
+        partitions: partition_metadata,
         is_internal: is_internal
       }) do
     partition_leaders =
       Enum.into(
         partition_metadata,
         %{},
-        fn %{error_code: 0, leader: leader, partition: partition_id} ->
+        fn %{error_code: 0, leader_id: leader, partition_index: partition_id} ->
           {partition_id, leader}
         end
       )

@@ -16,7 +16,7 @@ defmodule KafkaEx.Protocol.Kayrock.DeleteTopics.ResponseHelpers do
       error = ErrorCode.code_to_atom(topic_error.error_code)
 
       TopicResult.build(
-        topic: topic_error.topic,
+        topic: topic_error.name,
         error: error
       )
     end)

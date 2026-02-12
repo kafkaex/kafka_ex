@@ -9,8 +9,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseTest do
       response = %Kayrock.JoinGroup.V0.Response{
         error_code: 0,
         generation_id: 5,
-        group_protocol: "assign",
-        leader_id: "member-123",
+        protocol_name: "assign",
+        leader: "member-123",
         member_id: "member-123",
         members: []
       }
@@ -26,16 +26,16 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseTest do
 
     test "parses successful response with multiple members" do
       members = [
-        %{member_id: "member-1", member_metadata: <<0, 1, 2>>},
-        %{member_id: "member-2", member_metadata: <<3, 4, 5>>},
-        %{member_id: "member-3", member_metadata: <<6, 7, 8>>}
+        %{member_id: "member-1", metadata: <<0, 1, 2>>},
+        %{member_id: "member-2", metadata: <<3, 4, 5>>},
+        %{member_id: "member-3", metadata: <<6, 7, 8>>}
       ]
 
       response = %Kayrock.JoinGroup.V0.Response{
         error_code: 0,
         generation_id: 10,
-        group_protocol: "range",
-        leader_id: "member-1",
+        protocol_name: "range",
+        leader: "member-1",
         member_id: "member-1",
         members: members
       }
@@ -53,8 +53,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseTest do
       response = %Kayrock.JoinGroup.V0.Response{
         error_code: 0,
         generation_id: 1,
-        group_protocol: "assign",
-        leader_id: "leader-member",
+        protocol_name: "assign",
+        leader: "leader-member",
         member_id: "leader-member",
         members: []
       }
@@ -67,8 +67,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseTest do
       response = %Kayrock.JoinGroup.V0.Response{
         error_code: 0,
         generation_id: 1,
-        group_protocol: "assign",
-        leader_id: "leader-member",
+        protocol_name: "assign",
+        leader: "leader-member",
         member_id: "follower-member",
         members: []
       }
@@ -81,8 +81,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseTest do
       response = %Kayrock.JoinGroup.V0.Response{
         error_code: 25,
         generation_id: 0,
-        group_protocol: "",
-        leader_id: "",
+        protocol_name: "",
+        leader: "",
         member_id: "",
         members: []
       }
@@ -95,8 +95,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseTest do
       response = %Kayrock.JoinGroup.V0.Response{
         error_code: 22,
         generation_id: 0,
-        group_protocol: "",
-        leader_id: "",
+        protocol_name: "",
+        leader: "",
         member_id: "",
         members: []
       }
@@ -109,8 +109,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseTest do
       response = %Kayrock.JoinGroup.V0.Response{
         error_code: 27,
         generation_id: 0,
-        group_protocol: "",
-        leader_id: "",
+        protocol_name: "",
+        leader: "",
         member_id: "",
         members: []
       }
@@ -123,8 +123,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseTest do
       response = %Kayrock.JoinGroup.V0.Response{
         error_code: 30,
         generation_id: 0,
-        group_protocol: "",
-        leader_id: "",
+        protocol_name: "",
+        leader: "",
         member_id: "",
         members: []
       }
@@ -137,8 +137,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseTest do
       response = %Kayrock.JoinGroup.V0.Response{
         error_code: 0,
         generation_id: 5,
-        group_protocol: "assign",
-        leader_id: "member-123",
+        protocol_name: "assign",
+        leader: "member-123",
         member_id: "member-123",
         members: nil
       }
@@ -151,8 +151,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseTest do
       response = %Kayrock.JoinGroup.V0.Response{
         error_code: 0,
         generation_id: 0,
-        group_protocol: "assign",
-        leader_id: "member-1",
+        protocol_name: "assign",
+        leader: "member-1",
         member_id: "member-1",
         members: []
       }
@@ -165,8 +165,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseTest do
       response = %Kayrock.JoinGroup.V0.Response{
         error_code: 0,
         generation_id: 5,
-        group_protocol: "assign",
-        leader_id: "member-123",
+        protocol_name: "assign",
+        leader: "member-123",
         member_id: "member-123",
         members: []
       }
@@ -179,14 +179,14 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseTest do
   describe "V1 Response implementation" do
     test "parses successful response with no error" do
       members = [
-        %{member_id: "member-1", member_metadata: <<0, 1, 2>>}
+        %{member_id: "member-1", metadata: <<0, 1, 2>>}
       ]
 
       response = %Kayrock.JoinGroup.V1.Response{
         error_code: 0,
         generation_id: 5,
-        group_protocol: "assign",
-        leader_id: "member-1",
+        protocol_name: "assign",
+        leader: "member-1",
         member_id: "member-1",
         members: members
       }
@@ -202,15 +202,15 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseTest do
 
     test "parses response with multiple members" do
       members = [
-        %{member_id: "member-1", member_metadata: <<0, 1>>},
-        %{member_id: "member-2", member_metadata: <<2, 3>>}
+        %{member_id: "member-1", metadata: <<0, 1>>},
+        %{member_id: "member-2", metadata: <<2, 3>>}
       ]
 
       response = %Kayrock.JoinGroup.V1.Response{
         error_code: 0,
         generation_id: 10,
-        group_protocol: "roundrobin",
-        leader_id: "member-1",
+        protocol_name: "roundrobin",
+        leader: "member-1",
         member_id: "member-2",
         members: members
       }
@@ -224,8 +224,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseTest do
       response = %Kayrock.JoinGroup.V1.Response{
         error_code: 25,
         generation_id: 0,
-        group_protocol: "",
-        leader_id: "",
+        protocol_name: "",
+        leader: "",
         member_id: "",
         members: []
       }
@@ -238,8 +238,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseTest do
       response = %Kayrock.JoinGroup.V1.Response{
         error_code: 0,
         generation_id: 5,
-        group_protocol: "assign",
-        leader_id: "member-123",
+        protocol_name: "assign",
+        leader: "member-123",
         member_id: "member-123",
         members: []
       }
@@ -252,15 +252,15 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseTest do
   describe "V2 Response implementation" do
     test "parses successful response with throttle_time_ms" do
       members = [
-        %{member_id: "member-1", member_metadata: <<0, 1, 2>>}
+        %{member_id: "member-1", metadata: <<0, 1, 2>>}
       ]
 
       response = %Kayrock.JoinGroup.V2.Response{
         throttle_time_ms: 100,
         error_code: 0,
         generation_id: 5,
-        group_protocol: "assign",
-        leader_id: "member-1",
+        protocol_name: "assign",
+        leader: "member-1",
         member_id: "member-1",
         members: members
       }
@@ -279,8 +279,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseTest do
         throttle_time_ms: 0,
         error_code: 0,
         generation_id: 10,
-        group_protocol: "range",
-        leader_id: "member-123",
+        protocol_name: "range",
+        leader: "member-123",
         member_id: "member-123",
         members: []
       }
@@ -294,8 +294,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseTest do
         throttle_time_ms: 5000,
         error_code: 0,
         generation_id: 1,
-        group_protocol: "assign",
-        leader_id: "member-1",
+        protocol_name: "assign",
+        leader: "member-1",
         member_id: "member-1",
         members: []
       }
@@ -306,17 +306,17 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseTest do
 
     test "parses response with multiple members" do
       members = [
-        %{member_id: "member-1", member_metadata: <<0, 1, 2>>},
-        %{member_id: "member-2", member_metadata: <<3, 4, 5>>},
-        %{member_id: "member-3", member_metadata: <<6, 7, 8>>}
+        %{member_id: "member-1", metadata: <<0, 1, 2>>},
+        %{member_id: "member-2", metadata: <<3, 4, 5>>},
+        %{member_id: "member-3", metadata: <<6, 7, 8>>}
       ]
 
       response = %Kayrock.JoinGroup.V2.Response{
         throttle_time_ms: 50,
         error_code: 0,
         generation_id: 15,
-        group_protocol: "roundrobin",
-        leader_id: "member-1",
+        protocol_name: "roundrobin",
+        leader: "member-1",
         member_id: "member-2",
         members: members
       }
@@ -332,8 +332,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseTest do
         throttle_time_ms: 200,
         error_code: 25,
         generation_id: 0,
-        group_protocol: "",
-        leader_id: "",
+        protocol_name: "",
+        leader: "",
         member_id: "",
         members: []
       }
@@ -347,8 +347,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseTest do
         throttle_time_ms: 0,
         error_code: 27,
         generation_id: 0,
-        group_protocol: "",
-        leader_id: "",
+        protocol_name: "",
+        leader: "",
         member_id: "",
         members: []
       }
@@ -362,8 +362,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseTest do
         throttle_time_ms: 100,
         error_code: 0,
         generation_id: 5,
-        group_protocol: "assign",
-        leader_id: "member-123",
+        protocol_name: "assign",
+        leader: "member-123",
         member_id: "member-123",
         members: nil
       }
@@ -377,8 +377,8 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseTest do
         throttle_time_ms: 123,
         error_code: 0,
         generation_id: 1,
-        group_protocol: "assign",
-        leader_id: "member-1",
+        protocol_name: "assign",
+        leader: "member-1",
         member_id: "member-1",
         members: []
       }

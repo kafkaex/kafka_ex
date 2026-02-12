@@ -9,7 +9,7 @@ defmodule KafkaEx.Protocol.Kayrock.ListOffsets.ResponseHelpers do
   """
 
   import KafkaEx.Protocol.Kayrock.ResponseHelpers,
-    only: [build_response: 1, fail_fast_iterate_topics: 2, fail_fast_iterate_partitions: 3]
+    only: [build_response: 1, fail_fast_iterate_topics: 3, fail_fast_iterate_partitions: 3]
 
   alias KafkaEx.Messages.Offset
 
@@ -26,7 +26,11 @@ defmodule KafkaEx.Protocol.Kayrock.ListOffsets.ResponseHelpers do
           {:ok, list(Offset.t())} | {:error, any()}
   def parse_response(%{responses: responses}, offset_extractor) do
     responses
-    |> fail_fast_iterate_topics(&parse_partition_responses(&1, &2, offset_extractor))
+    |> fail_fast_iterate_topics(
+      &parse_partition_responses(&1, &2, offset_extractor),
+      topic_key: :topic,
+      partitions_key: :partition_responses
+    )
     |> build_response()
   end
 

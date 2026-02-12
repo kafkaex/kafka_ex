@@ -15,7 +15,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpers do
   @spec to_cluster_metadata(map(), Keyword.t()) :: {:ok, ClusterMetadata.t()} | {:error, term}
   def to_cluster_metadata(response, _opts \\ []) do
     brokers = parse_brokers(response.brokers)
-    topics = parse_topics(response.topic_metadata)
+    topics = parse_topics(response.topics)
     controller_id = Map.get(response, :controller_id)
 
     cluster_metadata = %ClusterMetadata{
@@ -59,9 +59,9 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpers do
     kayrock_topics
     |> Enum.filter(fn topic_map -> topic_map.error_code == 0 end)
     |> Enum.into(%{}, fn topic_map ->
-      topic_name = topic_map.topic
+      topic_name = topic_map.name
       is_internal = Map.get(topic_map, :is_internal, false)
-      partitions = parse_partitions(topic_map.partition_metadata)
+      partitions = parse_partitions(topic_map.partitions)
 
       partition_leaders =
         Enum.into(partitions, %{}, fn partition ->
@@ -88,10 +88,10 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpers do
     |> Enum.filter(fn partition_map -> partition_map.error_code == 0 end)
     |> Enum.map(fn partition_map ->
       %PartitionInfo{
-        partition_id: partition_map.partition,
-        leader: partition_map.leader,
-        replicas: partition_map.replicas || [],
-        isr: partition_map.isr || []
+        partition_id: partition_map.partition_index,
+        leader: partition_map.leader_id,
+        replicas: partition_map.replica_nodes || [],
+        isr: partition_map.isr_nodes || []
       }
     end)
   end
@@ -103,10 +103,10 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpers do
   def check_for_errors(response) do
     # Check for topic-level errors
     topic_errors =
-      response.topic_metadata
+      response.topics
       |> Enum.reject(fn topic -> topic.error_code == 0 end)
       |> Enum.map(fn topic ->
-        {topic.topic, ErrorCode.code_to_atom(topic.error_code)}
+        {topic.name, ErrorCode.code_to_atom(topic.error_code)}
       end)
 
     case topic_errors do

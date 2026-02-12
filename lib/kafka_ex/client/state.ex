@@ -4,7 +4,9 @@ defmodule KafkaEx.Client.State do
   # state struct for New.Client
 
   alias KafkaEx.Cluster.ClusterMetadata
-  alias Kayrock.KafkaSchemaMetadata
+  alias KafkaEx.Messages.ApiVersions
+
+  @protocol Application.compile_env(:kafka_ex, :protocol, KafkaEx.Protocol.KayrockProtocol)
 
   defstruct(
     bootstrap_uris: [],
@@ -92,9 +94,9 @@ defmodule KafkaEx.Client.State do
     ClusterMetadata.brokers(cluster_metadata)
   end
 
-  def ingest_api_versions(%__MODULE__{} = state, %{api_versions: api_versions}) do
+  def ingest_api_versions(%__MODULE__{} = state, %ApiVersions{api_versions: api_versions_map}) do
     api_versions =
-      Enum.into(api_versions, %{}, fn %{api_key: api_key, min_version: min_version, max_version: max_version} ->
+      Enum.into(api_versions_map, %{}, fn {api_key, %{min_version: min_version, max_version: max_version}} ->
         {api_key, {min_version, max_version}}
       end)
 
@@ -103,11 +105,10 @@ defmodule KafkaEx.Client.State do
 
   @doc """
   Returns max supported api version for request based on cached values in state.
-  Currently supports Kayrock metadata schema only.
   """
   def max_supported_api_version(%__MODULE__{api_versions: api_versions}, api, default) when is_atom(api) do
-    api_key = KafkaSchemaMetadata.api_key(api)
-    {_, max_kayrock_version} = KafkaSchemaMetadata.version_range(api)
+    api_key = @protocol.api_key(api)
+    max_kayrock_version = @protocol.max_supported_version(api)
 
     case Map.get(api_versions, api_key) do
       {_, vsn} -> min(vsn, max_kayrock_version)

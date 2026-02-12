@@ -22,13 +22,10 @@ defmodule KafkaEx.Client do
   alias KafkaEx.Client.State
   alias KafkaEx.Cluster.Broker
   alias KafkaEx.Cluster.ClusterMetadata
+  alias KafkaEx.Messages.FindCoordinator, as: FindCoordinatorMsg
   alias KafkaEx.Support.Retry
 
-  alias Kayrock.ApiVersions
-  alias Kayrock.ErrorCode
-  alias Kayrock.FindCoordinator
-  alias Kayrock.Metadata
-  alias Kayrock.Request
+  @protocol Application.compile_env(:kafka_ex, :protocol, KafkaEx.Protocol.KayrockProtocol)
 
   use GenServer
 
@@ -122,7 +119,6 @@ defmodule KafkaEx.Client do
                   "Check broker connectivity and network configuration."
 
         {:ok, api_versions} ->
-          :no_error = ErrorCode.code_to_atom(api_versions.error_code)
           api_versions
       end
 
@@ -387,15 +383,13 @@ defmodule KafkaEx.Client do
     known_topics = ClusterMetadata.known_topics(state.cluster_metadata)
     topics = Enum.uniq(known_topics ++ topics)
 
-    {updated_state, response} = retrieve_metadata(state, config_sync_timeout(), topics)
+    {updated_state, parsed_metadata} = retrieve_metadata(state, config_sync_timeout(), topics)
 
-    case response do
+    case parsed_metadata do
       nil ->
         updated_state
 
-      _ ->
-        new_cluster_metadata = ClusterMetadata.from_metadata_v1_response(response)
-
+      %ClusterMetadata{} = new_cluster_metadata ->
         {updated_cluster_metadata, brokers_to_close} =
           ClusterMetadata.merge_brokers(updated_state.cluster_metadata, new_cluster_metadata)
 
@@ -890,43 +884,56 @@ defmodule KafkaEx.Client do
   end
 
   defp retrieve_metadata(state, sync_timeout, topics) do
-    retrieve_metadata(state, sync_timeout, topics, @retry_count, 0)
+    retrieve_metadata(state, sync_timeout, topics, @retry_count)
   end
 
-  defp retrieve_metadata(state, _sync_timeout, topics, 0, error_code) do
-    Logger.log(:error, "Metadata request for topics #{inspect(topics)} failed with error_code #{inspect(error_code)}")
+  defp retrieve_metadata(state, _sync_timeout, topics, 0) do
+    Logger.log(:error, "Metadata request for topics #{inspect(topics)} failed: leader_not_available after retries")
     {state, nil}
   end
 
-  defp retrieve_metadata(state, sync_timeout, topics, retry, _error_code) do
-    # default to version 4 of the metadata protocol because this one treats an
-    # empty list of topics as 'no topics'.  note this limits us to Kafka 0.11+
-    api_version = State.max_supported_api_version(state, :metadata, 4)
+  defp retrieve_metadata(state, sync_timeout, topics, retry) do
+    req_opts = [
+      topics: topics,
+      allow_auto_topic_creation: state.allow_auto_topic_creation,
+      api_version: State.max_supported_api_version(state, :metadata, 4)
+    ]
 
-    metadata_request = %{
-      Metadata.get_request_struct(api_version)
-      | topics: topics,
-        allow_auto_topic_creation: state.allow_auto_topic_creation
-    }
+    with {:ok, request} <- RequestBuilder.metadata_request(req_opts, state),
+         {{:ok, response}, state_out} <-
+           kayrock_network_request(request, NodeSelector.first_available(), state) do
+      parse_metadata_response(response, state, state_out, sync_timeout, topics, retry)
+    else
+      {:error, _} ->
+        Logger.error("Unable to build metadata request.")
+        {state, nil}
 
-    {{ok_or_err, response}, state_out} =
-      kayrock_network_request(metadata_request, NodeSelector.first_available(), state)
-
-    case ok_or_err do
-      :ok ->
-        case Enum.find(response.topic_metadata, &(&1.error_code == ErrorCode.atom_to_code!(:leader_not_available))) do
-          nil ->
-            {state_out, response}
-
-          topic_metadata ->
-            :timer.sleep(300)
-            retrieve_metadata(state, sync_timeout, topics, retry - 1, topic_metadata.error_code)
-        end
-
-      _ ->
+      {{:error, _}, state_out} ->
         Logger.error("Unable to fetch metadata from any brokers. Timeout is #{sync_timeout}.")
         {state_out, nil}
     end
+  end
+
+  defp parse_metadata_response(response, state, state_out, sync_timeout, topics, retry) do
+    case ResponseParser.metadata_response(response) do
+      {:ok, cluster_metadata} ->
+        # Check if any requested topics are missing (leader_not_available).
+        # The parser filters out topics with errors, so missing = still propagating.
+        if topics != [] and has_missing_topics?(topics, cluster_metadata) do
+          :timer.sleep(300)
+          retrieve_metadata(state, sync_timeout, topics, retry - 1)
+        else
+          {state_out, cluster_metadata}
+        end
+
+      {:error, _reason} ->
+        Logger.error("Unable to parse metadata response from brokers.")
+        {state_out, nil}
+    end
+  end
+
+  defp has_missing_topics?(requested_topics, %ClusterMetadata{topics: known_topics}) do
+    Enum.any?(requested_topics, fn topic -> not Map.has_key?(known_topics, topic) end)
   end
 
   defp sleep_for_reconnect do
@@ -1029,17 +1036,34 @@ defmodule KafkaEx.Client do
   end
 
   defp update_consumer_group_coordinator(state, consumer_group) do
-    request = %FindCoordinator.V1.Request{coordinator_key: consumer_group, coordinator_type: 0}
-    {response, updated_state} = kayrock_network_request(request, NodeSelector.first_available(), state)
+    req_opts = [group_id: consumer_group]
 
-    case response do
-      {:ok, %FindCoordinator.V1.Response{error_code: 0, coordinator: coordinator}} ->
-        State.put_consumer_group_coordinator(updated_state, consumer_group, coordinator.node_id)
+    with {:ok, request} <- RequestBuilder.find_coordinator_request(req_opts, state),
+         {{:ok, raw_response}, updated_state} <-
+           kayrock_network_request(request, NodeSelector.first_available(), state) do
+      parse_coordinator_response(raw_response, updated_state, consumer_group)
+    else
+      {:error, error} ->
+        Logger.warning(
+          "Unable to build find_coordinator request for #{inspect(consumer_group)}: Error #{inspect(error)}"
+        )
 
-      {:ok, %FindCoordinator.V1.Response{error_code: error_code}} ->
-        error_code = ErrorCode.code_to_atom(error_code)
-        Logger.warning("Unable to find consumer group coordinator for #{inspect(consumer_group)}: Error #{error_code}")
+        state
+
+      {{:error, error}, updated_state} ->
+        Logger.warning(
+          "Unable to find consumer group coordinator for #{inspect(consumer_group)}: Error #{inspect(error)}"
+        )
+
         updated_state
+    end
+  end
+
+  defp parse_coordinator_response(raw_response, updated_state, consumer_group) do
+    case ResponseParser.find_coordinator_response(raw_response) do
+      {:ok, %FindCoordinatorMsg{} = result} ->
+        node_id = FindCoordinatorMsg.coordinator_node_id(result)
+        State.put_consumer_group_coordinator(updated_state, consumer_group, node_id)
 
       {:error, error} ->
         Logger.warning(
@@ -1088,10 +1112,20 @@ defmodule KafkaEx.Client do
     timeout || Application.get_env(:kafka_ex, :sync_timeout, @sync_timeout)
   end
 
-  defp get_api_versions(state, request_version \\ 0) do
-    request = ApiVersions.get_request_struct(request_version)
+  defp get_api_versions(state) do
+    {:ok, request} = RequestBuilder.api_versions_request([], state)
     {{ok_or_error, response}, state_out} = kayrock_network_request(request, NodeSelector.first_available(), state)
-    {ok_or_error, response, state_out}
+
+    case {ok_or_error, response} do
+      {:ok, raw_response} ->
+        case ResponseParser.api_versions_response(raw_response) do
+          {:ok, api_versions} -> {:ok, api_versions, state_out}
+          {:error, error} -> {:error, error, state_out}
+        end
+
+      {:error, error} ->
+        {:error, error, state_out}
+    end
   end
 
   # ApiVersions negotiation with retry and exponential backoff (issue #433)
@@ -1163,7 +1197,7 @@ defmodule KafkaEx.Client do
   end
 
   defp do_run_client_request(client_request, send_request, synchronous, start_metadata) do
-    wire_request = Request.serialize(client_request)
+    wire_request = @protocol.serialize_request(client_request)
     bytes_sent = IO.iodata_length(wire_request)
 
     {result, bytes_received, broker_info} =
@@ -1262,7 +1296,7 @@ defmodule KafkaEx.Client do
   defp broker_to_telemetry_info(broker), do: %{node_id: broker.node_id, host: broker.host, port: broker.port}
 
   defp deserialize(data, request) do
-    {resp, _} = Request.response_deserializer(request).(data)
+    {resp, _} = @protocol.response_deserializer(request).(data)
     {:ok, resp}
   rescue
     error ->

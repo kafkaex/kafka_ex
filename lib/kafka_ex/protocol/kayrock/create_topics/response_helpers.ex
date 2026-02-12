@@ -23,7 +23,7 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseHelpers do
         end
 
       TopicResult.build(
-        topic: topic_error.topic,
+        topic: topic_error.name,
         error: error,
         error_message: error_message
       )

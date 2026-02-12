@@ -33,10 +33,10 @@ defmodule KafkaEx.Cluster.PartitionInfo do
   @spec from_partition_metadata(map()) :: t()
   def from_partition_metadata(%{
         error_code: 0,
-        partition: partition,
-        leader: leader,
-        replicas: replicas,
-        isr: isr
+        partition_index: partition,
+        leader_id: leader,
+        replica_nodes: replicas,
+        isr_nodes: isr
       }) do
     %__MODULE__{
       partition_id: partition,

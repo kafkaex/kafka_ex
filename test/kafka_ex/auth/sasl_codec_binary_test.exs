@@ -421,6 +421,76 @@ defmodule KafkaEx.Auth.SASL.CodecBinaryTest do
     end
   end
 
+  describe "authenticate_request/4 v1" do
+    test "builds same structure as v0 with api version 1" do
+      auth_bytes = "v1_auth_payload"
+      corr = 500
+      ver = 1
+
+      result = CodecBinary.authenticate_request(auth_bytes, corr, ver)
+
+      <<api_key::16, api_ver::16, correlation::32, client_len::16, _client_id::binary-size(client_len), auth_len::32,
+        auth_data::binary-size(auth_len)>> = result
+
+      assert api_key == 36
+      assert api_ver == 1
+      assert correlation == corr
+      assert auth_data == auth_bytes
+    end
+  end
+
+  describe "authenticate_request/4 v2 (flexible)" do
+    test "builds header v2 with compact_string client_id and tagged fields" do
+      auth_bytes = "v2_auth_payload"
+      corr = 600
+      ver = 2
+
+      result = CodecBinary.authenticate_request(auth_bytes, corr, ver)
+
+      # Parse header: api_key::16, ver::16, corr::32
+      <<api_key::16, api_ver::16, correlation::32, rest::binary>> = result
+
+      assert api_key == 36
+      assert api_ver == 2
+      assert correlation == corr
+
+      # compact_string client_id: length+1 as unsigned varint, then string bytes
+      # "kafka_ex" = 8 bytes, so compact length = 9 (encoded as single byte <<9>>)
+      <<client_len_plus_1, client_id::binary-size(client_len_plus_1 - 1), rest2::binary>> = rest
+      assert client_id == "kafka_ex"
+
+      # tagged fields (empty) = <<0>>
+      <<0, rest3::binary>> = rest2
+
+      # body: compact_bytes(auth_bytes): len+1 as varint, then bytes
+      auth_size = byte_size(auth_bytes)
+      <<payload_len_plus_1, payload::binary-size(payload_len_plus_1 - 1), rest4::binary>> = rest3
+      assert payload == auth_bytes
+      assert payload_len_plus_1 == auth_size + 1
+
+      # body tagged fields (empty) = <<0>>
+      assert rest4 == <<0>>
+    end
+
+    test "raises ArgumentError when auth_bytes is nil for v2" do
+      assert_raise ArgumentError, ~r/requires non-nil auth_bytes/, fn ->
+        CodecBinary.authenticate_request(nil, 1, 2)
+      end
+    end
+  end
+
+  describe "pick_handshake_version/1 with error input" do
+    test "returns 0 when given {:error, _}" do
+      assert 0 == CodecBinary.pick_handshake_version({:error, :some_reason})
+    end
+  end
+
+  describe "pick_authenticate_version/1 with error input" do
+    test "returns 0 when given {:error, _}" do
+      assert 0 == CodecBinary.pick_authenticate_version({:error, :timeout})
+    end
+  end
+
   describe "error handling edge cases" do
     test "handles malformed responses gracefully" do
       # Too short to parse

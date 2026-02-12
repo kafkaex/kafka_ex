@@ -8,7 +8,7 @@ defmodule KafkaEx.Protocol.Kayrock.DeleteTopics.ResponseHelpersTest do
   describe "parse_topic_results/1" do
     test "parses successful topic deletion" do
       topic_error_codes = [
-        %{topic: "deleted-topic", error_code: 0}
+        %{name: "deleted-topic", error_code: 0}
       ]
 
       result = ResponseHelpers.parse_topic_results(topic_error_codes)
@@ -22,7 +22,7 @@ defmodule KafkaEx.Protocol.Kayrock.DeleteTopics.ResponseHelpersTest do
 
     test "parses topic deletion with error" do
       topic_error_codes = [
-        %{topic: "nonexistent-topic", error_code: 3}
+        %{name: "nonexistent-topic", error_code: 3}
       ]
 
       result = ResponseHelpers.parse_topic_results(topic_error_codes)
@@ -34,9 +34,9 @@ defmodule KafkaEx.Protocol.Kayrock.DeleteTopics.ResponseHelpersTest do
 
     test "parses multiple topics" do
       topic_error_codes = [
-        %{topic: "topic1", error_code: 0},
-        %{topic: "topic2", error_code: 0},
-        %{topic: "topic3", error_code: 3}
+        %{name: "topic1", error_code: 0},
+        %{name: "topic2", error_code: 0},
+        %{name: "topic3", error_code: 3}
       ]
 
       result = ResponseHelpers.parse_topic_results(topic_error_codes)

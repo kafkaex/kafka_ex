@@ -8,9 +8,9 @@ defimpl KafkaEx.Protocol.Kayrock.CreateTopics.Response, for: Kayrock.CreateTopic
 
   alias KafkaEx.Protocol.Kayrock.CreateTopics.ResponseHelpers
 
-  def parse_response(%{topic_errors: topic_errors}) do
+  def parse_response(%{topics: topics}) do
     # V0 does not have error_message field
-    topic_results = ResponseHelpers.parse_topic_results(topic_errors, false)
+    topic_results = ResponseHelpers.parse_topic_results(topics, false)
     {:ok, ResponseHelpers.build_response(topic_results)}
   end
 end

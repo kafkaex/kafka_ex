@@ -20,19 +20,19 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.RequestHelpers do
     |> Keyword.fetch!(:topics)
     |> Enum.map(fn {topic, partitions} ->
       %{
-        topic: topic,
-        partitions: build_partitions(partitions)
+        name: topic,
+        partition_indexes: build_partition_indexes(partitions)
       }
     end)
   end
 
   @doc """
-  Builds partition data for a topic.
+  Builds partition index list for a topic.
   """
-  @spec build_partitions([partition_data()]) :: [partition_output()]
-  def build_partitions(partitions) do
+  @spec build_partition_indexes([partition_data()]) :: [non_neg_integer()]
+  def build_partition_indexes(partitions) do
     Enum.map(partitions, fn partition_data ->
-      %{partition: partition_data.partition_num}
+      partition_data.partition_num
     end)
   end
 

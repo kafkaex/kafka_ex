@@ -11,7 +11,7 @@ defmodule KafkaEx.Protocol.Kayrock.DescribeGroups.RequestTest do
     test "for api version 0 - builds describe group request" do
       groups = ["group1", "group2"]
 
-      expected_request = %V0.Request{group_ids: groups}
+      expected_request = %V0.Request{groups: groups}
 
       assert expected_request == DescribeGroupsRequest.build_request(%V0.Request{}, group_names: groups)
     end
@@ -19,7 +19,7 @@ defmodule KafkaEx.Protocol.Kayrock.DescribeGroups.RequestTest do
     test "for api version 1 - builds describe group request" do
       groups = ["group1", "group2"]
 
-      expected_request = %V1.Request{group_ids: groups}
+      expected_request = %V1.Request{groups: groups}
 
       assert expected_request == DescribeGroupsRequest.build_request(%V1.Request{}, group_names: groups)
     end

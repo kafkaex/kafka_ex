@@ -8,11 +8,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.ResponseTest do
   describe "V0 Response implementation" do
     test "parses successful commit response with single partition" do
       response = %Kayrock.OffsetCommit.V0.Response{
-        responses: [
+        topics: [
           %{
-            topic: "test-topic",
-            partition_responses: [
-              %{partition: 0, error_code: 0}
+            name: "test-topic",
+            partitions: [
+              %{partition_index: 0, error_code: 0}
             ]
           }
         ]
@@ -36,13 +36,13 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.ResponseTest do
 
     test "parses successful commit with multiple partitions" do
       response = %Kayrock.OffsetCommit.V0.Response{
-        responses: [
+        topics: [
           %{
-            topic: "multi-partition",
-            partition_responses: [
-              %{partition: 0, error_code: 0},
-              %{partition: 1, error_code: 0},
-              %{partition: 2, error_code: 0}
+            name: "multi-partition",
+            partitions: [
+              %{partition_index: 0, error_code: 0},
+              %{partition_index: 1, error_code: 0},
+              %{partition_index: 2, error_code: 0}
             ]
           }
         ]
@@ -59,14 +59,14 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.ResponseTest do
 
     test "parses successful commit with multiple topics" do
       response = %Kayrock.OffsetCommit.V0.Response{
-        responses: [
+        topics: [
           %{
-            topic: "topic-1",
-            partition_responses: [%{partition: 0, error_code: 0}]
+            name: "topic-1",
+            partitions: [%{partition_index: 0, error_code: 0}]
           },
           %{
-            topic: "topic-2",
-            partition_responses: [%{partition: 0, error_code: 0}]
+            name: "topic-2",
+            partitions: [%{partition_index: 0, error_code: 0}]
           }
         ]
       }
@@ -81,11 +81,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.ResponseTest do
 
     test "returns error when partition has error code" do
       response = %Kayrock.OffsetCommit.V0.Response{
-        responses: [
+        topics: [
           %{
-            topic: "error-topic",
-            partition_responses: [
-              %{partition: 0, error_code: 12}
+            name: "error-topic",
+            partitions: [
+              %{partition_index: 0, error_code: 12}
             ]
           }
         ]
@@ -99,13 +99,13 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.ResponseTest do
 
     test "returns error on first partition error with multiple partitions" do
       response = %Kayrock.OffsetCommit.V0.Response{
-        responses: [
+        topics: [
           %{
-            topic: "test-topic",
-            partition_responses: [
-              %{partition: 0, error_code: 0},
-              %{partition: 1, error_code: 14},
-              %{partition: 2, error_code: 0}
+            name: "test-topic",
+            partitions: [
+              %{partition_index: 0, error_code: 0},
+              %{partition_index: 1, error_code: 14},
+              %{partition_index: 2, error_code: 0}
             ]
           }
         ]
@@ -126,10 +126,10 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.ResponseTest do
 
       for {code, expected_error} <- error_codes do
         response = %Kayrock.OffsetCommit.V0.Response{
-          responses: [
+          topics: [
             %{
-              topic: "test-topic",
-              partition_responses: [%{partition: 0, error_code: code}]
+              name: "test-topic",
+              partitions: [%{partition_index: 0, error_code: code}]
             }
           ]
         }
@@ -141,10 +141,10 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.ResponseTest do
 
     test "parses response with empty partition list" do
       response = %Kayrock.OffsetCommit.V0.Response{
-        responses: [
+        topics: [
           %{
-            topic: "empty-topic",
-            partition_responses: []
+            name: "empty-topic",
+            partitions: []
           }
         ]
       }
@@ -156,11 +156,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.ResponseTest do
   describe "V1 Response implementation" do
     test "parses successful commit response" do
       response = %Kayrock.OffsetCommit.V1.Response{
-        responses: [
+        topics: [
           %{
-            topic: "v1-topic",
-            partition_responses: [
-              %{partition: 0, error_code: 0}
+            name: "v1-topic",
+            partitions: [
+              %{partition_index: 0, error_code: 0}
             ]
           }
         ]
@@ -184,13 +184,13 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.ResponseTest do
 
     test "parses response with multiple partitions" do
       response = %Kayrock.OffsetCommit.V1.Response{
-        responses: [
+        topics: [
           %{
-            topic: "multi-part-v1",
-            partition_responses: [
-              %{partition: 0, error_code: 0},
-              %{partition: 1, error_code: 0},
-              %{partition: 2, error_code: 0}
+            name: "multi-part-v1",
+            partitions: [
+              %{partition_index: 0, error_code: 0},
+              %{partition_index: 1, error_code: 0},
+              %{partition_index: 2, error_code: 0}
             ]
           }
         ]
@@ -202,11 +202,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.ResponseTest do
 
     test "returns error when partition has error code" do
       response = %Kayrock.OffsetCommit.V1.Response{
-        responses: [
+        topics: [
           %{
-            topic: "error-v1-topic",
-            partition_responses: [
-              %{partition: 0, error_code: 22}
+            name: "error-v1-topic",
+            partitions: [
+              %{partition_index: 0, error_code: 22}
             ]
           }
         ]
@@ -228,10 +228,10 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.ResponseTest do
 
       for {code, expected_error} <- error_codes do
         response = %Kayrock.OffsetCommit.V1.Response{
-          responses: [
+          topics: [
             %{
-              topic: "test-topic",
-              partition_responses: [%{partition: 0, error_code: code}]
+              name: "test-topic",
+              partitions: [%{partition_index: 0, error_code: code}]
             }
           ]
         }
@@ -245,11 +245,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.ResponseTest do
   describe "V2 Response implementation" do
     test "parses successful commit response" do
       response = %Kayrock.OffsetCommit.V2.Response{
-        responses: [
+        topics: [
           %{
-            topic: "v2-topic",
-            partition_responses: [
-              %{partition: 0, error_code: 0}
+            name: "v2-topic",
+            partitions: [
+              %{partition_index: 0, error_code: 0}
             ]
           }
         ]
@@ -273,13 +273,13 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.ResponseTest do
 
     test "parses response with multiple partitions" do
       response = %Kayrock.OffsetCommit.V2.Response{
-        responses: [
+        topics: [
           %{
-            topic: "multi-part-v2",
-            partition_responses: [
-              %{partition: 0, error_code: 0},
-              %{partition: 1, error_code: 0},
-              %{partition: 2, error_code: 0}
+            name: "multi-part-v2",
+            partitions: [
+              %{partition_index: 0, error_code: 0},
+              %{partition_index: 1, error_code: 0},
+              %{partition_index: 2, error_code: 0}
             ]
           }
         ]
@@ -291,11 +291,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.ResponseTest do
 
     test "returns error when partition has error code" do
       response = %Kayrock.OffsetCommit.V2.Response{
-        responses: [
+        topics: [
           %{
-            topic: "error-v2-topic",
-            partition_responses: [
-              %{partition: 0, error_code: 27}
+            name: "error-v2-topic",
+            partitions: [
+              %{partition_index: 0, error_code: 27}
             ]
           }
         ]
@@ -317,10 +317,10 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.ResponseTest do
 
       for {code, expected_error} <- error_codes do
         response = %Kayrock.OffsetCommit.V2.Response{
-          responses: [
+          topics: [
             %{
-              topic: "test-topic",
-              partition_responses: [%{partition: 0, error_code: code}]
+              name: "test-topic",
+              partitions: [%{partition_index: 0, error_code: code}]
             }
           ]
         }
@@ -335,11 +335,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.ResponseTest do
     test "parses successful response with throttle_time_ms" do
       response = %Kayrock.OffsetCommit.V3.Response{
         throttle_time_ms: 100,
-        responses: [
+        topics: [
           %{
-            topic: "v3-topic",
-            partition_responses: [
-              %{partition: 0, error_code: 0}
+            name: "v3-topic",
+            partitions: [
+              %{partition_index: 0, error_code: 0}
             ]
           }
         ]
@@ -364,11 +364,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.ResponseTest do
     test "parses response with zero throttle_time_ms" do
       response = %Kayrock.OffsetCommit.V3.Response{
         throttle_time_ms: 0,
-        responses: [
+        topics: [
           %{
-            topic: "no-throttle-topic",
-            partition_responses: [
-              %{partition: 0, error_code: 0}
+            name: "no-throttle-topic",
+            partitions: [
+              %{partition_index: 0, error_code: 0}
             ]
           }
         ]
@@ -381,13 +381,13 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.ResponseTest do
     test "parses response with multiple partitions" do
       response = %Kayrock.OffsetCommit.V3.Response{
         throttle_time_ms: 50,
-        responses: [
+        topics: [
           %{
-            topic: "multi-v3",
-            partition_responses: [
-              %{partition: 0, error_code: 0},
-              %{partition: 1, error_code: 0},
-              %{partition: 2, error_code: 0}
+            name: "multi-v3",
+            partitions: [
+              %{partition_index: 0, error_code: 0},
+              %{partition_index: 1, error_code: 0},
+              %{partition_index: 2, error_code: 0}
             ]
           }
         ]
@@ -400,11 +400,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.ResponseTest do
     test "returns error when partition has error code" do
       response = %Kayrock.OffsetCommit.V3.Response{
         throttle_time_ms: 25,
-        responses: [
+        topics: [
           %{
-            topic: "error-v3-topic",
-            partition_responses: [
-              %{partition: 0, error_code: 14}
+            name: "error-v3-topic",
+            partitions: [
+              %{partition_index: 0, error_code: 14}
             ]
           }
         ]
@@ -418,11 +418,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.ResponseTest do
     test "handles high throttle_time_ms values" do
       response = %Kayrock.OffsetCommit.V3.Response{
         throttle_time_ms: 5000,
-        responses: [
+        topics: [
           %{
-            topic: "throttled-topic",
-            partition_responses: [
-              %{partition: 0, error_code: 0}
+            name: "throttled-topic",
+            partitions: [
+              %{partition_index: 0, error_code: 0}
             ]
           }
         ]
@@ -435,14 +435,14 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.ResponseTest do
     test "handles multiple topics with throttle time" do
       response = %Kayrock.OffsetCommit.V3.Response{
         throttle_time_ms: 150,
-        responses: [
+        topics: [
           %{
-            topic: "topic-1",
-            partition_responses: [%{partition: 0, error_code: 0}]
+            name: "topic-1",
+            partitions: [%{partition_index: 0, error_code: 0}]
           },
           %{
-            topic: "topic-2",
-            partition_responses: [%{partition: 0, error_code: 0}]
+            name: "topic-2",
+            partitions: [%{partition_index: 0, error_code: 0}]
           }
         ]
       }

@@ -2,6 +2,7 @@ defmodule KafkaEx.TestHelpers do
   alias KafkaEx.API
   alias KafkaEx.Client
   alias KafkaEx.Client.NodeSelector
+  alias KafkaEx.Test.KayrockFixtures, as: Fixtures
   require Logger
 
   @doc """
@@ -103,30 +104,27 @@ defmodule KafkaEx.TestHelpers do
     resp =
       Client.send_request(
         client,
-        %Kayrock.CreateTopics.V0.Request{
-          create_topic_requests: [
+        Fixtures.build_request(:create_topics, 0,
+          topics: [
             %{
-              topic: topic_name,
+              name: topic_name,
               num_partitions: 4,
               replication_factor: 1,
-              replica_assignment: [],
-              config_entries: [
+              assignments: [],
+              configs: [
                 %{
-                  config_name: "message.timestamp.type",
-                  config_value: "LogAppendTime"
+                  name: "message.timestamp.type",
+                  value: "LogAppendTime"
                 }
               ]
             }
           ],
-          timeout: 1000
-        },
+          timeout_ms: 1000
+        ),
         NodeSelector.controller()
       )
 
-    {:ok,
-     %Kayrock.CreateTopics.V0.Response{
-       topic_errors: [%{error_code: error_code}]
-     }} = resp
+    {:ok, %{topics: [%{error_code: error_code}]}} = resp
 
     wait_for_topic_to_appear(client, topic_name)
 
@@ -145,14 +143,14 @@ defmodule KafkaEx.TestHelpers do
   end
 
   defp wait_for_topic_to_appear(client, topic_name, attempts) do
-    {:ok, %{topic_metadata: topic_metadata}} =
+    {:ok, %{topics: topic_entries}} =
       Client.send_request(
         client,
-        %Kayrock.Metadata.V0.Request{},
+        Fixtures.build_request(:metadata, 0),
         NodeSelector.topic_partition(topic_name, 0)
       )
 
-    topics = topic_metadata |> Enum.map(& &1.topic)
+    topics = topic_entries |> Enum.map(& &1.name)
 
     unless topic_name in topics do
       wait_for_topic_to_appear(client, topic_name, attempts - 1)

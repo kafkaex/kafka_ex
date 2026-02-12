@@ -13,12 +13,12 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpersTest do
         brokers: [
           %{node_id: 1, host: "broker1.example.com", port: 9092}
         ],
-        topic_metadata: [
+        topics: [
           %{
-            topic: "test-topic",
+            name: "test-topic",
             error_code: 0,
-            partition_metadata: [
-              %{partition: 0, error_code: 0, leader: 1, replicas: [1, 2], isr: [1, 2]}
+            partitions: [
+              %{partition_index: 0, error_code: 0, leader_id: 1, replica_nodes: [1, 2], isr_nodes: [1, 2]}
             ]
           }
         ]
@@ -32,7 +32,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpersTest do
     test "extracts controller_id when present" do
       response = %{
         brokers: [],
-        topic_metadata: [],
+        topics: [],
         controller_id: 5
       }
 
@@ -43,7 +43,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpersTest do
     test "handles nil controller_id" do
       response = %{
         brokers: [],
-        topic_metadata: []
+        topics: []
       }
 
       assert {:ok, %ClusterMetadata{} = metadata} = ResponseHelpers.to_cluster_metadata(response)
@@ -106,10 +106,10 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpersTest do
     test "parses single topic with partitions" do
       topics = [
         %{
-          topic: "test-topic",
+          name: "test-topic",
           error_code: 0,
-          partition_metadata: [
-            %{partition: 0, error_code: 0, leader: 1, replicas: [1, 2], isr: [1, 2]}
+          partitions: [
+            %{partition_index: 0, error_code: 0, leader_id: 1, replica_nodes: [1, 2], isr_nodes: [1, 2]}
           ]
         }
       ]
@@ -123,8 +123,8 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpersTest do
 
     test "filters out topics with errors" do
       topics = [
-        %{topic: "good-topic", error_code: 0, partition_metadata: []},
-        %{topic: "bad-topic", error_code: 3, partition_metadata: []}
+        %{name: "good-topic", error_code: 0, partitions: []},
+        %{name: "bad-topic", error_code: 3, partitions: []}
       ]
 
       result = ResponseHelpers.parse_topics(topics)
@@ -136,8 +136,8 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpersTest do
 
     test "parses is_internal flag" do
       topics = [
-        %{topic: "__consumer_offsets", error_code: 0, is_internal: true, partition_metadata: []},
-        %{topic: "user-topic", error_code: 0, is_internal: false, partition_metadata: []}
+        %{name: "__consumer_offsets", error_code: 0, is_internal: true, partitions: []},
+        %{name: "user-topic", error_code: 0, is_internal: false, partitions: []}
       ]
 
       result = ResponseHelpers.parse_topics(topics)
@@ -149,11 +149,11 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpersTest do
     test "builds partition_leaders map" do
       topics = [
         %{
-          topic: "test-topic",
+          name: "test-topic",
           error_code: 0,
-          partition_metadata: [
-            %{partition: 0, error_code: 0, leader: 1, replicas: [], isr: []},
-            %{partition: 1, error_code: 0, leader: 2, replicas: [], isr: []}
+          partitions: [
+            %{partition_index: 0, error_code: 0, leader_id: 1, replica_nodes: [], isr_nodes: []},
+            %{partition_index: 1, error_code: 0, leader_id: 2, replica_nodes: [], isr_nodes: []}
           ]
         }
       ]
@@ -169,7 +169,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpersTest do
   describe "parse_partitions/1" do
     test "parses partition metadata" do
       partitions = [
-        %{partition: 0, error_code: 0, leader: 1, replicas: [1, 2, 3], isr: [1, 2]}
+        %{partition_index: 0, error_code: 0, leader_id: 1, replica_nodes: [1, 2, 3], isr_nodes: [1, 2]}
       ]
 
       result = ResponseHelpers.parse_partitions(partitions)
@@ -185,8 +185,8 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpersTest do
 
     test "filters out partitions with errors" do
       partitions = [
-        %{partition: 0, error_code: 0, leader: 1, replicas: [], isr: []},
-        %{partition: 1, error_code: 9, leader: -1, replicas: [], isr: []}
+        %{partition_index: 0, error_code: 0, leader_id: 1, replica_nodes: [], isr_nodes: []},
+        %{partition_index: 1, error_code: 9, leader_id: -1, replica_nodes: [], isr_nodes: []}
       ]
 
       result = ResponseHelpers.parse_partitions(partitions)
@@ -198,7 +198,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpersTest do
 
     test "handles nil replicas and isr" do
       partitions = [
-        %{partition: 0, error_code: 0, leader: 1, replicas: nil, isr: nil}
+        %{partition_index: 0, error_code: 0, leader_id: 1, replica_nodes: nil, isr_nodes: nil}
       ]
 
       result = ResponseHelpers.parse_partitions(partitions)
@@ -212,9 +212,9 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpersTest do
   describe "check_for_errors/1" do
     test "returns :ok when no topic errors" do
       response = %{
-        topic_metadata: [
-          %{topic: "topic1", error_code: 0},
-          %{topic: "topic2", error_code: 0}
+        topics: [
+          %{name: "topic1", error_code: 0},
+          %{name: "topic2", error_code: 0}
         ]
       }
 
@@ -223,10 +223,10 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpersTest do
 
     test "returns error tuple with topic errors" do
       response = %{
-        topic_metadata: [
-          %{topic: "good-topic", error_code: 0},
-          %{topic: "unknown-topic", error_code: 3},
-          %{topic: "auth-topic", error_code: 29}
+        topics: [
+          %{name: "good-topic", error_code: 0},
+          %{name: "unknown-topic", error_code: 3},
+          %{name: "auth-topic", error_code: 29}
         ]
       }
 

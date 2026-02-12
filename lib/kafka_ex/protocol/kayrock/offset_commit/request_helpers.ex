@@ -39,7 +39,7 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestHelpers do
     |> Keyword.fetch!(:topics)
     |> Enum.map(fn {topic, partitions} ->
       %{
-        topic: topic,
+        name: topic,
         partitions: build_partitions(partitions, include_timestamp)
       }
     end)
@@ -59,13 +59,13 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestHelpers do
   def build_partitions(partitions, include_timestamp) do
     Enum.map(partitions, fn partition_data ->
       base = %{
-        partition: partition_data.partition_num,
-        offset: partition_data.offset,
-        metadata: partition_data[:metadata] || ""
+        partition_index: partition_data.partition_num,
+        committed_offset: partition_data.offset,
+        committed_metadata: partition_data[:metadata] || ""
       }
 
       if include_timestamp do
-        Map.put(base, :timestamp, partition_data[:timestamp] || -1)
+        Map.put(base, :commit_timestamp, partition_data[:timestamp] || -1)
       else
         base
       end
@@ -111,7 +111,7 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestHelpers do
     |> Map.put(:group_id, group_id)
     |> Map.put(:generation_id, generation_id)
     |> Map.put(:member_id, member_id)
-    |> Map.put(:retention_time, retention_time)
+    |> Map.put(:retention_time_ms, retention_time)
     |> Map.put(:topics, topics)
   end
 end

@@ -11,6 +11,7 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
   alias Kayrock.CreateTopics
   alias Kayrock.DeleteTopics
   alias Kayrock.DescribeGroups
+  alias Kayrock.ErrorCode
   alias Kayrock.Fetch
   alias Kayrock.FindCoordinator
   alias Kayrock.Heartbeat
@@ -22,6 +23,7 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
   alias Kayrock.OffsetCommit
   alias Kayrock.OffsetFetch
   alias Kayrock.Produce
+  alias Kayrock.Request
   alias Kayrock.SyncGroup
 
   # -----------------------------------------------------------------------------
@@ -155,4 +157,48 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
   def parse_response(:find_coordinator, response), do: KayrockProtocol.FindCoordinator.Response.parse_response(response)
   def parse_response(:create_topics, response), do: KayrockProtocol.CreateTopics.Response.parse_response(response)
   def parse_response(:delete_topics, response), do: KayrockProtocol.DeleteTopics.Response.parse_response(response)
+
+  # -----------------------------------------------------------------------------
+  # Utility wrappers — allow code outside lib/kafka_ex/protocol/ to avoid
+  # importing Kayrock modules directly.
+  # -----------------------------------------------------------------------------
+
+  @doc """
+  Returns the integer API key for a given API name atom (e.g. `:metadata` → 3).
+  """
+  @spec api_key(atom()) :: non_neg_integer()
+  def api_key(api_name) when is_atom(api_name), do: KafkaSchemaMetadata.api_key(api_name)
+
+  @doc """
+  Returns the maximum protocol version that Kayrock supports for the given API.
+  """
+  @spec max_supported_version(atom()) :: non_neg_integer()
+  def max_supported_version(api_name) when is_atom(api_name) do
+    {_, max} = KafkaSchemaMetadata.version_range(api_name)
+    max
+  end
+
+  @doc """
+  Converts an integer Kafka error code to its atom representation.
+  """
+  @spec error_code_to_atom(integer()) :: atom()
+  def error_code_to_atom(code) when is_integer(code), do: ErrorCode.code_to_atom(code)
+
+  @doc """
+  Converts an error atom to its integer Kafka error code.
+  """
+  @spec atom_to_error_code!(atom()) :: integer()
+  def atom_to_error_code!(atom) when is_atom(atom), do: ErrorCode.atom_to_code!(atom)
+
+  @doc """
+  Serializes a Kayrock request struct to wire-format iodata.
+  """
+  @spec serialize_request(struct()) :: iodata()
+  def serialize_request(request), do: Request.serialize(request)
+
+  @doc """
+  Returns the response deserializer function for a given request struct.
+  """
+  @spec response_deserializer(struct()) :: (binary() -> {struct(), binary()})
+  def response_deserializer(request), do: Request.response_deserializer(request)
 end

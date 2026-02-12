@@ -11,7 +11,7 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.RequestTest do
 
       result = Request.build_request(template, opts)
 
-      assert result.group_id == "my-consumer-group"
+      assert result.key == "my-consumer-group"
     end
 
     test "raises when group_id is missing" do
@@ -31,8 +31,8 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.RequestTest do
 
       result = Request.build_request(template, opts)
 
-      assert result.coordinator_key == "my-consumer-group"
-      assert result.coordinator_type == 0
+      assert result.key == "my-consumer-group"
+      assert result.key_type == 0
     end
 
     test "builds V1 request with coordinator_key" do
@@ -42,8 +42,8 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.RequestTest do
 
       result = Request.build_request(template, opts)
 
-      assert result.coordinator_key == "my-transactional-id"
-      assert result.coordinator_type == 1
+      assert result.key == "my-transactional-id"
+      assert result.key_type == 1
     end
 
     test "builds V1 request for group coordinator (type = 0)" do
@@ -53,8 +53,8 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.RequestTest do
 
       result = Request.build_request(template, opts)
 
-      assert result.coordinator_key == "consumer-group"
-      assert result.coordinator_type == 0
+      assert result.key == "consumer-group"
+      assert result.key_type == 0
     end
 
     test "builds V1 request for transaction coordinator (type = 1)" do
@@ -64,8 +64,8 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.RequestTest do
 
       result = Request.build_request(template, opts)
 
-      assert result.coordinator_key == "transactional-id"
-      assert result.coordinator_type == 1
+      assert result.key == "transactional-id"
+      assert result.key_type == 1
     end
 
     test "accepts :group atom for coordinator_type" do
@@ -75,7 +75,7 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.RequestTest do
 
       result = Request.build_request(template, opts)
 
-      assert result.coordinator_type == 0
+      assert result.key_type == 0
     end
 
     test "accepts :transaction atom for coordinator_type" do
@@ -85,7 +85,7 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.RequestTest do
 
       result = Request.build_request(template, opts)
 
-      assert result.coordinator_type == 1
+      assert result.key_type == 1
     end
 
     test "coordinator_key takes precedence over group_id" do
@@ -95,25 +95,22 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.RequestTest do
 
       result = Request.build_request(template, opts)
 
-      assert result.coordinator_key == "coordinator-key"
+      assert result.key == "coordinator-key"
     end
   end
 
   describe "Version comparison" do
-    test "V0 uses group_id field" do
+    test "V0 uses key field" do
       v0 = Request.build_request(%Kayrock.FindCoordinator.V0.Request{}, group_id: "test-group")
 
-      assert v0.group_id == "test-group"
-      refute Map.has_key?(v0, :coordinator_key)
-      refute Map.has_key?(v0, :coordinator_type)
+      assert v0.key == "test-group"
     end
 
-    test "V1 uses coordinator_key and coordinator_type fields" do
+    test "V1 uses key and key_type fields" do
       v1 = Request.build_request(%Kayrock.FindCoordinator.V1.Request{}, group_id: "test-group")
 
-      assert v1.coordinator_key == "test-group"
-      assert v1.coordinator_type == 0
-      refute Map.has_key?(v1, :group_id)
+      assert v1.key == "test-group"
+      assert v1.key_type == 0
     end
   end
 end

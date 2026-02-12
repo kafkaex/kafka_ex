@@ -13,17 +13,17 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseTest do
         brokers: [
           %{node_id: 1, host: "broker1.example.com", port: 9092}
         ],
-        topic_metadata: [
+        topics: [
           %{
             error_code: 0,
-            topic: "test-topic",
-            partition_metadata: [
+            name: "test-topic",
+            partitions: [
               %{
                 error_code: 0,
-                partition: 0,
-                leader: 1,
-                replicas: [1, 2, 3],
-                isr: [1, 2]
+                partition_index: 0,
+                leader_id: 1,
+                replica_nodes: [1, 2, 3],
+                isr_nodes: [1, 2]
               }
             ]
           }
@@ -54,7 +54,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseTest do
           %{node_id: 2, host: "broker2.example.com", port: 9092},
           %{node_id: 3, host: "broker3.example.com", port: 9092}
         ],
-        topic_metadata: []
+        topics: []
       }
 
       {:ok, cluster_metadata} = MetadataResponse.parse_response(response)
@@ -70,20 +70,20 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseTest do
         brokers: [
           %{node_id: 1, host: "broker1.example.com", port: 9092}
         ],
-        topic_metadata: [
+        topics: [
           %{
             error_code: 0,
-            topic: "topic1",
-            partition_metadata: [
-              %{error_code: 0, partition: 0, leader: 1, replicas: [1], isr: [1]},
-              %{error_code: 0, partition: 1, leader: 1, replicas: [1], isr: [1]}
+            name: "topic1",
+            partitions: [
+              %{error_code: 0, partition_index: 0, leader_id: 1, replica_nodes: [1], isr_nodes: [1]},
+              %{error_code: 0, partition_index: 1, leader_id: 1, replica_nodes: [1], isr_nodes: [1]}
             ]
           },
           %{
             error_code: 0,
-            topic: "topic2",
-            partition_metadata: [
-              %{error_code: 0, partition: 0, leader: 1, replicas: [1], isr: [1]}
+            name: "topic2",
+            partitions: [
+              %{error_code: 0, partition_index: 0, leader_id: 1, replica_nodes: [1], isr_nodes: [1]}
             ]
           }
         ]
@@ -103,19 +103,19 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseTest do
         brokers: [
           %{node_id: 1, host: "broker1.example.com", port: 9092}
         ],
-        topic_metadata: [
+        topics: [
           %{
             error_code: 0,
-            topic: "good-topic",
-            partition_metadata: [
-              %{error_code: 0, partition: 0, leader: 1, replicas: [1], isr: [1]}
+            name: "good-topic",
+            partitions: [
+              %{error_code: 0, partition_index: 0, leader_id: 1, replica_nodes: [1], isr_nodes: [1]}
             ]
           },
           %{
             error_code: 3,
             # UNKNOWN_TOPIC_OR_PARTITION
-            topic: "bad-topic",
-            partition_metadata: []
+            name: "bad-topic",
+            partitions: []
           }
         ]
       }
@@ -132,13 +132,13 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseTest do
         brokers: [
           %{node_id: 1, host: "broker1.example.com", port: 9092}
         ],
-        topic_metadata: [
+        topics: [
           %{
             error_code: 0,
-            topic: "test-topic",
-            partition_metadata: [
-              %{error_code: 0, partition: 0, leader: 1, replicas: [1], isr: [1]},
-              %{error_code: 5, partition: 1, leader: -1, replicas: [], isr: []}
+            name: "test-topic",
+            partitions: [
+              %{error_code: 0, partition_index: 0, leader_id: 1, replica_nodes: [1], isr_nodes: [1]},
+              %{error_code: 5, partition_index: 1, leader_id: -1, replica_nodes: [], isr_nodes: []}
             ]
           }
         ]
@@ -160,7 +160,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseTest do
           %{node_id: 2, host: "broker2.example.com", port: 9092, rack: "rack-1"}
         ],
         controller_id: 2,
-        topic_metadata: []
+        topics: []
       }
 
       {:ok, cluster_metadata} = MetadataResponse.parse_response(response)
@@ -176,21 +176,21 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseTest do
           %{node_id: 1, host: "broker1.example.com", port: 9092, rack: nil}
         ],
         controller_id: 1,
-        topic_metadata: [
+        topics: [
           %{
             error_code: 0,
-            topic: "user-topic",
+            name: "user-topic",
             is_internal: false,
-            partition_metadata: [
-              %{error_code: 0, partition: 0, leader: 1, replicas: [1], isr: [1]}
+            partitions: [
+              %{error_code: 0, partition_index: 0, leader_id: 1, replica_nodes: [1], isr_nodes: [1]}
             ]
           },
           %{
             error_code: 0,
-            topic: "__consumer_offsets",
+            name: "__consumer_offsets",
             is_internal: true,
-            partition_metadata: [
-              %{error_code: 0, partition: 0, leader: 1, replicas: [1], isr: [1]}
+            partitions: [
+              %{error_code: 0, partition_index: 0, leader_id: 1, replica_nodes: [1], isr_nodes: [1]}
             ]
           }
         ]
@@ -210,7 +210,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseTest do
           %{node_id: 3, host: "broker3.example.com", port: 9092, rack: nil}
         ],
         controller_id: 1,
-        topic_metadata: []
+        topics: []
       }
 
       {:ok, cluster_metadata} = MetadataResponse.parse_response(response)
@@ -229,7 +229,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseTest do
         ],
         cluster_id: "kafka-cluster-prod",
         controller_id: 1,
-        topic_metadata: []
+        topics: []
       }
 
       {:ok, cluster_metadata} = MetadataResponse.parse_response(response)
@@ -247,7 +247,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseTest do
         ],
         cluster_id: nil,
         controller_id: 1,
-        topic_metadata: []
+        topics: []
       }
 
       {:ok, cluster_metadata} = MetadataResponse.parse_response(response)
@@ -264,14 +264,14 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseTest do
         ],
         cluster_id: "prod-cluster-1",
         controller_id: 2,
-        topic_metadata: [
+        topics: [
           %{
             error_code: 0,
-            topic: "events",
+            name: "events",
             is_internal: false,
-            partition_metadata: [
-              %{error_code: 0, partition: 0, leader: 1, replicas: [1, 2], isr: [1, 2]},
-              %{error_code: 0, partition: 1, leader: 2, replicas: [2, 1], isr: [2, 1]}
+            partitions: [
+              %{error_code: 0, partition_index: 0, leader_id: 1, replica_nodes: [1, 2], isr_nodes: [1, 2]},
+              %{error_code: 0, partition_index: 1, leader_id: 2, replica_nodes: [2, 1], isr_nodes: [2, 1]}
             ]
           }
         ]
@@ -295,7 +295,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseTest do
     test "handles empty brokers list (V0)" do
       response = %V0.Response{
         brokers: [],
-        topic_metadata: []
+        topics: []
       }
 
       {:ok, cluster_metadata} = MetadataResponse.parse_response(response)
@@ -310,7 +310,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseTest do
           %{node_id: 1, host: "broker1.example.com", port: 9092, rack: nil}
         ],
         controller_id: 1,
-        topic_metadata: []
+        topics: []
       }
 
       {:ok, cluster_metadata} = MetadataResponse.parse_response(response)
@@ -324,12 +324,12 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseTest do
           %{node_id: 1, host: "broker1.example.com", port: 9092, rack: nil}
         ],
         controller_id: 1,
-        topic_metadata: [
+        topics: [
           %{
             error_code: 0,
-            topic: "empty-topic",
+            name: "empty-topic",
             is_internal: false,
-            partition_metadata: []
+            partitions: []
           }
         ]
       }

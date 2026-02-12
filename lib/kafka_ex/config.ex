@@ -33,10 +33,7 @@ defmodule KafkaEx.Config do
         # GenConsumer settings
         commit_interval: 5_000,
         commit_threshold: 100,
-        auto_offset_reset: :none,
-
-        # Compression
-        snappy_module: :snappyer
+        auto_offset_reset: :none
 
   ## Broker Configuration
 

@@ -12,7 +12,7 @@ defimpl KafkaEx.Protocol.Kayrock.DeleteTopics.Response,
   alias KafkaEx.Protocol.Kayrock.DeleteTopics.ResponseHelpers
 
   def parse_response(response) do
-    topic_results = ResponseHelpers.parse_topic_results(response.topic_error_codes)
+    topic_results = ResponseHelpers.parse_topic_results(response.responses)
     result = ResponseHelpers.build_response(topic_results)
     {:ok, result}
   end

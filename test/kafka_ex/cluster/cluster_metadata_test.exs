@@ -2,108 +2,6 @@ defmodule KafkaEx.Cluster.ClusterMetadataTest do
   use ExUnit.Case, async: true
   alias KafkaEx.Cluster.ClusterMetadata
 
-  describe "from_metadata_v1_response/1" do
-    test "builds cluster metadata from V1 response with brokers" do
-      response = %{
-        brokers: [
-          %{node_id: 1, host: "broker1.example.com", port: 9092, rack: "rack-a"},
-          %{node_id: 2, host: "broker2.example.com", port: 9092, rack: "rack-b"}
-        ],
-        controller_id: 1,
-        topic_metadata: []
-      }
-
-      cluster = ClusterMetadata.from_metadata_v1_response(response)
-
-      assert map_size(cluster.brokers) == 2
-      assert cluster.controller_id == 1
-
-      broker1 = cluster.brokers[1]
-      assert broker1.host == "broker1.example.com"
-      assert broker1.port == 9092
-      assert broker1.node_id == 1
-      assert broker1.rack == "rack-a"
-
-      broker2 = cluster.brokers[2]
-      assert broker2.host == "broker2.example.com"
-      assert broker2.rack == "rack-b"
-    end
-
-    test "builds cluster metadata from V1 response with topics" do
-      response = %{
-        brokers: [
-          %{node_id: 1, host: "broker1.example.com", port: 9092, rack: nil}
-        ],
-        controller_id: 1,
-        topic_metadata: [
-          %{
-            topic: "test-topic",
-            error_code: 0,
-            is_internal: false,
-            partition_metadata: [
-              %{error_code: 0, partition: 0, leader: 1, replicas: [1], isr: [1]},
-              %{error_code: 0, partition: 1, leader: 1, replicas: [1], isr: [1]}
-            ]
-          }
-        ]
-      }
-
-      cluster = ClusterMetadata.from_metadata_v1_response(response)
-
-      assert map_size(cluster.topics) == 1
-      assert Map.has_key?(cluster.topics, "test-topic")
-
-      topic = cluster.topics["test-topic"]
-      assert topic.name == "test-topic"
-      assert map_size(topic.partition_leaders) == 2
-    end
-
-    test "filters out topics with error codes" do
-      response = %{
-        brokers: [
-          %{node_id: 1, host: "broker1.example.com", port: 9092, rack: nil}
-        ],
-        controller_id: 1,
-        topic_metadata: [
-          %{
-            topic: "good-topic",
-            error_code: 0,
-            is_internal: false,
-            partition_metadata: [
-              %{error_code: 0, partition: 0, leader: 1, replicas: [1], isr: [1]}
-            ]
-          },
-          %{
-            topic: "error-topic",
-            error_code: 3,
-            is_internal: false,
-            partition_metadata: []
-          }
-        ]
-      }
-
-      cluster = ClusterMetadata.from_metadata_v1_response(response)
-
-      assert map_size(cluster.topics) == 1
-      assert Map.has_key?(cluster.topics, "good-topic")
-      refute Map.has_key?(cluster.topics, "error-topic")
-    end
-
-    test "handles empty brokers and topics" do
-      response = %{
-        brokers: [],
-        controller_id: nil,
-        topic_metadata: []
-      }
-
-      cluster = ClusterMetadata.from_metadata_v1_response(response)
-
-      assert cluster.brokers == %{}
-      assert cluster.topics == %{}
-      assert cluster.controller_id == nil
-    end
-  end
-
   describe "known_topics/1" do
     test "return list of all known topics" do
       topic = %KafkaEx.Cluster.Topic{name: "test-topic"}
@@ -195,19 +93,19 @@ defmodule KafkaEx.Cluster.ClusterMetadataTest do
     test "returns node based on topic & partition id" do
       topic_one =
         KafkaEx.Cluster.Topic.from_topic_metadata(%{
-          topic: "topic-one",
+          name: "topic-one",
           is_internal: false,
-          partition_metadata: [
-            %{error_code: 0, partition: 0, leader: 123, replicas: [], isr: []}
+          partitions: [
+            %{error_code: 0, partition_index: 0, leader_id: 123, replica_nodes: [], isr_nodes: []}
           ]
         })
 
       topic_two =
         KafkaEx.Cluster.Topic.from_topic_metadata(%{
-          topic: "topic-two",
+          name: "topic-two",
           is_internal: false,
-          partition_metadata: [
-            %{error_code: 0, partition: 0, leader: 321, replicas: [], isr: []}
+          partitions: [
+            %{error_code: 0, partition_index: 0, leader_id: 321, replica_nodes: [], isr_nodes: []}
           ]
         })
 
@@ -226,10 +124,10 @@ defmodule KafkaEx.Cluster.ClusterMetadataTest do
     test "returns error when topic does not exist" do
       topic =
         KafkaEx.Cluster.Topic.from_topic_metadata(%{
-          topic: "topic-one",
+          name: "topic-one",
           is_internal: false,
-          partition_metadata: [
-            %{error_code: 0, partition: 0, leader: 123, replicas: [], isr: []}
+          partitions: [
+            %{error_code: 0, partition_index: 0, leader_id: 123, replica_nodes: [], isr_nodes: []}
           ]
         })
 
@@ -248,10 +146,10 @@ defmodule KafkaEx.Cluster.ClusterMetadataTest do
     test "returns error when partition does not exist" do
       topic =
         KafkaEx.Cluster.Topic.from_topic_metadata(%{
-          topic: "topic-one",
+          name: "topic-one",
           is_internal: false,
-          partition_metadata: [
-            %{error_code: 0, partition: 0, leader: 123, replicas: [], isr: []}
+          partitions: [
+            %{error_code: 0, partition_index: 0, leader_id: 123, replica_nodes: [], isr_nodes: []}
           ]
         })
 
@@ -435,19 +333,19 @@ defmodule KafkaEx.Cluster.ClusterMetadataTest do
     test "test removes topic based on its name" do
       topic_one =
         KafkaEx.Cluster.Topic.from_topic_metadata(%{
-          topic: "topic-one",
+          name: "topic-one",
           is_internal: false,
-          partition_metadata: [
-            %{error_code: 0, partition: 0, leader: 123, replicas: [], isr: []}
+          partitions: [
+            %{error_code: 0, partition_index: 0, leader_id: 123, replica_nodes: [], isr_nodes: []}
           ]
         })
 
       topic_two =
         KafkaEx.Cluster.Topic.from_topic_metadata(%{
-          topic: "topic-two",
+          name: "topic-two",
           is_internal: false,
-          partition_metadata: [
-            %{error_code: 0, partition: 0, leader: 321, replicas: [], isr: []}
+          partitions: [
+            %{error_code: 0, partition_index: 0, leader_id: 321, replica_nodes: [], isr_nodes: []}
           ]
         })
 

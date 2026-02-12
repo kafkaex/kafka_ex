@@ -2,7 +2,7 @@ defmodule KafkaEx.Client.Error do
   @moduledoc """
   This module represents kafka error as a struct with code and metadata
   """
-  alias Kayrock.ErrorCode
+  @protocol Application.compile_env(:kafka_ex, :protocol, KafkaEx.Protocol.KayrockProtocol)
 
   defstruct error: nil, metadata: %{}
 
@@ -12,7 +12,7 @@ defmodule KafkaEx.Client.Error do
 
   @spec build(error_code, term) :: __MODULE__.t()
   def build(error_code, metadata) when is_integer(error_code) do
-    %__MODULE__{error: ErrorCode.code_to_atom(error_code), metadata: metadata}
+    %__MODULE__{error: @protocol.error_code_to_atom(error_code), metadata: metadata}
   end
 
   def build(error, metadata) when is_atom(error) do

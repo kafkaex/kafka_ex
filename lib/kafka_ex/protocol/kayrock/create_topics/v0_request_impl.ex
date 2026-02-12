@@ -15,7 +15,7 @@ defimpl KafkaEx.Protocol.Kayrock.CreateTopics.Request, for: Kayrock.CreateTopics
     create_topic_requests = Enum.map(topics, &RequestHelpers.build_topic_request/1)
 
     request_template
-    |> Map.put(:create_topic_requests, create_topic_requests)
-    |> Map.put(:timeout, timeout)
+    |> Map.put(:topics, create_topic_requests)
+    |> Map.put(:timeout_ms, timeout)
   end
 end

@@ -40,7 +40,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.RequestHelpers do
     |> Map.put(:group_id, group_id)
     |> Map.put(:generation_id, generation_id)
     |> Map.put(:member_id, member_id)
-    |> Map.put(:group_assignment, group_assignment)
+    |> Map.put(:assignments, group_assignment)
   end
 
   # Converts group assignment from protocol-agnostic format to Kayrock structs.
@@ -51,7 +51,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.RequestHelpers do
     Enum.map(assignments, &convert_member_assignment/1)
   end
 
-  defp convert_member_assignment(%{member_id: _member_id, member_assignment: %Kayrock.MemberAssignment{}} = assignment) do
+  defp convert_member_assignment(%{member_id: _member_id, assignment: %Kayrock.MemberAssignment{}} = assignment) do
     # Already in Kayrock format, passthrough
     assignment
   end
@@ -60,7 +60,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.RequestHelpers do
     # Convert from simple format to Kayrock format
     %{
       member_id: member_id,
-      member_assignment: %Kayrock.MemberAssignment{
+      assignment: %Kayrock.MemberAssignment{
         version: 0,
         partition_assignments:
           Enum.map(topic_partitions, fn {topic, partitions} ->

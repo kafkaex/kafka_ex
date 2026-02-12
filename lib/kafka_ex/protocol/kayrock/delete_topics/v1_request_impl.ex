@@ -17,8 +17,8 @@ defimpl KafkaEx.Protocol.Kayrock.DeleteTopics.Request,
 
     %{
       request
-      | topics: fields.topics,
-        timeout: fields.timeout
+      | topic_names: fields.topics,
+        timeout_ms: fields.timeout
     }
   end
 end

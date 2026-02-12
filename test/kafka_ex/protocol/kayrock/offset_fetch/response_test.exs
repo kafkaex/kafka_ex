@@ -8,11 +8,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseTest do
   describe "V0 Response implementation" do
     test "parses successful response with single partition" do
       response = %Kayrock.OffsetFetch.V0.Response{
-        responses: [
+        topics: [
           %{
-            topic: "test-topic",
-            partition_responses: [
-              %{partition: 0, offset: 42, metadata: "consumer-1", error_code: 0}
+            name: "test-topic",
+            partitions: [
+              %{partition_index: 0, committed_offset: 42, metadata: "consumer-1", error_code: 0}
             ]
           }
         ]
@@ -36,11 +36,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseTest do
 
     test "parses response with nil metadata" do
       response = %Kayrock.OffsetFetch.V0.Response{
-        responses: [
+        topics: [
           %{
-            topic: "test-topic",
-            partition_responses: [
-              %{partition: 0, offset: 100, metadata: nil, error_code: 0}
+            name: "test-topic",
+            partitions: [
+              %{partition_index: 0, committed_offset: 100, metadata: nil, error_code: 0}
             ]
           }
         ]
@@ -54,13 +54,13 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseTest do
 
     test "parses response with multiple partitions" do
       response = %Kayrock.OffsetFetch.V0.Response{
-        responses: [
+        topics: [
           %{
-            topic: "multi-partition",
-            partition_responses: [
-              %{partition: 0, offset: 10, metadata: "meta-0", error_code: 0},
-              %{partition: 1, offset: 20, metadata: "meta-1", error_code: 0},
-              %{partition: 2, offset: 30, metadata: "meta-2", error_code: 0}
+            name: "multi-partition",
+            partitions: [
+              %{partition_index: 0, committed_offset: 10, metadata: "meta-0", error_code: 0},
+              %{partition_index: 1, committed_offset: 20, metadata: "meta-1", error_code: 0},
+              %{partition_index: 2, committed_offset: 30, metadata: "meta-2", error_code: 0}
             ]
           }
         ]
@@ -77,17 +77,17 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseTest do
 
     test "parses response with multiple topics" do
       response = %Kayrock.OffsetFetch.V0.Response{
-        responses: [
+        topics: [
           %{
-            topic: "topic-1",
-            partition_responses: [
-              %{partition: 0, offset: 100, metadata: "", error_code: 0}
+            name: "topic-1",
+            partitions: [
+              %{partition_index: 0, committed_offset: 100, metadata: "", error_code: 0}
             ]
           },
           %{
-            topic: "topic-2",
-            partition_responses: [
-              %{partition: 0, offset: 200, metadata: "", error_code: 0}
+            name: "topic-2",
+            partitions: [
+              %{partition_index: 0, committed_offset: 200, metadata: "", error_code: 0}
             ]
           }
         ]
@@ -103,11 +103,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseTest do
 
     test "returns error when partition has error code" do
       response = %Kayrock.OffsetFetch.V0.Response{
-        responses: [
+        topics: [
           %{
-            topic: "error-topic",
-            partition_responses: [
-              %{partition: 0, offset: -1, metadata: "", error_code: 3}
+            name: "error-topic",
+            partitions: [
+              %{partition_index: 0, committed_offset: -1, metadata: "", error_code: 3}
             ]
           }
         ]
@@ -121,13 +121,13 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseTest do
 
     test "returns error on first partition error with multiple partitions" do
       response = %Kayrock.OffsetFetch.V0.Response{
-        responses: [
+        topics: [
           %{
-            topic: "test-topic",
-            partition_responses: [
-              %{partition: 0, offset: 100, metadata: "", error_code: 0},
-              %{partition: 1, offset: -1, metadata: "", error_code: 15},
-              %{partition: 2, offset: 200, metadata: "", error_code: 0}
+            name: "test-topic",
+            partitions: [
+              %{partition_index: 0, committed_offset: 100, metadata: "", error_code: 0},
+              %{partition_index: 1, committed_offset: -1, metadata: "", error_code: 15},
+              %{partition_index: 2, committed_offset: 200, metadata: "", error_code: 0}
             ]
           }
         ]
@@ -140,11 +140,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseTest do
 
     test "parses response with offset -1 (no committed offset)" do
       response = %Kayrock.OffsetFetch.V0.Response{
-        responses: [
+        topics: [
           %{
-            topic: "new-consumer-topic",
-            partition_responses: [
-              %{partition: 0, offset: -1, metadata: "", error_code: 0}
+            name: "new-consumer-topic",
+            partitions: [
+              %{partition_index: 0, committed_offset: -1, metadata: "", error_code: 0}
             ]
           }
         ]
@@ -161,11 +161,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseTest do
   describe "V1 Response implementation" do
     test "parses successful response with single partition" do
       response = %Kayrock.OffsetFetch.V1.Response{
-        responses: [
+        topics: [
           %{
-            topic: "v1-topic",
-            partition_responses: [
-              %{partition: 0, offset: 999, metadata: "v1-consumer", error_code: 0}
+            name: "v1-topic",
+            partitions: [
+              %{partition_index: 0, committed_offset: 999, metadata: "v1-consumer", error_code: 0}
             ]
           }
         ]
@@ -189,11 +189,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseTest do
 
     test "parses response with nil metadata" do
       response = %Kayrock.OffsetFetch.V1.Response{
-        responses: [
+        topics: [
           %{
-            topic: "no-metadata-topic",
-            partition_responses: [
-              %{partition: 0, offset: 500, metadata: nil, error_code: 0}
+            name: "no-metadata-topic",
+            partitions: [
+              %{partition_index: 0, committed_offset: 500, metadata: nil, error_code: 0}
             ]
           }
         ]
@@ -207,13 +207,13 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseTest do
 
     test "parses response with multiple partitions" do
       response = %Kayrock.OffsetFetch.V1.Response{
-        responses: [
+        topics: [
           %{
-            topic: "multi-part-v1",
-            partition_responses: [
-              %{partition: 0, offset: 100, metadata: "part-0", error_code: 0},
-              %{partition: 1, offset: 200, metadata: "part-1", error_code: 0},
-              %{partition: 2, offset: 300, metadata: "part-2", error_code: 0}
+            name: "multi-part-v1",
+            partitions: [
+              %{partition_index: 0, committed_offset: 100, metadata: "part-0", error_code: 0},
+              %{partition_index: 1, committed_offset: 200, metadata: "part-1", error_code: 0},
+              %{partition_index: 2, committed_offset: 300, metadata: "part-2", error_code: 0}
             ]
           }
         ]
@@ -230,11 +230,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseTest do
 
     test "returns error when partition has error code" do
       response = %Kayrock.OffsetFetch.V1.Response{
-        responses: [
+        topics: [
           %{
-            topic: "error-v1-topic",
-            partition_responses: [
-              %{partition: 0, offset: -1, metadata: "", error_code: 14}
+            name: "error-v1-topic",
+            partitions: [
+              %{partition_index: 0, committed_offset: -1, metadata: "", error_code: 14}
             ]
           }
         ]
@@ -248,11 +248,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseTest do
 
     test "parses response with coordinator-based offset" do
       response = %Kayrock.OffsetFetch.V1.Response{
-        responses: [
+        topics: [
           %{
-            topic: "coordinator-topic",
-            partition_responses: [
-              %{partition: 0, offset: 12_345, metadata: "coordinator-consumer-id", error_code: 0}
+            name: "coordinator-topic",
+            partitions: [
+              %{partition_index: 0, committed_offset: 12_345, metadata: "coordinator-consumer-id", error_code: 0}
             ]
           }
         ]
@@ -270,11 +270,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseTest do
     test "parses successful response with top-level error_code 0" do
       response = %Kayrock.OffsetFetch.V2.Response{
         error_code: 0,
-        responses: [
+        topics: [
           %{
-            topic: "v2-topic",
-            partition_responses: [
-              %{partition: 0, offset: 1000, metadata: "v2-metadata", error_code: 0}
+            name: "v2-topic",
+            partitions: [
+              %{partition_index: 0, committed_offset: 1000, metadata: "v2-metadata", error_code: 0}
             ]
           }
         ]
@@ -299,7 +299,7 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseTest do
     test "returns error when top-level error_code is non-zero" do
       response = %Kayrock.OffsetFetch.V2.Response{
         error_code: 16,
-        responses: []
+        topics: []
       }
 
       assert {:error, error} = OffsetFetch.Response.parse_response(response)
@@ -309,12 +309,12 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseTest do
     test "parses response with multiple partitions when top-level error is 0" do
       response = %Kayrock.OffsetFetch.V2.Response{
         error_code: 0,
-        responses: [
+        topics: [
           %{
-            topic: "multi-v2",
-            partition_responses: [
-              %{partition: 0, offset: 10, metadata: "", error_code: 0},
-              %{partition: 1, offset: 20, metadata: "", error_code: 0}
+            name: "multi-v2",
+            partitions: [
+              %{partition_index: 0, committed_offset: 10, metadata: "", error_code: 0},
+              %{partition_index: 1, committed_offset: 20, metadata: "", error_code: 0}
             ]
           }
         ]
@@ -327,11 +327,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseTest do
     test "returns partition-level error even when top-level error is 0" do
       response = %Kayrock.OffsetFetch.V2.Response{
         error_code: 0,
-        responses: [
+        topics: [
           %{
-            topic: "partition-error-topic",
-            partition_responses: [
-              %{partition: 0, offset: -1, metadata: "", error_code: 9}
+            name: "partition-error-topic",
+            partitions: [
+              %{partition_index: 0, committed_offset: -1, metadata: "", error_code: 9}
             ]
           }
         ]
@@ -345,11 +345,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseTest do
     test "parses response with nil metadata" do
       response = %Kayrock.OffsetFetch.V2.Response{
         error_code: 0,
-        responses: [
+        topics: [
           %{
-            topic: "nil-meta-v2",
-            partition_responses: [
-              %{partition: 0, offset: 777, metadata: nil, error_code: 0}
+            name: "nil-meta-v2",
+            partitions: [
+              %{partition_index: 0, committed_offset: 777, metadata: nil, error_code: 0}
             ]
           }
         ]
@@ -364,11 +364,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseTest do
     test "handles broker-level coordinator errors" do
       response = %Kayrock.OffsetFetch.V2.Response{
         error_code: 15,
-        responses: [
+        topics: [
           %{
-            topic: "some-topic",
-            partition_responses: [
-              %{partition: 0, offset: 100, metadata: "", error_code: 0}
+            name: "some-topic",
+            partitions: [
+              %{partition_index: 0, committed_offset: 100, metadata: "", error_code: 0}
             ]
           }
         ]
@@ -384,11 +384,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseTest do
       response = %Kayrock.OffsetFetch.V3.Response{
         throttle_time_ms: 100,
         error_code: 0,
-        responses: [
+        topics: [
           %{
-            topic: "v3-topic",
-            partition_responses: [
-              %{partition: 0, offset: 5000, metadata: "v3-consumer", error_code: 0}
+            name: "v3-topic",
+            partitions: [
+              %{partition_index: 0, committed_offset: 5000, metadata: "v3-consumer", error_code: 0}
             ]
           }
         ]
@@ -414,11 +414,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseTest do
       response = %Kayrock.OffsetFetch.V3.Response{
         throttle_time_ms: 0,
         error_code: 0,
-        responses: [
+        topics: [
           %{
-            topic: "no-throttle-topic",
-            partition_responses: [
-              %{partition: 0, offset: 200, metadata: "", error_code: 0}
+            name: "no-throttle-topic",
+            partitions: [
+              %{partition_index: 0, committed_offset: 200, metadata: "", error_code: 0}
             ]
           }
         ]
@@ -432,7 +432,7 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseTest do
       response = %Kayrock.OffsetFetch.V3.Response{
         throttle_time_ms: 50,
         error_code: 16,
-        responses: []
+        topics: []
       }
 
       assert {:error, error} = OffsetFetch.Response.parse_response(response)
@@ -443,13 +443,13 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseTest do
       response = %Kayrock.OffsetFetch.V3.Response{
         throttle_time_ms: 25,
         error_code: 0,
-        responses: [
+        topics: [
           %{
-            topic: "multi-v3",
-            partition_responses: [
-              %{partition: 0, offset: 100, metadata: "meta-0", error_code: 0},
-              %{partition: 1, offset: 200, metadata: "meta-1", error_code: 0},
-              %{partition: 2, offset: 300, metadata: "meta-2", error_code: 0}
+            name: "multi-v3",
+            partitions: [
+              %{partition_index: 0, committed_offset: 100, metadata: "meta-0", error_code: 0},
+              %{partition_index: 1, committed_offset: 200, metadata: "meta-1", error_code: 0},
+              %{partition_index: 2, committed_offset: 300, metadata: "meta-2", error_code: 0}
             ]
           }
         ]
@@ -463,11 +463,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseTest do
       response = %Kayrock.OffsetFetch.V3.Response{
         throttle_time_ms: 10,
         error_code: 0,
-        responses: [
+        topics: [
           %{
-            topic: "partition-error-v3",
-            partition_responses: [
-              %{partition: 0, offset: -1, metadata: "", error_code: 3}
+            name: "partition-error-v3",
+            partitions: [
+              %{partition_index: 0, committed_offset: -1, metadata: "", error_code: 3}
             ]
           }
         ]
@@ -482,11 +482,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseTest do
       response = %Kayrock.OffsetFetch.V3.Response{
         throttle_time_ms: 0,
         error_code: 0,
-        responses: [
+        topics: [
           %{
-            topic: "nil-meta-v3",
-            partition_responses: [
-              %{partition: 0, offset: 888, metadata: nil, error_code: 0}
+            name: "nil-meta-v3",
+            partitions: [
+              %{partition_index: 0, committed_offset: 888, metadata: nil, error_code: 0}
             ]
           }
         ]
@@ -502,11 +502,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseTest do
       response = %Kayrock.OffsetFetch.V3.Response{
         throttle_time_ms: 5000,
         error_code: 0,
-        responses: [
+        topics: [
           %{
-            topic: "throttled-topic",
-            partition_responses: [
-              %{partition: 0, offset: 1000, metadata: "throttled", error_code: 0}
+            name: "throttled-topic",
+            partitions: [
+              %{partition_index: 0, committed_offset: 1000, metadata: "throttled", error_code: 0}
             ]
           }
         ]

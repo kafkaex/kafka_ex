@@ -26,9 +26,9 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription do
   def from_describe_group_response(describe_group) do
     %__MODULE__{
       group_id: describe_group.group_id,
-      state: describe_group.state,
+      state: describe_group.group_state,
       protocol_type: describe_group.protocol_type,
-      protocol: describe_group.protocol,
+      protocol: describe_group.protocol_data,
       members: Enum.map(describe_group.members, &build_consumer_group_member/1)
     }
   end

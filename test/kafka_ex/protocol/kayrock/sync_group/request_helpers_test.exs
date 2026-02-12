@@ -66,7 +66,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.RequestHelpersTest do
       assert result.group_id == "test-group"
       assert result.generation_id == 3
       assert result.member_id == "leader-member"
-      assert length(result.group_assignment) == 2
+      assert length(result.assignments) == 2
     end
 
     test "builds request with empty group_assignment for non-leaders" do
@@ -80,7 +80,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.RequestHelpersTest do
 
       result = RequestHelpers.build_request_from_template(template, opts)
 
-      assert result.group_assignment == []
+      assert result.assignments == []
     end
   end
 end

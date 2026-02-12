@@ -24,11 +24,17 @@ defmodule KafkaEx.Protocol.Kayrock.ResponseHelpers do
 
   @doc """
   Iterates over topics data with fail-fast behavior.
+
+  Uses `name` and `partitions` keys by default (for OffsetCommit/OffsetFetch).
+  Pass custom keys for APIs with different field names (e.g., ListOffsets uses `topic`/`partition_responses`).
   """
-  @spec fail_fast_iterate_topics(list(), parser_fn()) :: list() | error_tuple()
-  def fail_fast_iterate_topics(topics_data, parser_fn) do
+  @spec fail_fast_iterate_topics(list(), parser_fn(), Keyword.t()) :: list() | error_tuple()
+  def fail_fast_iterate_topics(topics_data, parser_fn, opts \\ []) do
+    topic_key = Keyword.get(opts, :topic_key, :name)
+    partitions_key = Keyword.get(opts, :partitions_key, :partitions)
+
     Enum.reduce_while(topics_data, [], fn response, acc ->
-      case parser_fn.(response.topic, response.partition_responses) do
+      case parser_fn.(Map.fetch!(response, topic_key), Map.fetch!(response, partitions_key)) do
         {:ok, result} -> {:cont, merge_acc(result, acc)}
         {:error, error_data} -> {:halt, error_data}
       end

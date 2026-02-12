@@ -13,7 +13,7 @@ defimpl KafkaEx.Protocol.Kayrock.SyncGroup.Response, for: Kayrock.SyncGroup.V1.R
   def parse_response(%Kayrock.SyncGroup.V1.Response{
         throttle_time_ms: throttle_time_ms,
         error_code: error_code,
-        member_assignment: member_assignment
+        assignment: member_assignment
       }) do
     case ErrorCode.code_to_atom(error_code) do
       :no_error ->

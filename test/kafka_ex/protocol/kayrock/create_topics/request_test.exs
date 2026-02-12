@@ -42,11 +42,11 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.RequestTest do
 
       result = RequestHelpers.build_topic_request(topic_config)
 
-      assert result.topic == "my-topic"
+      assert result.name == "my-topic"
       assert result.num_partitions == 3
       assert result.replication_factor == 2
-      assert result.replica_assignment == []
-      assert result.config_entries == []
+      assert result.assignments == []
+      assert result.configs == []
     end
 
     test "uses defaults for missing fields" do
@@ -54,11 +54,11 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.RequestTest do
 
       result = RequestHelpers.build_topic_request(topic_config)
 
-      assert result.topic == "my-topic"
+      assert result.name == "my-topic"
       assert result.num_partitions == -1
       assert result.replication_factor == -1
-      assert result.replica_assignment == []
-      assert result.config_entries == []
+      assert result.assignments == []
+      assert result.configs == []
     end
   end
 
@@ -72,7 +72,7 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.RequestTest do
 
       result = RequestHelpers.build_topic_request(topic_config)
 
-      assert result.topic == "my-topic"
+      assert result.name == "my-topic"
       assert result.num_partitions == 6
       assert result.replication_factor == 3
     end
@@ -88,8 +88,8 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.RequestTest do
       result = RequestHelpers.build_replica_assignments(assignments)
 
       assert result == [
-               %{partition: 0, replicas: [1, 2, 3]},
-               %{partition: 1, replicas: [2, 3, 1]}
+               %{partition_index: 0, broker_ids: [1, 2, 3]},
+               %{partition_index: 1, broker_ids: [2, 3, 1]}
              ]
     end
 
@@ -102,8 +102,8 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.RequestTest do
       result = RequestHelpers.build_replica_assignments(assignments)
 
       assert result == [
-               %{partition: 0, replicas: [1, 2, 3]},
-               %{partition: 1, replicas: [2, 3, 1]}
+               %{partition_index: 0, broker_ids: [1, 2, 3]},
+               %{partition_index: 1, broker_ids: [2, 3, 1]}
              ]
     end
 
@@ -121,7 +121,10 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.RequestTest do
 
       result = RequestHelpers.build_config_entries(entries)
 
-      assert result == entries
+      assert result == [
+               %{name: "cleanup.policy", value: "compact"},
+               %{name: "retention.ms", value: "86400000"}
+             ]
     end
 
     test "converts tuple format to expected format" do
@@ -133,8 +136,8 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.RequestTest do
       result = RequestHelpers.build_config_entries(entries)
 
       assert result == [
-               %{config_name: "cleanup.policy", config_value: "compact"},
-               %{config_name: "retention.ms", config_value: "86400000"}
+               %{name: "cleanup.policy", value: "compact"},
+               %{name: "retention.ms", value: "86400000"}
              ]
     end
 
@@ -142,7 +145,7 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.RequestTest do
       entries = [{:cleanup_policy, "compact"}]
       result = RequestHelpers.build_config_entries(entries)
 
-      assert result == [%{config_name: "cleanup_policy", config_value: "compact"}]
+      assert result == [%{name: "cleanup_policy", value: "compact"}]
     end
 
     test "returns empty list for empty input" do
@@ -162,11 +165,11 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.RequestTest do
       result = CreateTopics.Request.build_request(request, opts)
 
       assert %Kayrock.CreateTopics.V0.Request{} = result
-      assert result.timeout == 10_000
-      assert length(result.create_topic_requests) == 1
+      assert result.timeout_ms == 10_000
+      assert length(result.topics) == 1
 
-      [topic_req] = result.create_topic_requests
-      assert topic_req.topic == "test-topic"
+      [topic_req] = result.topics
+      assert topic_req.name == "test-topic"
       assert topic_req.num_partitions == 3
       assert topic_req.replication_factor == 2
     end
@@ -185,8 +188,8 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.RequestTest do
 
       result = CreateTopics.Request.build_request(request, opts)
 
-      assert length(result.create_topic_requests) == 3
-      topics = Enum.map(result.create_topic_requests, & &1.topic)
+      assert length(result.topics) == 3
+      topics = Enum.map(result.topics, & &1.name)
       assert topics == ["topic1", "topic2", "topic3"]
     end
 
@@ -222,7 +225,7 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.RequestTest do
 
       assert %Kayrock.CreateTopics.V1.Request{} = result
       assert result.validate_only == true
-      assert result.timeout == 10_000
+      assert result.timeout_ms == 10_000
     end
 
     test "defaults validate_only to false" do
@@ -253,7 +256,7 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.RequestTest do
 
       assert %Kayrock.CreateTopics.V2.Request{} = result
       assert result.validate_only == true
-      assert result.timeout == 30_000
+      assert result.timeout_ms == 30_000
     end
   end
 
@@ -277,11 +280,11 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.RequestTest do
 
       result = CreateTopics.Request.build_request(request, opts)
 
-      [topic_req] = result.create_topic_requests
-      assert length(topic_req.config_entries) == 2
+      [topic_req] = result.topics
+      assert length(topic_req.configs) == 2
 
-      assert Enum.find(topic_req.config_entries, &(&1.config_name == "cleanup.policy"))
-      assert Enum.find(topic_req.config_entries, &(&1.config_name == "retention.ms"))
+      assert Enum.find(topic_req.configs, &(&1.name == "cleanup.policy"))
+      assert Enum.find(topic_req.configs, &(&1.name == "retention.ms"))
     end
   end
 end
