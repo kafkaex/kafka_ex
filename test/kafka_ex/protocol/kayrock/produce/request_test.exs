@@ -2,160 +2,12 @@ defmodule KafkaEx.Protocol.Kayrock.Produce.RequestTest do
   use ExUnit.Case, async: true
 
   alias KafkaEx.Protocol.Kayrock.Produce.Request
-  alias KafkaEx.Protocol.Kayrock.Produce.RequestHelpers
   alias Kayrock.MessageSet
-  alias Kayrock.MessageSet.Message
   alias Kayrock.RecordBatch
-  alias Kayrock.RecordBatch.Record
 
-  describe "RequestHelpers.extract_common_fields/1" do
-    test "extracts all required fields" do
-      opts = [
-        topic: "test-topic",
-        partition: 0,
-        messages: [%{value: "hello"}],
-        acks: -1,
-        timeout: 5000,
-        compression: :gzip
-      ]
-
-      result = RequestHelpers.extract_common_fields(opts)
-
-      assert result.topic == "test-topic"
-      assert result.partition == 0
-      assert result.messages == [%{value: "hello"}]
-      assert result.acks == -1
-      assert result.timeout == 5000
-      assert result.compression == :gzip
-    end
-
-    test "uses defaults for optional fields" do
-      opts = [
-        topic: "test-topic",
-        partition: 0,
-        messages: [%{value: "hello"}]
-      ]
-
-      result = RequestHelpers.extract_common_fields(opts)
-
-      assert result.acks == -1
-      assert result.timeout == 5000
-      assert result.compression == :none
-    end
-
-    test "raises when required fields are missing" do
-      assert_raise KeyError, fn ->
-        RequestHelpers.extract_common_fields(partition: 0, messages: [])
-      end
-
-      assert_raise KeyError, fn ->
-        RequestHelpers.extract_common_fields(topic: "t", messages: [])
-      end
-
-      assert_raise KeyError, fn ->
-        RequestHelpers.extract_common_fields(topic: "t", partition: 0)
-      end
-    end
-  end
-
-  describe "RequestHelpers.build_message_set/2" do
-    test "builds MessageSet with single message" do
-      messages = [%{value: "hello", key: "key1"}]
-
-      result = RequestHelpers.build_message_set(messages, :none)
-
-      assert %MessageSet{messages: [msg]} = result
-      assert %Message{value: "hello", key: "key1", compression: :none} = msg
-    end
-
-    test "builds MessageSet with multiple messages" do
-      messages = [
-        %{value: "msg1", key: "k1"},
-        %{value: "msg2", key: nil},
-        %{value: "msg3"}
-      ]
-
-      result = RequestHelpers.build_message_set(messages, :gzip)
-
-      assert %MessageSet{messages: msgs} = result
-      assert length(msgs) == 3
-      assert Enum.all?(msgs, fn m -> m.compression == :gzip end)
-    end
-
-    test "handles nil key" do
-      messages = [%{value: "hello"}]
-
-      result = RequestHelpers.build_message_set(messages, :none)
-
-      assert %MessageSet{messages: [msg]} = result
-      assert msg.key == nil
-    end
-  end
-
-  describe "RequestHelpers.build_record_batch/2" do
-    test "builds RecordBatch with single record" do
-      messages = [%{value: "hello", key: "key1"}]
-
-      result = RequestHelpers.build_record_batch(messages, :none)
-
-      assert %RecordBatch{records: [record], attributes: 0} = result
-      assert %Record{value: "hello", key: "key1"} = record
-    end
-
-    test "builds RecordBatch with headers" do
-      messages = [
-        %{
-          value: "hello",
-          key: "key1",
-          headers: [{"content-type", "text/plain"}, {"x-custom", "value"}]
-        }
-      ]
-
-      result = RequestHelpers.build_record_batch(messages, :none)
-
-      assert %RecordBatch{records: [record]} = result
-      assert length(record.headers) == 2
-      assert Enum.at(record.headers, 0).key == "content-type"
-      assert Enum.at(record.headers, 0).value == "text/plain"
-    end
-
-    test "builds RecordBatch with timestamp" do
-      messages = [%{value: "hello", timestamp: 1_234_567_890}]
-
-      result = RequestHelpers.build_record_batch(messages, :none)
-
-      assert %RecordBatch{records: [record]} = result
-      assert record.timestamp == 1_234_567_890
-    end
-
-    test "uses -1 for missing timestamp" do
-      messages = [%{value: "hello"}]
-
-      result = RequestHelpers.build_record_batch(messages, :none)
-
-      assert %RecordBatch{records: [record]} = result
-      assert record.timestamp == -1
-    end
-
-    test "handles nil headers" do
-      messages = [%{value: "hello", headers: nil}]
-
-      result = RequestHelpers.build_record_batch(messages, :none)
-
-      assert %RecordBatch{records: [record]} = result
-      assert record.headers == []
-    end
-  end
-
-  describe "RequestHelpers.compression_to_attributes/1" do
-    test "maps compression types to attribute values" do
-      assert RequestHelpers.compression_to_attributes(:none) == 0
-      assert RequestHelpers.compression_to_attributes(:gzip) == 1
-      assert RequestHelpers.compression_to_attributes(:snappy) == 2
-      assert RequestHelpers.compression_to_attributes(:lz4) == 3
-      assert RequestHelpers.compression_to_attributes(:zstd) == 4
-    end
-  end
+  # Note: RequestHelpers functions (extract_common_fields, build_message_set,
+  # build_record_batch, compression_to_attributes) are tested in
+  # request_helpers_test.exs. This file focuses on Request protocol impls.
 
   describe "V0 Request implementation" do
     test "builds V0 request with MessageSet" do
@@ -602,6 +454,111 @@ defmodule KafkaEx.Protocol.Kayrock.Produce.RequestTest do
       assert result.timeout == 5000
       assert result.transactional_id == nil
       assert [%{data: [%{record_set: %RecordBatch{attributes: 0}}]}] = result.topic_data
+    end
+  end
+
+  describe "struct field inventory across versions" do
+    test "V0-V2 request structs lack transactional_id" do
+      for version <- [0, 1, 2] do
+        struct = Kayrock.Produce.get_request_struct(version)
+
+        refute Map.has_key?(struct, :transactional_id),
+               "V#{version} should not have transactional_id"
+      end
+    end
+
+    test "V3+ request structs have transactional_id" do
+      for version <- 3..8 do
+        struct = Kayrock.Produce.get_request_struct(version)
+
+        assert Map.has_key?(struct, :transactional_id),
+               "V#{version} should have transactional_id"
+      end
+    end
+
+    test "all versions have core fields: acks, timeout, topic_data" do
+      for version <- 0..8 do
+        struct = Kayrock.Produce.get_request_struct(version)
+        assert Map.has_key?(struct, :acks), "V#{version} should have acks"
+        assert Map.has_key?(struct, :timeout), "V#{version} should have timeout"
+        assert Map.has_key?(struct, :topic_data), "V#{version} should have topic_data"
+      end
+    end
+  end
+
+  describe "Any fallback request implementation (forward compatibility)" do
+    # The @fallback_to_any true on the Request protocol means any struct type
+    # without an explicit implementation gets the Any fallback. The Any impl
+    # branches on whether :transactional_id exists in the struct.
+
+    defmodule FakeV9Request do
+      defstruct [
+        :acks,
+        :timeout,
+        :transactional_id,
+        :topic_data,
+        :new_future_field
+      ]
+    end
+
+    defmodule FakePreV3Request do
+      defstruct [:acks, :timeout, :topic_data]
+    end
+
+    test "Any fallback uses V3+ path when struct has :transactional_id" do
+      template = %FakeV9Request{}
+
+      opts = [
+        topic: "future-topic",
+        partition: 0,
+        messages: [%{value: "future-data"}],
+        transactional_id: "tx-future"
+      ]
+
+      result = Request.build_request(template, opts)
+
+      assert result.acks == -1
+      assert result.timeout == 5000
+      assert result.transactional_id == "tx-future"
+
+      assert [%{topic: "future-topic", data: [%{partition: 0, record_set: %RecordBatch{}}]}] =
+               result.topic_data
+    end
+
+    test "Any fallback uses V0-V2 path when struct lacks :transactional_id" do
+      template = %FakePreV3Request{}
+
+      opts = [
+        topic: "legacy-topic",
+        partition: 0,
+        messages: [%{value: "legacy-data"}]
+      ]
+
+      result = Request.build_request(template, opts)
+
+      assert result.acks == -1
+      assert result.timeout == 5000
+
+      assert [%{topic: "legacy-topic", data: [%{partition: 0, record_set: %MessageSet{}}]}] =
+               result.topic_data
+    end
+  end
+
+  describe "build_request via KayrockProtocol" do
+    alias KafkaEx.Protocol.KayrockProtocol
+
+    for version <- 0..8 do
+      test "dispatches V#{version} request correctly" do
+        result =
+          KayrockProtocol.build_request(:produce, unquote(version),
+            topic: "test",
+            partition: 0,
+            messages: [%{value: "data"}]
+          )
+
+        expected_struct = Kayrock.Produce.get_request_struct(unquote(version))
+        assert result.__struct__ == expected_struct.__struct__
+      end
     end
   end
 end

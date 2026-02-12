@@ -103,21 +103,18 @@ defmodule KafkaEx.Protocol.Kayrock.ApiVersions.ResponseHelpersTest do
       assert error.error == :unknown_server_error
     end
 
-    test "returns {:error, %Error{}} for invalid_request (33)" do
-      # Kafka error code 33 = :invalid_request
+    test "returns {:error, %Error{}} for unsupported_sasl_mechanism (33)" do
       input = %{error_code: 33, api_keys: [], throttle_time_ms: 0}
 
       assert {:error, %Error{} = error} = ResponseHelpers.parse(input)
-      # This is a known error code mapped by Kayrock.ErrorCode
-      assert is_atom(error.error)
-      assert error.error != nil
+      assert error.error == :unsupported_sasl_mechanism
     end
 
-    test "returns {:error, %Error{}} for positive non-zero error codes" do
+    test "returns {:error, %Error{}} for offset_out_of_range (1)" do
       input = %{error_code: 1, api_keys: [], throttle_time_ms: 0}
 
       assert {:error, %Error{} = error} = ResponseHelpers.parse(input)
-      assert is_atom(error.error)
+      assert error.error == :offset_out_of_range
     end
 
     test "error response has empty metadata" do

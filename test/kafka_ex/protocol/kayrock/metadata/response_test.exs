@@ -166,7 +166,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseTest do
       {:ok, cluster_metadata} = MetadataResponse.parse_response(response)
 
       assert map_size(cluster_metadata.topics) == 1
-      assert cluster_metadata.topics["good-topic"]
+      assert %Topic{} = cluster_metadata.topics["good-topic"]
       refute cluster_metadata.topics["bad-topic"]
     end
 

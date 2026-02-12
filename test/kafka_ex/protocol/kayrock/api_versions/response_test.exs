@@ -406,8 +406,7 @@ defmodule KafkaEx.Protocol.Kayrock.ApiVersions.ResponseTest do
       {:error, error} = ApiVersions.Response.parse_response(response)
 
       assert %Error{} = error
-      assert is_atom(error.error)
-      assert error.error != nil
+      assert error.error == :broker_not_available
     end
 
     test "V2 response with request_timed_out error (code 7)" do
@@ -420,7 +419,7 @@ defmodule KafkaEx.Protocol.Kayrock.ApiVersions.ResponseTest do
       {:error, error} = ApiVersions.Response.parse_response(response)
 
       assert %Error{} = error
-      assert is_atom(error.error)
+      assert error.error == :request_timed_out
     end
 
     test "V0 error response ignores api_keys content" do

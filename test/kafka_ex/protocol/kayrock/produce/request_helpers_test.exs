@@ -153,6 +153,12 @@ defmodule KafkaEx.Protocol.Kayrock.Produce.RequestHelpersTest do
       assert RequestHelpers.compression_to_attributes(:lz4) == 3
       assert RequestHelpers.compression_to_attributes(:zstd) == 4
     end
+
+    test "raises FunctionClauseError for unknown compression type" do
+      assert_raise FunctionClauseError, fn ->
+        RequestHelpers.compression_to_attributes(:brotli)
+      end
+    end
   end
 
   describe "build_record_headers/1" do
