@@ -65,26 +65,27 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
 
   describe "ResponseParser.metadata_response/1" do
     test "parses V0 response with single broker and topic" do
-      response = Fixtures.build_response(:metadata, 0,
-        brokers: [
-          %{node_id: 1, host: "broker1.local", port: 9092}
-        ],
-        topics: [
-          %{
-            error_code: 0,
-            name: "test-topic",
-            partitions: [
-              %{
-                error_code: 0,
-                partition_index: 0,
-                leader_id: 1,
-                replica_nodes: [1],
-                isr_nodes: [1]
-              }
-            ]
-          }
-        ]
-      )
+      response =
+        Fixtures.build_response(:metadata, 0,
+          brokers: [
+            %{node_id: 1, host: "broker1.local", port: 9092}
+          ],
+          topics: [
+            %{
+              error_code: 0,
+              name: "test-topic",
+              partitions: [
+                %{
+                  error_code: 0,
+                  partition_index: 0,
+                  leader_id: 1,
+                  replica_nodes: [1],
+                  isr_nodes: [1]
+                }
+              ]
+            }
+          ]
+        )
 
       {:ok, cluster_metadata} = ResponseParser.metadata_response(response)
 
@@ -96,23 +97,24 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
     end
 
     test "parses V1 response with controller and rack" do
-      response = Fixtures.build_response(:metadata, 1,
-        brokers: [
-          %{node_id: 1, host: "broker1.local", port: 9092, rack: "rack-1"},
-          %{node_id: 2, host: "broker2.local", port: 9092, rack: "rack-2"}
-        ],
-        controller_id: 2,
-        topics: [
-          %{
-            error_code: 0,
-            name: "internal-topic",
-            is_internal: true,
-            partitions: [
-              %{error_code: 0, partition_index: 0, leader_id: 1, replica_nodes: [1, 2], isr_nodes: [1, 2]}
-            ]
-          }
-        ]
-      )
+      response =
+        Fixtures.build_response(:metadata, 1,
+          brokers: [
+            %{node_id: 1, host: "broker1.local", port: 9092, rack: "rack-1"},
+            %{node_id: 2, host: "broker2.local", port: 9092, rack: "rack-2"}
+          ],
+          controller_id: 2,
+          topics: [
+            %{
+              error_code: 0,
+              name: "internal-topic",
+              is_internal: true,
+              partitions: [
+                %{error_code: 0, partition_index: 0, leader_id: 1, replica_nodes: [1, 2], isr_nodes: [1, 2]}
+              ]
+            }
+          ]
+        )
 
       {:ok, cluster_metadata} = ResponseParser.metadata_response(response)
 
@@ -123,14 +125,15 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
     end
 
     test "parses V2 response with cluster_id" do
-      response = Fixtures.build_response(:metadata, 2,
-        brokers: [
-          %{node_id: 1, host: "broker1.local", port: 9092, rack: nil}
-        ],
-        cluster_id: "test-cluster-id",
-        controller_id: 1,
-        topics: []
-      )
+      response =
+        Fixtures.build_response(:metadata, 2,
+          brokers: [
+            %{node_id: 1, host: "broker1.local", port: 9092, rack: nil}
+          ],
+          cluster_id: "test-cluster-id",
+          controller_id: 1,
+          topics: []
+        )
 
       {:ok, cluster_metadata} = ResponseParser.metadata_response(response)
 
@@ -139,29 +142,30 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
     end
 
     test "filters out topics with errors" do
-      response = Fixtures.build_response(:metadata, 1,
-        brokers: [
-          %{node_id: 1, host: "broker1.local", port: 9092, rack: nil}
-        ],
-        controller_id: 1,
-        topics: [
-          %{
-            error_code: 0,
-            name: "good-topic",
-            is_internal: false,
-            partitions: [
-              %{error_code: 0, partition_index: 0, leader_id: 1, replica_nodes: [1], isr_nodes: [1]}
-            ]
-          },
-          %{
-            error_code: 3,
-            # UNKNOWN_TOPIC_OR_PARTITION
-            name: "bad-topic",
-            is_internal: false,
-            partitions: []
-          }
-        ]
-      )
+      response =
+        Fixtures.build_response(:metadata, 1,
+          brokers: [
+            %{node_id: 1, host: "broker1.local", port: 9092, rack: nil}
+          ],
+          controller_id: 1,
+          topics: [
+            %{
+              error_code: 0,
+              name: "good-topic",
+              is_internal: false,
+              partitions: [
+                %{error_code: 0, partition_index: 0, leader_id: 1, replica_nodes: [1], isr_nodes: [1]}
+              ]
+            },
+            %{
+              error_code: 3,
+              # UNKNOWN_TOPIC_OR_PARTITION
+              name: "bad-topic",
+              is_internal: false,
+              partitions: []
+            }
+          ]
+        )
 
       {:ok, cluster_metadata} = ResponseParser.metadata_response(response)
 
@@ -171,11 +175,12 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
     end
 
     test "handles empty response" do
-      response = Fixtures.build_response(:metadata, 1,
-        brokers: [],
-        controller_id: -1,
-        topics: []
-      )
+      response =
+        Fixtures.build_response(:metadata, 1,
+          brokers: [],
+          controller_id: -1,
+          topics: []
+        )
 
       {:ok, cluster_metadata} = ResponseParser.metadata_response(response)
 
@@ -193,18 +198,19 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
       assert request.topics == ["topic1"]
 
       # Parse response
-      response = Fixtures.build_response(:metadata, 0,
-        brokers: [%{node_id: 1, host: "localhost", port: 9092}],
-        topics: [
-          %{
-            error_code: 0,
-            name: "topic1",
-            partitions: [
-              %{error_code: 0, partition_index: 0, leader_id: 1, replica_nodes: [1], isr_nodes: [1]}
-            ]
-          }
-        ]
-      )
+      response =
+        Fixtures.build_response(:metadata, 0,
+          brokers: [%{node_id: 1, host: "localhost", port: 9092}],
+          topics: [
+            %{
+              error_code: 0,
+              name: "topic1",
+              partitions: [
+                %{error_code: 0, partition_index: 0, leader_id: 1, replica_nodes: [1], isr_nodes: [1]}
+              ]
+            }
+          ]
+        )
 
       {:ok, cluster_metadata} = KayrockProtocol.parse_response(:metadata, response)
       assert %ClusterMetadata{} = cluster_metadata
@@ -218,11 +224,12 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
       assert request.topics == nil
 
       # Parse response
-      response = Fixtures.build_response(:metadata, 1,
-        brokers: [%{node_id: 1, host: "localhost", port: 9092, rack: "us-east-1a"}],
-        controller_id: 1,
-        topics: []
-      )
+      response =
+        Fixtures.build_response(:metadata, 1,
+          brokers: [%{node_id: 1, host: "localhost", port: 9092, rack: "us-east-1a"}],
+          controller_id: 1,
+          topics: []
+        )
 
       {:ok, cluster_metadata} = KayrockProtocol.parse_response(:metadata, response)
       assert cluster_metadata.controller_id == 1
@@ -236,12 +243,13 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
       assert request.topics == ["test"]
 
       # Parse response
-      response = Fixtures.build_response(:metadata, 2,
-        brokers: [%{node_id: 1, host: "localhost", port: 9092, rack: nil}],
-        cluster_id: "prod-cluster",
-        controller_id: 1,
-        topics: []
-      )
+      response =
+        Fixtures.build_response(:metadata, 2,
+          brokers: [%{node_id: 1, host: "localhost", port: 9092, rack: nil}],
+          cluster_id: "prod-cluster",
+          controller_id: 1,
+          topics: []
+        )
 
       {:ok, cluster_metadata} = KayrockProtocol.parse_response(:metadata, response)
       assert cluster_metadata.controller_id == 1

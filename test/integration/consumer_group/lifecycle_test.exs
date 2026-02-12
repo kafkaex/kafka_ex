@@ -51,14 +51,15 @@ defmodule KafkaEx.Integration.ConsumerGroup.LifecycleTest do
       group_assignment = [
         %{
           member_id: member_id,
-          assignment: Fixtures.member_assignment(
-            partition_assignments: [
-              Fixtures.partition_assignment(
-                topic: topic_name,
-                partitions: [0]
-              )
-            ]
-          )
+          assignment:
+            Fixtures.member_assignment(
+              partition_assignments: [
+                Fixtures.partition_assignment(
+                  topic: topic_name,
+                  partitions: [0]
+                )
+              ]
+            )
         }
       ]
 
@@ -120,14 +121,15 @@ defmodule KafkaEx.Integration.ConsumerGroup.LifecycleTest do
       group_assignment = [
         %{
           member_id: member_id,
-          assignment: Fixtures.member_assignment(
-            partition_assignments: [
-              Fixtures.partition_assignment(
-                topic: topic_name,
-                partitions: [0]
-              )
-            ]
-          )
+          assignment:
+            Fixtures.member_assignment(
+              partition_assignments: [
+                Fixtures.partition_assignment(
+                  topic: topic_name,
+                  partitions: [0]
+                )
+              ]
+            )
         }
       ]
 
@@ -168,14 +170,15 @@ defmodule KafkaEx.Integration.ConsumerGroup.LifecycleTest do
       group_assignment = [
         %{
           member_id: member_id,
-          assignment: Fixtures.member_assignment(
-            partition_assignments: [
-              Fixtures.partition_assignment(
-                topic: topic_name,
-                partitions: [0]
-              )
-            ]
-          )
+          assignment:
+            Fixtures.member_assignment(
+              partition_assignments: [
+                Fixtures.partition_assignment(
+                  topic: topic_name,
+                  partitions: [0]
+                )
+              ]
+            )
         }
       ]
 

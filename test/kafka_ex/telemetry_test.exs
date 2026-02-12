@@ -277,11 +277,12 @@ defmodule KafkaEx.TelemetryTest do
   describe "request_metadata/2" do
     test "extracts operation from real Kayrock request struct" do
       # Use real Kayrock request struct via fixture helper
-      request = Fixtures.build_request(:metadata, 1,
-        client_id: "test_client",
-        correlation_id: 42,
-        topics: []
-      )
+      request =
+        Fixtures.build_request(:metadata, 1,
+          client_id: "test_client",
+          correlation_id: 42,
+          topics: []
+        )
 
       metadata = Telemetry.request_metadata(request, %{host: "localhost", port: 9092})
 
@@ -293,23 +294,25 @@ defmodule KafkaEx.TelemetryTest do
     end
 
     test "extracts operation from different Kayrock request types" do
-      produce_request = Fixtures.build_request(:produce, 2,
-        client_id: "producer",
-        correlation_id: 1,
-        acks: 1,
-        timeout: 5000,
-        topic_data: []
-      )
+      produce_request =
+        Fixtures.build_request(:produce, 2,
+          client_id: "producer",
+          correlation_id: 1,
+          acks: 1,
+          timeout: 5000,
+          topic_data: []
+        )
 
-      fetch_request = Fixtures.build_request(:fetch, 3,
-        client_id: "consumer",
-        correlation_id: 2,
-        replica_id: -1,
-        max_wait_time: 500,
-        min_bytes: 1,
-        max_bytes: 1_000_000,
-        topics: []
-      )
+      fetch_request =
+        Fixtures.build_request(:fetch, 3,
+          client_id: "consumer",
+          correlation_id: 2,
+          replica_id: -1,
+          max_wait_time: 500,
+          min_bytes: 1,
+          max_bytes: 1_000_000,
+          topics: []
+        )
 
       produce_meta = Telemetry.request_metadata(produce_request, %{})
       fetch_meta = Telemetry.request_metadata(fetch_request, %{})

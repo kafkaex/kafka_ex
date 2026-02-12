@@ -50,12 +50,13 @@ defmodule KafkaEx.APIFindCoordinatorTest do
 
   describe "ResponseParser.find_coordinator_response/1" do
     test "parses successful V0 response" do
-      response = Fixtures.build_response(:find_coordinator, 0,
-        error_code: 0,
-        node_id: 1,
-        host: "localhost",
-        port: 9092
-      )
+      response =
+        Fixtures.build_response(:find_coordinator, 0,
+          error_code: 0,
+          node_id: 1,
+          host: "localhost",
+          port: 9092
+        )
 
       assert {:ok, result} = ResponseParser.find_coordinator_response(response)
       assert result.error_code == :no_error
@@ -63,14 +64,15 @@ defmodule KafkaEx.APIFindCoordinatorTest do
     end
 
     test "parses successful V1 response" do
-      response = Fixtures.build_response(:find_coordinator, 1,
-        throttle_time_ms: 50,
-        error_code: 0,
-        error_message: nil,
-        node_id: 2,
-        host: "broker2",
-        port: 9093
-      )
+      response =
+        Fixtures.build_response(:find_coordinator, 1,
+          throttle_time_ms: 50,
+          error_code: 0,
+          error_message: nil,
+          node_id: 2,
+          host: "broker2",
+          port: 9093
+        )
 
       assert {:ok, result} = ResponseParser.find_coordinator_response(response)
       assert result.error_code == :no_error
@@ -79,14 +81,15 @@ defmodule KafkaEx.APIFindCoordinatorTest do
     end
 
     test "returns error for failed response" do
-      response = Fixtures.build_response(:find_coordinator, 1,
-        throttle_time_ms: 0,
-        error_code: 15,
-        error_message: "Coordinator not available",
-        node_id: nil,
-        host: nil,
-        port: nil
-      )
+      response =
+        Fixtures.build_response(:find_coordinator, 1,
+          throttle_time_ms: 0,
+          error_code: 15,
+          error_message: "Coordinator not available",
+          node_id: nil,
+          host: nil,
+          port: nil
+        )
 
       assert {:error, error} = ResponseParser.find_coordinator_response(response)
       assert error.error == :coordinator_not_available

@@ -345,10 +345,11 @@ defmodule KafkaEx.Client.RequestBuilderTest do
 
       {:ok, request} = RequestBuilder.lists_offset_request([topics: topic_data], state)
 
-      expected_request = Fixtures.build_request(:list_offsets, 1,
-        replica_id: -1,
-        topics: [%{partitions: [%{timestamp: -1, partition: 1}], topic: "test-topic"}]
-      )
+      expected_request =
+        Fixtures.build_request(:list_offsets, 1,
+          replica_id: -1,
+          topics: [%{partitions: [%{timestamp: -1, partition: 1}], topic: "test-topic"}]
+        )
 
       assert expected_request == request
     end
@@ -359,11 +360,12 @@ defmodule KafkaEx.Client.RequestBuilderTest do
 
       {:ok, request} = RequestBuilder.lists_offset_request([topics: topic_data, api_version: 2], state)
 
-      expected_request = Fixtures.build_request(:list_offsets, 2,
-        replica_id: -1,
-        isolation_level: 0,
-        topics: [%{partitions: [%{timestamp: -1, partition: 1}], topic: "test-topic"}]
-      )
+      expected_request =
+        Fixtures.build_request(:list_offsets, 2,
+          replica_id: -1,
+          isolation_level: 0,
+          topics: [%{partitions: [%{timestamp: -1, partition: 1}], topic: "test-topic"}]
+        )
 
       assert expected_request == request
     end
@@ -386,12 +388,13 @@ defmodule KafkaEx.Client.RequestBuilderTest do
 
       {:ok, request} = RequestBuilder.offset_fetch_request([group_id: group_id, topics: topics], state)
 
-      expected_request = Fixtures.build_request(:offset_fetch, 1,
-        client_id: nil,
-        correlation_id: nil,
-        group_id: "test-group",
-        topics: [%{name: "test-topic", partition_indexes: [0]}]
-      )
+      expected_request =
+        Fixtures.build_request(:offset_fetch, 1,
+          client_id: nil,
+          correlation_id: nil,
+          group_id: "test-group",
+          topics: [%{name: "test-topic", partition_indexes: [0]}]
+        )
 
       assert expected_request == request
     end
@@ -403,12 +406,13 @@ defmodule KafkaEx.Client.RequestBuilderTest do
 
       {:ok, request} = RequestBuilder.offset_fetch_request([group_id: group_id, topics: topics, api_version: 2], state)
 
-      expected_request = Fixtures.build_request(:offset_fetch, 2,
-        client_id: nil,
-        correlation_id: nil,
-        group_id: "consumer-group",
-        topics: [%{name: "my-topic", partition_indexes: [1, 2]}]
-      )
+      expected_request =
+        Fixtures.build_request(:offset_fetch, 2,
+          client_id: nil,
+          correlation_id: nil,
+          group_id: "consumer-group",
+          topics: [%{name: "my-topic", partition_indexes: [1, 2]}]
+        )
 
       assert expected_request == request
     end
@@ -433,19 +437,20 @@ defmodule KafkaEx.Client.RequestBuilderTest do
 
       {:ok, request} = RequestBuilder.offset_commit_request([group_id: group_id, topics: topics], state)
 
-      expected_request = Fixtures.build_request(:offset_commit, 1,
-        client_id: nil,
-        correlation_id: nil,
-        group_id: "test-group",
-        generation_id: -1,
-        member_id: "",
-        topics: [
-          %{
-            name: "test-topic",
-            partitions: [%{partition_index: 0, committed_offset: 100, commit_timestamp: -1, committed_metadata: ""}]
-          }
-        ]
-      )
+      expected_request =
+        Fixtures.build_request(:offset_commit, 1,
+          client_id: nil,
+          correlation_id: nil,
+          group_id: "test-group",
+          generation_id: -1,
+          member_id: "",
+          topics: [
+            %{
+              name: "test-topic",
+              partitions: [%{partition_index: 0, committed_offset: 100, commit_timestamp: -1, committed_metadata: ""}]
+            }
+          ]
+        )
 
       assert expected_request == request
     end
@@ -467,19 +472,20 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = Fixtures.build_request(:offset_commit, 1,
-        client_id: nil,
-        correlation_id: nil,
-        group_id: "consumer-group",
-        generation_id: 5,
-        member_id: "member-123",
-        topics: [
-          %{
-            name: "my-topic",
-            partitions: [%{partition_index: 1, committed_offset: 200, commit_timestamp: -1, committed_metadata: ""}]
-          }
-        ]
-      )
+      expected_request =
+        Fixtures.build_request(:offset_commit, 1,
+          client_id: nil,
+          correlation_id: nil,
+          group_id: "consumer-group",
+          generation_id: 5,
+          member_id: "member-123",
+          topics: [
+            %{
+              name: "my-topic",
+              partitions: [%{partition_index: 1, committed_offset: 200, commit_timestamp: -1, committed_metadata: ""}]
+            }
+          ]
+        )
 
       assert expected_request == request
     end
@@ -502,15 +508,18 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = Fixtures.build_request(:offset_commit, 2,
-        client_id: nil,
-        correlation_id: nil,
-        group_id: "retention-group",
-        generation_id: 10,
-        member_id: "member-abc",
-        retention_time_ms: 86_400_000,
-        topics: [%{name: "topic-a", partitions: [%{partition_index: 0, committed_offset: 300, committed_metadata: ""}]}]
-      )
+      expected_request =
+        Fixtures.build_request(:offset_commit, 2,
+          client_id: nil,
+          correlation_id: nil,
+          group_id: "retention-group",
+          generation_id: 10,
+          member_id: "member-abc",
+          retention_time_ms: 86_400_000,
+          topics: [
+            %{name: "topic-a", partitions: [%{partition_index: 0, committed_offset: 300, committed_metadata: ""}]}
+          ]
+        )
 
       assert expected_request == request
     end
@@ -530,14 +539,15 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = Fixtures.build_request(:offset_commit, 0,
-        client_id: nil,
-        correlation_id: nil,
-        group_id: "legacy-group",
-        topics: [
-          %{name: "legacy-topic", partitions: [%{partition_index: 0, committed_offset: 50, committed_metadata: ""}]}
-        ]
-      )
+      expected_request =
+        Fixtures.build_request(:offset_commit, 0,
+          client_id: nil,
+          correlation_id: nil,
+          group_id: "legacy-group",
+          topics: [
+            %{name: "legacy-topic", partitions: [%{partition_index: 0, committed_offset: 50, committed_metadata: ""}]}
+          ]
+        )
 
       assert expected_request == request
     end
@@ -567,13 +577,14 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = Fixtures.build_request(:heartbeat, 1,
-        client_id: nil,
-        correlation_id: nil,
-        group_id: "test-group",
-        member_id: "consumer-123",
-        generation_id: 5
-      )
+      expected_request =
+        Fixtures.build_request(:heartbeat, 1,
+          client_id: nil,
+          correlation_id: nil,
+          group_id: "test-group",
+          member_id: "consumer-123",
+          generation_id: 5
+        )
 
       assert expected_request == request
     end
@@ -590,13 +601,14 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = Fixtures.build_request(:heartbeat, 0,
-        client_id: nil,
-        correlation_id: nil,
-        group_id: "test-group",
-        member_id: "consumer-123",
-        generation_id: 5
-      )
+      expected_request =
+        Fixtures.build_request(:heartbeat, 0,
+          client_id: nil,
+          correlation_id: nil,
+          group_id: "test-group",
+          member_id: "consumer-123",
+          generation_id: 5
+        )
 
       assert expected_request == request
     end
@@ -618,13 +630,14 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = Fixtures.build_request(:heartbeat, 1,
-        client_id: nil,
-        correlation_id: nil,
-        group_id: "consumer-group",
-        member_id: "member-abc",
-        generation_id: 10
-      )
+      expected_request =
+        Fixtures.build_request(:heartbeat, 1,
+          client_id: nil,
+          correlation_id: nil,
+          group_id: "consumer-group",
+          member_id: "member-abc",
+          generation_id: 10
+        )
 
       assert expected_request == request
     end
@@ -725,12 +738,13 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = Fixtures.build_request(:leave_group, 1,
-        client_id: nil,
-        correlation_id: nil,
-        group_id: "test-group",
-        member_id: "consumer-123"
-      )
+      expected_request =
+        Fixtures.build_request(:leave_group, 1,
+          client_id: nil,
+          correlation_id: nil,
+          group_id: "test-group",
+          member_id: "consumer-123"
+        )
 
       assert expected_request == request
     end
@@ -746,12 +760,13 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = Fixtures.build_request(:leave_group, 0,
-        client_id: nil,
-        correlation_id: nil,
-        group_id: "test-group",
-        member_id: "consumer-123"
-      )
+      expected_request =
+        Fixtures.build_request(:leave_group, 0,
+          client_id: nil,
+          correlation_id: nil,
+          group_id: "test-group",
+          member_id: "consumer-123"
+        )
 
       assert expected_request == request
     end
@@ -771,12 +786,13 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = Fixtures.build_request(:leave_group, 1,
-        client_id: nil,
-        correlation_id: nil,
-        group_id: "consumer-group",
-        member_id: "member-abc"
-      )
+      expected_request =
+        Fixtures.build_request(:leave_group, 1,
+          client_id: nil,
+          correlation_id: nil,
+          group_id: "consumer-group",
+          member_id: "member-abc"
+        )
 
       assert expected_request == request
     end
@@ -885,16 +901,17 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = Fixtures.build_request(:join_group, 1,
-        client_id: nil,
-        correlation_id: nil,
-        group_id: "test-group",
-        member_id: "",
-        session_timeout_ms: 30_000,
-        rebalance_timeout_ms: 60_000,
-        protocol_type: "consumer",
-        protocols: group_protocols
-      )
+      expected_request =
+        Fixtures.build_request(:join_group, 1,
+          client_id: nil,
+          correlation_id: nil,
+          group_id: "test-group",
+          member_id: "",
+          session_timeout_ms: 30_000,
+          rebalance_timeout_ms: 60_000,
+          protocol_type: "consumer",
+          protocols: group_protocols
+        )
 
       assert expected_request == request
     end
@@ -921,15 +938,16 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = Fixtures.build_request(:join_group, 0,
-        client_id: nil,
-        correlation_id: nil,
-        group_id: "legacy-group",
-        member_id: "member-123",
-        session_timeout_ms: 10_000,
-        protocol_type: "consumer",
-        protocols: group_protocols
-      )
+      expected_request =
+        Fixtures.build_request(:join_group, 0,
+          client_id: nil,
+          correlation_id: nil,
+          group_id: "legacy-group",
+          member_id: "member-123",
+          session_timeout_ms: 10_000,
+          protocol_type: "consumer",
+          protocols: group_protocols
+        )
 
       assert expected_request == request
       # V0 doesn't have rebalance_timeout_ms
@@ -956,16 +974,17 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = Fixtures.build_request(:join_group, 2,
-        client_id: nil,
-        correlation_id: nil,
-        group_id: "my-group",
-        member_id: "member-456",
-        session_timeout_ms: 45_000,
-        rebalance_timeout_ms: 90_000,
-        protocol_type: "consumer",
-        protocols: group_protocols
-      )
+      expected_request =
+        Fixtures.build_request(:join_group, 2,
+          client_id: nil,
+          correlation_id: nil,
+          group_id: "my-group",
+          member_id: "member-456",
+          session_timeout_ms: 45_000,
+          rebalance_timeout_ms: 90_000,
+          protocol_type: "consumer",
+          protocols: group_protocols
+        )
 
       assert expected_request == request
     end
@@ -1069,14 +1088,15 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = Fixtures.build_request(:sync_group, 1,
-        client_id: nil,
-        correlation_id: nil,
-        group_id: "test-group",
-        member_id: "consumer-123",
-        generation_id: 5,
-        assignments: []
-      )
+      expected_request =
+        Fixtures.build_request(:sync_group, 1,
+          client_id: nil,
+          correlation_id: nil,
+          group_id: "test-group",
+          member_id: "consumer-123",
+          generation_id: 5,
+          assignments: []
+        )
 
       assert expected_request == request
     end
@@ -1098,14 +1118,15 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      expected_request = Fixtures.build_request(:sync_group, 0,
-        client_id: nil,
-        correlation_id: nil,
-        group_id: "legacy-group",
-        member_id: "member-abc",
-        generation_id: 10,
-        assignments: []
-      )
+      expected_request =
+        Fixtures.build_request(:sync_group, 0,
+          client_id: nil,
+          correlation_id: nil,
+          group_id: "legacy-group",
+          member_id: "member-abc",
+          generation_id: 10,
+          assignments: []
+        )
 
       assert expected_request == request
     end

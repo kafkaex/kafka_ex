@@ -118,13 +118,14 @@ defmodule KafkaEx.Client.StateTest do
     test "ingests api versions from parsed ApiVersions struct" do
       state = %State{api_versions: %{}}
 
-      api_versions = ApiVersions.build(
-        api_versions: %{
-          0 => %{min_version: 0, max_version: 8},
-          1 => %{min_version: 0, max_version: 11},
-          2 => %{min_version: 0, max_version: 5}
-        }
-      )
+      api_versions =
+        ApiVersions.build(
+          api_versions: %{
+            0 => %{min_version: 0, max_version: 8},
+            1 => %{min_version: 0, max_version: 11},
+            2 => %{min_version: 0, max_version: 5}
+          }
+        )
 
       updated_state = State.ingest_api_versions(state, api_versions)
 
@@ -138,13 +139,14 @@ defmodule KafkaEx.Client.StateTest do
     test "ingests api versions with throttle_time_ms" do
       state = %State{api_versions: %{}}
 
-      api_versions = ApiVersions.build(
-        api_versions: %{
-          3 => %{min_version: 0, max_version: 9},
-          18 => %{min_version: 0, max_version: 2}
-        },
-        throttle_time_ms: 0
-      )
+      api_versions =
+        ApiVersions.build(
+          api_versions: %{
+            3 => %{min_version: 0, max_version: 9},
+            18 => %{min_version: 0, max_version: 2}
+          },
+          throttle_time_ms: 0
+        )
 
       updated_state = State.ingest_api_versions(state, api_versions)
 
@@ -157,11 +159,12 @@ defmodule KafkaEx.Client.StateTest do
     test "replaces existing api versions" do
       state = %State{api_versions: %{0 => {0, 5}}}
 
-      api_versions = ApiVersions.build(
-        api_versions: %{
-          0 => %{min_version: 0, max_version: 8}
-        }
-      )
+      api_versions =
+        ApiVersions.build(
+          api_versions: %{
+            0 => %{min_version: 0, max_version: 8}
+          }
+        )
 
       updated_state = State.ingest_api_versions(state, api_versions)
 

@@ -899,37 +899,36 @@ defmodule KafkaEx.Client do
       api_version: State.max_supported_api_version(state, :metadata, 4)
     ]
 
-    case RequestBuilder.metadata_request(req_opts, state) do
-      {:ok, request} ->
-        {{ok_or_err, response}, state_out} =
-          kayrock_network_request(request, NodeSelector.first_available(), state)
-
-        case ok_or_err do
-          :ok ->
-            case ResponseParser.metadata_response(response) do
-              {:ok, cluster_metadata} ->
-                # Check if any requested topics are missing (leader_not_available).
-                # The parser filters out topics with errors, so missing = still propagating.
-                if topics != [] and has_missing_topics?(topics, cluster_metadata) do
-                  :timer.sleep(300)
-                  retrieve_metadata(state, sync_timeout, topics, retry - 1)
-                else
-                  {state_out, cluster_metadata}
-                end
-
-              {:error, _reason} ->
-                Logger.error("Unable to parse metadata response from brokers.")
-                {state_out, nil}
-            end
-
-          _ ->
-            Logger.error("Unable to fetch metadata from any brokers. Timeout is #{sync_timeout}.")
-            {state_out, nil}
-        end
-
+    with {:ok, request} <- RequestBuilder.metadata_request(req_opts, state),
+         {{:ok, response}, state_out} <-
+           kayrock_network_request(request, NodeSelector.first_available(), state) do
+      parse_metadata_response(response, state, state_out, sync_timeout, topics, retry)
+    else
       {:error, _} ->
         Logger.error("Unable to build metadata request.")
         {state, nil}
+
+      {{:error, _}, state_out} ->
+        Logger.error("Unable to fetch metadata from any brokers. Timeout is #{sync_timeout}.")
+        {state_out, nil}
+    end
+  end
+
+  defp parse_metadata_response(response, state, state_out, sync_timeout, topics, retry) do
+    case ResponseParser.metadata_response(response) do
+      {:ok, cluster_metadata} ->
+        # Check if any requested topics are missing (leader_not_available).
+        # The parser filters out topics with errors, so missing = still propagating.
+        if topics != [] and has_missing_topics?(topics, cluster_metadata) do
+          :timer.sleep(300)
+          retrieve_metadata(state, sync_timeout, topics, retry - 1)
+        else
+          {state_out, cluster_metadata}
+        end
+
+      {:error, _reason} ->
+        Logger.error("Unable to parse metadata response from brokers.")
+        {state_out, nil}
     end
   end
 
@@ -1039,39 +1038,39 @@ defmodule KafkaEx.Client do
   defp update_consumer_group_coordinator(state, consumer_group) do
     req_opts = [group_id: consumer_group]
 
-    case RequestBuilder.find_coordinator_request(req_opts, state) do
-      {:ok, request} ->
-        {response, updated_state} = kayrock_network_request(request, NodeSelector.first_available(), state)
-
-        case response do
-          {:ok, raw_response} ->
-            case ResponseParser.find_coordinator_response(raw_response) do
-              {:ok, %FindCoordinatorMsg{} = result} ->
-                node_id = FindCoordinatorMsg.coordinator_node_id(result)
-                State.put_consumer_group_coordinator(updated_state, consumer_group, node_id)
-
-              {:error, error} ->
-                Logger.warning(
-                  "Unable to find consumer group coordinator for #{inspect(consumer_group)}: Error #{inspect(error)}"
-                )
-
-                updated_state
-            end
-
-          {:error, error} ->
-            Logger.warning(
-              "Unable to find consumer group coordinator for #{inspect(consumer_group)}: Error #{inspect(error)}"
-            )
-
-            updated_state
-        end
-
+    with {:ok, request} <- RequestBuilder.find_coordinator_request(req_opts, state),
+         {{:ok, raw_response}, updated_state} <-
+           kayrock_network_request(request, NodeSelector.first_available(), state) do
+      parse_coordinator_response(raw_response, updated_state, consumer_group)
+    else
       {:error, error} ->
         Logger.warning(
           "Unable to build find_coordinator request for #{inspect(consumer_group)}: Error #{inspect(error)}"
         )
 
         state
+
+      {{:error, error}, updated_state} ->
+        Logger.warning(
+          "Unable to find consumer group coordinator for #{inspect(consumer_group)}: Error #{inspect(error)}"
+        )
+
+        updated_state
+    end
+  end
+
+  defp parse_coordinator_response(raw_response, updated_state, consumer_group) do
+    case ResponseParser.find_coordinator_response(raw_response) do
+      {:ok, %FindCoordinatorMsg{} = result} ->
+        node_id = FindCoordinatorMsg.coordinator_node_id(result)
+        State.put_consumer_group_coordinator(updated_state, consumer_group, node_id)
+
+      {:error, error} ->
+        Logger.warning(
+          "Unable to find consumer group coordinator for #{inspect(consumer_group)}: Error #{inspect(error)}"
+        )
+
+        updated_state
     end
   end
 
