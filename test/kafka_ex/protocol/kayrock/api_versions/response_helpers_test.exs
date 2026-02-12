@@ -21,10 +21,12 @@ defmodule KafkaEx.Protocol.Kayrock.ApiVersions.ResponseHelpersTest do
       }
 
       assert {:ok, %ApiVersions{} = result} = ResponseHelpers.parse(input)
+
       assert result.api_versions == %{
-        0 => %{min_version: 0, max_version: 8},
-        1 => %{min_version: 0, max_version: 11}
-      }
+               0 => %{min_version: 0, max_version: 8},
+               1 => %{min_version: 0, max_version: 11}
+             }
+
       assert result.throttle_time_ms == 100
     end
 
@@ -141,10 +143,12 @@ defmodule KafkaEx.Protocol.Kayrock.ApiVersions.ResponseHelpersTest do
       }
 
       assert {:ok, %ApiVersions{} = result} = ResponseHelpers.parse_v0(input)
+
       assert result.api_versions == %{
-        0 => %{min_version: 0, max_version: 3},
-        18 => %{min_version: 0, max_version: 1}
-      }
+               0 => %{min_version: 0, max_version: 3},
+               18 => %{min_version: 0, max_version: 1}
+             }
+
       assert result.throttle_time_ms == nil
     end
 
@@ -217,10 +221,10 @@ defmodule KafkaEx.Protocol.Kayrock.ApiVersions.ResponseHelpersTest do
       result = ResponseHelpers.build_api_versions_map(entries)
 
       assert result == %{
-        0 => %{min_version: 0, max_version: 3},
-        1 => %{min_version: 0, max_version: 11},
-        18 => %{min_version: 0, max_version: 3}
-      }
+               0 => %{min_version: 0, max_version: 3},
+               1 => %{min_version: 0, max_version: 11},
+               18 => %{min_version: 0, max_version: 3}
+             }
     end
 
     test "returns empty map for empty list" do

@@ -18,7 +18,8 @@ defimpl KafkaEx.Protocol.Kayrock.ApiVersions.Response, for: Kayrock.ApiVersions.
   @doc """
   Parses an ApiVersions V3 response into a KafkaEx struct.
   """
-  @spec parse_response(Kayrock.ApiVersions.V3.Response.t()) :: {:ok, KafkaEx.Messages.ApiVersions.t()} | {:error, KafkaEx.Client.Error.t()}
+  @spec parse_response(Kayrock.ApiVersions.V3.Response.t()) ::
+          {:ok, KafkaEx.Messages.ApiVersions.t()} | {:error, KafkaEx.Client.Error.t()}
   def parse_response(response) do
     ResponseHelpers.parse(response)
   end

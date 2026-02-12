@@ -22,20 +22,33 @@ Track implementation of new Kayrock-supported API versions in KafkaEx.
 
 > **Note:** Integration/chaos tests skipped (⏭️) — ApiVersions is implicitly exercised by every other integration and chaos test since it's the first request sent on every broker connection.
 
-| Version | Status  | Request Changes                                                             | Response Changes                       | Effort | Unit    | Integ    | Chaos                 |
-|---------|---------|-----------------------------------------------------------------------------|----------------------------------------|--------|---------|----------|-----------------------|
-| V0      | 🟢      | —                                                                           | —                                      | —      | 🟢      | ⏭️       | ⏭️ |
-| V1      | 🟢      | —                                                                           | —                                      | —      | 🟢      | ⏭️       | ⏭️ |
-| V2      | 🟢      | No changes vs V1                                                            | No changes vs V1                       | Low    | 🟢      | ⏭️        | ⏭️ |
-| V3      | 🟢      | FLEX: +`client_software_name`, +`client_software_version`, +`tagged_fields` | FLEX: +`tagged_fields`, compact arrays | Medium | 🟢      | ⏭️        | ⏭️ |
+| Version | Status  | Request Changes                                                             | Response Changes                       | Effort | Unit    | Integ    | Chaos |
+|---------|---------|-----------------------------------------------------------------------------|----------------------------------------|--------|---------|----------|-------|
+| V0      | 🟢      | —                                                                           | —                                      | —      | 🟢      | ⏭️       | ⏭️    |
+| V1      | 🟢      | —                                                                           | —                                      | —      | 🟢      | ⏭️       | ⏭️    |
+| V2      | 🟢      | No changes vs V1                                                            | No changes vs V1                       | Low    | 🟢      | ⏭️        | ⏭️    |
+| V3      | 🟢      | FLEX: +`client_software_name`, +`client_software_version`, +`tagged_fields` | FLEX: +`tagged_fields`, compact arrays | Medium | 🟢      | ⏭️        | ⏭️    |
 
 ---
 
 ## 2. Metadata (API Key 3)
 
-**Current:** V0-V2 + `@fallback_to_any` (V3-V9 handled generically) | **Available:** V0-V9
+**Current:** V0-V9 (all explicit) | **Available:** V0-V9
 
-Already covered by `Any` fallback. No action needed.
+| Version | Status | Request Changes                                  | Response Changes                               | Effort | Unit | Integ | Chaos   |
+|---------|--------|--------------------------------------------------|------------------------------------------------|--------|------|-------|---------|
+| V0      | 🟢     | —                                                | —                                              | —      | 🟢   | 🟢    | ⬜       |
+| V1      | 🟢     | —                                                | —                                              | —      | 🟢   | 🟢    | ⬜       |
+| V2      | 🟢     | —                                                | —                                              | —      | 🟢   | 🟢    | ⬜       |
+| V3      | 🟢     | No changes vs V2                                 | +`throttle_time_ms`, +`cluster_id`             | Low    | 🟢   | ⬜    | ⬜       |
+| V4      | 🟢     | +`allow_auto_topic_creation`                     | No changes vs V3                               | Low    | 🟢   | ⬜    | ⬜       |
+| V5      | 🟢     | No changes vs V4                                 | +`offline_replicas` in partitions              | Low    | 🟢   | ⬜    | ⬜       |
+| V6      | 🟢     | No changes vs V5                                 | No changes vs V5                               | Low    | 🟢   | ⬜    | ⬜       |
+| V7      | 🟢     | No changes vs V6                                 | +`leader_epoch` in partitions                  | Low    | 🟢   | ⬜    | ⬜       |
+| V8      | 🟢     | +`include_cluster/topic_authorized_operations`   | +`cluster/topic_authorized_operations`         | Medium | 🟢   | ⬜    | ⬜       |
+| V9      | 🟢     | FLEX: compact arrays/strings, +`tagged_fields`   | FLEX: compact arrays/strings, +`tagged_fields` | Medium | 🟢   | ⬜    | ⬜       |
+
+> **Note:** `Any` fallback retained for forward compatibility with unknown future versions. All V0-V9 have explicit `defimpl` impls.
 
 ---
 
@@ -268,9 +281,9 @@ Prioritized by: (1) most commonly used APIs first, (2) low-effort versions first
 
 ## Summary
 
-- **Total new versions to implement:** 45 (43 remaining)
-- **Completed:** 2 versions (ApiVersions V2, V3)
-- **Low effort:** 29 versions remaining (mostly schema-identical or single field additions)
-- **Medium effort:** 12 versions remaining (flexible version encoding changes)
+- **Total new versions to implement:** 45 (36 remaining)
+- **Completed:** 9 versions (ApiVersions V2, V3; Metadata V3, V4, V5, V6, V7, V8, V9)
+- **Low effort:** 24 versions remaining (mostly schema-identical or single field additions)
+- **Medium effort:** 10 versions remaining (flexible version encoding changes)
 - **High effort:** 1 version (LeaveGroup V3 structural change)
 - **Medium-High effort:** 1 version (CreateTopics V5 response additions)

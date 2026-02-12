@@ -343,10 +343,12 @@ defmodule KafkaEx.Protocol.Kayrock.ApiVersions.ResponseTest do
       {:ok, result} = ApiVersions.Response.parse_response(response)
 
       assert %ApiVersionsStruct{} = result
+
       assert result.api_versions == %{
-        0 => %{min_version: 0, max_version: 10},
-        18 => %{min_version: 0, max_version: 4}
-      }
+               0 => %{min_version: 0, max_version: 10},
+               18 => %{min_version: 0, max_version: 4}
+             }
+
       assert result.throttle_time_ms == 75
     end
 
