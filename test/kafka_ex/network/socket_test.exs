@@ -52,7 +52,8 @@ defmodule KafkaEx.Network.Socket.Test do
       info = KafkaEx.Network.Socket.info(socket)
       assert info[:name] == ~c"tcp_inet"
       KafkaEx.Network.Socket.close(socket)
-      assert {:error, :closed} == KafkaEx.Network.Socket.send(socket, ~c"ping")
+      # OTP 27+ may return :einval instead of :closed for SSL sockets
+      assert KafkaEx.Network.Socket.send(socket, ~c"ping") in [{:error, :closed}, {:error, :einval}]
     end
   end
 
@@ -97,7 +98,8 @@ defmodule KafkaEx.Network.Socket.Test do
       info = KafkaEx.Network.Socket.info(socket)
       assert info[:name] == ~c"tcp_inet"
       KafkaEx.Network.Socket.close(socket)
-      assert {:error, :closed} == KafkaEx.Network.Socket.send(socket, ~c"ping")
+      # OTP 27+ may return :einval instead of :closed for SSL sockets
+      assert KafkaEx.Network.Socket.send(socket, ~c"ping") in [{:error, :closed}, {:error, :einval}]
     end
   end
 end

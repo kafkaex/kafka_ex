@@ -84,6 +84,50 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription.MemberTest do
     end
   end
 
+  describe "from_describe_group_response/1 with binary member_assignment" do
+    test "deserializes ConsumerProtocol Assignment binary" do
+      # Binary from Kayrock DescribeGroups: version=0, 1 topic "test-topic" with partition 0, empty user_data
+      topic = "test-topic"
+      topic_len = byte_size(topic)
+
+      binary =
+        <<0::16, 0, 0, 0, 1, topic_len::16, topic::binary, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0>>
+
+      response = %{
+        member_id: "member-1",
+        client_id: "client-1",
+        client_host: "/127.0.0.1",
+        member_metadata: <<>>,
+        member_assignment: binary
+      }
+
+      result = Member.from_describe_group_response(response)
+
+      assert result.member_id == "member-1"
+      assignment = result.member_assignment
+      assert assignment.version == 0
+      assert assignment.user_data == <<>>
+      assert length(assignment.partition_assignments) == 1
+
+      pa = hd(assignment.partition_assignments)
+      assert pa.topic == topic
+      assert pa.partitions == [0]
+    end
+
+    test "handles empty binary member_assignment" do
+      response = %{
+        member_id: "member-1",
+        client_id: "client-1",
+        client_host: "/127.0.0.1",
+        member_metadata: <<>>,
+        member_assignment: ""
+      }
+
+      result = Member.from_describe_group_response(response)
+      assert result.member_assignment == nil
+    end
+  end
+
   describe "accessor functions" do
     setup do
       member = %Member{
