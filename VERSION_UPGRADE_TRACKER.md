@@ -4,13 +4,13 @@ Track implementation of new Kayrock-supported API versions in KafkaEx.
 
 ## Legend
 
-| Symbol                | Meaning                                              |
-|-----------------------|------------------------------------------------------|
-| :white_check_mark:    | Implemented and tested                               |
-| :construction:        | In progress                                          |
-| :black_square_button: | Not started                                          |
-| SKIP                  | Intentionally skipped (no meaningful changes)        |
-| FLEX                  | Flexible version (compact encodings + tagged_fields) |
+| Symbol | Meaning                                       |
+|--------|-----------------------------------------------|
+| 🟢     | Implemented and tested                        |
+| 🟡     | In progress                                   |
+| ⬜     | Not started                                   |
+| ⏭️     | Intentionally skipped (no meaningful changes) |
+| FLEX   | Flexible version (compact encodings + tagged_fields) |
 
 **Test columns:** Unit = protocol-layer unit tests, Integ = integration tests (live broker), Chaos = chaos/fault-injection tests.
 
@@ -18,14 +18,16 @@ Track implementation of new Kayrock-supported API versions in KafkaEx.
 
 ## 1. ApiVersions (API Key 18)
 
-**Current:** V0-V1 | **Available:** V0-V3
+**Current:** V0-V3 | **Available:** V0-V3
 
-| Version | Status                | Request Changes                                                             | Response Changes                       | Effort | Unit                  | Integ                 | Chaos                 |
-|---------|-----------------------|-----------------------------------------------------------------------------|----------------------------------------|--------|-----------------------|-----------------------|-----------------------|
-| V0      | :white_check_mark:    | —                                                                           | —                                      | —      | :white_check_mark:    | :white_check_mark:    | :black_square_button: |
-| V1      | :white_check_mark:    | —                                                                           | —                                      | —      | :white_check_mark:    | :white_check_mark:    | :black_square_button: |
-| V2      | :black_square_button: | No changes vs V1                                                            | No changes vs V1                       | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
-| V3      | :black_square_button: | FLEX: +`client_software_name`, +`client_software_version`, +`tagged_fields` | FLEX: +`tagged_fields`, compact arrays | Medium | :black_square_button: | :black_square_button: | :black_square_button: |
+> **Note:** Integration/chaos tests skipped (⏭️) — ApiVersions is implicitly exercised by every other integration and chaos test since it's the first request sent on every broker connection.
+
+| Version | Status  | Request Changes                                                             | Response Changes                       | Effort | Unit    | Integ    | Chaos                 |
+|---------|---------|-----------------------------------------------------------------------------|----------------------------------------|--------|---------|----------|-----------------------|
+| V0      | 🟢      | —                                                                           | —                                      | —      | 🟢      | ⏭️       | ⏭️ |
+| V1      | 🟢      | —                                                                           | —                                      | —      | 🟢      | ⏭️       | ⏭️ |
+| V2      | 🟢      | No changes vs V1                                                            | No changes vs V1                       | Low    | 🟢      | ⏭️        | ⏭️ |
+| V3      | 🟢      | FLEX: +`client_software_name`, +`client_software_version`, +`tagged_fields` | FLEX: +`tagged_fields`, compact arrays | Medium | 🟢      | ⏭️        | ⏭️ |
 
 ---
 
@@ -43,10 +45,10 @@ Already covered by `Any` fallback. No action needed.
 
 | Version | Status                | Request Changes  | Response Changes                                                  | Effort | Unit                  | Integ                 | Chaos                 |
 |---------|-----------------------|------------------|-------------------------------------------------------------------|--------|-----------------------|-----------------------|-----------------------|
-| V0-V5   | :white_check_mark:    | —                | —                                                                 | —      | :white_check_mark:    | :white_check_mark:    | :white_check_mark:    |
-| V6      | :black_square_button: | No changes vs V5 | No changes vs V5                                                  | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
-| V7      | :black_square_button: | No changes vs V6 | No changes vs V6                                                  | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
-| V8      | :black_square_button: | No changes vs V7 | +`record_errors` array, +`error_message` in partition_responses   | Medium | :black_square_button: | :black_square_button: | :black_square_button: |
+| V0-V5   | 🟢    | —                | —                                                                 | —      | 🟢    | 🟢    | 🟢    |
+| V6      | ⬜ | No changes vs V5 | No changes vs V5                                                  | Low    | ⬜ | ⬜ | ⬜ |
+| V7      | ⬜ | No changes vs V6 | No changes vs V6                                                  | Low    | ⬜ | ⬜ | ⬜ |
+| V8      | ⬜ | No changes vs V7 | +`record_errors` array, +`error_message` in partition_responses   | Medium | ⬜ | ⬜ | ⬜ |
 
 ---
 
@@ -56,11 +58,11 @@ Already covered by `Any` fallback. No action needed.
 
 | Version | Status                | Request Changes                          | Response Changes   | Effort | Unit                  | Integ                 | Chaos                 |
 |---------|-----------------------|------------------------------------------|--------------------|--------|-----------------------|-----------------------|-----------------------|
-| V0-V7   | :white_check_mark:    | —                                        | —                  | —      | :white_check_mark:    | :white_check_mark:    | :white_check_mark:    |
-| V8      | :black_square_button: | No changes vs V7                         | No changes vs V7   | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
-| V9      | :black_square_button: | +`current_leader_epoch` in partitions    | No changes vs V8   | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
-| V10     | :black_square_button: | No changes vs V9                         | No changes vs V9   | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
-| V11     | :black_square_button: | +`rack_id` (top-level)                   | No changes vs V10  | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
+| V0-V7   | 🟢    | —                                        | —                  | —      | 🟢    | 🟢    | 🟢    |
+| V8      | ⬜ | No changes vs V7                         | No changes vs V7   | Low    | ⬜ | ⬜ | ⬜ |
+| V9      | ⬜ | +`current_leader_epoch` in partitions    | No changes vs V8   | Low    | ⬜ | ⬜ | ⬜ |
+| V10     | ⬜ | No changes vs V9                         | No changes vs V9   | Low    | ⬜ | ⬜ | ⬜ |
+| V11     | ⬜ | +`rack_id` (top-level)                   | No changes vs V10  | Low    | ⬜ | ⬜ | ⬜ |
 
 ---
 
@@ -70,10 +72,10 @@ Already covered by `Any` fallback. No action needed.
 
 | Version | Status                | Request Changes                          | Response Changes                  | Effort | Unit                  | Integ                 | Chaos                 |
 |---------|-----------------------|------------------------------------------|-----------------------------------|--------|-----------------------|-----------------------|-----------------------|
-| V0-V2   | :white_check_mark:    | —                                        | —                                 | —      | :white_check_mark:    | :white_check_mark:    | :black_square_button: |
-| V3      | :black_square_button: | +`current_leader_epoch` in partitions    | No changes vs V2                  | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
-| V4      | :black_square_button: | No changes vs V3                         | +`leader_epoch` in partitions     | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
-| V5      | :black_square_button: | No changes vs V4                         | No changes vs V4                  | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
+| V0-V2   | 🟢    | —                                        | —                                 | —      | 🟢    | 🟢    | ⬜ |
+| V3      | ⬜ | +`current_leader_epoch` in partitions    | No changes vs V2                  | Low    | ⬜ | ⬜ | ⬜ |
+| V4      | ⬜ | No changes vs V3                         | +`leader_epoch` in partitions     | Low    | ⬜ | ⬜ | ⬜ |
+| V5      | ⬜ | No changes vs V4                         | No changes vs V4                  | Low    | ⬜ | ⬜ | ⬜ |
 
 ---
 
@@ -83,10 +85,10 @@ Already covered by `Any` fallback. No action needed.
 
 | Version | Status                | Request Changes                          | Response Changes                         | Effort | Unit                  | Integ                 | Chaos                 |
 |---------|-----------------------|------------------------------------------|------------------------------------------|--------|-----------------------|-----------------------|-----------------------|
-| V0-V3   | :white_check_mark:    | —                                        | —                                        | —      | :white_check_mark:    | :white_check_mark:    | :black_square_button: |
-| V4      | :black_square_button: | No changes vs V3                         | No changes vs V3                         | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
-| V5      | :black_square_button: | No changes vs V4                         | No changes vs V4                         | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
-| V6      | :black_square_button: | FLEX: +`tagged_fields`, compact types    | FLEX: +`tagged_fields`, compact types    | Medium | :black_square_button: | :black_square_button: | :black_square_button: |
+| V0-V3   | 🟢    | —                                        | —                                        | —      | 🟢    | 🟢    | ⬜ |
+| V4      | ⬜ | No changes vs V3                         | No changes vs V3                         | Low    | ⬜ | ⬜ | ⬜ |
+| V5      | ⬜ | No changes vs V4                         | No changes vs V4                         | Low    | ⬜ | ⬜ | ⬜ |
+| V6      | ⬜ | FLEX: +`tagged_fields`, compact types    | FLEX: +`tagged_fields`, compact types    | Medium | ⬜ | ⬜ | ⬜ |
 
 ---
 
@@ -96,12 +98,12 @@ Already covered by `Any` fallback. No action needed.
 
 | Version | Status                | Request Changes                             | Response Changes                         | Effort | Unit                  | Integ                 | Chaos                 |
 |---------|-----------------------|---------------------------------------------|------------------------------------------|--------|-----------------------|-----------------------|-----------------------|
-| V0-V3   | :white_check_mark:    | —                                           | —                                        | —      | :white_check_mark:    | :white_check_mark:    | :black_square_button: |
-| V4      | :black_square_button: | No changes vs V3                            | No changes vs V3                         | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
-| V5      | :black_square_button: | -`retention_time_ms` removed                | No changes vs V4                         | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
-| V6      | :black_square_button: | +`committed_leader_epoch` in partitions     | No changes vs V5                         | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
-| V7      | :black_square_button: | +`group_instance_id`                        | No changes vs V6                         | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
-| V8      | :black_square_button: | FLEX: +`tagged_fields`, compact types       | FLEX: +`tagged_fields`, compact types    | Medium | :black_square_button: | :black_square_button: | :black_square_button: |
+| V0-V3   | 🟢    | —                                           | —                                        | —      | 🟢    | 🟢    | ⬜ |
+| V4      | ⬜ | No changes vs V3                            | No changes vs V3                         | Low    | ⬜ | ⬜ | ⬜ |
+| V5      | ⬜ | -`retention_time_ms` removed                | No changes vs V4                         | Low    | ⬜ | ⬜ | ⬜ |
+| V6      | ⬜ | +`committed_leader_epoch` in partitions     | No changes vs V5                         | Low    | ⬜ | ⬜ | ⬜ |
+| V7      | ⬜ | +`group_instance_id`                        | No changes vs V6                         | Low    | ⬜ | ⬜ | ⬜ |
+| V8      | ⬜ | FLEX: +`tagged_fields`, compact types       | FLEX: +`tagged_fields`, compact types    | Medium | ⬜ | ⬜ | ⬜ |
 
 ---
 
@@ -111,9 +113,9 @@ Already covered by `Any` fallback. No action needed.
 
 | Version | Status                | Request Changes                             | Response Changes                            | Effort | Unit                  | Integ                 | Chaos                 |
 |---------|-----------------------|---------------------------------------------|---------------------------------------------|--------|-----------------------|-----------------------|-----------------------|
-| V0-V1   | :white_check_mark:    | —                                           | —                                           | —      | :white_check_mark:    | :white_check_mark:    | :black_square_button: |
-| V2      | :black_square_button: | No changes vs V1                            | No changes vs V1                            | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
-| V3      | :black_square_button: | FLEX: +`tagged_fields`, compact strings     | FLEX: +`tagged_fields`, compact strings     | Medium | :black_square_button: | :black_square_button: | :black_square_button: |
+| V0-V1   | 🟢    | —                                           | —                                           | —      | 🟢    | 🟢    | ⬜ |
+| V2      | ⬜ | No changes vs V1                            | No changes vs V1                            | Low    | ⬜ | ⬜ | ⬜ |
+| V3      | ⬜ | FLEX: +`tagged_fields`, compact strings     | FLEX: +`tagged_fields`, compact strings     | Medium | ⬜ | ⬜ | ⬜ |
 
 ---
 
@@ -123,11 +125,11 @@ Already covered by `Any` fallback. No action needed.
 
 | Version | Status                | Request Changes                          | Response Changes                            | Effort | Unit                  | Integ                 | Chaos                 |
 |---------|-----------------------|------------------------------------------|---------------------------------------------|--------|-----------------------|-----------------------|-----------------------|
-| V0-V2   | :white_check_mark:    | —                                        | —                                           | —      | :white_check_mark:    | :white_check_mark:    | :black_square_button: |
-| V3      | :black_square_button: | No changes vs V2                         | No changes vs V2                            | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
-| V4      | :black_square_button: | No changes vs V3                         | No changes vs V3                            | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
-| V5      | :black_square_button: | +`group_instance_id`                     | +`group_instance_id` in members             | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
-| V6      | :black_square_button: | FLEX: +`tagged_fields`, compact types    | FLEX: +`tagged_fields`, compact types       | Medium | :black_square_button: | :black_square_button: | :black_square_button: |
+| V0-V2   | 🟢    | —                                        | —                                           | —      | 🟢    | 🟢    | ⬜ |
+| V3      | ⬜ | No changes vs V2                         | No changes vs V2                            | Low    | ⬜ | ⬜ | ⬜ |
+| V4      | ⬜ | No changes vs V3                         | No changes vs V3                            | Low    | ⬜ | ⬜ | ⬜ |
+| V5      | ⬜ | +`group_instance_id`                     | +`group_instance_id` in members             | Low    | ⬜ | ⬜ | ⬜ |
+| V6      | ⬜ | FLEX: +`tagged_fields`, compact types    | FLEX: +`tagged_fields`, compact types       | Medium | ⬜ | ⬜ | ⬜ |
 
 ---
 
@@ -137,10 +139,10 @@ Already covered by `Any` fallback. No action needed.
 
 | Version | Status                | Request Changes                          | Response Changes                            | Effort  | Unit                  | Integ                 | Chaos                 |
 |---------|-----------------------|------------------------------------------|---------------------------------------------|---------|---------------------- |-----------------------|-----------------------|
-| V0-V1   | :white_check_mark:    | —                                        | —                                           | —       | :white_check_mark:    | :white_check_mark:    | :black_square_button: |
-| V2      | :black_square_button: | No changes vs V1                         | No changes vs V1                            | Low     | :black_square_button: | :black_square_button: | :black_square_button: |
-| V3      | :black_square_button: | +`group_instance_id`                     | +`protocol_type`, +`protocol_name`          | Low-Med | :black_square_button: | :black_square_button: | :black_square_button: |
-| V4      | :black_square_button: | FLEX: +`tagged_fields`, compact types    | FLEX: +`tagged_fields`, compact types       | Medium  | :black_square_button: | :black_square_button: | :black_square_button: |
+| V0-V1   | 🟢    | —                                        | —                                           | —       | 🟢    | 🟢    | ⬜ |
+| V2      | ⬜ | No changes vs V1                         | No changes vs V1                            | Low     | ⬜ | ⬜ | ⬜ |
+| V3      | ⬜ | +`group_instance_id`                     | +`protocol_type`, +`protocol_name`          | Low-Med | ⬜ | ⬜ | ⬜ |
+| V4      | ⬜ | FLEX: +`tagged_fields`, compact types    | FLEX: +`tagged_fields`, compact types       | Medium  | ⬜ | ⬜ | ⬜ |
 
 ---
 
@@ -150,10 +152,10 @@ Already covered by `Any` fallback. No action needed.
 
 | Version | Status                | Request Changes                          | Response Changes                         | Effort | Unit                  | Integ                 | Chaos                 |
 |---------|-----------------------|------------------------------------------|------------------------------------------|--------|-----------------------|-----------------------|-----------------------|
-| V0-V1   | :white_check_mark:    | —                                        | —                                        | —      | :white_check_mark:    | :white_check_mark:    | :black_square_button: |
-| V2      | :black_square_button: | No changes vs V1                         | No changes vs V1                         | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
-| V3      | :black_square_button: | +`group_instance_id`                     | No changes vs V2                         | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
-| V4      | :black_square_button: | FLEX: +`tagged_fields`, compact types    | FLEX: +`tagged_fields`, compact types    | Medium | :black_square_button: | :black_square_button: | :black_square_button: |
+| V0-V1   | 🟢    | —                                        | —                                        | —      | 🟢    | 🟢    | ⬜ |
+| V2      | ⬜ | No changes vs V1                         | No changes vs V1                         | Low    | ⬜ | ⬜ | ⬜ |
+| V3      | ⬜ | +`group_instance_id`                     | No changes vs V2                         | Low    | ⬜ | ⬜ | ⬜ |
+| V4      | ⬜ | FLEX: +`tagged_fields`, compact types    | FLEX: +`tagged_fields`, compact types    | Medium | ⬜ | ⬜ | ⬜ |
 
 ---
 
@@ -163,10 +165,10 @@ Already covered by `Any` fallback. No action needed.
 
 | Version | Status                | Request Changes                                                         | Response Changes                          | Effort | Unit                  | Integ                 | Chaos                 |
 |---------|-----------------------|-------------------------------------------------------------------------|-------------------------------------------|--------|-----------------------|-----------------------|-----------------------|
-| V0-V1   | :white_check_mark:    | —                                                                       | —                                         | —      | :white_check_mark:    | :white_check_mark:    | :black_square_button: |
-| V2      | :black_square_button: | No changes vs V1                                                        | No changes vs V1                          | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
-| V3      | :black_square_button: | **BREAKING:** -`member_id` -> +`members` array (batch leave, KIP-345)  | +`members` array with per-member errors   | High   | :black_square_button: | :black_square_button: | :black_square_button: |
-| V4      | :black_square_button: | FLEX: +`tagged_fields`, compact types                                   | FLEX: +`tagged_fields`, compact types     | Medium | :black_square_button: | :black_square_button: | :black_square_button: |
+| V0-V1   | 🟢    | —                                                                       | —                                         | —      | 🟢    | 🟢    | ⬜ |
+| V2      | ⬜ | No changes vs V1                                                        | No changes vs V1                          | Low    | ⬜ | ⬜ | ⬜ |
+| V3      | ⬜ | **BREAKING:** -`member_id` -> +`members` array (batch leave, KIP-345)  | +`members` array with per-member errors   | High   | ⬜ | ⬜ | ⬜ |
+| V4      | ⬜ | FLEX: +`tagged_fields`, compact types                                   | FLEX: +`tagged_fields`, compact types     | Medium | ⬜ | ⬜ | ⬜ |
 
 ---
 
@@ -176,11 +178,11 @@ Already covered by `Any` fallback. No action needed.
 
 | Version | Status                | Request Changes                          | Response Changes                          | Effort | Unit                  | Integ                 | Chaos                 |
 |---------|-----------------------|------------------------------------------|-------------------------------------------|--------|-----------------------|-----------------------|-----------------------|
-| V0-V1   | :white_check_mark:    | —                                        | —                                         | —      | :white_check_mark:    | :white_check_mark:    | :black_square_button: |
-| V2      | :black_square_button: | No changes vs V1                         | No changes vs V1                          | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
-| V3      | :black_square_button: | +`include_authorized_operations`         | +`authorized_operations` in groups        | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
-| V4      | :black_square_button: | No changes vs V3                         | No changes vs V3                          | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
-| V5      | :black_square_button: | FLEX: +`tagged_fields`, compact types    | FLEX: +`tagged_fields`, compact types     | Medium | :black_square_button: | :black_square_button: | :black_square_button: |
+| V0-V1   | 🟢    | —                                        | —                                         | —      | 🟢    | 🟢    | ⬜ |
+| V2      | ⬜ | No changes vs V1                         | No changes vs V1                          | Low    | ⬜ | ⬜ | ⬜ |
+| V3      | ⬜ | +`include_authorized_operations`         | +`authorized_operations` in groups        | Low    | ⬜ | ⬜ | ⬜ |
+| V4      | ⬜ | No changes vs V3                         | No changes vs V3                          | Low    | ⬜ | ⬜ | ⬜ |
+| V5      | ⬜ | FLEX: +`tagged_fields`, compact types    | FLEX: +`tagged_fields`, compact types     | Medium | ⬜ | ⬜ | ⬜ |
 
 ---
 
@@ -190,10 +192,10 @@ Already covered by `Any` fallback. No action needed.
 
 | Version | Status                | Request Changes                          | Response Changes                                                                       | Effort      | Unit                  | Integ                 | Chaos                 |
 |---------|-----------------------|------------------------------------------|----------------------------------------------------------------------------------------|-------------|-----------------------|-----------------------|-----------------------|
-| V0-V2   | :white_check_mark:    | —                                        | —                                                                                      | —           | :white_check_mark:    | :white_check_mark:    | :black_square_button: |
-| V3      | :black_square_button: | No changes vs V2                         | No changes vs V2                                                                       | Low         | :black_square_button: | :black_square_button: | :black_square_button: |
-| V4      | :black_square_button: | No changes vs V3                         | No changes vs V3                                                                       | Low         | :black_square_button: | :black_square_button: | :black_square_button: |
-| V5      | :black_square_button: | FLEX: +`tagged_fields`, compact types    | FLEX: +`num_partitions`, +`replication_factor`, +`configs` array, +`tagged_fields`     | Medium-High | :black_square_button: | :black_square_button: | :black_square_button: |
+| V0-V2   | 🟢    | —                                        | —                                                                                      | —           | 🟢    | 🟢    | ⬜ |
+| V3      | ⬜ | No changes vs V2                         | No changes vs V2                                                                       | Low         | ⬜ | ⬜ | ⬜ |
+| V4      | ⬜ | No changes vs V3                         | No changes vs V3                                                                       | Low         | ⬜ | ⬜ | ⬜ |
+| V5      | ⬜ | FLEX: +`tagged_fields`, compact types    | FLEX: +`num_partitions`, +`replication_factor`, +`configs` array, +`tagged_fields`     | Medium-High | ⬜ | ⬜ | ⬜ |
 
 ---
 
@@ -203,10 +205,10 @@ Already covered by `Any` fallback. No action needed.
 
 | Version | Status                | Request Changes                          | Response Changes                         | Effort | Unit                  | Integ                 | Chaos                 |
 |---------|-----------------------|------------------------------------------|------------------------------------------|--------|-----------------------|-----------------------|-----------------------|
-| V0-V1   | :white_check_mark:    | —                                        | —                                        | —      | :white_check_mark:    | :white_check_mark:    | :black_square_button: |
-| V2      | :black_square_button: | No changes vs V1                         | No changes vs V1                         | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
-| V3      | :black_square_button: | No changes vs V2                         | No changes vs V2                         | Low    | :black_square_button: | :black_square_button: | :black_square_button: |
-| V4      | :black_square_button: | FLEX: +`tagged_fields`, compact types    | FLEX: +`tagged_fields`, compact types    | Medium | :black_square_button: | :black_square_button: | :black_square_button: |
+| V0-V1   | 🟢    | —                                        | —                                        | —      | 🟢    | 🟢    | ⬜ |
+| V2      | ⬜ | No changes vs V1                         | No changes vs V1                         | Low    | ⬜ | ⬜ | ⬜ |
+| V3      | ⬜ | No changes vs V2                         | No changes vs V2                         | Low    | ⬜ | ⬜ | ⬜ |
+| V4      | ⬜ | FLEX: +`tagged_fields`, compact types    | FLEX: +`tagged_fields`, compact types    | Medium | ⬜ | ⬜ | ⬜ |
 
 ---
 
@@ -216,58 +218,59 @@ Prioritized by: (1) most commonly used APIs first, (2) low-effort versions first
 
 | #  | API             | Version | Effort      | Unit                  | Integ                 | Chaos                 | Notes                              |
 |----|-----------------|---------|-------------|-----------------------|-----------------------|-----------------------|------------------------------------|
-| 1  | Fetch           | V8      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | No changes, just wire through      |
-| 2  | Fetch           | V9      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | +current_leader_epoch              |
-| 3  | Fetch           | V10     | Low         | :black_square_button: | :black_square_button: | :black_square_button: | No changes                         |
-| 4  | Fetch           | V11     | Low         | :black_square_button: | :black_square_button: | :black_square_button: | +rack_id                           |
-| 5  | Produce         | V6      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | No changes                         |
-| 6  | Produce         | V7      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | No changes                         |
-| 7  | Produce         | V8      | Medium      | :black_square_button: | :black_square_button: | :black_square_button: | +record_errors in response         |
-| 8  | ListOffsets     | V3      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | +current_leader_epoch              |
-| 9  | ListOffsets     | V4      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | +leader_epoch in response          |
-| 10 | ListOffsets     | V5      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | No changes                         |
-| 11 | FindCoordinator | V2      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | No changes                         |
-| 12 | FindCoordinator | V3      | Medium      | :black_square_button: | :black_square_button: | :black_square_button: | FLEX                               |
-| 13 | Heartbeat       | V2      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | No changes                         |
-| 14 | Heartbeat       | V3      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | +group_instance_id                 |
-| 15 | Heartbeat       | V4      | Medium      | :black_square_button: | :black_square_button: | :black_square_button: | FLEX                               |
-| 16 | JoinGroup       | V3      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | No changes                         |
-| 17 | JoinGroup       | V4      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | No changes                         |
-| 18 | JoinGroup       | V5      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | +group_instance_id                 |
-| 19 | JoinGroup       | V6      | Medium      | :black_square_button: | :black_square_button: | :black_square_button: | FLEX                               |
-| 20 | SyncGroup       | V2      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | No changes                         |
-| 21 | SyncGroup       | V3      | Low-Med     | :black_square_button: | :black_square_button: | :black_square_button: | +group_instance_id / +protocol_*   |
-| 22 | SyncGroup       | V4      | Medium      | :black_square_button: | :black_square_button: | :black_square_button: | FLEX                               |
-| 23 | LeaveGroup      | V2      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | No changes                         |
-| 24 | LeaveGroup      | V3      | High        | :black_square_button: | :black_square_button: | :black_square_button: | Batch leave (structural change)    |
-| 25 | LeaveGroup      | V4      | Medium      | :black_square_button: | :black_square_button: | :black_square_button: | FLEX                               |
-| 26 | OffsetFetch     | V4      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | No changes                         |
-| 27 | OffsetFetch     | V5      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | No changes                         |
-| 28 | OffsetFetch     | V6      | Medium      | :black_square_button: | :black_square_button: | :black_square_button: | FLEX                               |
-| 29 | OffsetCommit    | V4      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | No changes                         |
-| 30 | OffsetCommit    | V5      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | -retention_time_ms                 |
-| 31 | OffsetCommit    | V6      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | +committed_leader_epoch            |
-| 32 | OffsetCommit    | V7      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | +group_instance_id                 |
-| 33 | OffsetCommit    | V8      | Medium      | :black_square_button: | :black_square_button: | :black_square_button: | FLEX                               |
-| 34 | DescribeGroups  | V2      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | No changes                         |
-| 35 | DescribeGroups  | V3      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | +authorized_operations             |
-| 36 | DescribeGroups  | V4      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | No changes                         |
-| 37 | DescribeGroups  | V5      | Medium      | :black_square_button: | :black_square_button: | :black_square_button: | FLEX                               |
-| 38 | CreateTopics    | V3      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | No changes                         |
-| 39 | CreateTopics    | V4      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | No changes                         |
-| 40 | CreateTopics    | V5      | Medium-High | :black_square_button: | :black_square_button: | :black_square_button: | FLEX + new response fields         |
-| 41 | DeleteTopics    | V2      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | No changes                         |
-| 42 | DeleteTopics    | V3      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | No changes                         |
-| 43 | DeleteTopics    | V4      | Medium      | :black_square_button: | :black_square_button: | :black_square_button: | FLEX                               |
-| 44 | ApiVersions     | V2      | Low         | :black_square_button: | :black_square_button: | :black_square_button: | No changes                         |
-| 45 | ApiVersions     | V3      | Medium      | :black_square_button: | :black_square_button: | :black_square_button: | FLEX + client_software fields      |
+| 1  | Fetch           | V8      | Low         | ⬜ | ⬜ | ⬜ | No changes, just wire through      |
+| 2  | Fetch           | V9      | Low         | ⬜ | ⬜ | ⬜ | +current_leader_epoch              |
+| 3  | Fetch           | V10     | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
+| 4  | Fetch           | V11     | Low         | ⬜ | ⬜ | ⬜ | +rack_id                           |
+| 5  | Produce         | V6      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
+| 6  | Produce         | V7      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
+| 7  | Produce         | V8      | Medium      | ⬜ | ⬜ | ⬜ | +record_errors in response         |
+| 8  | ListOffsets     | V3      | Low         | ⬜ | ⬜ | ⬜ | +current_leader_epoch              |
+| 9  | ListOffsets     | V4      | Low         | ⬜ | ⬜ | ⬜ | +leader_epoch in response          |
+| 10 | ListOffsets     | V5      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
+| 11 | FindCoordinator | V2      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
+| 12 | FindCoordinator | V3      | Medium      | ⬜ | ⬜ | ⬜ | FLEX                               |
+| 13 | Heartbeat       | V2      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
+| 14 | Heartbeat       | V3      | Low         | ⬜ | ⬜ | ⬜ | +group_instance_id                 |
+| 15 | Heartbeat       | V4      | Medium      | ⬜ | ⬜ | ⬜ | FLEX                               |
+| 16 | JoinGroup       | V3      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
+| 17 | JoinGroup       | V4      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
+| 18 | JoinGroup       | V5      | Low         | ⬜ | ⬜ | ⬜ | +group_instance_id                 |
+| 19 | JoinGroup       | V6      | Medium      | ⬜ | ⬜ | ⬜ | FLEX                               |
+| 20 | SyncGroup       | V2      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
+| 21 | SyncGroup       | V3      | Low-Med     | ⬜ | ⬜ | ⬜ | +group_instance_id / +protocol_*   |
+| 22 | SyncGroup       | V4      | Medium      | ⬜ | ⬜ | ⬜ | FLEX                               |
+| 23 | LeaveGroup      | V2      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
+| 24 | LeaveGroup      | V3      | High        | ⬜ | ⬜ | ⬜ | Batch leave (structural change)    |
+| 25 | LeaveGroup      | V4      | Medium      | ⬜ | ⬜ | ⬜ | FLEX                               |
+| 26 | OffsetFetch     | V4      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
+| 27 | OffsetFetch     | V5      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
+| 28 | OffsetFetch     | V6      | Medium      | ⬜ | ⬜ | ⬜ | FLEX                               |
+| 29 | OffsetCommit    | V4      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
+| 30 | OffsetCommit    | V5      | Low         | ⬜ | ⬜ | ⬜ | -retention_time_ms                 |
+| 31 | OffsetCommit    | V6      | Low         | ⬜ | ⬜ | ⬜ | +committed_leader_epoch            |
+| 32 | OffsetCommit    | V7      | Low         | ⬜ | ⬜ | ⬜ | +group_instance_id                 |
+| 33 | OffsetCommit    | V8      | Medium      | ⬜ | ⬜ | ⬜ | FLEX                               |
+| 34 | DescribeGroups  | V2      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
+| 35 | DescribeGroups  | V3      | Low         | ⬜ | ⬜ | ⬜ | +authorized_operations             |
+| 36 | DescribeGroups  | V4      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
+| 37 | DescribeGroups  | V5      | Medium      | ⬜ | ⬜ | ⬜ | FLEX                               |
+| 38 | CreateTopics    | V3      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
+| 39 | CreateTopics    | V4      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
+| 40 | CreateTopics    | V5      | Medium-High | ⬜ | ⬜ | ⬜ | FLEX + new response fields         |
+| 41 | DeleteTopics    | V2      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
+| 42 | DeleteTopics    | V3      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
+| 43 | DeleteTopics    | V4      | Medium      | ⬜ | ⬜ | ⬜ | FLEX                               |
+| 44 | ApiVersions     | V2      | Low         | 🟢    | ⏭️ | ⏭️ | No changes                         |
+| 45 | ApiVersions     | V3      | Medium      | 🟢    | ⏭️ | ⏭️ | FLEX + client_software fields      |
 
 ---
 
 ## Summary
 
-- **Total new versions to implement:** 45
-- **Low effort:** 30 versions (mostly schema-identical or single field additions)
-- **Medium effort:** 13 versions (flexible version encoding changes)
+- **Total new versions to implement:** 45 (43 remaining)
+- **Completed:** 2 versions (ApiVersions V2, V3)
+- **Low effort:** 29 versions remaining (mostly schema-identical or single field additions)
+- **Medium effort:** 12 versions remaining (flexible version encoding changes)
 - **High effort:** 1 version (LeaveGroup V3 structural change)
 - **Medium-High effort:** 1 version (CreateTopics V5 response additions)

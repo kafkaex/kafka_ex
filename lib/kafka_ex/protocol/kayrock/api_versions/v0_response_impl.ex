@@ -1,22 +1,19 @@
 defimpl KafkaEx.Protocol.Kayrock.ApiVersions.Response, for: Kayrock.ApiVersions.V0.Response do
   @moduledoc """
   Parses ApiVersions V0 responses.
+
+  V0 is the only version without `throttle_time_ms`, so it uses
+  `ResponseHelpers.parse_v0/1` instead of the standard `parse/1`.
   """
-  alias KafkaEx.Messages.ApiVersions
-  alias KafkaEx.Client.Error
-  alias Kayrock.ErrorCode
+
+  alias KafkaEx.Protocol.Kayrock.ApiVersions.ResponseHelpers
 
   @doc """
   Parses an ApiVersions V0 response into a KafkaEx struct.
-  Converts the Kayrock response format into our internal ApiVersions struct with a map-based api_versions.
   """
-  @spec parse_response(Kayrock.ApiVersions.V0.Response.t()) :: {:ok, ApiVersions.t()} | {:error, Error.t()}
-  def parse_response(%{error_code: 0, api_keys: versions}) do
-    apis = Enum.into(versions, %{}, &{&1.api_key, %{min_version: &1.min_version, max_version: &1.max_version}})
-    {:ok, ApiVersions.build(api_versions: apis, throttle_time_ms: nil)}
-  end
-
-  def parse_response(%{error_code: error_code}) when error_code != 0 do
-    {:error, Error.build(ErrorCode.code_to_atom(error_code), %{})}
+  @spec parse_response(Kayrock.ApiVersions.V0.Response.t()) ::
+          {:ok, KafkaEx.Messages.ApiVersions.t()} | {:error, KafkaEx.Client.Error.t()}
+  def parse_response(response) do
+    ResponseHelpers.parse_v0(response)
   end
 end
