@@ -138,7 +138,7 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.ResponseHelpers do
   end
 
   @doc """
-  Field extractor for V5+ responses (V5, V6, V7).
+  Field extractor for V5+ responses (V5, V6, V7, V8, V9, V10).
 
   These versions share the same response fields:
   - throttle_time_ms
@@ -155,6 +155,28 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.ResponseHelpers do
       last_stable_offset: Map.get(partition_header, :last_stable_offset),
       log_start_offset: Map.get(partition_header, :log_start_offset),
       aborted_transactions: Map.get(partition_header, :aborted_transactions)
+    ]
+  end
+
+  @doc """
+  Field extractor for V11 responses.
+
+  V11 adds `preferred_read_replica` in the partition header (KIP-392).
+  This tells the consumer which replica it should prefer for reading,
+  enabling rack-aware consumption.
+
+  All other fields remain the same as V5+.
+  """
+  @spec extract_v11_fields(map(), map()) :: Keyword.t()
+  def extract_v11_fields(response, partition_resp) do
+    partition_header = Map.get(partition_resp, :partition_header, %{})
+
+    [
+      throttle_time_ms: Map.get(response, :throttle_time_ms, 0),
+      last_stable_offset: Map.get(partition_header, :last_stable_offset),
+      log_start_offset: Map.get(partition_header, :log_start_offset),
+      aborted_transactions: Map.get(partition_header, :aborted_transactions),
+      preferred_read_replica: Map.get(partition_header, :preferred_read_replica)
     ]
   end
 

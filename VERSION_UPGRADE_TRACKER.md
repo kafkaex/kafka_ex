@@ -76,15 +76,15 @@ Track implementation of new Kayrock-supported API versions in KafkaEx.
 
 ## 4. Fetch (API Key 1)
 
-**Current:** V0-V7 | **Available:** V0-V11
+**Current:** V0-V11 | **Available:** V0-V11
 
-| Version | Status                | Request Changes                          | Response Changes   | Effort | Unit                  | Integ                 | Chaos                 |
-|---------|-----------------------|------------------------------------------|--------------------|--------|-----------------------|-----------------------|-----------------------|
-| V0-V7   | 🟢    | —                                        | —                  | —      | 🟢    | 🟢    | 🟢    |
-| V8      | ⬜ | No changes vs V7                         | No changes vs V7   | Low    | ⬜ | ⬜ | ⬜ |
-| V9      | ⬜ | +`current_leader_epoch` in partitions    | No changes vs V8   | Low    | ⬜ | ⬜ | ⬜ |
-| V10     | ⬜ | No changes vs V9                         | No changes vs V9   | Low    | ⬜ | ⬜ | ⬜ |
-| V11     | ⬜ | +`rack_id` (top-level)                   | No changes vs V10  | Low    | ⬜ | ⬜ | ⬜ |
+| Version | Status | Request Changes                          | Response Changes                   | Effort | Unit | Integ | Chaos |
+|---------|--------|------------------------------------------|------------------------------------|--------|------|-------|-------|
+| V0-V7   | 🟢     | —                                        | —                                  | —      | 🟢   | 🟢    | 🟢    |
+| V8      | 🟢     | No changes vs V7                         | No changes vs V7                   | Low    | 🟢   | 🟢    | ⬜    |
+| V9      | 🟢     | +`current_leader_epoch` in partitions    | No changes vs V8                   | Low    | 🟢   | 🟢    | ⬜    |
+| V10     | 🟢     | No changes vs V9                         | No changes vs V9                   | Low    | 🟢   | 🟢    | ⬜    |
+| V11     | 🟢     | +`rack_id` (top-level)                   | +`preferred_read_replica` per part | Low    | 🟢   | 🟢    | ⬜    |
 
 ---
 
@@ -240,10 +240,10 @@ Prioritized by: (1) most commonly used APIs first, (2) low-effort versions first
 
 | #  | API             | Version | Effort      | Unit                  | Integ                 | Chaos                 | Notes                              |
 |----|-----------------|---------|-------------|-----------------------|-----------------------|-----------------------|------------------------------------|
-| 1  | Fetch           | V8      | Low         | ⬜ | ⬜ | ⬜ | No changes, just wire through      |
-| 2  | Fetch           | V9      | Low         | ⬜ | ⬜ | ⬜ | +current_leader_epoch              |
-| 3  | Fetch           | V10     | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
-| 4  | Fetch           | V11     | Low         | ⬜ | ⬜ | ⬜ | +rack_id                           |
+| 1  | Fetch           | V8      | Low         | 🟢 | 🟢 | ⬜ | No changes, just wire through      |
+| 2  | Fetch           | V9      | Low         | 🟢 | 🟢 | ⬜ | +current_leader_epoch              |
+| 3  | Fetch           | V10     | Low         | 🟢 | 🟢 | ⬜ | No changes                         |
+| 4  | Fetch           | V11     | Low         | 🟢 | 🟢 | ⬜ | +rack_id                           |
 | 5  | Produce         | V6      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                         |
 | 6  | Produce         | V7      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                         |
 | 7  | Produce         | V8      | Medium      | 🟢 | ⏭️ | ⏭️ | +record_errors in response         |
