@@ -81,23 +81,31 @@ Track implementation of new Kayrock-supported API versions in KafkaEx.
 | Version | Status | Request Changes                          | Response Changes                   | Effort | Unit | Integ | Chaos |
 |---------|--------|------------------------------------------|------------------------------------|--------|------|-------|-------|
 | V0-V7   | 🟢     | —                                        | —                                  | —      | 🟢   | 🟢    | 🟢    |
-| V8      | 🟢     | No changes vs V7                         | No changes vs V7                   | Low    | 🟢   | 🟢    | ⬜    |
-| V9      | 🟢     | +`current_leader_epoch` in partitions    | No changes vs V8                   | Low    | 🟢   | 🟢    | ⬜    |
-| V10     | 🟢     | No changes vs V9                         | No changes vs V9                   | Low    | 🟢   | 🟢    | ⬜    |
-| V11     | 🟢     | +`rack_id` (top-level)                   | +`preferred_read_replica` per part | Low    | 🟢   | 🟢    | ⬜    |
+| V8      | 🟢     | No changes vs V7                         | No changes vs V7                   | Low    | 🟢   | 🟢    | ⏭️    |
+| V9      | 🟢     | +`current_leader_epoch` in partitions    | No changes vs V8                   | Low    | 🟢   | 🟢    | ⏭️    |
+| V10     | 🟢     | No changes vs V9                         | No changes vs V9                   | Low    | 🟢   | 🟢    | ⏭️    |
+| V11     | 🟢     | +`rack_id` (top-level)                   | +`preferred_read_replica` per part | Low    | 🟢   | 🟢    | ⏭️    |
+
+> **Chaos tests skipped (⏭️) for V8-V11:** These are pure delegation layers — all request impls call `build_request_v7_plus/3`, all response impls use the same field extractor as V5+ (V11 adds `extract_v11_fields/2` but only for `preferred_read_replica`). New fields (`current_leader_epoch`, `rack_id`, `preferred_read_replica`) use safe defaults and do not affect error handling or reconnection behavior. Existing chaos tests at `test/chaos/consumer_test.exs` exercise the fetch error path which is shared across all versions. Would revisit if: default version bumped to V9+, epoch-aware/rack-aware fetch implemented, or multi-broker chaos infrastructure added.
 
 ---
 
 ## 5. ListOffsets (API Key 2)
 
-**Current:** V0-V2 | **Available:** V0-V5
+**Current:** V0-V5 (all explicit) | **Available:** V0-V5
 
-| Version | Status                | Request Changes                          | Response Changes                  | Effort | Unit                  | Integ                 | Chaos                 |
-|---------|-----------------------|------------------------------------------|-----------------------------------|--------|-----------------------|-----------------------|-----------------------|
-| V0-V2   | 🟢    | —                                        | —                                 | —      | 🟢    | 🟢    | ⬜ |
-| V3      | ⬜ | +`current_leader_epoch` in partitions    | No changes vs V2                  | Low    | ⬜ | ⬜ | ⬜ |
-| V4      | ⬜ | No changes vs V3                         | +`leader_epoch` in partitions     | Low    | ⬜ | ⬜ | ⬜ |
-| V5      | ⬜ | No changes vs V4                         | No changes vs V4                  | Low    | ⬜ | ⬜ | ⬜ |
+| Version | Status | Request Changes                          | Response Changes                  | Effort | Unit | Integ | Chaos |
+|---------|--------|------------------------------------------|-----------------------------------|--------|------|-------|-------|
+| V0-V2   | 🟢     | —                                        | —                                 | —      | 🟢   | 🟢    | ⏭️     |
+| V3      | 🟢     | +`current_leader_epoch` in partitions    | No changes vs V2                  | Low    | 🟢   | ⏭️    | ⏭️     |
+| V4      | 🟢     | No changes vs V3                         | +`leader_epoch` in partitions     | Low    | 🟢   | ⏭️    | ⏭️     |
+| V5      | 🟢     | No changes vs V4                         | No changes vs V4                  | Low    | 🟢   | ⏭️    | ⏭️     |
+
+> **Note:** `Any` fallback retained for forward compatibility with unknown future versions. All V0-V5 have explicit `defimpl` impls. V2-V5 request impls all delegate to `RequestHelpers.build_request_v2_plus/3` -- V2/V3 build partitions without `current_leader_epoch`, V4/V5 include it. V3 response uses same extractor as V2. V4/V5 response uses `extract_v4_offset/2` which parses `leader_epoch` (not yet exposed in `PartitionOffset` domain struct). Kayrock V3 request schema does not include `current_leader_epoch` (it first appears in Kayrock V4).
+>
+> **Chaos tests skipped (⏭️) for V0-V5:** ListOffsets is a read-only, stateless query with no idempotency or ordering concerns. The client error path (`GenServer.call` → network layer → reconnection) is shared with all other APIs and already chaos-tested via `test/chaos/consumer_test.exs` and `test/chaos/network_test.exs`. ListOffsets is also implicitly exercised by consumer chaos tests (offset lookups are part of the fetch flow). A failed ListOffsets can simply be retried with no side effects. Would revisit if: ListOffsets gains stateful behavior or version-specific error handling.
+>
+> **Integration/chaos tests skipped (⏭️) for V3-V5:** These are pure delegation layers -- all request impls call the same `RequestHelpers.build_request_v2_plus/3` helper, all response impls use the same field extractors (`extract_v2_offset/2` for V3, `extract_v4_offset/2` for V4/V5). Default ListOffsets version is V1 (`@default_api_version[:list_offsets]` = 1), so V3-V5 are only used when explicitly requested. Existing V0-V2 integration tests already cover the full ListOffsets path end-to-end. New fields (`current_leader_epoch`, `leader_epoch`) use safe defaults (-1) and do not affect error handling or reconnection behavior. Chaos tests are version-independent (broker failures affect all versions identically). Would revisit if: default version bumped to V3+, `leader_epoch` exposed in domain structs, or flexible versions (V6+) added.
 
 ---
 
@@ -240,16 +248,16 @@ Prioritized by: (1) most commonly used APIs first, (2) low-effort versions first
 
 | #  | API             | Version | Effort      | Unit                  | Integ                 | Chaos                 | Notes                              |
 |----|-----------------|---------|-------------|-----------------------|-----------------------|-----------------------|------------------------------------|
-| 1  | Fetch           | V8      | Low         | 🟢 | 🟢 | ⬜ | No changes, just wire through      |
-| 2  | Fetch           | V9      | Low         | 🟢 | 🟢 | ⬜ | +current_leader_epoch              |
-| 3  | Fetch           | V10     | Low         | 🟢 | 🟢 | ⬜ | No changes                         |
-| 4  | Fetch           | V11     | Low         | 🟢 | 🟢 | ⬜ | +rack_id                           |
+| 1  | Fetch           | V8      | Low         | 🟢 | 🟢 | ⏭️ | No changes, just wire through      |
+ | 2  | Fetch           | V9      | Low         | 🟢 | 🟢 | ⏭️ | +current_leader_epoch              |
+ | 3  | Fetch           | V10     | Low         | 🟢 | 🟢 | ⏭️ | No changes                         |
+ | 4  | Fetch           | V11     | Low         | 🟢 | 🟢 | ⏭️ | +rack_id                           |
 | 5  | Produce         | V6      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                         |
 | 6  | Produce         | V7      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                         |
 | 7  | Produce         | V8      | Medium      | 🟢 | ⏭️ | ⏭️ | +record_errors in response         |
-| 8  | ListOffsets     | V3      | Low         | ⬜ | ⬜ | ⬜ | +current_leader_epoch              |
-| 9  | ListOffsets     | V4      | Low         | ⬜ | ⬜ | ⬜ | +leader_epoch in response          |
-| 10 | ListOffsets     | V5      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
+| 8  | ListOffsets     | V3      | Low         | 🟢 | ⏭️ | ⏭️ | +current_leader_epoch              |
+| 9  | ListOffsets     | V4      | Low         | 🟢 | ⏭️ | ⏭️ | +leader_epoch in response          |
+| 10 | ListOffsets     | V5      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                          |
 | 11 | FindCoordinator | V2      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
 | 12 | FindCoordinator | V3      | Medium      | ⬜ | ⬜ | ⬜ | FLEX                               |
 | 13 | Heartbeat       | V2      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
@@ -290,9 +298,9 @@ Prioritized by: (1) most commonly used APIs first, (2) low-effort versions first
 
 ## Summary
 
-- **Total new versions to implement:** 45 (33 remaining)
-- **Completed:** 12 versions (ApiVersions V2, V3; Metadata V3-V9; Produce V6, V7, V8)
-- **Low effort:** 22 versions remaining (mostly schema-identical or single field additions)
+- **Total new versions to implement:** 45 (30 remaining)
+- **Completed:** 15 versions (ApiVersions V2, V3; Metadata V3-V9; Produce V6, V7, V8; Fetch V8-V11; ListOffsets V3, V4, V5)
+- **Low effort:** 19 versions remaining (mostly schema-identical or single field additions)
 - **Medium effort:** 9 versions remaining (flexible version encoding changes)
 - **High effort:** 1 version (LeaveGroup V3 structural change)
 - **Medium-High effort:** 1 version (CreateTopics V5 response additions)

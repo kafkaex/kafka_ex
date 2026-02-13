@@ -10,27 +10,30 @@ defmodule KafkaEx.Messages.Offset.PartitionOffset do
 
   alias KafkaEx.Messages.OffsetAndMetadata
 
-  defstruct [:partition, :offset, :error_code, :timestamp, :metadata]
+  defstruct [:partition, :offset, :error_code, :timestamp, :metadata, :leader_epoch]
 
   @type partition :: KafkaEx.Support.Types.partition()
   @type offset :: KafkaEx.Support.Types.offset() | nil
   @type timestamp :: KafkaEx.Support.Types.timestamp() | nil
   @type metadata :: binary() | nil
   @type error_code :: KafkaEx.Support.Types.error_code() | atom
+  @type leader_epoch :: integer() | nil
 
   @type partition_response :: %{
           required(:partition) => partition,
           required(:error_code) => error_code,
           optional(:offset) => offset,
           optional(:timestamp) => timestamp,
-          optional(:metadata) => metadata
+          optional(:metadata) => metadata,
+          optional(:leader_epoch) => leader_epoch
         }
   @type t :: %__MODULE__{
           partition: partition,
           error_code: error_code,
           offset: offset,
           timestamp: timestamp,
-          metadata: metadata
+          metadata: metadata,
+          leader_epoch: leader_epoch
         }
 
   @doc """
@@ -54,20 +57,27 @@ defmodule KafkaEx.Messages.Offset.PartitionOffset do
   - No metadata or timestamp
   """
   @spec build(partition_response) :: __MODULE__.t()
-  def build(%{partition: p, offset: o, error_code: e, timestamp: t, metadata: m}), do: do_build(p, o, e, t, m)
-  def build(%{partition: p, offset: o, error_code: e, timestamp: t}), do: do_build(p, o, e, t, nil)
-  def build(%{partition: p, offset: o, error_code: e, metadata: m}), do: do_build(p, o, e, nil, m)
-  def build(%{partition: p, offset: o, error_code: e}) when is_integer(o), do: do_build(p, o, e, -1, nil)
-  def build(%{partition: p, offset: o}) when is_integer(o), do: do_build(p, o, :no_error, -1, nil)
-  def build(%{partition: p, error_code: e}) when is_atom(e), do: do_build(p, nil, e, nil, nil)
+  def build(%{partition: p, offset: o, error_code: e, timestamp: t, metadata: m, leader_epoch: le}),
+    do: do_build(p, o, e, t, m, le)
 
-  defp do_build(partition, offset, error_code, timestamp, metadata) do
+  def build(%{partition: p, offset: o, error_code: e, timestamp: t, leader_epoch: le}),
+    do: do_build(p, o, e, t, nil, le)
+
+  def build(%{partition: p, offset: o, error_code: e, timestamp: t, metadata: m}), do: do_build(p, o, e, t, m, nil)
+  def build(%{partition: p, offset: o, error_code: e, timestamp: t}), do: do_build(p, o, e, t, nil, nil)
+  def build(%{partition: p, offset: o, error_code: e, metadata: m}), do: do_build(p, o, e, nil, m, nil)
+  def build(%{partition: p, offset: o, error_code: e}) when is_integer(o), do: do_build(p, o, e, -1, nil, nil)
+  def build(%{partition: p, offset: o}) when is_integer(o), do: do_build(p, o, :no_error, -1, nil, nil)
+  def build(%{partition: p, error_code: e}) when is_atom(e), do: do_build(p, nil, e, nil, nil, nil)
+
+  defp do_build(partition, offset, error_code, timestamp, metadata, leader_epoch) do
     %__MODULE__{
       partition: partition,
       error_code: error_code,
       offset: offset,
       timestamp: timestamp,
-      metadata: metadata
+      metadata: metadata,
+      leader_epoch: leader_epoch
     }
   end
 
@@ -86,7 +96,7 @@ defmodule KafkaEx.Messages.Offset.PartitionOffset do
   @spec to_offset_and_metadata(t()) :: OffsetAndMetadata.t() | nil
   def to_offset_and_metadata(%__MODULE__{offset: nil}), do: nil
 
-  def to_offset_and_metadata(%__MODULE__{offset: offset, metadata: metadata}) do
-    OffsetAndMetadata.new(offset, metadata || "")
+  def to_offset_and_metadata(%__MODULE__{offset: offset, metadata: metadata, leader_epoch: leader_epoch}) do
+    OffsetAndMetadata.build(offset: offset, metadata: metadata || "", leader_epoch: leader_epoch)
   end
 end
