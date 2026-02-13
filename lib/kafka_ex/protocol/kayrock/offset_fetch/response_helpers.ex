@@ -4,7 +4,9 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseHelpers do
 
   Version differences:
   - V0/V1: No top-level error_code field
-  - V2/V3: Includes top-level error_code for broker-level errors
+  - V2+: Includes top-level error_code for broker-level errors
+  - V5+: Adds `committed_leader_epoch` per partition (extracted dynamically)
+  - V6: Flexible version (compact encodings, tagged fields -- handled by Kayrock)
   """
 
   import KafkaEx.Protocol.Kayrock.ResponseHelpers,
@@ -26,7 +28,11 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseHelpers do
   end
 
   @doc """
-  Parses an OffsetFetch response with top-level error_code (V2/V3).
+  Parses an OffsetFetch response with top-level error_code (V2+).
+
+  Handles all V2+ versions uniformly. When `committed_leader_epoch` is present
+  in partition data (V5+), it is extracted into `leader_epoch`. When absent
+  (V2-V4), `leader_epoch` defaults to nil.
   """
   @spec parse_response_with_top_level_error(map()) :: {:ok, list(Offset.t())} | {:error, any()}
   def parse_response_with_top_level_error(%{error_code: error_code}) when error_code != 0 do
@@ -47,12 +53,16 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseHelpers do
     fail_fast_iterate_partitions(partition_responses, topic, &build_offset/2)
   end
 
-  defp build_offset(topic, %{partition_index: partition, error_code: 0, committed_offset: offset, metadata: metadata}) do
+  defp build_offset(
+         topic,
+         %{partition_index: partition, error_code: 0, committed_offset: offset, metadata: metadata} = partition_resp
+       ) do
     data = %{
       partition: partition,
       offset: offset,
       error_code: :no_error,
-      metadata: metadata || ""
+      metadata: metadata || "",
+      leader_epoch: Map.get(partition_resp, :committed_leader_epoch)
     }
 
     {:ok, Offset.from_list_offset(topic, [data])}

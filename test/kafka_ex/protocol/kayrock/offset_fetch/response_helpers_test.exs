@@ -62,6 +62,12 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseHelpersTest do
       assert length(offsets) == 2
     end
 
+    test "parses empty topics list" do
+      response = %{topics: []}
+
+      assert {:ok, []} = ResponseHelpers.parse_response_without_top_level_error(response)
+    end
+
     test "returns error for partition-level error" do
       response = %{
         topics: [
@@ -101,6 +107,15 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseHelpersTest do
       assert {:ok, [%Offset{}]} = ResponseHelpers.parse_response_with_top_level_error(response)
     end
 
+    test "parses empty topics list with error_code 0" do
+      response = %{
+        error_code: 0,
+        topics: []
+      }
+
+      assert {:ok, []} = ResponseHelpers.parse_response_with_top_level_error(response)
+    end
+
     test "returns partition error even when top-level error is 0" do
       response = %{
         error_code: 0,
@@ -115,6 +130,78 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.ResponseHelpersTest do
       assert {:error, %Error{metadata: metadata}} = ResponseHelpers.parse_response_with_top_level_error(response)
       assert metadata.topic == "test-topic"
       assert metadata.partition == 0
+    end
+
+    test "populates leader_epoch when committed_leader_epoch is present (V5+)" do
+      response = %{
+        error_code: 0,
+        topics: [
+          %{
+            name: "test-topic",
+            partitions: [
+              %{
+                partition_index: 0,
+                error_code: 0,
+                committed_offset: 100,
+                committed_leader_epoch: 5,
+                metadata: "meta"
+              }
+            ]
+          }
+        ]
+      }
+
+      assert {:ok, [%Offset{} = offset]} = ResponseHelpers.parse_response_with_top_level_error(response)
+      assert offset.topic == "test-topic"
+      [partition] = offset.partition_offsets
+      assert partition.partition == 0
+      assert partition.offset == 100
+      assert partition.metadata == "meta"
+      assert partition.error_code == :no_error
+      assert partition.leader_epoch == 5
+    end
+
+    test "leader_epoch is nil when committed_leader_epoch is absent (V2-V4)" do
+      response = %{
+        error_code: 0,
+        topics: [
+          %{
+            name: "test-topic",
+            partitions: [
+              %{partition_index: 0, error_code: 0, committed_offset: 100, metadata: "meta"}
+            ]
+          }
+        ]
+      }
+
+      assert {:ok, [offset]} = ResponseHelpers.parse_response_with_top_level_error(response)
+      [partition] = offset.partition_offsets
+      assert partition.leader_epoch == nil
+    end
+
+    test "handles nil metadata with leader_epoch" do
+      response = %{
+        error_code: 0,
+        topics: [
+          %{
+            name: "test-topic",
+            partitions: [
+              %{
+                partition_index: 0,
+                error_code: 0,
+                committed_offset: 50,
+                committed_leader_epoch: 1,
+                metadata: nil
+              }
+            ]
+          }
+        ]
+      }
+
+      assert {:ok, [offset]} = ResponseHelpers.parse_response_with_top_level_error(response)
+      [partition] = offset.partition_offsets
+      assert partition.metadata == ""
+      assert partition.leader_epoch == 1
     end
   end
 end

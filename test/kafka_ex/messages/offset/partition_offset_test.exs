@@ -56,7 +56,8 @@ defmodule KafkaEx.Messages.Offset.PartitionOffsetTest do
                offset: 42,
                error_code: :no_error,
                metadata: "consumer-1",
-               timestamp: nil
+               timestamp: nil,
+               leader_epoch: nil
              }
     end
 
@@ -69,7 +70,8 @@ defmodule KafkaEx.Messages.Offset.PartitionOffsetTest do
                offset: 100,
                error_code: :no_error,
                metadata: "",
-               timestamp: nil
+               timestamp: nil,
+               leader_epoch: nil
              }
     end
 
@@ -87,7 +89,8 @@ defmodule KafkaEx.Messages.Offset.PartitionOffsetTest do
                offset: -1,
                error_code: :unknown_topic_or_partition,
                metadata: "",
-               timestamp: nil
+               timestamp: nil,
+               leader_epoch: nil
              }
     end
   end
@@ -134,6 +137,97 @@ defmodule KafkaEx.Messages.Offset.PartitionOffsetTest do
         assert result.timestamp == nil
         assert result.metadata == nil
       end
+    end
+  end
+
+  describe "build/1 - OffsetFetch V5+ (metadata + leader_epoch, no timestamp)" do
+    test "returns struct with metadata and leader_epoch, timestamp is nil" do
+      result =
+        PartitionOffset.build(%{
+          partition: 0,
+          offset: 500,
+          error_code: :no_error,
+          metadata: "v5-consumer",
+          leader_epoch: 8
+        })
+
+      assert result == %PartitionOffset{
+               partition: 0,
+               offset: 500,
+               error_code: :no_error,
+               metadata: "v5-consumer",
+               timestamp: nil,
+               leader_epoch: 8
+             }
+    end
+
+    test "returns struct with empty metadata and leader_epoch" do
+      result =
+        PartitionOffset.build(%{
+          partition: 3,
+          offset: 100,
+          error_code: :no_error,
+          metadata: "",
+          leader_epoch: 2
+        })
+
+      assert result == %PartitionOffset{
+               partition: 3,
+               offset: 100,
+               error_code: :no_error,
+               metadata: "",
+               timestamp: nil,
+               leader_epoch: 2
+             }
+    end
+
+    test "returns struct with leader_epoch -1 (unknown) and metadata" do
+      result =
+        PartitionOffset.build(%{
+          partition: 1,
+          offset: 42,
+          error_code: :no_error,
+          metadata: "meta",
+          leader_epoch: -1
+        })
+
+      assert result.timestamp == nil
+      assert result.metadata == "meta"
+      assert result.leader_epoch == -1
+    end
+
+    test "returns struct with leader_epoch 0 and metadata" do
+      result =
+        PartitionOffset.build(%{
+          partition: 2,
+          offset: 200,
+          error_code: :no_error,
+          metadata: "",
+          leader_epoch: 0
+        })
+
+      assert result.timestamp == nil
+      assert result.leader_epoch == 0
+    end
+
+    test "returns struct with error code and leader_epoch and metadata" do
+      result =
+        PartitionOffset.build(%{
+          partition: 0,
+          offset: -1,
+          error_code: :unknown_topic_or_partition,
+          metadata: "",
+          leader_epoch: -1
+        })
+
+      assert result == %PartitionOffset{
+               partition: 0,
+               offset: -1,
+               error_code: :unknown_topic_or_partition,
+               metadata: "",
+               timestamp: nil,
+               leader_epoch: -1
+             }
     end
   end
 
@@ -222,6 +316,89 @@ defmodule KafkaEx.Messages.Offset.PartitionOffsetTest do
     end
   end
 
+  describe "build/1 - pattern match ordering" do
+    test "map with all 6 fields matches the first clause (timestamp + metadata + leader_epoch)" do
+      # This verifies line 60-61: build(%{partition, offset, error_code, timestamp, metadata, leader_epoch})
+      result =
+        PartitionOffset.build(%{
+          partition: 0,
+          offset: 100,
+          error_code: :no_error,
+          timestamp: 999,
+          metadata: "full",
+          leader_epoch: 5
+        })
+
+      assert result.timestamp == 999
+      assert result.metadata == "full"
+      assert result.leader_epoch == 5
+    end
+
+    test "map with metadata + leader_epoch but no timestamp matches OffsetFetch V5+ clause" do
+      # This verifies line 68: build(%{partition, offset, error_code, metadata, leader_epoch})
+      # NOT line 69: build(%{partition, offset, error_code, metadata}) which has no leader_epoch
+      result =
+        PartitionOffset.build(%{
+          partition: 0,
+          offset: 100,
+          error_code: :no_error,
+          metadata: "v5-meta",
+          leader_epoch: 3
+        })
+
+      assert result.timestamp == nil
+      assert result.metadata == "v5-meta"
+      assert result.leader_epoch == 3
+    end
+
+    test "map with metadata but no timestamp and no leader_epoch matches OffsetFetch V0-V4 clause" do
+      # This verifies line 69: build(%{partition, offset, error_code, metadata})
+      result =
+        PartitionOffset.build(%{
+          partition: 0,
+          offset: 100,
+          error_code: :no_error,
+          metadata: "v2-meta"
+        })
+
+      assert result.timestamp == nil
+      assert result.metadata == "v2-meta"
+      assert result.leader_epoch == nil
+    end
+
+    test "map with timestamp + leader_epoch but no metadata matches ListOffsets V4+ clause" do
+      # This verifies line 63-64: build(%{partition, offset, error_code, timestamp, leader_epoch})
+      result =
+        PartitionOffset.build(%{
+          partition: 0,
+          offset: 100,
+          error_code: :no_error,
+          timestamp: 888,
+          leader_epoch: 7
+        })
+
+      assert result.timestamp == 888
+      assert result.metadata == nil
+      assert result.leader_epoch == 7
+    end
+
+    test "map with timestamp + metadata but no leader_epoch matches ListOffsets V1-V3 clause" do
+      # This verifies line 66: build(%{partition, offset, error_code, timestamp, metadata})
+      result =
+        PartitionOffset.build(%{
+          partition: 0,
+          offset: 100,
+          error_code: :no_error,
+          timestamp: 777,
+          metadata: "some"
+        })
+
+      assert result.timestamp == 777
+      assert result.metadata == "some"
+      assert result.leader_epoch == nil
+    end
+  end
+
   describe "to_offset_and_metadata/1" do
     alias KafkaEx.Messages.OffsetAndMetadata
 
@@ -238,6 +415,21 @@ defmodule KafkaEx.Messages.Offset.PartitionOffsetTest do
       result = PartitionOffset.to_offset_and_metadata(po)
 
       assert result == %OffsetAndMetadata{offset: 100, metadata: "", leader_epoch: 3}
+    end
+
+    test "converts to OffsetAndMetadata from OffsetFetch V5+ build (metadata + leader_epoch, no timestamp)" do
+      po =
+        PartitionOffset.build(%{
+          partition: 0,
+          offset: 500,
+          error_code: :no_error,
+          metadata: "v5-consumer",
+          leader_epoch: 8
+        })
+
+      result = PartitionOffset.to_offset_and_metadata(po)
+
+      assert result == %OffsetAndMetadata{offset: 500, metadata: "v5-consumer", leader_epoch: 8}
     end
 
     test "converts to OffsetAndMetadata with nil leader_epoch" do

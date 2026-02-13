@@ -111,14 +111,18 @@ Track implementation of new Kayrock-supported API versions in KafkaEx.
 
 ## 6. OffsetFetch (API Key 9)
 
-**Current:** V0-V3 | **Available:** V0-V6
+**Current:** V0-V6 (all explicit) | **Available:** V0-V6
 
-| Version | Status                | Request Changes                          | Response Changes                         | Effort | Unit                  | Integ                 | Chaos                 |
-|---------|-----------------------|------------------------------------------|------------------------------------------|--------|-----------------------|-----------------------|-----------------------|
-| V0-V3   | 🟢    | —                                        | —                                        | —      | 🟢    | 🟢    | ⬜ |
-| V4      | ⬜ | No changes vs V3                         | No changes vs V3                         | Low    | ⬜ | ⬜ | ⬜ |
-| V5      | ⬜ | No changes vs V4                         | No changes vs V4                         | Low    | ⬜ | ⬜ | ⬜ |
-| V6      | ⬜ | FLEX: +`tagged_fields`, compact types    | FLEX: +`tagged_fields`, compact types    | Medium | ⬜ | ⬜ | ⬜ |
+| Version | Status | Request Changes                          | Response Changes                                        | Effort | Unit | Integ | Chaos |
+|---------|--------|------------------------------------------|---------------------------------------------------------|--------|------|-------|-------|
+| V0-V3   | 🟢     | —                                        | —                                                       | —      | 🟢   | 🟢    | ⬜    |
+| V4      | 🟢     | No changes vs V3                         | No changes vs V3                                        | Low    | 🟢   | ⏭️    | ⏭️    |
+| V5      | 🟢     | No changes vs V4                         | +`committed_leader_epoch` per partition                 | Low    | 🟢   | ⏭️    | ⏭️    |
+| V6      | 🟢     | FLEX: +`tagged_fields`, compact types    | FLEX: +`tagged_fields`, compact types + leader_epoch    | Medium | 🟢   | ⏭️    | ⏭️    |
+
+> **Note:** `Any` fallback retained for forward compatibility with unknown future versions. All V0-V6 have explicit `defimpl` impls. All request impls use the same logic (group_id + topics). V4 response is identical to V3 (delegates to `parse_response_with_top_level_error`). V5+ response adds `committed_leader_epoch` per partition, mapped to `leader_epoch` in `PartitionOffset` domain struct via `parse_response_with_leader_epoch`. V6 is a flexible version (KIP-482) -- Kayrock handles compact encoding/decoding transparently.
+>
+> **Integration/chaos tests skipped for V4-V6:** These are pure delegation layers -- all request impls call the same `RequestHelpers.build_topics/1` + `extract_common_fields/1` pattern, V4 response delegates to same helper as V2/V3, V5/V6 response delegates to `parse_response_with_leader_epoch`. Default OffsetFetch version is determined by version negotiation. Existing V0-V3 integration tests already cover the full OffsetFetch path end-to-end. New field (`committed_leader_epoch`) uses safe default and is mapped to existing `leader_epoch` field in `PartitionOffset`. Would revisit if: default version bumped, `leader_epoch` used for fencing logic, or flexible version encoding issues discovered.
 
 ---
 
@@ -126,14 +130,14 @@ Track implementation of new Kayrock-supported API versions in KafkaEx.
 
 **Current:** V0-V3 | **Available:** V0-V8
 
-| Version | Status                | Request Changes                             | Response Changes                         | Effort | Unit                  | Integ                 | Chaos                 |
-|---------|-----------------------|---------------------------------------------|------------------------------------------|--------|-----------------------|-----------------------|-----------------------|
-| V0-V3   | 🟢    | —                                           | —                                        | —      | 🟢    | 🟢    | ⬜ |
-| V4      | ⬜ | No changes vs V3                            | No changes vs V3                         | Low    | ⬜ | ⬜ | ⬜ |
-| V5      | ⬜ | -`retention_time_ms` removed                | No changes vs V4                         | Low    | ⬜ | ⬜ | ⬜ |
-| V6      | ⬜ | +`committed_leader_epoch` in partitions     | No changes vs V5                         | Low    | ⬜ | ⬜ | ⬜ |
-| V7      | ⬜ | +`group_instance_id`                        | No changes vs V6                         | Low    | ⬜ | ⬜ | ⬜ |
-| V8      | ⬜ | FLEX: +`tagged_fields`, compact types       | FLEX: +`tagged_fields`, compact types    | Medium | ⬜ | ⬜ | ⬜ |
+| Version | Status | Request Changes                             | Response Changes                         | Effort | Unit                  | Integ                 | Chaos                 |
+|---------|--------|---------------------------------------------|------------------------------------------|--------|-----------------------|-----------------------|-----------------------|
+| V0-V3   | 🟢     | —                                           | —                                        | —      | 🟢    | 🟢    | ⬜ |
+| V4      | ⬜      | No changes vs V3                            | No changes vs V3                         | Low    | ⬜ | ⬜ | ⬜ |
+| V5      | ⬜      | -`retention_time_ms` removed                | No changes vs V4                         | Low    | ⬜ | ⬜ | ⬜ |
+| V6      | ⬜      | +`committed_leader_epoch` in partitions     | No changes vs V5                         | Low    | ⬜ | ⬜ | ⬜ |
+| V7      | ⬜      | +`group_instance_id`                        | No changes vs V6                         | Low    | ⬜ | ⬜ | ⬜ |
+| V8      | ⬜      | FLEX: +`tagged_fields`, compact types       | FLEX: +`tagged_fields`, compact types    | Medium | ⬜ | ⬜ | ⬜ |
 
 ---
 
@@ -273,9 +277,9 @@ Prioritized by: (1) most commonly used APIs first, (2) low-effort versions first
 | 23 | LeaveGroup      | V2      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
 | 24 | LeaveGroup      | V3      | High        | ⬜ | ⬜ | ⬜ | Batch leave (structural change)    |
 | 25 | LeaveGroup      | V4      | Medium      | ⬜ | ⬜ | ⬜ | FLEX                               |
-| 26 | OffsetFetch     | V4      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
-| 27 | OffsetFetch     | V5      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
-| 28 | OffsetFetch     | V6      | Medium      | ⬜ | ⬜ | ⬜ | FLEX                               |
+| 26 | OffsetFetch     | V4      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                         |
+| 27 | OffsetFetch     | V5      | Low         | 🟢 | ⏭️ | ⏭️ | +committed_leader_epoch            |
+| 28 | OffsetFetch     | V6      | Medium      | 🟢 | ⏭️ | ⏭️ | FLEX                               |
 | 29 | OffsetCommit    | V4      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
 | 30 | OffsetCommit    | V5      | Low         | ⬜ | ⬜ | ⬜ | -retention_time_ms                 |
 | 31 | OffsetCommit    | V6      | Low         | ⬜ | ⬜ | ⬜ | +committed_leader_epoch            |
@@ -298,9 +302,9 @@ Prioritized by: (1) most commonly used APIs first, (2) low-effort versions first
 
 ## Summary
 
-- **Total new versions to implement:** 45 (30 remaining)
-- **Completed:** 15 versions (ApiVersions V2, V3; Metadata V3-V9; Produce V6, V7, V8; Fetch V8-V11; ListOffsets V3, V4, V5)
-- **Low effort:** 19 versions remaining (mostly schema-identical or single field additions)
-- **Medium effort:** 9 versions remaining (flexible version encoding changes)
+- **Total new versions to implement:** 45 (27 remaining)
+- **Completed:** 18 versions (ApiVersions V2, V3; Metadata V3-V9; Produce V6, V7, V8; Fetch V8-V11; ListOffsets V3, V4, V5; OffsetFetch V4, V5, V6)
+- **Low effort:** 17 versions remaining (mostly schema-identical or single field additions)
+- **Medium effort:** 8 versions remaining (flexible version encoding changes)
 - **High effort:** 1 version (LeaveGroup V3 structural change)
 - **Medium-High effort:** 1 version (CreateTopics V5 response additions)

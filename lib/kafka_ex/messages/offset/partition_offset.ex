@@ -65,6 +65,7 @@ defmodule KafkaEx.Messages.Offset.PartitionOffset do
 
   def build(%{partition: p, offset: o, error_code: e, timestamp: t, metadata: m}), do: do_build(p, o, e, t, m, nil)
   def build(%{partition: p, offset: o, error_code: e, timestamp: t}), do: do_build(p, o, e, t, nil, nil)
+  def build(%{partition: p, offset: o, error_code: e, metadata: m, leader_epoch: le}), do: do_build(p, o, e, nil, m, le)
   def build(%{partition: p, offset: o, error_code: e, metadata: m}), do: do_build(p, o, e, nil, m, nil)
   def build(%{partition: p, offset: o, error_code: e}) when is_integer(o), do: do_build(p, o, e, -1, nil, nil)
   def build(%{partition: p, offset: o}) when is_integer(o), do: do_build(p, o, :no_error, -1, nil, nil)
