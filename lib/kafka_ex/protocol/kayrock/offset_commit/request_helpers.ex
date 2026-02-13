@@ -98,7 +98,7 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestHelpers do
   end
 
   @doc """
-  Builds an OffsetCommit v2/v3 request with all fields.
+  Builds an OffsetCommit v2/v3/v4 request with all fields including retention_time_ms.
   """
   @spec build_v2_v3_request(struct(), Keyword.t()) :: struct()
   def build_v2_v3_request(request_template, opts) do
@@ -113,5 +113,94 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestHelpers do
     |> Map.put(:member_id, member_id)
     |> Map.put(:retention_time_ms, retention_time)
     |> Map.put(:topics, topics)
+  end
+
+  @doc """
+  Builds an OffsetCommit v5 request (retention_time_ms removed).
+  """
+  @spec build_v5_request(struct(), Keyword.t()) :: struct()
+  def build_v5_request(request_template, opts) do
+    %{group_id: group_id} = extract_common_fields(opts)
+    %{generation_id: generation_id, member_id: member_id} = extract_coordination_fields(opts)
+    topics = build_topics(opts, false)
+
+    request_template
+    |> Map.put(:group_id, group_id)
+    |> Map.put(:generation_id, generation_id)
+    |> Map.put(:member_id, member_id)
+    |> Map.put(:topics, topics)
+  end
+
+  @doc """
+  Builds an OffsetCommit v6 request (adds committed_leader_epoch per partition).
+  """
+  @spec build_v6_request(struct(), Keyword.t()) :: struct()
+  def build_v6_request(request_template, opts) do
+    %{group_id: group_id} = extract_common_fields(opts)
+    %{generation_id: generation_id, member_id: member_id} = extract_coordination_fields(opts)
+    topics = build_topics_with_leader_epoch(opts)
+
+    request_template
+    |> Map.put(:group_id, group_id)
+    |> Map.put(:generation_id, generation_id)
+    |> Map.put(:member_id, member_id)
+    |> Map.put(:topics, topics)
+  end
+
+  @doc """
+  Builds an OffsetCommit v7+ request (adds group_instance_id + committed_leader_epoch).
+  """
+  @spec build_v7_plus_request(struct(), Keyword.t()) :: struct()
+  def build_v7_plus_request(request_template, opts) do
+    %{group_id: group_id} = extract_common_fields(opts)
+    %{generation_id: generation_id, member_id: member_id} = extract_coordination_fields(opts)
+    group_instance_id = extract_group_instance_id(opts)
+    topics = build_topics_with_leader_epoch(opts)
+
+    request_template
+    |> Map.put(:group_id, group_id)
+    |> Map.put(:generation_id, generation_id)
+    |> Map.put(:member_id, member_id)
+    |> Map.put(:group_instance_id, group_instance_id)
+    |> Map.put(:topics, topics)
+  end
+
+  @doc """
+  Extracts group_instance_id field for v7+ versions.
+  Returns nil when not provided (nullable field).
+  """
+  @spec extract_group_instance_id(Keyword.t()) :: String.t() | nil
+  def extract_group_instance_id(opts) do
+    Keyword.get(opts, :group_instance_id, nil)
+  end
+
+  @doc """
+  Builds the topics structure with committed_leader_epoch for V6+ requests.
+  """
+  @spec build_topics_with_leader_epoch(Keyword.t()) :: [map()]
+  def build_topics_with_leader_epoch(opts) do
+    opts
+    |> Keyword.fetch!(:topics)
+    |> Enum.map(fn {topic, partitions} ->
+      %{
+        name: topic,
+        partitions: build_partitions_with_leader_epoch(partitions)
+      }
+    end)
+  end
+
+  @doc """
+  Builds partition data with committed_leader_epoch field.
+  """
+  @spec build_partitions_with_leader_epoch([partition_data()]) :: [map()]
+  def build_partitions_with_leader_epoch(partitions) do
+    Enum.map(partitions, fn partition_data ->
+      %{
+        partition_index: partition_data.partition_num,
+        committed_offset: partition_data.offset,
+        committed_metadata: partition_data[:metadata] || "",
+        committed_leader_epoch: partition_data[:leader_epoch] || -1
+      }
+    end)
   end
 end

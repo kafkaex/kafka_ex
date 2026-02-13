@@ -1,14 +1,10 @@
 defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.ResponseHelpers do
   @moduledoc """
-  Shared helper functions for parsing OffsetCommit responses across all versions.
+  Shared helper functions for parsing OffsetCommit responses across all versions (V0-V8).
 
-  All versions (V0-V3) share the same response parsing logic - only the semantics differ:
-  - V0: Zookeeper-based offset commit
-  - V1: Kafka/Zookeeper-based with consumer group coordination
-  - V2: Kafka-based offset commit (recommended)
-  - V3: Adds throttle_time_ms field (not currently used in response)
-
+  All versions share the same response parsing logic — only the wire format semantics differ.
   Response only contains partition and error_code (no offset returned).
+  V8 is a flexible version (KIP-482) with tagged_fields, handled transparently by Kayrock.
   """
 
   import KafkaEx.Protocol.Kayrock.ResponseHelpers,

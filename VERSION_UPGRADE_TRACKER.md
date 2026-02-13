@@ -128,16 +128,20 @@ Track implementation of new Kayrock-supported API versions in KafkaEx.
 
 ## 7. OffsetCommit (API Key 8)
 
-**Current:** V0-V3 | **Available:** V0-V8
+**Current:** V0-V8 (all explicit) | **Available:** V0-V8
 
-| Version | Status | Request Changes                             | Response Changes                         | Effort | Unit                  | Integ                 | Chaos                 |
-|---------|--------|---------------------------------------------|------------------------------------------|--------|-----------------------|-----------------------|-----------------------|
-| V0-V3   | 🟢     | —                                           | —                                        | —      | 🟢    | 🟢    | ⬜ |
-| V4      | ⬜      | No changes vs V3                            | No changes vs V3                         | Low    | ⬜ | ⬜ | ⬜ |
-| V5      | ⬜      | -`retention_time_ms` removed                | No changes vs V4                         | Low    | ⬜ | ⬜ | ⬜ |
-| V6      | ⬜      | +`committed_leader_epoch` in partitions     | No changes vs V5                         | Low    | ⬜ | ⬜ | ⬜ |
-| V7      | ⬜      | +`group_instance_id`                        | No changes vs V6                         | Low    | ⬜ | ⬜ | ⬜ |
-| V8      | ⬜      | FLEX: +`tagged_fields`, compact types       | FLEX: +`tagged_fields`, compact types    | Medium | ⬜ | ⬜ | ⬜ |
+| Version | Status | Request Changes                             | Response Changes                         | Effort | Unit | Integ | Chaos |
+|---------|--------|---------------------------------------------|------------------------------------------|--------|------|-------|-------|
+| V0-V3   | 🟢     | —                                           | —                                        | —      | 🟢   | 🟢    | ⬜    |
+| V4      | 🟢     | No changes vs V3                            | No changes vs V3                         | Low    | 🟢   | ⏭️    | ⏭️    |
+| V5      | 🟢     | -`retention_time_ms` removed                | No changes vs V4                         | Low    | 🟢   | ⏭️    | ⏭️    |
+| V6      | 🟢     | +`committed_leader_epoch` in partitions     | No changes vs V5                         | Low    | 🟢   | ⏭️    | ⏭️    |
+| V7      | 🟢     | +`group_instance_id`                        | No changes vs V6                         | Low    | 🟢   | ⏭️    | ⏭️    |
+| V8      | 🟢     | FLEX: +`tagged_fields`, compact types       | FLEX: +`tagged_fields`, compact types    | Medium | 🟢   | ⏭️    | ⏭️    |
+
+> **Note:** `Any` fallback retained for forward compatibility with unknown future versions. All V0-V8 have explicit `defimpl` impls. V4 request delegates to same `build_v2_v3_request` as V2/V3 (schema-identical). V5 removes `retention_time_ms` (offset retention now broker-controlled). V6 adds `committed_leader_epoch` per partition. V7 adds `group_instance_id` for static membership (KIP-345). V8 is the flexible version (KIP-482) -- Kayrock handles compact encoding transparently. All V4-V8 responses share the same structure (throttle_time_ms + topics with partition_index/error_code) and delegate to the same `ResponseHelpers.parse_response/1`.
+>
+> **Integration/chaos tests skipped (⏭️) for V4-V8:** These are pure delegation layers -- V4 request is schema-identical to V3, V5-V8 request impls each delegate to version-specific helpers but all use the same `build_topics`/`build_topics_with_leader_epoch` pattern. All V4-V8 responses delegate to the same `ResponseHelpers.parse_response/1`. Default OffsetCommit version is determined by version negotiation. Existing V0-V3 integration tests already cover the full OffsetCommit path end-to-end. New fields (`committed_leader_epoch`, `group_instance_id`) use safe defaults and do not affect error handling or reconnection behavior. Would revisit if: default version bumped, `committed_leader_epoch` used for fencing, `group_instance_id` integrated with consumer group logic, or flexible version encoding issues discovered.
 
 ---
 
@@ -280,11 +284,11 @@ Prioritized by: (1) most commonly used APIs first, (2) low-effort versions first
 | 26 | OffsetFetch     | V4      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                         |
 | 27 | OffsetFetch     | V5      | Low         | 🟢 | ⏭️ | ⏭️ | +committed_leader_epoch            |
 | 28 | OffsetFetch     | V6      | Medium      | 🟢 | ⏭️ | ⏭️ | FLEX                               |
-| 29 | OffsetCommit    | V4      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
-| 30 | OffsetCommit    | V5      | Low         | ⬜ | ⬜ | ⬜ | -retention_time_ms                 |
-| 31 | OffsetCommit    | V6      | Low         | ⬜ | ⬜ | ⬜ | +committed_leader_epoch            |
-| 32 | OffsetCommit    | V7      | Low         | ⬜ | ⬜ | ⬜ | +group_instance_id                 |
-| 33 | OffsetCommit    | V8      | Medium      | ⬜ | ⬜ | ⬜ | FLEX                               |
+| 29 | OffsetCommit    | V4      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                         |
+| 30 | OffsetCommit    | V5      | Low         | 🟢 | ⏭️ | ⏭️ | -retention_time_ms                 |
+| 31 | OffsetCommit    | V6      | Low         | 🟢 | ⏭️ | ⏭️ | +committed_leader_epoch            |
+| 32 | OffsetCommit    | V7      | Low         | 🟢 | ⏭️ | ⏭️ | +group_instance_id                 |
+| 33 | OffsetCommit    | V8      | Medium      | 🟢 | ⏭️ | ⏭️ | FLEX                               |
 | 34 | DescribeGroups  | V2      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
 | 35 | DescribeGroups  | V3      | Low         | ⬜ | ⬜ | ⬜ | +authorized_operations             |
 | 36 | DescribeGroups  | V4      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
@@ -302,9 +306,9 @@ Prioritized by: (1) most commonly used APIs first, (2) low-effort versions first
 
 ## Summary
 
-- **Total new versions to implement:** 45 (27 remaining)
-- **Completed:** 18 versions (ApiVersions V2, V3; Metadata V3-V9; Produce V6, V7, V8; Fetch V8-V11; ListOffsets V3, V4, V5; OffsetFetch V4, V5, V6)
-- **Low effort:** 17 versions remaining (mostly schema-identical or single field additions)
-- **Medium effort:** 8 versions remaining (flexible version encoding changes)
+- **Total new versions to implement:** 45 (22 remaining)
+- **Completed:** 23 versions (ApiVersions V2, V3; Metadata V3-V9; Produce V6, V7, V8; Fetch V8-V11; ListOffsets V3, V4, V5; OffsetFetch V4, V5, V6; OffsetCommit V4, V5, V6, V7, V8)
+- **Low effort:** 13 versions remaining (mostly schema-identical or single field additions)
+- **Medium effort:** 7 versions remaining (flexible version encoding changes)
 - **High effort:** 1 version (LeaveGroup V3 structural change)
 - **Medium-High effort:** 1 version (CreateTopics V5 response additions)
