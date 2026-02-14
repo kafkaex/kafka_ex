@@ -19,10 +19,7 @@ defimpl KafkaEx.Protocol.Kayrock.Fetch.Request, for: Any do
       Map.has_key?(request, :session_id) ->
         # V7+ style: determine best version based on available fields
         api_version =
-          cond do
-            Map.has_key?(request, :rack_id) -> 11
-            true -> 7
-          end
+          if Map.has_key?(request, :rack_id), do: 11, else: 7
 
         RequestHelpers.build_request_v7_plus(request, opts, api_version)
 

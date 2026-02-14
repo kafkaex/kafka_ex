@@ -41,22 +41,7 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseHelpers do
     Enum.map(topics, fn topic ->
       error = ErrorCode.code_to_atom(topic.error_code)
 
-      configs =
-        case Map.get(topic, :configs) do
-          nil ->
-            nil
-
-          config_list when is_list(config_list) ->
-            Enum.map(config_list, fn config ->
-              %{
-                name: config.name,
-                value: Map.get(config, :value),
-                read_only: Map.get(config, :read_only, false),
-                config_source: Map.get(config, :config_source, -1),
-                is_sensitive: Map.get(config, :is_sensitive, false)
-              }
-            end)
-        end
+      configs = parse_configs(Map.get(topic, :configs))
 
       TopicResult.build(
         topic: topic.name,
@@ -66,6 +51,20 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseHelpers do
         replication_factor: Map.get(topic, :replication_factor),
         configs: configs
       )
+    end)
+  end
+
+  defp parse_configs(nil), do: nil
+
+  defp parse_configs(config_list) when is_list(config_list) do
+    Enum.map(config_list, fn config ->
+      %{
+        name: config.name,
+        value: Map.get(config, :value),
+        read_only: Map.get(config, :read_only, false),
+        config_source: Map.get(config, :config_source, -1),
+        is_sensitive: Map.get(config, :is_sensitive, false)
+      }
     end)
   end
 

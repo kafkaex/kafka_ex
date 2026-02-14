@@ -10,10 +10,10 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.ResponseHelpers do
         `%Kayrock.MemberAssignment{}` -- `extract_partition_assignments/1` handles both.
   """
 
-  alias Kayrock.ErrorCode
   alias KafkaEx.Client.Error
-  alias KafkaEx.Messages.SyncGroup
   alias KafkaEx.Messages.ConsumerGroupDescription.Member.MemberAssignment.PartitionAssignment
+  alias KafkaEx.Messages.SyncGroup
+  alias Kayrock.ErrorCode
 
   @doc """
   Parses a V0 response (no throttle_time_ms).
