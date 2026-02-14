@@ -424,60 +424,171 @@ defmodule KafkaEx.Protocol.Kayrock.ListOffsets.RequestTest do
   end
 
   # ---------------------------------------------------------------------------
-  # Any fallback implementation tests
+  # Any fallback implementation tests (plain maps -- no __struct__ key)
   # ---------------------------------------------------------------------------
 
-  describe "Any fallback implementation" do
-    test "Any fallback dispatches V2+ path for struct with isolation_level" do
-      # Use a fake struct that has isolation_level but is not a known version
-      # The Any impl detects V2+ via Map.has_key?(request, :isolation_level)
-      # Since we can't easily create a truly unknown struct, we test via
-      # verifying that a plain map (which matches Any) with isolation_level works
-      fake_request = %{
-        __struct__: :"Elixir.FakeListOffsetsVX.Request",
-        isolation_level: nil,
-        replica_id: nil,
-        topics: [],
-        correlation_id: nil,
-        client_id: nil
-      }
+  describe "Any fallback implementation — plain map V0-V1 path (no isolation_level)" do
+    test "plain map without isolation_level takes V0-V1 path, defaults to V1" do
+      # Plain map (no __struct__) triggers Any fallback.
+      # No isolation_level key means V0-V1 branch.
+      # Default api_version is 1, so no max_num_offsets.
+      plain_map = %{replica_id: nil, topics: []}
 
       topics = [{"test_topic", [%{partition_num: 0, timestamp: :latest}]}]
 
-      # This will raise because the fake struct module doesn't have schema/0
-      # But we can verify the Any impl is reached via the isolation_level check
-      # The fallback will try detect_api_version which checks for schema/0
-      # Without schema/0, it defaults to api_version 2
-      result = ListOffsetsRequest.build_request(fake_request, topics: topics)
+      result = ListOffsetsRequest.build_request(plain_map, topics: topics)
+
+      assert result.replica_id == -1
+      assert [%{topic: "test_topic", partitions: [partition]}] = result.topics
+      assert partition == %{partition: 0, timestamp: -1}
+      refute Map.has_key?(partition, :max_num_offsets)
+    end
+
+    test "plain map with explicit api_version: 0 takes V0 path with max_num_offsets" do
+      plain_map = %{replica_id: nil, topics: []}
+
+      topics = [{"test_topic", [%{partition_num: 0, timestamp: :earliest}]}]
+
+      result = ListOffsetsRequest.build_request(plain_map, topics: topics, api_version: 0)
+
+      assert result.replica_id == -1
+      assert [%{topic: "test_topic", partitions: [partition]}] = result.topics
+      assert partition.partition == 0
+      assert partition.timestamp == -2
+      assert partition.max_num_offsets == 1
+    end
+
+    test "plain map V0 path respects custom offset_num" do
+      plain_map = %{replica_id: nil, topics: []}
+
+      topics = [{"t", [%{partition_num: 0, timestamp: :latest}]}]
+
+      result =
+        ListOffsetsRequest.build_request(plain_map,
+          topics: topics,
+          api_version: 0,
+          offset_num: 5
+        )
+
+      assert [%{partitions: [partition]}] = result.topics
+      assert partition.max_num_offsets == 5
+    end
+
+    test "plain map V0-V1 path respects custom replica_id" do
+      plain_map = %{replica_id: nil, topics: []}
+
+      topics = [{"t", [%{partition_num: 0, timestamp: :latest}]}]
+
+      result = ListOffsetsRequest.build_request(plain_map, topics: topics, replica_id: 7)
+
+      assert result.replica_id == 7
+    end
+
+    test "plain map V1 path handles DateTime timestamp" do
+      plain_map = %{replica_id: nil, topics: []}
+
+      topics = [{"t", [%{partition_num: 0, timestamp: ~U[2024-04-19 12:00:00.000000Z]}]}]
+
+      result = ListOffsetsRequest.build_request(plain_map, topics: topics)
+
+      assert [%{partitions: [partition]}] = result.topics
+      assert partition.timestamp == 1_713_528_000_000
+    end
+  end
+
+  describe "Any fallback implementation — plain map V2+ path (has isolation_level)" do
+    test "plain map with isolation_level defaults to V2 (no current_leader_epoch)" do
+      # isolation_level present triggers V2+ branch.
+      # No explicit api_version => defaults to 2 (safe baseline).
+      plain_map = %{isolation_level: nil, replica_id: nil, topics: []}
+
+      topics = [{"test_topic", [%{partition_num: 0, timestamp: :latest}]}]
+
+      result = ListOffsetsRequest.build_request(plain_map, topics: topics)
 
       assert result.replica_id == -1
       assert result.isolation_level == 0
       assert [%{topic: "test_topic", partitions: [partition]}] = result.topics
       assert partition == %{partition: 0, timestamp: -1}
+      refute Map.has_key?(partition, :current_leader_epoch)
     end
 
-    test "Any fallback uses explicit api_version opt when provided" do
-      fake_request = %{
-        __struct__: :"Elixir.FakeListOffsetsVX.Request",
-        isolation_level: nil,
-        replica_id: nil,
-        topics: [],
-        correlation_id: nil,
-        client_id: nil
-      }
+    test "plain map with isolation_level and explicit api_version: 4 adds current_leader_epoch" do
+      plain_map = %{isolation_level: nil, replica_id: nil, topics: []}
 
       topics = [{"test_topic", [%{partition_num: 0, timestamp: :latest}]}]
 
       result =
-        ListOffsetsRequest.build_request(fake_request,
+        ListOffsetsRequest.build_request(plain_map,
           topics: topics,
           api_version: 4,
           current_leader_epoch: 15
         )
 
+      assert result.isolation_level == 0
       assert [%{partitions: [partition]}] = result.topics
-      # With api_version 4, current_leader_epoch should be present
       assert partition.current_leader_epoch == 15
+    end
+
+    test "plain map with isolation_level and api_version: 5 adds current_leader_epoch" do
+      plain_map = %{isolation_level: nil, replica_id: nil, topics: []}
+
+      topics = [{"t", [%{partition_num: 0, timestamp: :earliest}]}]
+
+      result =
+        ListOffsetsRequest.build_request(plain_map,
+          topics: topics,
+          api_version: 5,
+          current_leader_epoch: 42
+        )
+
+      assert [%{partitions: [partition]}] = result.topics
+      assert partition.current_leader_epoch == 42
+    end
+
+    test "plain map V2+ respects isolation_level: :read_commited" do
+      plain_map = %{isolation_level: nil, replica_id: nil, topics: []}
+
+      topics = [{"t", [%{partition_num: 0, timestamp: :latest}]}]
+
+      result =
+        ListOffsetsRequest.build_request(plain_map,
+          topics: topics,
+          isolation_level: :read_commited
+        )
+
+      assert result.isolation_level == 1
+    end
+
+    test "plain map V2+ handles multiple topics and partitions" do
+      plain_map = %{isolation_level: nil, replica_id: nil, topics: []}
+
+      topics = [
+        {"topic-a", [%{partition_num: 0, timestamp: :earliest}, %{partition_num: 1, timestamp: :latest}]},
+        {"topic-b", [%{partition_num: 0, timestamp: 123}]}
+      ]
+
+      result = ListOffsetsRequest.build_request(plain_map, topics: topics)
+
+      assert length(result.topics) == 2
+      [ta, tb] = result.topics
+      assert ta.topic == "topic-a"
+      assert length(ta.partitions) == 2
+      assert tb.topic == "topic-b"
+      assert length(tb.partitions) == 1
+    end
+  end
+
+  describe "Any fallback implementation — minimal empty plain map" do
+    test "truly empty plain map triggers V0-V1 fallback path" do
+      # The minimal case: a completely empty map. Has no isolation_level,
+      # so takes V0-V1 path. Default api_version is 1.
+      result =
+        ListOffsetsRequest.build_request(%{}, topics: [{"t", [%{partition_num: 0, timestamp: :latest}]}])
+
+      assert result.replica_id == -1
+      assert [%{partitions: [partition]}] = result.topics
+      refute Map.has_key?(partition, :max_num_offsets)
     end
   end
 

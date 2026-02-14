@@ -448,4 +448,36 @@ defmodule KafkaEx.Protocol.Kayrock.DescribeGroups.ResponseTest do
       assert {:ok, []} == DescribeGroups.Response.parse_response(response)
     end
   end
+
+  # ---- Unknown error code safety (Bug 2: code_to_atom! vs code_to_atom) ----
+
+  describe "unknown error code safety" do
+    test "unknown error code returns :unknown, not a raise (V0)" do
+      response = %Kayrock.DescribeGroups.V0.Response{
+        groups: [%{group_id: "test-group", error_code: 9999}]
+      }
+
+      assert {:error, [{"test-group", :unknown}]} ==
+               DescribeGroups.Response.parse_response(response)
+    end
+
+    test "unknown error code returns :unknown via Any fallback" do
+      response = %{
+        groups: [%{group_id: "test-group", error_code: 9999}]
+      }
+
+      assert {:error, [{"test-group", :unknown}]} ==
+               DescribeGroups.Response.parse_response(response)
+    end
+
+    test "unknown error code returns :unknown (V5 FLEX)" do
+      response = %Kayrock.DescribeGroups.V5.Response{
+        groups: [%{group_id: "test-group", error_code: 9999}],
+        tagged_fields: []
+      }
+
+      assert {:error, [{"test-group", :unknown}]} ==
+               DescribeGroups.Response.parse_response(response)
+    end
+  end
 end

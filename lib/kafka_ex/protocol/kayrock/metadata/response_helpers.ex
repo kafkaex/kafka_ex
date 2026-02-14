@@ -57,7 +57,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpers do
   @spec parse_topics([map()]) :: %{String.t() => Topic.t()}
   def parse_topics(kayrock_topics) when is_list(kayrock_topics) do
     kayrock_topics
-    |> Enum.filter(fn topic_map -> topic_map.error_code == 0 end)
+    |> Enum.filter(&(ErrorCode.code_to_atom(&1.error_code) == :no_error))
     |> Enum.into(%{}, fn topic_map ->
       topic_name = topic_map.name
       is_internal = Map.get(topic_map, :is_internal, false)
@@ -85,7 +85,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpers do
   @spec parse_partitions([map()]) :: [PartitionInfo.t()]
   def parse_partitions(kayrock_partitions) when is_list(kayrock_partitions) do
     kayrock_partitions
-    |> Enum.filter(fn partition_map -> partition_map.error_code == 0 end)
+    |> Enum.filter(&(ErrorCode.code_to_atom(&1.error_code) == :no_error))
     |> Enum.map(fn partition_map ->
       %PartitionInfo{
         partition_id: partition_map.partition_index,
@@ -101,15 +101,10 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpers do
   """
   @spec check_for_errors(map()) :: :ok | {:error, term}
   def check_for_errors(response) do
-    # Check for topic-level errors
-    topic_errors =
-      response.topics
-      |> Enum.reject(fn topic -> topic.error_code == 0 end)
-      |> Enum.map(fn topic ->
-        {topic.name, ErrorCode.code_to_atom(topic.error_code)}
-      end)
-
-    case topic_errors do
+    response.topics
+    |> Enum.reject(&(ErrorCode.code_to_atom(&1.error_code) == :no_error))
+    |> Enum.map(&{&1.name, ErrorCode.code_to_atom(&1.error_code)})
+    |> case do
       [] -> :ok
       errors -> {:error, {:topic_errors, errors}}
     end

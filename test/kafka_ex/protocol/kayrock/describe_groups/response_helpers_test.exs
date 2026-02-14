@@ -122,5 +122,32 @@ defmodule KafkaEx.Protocol.Kayrock.DescribeGroups.ResponseHelpersTest do
       assert {:error, [{"bad1", :rebalance_in_progress}]} =
                ResponseHelpers.parse_response(response)
     end
+
+    test "unknown error code does not raise (uses code_to_atom, not code_to_atom!)" do
+      # Bug 2: code_to_atom! raises on unknown error codes; code_to_atom returns :unknown.
+      # This test verifies the fix: unknown error codes should return :unknown, not raise.
+      response = %{
+        groups: [
+          %{group_id: "unknown-err", error_code: 9999}
+        ]
+      }
+
+      assert {:error, [{"unknown-err", :unknown}]} =
+               ResponseHelpers.parse_response(response)
+    end
+
+    test "multiple groups with mix of known and unknown error codes" do
+      response = %{
+        groups: [
+          %{group_id: "known-err", error_code: 15},
+          %{group_id: "unknown-err", error_code: 9999}
+        ]
+      }
+
+      assert {:error, error_list} = ResponseHelpers.parse_response(response)
+      assert length(error_list) == 2
+      assert {"known-err", :coordinator_not_available} in error_list
+      assert {"unknown-err", :unknown} in error_list
+    end
   end
 end

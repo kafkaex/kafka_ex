@@ -677,6 +677,134 @@ defmodule KafkaEx.Protocol.Kayrock.Produce.ResponseTest do
     end
   end
 
+  # ---------------------------------------------------------------------------
+  # Any fallback with truly plain maps (no __struct__ key)
+  # Verifies __struct__-safety of the Any response implementation.
+  # ---------------------------------------------------------------------------
+
+  describe "Any fallback response — plain maps (no __struct__)" do
+    test "plain map with all V5+ fields (throttle, log_append_time, log_start_offset)" do
+      response = %{
+        throttle_time_ms: 42,
+        responses: [
+          %{
+            topic: "plain-topic",
+            partition_responses: [
+              %{
+                partition: 0,
+                error_code: 0,
+                base_offset: 9000,
+                log_append_time: 1_702_600_000_000,
+                log_start_offset: 3000
+              }
+            ]
+          }
+        ]
+      }
+
+      refute Map.has_key?(response, :__struct__)
+
+      assert {:ok, %RecordMetadata{} = produce} = Response.parse_response(response)
+      assert produce.topic == "plain-topic"
+      assert produce.base_offset == 9000
+      assert produce.log_append_time == 1_702_600_000_000
+      assert produce.log_start_offset == 3000
+      assert produce.throttle_time_ms == 42
+    end
+
+    test "plain map without throttle_time_ms (V0-like)" do
+      response = %{
+        responses: [
+          %{
+            topic: "v0-topic",
+            partition_responses: [
+              %{partition: 0, error_code: 0, base_offset: 100}
+            ]
+          }
+        ]
+      }
+
+      refute Map.has_key?(response, :__struct__)
+
+      assert {:ok, %RecordMetadata{} = produce} = Response.parse_response(response)
+      assert produce.topic == "v0-topic"
+      assert produce.base_offset == 100
+      assert produce.throttle_time_ms == nil
+      assert produce.log_append_time == nil
+      assert produce.log_start_offset == nil
+    end
+
+    test "plain map with only throttle_time_ms (V1-like, no log_append_time)" do
+      response = %{
+        throttle_time_ms: 50,
+        responses: [
+          %{
+            topic: "v1-topic",
+            partition_responses: [
+              %{partition: 0, error_code: 0, base_offset: 200}
+            ]
+          }
+        ]
+      }
+
+      refute Map.has_key?(response, :__struct__)
+
+      assert {:ok, %RecordMetadata{} = produce} = Response.parse_response(response)
+      assert produce.throttle_time_ms == 50
+      assert produce.log_append_time == nil
+      assert produce.log_start_offset == nil
+    end
+
+    test "plain map with throttle + log_append_time but no log_start_offset (V2-V4-like)" do
+      response = %{
+        throttle_time_ms: 10,
+        responses: [
+          %{
+            topic: "v2-topic",
+            partition_responses: [
+              %{partition: 0, error_code: 0, base_offset: 300, log_append_time: -1}
+            ]
+          }
+        ]
+      }
+
+      refute Map.has_key?(response, :__struct__)
+
+      assert {:ok, %RecordMetadata{} = produce} = Response.parse_response(response)
+      assert produce.throttle_time_ms == 10
+      assert produce.log_append_time == -1
+      assert produce.log_start_offset == nil
+    end
+
+    test "plain map with error code" do
+      response = %{
+        throttle_time_ms: 0,
+        responses: [
+          %{
+            topic: "err-topic",
+            partition_responses: [
+              %{partition: 0, error_code: 7, base_offset: -1}
+            ]
+          }
+        ]
+      }
+
+      refute Map.has_key?(response, :__struct__)
+
+      assert {:error, %Error{} = error} = Response.parse_response(response)
+      assert error.error == :request_timed_out
+    end
+
+    test "plain map with empty responses" do
+      response = %{responses: []}
+
+      refute Map.has_key?(response, :__struct__)
+
+      assert {:error, %Error{} = error} = Response.parse_response(response)
+      assert error.error == :empty_response
+    end
+  end
+
   describe "parse_response via KayrockProtocol" do
     alias KafkaEx.Protocol.KayrockProtocol
 

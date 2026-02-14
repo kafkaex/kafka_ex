@@ -1135,4 +1135,122 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseTest do
       assert map_size(cluster_metadata.topics) == 1
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # Any fallback with truly plain maps (no __struct__ key)
+  # Verifies __struct__-safety of the Any response implementation.
+  # ---------------------------------------------------------------------------
+
+  describe "Any fallback response — plain maps (no __struct__)" do
+    test "plain map with controller_id, brokers, and topics" do
+      response = %{
+        brokers: [%{node_id: 1, host: "h1", port: 9092, rack: "rack-a"}],
+        controller_id: 1,
+        topics: [
+          %{
+            error_code: 0,
+            name: "plain-topic",
+            is_internal: false,
+            partitions: [
+              %{error_code: 0, partition_index: 0, leader_id: 1, replica_nodes: [1], isr_nodes: [1]}
+            ]
+          }
+        ]
+      }
+
+      refute Map.has_key?(response, :__struct__)
+
+      {:ok, cluster_metadata} = MetadataResponse.parse_response(response)
+
+      assert %ClusterMetadata{} = cluster_metadata
+      assert cluster_metadata.controller_id == 1
+      assert map_size(cluster_metadata.brokers) == 1
+      assert cluster_metadata.brokers[1].host == "h1"
+      assert cluster_metadata.brokers[1].rack == "rack-a"
+      assert map_size(cluster_metadata.topics) == 1
+      assert cluster_metadata.topics["plain-topic"].name == "plain-topic"
+    end
+
+    test "plain map without controller_id (V0-like)" do
+      response = %{
+        brokers: [%{node_id: 1, host: "h1", port: 9092}],
+        topics: []
+      }
+
+      refute Map.has_key?(response, :__struct__)
+
+      {:ok, cluster_metadata} = MetadataResponse.parse_response(response)
+
+      assert %ClusterMetadata{} = cluster_metadata
+      assert cluster_metadata.controller_id == nil
+      assert map_size(cluster_metadata.brokers) == 1
+    end
+
+    test "plain map with error topics are filtered out" do
+      response = %{
+        brokers: [%{node_id: 1, host: "h1", port: 9092}],
+        topics: [
+          %{
+            error_code: 0,
+            name: "good-topic",
+            is_internal: false,
+            partitions: [
+              %{error_code: 0, partition_index: 0, leader_id: 1, replica_nodes: [1], isr_nodes: [1]}
+            ]
+          },
+          %{error_code: 3, name: "bad-topic", partitions: []}
+        ]
+      }
+
+      {:ok, cluster_metadata} = MetadataResponse.parse_response(response)
+
+      assert map_size(cluster_metadata.topics) == 1
+      assert cluster_metadata.topics["good-topic"].name == "good-topic"
+      refute cluster_metadata.topics["bad-topic"]
+    end
+
+    test "plain map with empty brokers and topics" do
+      response = %{brokers: [], topics: []}
+
+      {:ok, cluster_metadata} = MetadataResponse.parse_response(response)
+
+      assert map_size(cluster_metadata.brokers) == 0
+      assert map_size(cluster_metadata.topics) == 0
+    end
+
+    test "plain map with multiple brokers and topics" do
+      response = %{
+        brokers: [
+          %{node_id: 1, host: "h1", port: 9092, rack: "az-1"},
+          %{node_id: 2, host: "h2", port: 9092, rack: "az-2"}
+        ],
+        controller_id: 2,
+        topics: [
+          %{
+            error_code: 0,
+            name: "t1",
+            is_internal: false,
+            partitions: [
+              %{error_code: 0, partition_index: 0, leader_id: 1, replica_nodes: [1, 2], isr_nodes: [1, 2]}
+            ]
+          },
+          %{
+            error_code: 0,
+            name: "t2",
+            is_internal: true,
+            partitions: [
+              %{error_code: 0, partition_index: 0, leader_id: 2, replica_nodes: [2, 1], isr_nodes: [2]}
+            ]
+          }
+        ]
+      }
+
+      {:ok, cluster_metadata} = MetadataResponse.parse_response(response)
+
+      assert map_size(cluster_metadata.brokers) == 2
+      assert cluster_metadata.controller_id == 2
+      assert map_size(cluster_metadata.topics) == 2
+      assert cluster_metadata.topics["t2"].is_internal == true
+    end
+  end
 end

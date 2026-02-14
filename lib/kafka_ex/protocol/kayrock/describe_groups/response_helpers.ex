@@ -20,6 +20,7 @@ defmodule KafkaEx.Protocol.Kayrock.DescribeGroups.ResponseHelpers do
   """
 
   alias KafkaEx.Messages.ConsumerGroupDescription
+  alias Kayrock.ErrorCode
 
   @doc """
   Parses a DescribeGroups response for any version (V0-V5).
@@ -43,7 +44,7 @@ defmodule KafkaEx.Protocol.Kayrock.DescribeGroups.ResponseHelpers do
       errors ->
         error_list =
           Enum.map(errors, fn %{group_id: group_id, error_code: error_code} ->
-            {group_id, Kayrock.ErrorCode.code_to_atom!(error_code)}
+            {group_id, ErrorCode.code_to_atom(error_code)}
           end)
 
         {:error, error_list}

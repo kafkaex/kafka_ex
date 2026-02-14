@@ -727,6 +727,83 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.ResponseTest do
     end
   end
 
+  # ---------------------------------------------------------------------------
+  # Any fallback with truly plain maps (no __struct__ key)
+  # Verifies __struct__-safety of the Any response implementation.
+  # ---------------------------------------------------------------------------
+
+  describe "Any fallback response — plain maps (no __struct__)" do
+    test "plain map with all V5+ fields parses correctly" do
+      record_batch = build_record_batch([%{offset: 50, value: "plain-map-data"}])
+
+      response =
+        build_response("plain-topic", 0, 0, 500, record_batch, %{
+          throttle_time_ms: 42,
+          partition_header: %{
+            last_stable_offset: 450,
+            log_start_offset: 100,
+            aborted_transactions: [],
+            preferred_read_replica: 5
+          }
+        })
+
+      # No __struct__ key — truly a plain map
+      refute Map.has_key?(response, :__struct__)
+
+      assert {:ok, %Fetch{} = fetch} = Response.parse_response(response)
+      assert fetch.topic == "plain-topic"
+      assert fetch.throttle_time_ms == 42
+      assert fetch.last_stable_offset == 450
+      assert fetch.log_start_offset == 100
+      assert fetch.preferred_read_replica == 5
+      assert length(fetch.records) == 1
+    end
+
+    test "plain map without throttle_time_ms (V0-like)" do
+      message_set = build_message_set([%{offset: 0, value: "v0-data"}])
+
+      response = build_response("v0-topic", 0, 0, 100, message_set)
+
+      refute Map.has_key?(response, :__struct__)
+
+      assert {:ok, %Fetch{} = fetch} = Response.parse_response(response)
+      assert fetch.topic == "v0-topic"
+      assert fetch.throttle_time_ms == nil
+      assert fetch.last_stable_offset == nil
+      assert fetch.log_start_offset == nil
+      assert fetch.preferred_read_replica == nil
+    end
+
+    test "plain map with error code" do
+      response = build_response("test", 0, 3, 0, nil)
+
+      refute Map.has_key?(response, :__struct__)
+
+      assert {:error, error} = Response.parse_response(response)
+      assert error.error == :unknown_topic_or_partition
+    end
+
+    test "plain map with empty responses" do
+      response = %{responses: []}
+
+      assert {:error, error} = Response.parse_response(response)
+      assert error.error == :empty_response
+    end
+
+    test "plain map with throttle_time_ms but no partition-level extras (V1-V3-like)" do
+      message_set = build_message_set([%{offset: 10, value: "v1-data"}])
+
+      response = build_response("v1-topic", 0, 0, 200, message_set, %{throttle_time_ms: 25})
+
+      refute Map.has_key?(response, :__struct__)
+
+      assert {:ok, %Fetch{} = fetch} = Response.parse_response(response)
+      assert fetch.throttle_time_ms == 25
+      assert fetch.last_stable_offset == nil
+      assert fetch.log_start_offset == nil
+    end
+  end
+
   describe "parse_response via KayrockProtocol" do
     alias KafkaEx.Protocol.KayrockProtocol
 
