@@ -86,4 +86,20 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestHelpers do
     |> build_v0_request(opts)
     |> Map.put(:rebalance_timeout_ms, rebalance_timeout)
   end
+
+  @doc """
+  Builds a JoinGroup V5+ request (adds group_instance_id for static membership, KIP-345).
+
+  The `group_instance_id` is used for static membership:
+  - `nil` (default): Dynamic membership (same as V1-V4)
+  - A string value: Static membership — the member keeps its assignment across restarts
+  """
+  @spec build_v5_plus_request(map(), Keyword.t()) :: map()
+  def build_v5_plus_request(request_template, opts) do
+    group_instance_id = Keyword.get(opts, :group_instance_id, nil)
+
+    request_template
+    |> build_v1_or_v2_request(opts)
+    |> Map.put(:group_instance_id, group_instance_id)
+  end
 end

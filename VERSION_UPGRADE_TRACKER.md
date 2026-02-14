@@ -163,15 +163,19 @@ Track implementation of new Kayrock-supported API versions in KafkaEx.
 
 ## 9. JoinGroup (API Key 11)
 
-**Current:** V0-V2 | **Available:** V0-V6
+**Current:** V0-V6 (all explicit) | **Available:** V0-V6
 
-| Version | Status                | Request Changes                          | Response Changes                            | Effort | Unit                  | Integ                 | Chaos                 |
-|---------|-----------------------|------------------------------------------|---------------------------------------------|--------|-----------------------|-----------------------|-----------------------|
-| V0-V2   | 🟢    | —                                        | —                                           | —      | 🟢    | 🟢    | ⬜ |
-| V3      | ⬜ | No changes vs V2                         | No changes vs V2                            | Low    | ⬜ | ⬜ | ⬜ |
-| V4      | ⬜ | No changes vs V3                         | No changes vs V3                            | Low    | ⬜ | ⬜ | ⬜ |
-| V5      | ⬜ | +`group_instance_id`                     | +`group_instance_id` in members             | Low    | ⬜ | ⬜ | ⬜ |
-| V6      | ⬜ | FLEX: +`tagged_fields`, compact types    | FLEX: +`tagged_fields`, compact types       | Medium | ⬜ | ⬜ | ⬜ |
+| Version | Status | Request Changes                          | Response Changes                            | Effort | Unit | Integ | Chaos |
+|---------|--------|------------------------------------------|---------------------------------------------|--------|------|-------|-------|
+| V0-V2   | 🟢     | —                                        | —                                           | —      | 🟢   | 🟢    | ⬜    |
+| V3      | 🟢     | No changes vs V2                         | No changes vs V2                            | Low    | 🟢   | ⏭️    | ⏭️    |
+| V4      | 🟢     | No changes vs V3                         | No changes vs V3                            | Low    | 🟢   | ⏭️    | ⏭️    |
+| V5      | 🟢     | +`group_instance_id`                     | +`group_instance_id` in members             | Low    | 🟢   | ⏭️    | ⏭️    |
+| V6      | 🟢     | FLEX: +`tagged_fields`, compact types    | FLEX: +`tagged_fields`, compact types       | Medium | 🟢   | ⏭️    | ⏭️    |
+
+> **Note:** `Any` fallback retained for forward compatibility with unknown future versions. All V0-V6 have explicit `defimpl` impls. V3/V4 request schemas are identical to V2 (pure version bumps) — all delegate to `RequestHelpers.build_v1_or_v2_request/2`. V5/V6 request impls delegate to `RequestHelpers.build_v5_plus_request/2` which adds `group_instance_id` (defaults to `nil` for dynamic membership). All V2+ response impls delegate to `ResponseHelpers.parse_response/2` with throttle_time_ms extractor. V5/V6 responses include `group_instance_id` per member in Kayrock schema but this is NOT extracted to the domain layer (`JoinGroup.Member` struct only has `member_id` and `member_metadata`) — same pattern as `leader_epoch` in other APIs. V6 is the flexible version (KIP-482) — Kayrock handles compact encoding/decoding transparently.
+>
+> **Integration/chaos tests skipped (⏭️) for V3-V6:** These are pure delegation layers — V3/V4 request/response are schema-identical to V2, V5/V6 request impls add `group_instance_id` but delegate to the same helper pattern. All responses use the same `ResponseHelpers.parse_response/2`. Default JoinGroup version is determined by version negotiation. Existing V0-V2 integration tests already cover the full JoinGroup path end-to-end. New field (`group_instance_id`) uses safe default (`nil`) and does not affect error handling or reconnection behavior. Chaos tests are version-independent (broker failures affect all versions identically). Would revisit if: default version bumped, `group_instance_id` integrated with consumer group static membership logic, or flexible version encoding issues discovered.
 
 ---
 
@@ -275,10 +279,10 @@ Prioritized by: (1) most commonly used APIs first, (2) low-effort versions first
 | 13 | Heartbeat       | V2      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
 | 14 | Heartbeat       | V3      | Low         | ⬜ | ⬜ | ⬜ | +group_instance_id                 |
 | 15 | Heartbeat       | V4      | Medium      | ⬜ | ⬜ | ⬜ | FLEX                               |
-| 16 | JoinGroup       | V3      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
-| 17 | JoinGroup       | V4      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
-| 18 | JoinGroup       | V5      | Low         | ⬜ | ⬜ | ⬜ | +group_instance_id                 |
-| 19 | JoinGroup       | V6      | Medium      | ⬜ | ⬜ | ⬜ | FLEX                               |
+| 16 | JoinGroup       | V3      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                         |
+| 17 | JoinGroup       | V4      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                         |
+| 18 | JoinGroup       | V5      | Low         | 🟢 | ⏭️ | ⏭️ | +group_instance_id                 |
+| 19 | JoinGroup       | V6      | Medium      | 🟢 | ⏭️ | ⏭️ | FLEX                               |
 | 20 | SyncGroup       | V2      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
 | 21 | SyncGroup       | V3      | Low-Med     | ⬜ | ⬜ | ⬜ | +group_instance_id / +protocol_*   |
 | 22 | SyncGroup       | V4      | Medium      | ⬜ | ⬜ | ⬜ | FLEX                               |
@@ -310,9 +314,9 @@ Prioritized by: (1) most commonly used APIs first, (2) low-effort versions first
 
 ## Summary
 
-- **Total new versions to implement:** 45 (20 remaining)
-- **Completed:** 25 versions (ApiVersions V2, V3; Metadata V3-V9; Produce V6, V7, V8; Fetch V8-V11; ListOffsets V3, V4, V5; OffsetFetch V4, V5, V6; OffsetCommit V4, V5, V6, V7, V8; FindCoordinator V2, V3)
-- **Low effort:** 12 versions remaining (mostly schema-identical or single field additions)
-- **Medium effort:** 6 versions remaining (flexible version encoding changes)
+- **Total new versions to implement:** 45 (16 remaining)
+- **Completed:** 29 versions (ApiVersions V2, V3; Metadata V3-V9; Produce V6, V7, V8; Fetch V8-V11; ListOffsets V3, V4, V5; OffsetFetch V4, V5, V6; OffsetCommit V4, V5, V6, V7, V8; FindCoordinator V2, V3; JoinGroup V3, V4, V5, V6)
+- **Low effort:** 9 versions remaining (mostly schema-identical or single field additions)
+- **Medium effort:** 5 versions remaining (flexible version encoding changes)
 - **High effort:** 1 version (LeaveGroup V3 structural change)
 - **Medium-High effort:** 1 version (CreateTopics V5 response additions)

@@ -9,8 +9,6 @@ defimpl KafkaEx.Protocol.Kayrock.FindCoordinator.Request, for: Kayrock.FindCoord
   alias KafkaEx.Protocol.Kayrock.FindCoordinator.RequestHelpers
 
   def build_request(request, opts) do
-    {coordinator_key, coordinator_type} = RequestHelpers.extract_v1_fields(opts)
-
-    %{request | key: coordinator_key, key_type: coordinator_type}
+    RequestHelpers.build_v1_plus_request(request, opts)
   end
 end

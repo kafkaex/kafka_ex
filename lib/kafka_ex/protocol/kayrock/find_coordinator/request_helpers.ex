@@ -12,6 +12,18 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.RequestHelpers do
   end
 
   @doc """
+  Builds a V1+ request by extracting coordinator key and type from options.
+
+  Works for V1, V2, V3, and any future version with `key` + `key_type` fields.
+  """
+  @spec build_v1_plus_request(map(), Keyword.t()) :: map()
+  def build_v1_plus_request(request, opts) do
+    {coordinator_key, coordinator_type} = extract_v1_fields(opts)
+
+    %{request | key: coordinator_key, key_type: coordinator_type}
+  end
+
+  @doc """
   Extracts coordinator key and type from options for V1 requests.
 
   Returns `{coordinator_key, coordinator_type}` where:

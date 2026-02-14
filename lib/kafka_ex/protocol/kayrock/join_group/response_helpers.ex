@@ -14,6 +14,22 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseHelpers do
   @type throttle_time_extractor :: (map() -> non_neg_integer() | nil)
 
   @doc """
+  Parses a V0 or V1 response (no throttle_time_ms).
+  """
+  @spec parse_v0_or_v1_response(map()) :: {:ok, JoinGroup.t()} | {:error, Error.t()}
+  def parse_v0_or_v1_response(response) do
+    parse_response(response, fn _resp -> nil end)
+  end
+
+  @doc """
+  Parses a V2+ response (includes throttle_time_ms).
+  """
+  @spec parse_v2_plus_response(map()) :: {:ok, JoinGroup.t()} | {:error, Error.t()}
+  def parse_v2_plus_response(response) do
+    parse_response(response, fn resp -> resp.throttle_time_ms end)
+  end
+
+  @doc """
   Parses a JoinGroup response using the provided throttle_time extractor.
   """
   @spec parse_response(map(), throttle_time_extractor()) ::

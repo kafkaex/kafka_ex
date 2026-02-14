@@ -9,6 +9,6 @@ defimpl KafkaEx.Protocol.Kayrock.JoinGroup.Response, for: Kayrock.JoinGroup.V1.R
   alias KafkaEx.Protocol.Kayrock.JoinGroup.ResponseHelpers
 
   def parse_response(response) do
-    ResponseHelpers.parse_response(response, fn _resp -> nil end)
+    ResponseHelpers.parse_v0_or_v1_response(response)
   end
 end
