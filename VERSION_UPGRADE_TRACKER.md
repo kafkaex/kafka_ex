@@ -215,14 +215,20 @@ Track implementation of new Kayrock-supported API versions in KafkaEx.
 
 ## 12. LeaveGroup (API Key 13)
 
-**Current:** V0-V1 | **Available:** V0-V4
+**Current:** V0-V4 (all explicit) | **Available:** V0-V4
 
-| Version | Status                | Request Changes                                                         | Response Changes                          | Effort | Unit                  | Integ                 | Chaos                 |
-|---------|-----------------------|-------------------------------------------------------------------------|-------------------------------------------|--------|-----------------------|-----------------------|-----------------------|
-| V0-V1   | 🟢    | —                                                                       | —                                         | —      | 🟢    | 🟢    | ⬜ |
-| V2      | ⬜ | No changes vs V1                                                        | No changes vs V1                          | Low    | ⬜ | ⬜ | ⬜ |
-| V3      | ⬜ | **BREAKING:** -`member_id` -> +`members` array (batch leave, KIP-345)  | +`members` array with per-member errors   | High   | ⬜ | ⬜ | ⬜ |
-| V4      | ⬜ | FLEX: +`tagged_fields`, compact types                                   | FLEX: +`tagged_fields`, compact types     | Medium | ⬜ | ⬜ | ⬜ |
+| Version | Status | Request Changes                                                         | Response Changes                          | Effort | Unit | Integ | Chaos |
+|---------|--------|-------------------------------------------------------------------------|-------------------------------------------|--------|------|-------|-------|
+| V0-V1   | 🟢     | —                                                                       | —                                         | —      | 🟢   | 🟢    | ⬜    |
+| V2      | 🟢     | No changes vs V1                                                        | No changes vs V1                          | Low    | 🟢   | ⏭️    | ⏭️    |
+| V3      | 🟢     | **BREAKING:** -`member_id` -> +`members` array (batch leave, KIP-345)  | +`members` array with per-member errors   | High   | 🟢   | ⏭️    | ⏭️    |
+| V4      | 🟢     | FLEX: +`tagged_fields`, compact types                                   | FLEX: +`tagged_fields`, compact types     | Medium | 🟢   | ⏭️    | ⏭️    |
+
+> **Note:** `Any` fallback retained for forward compatibility with unknown future versions. All V0-V4 have explicit `defimpl` impls. V2 request is schema-identical to V0/V1 (pure version bump) -- delegates to `RequestHelpers.build_request_from_template/2`. V3/V4 introduce a **structural change** (KIP-345 batch leave): the single `member_id` field is replaced with a `members` array, where each member has `member_id` and `group_instance_id`. V3/V4 request impls delegate to `RequestHelpers.build_v3_plus_request/2`. V0 response delegates to `ResponseHelpers.parse_v0_response/1` (returns `{:ok, :no_error}`). V1/V2 response delegates to `ResponseHelpers.parse_v1_v2_response/1` (returns `{:ok, %LeaveGroup{throttle_time_ms: ...}}`). V3/V4 response delegates to `ResponseHelpers.parse_v3_plus_response/1` which extracts the `members` array with per-member error codes converted to atoms. V4 is the flexible version (KIP-482) -- Kayrock handles compact encoding/decoding transparently.
+>
+> **Domain struct extended:** `LeaveGroup` message struct now includes a `members` field for V3+ responses. Each member result has `member_id`, `group_instance_id`, and `error` (atom, not integer).
+>
+> **Integration/chaos tests skipped (⏭️) for V2-V4:** V2 is a pure version bump. V3/V4 batch leave is a structural change at the protocol adapter level only -- the consumer group coordinator integration is unchanged. Existing V0-V1 integration tests cover the full LeaveGroup path end-to-end. Chaos tests are version-independent. Would revisit if: batch leave is integrated into consumer group shutdown logic, or flexible version encoding issues discovered.
 
 ---
 
@@ -294,9 +300,9 @@ Prioritized by: (1) most commonly used APIs first, (2) low-effort versions first
 | 20 | SyncGroup       | V2      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                         |
 | 21 | SyncGroup       | V3      | Low-Med     | 🟢 | ⏭️ | ⏭️ | +group_instance_id                 |
 | 22 | SyncGroup       | V4      | Medium      | 🟢 | ⏭️ | ⏭️ | FLEX                               |
-| 23 | LeaveGroup      | V2      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
-| 24 | LeaveGroup      | V3      | High        | ⬜ | ⬜ | ⬜ | Batch leave (structural change)    |
-| 25 | LeaveGroup      | V4      | Medium      | ⬜ | ⬜ | ⬜ | FLEX                               |
+| 23 | LeaveGroup      | V2      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                         |
+| 24 | LeaveGroup      | V3      | High        | 🟢 | ⏭️ | ⏭️ | Batch leave (structural change)    |
+| 25 | LeaveGroup      | V4      | Medium      | 🟢 | ⏭️ | ⏭️ | FLEX                               |
 | 26 | OffsetFetch     | V4      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                         |
 | 27 | OffsetFetch     | V5      | Low         | 🟢 | ⏭️ | ⏭️ | +committed_leader_epoch            |
 | 28 | OffsetFetch     | V6      | Medium      | 🟢 | ⏭️ | ⏭️ | FLEX                               |
@@ -322,9 +328,8 @@ Prioritized by: (1) most commonly used APIs first, (2) low-effort versions first
 
 ## Summary
 
-- **Total new versions to implement:** 45 (10 remaining)
-- **Completed:** 35 versions (ApiVersions V2, V3; Metadata V3-V9; Produce V6, V7, V8; Fetch V8-V11; ListOffsets V3, V4, V5; OffsetFetch V4, V5, V6; OffsetCommit V4, V5, V6, V7, V8; FindCoordinator V2, V3; JoinGroup V3, V4, V5, V6; SyncGroup V2, V3, V4; Heartbeat V2, V3, V4)
+- **Total new versions to implement:** 45 (7 remaining)
+- **Completed:** 38 versions (ApiVersions V2, V3; Metadata V3-V9; Produce V6, V7, V8; Fetch V8-V11; ListOffsets V3, V4, V5; OffsetFetch V4, V5, V6; OffsetCommit V4, V5, V6, V7, V8; FindCoordinator V2, V3; JoinGroup V3, V4, V5, V6; SyncGroup V2, V3, V4; Heartbeat V2, V3, V4; LeaveGroup V2, V3, V4)
 - **Low effort:** 5 versions remaining (mostly schema-identical or single field additions)
-- **Medium effort:** 3 versions remaining (flexible version encoding changes)
-- **High effort:** 1 version (LeaveGroup V3 structural change)
+- **Medium effort:** 1 version remaining (flexible version encoding changes)
 - **Medium-High effort:** 1 version (CreateTopics V5 response additions)

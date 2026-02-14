@@ -1,6 +1,8 @@
-defimpl KafkaEx.Protocol.Kayrock.LeaveGroup.Request, for: Kayrock.LeaveGroup.V0.Request do
+defimpl KafkaEx.Protocol.Kayrock.LeaveGroup.Request, for: Kayrock.LeaveGroup.V2.Request do
   @moduledoc """
-  Implementation for LeaveGroup v0 Request.
+  Implementation for LeaveGroup v2 Request.
+
+  V2 request schema is identical to V0/V1 (pure version bump).
   """
 
   alias KafkaEx.Protocol.Kayrock.LeaveGroup.RequestHelpers
