@@ -7,7 +7,6 @@ KafkaEx supports SASL authentication for secure Kafka clusters. Multiple mechani
 - **PLAIN** - Simple username/password (requires SSL/TLS)
 - **SCRAM-SHA-256** - Secure challenge-response authentication (Kafka 0.10.2+)
 - **SCRAM-SHA-512** - Secure challenge-response with stronger hash (Kafka 0.10.2+)
-- **SCRAM-SHA-512** - Secure challenge-response with stronger hash (Kafka 0.10.2+)
 - **OAUTHBEARER**   - Token-based authentication using OAuth 2.0 bearer tokens (Kafka 2.0+)
 - **MSK_IAM**       - AWS IAM authentication for Amazon MSK (MSK 2.7.1+)
 
@@ -212,9 +211,10 @@ SASL authentication is transparent to the rest of your KafkaEx usage:
 
 ```elixir
 # Once configured, use KafkaEx normally
-KafkaEx.metadata()
-KafkaEx.produce("my-topic", 0, "message")
-messages = KafkaEx.fetch("my-topic", 0, offset: 0)
+{:ok, client} = KafkaEx.API.start_client()
+{:ok, metadata} = KafkaEx.API.metadata(client)
+{:ok, _} = KafkaEx.API.produce_one(client, "my-topic", 0, "message")
+{:ok, result} = KafkaEx.API.fetch(client, "my-topic", 0, 0)
 ```
 
 ## Troubleshooting
@@ -249,9 +249,10 @@ end
 
 The SASL implementation handles different Kafka versions appropriately:
 
-- Kafka 0.9.x: Skips API versions call (not supported)
 - Kafka 0.10.0-0.10.1: Queries API versions, supports PLAIN only
 - Kafka 0.10.2+: Full support including SCRAM mechanisms
+- Kafka 2.0+: OAUTHBEARER support
+- MSK 2.7.1+: MSK_IAM support
 
 ### Technical Details
 
