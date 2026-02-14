@@ -260,6 +260,225 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.RequestTest do
     end
   end
 
+  describe "V3 Request implementation" do
+    test "builds request with validate_only (identical to V1/V2)" do
+      request = %Kayrock.CreateTopics.V3.Request{}
+
+      opts = [
+        topics: [[topic: "test-topic", num_partitions: 4, replication_factor: 3]],
+        timeout: 15_000,
+        validate_only: true
+      ]
+
+      result = CreateTopics.Request.build_request(request, opts)
+
+      assert %Kayrock.CreateTopics.V3.Request{} = result
+      assert result.validate_only == true
+      assert result.timeout_ms == 15_000
+      assert length(result.topics) == 1
+
+      [topic_req] = result.topics
+      assert topic_req.name == "test-topic"
+      assert topic_req.num_partitions == 4
+      assert topic_req.replication_factor == 3
+    end
+
+    test "defaults validate_only to false" do
+      request = %Kayrock.CreateTopics.V3.Request{}
+      opts = [topics: [[topic: "test-topic"]], timeout: 10_000]
+
+      result = CreateTopics.Request.build_request(request, opts)
+
+      assert result.validate_only == false
+    end
+  end
+
+  describe "V4 Request implementation" do
+    test "builds request with validate_only (identical to V1-V3)" do
+      request = %Kayrock.CreateTopics.V4.Request{}
+
+      opts = [
+        topics: [[topic: "test-topic", num_partitions: 8]],
+        timeout: 20_000,
+        validate_only: false
+      ]
+
+      result = CreateTopics.Request.build_request(request, opts)
+
+      assert %Kayrock.CreateTopics.V4.Request{} = result
+      assert result.validate_only == false
+      assert result.timeout_ms == 20_000
+    end
+
+    test "defaults validate_only to false" do
+      request = %Kayrock.CreateTopics.V4.Request{}
+      opts = [topics: [[topic: "test-topic"]], timeout: 10_000]
+
+      result = CreateTopics.Request.build_request(request, opts)
+
+      assert result.validate_only == false
+    end
+  end
+
+  describe "V5 Request implementation (FLEX)" do
+    test "builds request with validate_only" do
+      request = %Kayrock.CreateTopics.V5.Request{}
+
+      opts = [
+        topics: [[topic: "flex-topic", num_partitions: 12, replication_factor: 3]],
+        timeout: 30_000,
+        validate_only: true
+      ]
+
+      result = CreateTopics.Request.build_request(request, opts)
+
+      assert %Kayrock.CreateTopics.V5.Request{} = result
+      assert result.validate_only == true
+      assert result.timeout_ms == 30_000
+      assert length(result.topics) == 1
+
+      [topic_req] = result.topics
+      assert topic_req.name == "flex-topic"
+      assert topic_req.num_partitions == 12
+      assert topic_req.replication_factor == 3
+    end
+
+    test "defaults validate_only to false" do
+      request = %Kayrock.CreateTopics.V5.Request{}
+      opts = [topics: [[topic: "test-topic"]], timeout: 10_000]
+
+      result = CreateTopics.Request.build_request(request, opts)
+
+      assert result.validate_only == false
+    end
+
+    test "preserves correlation_id and client_id" do
+      request = %Kayrock.CreateTopics.V5.Request{
+        correlation_id: 99,
+        client_id: "flex-client"
+      }
+
+      opts = [topics: [[topic: "test-topic"]], timeout: 10_000]
+
+      result = CreateTopics.Request.build_request(request, opts)
+
+      assert result.correlation_id == 99
+      assert result.client_id == "flex-client"
+    end
+
+    test "builds request with config entries" do
+      request = %Kayrock.CreateTopics.V5.Request{}
+
+      opts = [
+        topics: [
+          [
+            topic: "configured-topic",
+            num_partitions: 3,
+            config_entries: [
+              {"cleanup.policy", "compact"},
+              {"retention.ms", "86400000"}
+            ]
+          ]
+        ],
+        timeout: 10_000
+      ]
+
+      result = CreateTopics.Request.build_request(request, opts)
+
+      [topic_req] = result.topics
+      assert length(topic_req.configs) == 2
+      assert Enum.find(topic_req.configs, &(&1.name == "cleanup.policy"))
+      assert Enum.find(topic_req.configs, &(&1.name == "retention.ms"))
+    end
+  end
+
+  describe "V3-V5 cross-version request consistency" do
+    @common_opts [
+      topics: [
+        [topic: "cross-version-topic", num_partitions: 6, replication_factor: 2]
+      ],
+      timeout: 25_000,
+      validate_only: true
+    ]
+
+    test "V3, V4, V5 produce identical logical fields" do
+      for {version, request_struct} <- [
+            {3, %Kayrock.CreateTopics.V3.Request{}},
+            {4, %Kayrock.CreateTopics.V4.Request{}},
+            {5, %Kayrock.CreateTopics.V5.Request{}}
+          ] do
+        result = CreateTopics.Request.build_request(request_struct, @common_opts)
+
+        assert result.validate_only == true,
+               "V#{version}: validate_only should be true"
+
+        assert result.timeout_ms == 25_000,
+               "V#{version}: timeout_ms should be 25_000"
+
+        [topic_req] = result.topics
+
+        assert topic_req.name == "cross-version-topic",
+               "V#{version}: topic name mismatch"
+
+        assert topic_req.num_partitions == 6,
+               "V#{version}: num_partitions mismatch"
+
+        assert topic_req.replication_factor == 2,
+               "V#{version}: replication_factor mismatch"
+      end
+    end
+  end
+
+  describe "Any fallback Request implementation" do
+    test "routes V1+ structs to build_v1_plus_request path" do
+      # Simulate a future V6 struct with validate_only
+      future_struct = %{
+        validate_only: nil,
+        topics: [],
+        timeout_ms: nil,
+        correlation_id: nil,
+        client_id: nil
+      }
+
+      opts = [
+        topics: [[topic: "any-topic", num_partitions: 3]],
+        timeout: 10_000,
+        validate_only: true
+      ]
+
+      result = CreateTopics.Request.build_request(future_struct, opts)
+
+      assert result.validate_only == true
+      assert result.timeout_ms == 10_000
+      assert length(result.topics) == 1
+      [topic_req] = result.topics
+      assert topic_req.name == "any-topic"
+    end
+
+    test "routes V0-style structs to V0 path (no validate_only)" do
+      # Simulate a struct without validate_only (V0 path)
+      v0_style_struct = %{
+        topics: [],
+        timeout_ms: nil,
+        correlation_id: nil,
+        client_id: nil
+      }
+
+      opts = [
+        topics: [[topic: "v0-topic"]],
+        timeout: 5_000
+      ]
+
+      result = CreateTopics.Request.build_request(v0_style_struct, opts)
+
+      assert result.timeout_ms == 5_000
+      refute Map.has_key?(result, :validate_only)
+      assert length(result.topics) == 1
+      [topic_req] = result.topics
+      assert topic_req.name == "v0-topic"
+    end
+  end
+
   describe "Request with config entries" do
     test "converts config entries correctly" do
       request = %Kayrock.CreateTopics.V0.Request{}

@@ -87,17 +87,19 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.RequestHelpers do
   end
 
   @doc """
-  Builds a CreateTopics request for V1 and V2 (which have identical request schemas).
+  Builds a CreateTopics request for V1+ (V1-V5 have identical request schemas).
 
-  Both V1 and V2 support:
+  All V1+ versions support:
   - create_topic_requests: array of topic configs
   - timeout: int32
   - validate_only: boolean
 
-  The difference between V1 and V2 is only in the response format (V2 adds throttle_time_ms).
+  V3/V4 are pure version bumps with identical schemas to V1/V2.
+  V5 is the flexible version (KIP-482) but the logical fields are the same;
+  compact encoding is handled by Kayrock's serializer.
   """
-  @spec build_v1_v2_request(struct(), Keyword.t()) :: struct()
-  def build_v1_v2_request(request_template, opts) do
+  @spec build_v1_plus_request(struct(), Keyword.t()) :: struct()
+  def build_v1_plus_request(request_template, opts) do
     %{topics: topics, timeout: timeout} = extract_common_fields(opts)
     validate_only = Keyword.get(opts, :validate_only, false)
 

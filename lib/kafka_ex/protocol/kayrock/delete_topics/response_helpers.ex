@@ -32,4 +32,22 @@ defmodule KafkaEx.Protocol.Kayrock.DeleteTopics.ResponseHelpers do
       throttle_time_ms: throttle_time_ms
     )
   end
+
+  @doc """
+  Parses a V0 DeleteTopics response (no throttle_time_ms).
+  """
+  @spec parse_v0_response(map()) :: {:ok, DeleteTopics.t()}
+  def parse_v0_response(response) do
+    topic_results = parse_topic_results(response.responses)
+    {:ok, build_response(topic_results)}
+  end
+
+  @doc """
+  Parses a V1+ DeleteTopics response (includes throttle_time_ms).
+  """
+  @spec parse_v1_plus_response(map()) :: {:ok, DeleteTopics.t()}
+  def parse_v1_plus_response(response) do
+    topic_results = parse_topic_results(response.responses)
+    {:ok, build_response(topic_results, response.throttle_time_ms)}
+  end
 end

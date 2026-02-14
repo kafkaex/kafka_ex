@@ -1,9 +1,9 @@
 defimpl KafkaEx.Protocol.Kayrock.DeleteTopics.Request,
-  for: Kayrock.DeleteTopics.V0.Request do
+  for: Kayrock.DeleteTopics.V3.Request do
   @moduledoc """
-  V0 implementation of DeleteTopics Request protocol.
+  V3 implementation of DeleteTopics Request protocol.
 
-  V0 Schema:
+  V3 Schema (identical to V0-V2):
   - topics: List of topic names to delete
   - timeout: Request timeout in milliseconds
   """

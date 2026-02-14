@@ -1,11 +1,11 @@
 defimpl KafkaEx.Protocol.Kayrock.DeleteTopics.Response,
-  for: Kayrock.DeleteTopics.V1.Response do
+  for: Kayrock.DeleteTopics.V3.Response do
   @moduledoc """
-  V1 implementation of DeleteTopics Response protocol.
+  V3 implementation of DeleteTopics Response protocol.
 
-  V1 Response Schema:
+  V3 Response Schema (identical to V1/V2):
   - throttle_time_ms: Time in milliseconds the request was throttled
-  - topic_error_codes: Array of [topic, error_code]
+  - responses: Array of [name, error_code]
   """
 
   alias KafkaEx.Protocol.Kayrock.DeleteTopics.ResponseHelpers

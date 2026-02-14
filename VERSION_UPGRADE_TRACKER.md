@@ -254,27 +254,33 @@ Track implementation of new Kayrock-supported API versions in KafkaEx.
 
 ## 14. CreateTopics (API Key 19)
 
-**Current:** V0-V2 | **Available:** V0-V5
+**Current:** V0-V5 | **Available:** V0-V5
 
 | Version | Status                | Request Changes                          | Response Changes                                                                       | Effort      | Unit                  | Integ                 | Chaos                 |
 |---------|-----------------------|------------------------------------------|----------------------------------------------------------------------------------------|-------------|-----------------------|-----------------------|-----------------------|
 | V0-V2   | 🟢    | —                                        | —                                                                                      | —           | 🟢    | 🟢    | ⬜ |
-| V3      | ⬜ | No changes vs V2                         | No changes vs V2                                                                       | Low         | ⬜ | ⬜ | ⬜ |
-| V4      | ⬜ | No changes vs V3                         | No changes vs V3                                                                       | Low         | ⬜ | ⬜ | ⬜ |
-| V5      | ⬜ | FLEX: +`tagged_fields`, compact types    | FLEX: +`num_partitions`, +`replication_factor`, +`configs` array, +`tagged_fields`     | Medium-High | ⬜ | ⬜ | ⬜ |
+| V3      | 🟢 | No changes vs V2                         | No changes vs V2                                                                       | Low         | 🟢 | ⏭️ | ⏭️ |
+| V4      | 🟢 | No changes vs V3                         | No changes vs V3                                                                       | Low         | 🟢 | ⏭️ | ⏭️ |
+| V5      | 🟢 | FLEX: +`tagged_fields`, compact types    | FLEX: +`num_partitions`, +`replication_factor`, +`configs` array, +`tagged_fields`     | Medium-High | 🟢 | ⏭️ | ⏭️ |
+
+ **Integration/chaos tests skipped (⏭️) for V3-V5:** V3/V4 are pure version bumps. V5 adds response-only metadata fields (num_partitions, replication_factor, configs) that are purely informational. Existing V0-V2 integration tests cover the full CreateTopics path end-to-end. Chaos tests are version-independent.
 
 ---
 
 ## 15. DeleteTopics (API Key 20)
 
-**Current:** V0-V1 | **Available:** V0-V4
+**Current:** V0-V4 (all explicit) | **Available:** V0-V4
 
-| Version | Status                | Request Changes                          | Response Changes                         | Effort | Unit                  | Integ                 | Chaos                 |
-|---------|-----------------------|------------------------------------------|------------------------------------------|--------|-----------------------|-----------------------|-----------------------|
-| V0-V1   | 🟢    | —                                        | —                                        | —      | 🟢    | 🟢    | ⬜ |
-| V2      | ⬜ | No changes vs V1                         | No changes vs V1                         | Low    | ⬜ | ⬜ | ⬜ |
-| V3      | ⬜ | No changes vs V2                         | No changes vs V2                         | Low    | ⬜ | ⬜ | ⬜ |
-| V4      | ⬜ | FLEX: +`tagged_fields`, compact types    | FLEX: +`tagged_fields`, compact types    | Medium | ⬜ | ⬜ | ⬜ |
+| Version | Status | Request Changes                          | Response Changes                         | Effort | Unit | Integ | Chaos |
+|---------|--------|------------------------------------------|------------------------------------------|--------|------|-------|-------|
+| V0-V1   | 🟢     | —                                        | —                                        | —      | 🟢   | 🟢    | ⬜    |
+| V2      | 🟢     | No changes vs V1                         | No changes vs V1                         | Low    | 🟢   | ⏭️    | ⏭️    |
+| V3      | 🟢     | No changes vs V2                         | No changes vs V2                         | Low    | 🟢   | ⏭️    | ⏭️    |
+| V4      | 🟢     | FLEX: +`tagged_fields`, compact types    | FLEX: +`tagged_fields`, compact types    | Medium | 🟢   | ⏭️    | ⏭️    |
+
+> **Note:** `Any` fallback retained for forward compatibility with unknown future versions. All V0-V4 have explicit `defimpl` impls. V2/V3 request/response schemas are identical to V1 (pure version bumps). V4 is the flexible version (KIP-482) -- Kayrock handles compact encoding/decoding transparently, domain-relevant fields are identical to V1-V3. All request impls delegate to `RequestHelpers.build_request_from_template/2`. V0 response delegates to `ResponseHelpers.parse_v0_response/1` (no throttle_time_ms). All V1+ response impls delegate to `ResponseHelpers.parse_v1_plus_response/1` (throttle_time_ms + topic results).
+>
+> **Integration/chaos tests skipped (⏭️) for V2-V4:** These are pure delegation layers -- all request impls call the same `RequestHelpers.build_request_from_template/2` helper, all V1+ response impls call the same `ResponseHelpers.parse_v1_plus_response/1`. Default DeleteTopics version is determined by version negotiation. Existing V0-V1 integration tests already cover the full DeleteTopics path end-to-end. Chaos tests are version-independent (broker failures affect all versions identically). Would revisit if: default version bumped, or flexible version encoding issues discovered.
 
 ---
 
@@ -321,12 +327,12 @@ Prioritized by: (1) most commonly used APIs first, (2) low-effort versions first
 | 35 | DescribeGroups  | V3      | Low         | 🟢 | ⏭️ | ⏭️ | +authorized_operations             |
 | 36 | DescribeGroups  | V4      | Low         | 🟢 | ⏭️ | ⏭️ | +group_instance_id per member      |
 | 37 | DescribeGroups  | V5      | Medium      | 🟢 | ⏭️ | ⏭️ | FLEX                               |
-| 38 | CreateTopics    | V3      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
-| 39 | CreateTopics    | V4      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
-| 40 | CreateTopics    | V5      | Medium-High | ⬜ | ⬜ | ⬜ | FLEX + new response fields         |
-| 41 | DeleteTopics    | V2      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
-| 42 | DeleteTopics    | V3      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
-| 43 | DeleteTopics    | V4      | Medium      | ⬜ | ⬜ | ⬜ | FLEX                               |
+| 38 | CreateTopics    | V3      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                         |
+| 39 | CreateTopics    | V4      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                         |
+| 40 | CreateTopics    | V5      | Medium-High | 🟢 | ⏭️ | ⏭️ | FLEX + new response fields         |
+| 41 | DeleteTopics    | V2      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                         |
+| 42 | DeleteTopics    | V3      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                         |
+| 43 | DeleteTopics    | V4      | Medium      | 🟢 | ⏭️ | ⏭️ | FLEX                               |
 | 44 | ApiVersions     | V2      | Low         | 🟢    | ⏭️ | ⏭️ | No changes                         |
 | 45 | ApiVersions     | V3      | Medium      | 🟢    | ⏭️ | ⏭️ | FLEX + client_software fields      |
 
@@ -334,8 +340,20 @@ Prioritized by: (1) most commonly used APIs first, (2) low-effort versions first
 
 ## Summary
 
-- **Total new versions to implement:** 45 (6 remaining)
-- **Completed:** 39 versions (ApiVersions V2, V3; Metadata V3-V9; Produce V6, V7, V8; Fetch V8-V11; ListOffsets V3, V4, V5; OffsetFetch V4, V5, V6; OffsetCommit V4, V5, V6, V7, V8; FindCoordinator V2, V3; JoinGroup V3, V4, V5, V6; SyncGroup V2, V3, V4; Heartbeat V2, V3, V4; LeaveGroup V2, V3, V4; DescribeGroups V2, V3, V4, V5)
-- **Low effort:** 4 versions remaining (CreateTopics V3, V4; DeleteTopics V2, V3)
-- **Medium effort:** 1 version remaining (DeleteTopics V4 -- FLEX)
-- **Medium-High effort:** 1 version (CreateTopics V5 -- FLEX + new response fields)
+- **Total new versions to implement:** 45 (0 remaining)
+- **Completed:** 45/45 versions -- ALL DONE
+  - ApiVersions V2, V3
+  - Metadata V3-V9
+  - Produce V6, V7, V8
+  - Fetch V8-V11
+  - ListOffsets V3, V4, V5
+  - OffsetFetch V4, V5, V6
+  - OffsetCommit V4, V5, V6, V7, V8
+  - FindCoordinator V2, V3
+  - JoinGroup V3, V4, V5, V6
+  - SyncGroup V2, V3, V4
+  - Heartbeat V2, V3, V4
+  - LeaveGroup V2, V3, V4
+  - DescribeGroups V2, V3, V4, V5
+  - CreateTopics V3, V4, V5
+  - DeleteTopics V2, V3, V4

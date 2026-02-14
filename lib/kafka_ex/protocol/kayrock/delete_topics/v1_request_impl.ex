@@ -13,12 +13,6 @@ defimpl KafkaEx.Protocol.Kayrock.DeleteTopics.Request,
   alias KafkaEx.Protocol.Kayrock.DeleteTopics.RequestHelpers
 
   def build_request(request, opts) do
-    fields = RequestHelpers.extract_common_fields(opts)
-
-    %{
-      request
-      | topic_names: fields.topics,
-        timeout_ms: fields.timeout
-    }
+    RequestHelpers.build_request_from_template(request, opts)
   end
 end

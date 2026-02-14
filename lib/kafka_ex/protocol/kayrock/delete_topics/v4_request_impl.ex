@@ -1,9 +1,11 @@
 defimpl KafkaEx.Protocol.Kayrock.DeleteTopics.Request,
-  for: Kayrock.DeleteTopics.V0.Request do
+  for: Kayrock.DeleteTopics.V4.Request do
   @moduledoc """
-  V0 implementation of DeleteTopics Request protocol.
+  V4 implementation of DeleteTopics Request protocol.
 
-  V0 Schema:
+  V4 is the flexible version (KIP-482) with compact encodings + tagged_fields.
+  Kayrock handles the encoding transparently. Domain-relevant fields are
+  identical to V0-V3:
   - topics: List of topic names to delete
   - timeout: Request timeout in milliseconds
   """
