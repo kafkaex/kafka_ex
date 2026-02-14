@@ -130,9 +130,26 @@ The new `KafkaEx.API` module provides explicit, client-based functions:
 
 No need to configure Kafka versions - the client automatically negotiates the best API version with your brokers.
 
+### Protocol Version Support
+
+KafkaEx 1.0 supports modern protocol versions across all 15 Kafka APIs, with automatic
+version negotiation. No configuration needed — the client selects the highest mutually
+supported version with your brokers.
+
+### Telemetry
+
+KafkaEx now emits [telemetry](https://hexdocs.pm/telemetry/) events for observability
+across connections, requests, produce, fetch, offsets, consumer groups, metadata, and
+SASL authentication. See `KafkaEx.Telemetry` for the full event list.
+
+### Structured Error Handling
+
+All API functions return consistent `{:ok, result} | {:error, %KafkaEx.Client.Error{}}` tuples.
+No more bare atoms, nil returns, or process crashes on broker errors.
+
 ### SASL Authentication
 
-Full SASL support including PLAIN, SCRAM-SHA-256/512, and OAUTHBEARER:
+Full SASL support including PLAIN, SCRAM-SHA-256/512, OAUTHBEARER, and MSK_IAM:
 
 ```elixir
 config :kafka_ex,

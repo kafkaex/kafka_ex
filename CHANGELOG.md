@@ -17,11 +17,18 @@
 ### Added
 
 * `KafkaEx.API` module as primary API with explicit client-based functions
-* Automatic API version negotiation with Kafka brokers
+* Automatic API version negotiation with Kafka brokers via `ApiVersions` on connect
+* Protocol version extension across 15 APIs (45 versions total):
+  * Produce V0-V8, Fetch V0-V11, ListOffsets V0-V5
+  * Metadata V0-V9, FindCoordinator V0-V3, CreateTopics V0-V5, DeleteTopics V0-V4
+  * JoinGroup V0-V3, SyncGroup V0-V3, Heartbeat V0-V4, LeaveGroup V0-V2
+  * OffsetFetch V0-V6, OffsetCommit V0-V8, DescribeGroups V0-V5, ApiVersions V0-V2
 * Full message headers support
-* SASL authentication support (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, OAUTHBEARER)
-* Heartbeat API (v0-v3) with new API support
-* LeaveGroup API (v0-v3) with new API support
+* `KafkaEx.Telemetry` module with telemetry events for connections, requests, produce, fetch, offsets, consumer groups, metadata, and SASL auth
+* Structured error handling with `KafkaEx.Client.Error` and consistent `{:ok, _} | {:error, Error.t()}` returns
+* SASL authentication support (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, OAUTHBEARER, MSK_IAM)
+* Heartbeat API (v0-v4) with new API support
+* LeaveGroup API (v0-v2) with new API support
 * SyncGroup API (v0-v3) with new API support
 * Graceful shutdown for GenConsumer
 
@@ -47,7 +54,7 @@ See UPGRADING.md for detailed migration instructions.
 
 ## 0.14
 
-## Features
+### Features
 
 * Added `SASL` Auth Implementation
 * Added Graceful shutdown for GenConsumer
@@ -55,8 +62,7 @@ See UPGRADING.md for detailed migration instructions.
 * Migrated Consumer Group API to `kayrock`
 * Migrated LeaveGroup API (v0-v1) to `kayrock` with new API support
 * Migrated SyncGroup API (v0-v1) to `kayrock` with new API support
-
-## 0.14
+* Added `describe_groups` API
 
 ### Fixes
 
@@ -64,10 +70,6 @@ See UPGRADING.md for detailed migration instructions.
 * Fix deprecation warnings with Bitwise usage
 * Fix deprecation warnings with Config
 * Fix deprecation warnings with Stacktrace
-
-### Features
-
-* Added `describe_groups` API
 
 ### Breaking Changes
 

@@ -3,19 +3,51 @@
 - [Fork](https://github.com/kafkaex/kafka_ex/fork), then clone the repo: `git clone git@github.com:your-username/kafka_ex.git`
 - Create a feature branch: `git checkout -b feature_branch`
 - Make your changes
-- Make sure the tests all pass with the dockerized test cluster.  See the "Testing" section of the README.
+- Make sure the tests pass with the dockerized test cluster. See the "Testing" section of the README.
+
+### Running Tests
+
+Unit tests (no Kafka cluster required):
+```bash
+mix test.unit
 ```
-mix test --include integration --include consumer_group --include server_0_p_9_p_0
+
+Integration tests (requires Docker test cluster):
+```bash
+./scripts/docker_up.sh
+
+# Run all integration tests
+mix test.integration
+
+# Or run by category
+mix test --only consumer_group
+mix test --only produce
+mix test --only consume
+mix test --only lifecycle
+mix test --only auth
 ```
-- Make sure the unit tests pass: `mix test --no-start`
-- Make sure the integration tests pass: `mix test --only integration`
-- Make sure the consumer group tests pass: `mix test --only consumer_group`
-- Make sure dialyzer returns clean: `mix dialyzer` *See below*
+
+Chaos tests (uses Testcontainers, no Docker Compose cluster needed):
+```bash
+mix test --only chaos
+```
+
+### Static Analysis
+
+Make sure all checks pass before submitting:
+```bash
+mix format --check-formatted
+mix credo --strict
+mix dialyzer
+```
+
+### Submitting
+
 - Push your feature branch: `git push origin feature_branch`
 - Submit a pull request with your feature branch
 
 Thanks!
 
-*Dialyzer note* You need Elixir 1.3.2+ to run `mix dialyzer`.  You may get some
-false positives on Erlang 18.  `mix dialyzer` is known to return clean on
-Elixir 1.3.4 with Erlang 19.2.
+### Requirements
+
+KafkaEx requires Elixir 1.14+ and Erlang/OTP 24+.
