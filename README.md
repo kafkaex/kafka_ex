@@ -1,8 +1,9 @@
 KafkaEx
 ========
 
-[![CI Tests](https://github.com/kafkaex/kafka_ex/actions/workflows/test.yml/badge.svg)](https://github.com/kafkaex/kafka_ex/actions/workflows/test.yml)
-[![CI Checks](https://github.com/kafkaex/kafka_ex/actions/workflows/checks.yml/badge.svg)](https://github.com/kafkaex/kafka_ex/actions/workflows/checks.yml)
+[![Unit Tests](https://github.com/kafkaex/kafka_ex/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/kafkaex/kafka_ex/actions/workflows/unit-tests.yml)
+[![Static Checks](https://github.com/kafkaex/kafka_ex/actions/workflows/static-checks.yml/badge.svg)](https://github.com/kafkaex/kafka_ex/actions/workflows/static-checks.yml)
+[![Integration Tests](https://github.com/kafkaex/kafka_ex/actions/workflows/integration-tests.yml/badge.svg)](https://github.com/kafkaex/kafka_ex/actions/workflows/integration-tests.yml)
 [![Coverage Status](https://coveralls.io/repos/github/kafkaex/kafka_ex/badge.svg?branch=master)](https://coveralls.io/github/kafkaex/kafka_ex?branch=master)
 [![Hex.pm version](https://img.shields.io/hexpm/v/kafka_ex.svg?style=flat-square)](https://hex.pm/packages/kafka_ex)
 [![Hex.pm downloads](https://img.shields.io/hexpm/dt/kafka_ex.svg?style=flat-square)](https://hex.pm/packages/kafka_ex)
@@ -71,10 +72,7 @@ end
 MyApp.Kafka.produce_one("my-topic", 0, "hello")
 ```
 
-For detailed information, see:
-
-*   Github: [new_api.md](https://github.com/kafkaex/kafka_ex/blob/master/new_api.md)
-*   HexDocs: [KafkaEx.API](https://hexdocs.pm/kafka_ex/KafkaEx.API.html)
+For detailed information, see [KafkaEx.API](https://hexdocs.pm/kafka_ex/KafkaEx.API.html) on HexDocs.
 
 ## Using KafkaEx in an Elixir project
 
@@ -109,9 +107,7 @@ Then run `mix deps.get` to fetch dependencies.
 See [config/config.exs](https://github.com/kafkaex/kafka_ex/blob/master/config/config.exs)
 or [KafkaEx.Config](https://hexdocs.pm/kafka_ex/KafkaEx.Config.html)
 for a description of configuration variables, including the Kafka broker list
- and default consumer group.
-
-You can also override options when creating a worker, see below.
+and default consumer group.
 
 ## Telemetry
 
@@ -203,19 +199,107 @@ Consumer groups handle transient errors gracefully following the Java client pat
 
 **Important**: Produce requests only retry on leadership errors where we know the message wasn't written. Timeout errors are NOT retried to prevent potential duplicate messages. For truly idempotent produces, enable `enable.idempotence=true` on your Kafka cluster (requires Kafka 0.11+).
 
-## Timeouts with SSL
-
-When using certain versions of OTP,
-[random timeouts can occur if using SSL](https://github.com/kafkaex/kafka_ex/issues/389).
-
-Impacted versions:
-
-*   OTP 21.3.8.1 -> 21.3.8.14
-*   OTP 22.1 -> 22.3.1
-
-Upgrade respectively to 21.3.8.15 or 22.3.2 to solve this.
-
 ## Usage Examples
+
+### Starting a Client
+
+Start a client to interact with Kafka:
+
+```elixir
+# With default configuration (reads from config.exs)
+{:ok, client} = KafkaEx.API.start_client()
+
+# With custom brokers
+{:ok, client} = KafkaEx.API.start_client(brokers: [{"localhost", 9092}])
+
+# As a named process
+{:ok, client} = KafkaEx.API.start_client(name: MyApp.KafkaClient)
+```
+
+Or add a client to your supervision tree:
+
+```elixir
+children = [
+  {KafkaEx.API, name: MyApp.KafkaClient, brokers: [{"localhost", 9092}]}
+]
+
+Supervisor.start_link(children, strategy: :one_for_one)
+```
+
+You can also create named workers under the KafkaEx application supervisor:
+
+```elixir
+{:ok, pid} = KafkaEx.create_worker(:my_worker)
+{:ok, pid} = KafkaEx.create_worker(:my_worker, uris: [{"localhost", 9092}])
+```
+
+### Produce Messages
+
+```elixir
+# Produce a single message
+{:ok, metadata} = KafkaEx.API.produce_one(client, "my-topic", 0, "hello")
+
+# Produce a batch of messages with keys
+messages = [
+  %{key: "user-1", value: "event-a"},
+  %{key: "user-2", value: "event-b"}
+]
+{:ok, metadata} = KafkaEx.API.produce(client, "my-topic", 0, messages)
+
+# metadata contains offset information
+metadata.base_offset  # => 0
+metadata.topic        # => "my-topic"
+```
+
+### Fetch Messages
+
+```elixir
+{:ok, result} = KafkaEx.API.fetch(client, "my-topic", 0, 0)
+
+# result is a %KafkaEx.Messages.Fetch{} struct
+result.topic          # => "my-topic"
+result.partition      # => 0
+result.high_watermark # => 10
+result.records        # => [%{offset: 0, key: "user-1", value: "event-a"}, ...]
+
+# Get the next offset to fetch from
+next = KafkaEx.Messages.Fetch.next_offset(result)
+{:ok, more} = KafkaEx.API.fetch(client, "my-topic", 0, next)
+```
+
+### Retrieve Offsets
+
+```elixir
+# Get the latest offset (end of partition)
+{:ok, offset} = KafkaEx.API.latest_offset(client, "my-topic", 0)
+# => {:ok, 42}
+
+# Get the earliest offset (start of partition)
+{:ok, offset} = KafkaEx.API.earliest_offset(client, "my-topic", 0)
+# => {:ok, 0}
+```
+
+### Retrieve Metadata
+
+```elixir
+# Get cluster metadata (brokers + all topics)
+{:ok, metadata} = KafkaEx.API.metadata(client)
+metadata.brokers  # => %{0 => %{host: "localhost", port: 9092, ...}, ...}
+metadata.topics   # => %{"my-topic" => %{name: "my-topic", partitions: [...]}, ...}
+
+# Get metadata for specific topics
+{:ok, topics} = KafkaEx.API.topics_metadata(client, ["my-topic"])
+```
+
+### Topic Management
+
+```elixir
+# Create a topic
+{:ok, result} = KafkaEx.API.create_topic(client, "new-topic", num_partitions: 3)
+
+# Delete a topic
+{:ok, result} = KafkaEx.API.delete_topic(client, "old-topic")
+```
 
 ### Consumer Groups
 
@@ -230,7 +314,7 @@ defmodule ExampleGenConsumer do
 
   # note - messages are delivered in batches
   def handle_message_set(message_set, state) do
-    for %Record{value: message} <- message_set do
+    for %{value: message} <- message_set do
       Logger.debug(fn -> "message: " <> inspect(message) end)
     end
     {:async_commit, state}
@@ -244,193 +328,28 @@ tree and configure it to use the implementation module.
 See the `KafkaEx.Consumer.GenConsumer` and `KafkaEx.Consumer.ConsumerGroup` documentation for
 details.
 
-### Create a KafkaEx Worker
-
-KafkaEx worker processes manage the state of the connection to the Kafka broker.
-
-```elixir
-iex> KafkaEx.create_worker(:pr) # where :pr is the process name of the created worker
-{:ok, #PID<0.171.0>}
-```
-
-With custom options:
-
-```elixir
-iex> uris = [{"localhost", 9092}, {"localhost", 9093}, {"localhost", 9094}]
-[{"localhost", 9092}, {"localhost", 9093}, {"localhost", 9094}]
-iex> KafkaEx.create_worker(:pr, [uris: uris, consumer_group: "kafka_ex", consumer_group_update_interval: 100])
-{:ok, #PID<0.172.0>}
-```
-
-### Create an unnamed KafkaEx worker
-
-You may find you want to create many workers, say in conjunction with
-a `poolboy` pool. In this scenario you usually won't want to name these worker processes.
-
-To create an unnamed worked with `create_worker`:
-```elixir
-iex> KafkaEx.create_worker(:no_name) # indicates to the server process not to name the process
-{:ok, #PID<0.171.0>}
-```
-
-### Use KafkaEx with a pooling library
-
-Note that KafkaEx has a supervisor to manage its workers. If you are using Poolboy or a similar
-library, you will want to manually create a worker so that it is not supervised by `KafkaEx.Supervisor`.
-To do this, you will need to call:
-
-```elixir
-GenServer.start_link(KafkaEx.Config.server_impl,
-  [
-    [uris: KafkaEx.Config.brokers(),
-     consumer_group: Application.get_env(:kafka_ex, :consumer_group)],
-    :no_name
-  ]
-)
-```
-
-Alternatively, you can call
-
-```
-KafkaEx.start_link_worker(:no_name)
-```
-
-### Retrieve kafka metadata
-For all metadata
-
-```elixir
-iex> KafkaEx.metadata
-%KafkaEx.Protocol.Metadata.Response{brokers: [%KafkaEx.Protocol.Metadata.Broker{host:
- "192.168.59.103",
-   node_id: 49162, port: 49162, socket: nil}],
- topic_metadatas: [%KafkaEx.Protocol.Metadata.TopicMetadata{error_code: :no_error,
-   partition_metadatas: [%KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: :no_error,
-     isrs: [49162], leader: 49162, partition_id: 0, replicas: [49162]}],
-   topic: "LRCYFQDVWUFEIUCCTFGP"},
-  %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: :no_error,
-   partition_metadatas: [%KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: :no_error,
-     isrs: [49162], leader: 49162, partition_id: 0, replicas: [49162]}],
-   topic: "JSIMKCLQYTWXMSIGESYL"},
-  %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: :no_error,
-   partition_metadatas: [%KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: :no_error,
-     isrs: [49162], leader: 49162, partition_id: 0, replicas: [49162]}],
-   topic: "SCFRRXXLDFPOWSPQQMSD"},
-  %KafkaEx.Protocol.Metadata.TopicMetadata{error_code: :no_error,
-...
-```
-
-For a specific topic
-
-```elixir
-iex> KafkaEx.metadata(topic: "foo")
-%KafkaEx.Protocol.Metadata.Response{brokers: [%KafkaEx.Protocol.Metadata.Broker{host: "192.168.59.103",
-   node_id: 49162, port: 49162, socket: nil}],
- topic_metadatas: [%KafkaEx.Protocol.Metadata.TopicMetadata{error_code: :no_error,
-   partition_metadatas: [%KafkaEx.Protocol.Metadata.PartitionMetadata{error_code: :no_error,
-     isrs: [49162], leader: 49162, partition_id: 0, replicas: [49162]}],
-   topic: "foo"}]}
-```
-
-### Retrieve offset from a particular time
-
-Kafka will get the starting offset of the log segment that is created no later than the given timestamp. Due to this, and since the offset request is served only at segment granularity, the offset fetch request returns less accurate results for larger segment sizes.
-
-```elixir
-iex> KafkaEx.offset("foo", 0, {{2015, 3, 29}, {23, 56, 40}}) # Note that the time specified should match/be ahead of time on the server that kafka runs
-[%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: :no_error, offset: [256], partition: 0}], topic: "foo"}]
-```
-
-### Retrieve the latest offset
-
-```elixir
-iex> KafkaEx.latest_offset("foo", 0) # where 0 is the partition
-[%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: :no_error, offset: [16], partition: 0}], topic: "foo"}]
-```
-
-### Retrieve the earliest offset
-
-```elixir
-iex> KafkaEx.earliest_offset("foo", 0) # where 0 is the partition
-[%KafkaEx.Protocol.Offset.Response{partition_offsets: [%{error_code: :no_error, offset: [0], partition: 0}], topic: "foo"}]
-```
-
-### Fetch kafka logs
-
-**NOTE** You must pass `auto_commit: false` in the options for `fetch/3` when using `:no_consumer_group`.
-
-```elixir
-iex> KafkaEx.API.fetch(client, "foo", 0, 5) # where 0 is the partition and 5 is the offset
-{:ok, %KafkaEx.Messages.Fetch{
-  topic: "foo",
-  partition: 0,
-  high_watermark: 115,
-  records: [
-    %KafkaEx.Messages.Fetch.Record{offset: 5, key: nil, value: "hey", ...},
-    %KafkaEx.Messages.Fetch.Record{offset: 6, key: nil, value: "hey", ...},
-    %KafkaEx.Messages.Fetch.Record{offset: 7, key: nil, value: "hey", ...},
-    %KafkaEx.Messages.Fetch.Record{offset: 8, key: nil, value: "hey", ...},
-    %KafkaEx.Messages.Fetch.Record{offset: 9, key: nil, value: "hey", ...}
-  ],
-  last_offset: 9
-}}
-```
-
-### Produce kafka logs
-
-```elixir
-iex> KafkaEx.produce("foo", 0, "hey") # where "foo" is the topic and "hey" is the message
-:ok
-```
-
-### Stream kafka logs
-
-See the `KafkaEx.stream/3` documentation for details on streaming.
-
-```elixir
-iex> KafkaEx.produce("foo", 0, "hey")
-:ok
-iex> KafkaEx.produce("foo", 0, "hi")
-:ok
-iex> KafkaEx.stream("foo", 0, offset: 0) |> Enum.take(2)
-[%{attributes: 0, crc: 4264455069, key: nil, offset: 0, value: "hey"},
- %{attributes: 0, crc: 4251893211, key: nil, offset: 1, value: "hi"}]
-```
-
-When using `:no_consumer_group`, you should pass `auto_commit: false`:
-
-```elixir
-iex> KafkaEx.stream("foo", 0, offset: 0, auto_commit: false) |> Enum.take(2)
-```
-
 ### Compression
 
-Snappy and gzip compression is supported.  Example usage for producing compressed messages:
+KafkaEx supports gzip, snappy, lz4, and zstd compression via the Kayrock protocol layer.
+Decompression is handled automatically when fetching messages.
+
+To produce compressed messages:
 
 ```elixir
-message1 = %KafkaEx.Protocol.Produce.Message{value: "value 1"}
-message2 = %KafkaEx.Protocol.Produce.Message{key: "key 2", value: "value 2"}
-messages = [message1, message2]
-
-#snappy
-produce_request = %KafkaEx.Protocol.Produce.Request{
-  topic: "test_topic",
-  partition: 0,
-  required_acks: 1,
-  compression: :snappy,
-  messages: messages}
-KafkaEx.produce(produce_request)
-
-#gzip
-produce_request = %KafkaEx.Protocol.Produce.Request{
-  topic: "test_topic",
-  partition: 0,
-  required_acks: 1,
-  compression: :gzip,
-  messages: messages}
-KafkaEx.produce(produce_request)
+{:ok, _} = KafkaEx.API.produce(client, "topic", 0, messages, compression: :gzip)
+{:ok, _} = KafkaEx.API.produce(client, "topic", 0, messages, compression: :snappy)
+{:ok, _} = KafkaEx.API.produce(client, "topic", 0, messages, compression: :lz4)
+{:ok, _} = KafkaEx.API.produce(client, "topic", 0, messages, compression: :zstd)
 ```
 
-Compression is handled automatically on the consuming/fetching end.
+Codec dependencies (gzip requires no extra deps):
+
+| Codec | Dependency | Notes |
+|-------|-----------|-------|
+| gzip | Built-in (`:zlib`) | Always available |
+| snappy | `{:snappyer, "~> 1.2"}` | Optional dep in mix.exs |
+| lz4 | `{:lz4b, "~> 0.2.0"}` | Add to your mix.exs |
+| zstd | `{:ezstd, "~> 1.0"}` | Requires Kafka 2.1+ and Produce API v7+ |
 
 ## SASL Authentication
 
@@ -510,44 +429,48 @@ The test cluster runs Kafka 2.8+.
 
 ### Running the KafkaEx Tests
 
-The KafkaEx tests are split up using tags to handle testing multiple scenarios
-and Kafka versions.
+Tests are organized by tag. Integration test tags (`:consume`, `:produce`, `:lifecycle`, `:consumer_group`, `:auth`, `:chaos`) 
+are excluded by default so unit tests run without a Kafka cluster.
 
 #### Unit tests
 
-These tests do not require a Kafka cluster to be running (see test/test_helper.exs:3 for the tags excluded when running this).
+No Kafka cluster required:
 
-```
-mix test --no-start
+```bash
+mix test.unit
 ```
 
 #### Integration tests
 
-If you are not using the Docker test cluster, you may need to modify
-`config/config.exs` for your set up.
-
-The full test suite requires Kafka 2.1.0+.
-
-Run the full integration test suite:
+Start the Docker test cluster first, then run by category:
 
 ```bash
 ./scripts/docker_up.sh
-MIX_ENV=test mix test --include integration --exclude sasl
+
+# Run a specific category
+mix test --only consumer_group
+mix test --only produce
+mix test --only consume
+mix test --only lifecycle
+mix test --only auth
+
+# Or run all integration tests
+mix test.integration
 ```
 
-Or run specific test categories:
+#### Chaos tests
+
+Chaos tests use Testcontainers and do not require the Docker Compose cluster:
 
 ```bash
-MIX_ENV=test mix test --only consumer_group
-MIX_ENV=test mix test --only produce
-MIX_ENV=test mix test --only consume
-MIX_ENV=test mix test --only lifecycle
-MIX_ENV=test mix test --only auth
+mix test --only chaos
 ```
 
 ### Static analysis
 
-```
+```bash
+mix format --check-formatted
+mix credo --strict
 mix dialyzer
 ```
 
@@ -568,12 +491,7 @@ The Slack channel is appropriate for quick questions or general design
 discussions.  The Slack discussion is archived at
 [http://slack.elixirhq.com/kafkaex](http://slack.elixirhq.com/kafkaex).
 
-## Default snappy algorithm use snappyer package
+## Snappy Module
 
-It can be changed to snappy by using this:
-
-``` elixir
-config :kafka_ex, snappy_module: :snappy
-```
-
-Note: The legacy snappy-erlang-nif package has been deprecated.
+KafkaEx uses [snappyer](https://hex.pm/packages/snappyer) for snappy compression.
+Add it to your deps if you need snappy support — it is an optional dependency.
