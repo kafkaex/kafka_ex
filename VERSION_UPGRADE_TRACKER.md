@@ -147,13 +147,17 @@ Track implementation of new Kayrock-supported API versions in KafkaEx.
 
 ## 8. FindCoordinator (API Key 10)
 
-**Current:** V0-V1 | **Available:** V0-V3
+**Current:** V0-V3 (all explicit) | **Available:** V0-V3
 
-| Version | Status                | Request Changes                             | Response Changes                            | Effort | Unit                  | Integ                 | Chaos                 |
-|---------|-----------------------|---------------------------------------------|---------------------------------------------|--------|-----------------------|-----------------------|-----------------------|
-| V0-V1   | 🟢    | —                                           | —                                           | —      | 🟢    | 🟢    | ⬜ |
-| V2      | ⬜ | No changes vs V1                            | No changes vs V1                            | Low    | ⬜ | ⬜ | ⬜ |
-| V3      | ⬜ | FLEX: +`tagged_fields`, compact strings     | FLEX: +`tagged_fields`, compact strings     | Medium | ⬜ | ⬜ | ⬜ |
+| Version | Status | Request Changes                             | Response Changes                            | Effort | Unit | Integ | Chaos |
+|---------|--------|---------------------------------------------|---------------------------------------------|--------|------|-------|-------|
+| V0-V1   | 🟢     | —                                           | —                                           | —      | 🟢   | 🟢    | ⬜    |
+| V2      | 🟢     | No changes vs V1                            | No changes vs V1                            | Low    | 🟢   | ⏭️    | ⏭️    |
+| V3      | 🟢     | FLEX: +`tagged_fields`, compact strings     | FLEX: +`tagged_fields`, compact strings     | Medium | 🟢   | ⏭️    | ⏭️    |
+
+> **Note:** `Any` fallback retained for forward compatibility with unknown future versions. All V0-V3 have explicit `defimpl` impls. V2 is schema-identical to V1 (pure version bump). V3 is the flexible version (KIP-482) -- Kayrock handles compact encoding/decoding transparently, domain-relevant fields are identical to V1/V2. All V1+ request impls delegate to `RequestHelpers.extract_v1_fields/1`. All V1+ response impls delegate to `ResponseHelpers.parse_v1_response/1`.
+>
+> **Integration/chaos tests skipped (⏭️) for V2-V3:** These are pure delegation layers -- V2 request/response are schema-identical to V1, V3 uses compact encoding but Kayrock handles this transparently. Default FindCoordinator version is determined by version negotiation. Existing V0-V1 integration tests already cover the full FindCoordinator path end-to-end. Would revisit if: default version bumped, or flexible version encoding issues discovered.
 
 ---
 
@@ -266,8 +270,8 @@ Prioritized by: (1) most commonly used APIs first, (2) low-effort versions first
 | 8  | ListOffsets     | V3      | Low         | 🟢 | ⏭️ | ⏭️ | +current_leader_epoch              |
 | 9  | ListOffsets     | V4      | Low         | 🟢 | ⏭️ | ⏭️ | +leader_epoch in response          |
 | 10 | ListOffsets     | V5      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                          |
-| 11 | FindCoordinator | V2      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
-| 12 | FindCoordinator | V3      | Medium      | ⬜ | ⬜ | ⬜ | FLEX                               |
+| 11 | FindCoordinator | V2      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                         |
+| 12 | FindCoordinator | V3      | Medium      | 🟢 | ⏭️ | ⏭️ | FLEX                               |
 | 13 | Heartbeat       | V2      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
 | 14 | Heartbeat       | V3      | Low         | ⬜ | ⬜ | ⬜ | +group_instance_id                 |
 | 15 | Heartbeat       | V4      | Medium      | ⬜ | ⬜ | ⬜ | FLEX                               |
@@ -306,9 +310,9 @@ Prioritized by: (1) most commonly used APIs first, (2) low-effort versions first
 
 ## Summary
 
-- **Total new versions to implement:** 45 (22 remaining)
-- **Completed:** 23 versions (ApiVersions V2, V3; Metadata V3-V9; Produce V6, V7, V8; Fetch V8-V11; ListOffsets V3, V4, V5; OffsetFetch V4, V5, V6; OffsetCommit V4, V5, V6, V7, V8)
-- **Low effort:** 13 versions remaining (mostly schema-identical or single field additions)
-- **Medium effort:** 7 versions remaining (flexible version encoding changes)
+- **Total new versions to implement:** 45 (20 remaining)
+- **Completed:** 25 versions (ApiVersions V2, V3; Metadata V3-V9; Produce V6, V7, V8; Fetch V8-V11; ListOffsets V3, V4, V5; OffsetFetch V4, V5, V6; OffsetCommit V4, V5, V6, V7, V8; FindCoordinator V2, V3)
+- **Low effort:** 12 versions remaining (mostly schema-identical or single field additions)
+- **Medium effort:** 6 versions remaining (flexible version encoding changes)
 - **High effort:** 1 version (LeaveGroup V3 structural change)
 - **Medium-High effort:** 1 version (CreateTopics V5 response additions)
