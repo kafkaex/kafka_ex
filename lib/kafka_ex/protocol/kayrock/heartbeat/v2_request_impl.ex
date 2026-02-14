@@ -1,8 +1,8 @@
-defimpl KafkaEx.Protocol.Kayrock.Heartbeat.Request, for: Kayrock.Heartbeat.V1.Request do
+defimpl KafkaEx.Protocol.Kayrock.Heartbeat.Request, for: Kayrock.Heartbeat.V2.Request do
   @moduledoc """
-  Implementation for Heartbeat v1 Request.
+  Implementation for Heartbeat v2 Request.
 
-  V1 request schema is identical to V0.
+  V2 request schema is identical to V0/V1 (pure version bump).
   """
 
   alias KafkaEx.Protocol.Kayrock.Heartbeat.RequestHelpers

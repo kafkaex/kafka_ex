@@ -198,14 +198,18 @@ Track implementation of new Kayrock-supported API versions in KafkaEx.
 
 ## 11. Heartbeat (API Key 12)
 
-**Current:** V0-V1 | **Available:** V0-V4
+**Current:** V0-V4 (all explicit) | **Available:** V0-V4
 
-| Version | Status                | Request Changes                          | Response Changes                         | Effort | Unit                  | Integ                 | Chaos                 |
-|---------|-----------------------|------------------------------------------|------------------------------------------|--------|-----------------------|-----------------------|-----------------------|
-| V0-V1   | 🟢    | —                                        | —                                        | —      | 🟢    | 🟢    | ⬜ |
-| V2      | ⬜ | No changes vs V1                         | No changes vs V1                         | Low    | ⬜ | ⬜ | ⬜ |
-| V3      | ⬜ | +`group_instance_id`                     | No changes vs V2                         | Low    | ⬜ | ⬜ | ⬜ |
-| V4      | ⬜ | FLEX: +`tagged_fields`, compact types    | FLEX: +`tagged_fields`, compact types    | Medium | ⬜ | ⬜ | ⬜ |
+| Version | Status | Request Changes                          | Response Changes                         | Effort | Unit | Integ | Chaos |
+|---------|--------|------------------------------------------|------------------------------------------|--------|------|-------|-------|
+| V0-V1   | 🟢     | —                                        | —                                        | —      | 🟢   | 🟢    | ⬜    |
+| V2      | 🟢     | No changes vs V1                         | No changes vs V1                         | Low    | 🟢   | ⏭️    | ⏭️    |
+| V3      | 🟢     | +`group_instance_id`                     | No changes vs V2                         | Low    | 🟢   | ⏭️    | ⏭️    |
+| V4      | 🟢     | FLEX: +`tagged_fields`, compact types    | FLEX: +`tagged_fields`, compact types    | Medium | 🟢   | ⏭️    | ⏭️    |
+
+> **Note:** `Any` fallback retained for forward compatibility with unknown future versions. All V0-V4 have explicit `defimpl` impls. V2 request is schema-identical to V0/V1 (pure version bump) -- delegates to `RequestHelpers.build_request_from_template/2`. V3/V4 request impls delegate to `RequestHelpers.build_v3_plus_request/2` which adds `group_instance_id` (defaults to `nil` for dynamic membership). V0 response delegates to `ResponseHelpers.parse_v0_response/1` (returns `{:ok, :no_error}`). All V1+ response impls delegate to `ResponseHelpers.parse_v1_plus_response/1` (returns `{:ok, %Heartbeat{throttle_time_ms: ...}}`). V4 is the flexible version (KIP-482) -- Kayrock handles compact encoding/decoding transparently.
+>
+> **Integration/chaos tests skipped (⏭️) for V2-V4:** These are pure delegation layers -- V2 request/response are schema-identical to V1, V3/V4 request impls add `group_instance_id` but delegate to the same helper pattern. All V1+ responses use the same `ResponseHelpers.parse_v1_plus_response/1`. Default Heartbeat version is determined by version negotiation. Existing V0-V1 integration tests already cover the full Heartbeat path end-to-end. New field (`group_instance_id`) uses safe default (`nil`) and does not affect error handling or reconnection behavior. Chaos tests are version-independent (broker failures affect all versions identically). Would revisit if: default version bumped, `group_instance_id` integrated with consumer group static membership logic, or flexible version encoding issues discovered.
 
 ---
 
@@ -280,9 +284,9 @@ Prioritized by: (1) most commonly used APIs first, (2) low-effort versions first
 | 10 | ListOffsets     | V5      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                          |
 | 11 | FindCoordinator | V2      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                         |
 | 12 | FindCoordinator | V3      | Medium      | 🟢 | ⏭️ | ⏭️ | FLEX                               |
-| 13 | Heartbeat       | V2      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
-| 14 | Heartbeat       | V3      | Low         | ⬜ | ⬜ | ⬜ | +group_instance_id                 |
-| 15 | Heartbeat       | V4      | Medium      | ⬜ | ⬜ | ⬜ | FLEX                               |
+| 13 | Heartbeat       | V2      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                         |
+| 14 | Heartbeat       | V3      | Low         | 🟢 | ⏭️ | ⏭️ | +group_instance_id                 |
+| 15 | Heartbeat       | V4      | Medium      | 🟢 | ⏭️ | ⏭️ | FLEX                               |
 | 16 | JoinGroup       | V3      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                         |
 | 17 | JoinGroup       | V4      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                         |
 | 18 | JoinGroup       | V5      | Low         | 🟢 | ⏭️ | ⏭️ | +group_instance_id                 |
@@ -318,9 +322,9 @@ Prioritized by: (1) most commonly used APIs first, (2) low-effort versions first
 
 ## Summary
 
-- **Total new versions to implement:** 45 (13 remaining)
-- **Completed:** 32 versions (ApiVersions V2, V3; Metadata V3-V9; Produce V6, V7, V8; Fetch V8-V11; ListOffsets V3, V4, V5; OffsetFetch V4, V5, V6; OffsetCommit V4, V5, V6, V7, V8; FindCoordinator V2, V3; JoinGroup V3, V4, V5, V6; SyncGroup V2, V3, V4)
-- **Low effort:** 7 versions remaining (mostly schema-identical or single field additions)
-- **Medium effort:** 4 versions remaining (flexible version encoding changes)
+- **Total new versions to implement:** 45 (10 remaining)
+- **Completed:** 35 versions (ApiVersions V2, V3; Metadata V3-V9; Produce V6, V7, V8; Fetch V8-V11; ListOffsets V3, V4, V5; OffsetFetch V4, V5, V6; OffsetCommit V4, V5, V6, V7, V8; FindCoordinator V2, V3; JoinGroup V3, V4, V5, V6; SyncGroup V2, V3, V4; Heartbeat V2, V3, V4)
+- **Low effort:** 5 versions remaining (mostly schema-identical or single field additions)
+- **Medium effort:** 3 versions remaining (flexible version encoding changes)
 - **High effort:** 1 version (LeaveGroup V3 structural change)
 - **Medium-High effort:** 1 version (CreateTopics V5 response additions)
