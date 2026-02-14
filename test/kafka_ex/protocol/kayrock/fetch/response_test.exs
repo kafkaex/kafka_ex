@@ -452,6 +452,412 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.ResponseTest do
     end
   end
 
+  describe "V8 Response implementation" do
+    test "parses response (same fields as V5-V7)" do
+      record_batch = build_record_batch([%{offset: 80, value: "v8-test"}])
+
+      response =
+        build_response("v8-topic", 0, 0, 900, record_batch, %{
+          throttle_time_ms: 25,
+          partition_header: %{
+            last_stable_offset: 850,
+            log_start_offset: 400,
+            aborted_transactions: nil
+          }
+        })
+        |> Map.put(:__struct__, Kayrock.Fetch.V8.Response)
+
+      assert {:ok, fetch} = Response.parse_response(response)
+
+      assert fetch.topic == "v8-topic"
+      assert fetch.partition == 0
+      assert fetch.high_watermark == 900
+      assert fetch.throttle_time_ms == 25
+      assert fetch.last_stable_offset == 850
+      assert fetch.log_start_offset == 400
+    end
+
+    test "parses response with error code" do
+      response =
+        build_response("v8-topic", 0, 1, 0, nil)
+        |> Map.put(:__struct__, Kayrock.Fetch.V8.Response)
+
+      assert {:error, error} = Response.parse_response(response)
+      assert error.error == :offset_out_of_range
+    end
+
+    test "returns error for empty responses" do
+      response =
+        %{responses: []}
+        |> Map.put(:__struct__, Kayrock.Fetch.V8.Response)
+
+      assert {:error, error} = Response.parse_response(response)
+      assert error.error == :empty_response
+    end
+  end
+
+  describe "V9 Response implementation" do
+    test "parses response (same fields as V5-V8)" do
+      record_batch = build_record_batch([%{offset: 90, value: "v9-test"}])
+
+      response =
+        build_response("v9-topic", 1, 0, 1000, record_batch, %{
+          throttle_time_ms: 30,
+          partition_header: %{
+            last_stable_offset: 950,
+            log_start_offset: 500,
+            aborted_transactions: []
+          }
+        })
+        |> Map.put(:__struct__, Kayrock.Fetch.V9.Response)
+
+      assert {:ok, fetch} = Response.parse_response(response)
+
+      assert fetch.topic == "v9-topic"
+      assert fetch.partition == 1
+      assert fetch.high_watermark == 1000
+      assert fetch.throttle_time_ms == 30
+      assert fetch.last_stable_offset == 950
+      assert fetch.log_start_offset == 500
+    end
+
+    test "parses response with error code" do
+      response =
+        build_response("v9-topic", 0, 6, 0, nil)
+        |> Map.put(:__struct__, Kayrock.Fetch.V9.Response)
+
+      assert {:error, error} = Response.parse_response(response)
+      assert error.error == :not_leader_for_partition
+    end
+  end
+
+  describe "V10 Response implementation" do
+    test "parses response (same fields as V5-V9)" do
+      record_batch = build_record_batch([%{offset: 100, value: "v10-test"}])
+
+      response =
+        build_response("v10-topic", 2, 0, 1100, record_batch, %{
+          throttle_time_ms: 35,
+          partition_header: %{
+            last_stable_offset: 1050,
+            log_start_offset: 600,
+            aborted_transactions: nil
+          }
+        })
+        |> Map.put(:__struct__, Kayrock.Fetch.V10.Response)
+
+      assert {:ok, fetch} = Response.parse_response(response)
+
+      assert fetch.topic == "v10-topic"
+      assert fetch.partition == 2
+      assert fetch.high_watermark == 1100
+      assert fetch.throttle_time_ms == 35
+      assert fetch.last_stable_offset == 1050
+      assert fetch.log_start_offset == 600
+    end
+
+    test "parses response with error code" do
+      response =
+        build_response("v10-topic", 0, 5, 0, nil)
+        |> Map.put(:__struct__, Kayrock.Fetch.V10.Response)
+
+      assert {:error, error} = Response.parse_response(response)
+      assert error.error == :leader_not_available
+    end
+  end
+
+  describe "V11 Response implementation" do
+    test "parses response with preferred_read_replica" do
+      record_batch = build_record_batch([%{offset: 110, value: "v11-test"}])
+
+      response =
+        build_response("v11-topic", 0, 0, 1200, record_batch, %{
+          throttle_time_ms: 40,
+          partition_header: %{
+            last_stable_offset: 1150,
+            log_start_offset: 700,
+            aborted_transactions: [],
+            preferred_read_replica: 3
+          }
+        })
+        |> Map.put(:__struct__, Kayrock.Fetch.V11.Response)
+
+      assert {:ok, fetch} = Response.parse_response(response)
+
+      assert fetch.topic == "v11-topic"
+      assert fetch.partition == 0
+      assert fetch.high_watermark == 1200
+      assert fetch.throttle_time_ms == 40
+      assert fetch.last_stable_offset == 1150
+      assert fetch.log_start_offset == 700
+      assert fetch.preferred_read_replica == 3
+    end
+
+    test "parses response with preferred_read_replica = -1 (no preference)" do
+      record_batch = build_record_batch([%{offset: 0, value: "test"}])
+
+      response =
+        build_response("test-topic", 0, 0, 100, record_batch, %{
+          throttle_time_ms: 0,
+          partition_header: %{
+            last_stable_offset: 90,
+            log_start_offset: 0,
+            aborted_transactions: nil,
+            preferred_read_replica: -1
+          }
+        })
+        |> Map.put(:__struct__, Kayrock.Fetch.V11.Response)
+
+      assert {:ok, fetch} = Response.parse_response(response)
+
+      assert fetch.preferred_read_replica == -1
+    end
+
+    test "parses response with full RecordBatch data including headers" do
+      record_batch =
+        build_record_batch([
+          %{offset: 200, key: "k1", value: "v1", timestamp: 5000},
+          %{
+            offset: 201,
+            key: "k2",
+            value: "v2",
+            timestamp: 5001,
+            headers: [{"trace-id", "abc"}, {"content-type", "json"}]
+          }
+        ])
+
+      response =
+        build_response("full-topic", 1, 0, 2000, record_batch, %{
+          throttle_time_ms: 5,
+          partition_header: %{
+            last_stable_offset: 1999,
+            log_start_offset: 100,
+            aborted_transactions: [],
+            preferred_read_replica: 2
+          }
+        })
+        |> Map.put(:__struct__, Kayrock.Fetch.V11.Response)
+
+      assert {:ok, fetch} = Response.parse_response(response)
+
+      assert length(fetch.records) == 2
+      assert fetch.last_offset == 201
+      assert fetch.preferred_read_replica == 2
+
+      [r1, r2] = fetch.records
+      assert r1.key == "k1"
+      assert r1.value == "v1"
+
+      assert r2.headers == [
+               %Header{key: "trace-id", value: "abc"},
+               %Header{key: "content-type", value: "json"}
+             ]
+    end
+
+    test "parses response with error code" do
+      response =
+        build_response("v11-topic", 0, 3, 0, nil)
+        |> Map.put(:__struct__, Kayrock.Fetch.V11.Response)
+
+      assert {:error, error} = Response.parse_response(response)
+      assert error.error == :unknown_topic_or_partition
+    end
+
+    test "returns error for empty responses" do
+      response =
+        %{responses: []}
+        |> Map.put(:__struct__, Kayrock.Fetch.V11.Response)
+
+      assert {:error, error} = Response.parse_response(response)
+      assert error.error == :empty_response
+    end
+  end
+
+  describe "Any fallback response implementation (forward compatibility)" do
+    defmodule FakeV12Response do
+      defstruct [:throttle_time_ms, :responses]
+    end
+
+    defmodule FakeMinimalResponse do
+      defstruct [:responses]
+    end
+
+    test "Any fallback extracts all available fields" do
+      record_batch = build_record_batch([%{offset: 50, value: "future-data"}])
+
+      response =
+        build_response("future-topic", 0, 0, 500, record_batch, %{
+          throttle_time_ms: 42,
+          partition_header: %{
+            last_stable_offset: 450,
+            log_start_offset: 100,
+            aborted_transactions: [],
+            preferred_read_replica: 5
+          }
+        })
+        |> Map.put(:__struct__, FakeV12Response)
+
+      assert {:ok, %Fetch{} = fetch} = Response.parse_response(response)
+      assert fetch.topic == "future-topic"
+      assert fetch.throttle_time_ms == 42
+      assert fetch.last_stable_offset == 450
+      assert fetch.log_start_offset == 100
+      assert fetch.preferred_read_replica == 5
+    end
+
+    test "Any fallback handles response without throttle_time_ms" do
+      message_set = build_message_set([%{offset: 0, value: "minimal-data"}])
+
+      response =
+        build_response("minimal-topic", 0, 0, 100, message_set)
+        |> Map.put(:__struct__, FakeMinimalResponse)
+
+      assert {:ok, %Fetch{} = fetch} = Response.parse_response(response)
+      assert fetch.topic == "minimal-topic"
+      assert fetch.throttle_time_ms == nil
+    end
+
+    test "Any fallback handles error code from unknown struct" do
+      response =
+        build_response("test", 0, 7, 0, nil)
+        |> Map.put(:__struct__, FakeV12Response)
+
+      assert {:error, error} = Response.parse_response(response)
+      assert error.error == :request_timed_out
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Any fallback with truly plain maps (no __struct__ key)
+  # Verifies __struct__-safety of the Any response implementation.
+  # ---------------------------------------------------------------------------
+
+  describe "Any fallback response — plain maps (no __struct__)" do
+    test "plain map with all V5+ fields parses correctly" do
+      record_batch = build_record_batch([%{offset: 50, value: "plain-map-data"}])
+
+      response =
+        build_response("plain-topic", 0, 0, 500, record_batch, %{
+          throttle_time_ms: 42,
+          partition_header: %{
+            last_stable_offset: 450,
+            log_start_offset: 100,
+            aborted_transactions: [],
+            preferred_read_replica: 5
+          }
+        })
+
+      # No __struct__ key — truly a plain map
+      refute Map.has_key?(response, :__struct__)
+
+      assert {:ok, %Fetch{} = fetch} = Response.parse_response(response)
+      assert fetch.topic == "plain-topic"
+      assert fetch.throttle_time_ms == 42
+      assert fetch.last_stable_offset == 450
+      assert fetch.log_start_offset == 100
+      assert fetch.preferred_read_replica == 5
+      assert length(fetch.records) == 1
+    end
+
+    test "plain map without throttle_time_ms (V0-like)" do
+      message_set = build_message_set([%{offset: 0, value: "v0-data"}])
+
+      response = build_response("v0-topic", 0, 0, 100, message_set)
+
+      refute Map.has_key?(response, :__struct__)
+
+      assert {:ok, %Fetch{} = fetch} = Response.parse_response(response)
+      assert fetch.topic == "v0-topic"
+      assert fetch.throttle_time_ms == nil
+      assert fetch.last_stable_offset == nil
+      assert fetch.log_start_offset == nil
+      assert fetch.preferred_read_replica == nil
+    end
+
+    test "plain map with error code" do
+      response = build_response("test", 0, 3, 0, nil)
+
+      refute Map.has_key?(response, :__struct__)
+
+      assert {:error, error} = Response.parse_response(response)
+      assert error.error == :unknown_topic_or_partition
+    end
+
+    test "plain map with empty responses" do
+      response = %{responses: []}
+
+      assert {:error, error} = Response.parse_response(response)
+      assert error.error == :empty_response
+    end
+
+    test "plain map with throttle_time_ms but no partition-level extras (V1-V3-like)" do
+      message_set = build_message_set([%{offset: 10, value: "v1-data"}])
+
+      response = build_response("v1-topic", 0, 0, 200, message_set, %{throttle_time_ms: 25})
+
+      refute Map.has_key?(response, :__struct__)
+
+      assert {:ok, %Fetch{} = fetch} = Response.parse_response(response)
+      assert fetch.throttle_time_ms == 25
+      assert fetch.last_stable_offset == nil
+      assert fetch.log_start_offset == nil
+    end
+  end
+
+  describe "parse_response via KayrockProtocol" do
+    alias KafkaEx.Protocol.KayrockProtocol
+
+    test "dispatches V0 response through parse_response" do
+      message_set = build_message_set([%{offset: 0, value: "test"}])
+
+      response =
+        build_response("test-topic", 0, 0, 100, message_set)
+        |> Map.put(:__struct__, Kayrock.Fetch.V0.Response)
+
+      assert {:ok, %Fetch{} = fetch} = KayrockProtocol.parse_response(:fetch, response)
+      assert fetch.topic == "test-topic"
+    end
+
+    test "dispatches V5 response through parse_response" do
+      record_batch = build_record_batch([%{offset: 10, value: "test"}])
+
+      response =
+        build_response("test-topic", 0, 0, 200, record_batch, %{
+          throttle_time_ms: 5,
+          partition_header: %{
+            last_stable_offset: 190,
+            log_start_offset: 50,
+            aborted_transactions: nil
+          }
+        })
+        |> Map.put(:__struct__, Kayrock.Fetch.V5.Response)
+
+      assert {:ok, %Fetch{} = fetch} = KayrockProtocol.parse_response(:fetch, response)
+      assert fetch.log_start_offset == 50
+      assert fetch.throttle_time_ms == 5
+    end
+
+    test "dispatches V11 response through parse_response" do
+      record_batch = build_record_batch([%{offset: 20, value: "test"}])
+
+      response =
+        build_response("test-topic", 0, 0, 300, record_batch, %{
+          throttle_time_ms: 10,
+          partition_header: %{
+            last_stable_offset: 290,
+            log_start_offset: 100,
+            aborted_transactions: [],
+            preferred_read_replica: 2
+          }
+        })
+        |> Map.put(:__struct__, Kayrock.Fetch.V11.Response)
+
+      assert {:ok, %Fetch{} = fetch} = KayrockProtocol.parse_response(:fetch, response)
+      assert fetch.preferred_read_replica == 2
+      assert fetch.throttle_time_ms == 10
+    end
+  end
+
   describe "Version comparison" do
     test "V0 has no throttle_time_ms" do
       message_set = build_message_set([%{offset: 0, value: "test"}])
@@ -499,6 +905,123 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.ResponseTest do
 
       assert {:ok, fetch} = Response.parse_response(v5_response)
       assert fetch.log_start_offset == 50
+    end
+
+    test "only V11 exposes preferred_read_replica" do
+      record_batch = build_record_batch([%{offset: 0, value: "test"}])
+
+      # V10 has the field in Kayrock but our impl doesn't extract it
+      v10_response =
+        build_response("test-topic", 0, 0, 100, record_batch, %{
+          throttle_time_ms: 0,
+          partition_header: %{
+            last_stable_offset: 90,
+            log_start_offset: 0,
+            aborted_transactions: nil
+          }
+        })
+        |> Map.put(:__struct__, Kayrock.Fetch.V10.Response)
+
+      assert {:ok, fetch10} = Response.parse_response(v10_response)
+      assert fetch10.preferred_read_replica == nil
+
+      # V11 extracts it
+      v11_response =
+        build_response("test-topic", 0, 0, 100, record_batch, %{
+          throttle_time_ms: 0,
+          partition_header: %{
+            last_stable_offset: 90,
+            log_start_offset: 0,
+            aborted_transactions: nil,
+            preferred_read_replica: 2
+          }
+        })
+        |> Map.put(:__struct__, Kayrock.Fetch.V11.Response)
+
+      assert {:ok, fetch11} = Response.parse_response(v11_response)
+      assert fetch11.preferred_read_replica == 2
+    end
+
+    test "V0-V11 all produce consistent base fields for equivalent data" do
+      # Build equivalent responses for each major version boundary
+      record_batch = build_record_batch([%{offset: 42, value: "data"}])
+
+      v0_resp =
+        build_response("test", 0, 0, 100, build_message_set([%{offset: 42, value: "data"}]))
+        |> Map.put(:__struct__, Kayrock.Fetch.V0.Response)
+
+      v1_resp =
+        build_response("test", 0, 0, 100, build_message_set([%{offset: 42, value: "data"}]), %{
+          throttle_time_ms: 0
+        })
+        |> Map.put(:__struct__, Kayrock.Fetch.V1.Response)
+
+      v5_resp =
+        build_response("test", 0, 0, 100, record_batch, %{
+          throttle_time_ms: 0,
+          partition_header: %{last_stable_offset: 90, log_start_offset: 0, aborted_transactions: nil}
+        })
+        |> Map.put(:__struct__, Kayrock.Fetch.V5.Response)
+
+      v8_resp =
+        build_response("test", 0, 0, 100, record_batch, %{
+          throttle_time_ms: 0,
+          partition_header: %{last_stable_offset: 90, log_start_offset: 0, aborted_transactions: nil}
+        })
+        |> Map.put(:__struct__, Kayrock.Fetch.V8.Response)
+
+      v11_resp =
+        build_response("test", 0, 0, 100, record_batch, %{
+          throttle_time_ms: 0,
+          partition_header: %{
+            last_stable_offset: 90,
+            log_start_offset: 0,
+            aborted_transactions: nil,
+            preferred_read_replica: -1
+          }
+        })
+        |> Map.put(:__struct__, Kayrock.Fetch.V11.Response)
+
+      {:ok, r0} = Response.parse_response(v0_resp)
+      {:ok, r1} = Response.parse_response(v1_resp)
+      {:ok, r5} = Response.parse_response(v5_resp)
+      {:ok, r8} = Response.parse_response(v8_resp)
+      {:ok, r11} = Response.parse_response(v11_resp)
+
+      # All versions produce the same core fields
+      for r <- [r0, r1, r5, r8, r11] do
+        assert %Fetch{} = r
+        assert r.topic == "test"
+        assert r.partition == 0
+        assert r.high_watermark == 100
+        assert r.last_offset == 42
+        assert length(r.records) == 1
+      end
+
+      # V0 has no throttle_time_ms
+      assert r0.throttle_time_ms == nil
+      # V1+ have throttle_time_ms
+      assert r1.throttle_time_ms == 0
+      assert r5.throttle_time_ms == 0
+
+      # V0-V3 have no last_stable_offset
+      assert r0.last_stable_offset == nil
+      # V5+ have last_stable_offset
+      assert r5.last_stable_offset == 90
+      assert r8.last_stable_offset == 90
+
+      # V0-V4 have no log_start_offset
+      assert r0.log_start_offset == nil
+      # V5+ have log_start_offset
+      assert r5.log_start_offset == 0
+      assert r8.log_start_offset == 0
+
+      # V0-V10 have no preferred_read_replica
+      assert r0.preferred_read_replica == nil
+      assert r5.preferred_read_replica == nil
+      assert r8.preferred_read_replica == nil
+      # V11 has preferred_read_replica
+      assert r11.preferred_read_replica == -1
     end
   end
 end

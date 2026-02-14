@@ -25,7 +25,7 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.RequestHelpers do
 
   @doc """
   Builds a SyncGroup request by populating the request template with extracted fields.
-  This is shared logic between V0 and V1 requests as they have identical structure.
+  This is shared logic between V0-V2 requests as they have identical structure.
   """
   @spec build_request_from_template(map(), Keyword.t()) :: map()
   def build_request_from_template(request_template, opts) do
@@ -41,6 +41,22 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.RequestHelpers do
     |> Map.put(:generation_id, generation_id)
     |> Map.put(:member_id, member_id)
     |> Map.put(:assignments, group_assignment)
+  end
+
+  @doc """
+  Builds a SyncGroup V3+ request by populating the request template with common fields
+  plus `group_instance_id` for static membership (KIP-345).
+
+  V3 adds `group_instance_id: :nullable_string`. V4 is the flexible version (KIP-482)
+  with the same logical fields -- Kayrock handles compact encoding.
+  """
+  @spec build_v3_plus_request(map(), Keyword.t()) :: map()
+  def build_v3_plus_request(request_template, opts) do
+    group_instance_id = Keyword.get(opts, :group_instance_id, nil)
+
+    request_template
+    |> build_request_from_template(opts)
+    |> Map.put(:group_instance_id, group_instance_id)
   end
 
   # Converts group assignment from protocol-agnostic format to Kayrock structs.

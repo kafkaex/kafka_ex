@@ -22,6 +22,7 @@ defmodule KafkaEx.Client do
   alias KafkaEx.Client.State
   alias KafkaEx.Cluster.Broker
   alias KafkaEx.Cluster.ClusterMetadata
+  alias KafkaEx.Messages.Fetch
   alias KafkaEx.Messages.FindCoordinator, as: FindCoordinatorMsg
   alias KafkaEx.Support.Retry
 
@@ -607,9 +608,10 @@ defmodule KafkaEx.Client do
 
     with {:ok, request} <- RequestBuilder.fetch_request(req_data, state),
          {{:ok, result}, updated_state} <- handle_fetch_request(request, node_selector, state) do
-      message_count = length(Map.get(result, :records, []))
+      filtered_result = Fetch.filter_from_offset(result, offset)
+      message_count = length(Map.get(filtered_result, :records, []))
       stop_metadata = Map.put(metadata, :message_count, message_count)
-      {{{:ok, result}, updated_state}, stop_metadata}
+      {{{:ok, filtered_result}, updated_state}, stop_metadata}
     else
       {:error, error} -> {{:error, error}, metadata}
       error_result -> {error_result, metadata}

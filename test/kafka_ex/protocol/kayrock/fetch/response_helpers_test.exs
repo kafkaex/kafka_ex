@@ -220,6 +220,83 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.ResponseHelpersTest do
     end
   end
 
+  describe "extract_v5_plus_fields/2" do
+    test "extracts all V5+ fields" do
+      response = %{throttle_time_ms: 10}
+
+      partition_resp = %{
+        partition_header: %{
+          last_stable_offset: 500,
+          log_start_offset: 100,
+          aborted_transactions: [%{producer_id: 1, first_offset: 50}]
+        }
+      }
+
+      fields = ResponseHelpers.extract_v5_plus_fields(response, partition_resp)
+
+      assert Keyword.get(fields, :throttle_time_ms) == 10
+      assert Keyword.get(fields, :last_stable_offset) == 500
+      assert Keyword.get(fields, :log_start_offset) == 100
+      assert Keyword.get(fields, :aborted_transactions) == [%{producer_id: 1, first_offset: 50}]
+    end
+
+    test "does not include preferred_read_replica" do
+      response = %{throttle_time_ms: 0}
+
+      partition_resp = %{
+        partition_header: %{
+          last_stable_offset: 500,
+          log_start_offset: 100,
+          aborted_transactions: [],
+          preferred_read_replica: 2
+        }
+      }
+
+      fields = ResponseHelpers.extract_v5_plus_fields(response, partition_resp)
+
+      refute Keyword.has_key?(fields, :preferred_read_replica)
+    end
+  end
+
+  describe "extract_v11_fields/2" do
+    test "extracts all V11 fields including preferred_read_replica" do
+      response = %{throttle_time_ms: 15}
+
+      partition_resp = %{
+        partition_header: %{
+          last_stable_offset: 800,
+          log_start_offset: 200,
+          aborted_transactions: nil,
+          preferred_read_replica: 3
+        }
+      }
+
+      fields = ResponseHelpers.extract_v11_fields(response, partition_resp)
+
+      assert Keyword.get(fields, :throttle_time_ms) == 15
+      assert Keyword.get(fields, :last_stable_offset) == 800
+      assert Keyword.get(fields, :log_start_offset) == 200
+      assert Keyword.get(fields, :aborted_transactions) == nil
+      assert Keyword.get(fields, :preferred_read_replica) == 3
+    end
+
+    test "handles missing preferred_read_replica gracefully" do
+      response = %{throttle_time_ms: 0}
+
+      partition_resp = %{
+        partition_header: %{
+          last_stable_offset: 500,
+          log_start_offset: 100,
+          aborted_transactions: []
+        }
+      }
+
+      fields = ResponseHelpers.extract_v11_fields(response, partition_resp)
+
+      assert Keyword.get(fields, :preferred_read_replica) == nil
+    end
+  end
+
   describe "parse_response/2" do
     test "parses successful response" do
       response = %{

@@ -15,7 +15,19 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata do
 
   - **V0**: Basic metadata (brokers, topics, partitions)
   - **V1**: Adds controller_id, is_internal flag, broker rack
-  - **V2**: Adds cluster_id (if needed in future)
+  - **V2**: Adds cluster_id
+  - **V3**: Adds throttle_time_ms in response
+  - **V4**: Adds allow_auto_topic_creation in request
+  - **V5**: Adds offline_replicas in partition metadata
+  - **V6**: Same schema as V5
+  - **V7**: Adds leader_epoch in partition metadata
+  - **V8**: Adds include_cluster/topic_authorized_operations in request,
+    cluster/topic_authorized_operations in response
+  - **V9**: Flexible version (KIP-482) with compact encodings + tagged_fields
+
+  All versions V0-V9 have explicit protocol implementations. The `Any`
+  fallback is retained only for forward compatibility with unknown future
+  versions.
 
   ## Usage
 
@@ -38,12 +50,11 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata do
     @moduledoc """
     This protocol is used to build Metadata requests.
 
-    Each Kayrock.Metadata version (V0, V1, V2, etc.) implements this protocol
+    Each Kayrock.Metadata version (V0-V9) implements this protocol
     to transform request options into the appropriate Kayrock request struct.
 
-    For versions without a specific implementation (V3+), falls back to the
-    `Any` implementation which handles all standard fields including
-    `allow_auto_topic_creation` (V4+).
+    The `Any` fallback is retained only for forward compatibility with
+    unknown future versions beyond what Kayrock currently supports.
     """
 
     @fallback_to_any true
@@ -68,11 +79,11 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata do
     @moduledoc """
     This protocol is used to parse Metadata responses.
 
-    Each Kayrock.Metadata version (V0, V1, V2, etc.) implements this protocol
+    Each Kayrock.Metadata version (V0-V9) implements this protocol
     to transform the Kayrock response into a ClusterMetadata struct.
 
-    For versions without a specific implementation (V3+), falls back to the
-    `Any` implementation which delegates to `ResponseHelpers.to_cluster_metadata/1`.
+    The `Any` fallback is retained only for forward compatibility with
+    unknown future versions beyond what Kayrock currently supports.
     """
 
     @fallback_to_any true

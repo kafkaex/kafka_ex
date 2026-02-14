@@ -182,4 +182,86 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestHelpersTest do
       end
     end
   end
+
+  describe "build_v5_plus_request/2" do
+    test "builds V5+ request with group_instance_id from opts" do
+      template = %{}
+
+      opts = [
+        group_id: "test-group",
+        session_timeout: 30_000,
+        rebalance_timeout: 60_000,
+        member_id: "member-1",
+        group_instance_id: "static-instance-1",
+        group_protocols: [%{name: "range", metadata: <<>>}]
+      ]
+
+      result = RequestHelpers.build_v5_plus_request(template, opts)
+
+      assert result.group_id == "test-group"
+      assert result.session_timeout_ms == 30_000
+      assert result.rebalance_timeout_ms == 60_000
+      assert result.member_id == "member-1"
+      assert result.group_instance_id == "static-instance-1"
+      assert length(result.protocols) == 1
+    end
+
+    test "defaults group_instance_id to nil when not provided" do
+      template = %{}
+
+      opts = [
+        group_id: "test-group",
+        session_timeout: 30_000,
+        rebalance_timeout: 60_000,
+        member_id: "member-1",
+        group_protocols: []
+      ]
+
+      result = RequestHelpers.build_v5_plus_request(template, opts)
+
+      assert result.group_instance_id == nil
+    end
+
+    test "includes all V1 fields (rebalance_timeout) plus group_instance_id" do
+      template = %{}
+
+      opts = [
+        group_id: "test-group",
+        session_timeout: 30_000,
+        rebalance_timeout: 60_000,
+        member_id: "member-1",
+        group_instance_id: "my-instance",
+        group_protocols: [%{name: "assign", metadata: <<0, 1, 2>>}]
+      ]
+
+      result = RequestHelpers.build_v5_plus_request(template, opts)
+
+      # V0 fields
+      assert result.group_id == "test-group"
+      assert result.session_timeout_ms == 30_000
+      assert result.member_id == "member-1"
+      assert result.protocol_type == "consumer"
+      assert result.protocols == [%{name: "assign", metadata: <<0, 1, 2>>}]
+      # V1 field
+      assert result.rebalance_timeout_ms == 60_000
+      # V5 field
+      assert result.group_instance_id == "my-instance"
+    end
+
+    test "raises on missing rebalance_timeout" do
+      template = %{}
+
+      opts = [
+        group_id: "test-group",
+        session_timeout: 30_000,
+        member_id: "member-1",
+        group_instance_id: "my-instance",
+        group_protocols: []
+      ]
+
+      assert_raise KeyError, fn ->
+        RequestHelpers.build_v5_plus_request(template, opts)
+      end
+    end
+  end
 end

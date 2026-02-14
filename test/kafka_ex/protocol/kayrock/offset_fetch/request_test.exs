@@ -537,4 +537,389 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.RequestTest do
       assert Kayrock.OffsetFetch.V3.Request.serialize(result_with_client_data)
     end
   end
+
+  describe "V4 Request implementation" do
+    test "builds request with single topic (same structure as V3)" do
+      request = %Kayrock.OffsetFetch.V4.Request{}
+
+      opts = [
+        group_id: "v4-group",
+        topics: [
+          {"kafka-topic", [%{partition_num: 0}]}
+        ]
+      ]
+
+      result = OffsetFetch.Request.build_request(request, opts)
+
+      assert result == %Kayrock.OffsetFetch.V4.Request{
+               client_id: nil,
+               correlation_id: nil,
+               group_id: "v4-group",
+               topics: [
+                 %{
+                   name: "kafka-topic",
+                   partition_indexes: [0]
+                 }
+               ]
+             }
+    end
+
+    test "builds request with multiple partitions" do
+      request = %Kayrock.OffsetFetch.V4.Request{}
+
+      opts = [
+        group_id: "v4-multi-part",
+        topics: [
+          {"topic-1", [%{partition_num: 0}, %{partition_num: 1}, %{partition_num: 2}]}
+        ]
+      ]
+
+      result = OffsetFetch.Request.build_request(request, opts)
+
+      assert result == %Kayrock.OffsetFetch.V4.Request{
+               client_id: nil,
+               correlation_id: nil,
+               group_id: "v4-multi-part",
+               topics: [
+                 %{
+                   name: "topic-1",
+                   partition_indexes: [0, 1, 2]
+                 }
+               ]
+             }
+    end
+
+    test "builds request with multiple topics" do
+      request = %Kayrock.OffsetFetch.V4.Request{}
+
+      opts = [
+        group_id: "v4-multi-topic",
+        topics: [
+          {"topic-a", [%{partition_num: 0}]},
+          {"topic-b", [%{partition_num: 0}, %{partition_num: 1}]}
+        ]
+      ]
+
+      result = OffsetFetch.Request.build_request(request, opts)
+
+      assert length(result.topics) == 2
+      assert Enum.at(result.topics, 0).name == "topic-a"
+      assert Enum.at(result.topics, 1).name == "topic-b"
+      assert Enum.at(result.topics, 1).partition_indexes == [0, 1]
+    end
+
+    test "builds request with empty topics list" do
+      request = %Kayrock.OffsetFetch.V4.Request{}
+
+      opts = [
+        group_id: "empty-v4",
+        topics: []
+      ]
+
+      result = OffsetFetch.Request.build_request(request, opts)
+
+      assert result == %Kayrock.OffsetFetch.V4.Request{
+               client_id: nil,
+               correlation_id: nil,
+               group_id: "empty-v4",
+               topics: []
+             }
+    end
+
+    test "can serialize the built request" do
+      request = %Kayrock.OffsetFetch.V4.Request{}
+
+      opts = [
+        group_id: "serialize-v4",
+        topics: [
+          {"topic-1", [%{partition_num: 0}]}
+        ]
+      ]
+
+      result = OffsetFetch.Request.build_request(request, opts)
+
+      result_with_client_data = %{result | client_id: "test-client", correlation_id: 1}
+      assert Kayrock.OffsetFetch.V4.Request.serialize(result_with_client_data)
+    end
+  end
+
+  describe "V5 Request implementation" do
+    test "builds request with single topic (same structure as V3/V4)" do
+      request = %Kayrock.OffsetFetch.V5.Request{}
+
+      opts = [
+        group_id: "v5-group",
+        topics: [
+          {"kafka-topic", [%{partition_num: 0}]}
+        ]
+      ]
+
+      result = OffsetFetch.Request.build_request(request, opts)
+
+      assert result == %Kayrock.OffsetFetch.V5.Request{
+               client_id: nil,
+               correlation_id: nil,
+               group_id: "v5-group",
+               topics: [
+                 %{
+                   name: "kafka-topic",
+                   partition_indexes: [0]
+                 }
+               ]
+             }
+    end
+
+    test "builds request with multiple partitions" do
+      request = %Kayrock.OffsetFetch.V5.Request{}
+
+      opts = [
+        group_id: "v5-multi-part",
+        topics: [
+          {"topic-1", [%{partition_num: 0}, %{partition_num: 1}, %{partition_num: 2}]}
+        ]
+      ]
+
+      result = OffsetFetch.Request.build_request(request, opts)
+
+      assert result == %Kayrock.OffsetFetch.V5.Request{
+               client_id: nil,
+               correlation_id: nil,
+               group_id: "v5-multi-part",
+               topics: [
+                 %{
+                   name: "topic-1",
+                   partition_indexes: [0, 1, 2]
+                 }
+               ]
+             }
+    end
+
+    test "builds request with multiple topics" do
+      request = %Kayrock.OffsetFetch.V5.Request{}
+
+      opts = [
+        group_id: "v5-multi-topic",
+        topics: [
+          {"topic-a", [%{partition_num: 0}]},
+          {"topic-b", [%{partition_num: 0}, %{partition_num: 1}]},
+          {"topic-c", [%{partition_num: 2}]}
+        ]
+      ]
+
+      result = OffsetFetch.Request.build_request(request, opts)
+
+      assert length(result.topics) == 3
+      assert Enum.at(result.topics, 0).name == "topic-a"
+      assert Enum.at(result.topics, 1).name == "topic-b"
+      assert Enum.at(result.topics, 2).name == "topic-c"
+    end
+
+    test "builds request with empty topics list" do
+      request = %Kayrock.OffsetFetch.V5.Request{}
+
+      opts = [
+        group_id: "empty-v5",
+        topics: []
+      ]
+
+      result = OffsetFetch.Request.build_request(request, opts)
+
+      assert result == %Kayrock.OffsetFetch.V5.Request{
+               client_id: nil,
+               correlation_id: nil,
+               group_id: "empty-v5",
+               topics: []
+             }
+    end
+
+    test "can serialize the built request" do
+      request = %Kayrock.OffsetFetch.V5.Request{}
+
+      opts = [
+        group_id: "serialize-v5",
+        topics: [
+          {"topic-1", [%{partition_num: 0}]}
+        ]
+      ]
+
+      result = OffsetFetch.Request.build_request(request, opts)
+
+      result_with_client_data = %{result | client_id: "test-client", correlation_id: 1}
+      assert Kayrock.OffsetFetch.V5.Request.serialize(result_with_client_data)
+    end
+  end
+
+  describe "V6 Request implementation (flexible version)" do
+    test "builds request with single topic" do
+      request = %Kayrock.OffsetFetch.V6.Request{}
+
+      opts = [
+        group_id: "v6-group",
+        topics: [
+          {"kafka-topic", [%{partition_num: 0}]}
+        ]
+      ]
+
+      result = OffsetFetch.Request.build_request(request, opts)
+
+      assert result.group_id == "v6-group"
+      assert length(result.topics) == 1
+      assert hd(result.topics).name == "kafka-topic"
+      assert hd(result.topics).partition_indexes == [0]
+    end
+
+    test "builds request with multiple partitions" do
+      request = %Kayrock.OffsetFetch.V6.Request{}
+
+      opts = [
+        group_id: "v6-multi-part",
+        topics: [
+          {"topic-1", [%{partition_num: 0}, %{partition_num: 1}, %{partition_num: 2}]}
+        ]
+      ]
+
+      result = OffsetFetch.Request.build_request(request, opts)
+
+      assert result.group_id == "v6-multi-part"
+      assert hd(result.topics).partition_indexes == [0, 1, 2]
+    end
+
+    test "builds request with multiple topics" do
+      request = %Kayrock.OffsetFetch.V6.Request{}
+
+      opts = [
+        group_id: "v6-multi-topic",
+        topics: [
+          {"topic-a", [%{partition_num: 0}]},
+          {"topic-b", [%{partition_num: 0}, %{partition_num: 1}]}
+        ]
+      ]
+
+      result = OffsetFetch.Request.build_request(request, opts)
+
+      assert length(result.topics) == 2
+      assert Enum.at(result.topics, 0).name == "topic-a"
+      assert Enum.at(result.topics, 1).name == "topic-b"
+    end
+
+    test "preserves tagged_fields from template (default empty list)" do
+      request = %Kayrock.OffsetFetch.V6.Request{}
+
+      opts = [
+        group_id: "v6-tagged",
+        topics: [
+          {"topic-1", [%{partition_num: 0}]}
+        ]
+      ]
+
+      result = OffsetFetch.Request.build_request(request, opts)
+
+      # V6 struct has tagged_fields key, defaults to empty list
+      assert Map.has_key?(result, :tagged_fields)
+      assert result.tagged_fields == []
+    end
+
+    test "preserves non-empty tagged_fields from template" do
+      request = %Kayrock.OffsetFetch.V6.Request{tagged_fields: [{0, <<1, 2, 3>>}]}
+
+      opts = [
+        group_id: "v6-tagged-nonempty",
+        topics: [
+          {"topic-1", [%{partition_num: 0}]}
+        ]
+      ]
+
+      result = OffsetFetch.Request.build_request(request, opts)
+
+      assert result.tagged_fields == [{0, <<1, 2, 3>>}]
+      assert result.group_id == "v6-tagged-nonempty"
+      assert length(result.topics) == 1
+    end
+
+    test "builds request with empty topics list" do
+      request = %Kayrock.OffsetFetch.V6.Request{}
+
+      opts = [
+        group_id: "empty-v6",
+        topics: []
+      ]
+
+      result = OffsetFetch.Request.build_request(request, opts)
+
+      assert result.group_id == "empty-v6"
+      assert result.topics == []
+    end
+
+    test "can serialize the built request" do
+      request = %Kayrock.OffsetFetch.V6.Request{}
+
+      opts = [
+        group_id: "serialize-v6",
+        topics: [
+          {"topic-1", [%{partition_num: 0}]}
+        ]
+      ]
+
+      result = OffsetFetch.Request.build_request(request, opts)
+
+      result_with_client_data = %{result | client_id: "test-client", correlation_id: 1}
+      assert Kayrock.OffsetFetch.V6.Request.serialize(result_with_client_data)
+    end
+  end
+
+  describe "Any Request fallback implementation" do
+    test "handles V4-like struct via Any fallback using plain map" do
+      # Simulate an unknown future version with same structure as V4
+      request = %{group_id: nil, topics: [], correlation_id: nil, client_id: nil}
+
+      opts = [
+        group_id: "any-group",
+        topics: [
+          {"any-topic", [%{partition_num: 0}]}
+        ]
+      ]
+
+      result = OffsetFetch.Request.build_request(request, opts)
+
+      assert result.group_id == "any-group"
+      assert length(result.topics) == 1
+      assert hd(result.topics).name == "any-topic"
+      assert hd(result.topics).partition_indexes == [0]
+    end
+
+    test "handles struct with tagged_fields via Any fallback using plain map" do
+      # Simulate an unknown flexible version
+      request = %{group_id: nil, topics: [], tagged_fields: [], correlation_id: nil, client_id: nil}
+
+      opts = [
+        group_id: "any-flex-group",
+        topics: [
+          {"flex-topic", [%{partition_num: 0}, %{partition_num: 1}]}
+        ]
+      ]
+
+      result = OffsetFetch.Request.build_request(request, opts)
+
+      assert result.group_id == "any-flex-group"
+      assert length(result.topics) == 1
+      assert hd(result.topics).partition_indexes == [0, 1]
+    end
+
+    test "handles multiple topics via Any fallback using plain map" do
+      request = %{group_id: nil, topics: [], correlation_id: nil, client_id: nil}
+
+      opts = [
+        group_id: "any-multi",
+        topics: [
+          {"topic-a", [%{partition_num: 0}]},
+          {"topic-b", [%{partition_num: 1}, %{partition_num: 2}]}
+        ]
+      ]
+
+      result = OffsetFetch.Request.build_request(request, opts)
+
+      assert result.group_id == "any-multi"
+      assert length(result.topics) == 2
+    end
+  end
 end

@@ -11,6 +11,6 @@ defimpl KafkaEx.Protocol.Kayrock.CreateTopics.Request, for: Kayrock.CreateTopics
   alias KafkaEx.Protocol.Kayrock.CreateTopics.RequestHelpers
 
   def build_request(request_template, opts) do
-    RequestHelpers.build_v1_v2_request(request_template, opts)
+    RequestHelpers.build_v1_plus_request(request_template, opts)
   end
 end

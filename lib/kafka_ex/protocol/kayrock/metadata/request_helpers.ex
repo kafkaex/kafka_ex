@@ -34,4 +34,24 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.RequestHelpers do
   def allow_auto_topic_creation?(opts) do
     Keyword.get(opts, :allow_auto_topic_creation, false)
   end
+
+  @doc """
+  Builds a V8+ Metadata request with authorized operations fields.
+
+  V8 adds `include_cluster_authorized_operations` and `include_topic_authorized_operations`.
+  V9 uses the same fields with compact encoding (handled by Kayrock).
+  """
+  @spec build_v8_plus_request(map(), Keyword.t()) :: map()
+  def build_v8_plus_request(request_template, opts) do
+    topics = build_topics_list(opts)
+    allow_auto = allow_auto_topic_creation?(opts)
+    include_cluster_ops = Keyword.get(opts, :include_cluster_authorized_operations, false)
+    include_topic_ops = Keyword.get(opts, :include_topic_authorized_operations, false)
+
+    request_template
+    |> Map.put(:topics, topics)
+    |> Map.put(:allow_auto_topic_creation, allow_auto)
+    |> Map.put(:include_cluster_authorized_operations, include_cluster_ops)
+    |> Map.put(:include_topic_authorized_operations, include_topic_ops)
+  end
 end

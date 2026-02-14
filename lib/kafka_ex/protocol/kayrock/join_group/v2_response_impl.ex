@@ -8,6 +8,6 @@ defimpl KafkaEx.Protocol.Kayrock.JoinGroup.Response, for: Kayrock.JoinGroup.V2.R
   alias KafkaEx.Protocol.Kayrock.JoinGroup.ResponseHelpers
 
   def parse_response(response) do
-    ResponseHelpers.parse_response(response, fn resp -> resp.throttle_time_ms end)
+    ResponseHelpers.parse_v2_plus_response(response)
   end
 end

@@ -89,6 +89,20 @@ defmodule KafkaEx.Messages.Fetch do
   def next_offset(%__MODULE__{last_offset: nil, high_watermark: hw}), do: hw
   def next_offset(%__MODULE__{last_offset: last}), do: last + 1
 
+  @doc """
+  Filters records to only include those with offset >= the requested fetch offset.
+
+  Kafka may return full RecordBatches that include records before the requested
+  offset. This function trims those pre-offset records, matching the behavior
+  of the Java Kafka client.
+  """
+  @spec filter_from_offset(t(), non_neg_integer()) :: t()
+  def filter_from_offset(%__MODULE__{} = fetch, offset) do
+    filtered = Enum.filter(fetch.records, &(&1.offset >= offset))
+    last = compute_last_offset(filtered, nil)
+    %{fetch | records: filtered, last_offset: last}
+  end
+
   # Private helpers
 
   defp compute_last_offset([], _explicit_last), do: nil

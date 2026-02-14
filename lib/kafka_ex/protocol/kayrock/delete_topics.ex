@@ -2,9 +2,13 @@ defmodule KafkaEx.Protocol.Kayrock.DeleteTopics do
   @moduledoc """
   Protocol definitions for DeleteTopics API.
 
-  Kayrock supports V0 and V1:
+  Kayrock supports V0-V4:
   - V0: Basic topic deletion
   - V1: Adds throttle_time_ms in response
+  - V2: No changes vs V1 (identical request + response schemas)
+  - V3: No changes vs V2 (identical request + response schemas)
+  - V4: FLEX version (KIP-482) — compact types + tagged_fields. Kayrock handles
+    encoding/decoding transparently. Domain fields identical to V1-V3.
   """
 
   alias KafkaEx.Client.Error
@@ -14,6 +18,8 @@ defmodule KafkaEx.Protocol.Kayrock.DeleteTopics do
     @moduledoc """
     Protocol for building DeleteTopics requests.
     """
+
+    @fallback_to_any true
 
     @doc """
     Builds a DeleteTopics request from the given options.
@@ -31,6 +37,8 @@ defmodule KafkaEx.Protocol.Kayrock.DeleteTopics do
     @moduledoc """
     Protocol for parsing DeleteTopics responses.
     """
+
+    @fallback_to_any true
 
     @doc """
     Parses a DeleteTopics response into a DeleteTopics struct.

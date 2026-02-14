@@ -1,15 +1,13 @@
 defimpl KafkaEx.Protocol.Kayrock.LeaveGroup.Request, for: Kayrock.LeaveGroup.V1.Request do
   @moduledoc """
   Implementation for LeaveGroup v1 Request.
+
+  V1 request schema is identical to V0 (pure version bump).
   """
 
   alias KafkaEx.Protocol.Kayrock.LeaveGroup.RequestHelpers
 
   def build_request(request_template, opts) do
-    %{group_id: group_id, member_id: member_id} = RequestHelpers.extract_common_fields(opts)
-
-    request_template
-    |> Map.put(:group_id, group_id)
-    |> Map.put(:member_id, member_id)
+    RequestHelpers.build_request_from_template(request_template, opts)
   end
 end

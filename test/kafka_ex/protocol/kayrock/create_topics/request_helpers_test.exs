@@ -155,7 +155,7 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.RequestHelpersTest do
     end
   end
 
-  describe "build_v1_v2_request/2" do
+  describe "build_v1_plus_request/2" do
     test "builds complete request" do
       template = %{}
 
@@ -165,7 +165,7 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.RequestHelpersTest do
         validate_only: false
       ]
 
-      result = RequestHelpers.build_v1_v2_request(template, opts)
+      result = RequestHelpers.build_v1_plus_request(template, opts)
 
       assert result.timeout_ms == 30_000
       assert result.validate_only == false
@@ -183,7 +183,7 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.RequestHelpersTest do
         validate_only: true
       ]
 
-      result = RequestHelpers.build_v1_v2_request(template, opts)
+      result = RequestHelpers.build_v1_plus_request(template, opts)
 
       assert result.validate_only == true
     end
@@ -196,7 +196,7 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.RequestHelpersTest do
         timeout: 5_000
       ]
 
-      result = RequestHelpers.build_v1_v2_request(template, opts)
+      result = RequestHelpers.build_v1_plus_request(template, opts)
 
       assert result.validate_only == false
     end

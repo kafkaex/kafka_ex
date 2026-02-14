@@ -149,4 +149,70 @@ defmodule KafkaEx.Messages.FetchTest do
       assert Fetch.next_offset(fetch) == 10
     end
   end
+
+  describe "Fetch.filter_from_offset/2" do
+    test "filters out records before the requested offset" do
+      records = Enum.map(0..9, fn i -> Record.build(offset: i, value: "msg-#{i}") end)
+      fetch = Fetch.build(topic: "test_topic", partition: 0, records: records, high_watermark: 20)
+
+      filtered = Fetch.filter_from_offset(fetch, 5)
+
+      assert length(filtered.records) == 5
+      assert hd(filtered.records).offset == 5
+      assert List.last(filtered.records).offset == 9
+      assert filtered.last_offset == 9
+    end
+
+    test "keeps all records when offset matches batch start" do
+      records = Enum.map(0..4, fn i -> Record.build(offset: i, value: "msg-#{i}") end)
+      fetch = Fetch.build(topic: "test_topic", partition: 0, records: records, high_watermark: 10)
+
+      filtered = Fetch.filter_from_offset(fetch, 0)
+
+      assert length(filtered.records) == 5
+      assert filtered.last_offset == 4
+    end
+
+    test "returns empty records when offset is past all records" do
+      records = Enum.map(0..4, fn i -> Record.build(offset: i, value: "msg-#{i}") end)
+      fetch = Fetch.build(topic: "test_topic", partition: 0, records: records, high_watermark: 10)
+
+      filtered = Fetch.filter_from_offset(fetch, 10)
+
+      assert filtered.records == []
+      assert filtered.last_offset == nil
+    end
+
+    test "handles already empty records" do
+      fetch = Fetch.build(topic: "test_topic", partition: 0, records: [], high_watermark: 10)
+      filtered = Fetch.filter_from_offset(fetch, 5)
+
+      assert filtered.records == []
+      assert filtered.last_offset == nil
+    end
+
+    test "preserves non-record fields" do
+      records = Enum.map(0..9, fn i -> Record.build(offset: i, value: "msg-#{i}") end)
+
+      fetch =
+        Fetch.build(
+          topic: "test_topic",
+          partition: 0,
+          records: records,
+          high_watermark: 20,
+          throttle_time_ms: 5,
+          last_stable_offset: 18,
+          log_start_offset: 0
+        )
+
+      filtered = Fetch.filter_from_offset(fetch, 7)
+
+      assert filtered.topic == "test_topic"
+      assert filtered.partition == 0
+      assert filtered.high_watermark == 20
+      assert filtered.throttle_time_ms == 5
+      assert filtered.last_stable_offset == 18
+      assert filtered.log_start_offset == 0
+    end
+  end
 end

@@ -5,7 +5,8 @@ defmodule KafkaEx.Protocol.Kayrock.ListOffsets.ResponseHelpers do
   Version differences:
   - V0: Uses `offsets` array (returns first offset or 0)
   - V1: Uses single `offset` field
-  - V2: Uses single `offset` field with `timestamp`
+  - V2-V3: Uses single `offset` field with `timestamp`
+  - V4-V5: Same as V2 but adds `leader_epoch` in partition responses
   """
 
   import KafkaEx.Protocol.Kayrock.ResponseHelpers,
@@ -79,6 +80,34 @@ defmodule KafkaEx.Protocol.Kayrock.ListOffsets.ResponseHelpers do
   end
 
   def extract_v2_offset(topic, %{error_code: error_code, partition: partition}) do
+    {:error, {error_code, topic, partition}}
+  end
+
+  @doc """
+  Extracts offset from V4+ response (single offset field with timestamp and leader_epoch).
+
+  V4 adds `leader_epoch` to the partition response, indicating the epoch of the leader
+  at the time the offset was committed. A value of -1 means the leader epoch is unknown.
+
+  This extractor is also used for V5 which has the same response schema.
+  """
+  @spec extract_v4_offset(String.t(), map()) :: {:ok, Offset.t()} | {:error, error_tuple()}
+  def extract_v4_offset(
+        topic,
+        %{error_code: 0, partition: partition, offset: offset, timestamp: timestamp} = resp
+      ) do
+    data = %{
+      partition: partition,
+      offset: offset,
+      timestamp: timestamp,
+      error_code: :no_error,
+      leader_epoch: Map.get(resp, :leader_epoch)
+    }
+
+    {:ok, Offset.from_list_offset(topic, [data])}
+  end
+
+  def extract_v4_offset(topic, %{error_code: error_code, partition: partition}) do
     {:error, {error_code, topic, partition}}
   end
 

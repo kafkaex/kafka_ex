@@ -12,6 +12,17 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator do
   - **V1**: Extended coordinator discovery with type support
     - Request: `coordinator_key`, `coordinator_type` (0=group, 1=transaction)
     - Response: Adds `throttle_time_ms`, `error_message`
+  - **V2**: No changes vs V1 (pure version bump)
+    - Request: Same as V1 (`key`, `key_type`)
+    - Response: Same as V1
+  - **V3**: Flexible version (KIP-482)
+    - Request: Compact string encoding, +`tagged_fields`
+    - Response: Compact string encoding, +`tagged_fields`
+    - Domain-relevant fields identical to V1/V2
+
+  All known versions (V0-V3) have explicit `defimpl` implementations.
+  An `Any` fallback is retained for forward compatibility with unknown
+  future Kayrock versions.
 
   ## Usage
 
@@ -26,10 +37,15 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator do
     ## V0 Options
     - `group_id` (required): The consumer group ID
 
-    ## V1 Options
+    ## V1+ Options
     - `coordinator_key` (required): The key to look up (group_id or transactional_id)
     - `coordinator_type` (optional): 0 for group (default), 1 for transaction
+
+    All known versions (V0-V3) have explicit implementations.
+    The `Any` fallback handles unknown future versions.
     """
+    @fallback_to_any true
+
     @spec build_request(t(), Keyword.t()) :: t()
     def build_request(request, opts)
   end
@@ -42,7 +58,12 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator do
 
     - `{:ok, FindCoordinator.t()}` on success with coordinator info
     - `{:error, Error.t()}` on error with error details
+
+    All known versions (V0-V3) have explicit implementations.
+    The `Any` fallback handles unknown future versions.
     """
+    @fallback_to_any true
+
     alias KafkaEx.Client.Error
     alias KafkaEx.Messages.FindCoordinator
 

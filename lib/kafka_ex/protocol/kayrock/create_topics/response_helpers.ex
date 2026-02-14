@@ -31,6 +31,44 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics.ResponseHelpers do
   end
 
   @doc """
+  Parses topic results from V5 Kayrock response format to TopicResult structs.
+
+  V5 adds per-topic fields: `num_partitions`, `replication_factor`, and `configs`.
+  Each config entry has: `name`, `value`, `read_only`, `config_source`, `is_sensitive`.
+  """
+  @spec parse_v5_topic_results(list()) :: [TopicResult.t()]
+  def parse_v5_topic_results(topics) do
+    Enum.map(topics, fn topic ->
+      error = ErrorCode.code_to_atom(topic.error_code)
+
+      configs = parse_configs(Map.get(topic, :configs))
+
+      TopicResult.build(
+        topic: topic.name,
+        error: error,
+        error_message: Map.get(topic, :error_message),
+        num_partitions: Map.get(topic, :num_partitions),
+        replication_factor: Map.get(topic, :replication_factor),
+        configs: configs
+      )
+    end)
+  end
+
+  defp parse_configs(nil), do: nil
+
+  defp parse_configs(config_list) when is_list(config_list) do
+    Enum.map(config_list, fn config ->
+      %{
+        name: config.name,
+        value: Map.get(config, :value),
+        read_only: Map.get(config, :read_only, false),
+        config_source: Map.get(config, :config_source, -1),
+        is_sensitive: Map.get(config, :is_sensitive, false)
+      }
+    end)
+  end
+
+  @doc """
   Builds CreateTopics struct from parsed topic results.
   """
   @spec build_response([TopicResult.t()], non_neg_integer() | nil) :: CreateTopics.t()

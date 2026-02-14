@@ -49,6 +49,24 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpersTest do
       assert {:ok, %ClusterMetadata{} = metadata} = ResponseHelpers.to_cluster_metadata(response)
       assert metadata.controller_id == nil
     end
+
+    test "returns parse_error for response missing brokers key" do
+      response = %{topics: []}
+
+      assert {:error, {:parse_error, %KeyError{key: :brokers}}} = ResponseHelpers.to_cluster_metadata(response)
+    end
+
+    test "returns parse_error for response missing topics key" do
+      response = %{brokers: []}
+
+      assert {:error, {:parse_error, %KeyError{key: :topics}}} = ResponseHelpers.to_cluster_metadata(response)
+    end
+
+    test "returns parse_error for non-list brokers" do
+      response = %{brokers: "not a list", topics: []}
+
+      assert {:error, {:parse_error, %FunctionClauseError{}}} = ResponseHelpers.to_cluster_metadata(response)
+    end
   end
 
   describe "parse_brokers/1" do
@@ -64,6 +82,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpersTest do
       assert result[1].node_id == 1
       assert result[1].host == "broker1.example.com"
       assert result[1].port == 9092
+      assert result[1].socket == nil
     end
 
     test "parses multiple brokers" do

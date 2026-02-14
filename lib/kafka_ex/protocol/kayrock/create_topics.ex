@@ -9,12 +9,16 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics do
   - V0: Basic topic creation
   - V1: Adds validate_only flag and error_message in response
   - V2: Adds throttle_time_ms in response
+  - V3: Pure version bump (identical to V2)
+  - V4: Pure version bump (identical to V3)
+  - V5: Flexible version (KIP-482). Response adds num_partitions, replication_factor, configs per topic
   """
 
   defprotocol Request do
     @moduledoc """
     This protocol is used to build CreateTopics requests.
     """
+    @fallback_to_any true
     @spec build_request(t(), Keyword.t()) :: t()
     def build_request(request, opts)
   end
@@ -27,6 +31,7 @@ defmodule KafkaEx.Protocol.Kayrock.CreateTopics do
     - All versions: `{:ok, CreateTopics.t()}` on success (may contain per-topic errors)
     - All versions: `{:error, Error.t()}` on request-level error
     """
+    @fallback_to_any true
     alias KafkaEx.Client.Error
     alias KafkaEx.Messages.CreateTopics
 
