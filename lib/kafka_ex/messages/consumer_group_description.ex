@@ -14,10 +14,11 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription do
           state: binary,
           protocol_type: binary,
           protocol: binary,
-          members: list(Member.t())
+          members: list(Member.t()),
+          authorized_operations: integer() | nil
         }
 
-  defstruct ~w(group_id state protocol_type protocol members)a
+  defstruct ~w(group_id state protocol_type protocol members authorized_operations)a
 
   @doc """
   Builds a ConsumerGroupDescription from a DescribeGroups API response.
@@ -29,7 +30,8 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription do
       state: describe_group.group_state,
       protocol_type: describe_group.protocol_type,
       protocol: describe_group.protocol_data,
-      members: Enum.map(describe_group.members, &build_consumer_group_member/1)
+      members: Enum.map(describe_group.members, &build_consumer_group_member/1),
+      authorized_operations: Map.get(describe_group, :authorized_operations)
     }
   end
 

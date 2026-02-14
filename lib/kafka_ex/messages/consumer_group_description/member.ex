@@ -15,10 +15,11 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription.Member do
           client_id: binary,
           client_host: binary,
           member_metadata: term,
-          member_assignment: MemberAssignment.t() | nil
+          member_assignment: MemberAssignment.t() | nil,
+          group_instance_id: binary | nil
         }
 
-  defstruct ~w(member_id client_id client_host member_metadata member_assignment)a
+  defstruct ~w(member_id client_id client_host member_metadata member_assignment group_instance_id)a
 
   @type partial_response :: %{
           required(:member_id) => binary,
@@ -38,7 +39,8 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription.Member do
       client_id: response.client_id,
       client_host: response.client_host,
       member_metadata: response.member_metadata,
-      member_assignment: build_member_assignment(Map.get(response, :member_assignment))
+      member_assignment: build_member_assignment(Map.get(response, :member_assignment)),
+      group_instance_id: Map.get(response, :group_instance_id)
     }
   end
 

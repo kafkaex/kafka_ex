@@ -234,15 +234,21 @@ Track implementation of new Kayrock-supported API versions in KafkaEx.
 
 ## 13. DescribeGroups (API Key 15)
 
-**Current:** V0-V1 | **Available:** V0-V5
+**Current:** V0-V5 (all explicit) | **Available:** V0-V5
 
-| Version | Status                | Request Changes                          | Response Changes                          | Effort | Unit                  | Integ                 | Chaos                 |
-|---------|-----------------------|------------------------------------------|-------------------------------------------|--------|-----------------------|-----------------------|-----------------------|
-| V0-V1   | 🟢    | —                                        | —                                         | —      | 🟢    | 🟢    | ⬜ |
-| V2      | ⬜ | No changes vs V1                         | No changes vs V1                          | Low    | ⬜ | ⬜ | ⬜ |
-| V3      | ⬜ | +`include_authorized_operations`         | +`authorized_operations` in groups        | Low    | ⬜ | ⬜ | ⬜ |
-| V4      | ⬜ | No changes vs V3                         | No changes vs V3                          | Low    | ⬜ | ⬜ | ⬜ |
-| V5      | ⬜ | FLEX: +`tagged_fields`, compact types    | FLEX: +`tagged_fields`, compact types     | Medium | ⬜ | ⬜ | ⬜ |
+| Version | Status | Request Changes                          | Response Changes                          | Effort | Unit | Integ | Chaos |
+|---------|--------|------------------------------------------|-------------------------------------------|--------|------|-------|-------|
+| V0-V1   | 🟢     | —                                        | —                                         | —      | 🟢   | 🟢    | ⬜    |
+| V2      | 🟢     | No changes vs V1                         | No changes vs V1                          | Low    | 🟢   | ⏭️    | ⏭️    |
+| V3      | 🟢     | +`include_authorized_operations`         | +`authorized_operations` in groups        | Low    | 🟢   | ⏭️    | ⏭️    |
+| V4      | 🟢     | No changes vs V3                         | +`group_instance_id` per member           | Low    | 🟢   | ⏭️    | ⏭️    |
+| V5      | 🟢     | FLEX: +`tagged_fields`, compact types    | FLEX: +`tagged_fields`, compact types     | Medium | 🟢   | ⏭️    | ⏭️    |
+
+> **Refactored:** Existing V0-V1 `default_*_impl.ex` pattern replaced with per-version `defimpl` files aligned with codebase standard (Heartbeat, LeaveGroup, etc).
+>
+> **Domain structs extended:** `ConsumerGroupDescription` now includes `authorized_operations` field (nil for V0-V2, populated for V3+). `Member` now includes `group_instance_id` field (nil for V0-V3, populated for V4+).
+>
+> **Integration/chaos tests skipped (⏭️) for V2-V5:** V2 is a pure version bump. V3-V5 add metadata fields (authorized_operations, group_instance_id) that are purely informational. Existing V0-V1 integration tests cover the full DescribeGroups path end-to-end. Chaos tests are version-independent.
 
 ---
 
@@ -311,10 +317,10 @@ Prioritized by: (1) most commonly used APIs first, (2) low-effort versions first
 | 31 | OffsetCommit    | V6      | Low         | 🟢 | ⏭️ | ⏭️ | +committed_leader_epoch            |
 | 32 | OffsetCommit    | V7      | Low         | 🟢 | ⏭️ | ⏭️ | +group_instance_id                 |
 | 33 | OffsetCommit    | V8      | Medium      | 🟢 | ⏭️ | ⏭️ | FLEX                               |
-| 34 | DescribeGroups  | V2      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
-| 35 | DescribeGroups  | V3      | Low         | ⬜ | ⬜ | ⬜ | +authorized_operations             |
-| 36 | DescribeGroups  | V4      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
-| 37 | DescribeGroups  | V5      | Medium      | ⬜ | ⬜ | ⬜ | FLEX                               |
+| 34 | DescribeGroups  | V2      | Low         | 🟢 | ⏭️ | ⏭️ | No changes                         |
+| 35 | DescribeGroups  | V3      | Low         | 🟢 | ⏭️ | ⏭️ | +authorized_operations             |
+| 36 | DescribeGroups  | V4      | Low         | 🟢 | ⏭️ | ⏭️ | +group_instance_id per member      |
+| 37 | DescribeGroups  | V5      | Medium      | 🟢 | ⏭️ | ⏭️ | FLEX                               |
 | 38 | CreateTopics    | V3      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
 | 39 | CreateTopics    | V4      | Low         | ⬜ | ⬜ | ⬜ | No changes                         |
 | 40 | CreateTopics    | V5      | Medium-High | ⬜ | ⬜ | ⬜ | FLEX + new response fields         |
@@ -328,8 +334,8 @@ Prioritized by: (1) most commonly used APIs first, (2) low-effort versions first
 
 ## Summary
 
-- **Total new versions to implement:** 45 (7 remaining)
-- **Completed:** 38 versions (ApiVersions V2, V3; Metadata V3-V9; Produce V6, V7, V8; Fetch V8-V11; ListOffsets V3, V4, V5; OffsetFetch V4, V5, V6; OffsetCommit V4, V5, V6, V7, V8; FindCoordinator V2, V3; JoinGroup V3, V4, V5, V6; SyncGroup V2, V3, V4; Heartbeat V2, V3, V4; LeaveGroup V2, V3, V4)
-- **Low effort:** 5 versions remaining (mostly schema-identical or single field additions)
-- **Medium effort:** 1 version remaining (flexible version encoding changes)
-- **Medium-High effort:** 1 version (CreateTopics V5 response additions)
+- **Total new versions to implement:** 45 (6 remaining)
+- **Completed:** 39 versions (ApiVersions V2, V3; Metadata V3-V9; Produce V6, V7, V8; Fetch V8-V11; ListOffsets V3, V4, V5; OffsetFetch V4, V5, V6; OffsetCommit V4, V5, V6, V7, V8; FindCoordinator V2, V3; JoinGroup V3, V4, V5, V6; SyncGroup V2, V3, V4; Heartbeat V2, V3, V4; LeaveGroup V2, V3, V4; DescribeGroups V2, V3, V4, V5)
+- **Low effort:** 4 versions remaining (CreateTopics V3, V4; DeleteTopics V2, V3)
+- **Medium effort:** 1 version remaining (DeleteTopics V4 -- FLEX)
+- **Medium-High effort:** 1 version (CreateTopics V5 -- FLEX + new response fields)
