@@ -79,7 +79,9 @@ defmodule KafkaEx.Integration.Consume.FetchVersionTest do
       topic_name = generate_random_string()
       _ = create_topic(client, topic_name)
 
-      {:ok, fetch_result} = API.fetch(client, topic_name, 0, 0, api_version: 11)
+      # min_bytes: 0 so broker responds immediately even when no data available
+      # (default min_bytes: 1 + max_wait_time: 10s would exceed the 5s GenServer timeout)
+      {:ok, fetch_result} = API.fetch(client, topic_name, 0, 0, api_version: 11, min_bytes: 0)
 
       assert %Fetch{} = fetch_result
       assert fetch_result.records == []
@@ -104,7 +106,8 @@ defmodule KafkaEx.Integration.Consume.FetchVersionTest do
       assert Fetch.next_offset(fetch1) == base + 10
 
       # Fetch from next_offset should return empty (all consumed)
-      {:ok, fetch2} = API.fetch(client, topic_name, 0, Fetch.next_offset(fetch1), api_version: 11)
+      # min_bytes: 0 so broker responds immediately when no data available
+      {:ok, fetch2} = API.fetch(client, topic_name, 0, Fetch.next_offset(fetch1), api_version: 11, min_bytes: 0)
 
       assert fetch2.records == []
 
