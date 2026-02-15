@@ -3,7 +3,7 @@ defmodule KafkaEx.Mixfile do
   use Mix.Project
 
   @source_url "https://github.com/kafkaex/kafka_ex"
-  @version "1.0.0-rc.1"
+  @version "1.0.0"
 
   def project do
     [
