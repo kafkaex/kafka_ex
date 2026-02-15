@@ -1,6 +1,6 @@
 # KafkaEx Changelog
 
-## 1.0.0-rc.1 - 2025-01-01
+## 1.0.0-rc.1 - 2026-02-15
 
 ### Breaking Changes
 
@@ -19,11 +19,13 @@
 * `KafkaEx.API` module as primary API with explicit client-based functions
 * Automatic API version negotiation with Kafka brokers
 * Full message headers support
-* SASL authentication support (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, OAUTHBEARER)
-* Heartbeat API (v0-v3) with new API support
-* LeaveGroup API (v0-v3) with new API support
-* SyncGroup API (v0-v3) with new API support
+* SASL authentication support (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, OAUTHBEARER, MSK_IAM)
+* Telemetry support for request lifecycle monitoring and observability
+* Heartbeat API (v0-v4) with full version support
+* LeaveGroup API (v0-v4) with full version support
+* SyncGroup API (v0-v4) with full version support
 * Graceful shutdown for GenConsumer
+* Compression support (gzip, snappy, lz4, zstd)
 
 ### Changed
 
@@ -44,17 +46,6 @@
 See UPGRADING.md for detailed migration instructions.
 
 ---
-
-## 0.14
-
-## Features
-
-* Added `SASL` Auth Implementation
-* Added Graceful shutdown for GenConsumer
-* Migrated Offset API to `kayrock`
-* Migrated Consumer Group API to `kayrock`
-* Migrated LeaveGroup API (v0-v1) to `kayrock` with new API support
-* Migrated SyncGroup API (v0-v1) to `kayrock` with new API support
 
 ## 0.14
 
