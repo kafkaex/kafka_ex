@@ -344,11 +344,12 @@ partition_request = %{partition_num: 0, timestamp: timestamp}
 {:ok, offsets} = KafkaEx.API.list_offsets(client, [{"my-topic", [partition_request]}])
 
 # Fetch committed offset for consumer group
-{:ok, offset} = KafkaEx.API.fetch_committed_offset(
+partitions = [%{partition_num: 0}]
+{:ok, offsets} = KafkaEx.API.fetch_committed_offset(
   client,
   "my-consumer-group",
   "my-topic",
-  0
+  partitions
 )
 
 # Commit offset for consumer group
