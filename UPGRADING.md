@@ -53,7 +53,7 @@ Modules have been reorganized by domain:
 ```elixir
 # Before (0.x) - implicit worker
 KafkaEx.produce("topic", 0, "message")
-KafkaEx.fetch("topic", 0, offset: 0)
+KafkaEx.fetch("topic", 0, 0)  # offset is positional
 
 # After (1.0) - explicit client
 {:ok, client} = KafkaEx.API.start_client(brokers: [{"localhost", 9092}])
@@ -96,12 +96,14 @@ KafkaEx.Consumer.ConsumerGroup.start_link(
 ## Migration Checklist
 
 - [ ] Remove `kafka_version` from config
-- [ ] Update `KafkaEx.GenConsumer` to `KafkaEx.Consumer.GenConsumer`
-- [ ] Update `KafkaEx.ConsumerGroup` to `KafkaEx.Consumer.ConsumerGroup`
+- [ ] Update `KafkaEx.GenConsumer` to `KafkaEx.Consumer.GenConsumer` (required - code will not compile)
+- [ ] Update `KafkaEx.ConsumerGroup` to `KafkaEx.Consumer.ConsumerGroup` (required - code will not compile)
 - [ ] Update code to use `KafkaEx.API` functions (optional but recommended)
 - [ ] Update any references to `KafkaEx.New.*` modules
 - [ ] Run tests and fix deprecation warnings
 - [ ] Verify with your Kafka cluster
+
+**Important:** Old module names (`KafkaEx.GenConsumer`, `KafkaEx.ConsumerGroup`, etc.) are **not aliased**. Code using old module names will fail to compile immediately. All references must be updated.
 
 ## New Features in 1.0
 
@@ -130,11 +132,40 @@ The new `KafkaEx.API` module provides explicit, client-based functions:
 
 No need to configure Kafka versions - the client automatically negotiates the best API version with your brokers.
 
-### SASL Authentication
+### Telemetry & Observability
 
-Full SASL support including PLAIN, SCRAM-SHA-256/512, and OAUTHBEARER:
+Built-in telemetry support for monitoring connections, requests, and consumer operations:
 
 ```elixir
+:telemetry.attach(
+  "kafka-handler",
+  [:kafka_ex, :request, :stop],
+  &MyApp.handle_event/4,
+  nil
+)
+```
+
+See [README.md](./README.md#telemetry--observability) for complete event reference and setup examples.
+
+### Compression Support
+
+Support for multiple compression formats on a per-request basis:
+
+```elixir
+# Gzip compression (built-in)
+{:ok, _} = KafkaEx.API.produce(client, "topic", 0, messages, compression: :gzip)
+
+# Supported: :gzip, :snappy, :lz4, :zstd
+```
+
+See [README.md](./README.md#compression) for details on all compression formats.
+
+### SASL Authentication
+
+Full SASL support including PLAIN, SCRAM-SHA-256/512, OAUTHBEARER, and AWS MSK IAM:
+
+```elixir
+# SCRAM example
 config :kafka_ex,
   brokers: [{"localhost", 9292}],
   use_ssl: true,
@@ -145,6 +176,8 @@ config :kafka_ex,
     mechanism_opts: %{algo: :sha256}
   }
 ```
+
+See [AUTH.md](./AUTH.md) for complete configuration examples for all authentication mechanisms.
 
 ## Getting Help
 
