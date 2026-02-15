@@ -34,10 +34,10 @@ defmodule KafkaEx.Mixfile do
         main: "readme",
         extras: [
           "README.md",
-          "kayrock.md",
-          "new_api.md",
           "AUTH.md",
-          "CONTRIBUTING.md"
+          "CHANGELOG.md",
+          "CONTRIBUTING.md",
+          "UPGRADING.md"
         ],
         source_url: @source_url,
         source_ref: @version
@@ -48,13 +48,13 @@ defmodule KafkaEx.Mixfile do
   def application do
     [
       mod: {KafkaEx, []},
-      extra_applications: [:logger, :ssl]
+      extra_applications: [:logger, :ssl, :crypto, :public_key]
     ]
   end
 
   defp deps do
     [
-      {:kayrock, "== 1.0.0-rc1"},
+      {:kayrock, "~> 1.0.0-rc1"},
       {:telemetry, "~> 1.2"},
       {:credo, "~> 1.1", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: :dev, runtime: false},
@@ -62,8 +62,8 @@ defmodule KafkaEx.Mixfile do
       {:ex_doc, "~> 0.23", only: :dev, runtime: false},
       {:hammox, "~> 0.5.0", only: :test},
       {:snappyer, "~> 1.2", optional: true},
-      {:aws_credentials, "~> 1.0", only: [:dev, :test]},
-      {:aws_signature, "~> 0.4.2", only: [:dev, :test]},
+      {:aws_credentials, "~> 1.0", optional: true},
+      {:aws_signature, "~> 0.4.2", optional: true},
       {:jason, "~> 1.0", optional: true},
       {:testcontainers, "~> 1.14", only: :test},
       {:toxiproxy_ex, "~> 2.0", only: :test}
@@ -71,7 +71,7 @@ defmodule KafkaEx.Mixfile do
   end
 
   defp description do
-    "Kafka client for Elixir/Erlang."
+    "Elixir client for Apache Kafka with automatic API version negotiation, SASL authentication (PLAIN, SCRAM, OAuth, MSK IAM), consumer groups, compression, and telemetry support."
   end
 
   defp aliases do
@@ -90,9 +90,24 @@ defmodule KafkaEx.Mixfile do
   defp package do
     [
       maintainers: ["Abejide Ayodele", "Dan Swain", "Jack Lund", "Joshua Scott", "Piotr Rybarczyk"],
-      files: ["lib", "config/config.exs", "mix.exs", "README.md"],
+      files: [
+        "lib",
+        "config/config.exs",
+        "mix.exs",
+        "README.md",
+        "LICENSE",
+        "AUTH.md",
+        "CHANGELOG.md",
+        "CONTRIBUTING.md",
+        "UPGRADING.md",
+        "usage-rules.md"
+      ],
       licenses: ["MIT"],
-      links: %{"GitHub" => @source_url}
+      links: %{
+        "GitHub" => @source_url,
+        "Documentation" => "https://hexdocs.pm/kafka_ex",
+        "Changelog" => "#{@source_url}/blob/master/CHANGELOG.md"
+      }
     ]
   end
 end
