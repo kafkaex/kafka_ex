@@ -5,7 +5,8 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription.Member.MemberAssignment do
   Java equivalent: `org.apache.kafka.clients.consumer.ConsumerPartitionAssignor.Assignment`
 
   Contains the partition assignments and user data for a member.
-  Will only be present if the group is stable.
+  When the group is not stable or the member has no assignment, an empty struct
+  with `partition_assignments: []` is returned.
   """
 
   alias KafkaEx.Messages.ConsumerGroupDescription.Member.MemberAssignment.PartitionAssignment
@@ -16,7 +17,7 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription.Member.MemberAssignment do
           partition_assignments: [PartitionAssignment.t()]
         }
 
-  defstruct ~w(version partition_assignments user_data)a
+  defstruct version: 0, partition_assignments: [], user_data: <<>>
 
   @type response_partial :: %{
           required(:version) => non_neg_integer,

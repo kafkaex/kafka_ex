@@ -3,7 +3,6 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription.Member.MemberAssignment.Part
   A topic-partition assignment for a consumer group member.
 
   Contains the topic name and list of partition IDs assigned to a member.
-  Will only be present if the group is stable.
   """
 
   @type t :: %__MODULE__{

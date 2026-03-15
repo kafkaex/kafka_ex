@@ -24,12 +24,12 @@ defmodule KafkaEx.Chaos.ConsumerTest do
 
   setup ctx do
     # Reset proxy state BEFORE each test to ensure clean state
-    ChaosTestHelpers.reset_all()
+    ChaosTestHelpers.reset_all(ctx.toxiproxy_container)
     ChaosTestHelpers.stop_client()
     Process.sleep(200)
 
     on_exit(fn ->
-      ChaosTestHelpers.reset_all()
+      ChaosTestHelpers.reset_all(ctx.toxiproxy_container)
       ChaosTestHelpers.stop_client()
     end)
 
@@ -45,7 +45,7 @@ defmodule KafkaEx.Chaos.ConsumerTest do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
       {:ok, _} = KafkaEx.API.fetch(client, @test_topic, 0, 0)
 
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         result = KafkaEx.API.fetch(client, @test_topic, 0, 0)
         assert match?({:error, _}, result), "Expected error when broker is down, got: #{inspect(result)}"
       end)
@@ -57,7 +57,7 @@ defmodule KafkaEx.Chaos.ConsumerTest do
     test "fetch fails with connection reset", ctx do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
 
-      ChaosTestHelpers.with_reset_peer(ctx.proxy_name, 50, fn ->
+      ChaosTestHelpers.with_reset_peer(ctx.toxiproxy_container, ctx.proxy_name, 50, fn ->
         result = KafkaEx.API.fetch(client, @test_topic, 0, 0)
         assert match?({:error, _}, result), "Expected error on connection reset, got: #{inspect(result)}"
       end)
@@ -75,7 +75,7 @@ defmodule KafkaEx.Chaos.ConsumerTest do
     test "fetch with moderate latency still succeeds", ctx do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
 
-      ChaosTestHelpers.with_latency(ctx.proxy_name, 500, fn ->
+      ChaosTestHelpers.with_latency(ctx.toxiproxy_container, ctx.proxy_name, 500, fn ->
         result = KafkaEx.API.fetch(client, @test_topic, 0, 0)
         assert match?({:ok, _}, result), "Expected success with moderate latency, got: #{inspect(result)}"
       end)
@@ -84,7 +84,7 @@ defmodule KafkaEx.Chaos.ConsumerTest do
     test "fetch with data timeout fails gracefully", ctx do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
 
-      ChaosTestHelpers.with_timeout(ctx.proxy_name, 100, fn ->
+      ChaosTestHelpers.with_timeout(ctx.toxiproxy_container, ctx.proxy_name, 100, fn ->
         result = KafkaEx.API.fetch(client, @test_topic, 0, 0)
         assert match?({:error, _}, result), "Expected error during data timeout, got: #{inspect(result)}"
       end)
@@ -102,7 +102,7 @@ defmodule KafkaEx.Chaos.ConsumerTest do
     test "fetch with max_bytes limit works under bandwidth constraint", ctx do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
 
-      ChaosTestHelpers.with_bandwidth_limit(ctx.proxy_name, 10, fn ->
+      ChaosTestHelpers.with_bandwidth_limit(ctx.toxiproxy_container, ctx.proxy_name, 10, fn ->
         result = KafkaEx.API.fetch(client, @test_topic, 0, 0, max_bytes: 1024)
         assert !is_nil(result), "Expected fetch to complete under bandwidth limit"
       end)
@@ -113,7 +113,7 @@ defmodule KafkaEx.Chaos.ConsumerTest do
       {:ok, fetch_result} = KafkaEx.API.fetch(client, @test_topic, 0, 0)
 
       # Fail and recover
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         _ = KafkaEx.API.fetch(client, @test_topic, 0, 0)
       end)
 
@@ -133,7 +133,7 @@ defmodule KafkaEx.Chaos.ConsumerTest do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
       {:ok, _} = KafkaEx.API.earliest_offset(client, @test_topic, 0)
 
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         result = KafkaEx.API.earliest_offset(client, @test_topic, 0)
         assert match?({:error, _}, result), "Expected error when broker is down"
       end)
@@ -145,7 +145,7 @@ defmodule KafkaEx.Chaos.ConsumerTest do
     test "latest_offset works after recovery", ctx do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
 
-      ChaosTestHelpers.with_reset_peer(ctx.proxy_name, 0, fn ->
+      ChaosTestHelpers.with_reset_peer(ctx.toxiproxy_container, ctx.proxy_name, 0, fn ->
         result = KafkaEx.API.latest_offset(client, @test_topic, 0)
         assert match?({:error, _}, result)
       end)
@@ -164,7 +164,7 @@ defmodule KafkaEx.Chaos.ConsumerTest do
     test "consumer recovers after multiple network failures", ctx do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
 
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         result = KafkaEx.API.fetch(client, @test_topic, 0, 0)
         assert match?({:error, _}, result)
       end)
@@ -172,7 +172,7 @@ defmodule KafkaEx.Chaos.ConsumerTest do
       Process.sleep(500)
       {:ok, _} = KafkaEx.API.fetch(client, @test_topic, 0, 0)
 
-      ChaosTestHelpers.with_reset_peer(ctx.proxy_name, 0, fn ->
+      ChaosTestHelpers.with_reset_peer(ctx.toxiproxy_container, ctx.proxy_name, 0, fn ->
         result = KafkaEx.API.fetch(client, @test_topic, 0, 0)
         assert match?({:error, _}, result)
       end)
@@ -185,7 +185,7 @@ defmodule KafkaEx.Chaos.ConsumerTest do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
       {:ok, _} = KafkaEx.API.fetch(client, @test_topic, 0, 0)
 
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         result = KafkaEx.API.fetch(client, @test_topic, 0, 0)
         assert match?({:error, _}, result)
       end)
@@ -204,7 +204,7 @@ defmodule KafkaEx.Chaos.ConsumerTest do
     test "fetch with slow close still returns data", ctx do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
 
-      ChaosTestHelpers.with_slow_close(ctx.proxy_name, 500, fn ->
+      ChaosTestHelpers.with_slow_close(ctx.toxiproxy_container, ctx.proxy_name, 500, fn ->
         result = KafkaEx.API.fetch(client, @test_topic, 0, 0)
         assert match?({:ok, _}, result), "Expected success with slow close, got: #{inspect(result)}"
       end)
@@ -213,7 +213,7 @@ defmodule KafkaEx.Chaos.ConsumerTest do
     test "fetch with high latency times out appropriately", ctx do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
 
-      ChaosTestHelpers.with_latency(ctx.proxy_name, 8000, fn ->
+      ChaosTestHelpers.with_latency(ctx.toxiproxy_container, ctx.proxy_name, 8000, fn ->
         result =
           try do
             KafkaEx.API.fetch(client, @test_topic, 0, 0)
