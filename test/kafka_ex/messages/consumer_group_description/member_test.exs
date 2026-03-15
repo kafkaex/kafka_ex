@@ -2,9 +2,10 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription.MemberTest do
   use ExUnit.Case, async: true
 
   alias KafkaEx.Messages.ConsumerGroupDescription.Member
+  alias KafkaEx.Messages.ConsumerGroupDescription.Member.MemberAssignment
 
   describe "from_describe_group_response/1" do
-    test "returns a Member struct" do
+    test "returns a Member struct with empty assignment when member_assignment is nil" do
       response = %{
         member_id: "member_id",
         client_id: "client_id",
@@ -19,7 +20,23 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription.MemberTest do
       assert "client_id" == result.client_id
       assert "client_host" == result.client_host
       assert "member_metadata" == result.member_metadata
-      assert nil == result.member_assignment
+
+      assert %MemberAssignment{version: 0, user_data: <<>>, partition_assignments: []} =
+               result.member_assignment
+    end
+
+    test "returns a Member struct with empty assignment when member_assignment key is absent" do
+      response = %{
+        member_id: "member_id",
+        client_id: "client_id",
+        client_host: "client_host",
+        member_metadata: "member_metadata"
+      }
+
+      result = Member.from_describe_group_response(response)
+
+      assert %MemberAssignment{version: 0, user_data: <<>>, partition_assignments: []} =
+               result.member_assignment
     end
 
     test "returns a Member struct with member_assignment" do
@@ -114,7 +131,7 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription.MemberTest do
       assert pa.partitions == [0]
     end
 
-    test "handles empty binary member_assignment" do
+    test "returns empty MemberAssignment struct for empty binary member_assignment" do
       response = %{
         member_id: "member-1",
         client_id: "client-1",
@@ -124,7 +141,9 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription.MemberTest do
       }
 
       result = Member.from_describe_group_response(response)
-      assert result.member_assignment == nil
+
+      assert %MemberAssignment{version: 0, user_data: <<>>, partition_assignments: []} =
+               result.member_assignment
     end
   end
 
@@ -135,7 +154,11 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription.MemberTest do
         client_id: "test-client",
         client_host: "/192.168.1.1",
         member_metadata: "metadata",
-        member_assignment: nil
+        member_assignment: %MemberAssignment{
+          version: 0,
+          user_data: <<>>,
+          partition_assignments: []
+        }
       }
 
       {:ok, %{member: member}}
@@ -154,7 +177,8 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription.MemberTest do
     end
 
     test "assignment/1 returns member assignment", %{member: member} do
-      assert Member.assignment(member) == nil
+      assert %MemberAssignment{version: 0, user_data: <<>>, partition_assignments: []} =
+               Member.assignment(member)
     end
   end
 end

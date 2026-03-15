@@ -1,5 +1,16 @@
 # KafkaEx Changelog
 
+## 1.0.0-rc.2 - 2026-03-15
+
+### Fixed
+
+* `ConsumerGroupDescription.Member.member_assignment` now returns an empty `%MemberAssignment{version: 0, user_data: <<>>, partition_assignments: []}` struct instead of `nil` when Kafka returns a null or empty member assignment (e.g., during rebalancing). This prevents `KeyError` crashes when accessing `.partition_assignments` on the result. **Breaking:** code that pattern-matches on `member_assignment: nil` or checks `== nil` must be updated to check for an empty `partition_assignments` list instead.
+
+### Changed
+
+* `MemberAssignment` defstruct now has explicit defaults (`version: 0`, `partition_assignments: []`, `user_data: <<>>`) matching its typespec.
+* Type specs for `Member.t()` and `Member.assignment/1` no longer include `| nil` for the `member_assignment` field.
+
 ## 1.0.0-rc.1 - 2026-02-15
 
 ### Breaking Changes

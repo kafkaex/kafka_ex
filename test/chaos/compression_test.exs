@@ -15,12 +15,12 @@ defmodule KafkaEx.Chaos.CompressionTest do
   end
 
   setup ctx do
-    ChaosTestHelpers.reset_all()
+    ChaosTestHelpers.reset_all(ctx.toxiproxy_container)
     ChaosTestHelpers.stop_client()
     Process.sleep(200)
 
     on_exit(fn ->
-      ChaosTestHelpers.reset_all()
+      ChaosTestHelpers.reset_all(ctx.toxiproxy_container)
       ChaosTestHelpers.stop_client()
     end)
 
@@ -38,7 +38,7 @@ defmodule KafkaEx.Chaos.CompressionTest do
 
       {:ok, _} = KafkaEx.API.produce(client, @test_topic, 0, messages, compression: :gzip)
 
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         result = KafkaEx.API.produce(client, @test_topic, 0, messages, compression: :gzip)
         assert match?({:error, _}, result), "Expected error when broker is down, got: #{inspect(result)}"
       end)
@@ -51,7 +51,7 @@ defmodule KafkaEx.Chaos.CompressionTest do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
       messages = Enum.map(1..10, fn i -> %{value: "gzip-reset-#{i}"} end)
 
-      ChaosTestHelpers.with_reset_peer(ctx.proxy_name, 50, fn ->
+      ChaosTestHelpers.with_reset_peer(ctx.toxiproxy_container, ctx.proxy_name, 50, fn ->
         result = KafkaEx.API.produce(client, @test_topic, 0, messages, compression: :gzip)
         assert match?({:error, _}, result), "Expected error on connection reset, got: #{inspect(result)}"
       end)
@@ -70,7 +70,7 @@ defmodule KafkaEx.Chaos.CompressionTest do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
       messages = Enum.map(1..20, fn i -> %{value: "gzip-latency-#{i}"} end)
 
-      ChaosTestHelpers.with_latency(ctx.proxy_name, 500, fn ->
+      ChaosTestHelpers.with_latency(ctx.toxiproxy_container, ctx.proxy_name, 500, fn ->
         result = KafkaEx.API.produce(client, @test_topic, 0, messages, compression: :gzip)
         assert match?({:ok, _}, result), "Expected success with moderate latency, got: #{inspect(result)}"
       end)
@@ -80,7 +80,7 @@ defmodule KafkaEx.Chaos.CompressionTest do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
       messages = Enum.map(1..5, fn i -> %{value: "gzip-bw-#{i}"} end)
 
-      ChaosTestHelpers.with_bandwidth_limit(ctx.proxy_name, 20, fn ->
+      ChaosTestHelpers.with_bandwidth_limit(ctx.toxiproxy_container, ctx.proxy_name, 20, fn ->
         result = KafkaEx.API.produce(client, @test_topic, 0, messages, compression: :gzip)
         assert !is_nil(result), "Expected produce to complete under bandwidth limit"
       end)
@@ -90,7 +90,7 @@ defmodule KafkaEx.Chaos.CompressionTest do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
       messages = Enum.map(1..10, fn i -> %{value: "gzip-timeout-#{i}"} end)
 
-      ChaosTestHelpers.with_timeout(ctx.proxy_name, 100, fn ->
+      ChaosTestHelpers.with_timeout(ctx.toxiproxy_container, ctx.proxy_name, 100, fn ->
         result = KafkaEx.API.produce(client, @test_topic, 0, messages, compression: :gzip)
         assert match?({:error, _}, result), "Expected error during data timeout, got: #{inspect(result)}"
       end)
@@ -111,7 +111,7 @@ defmodule KafkaEx.Chaos.CompressionTest do
 
       {:ok, _} = KafkaEx.API.produce(client, @test_topic, 0, messages, compression: :snappy)
 
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         result = KafkaEx.API.produce(client, @test_topic, 0, messages, compression: :snappy)
         assert match?({:error, _}, result), "Expected error when broker is down, got: #{inspect(result)}"
       end)
@@ -124,7 +124,7 @@ defmodule KafkaEx.Chaos.CompressionTest do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
       messages = Enum.map(1..10, fn i -> %{value: "snappy-reset-#{i}"} end)
 
-      ChaosTestHelpers.with_reset_peer(ctx.proxy_name, 50, fn ->
+      ChaosTestHelpers.with_reset_peer(ctx.toxiproxy_container, ctx.proxy_name, 50, fn ->
         result = KafkaEx.API.produce(client, @test_topic, 0, messages, compression: :snappy)
         assert match?({:error, _}, result), "Expected error on connection reset, got: #{inspect(result)}"
       end)
@@ -145,7 +145,7 @@ defmodule KafkaEx.Chaos.CompressionTest do
 
       {:ok, produce_result} = KafkaEx.API.produce(client, @test_topic, 0, messages, compression: :gzip)
 
-      ChaosTestHelpers.with_latency(ctx.proxy_name, 500, fn ->
+      ChaosTestHelpers.with_latency(ctx.toxiproxy_container, ctx.proxy_name, 500, fn ->
         result = KafkaEx.API.fetch(client, @test_topic, 0, produce_result.base_offset, max_bytes: 1_000_000)
         assert match?({:ok, _}, result), "Expected fetch to succeed with latency, got: #{inspect(result)}"
 
@@ -160,7 +160,7 @@ defmodule KafkaEx.Chaos.CompressionTest do
 
       {:ok, produce_result} = KafkaEx.API.produce(client, @test_topic, 0, messages, compression: :gzip)
 
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         result = KafkaEx.API.fetch(client, @test_topic, 0, produce_result.base_offset)
         assert match?({:error, _}, result), "Expected error when broker is down"
       end)
@@ -176,7 +176,7 @@ defmodule KafkaEx.Chaos.CompressionTest do
 
       {:ok, produce_result} = KafkaEx.API.produce(client, @test_topic, 0, messages, compression: :gzip)
 
-      ChaosTestHelpers.with_bandwidth_limit(ctx.proxy_name, 20, fn ->
+      ChaosTestHelpers.with_bandwidth_limit(ctx.toxiproxy_container, ctx.proxy_name, 20, fn ->
         result = KafkaEx.API.fetch(client, @test_topic, 0, produce_result.base_offset, max_bytes: 100_000)
         assert !is_nil(result), "Expected fetch to complete under bandwidth limit"
       end)
@@ -196,7 +196,7 @@ defmodule KafkaEx.Chaos.CompressionTest do
       # doesn't cause hangs or crashes
       messages = Enum.map(1..100, fn i -> %{value: String.duplicate("compress-me-#{i}-", 100)} end)
 
-      ChaosTestHelpers.with_reset_peer(ctx.proxy_name, 10, fn ->
+      ChaosTestHelpers.with_reset_peer(ctx.toxiproxy_container, ctx.proxy_name, 10, fn ->
         result = KafkaEx.API.produce(client, @test_topic, 0, messages, compression: :gzip)
 
         assert match?({:error, _}, result),
@@ -213,7 +213,7 @@ defmodule KafkaEx.Chaos.CompressionTest do
 
       messages = Enum.map(1..100, fn i -> %{value: String.duplicate("snappy-#{i}-", 100)} end)
 
-      ChaosTestHelpers.with_reset_peer(ctx.proxy_name, 10, fn ->
+      ChaosTestHelpers.with_reset_peer(ctx.toxiproxy_container, ctx.proxy_name, 10, fn ->
         result = KafkaEx.API.produce(client, @test_topic, 0, messages, compression: :snappy)
 
         assert match?({:error, _}, result),
@@ -238,7 +238,7 @@ defmodule KafkaEx.Chaos.CompressionTest do
       {:ok, result1} = KafkaEx.API.produce(client, @test_topic, 0, messages1, compression: :gzip)
 
       # Broker goes down - produce fails
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         result = KafkaEx.API.produce(client, @test_topic, 0, [%{value: "during-failure"}], compression: :gzip)
         assert match?({:error, _}, result)
       end)
@@ -269,7 +269,7 @@ defmodule KafkaEx.Chaos.CompressionTest do
       {:ok, _} = KafkaEx.API.produce(client, @test_topic, 0, [%{value: "gzip-1"}], compression: :gzip)
 
       # Network failure
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         _ = KafkaEx.API.produce(client, @test_topic, 0, [%{value: "fail"}], compression: :snappy)
       end)
 

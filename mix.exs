@@ -3,7 +3,7 @@ defmodule KafkaEx.Mixfile do
   use Mix.Project
 
   @source_url "https://github.com/kafkaex/kafka_ex"
-  @version "1.0.0"
+  @version "1.0.0-rc.2"
 
   def project do
     [
@@ -65,8 +65,7 @@ defmodule KafkaEx.Mixfile do
       {:aws_credentials, "~> 1.0", optional: true},
       {:aws_signature, "~> 0.4.2", optional: true},
       {:jason, "~> 1.0", optional: true},
-      {:testcontainers, "~> 1.14", only: :test},
-      {:toxiproxy_ex, "~> 2.0", only: :test}
+      {:testcontainers, "~> 1.14", only: :test}
     ]
   end
 

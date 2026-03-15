@@ -29,13 +29,13 @@ defmodule KafkaEx.Chaos.ConsumerGroupTest do
 
   setup ctx do
     # Reset proxy state BEFORE each test to ensure clean state
-    ChaosTestHelpers.reset_all()
+    ChaosTestHelpers.reset_all(ctx.toxiproxy_container)
     ChaosTestHelpers.stop_client()
     # Give toxiproxy time to fully reset
     Process.sleep(200)
 
     on_exit(fn ->
-      ChaosTestHelpers.reset_all()
+      ChaosTestHelpers.reset_all(ctx.toxiproxy_container)
       ChaosTestHelpers.stop_client()
     end)
 
@@ -92,7 +92,7 @@ defmodule KafkaEx.Chaos.ConsumerGroupTest do
       # Trap exits so we can observe the failure without crashing the test process
       Process.flag(:trap_exit, true)
 
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         result = start_consumer_group(ctx, "down_start_test")
 
         case result do
@@ -133,7 +133,7 @@ defmodule KafkaEx.Chaos.ConsumerGroupTest do
       _original_generation = ConsumerGroup.generation_id(cg_pid)
 
       # Broker goes down
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         Process.sleep(3_000)
 
         # Consumer group supervisor should survive broker failure
@@ -157,7 +157,7 @@ defmodule KafkaEx.Chaos.ConsumerGroupTest do
 
   describe "consumer group with network latency" do
     test "consumer group starts with moderate latency", ctx do
-      ChaosTestHelpers.with_latency(ctx.proxy_name, 300, fn ->
+      ChaosTestHelpers.with_latency(ctx.toxiproxy_container, ctx.proxy_name, 300, fn ->
         {:ok, cg_pid} = start_consumer_group(ctx, "latency_start_test")
         on_exit(fn -> ConsumerGroupHelpers.stop_consumer_group(cg_pid) end)
 
@@ -172,7 +172,7 @@ defmodule KafkaEx.Chaos.ConsumerGroupTest do
 
       assert {:ok, :active} = ConsumerGroupHelpers.wait_for_active(cg_pid, timeout: 30_000)
 
-      ChaosTestHelpers.with_latency(ctx.proxy_name, 500, fn ->
+      ChaosTestHelpers.with_latency(ctx.toxiproxy_container, ctx.proxy_name, 500, fn ->
         Process.sleep(5_000)
         assert Process.alive?(cg_pid)
       end)
@@ -192,7 +192,7 @@ defmodule KafkaEx.Chaos.ConsumerGroupTest do
 
       assert {:ok, :active} = ConsumerGroupHelpers.wait_for_active(cg_pid, timeout: 30_000)
 
-      ChaosTestHelpers.with_reset_peer(ctx.proxy_name, 100, fn ->
+      ChaosTestHelpers.with_reset_peer(ctx.toxiproxy_container, ctx.proxy_name, 100, fn ->
         Process.sleep(2_000)
       end)
 
@@ -213,21 +213,21 @@ defmodule KafkaEx.Chaos.ConsumerGroupTest do
 
       assert {:ok, :active} = ConsumerGroupHelpers.wait_for_active(cg_pid, timeout: 30_000)
 
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         Process.sleep(2_000)
       end)
 
       Process.sleep(2_000)
       assert Process.alive?(cg_pid)
 
-      ChaosTestHelpers.with_reset_peer(ctx.proxy_name, 0, fn ->
+      ChaosTestHelpers.with_reset_peer(ctx.toxiproxy_container, ctx.proxy_name, 0, fn ->
         Process.sleep(1_000)
       end)
 
       Process.sleep(2_000)
       assert Process.alive?(cg_pid)
 
-      ChaosTestHelpers.with_timeout(ctx.proxy_name, 100, fn ->
+      ChaosTestHelpers.with_timeout(ctx.toxiproxy_container, ctx.proxy_name, 100, fn ->
         Process.sleep(1_000)
       end)
 
@@ -239,7 +239,7 @@ defmodule KafkaEx.Chaos.ConsumerGroupTest do
       {:ok, cg_pid1} = start_consumer_group(ctx, "first_cg")
       assert {:ok, :active} = ConsumerGroupHelpers.wait_for_active(cg_pid1, timeout: 30_000)
 
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         ConsumerGroupHelpers.stop_consumer_group(cg_pid1)
         Process.sleep(1_000)
       end)
@@ -261,7 +261,7 @@ defmodule KafkaEx.Chaos.ConsumerGroupTest do
 
   describe "consumer group with slow network" do
     test "consumer group handles bandwidth limit", ctx do
-      ChaosTestHelpers.with_bandwidth_limit(ctx.proxy_name, 20, fn ->
+      ChaosTestHelpers.with_bandwidth_limit(ctx.toxiproxy_container, ctx.proxy_name, 20, fn ->
         {:ok, cg_pid} = start_consumer_group(ctx, "bandwidth_test")
         on_exit(fn -> ConsumerGroupHelpers.stop_consumer_group(cg_pid) end)
 
@@ -275,7 +275,7 @@ defmodule KafkaEx.Chaos.ConsumerGroupTest do
 
       assert {:ok, :active} = ConsumerGroupHelpers.wait_for_active(cg_pid, timeout: 30_000)
 
-      ChaosTestHelpers.with_slow_close(ctx.proxy_name, 500, fn ->
+      ChaosTestHelpers.with_slow_close(ctx.toxiproxy_container, ctx.proxy_name, 500, fn ->
         Process.sleep(3_000)
         assert Process.alive?(cg_pid)
       end)
@@ -300,7 +300,7 @@ defmodule KafkaEx.Chaos.ConsumerGroupTest do
       initial_count = ConsumerGroupHelpers.wait_for_message_count(3, timeout: 30_000)
       assert initial_count >= 3, "Expected at least 3 messages initially"
 
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         Process.sleep(3_000)
       end)
 
@@ -315,7 +315,7 @@ defmodule KafkaEx.Chaos.ConsumerGroupTest do
       new_count = ConsumerGroupHelpers.wait_for_message_count(initial_count + 5, timeout: 30_000)
       assert new_count > initial_count, "Expected more messages after first recovery"
 
-      ChaosTestHelpers.with_reset_peer(ctx.proxy_name, 50, fn ->
+      ChaosTestHelpers.with_reset_peer(ctx.toxiproxy_container, ctx.proxy_name, 50, fn ->
         Process.sleep(2_000)
       end)
 
@@ -346,21 +346,21 @@ defmodule KafkaEx.Chaos.ConsumerGroupTest do
           case rem(i, 3) do
             0 ->
               fn ->
-                ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+                ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
                   Process.sleep(1_000)
                 end)
               end
 
             1 ->
               fn ->
-                ChaosTestHelpers.with_reset_peer(ctx.proxy_name, 0, fn ->
+                ChaosTestHelpers.with_reset_peer(ctx.toxiproxy_container, ctx.proxy_name, 0, fn ->
                   Process.sleep(500)
                 end)
               end
 
             2 ->
               fn ->
-                ChaosTestHelpers.with_latency(ctx.proxy_name, 1_000, fn ->
+                ChaosTestHelpers.with_latency(ctx.toxiproxy_container, ctx.proxy_name, 1_000, fn ->
                   Process.sleep(2_000)
                 end)
               end
@@ -390,7 +390,7 @@ defmodule KafkaEx.Chaos.ConsumerGroupTest do
       _original_member_id = ConsumerGroup.member_id(cg_pid)
 
       # First outage - less than session timeout (should recover smoothly)
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         Process.sleep(5_000)
       end)
 
@@ -402,7 +402,7 @@ defmodule KafkaEx.Chaos.ConsumerGroupTest do
       assert new_member_id != nil
 
       # Second outage - approaching session timeout boundary
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         Process.sleep(20_000)
       end)
 
@@ -428,7 +428,7 @@ defmodule KafkaEx.Chaos.ConsumerGroupTest do
       ChaosTestHelpers.stop_client()
 
       # Network fails right after producing
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         Process.sleep(5_000)
       end)
 
@@ -468,7 +468,7 @@ defmodule KafkaEx.Chaos.ConsumerGroupTest do
       Process.sleep(2_000)
 
       # Network failure
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         Process.sleep(3_000)
       end)
 
@@ -503,7 +503,7 @@ defmodule KafkaEx.Chaos.ConsumerGroupTest do
 
       assert {:ok, :active} = ConsumerGroupHelpers.wait_for_active(cg_pid, timeout: 30_000)
 
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         # Introspection should not crash even during failure
         # (returns cached or nil values)
         _result =

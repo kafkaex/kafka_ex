@@ -16,12 +16,12 @@ defmodule KafkaEx.Chaos.ProducerTest do
 
   setup ctx do
     # Reset proxy state BEFORE each test to ensure clean state
-    ChaosTestHelpers.reset_all()
+    ChaosTestHelpers.reset_all(ctx.toxiproxy_container)
     ChaosTestHelpers.stop_client()
     Process.sleep(200)
 
     on_exit(fn ->
-      ChaosTestHelpers.reset_all()
+      ChaosTestHelpers.reset_all(ctx.toxiproxy_container)
       ChaosTestHelpers.stop_client()
     end)
 
@@ -37,7 +37,7 @@ defmodule KafkaEx.Chaos.ProducerTest do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
       {:ok, _} = KafkaEx.API.produce(client, @test_topic, 0, [%{key: "k1", value: "v1"}])
 
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         result = KafkaEx.API.produce(client, @test_topic, 0, [%{key: "k2", value: "v2"}])
         assert match?({:error, _}, result), "Expected error when broker is down, got: #{inspect(result)}"
       end)
@@ -49,7 +49,7 @@ defmodule KafkaEx.Chaos.ProducerTest do
     test "produce fails with connection reset", ctx do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
 
-      ChaosTestHelpers.with_reset_peer(ctx.proxy_name, 50, fn ->
+      ChaosTestHelpers.with_reset_peer(ctx.toxiproxy_container, ctx.proxy_name, 50, fn ->
         result = KafkaEx.API.produce(client, @test_topic, 0, [%{key: "k", value: "v"}])
         assert match?({:error, _}, result), "Expected error on connection reset, got: #{inspect(result)}"
       end)
@@ -67,7 +67,7 @@ defmodule KafkaEx.Chaos.ProducerTest do
     test "produce with moderate latency still succeeds", ctx do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
 
-      ChaosTestHelpers.with_latency(ctx.proxy_name, 500, fn ->
+      ChaosTestHelpers.with_latency(ctx.toxiproxy_container, ctx.proxy_name, 500, fn ->
         result = KafkaEx.API.produce(client, @test_topic, 0, [%{key: "k", value: "v"}])
         assert match?({:ok, _}, result), "Expected success with moderate latency, got: #{inspect(result)}"
       end)
@@ -76,7 +76,7 @@ defmodule KafkaEx.Chaos.ProducerTest do
     test "produce with data timeout fails gracefully", ctx do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
 
-      ChaosTestHelpers.with_timeout(ctx.proxy_name, 100, fn ->
+      ChaosTestHelpers.with_timeout(ctx.toxiproxy_container, ctx.proxy_name, 100, fn ->
         result = KafkaEx.API.produce(client, @test_topic, 0, [%{key: "k", value: "v"}])
         assert match?({:error, _}, result), "Expected error during data timeout, got: #{inspect(result)}"
       end)
@@ -104,7 +104,7 @@ defmodule KafkaEx.Chaos.ProducerTest do
 
       # Now cause a timeout - produce should fail WITHOUT retrying
       # (retrying could write duplicates)
-      ChaosTestHelpers.with_timeout(ctx.proxy_name, 100, fn ->
+      ChaosTestHelpers.with_timeout(ctx.toxiproxy_container, ctx.proxy_name, 100, fn ->
         result = KafkaEx.API.produce(client, @test_topic, 0, [%{key: "timeout", value: "msg"}])
         assert match?({:error, _}, result), "Produce should fail on timeout"
       end)
@@ -129,7 +129,7 @@ defmodule KafkaEx.Chaos.ProducerTest do
       # Measure how fast produce fails when broker is down
       # If it retries 3 times with backoff, it would take several seconds
       # With no retry on non-leadership errors, it should fail quickly
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         start_time = System.monotonic_time(:millisecond)
         result = KafkaEx.API.produce(client, @test_topic, 0, [%{key: "k", value: "v"}])
         elapsed = System.monotonic_time(:millisecond) - start_time
@@ -150,7 +150,7 @@ defmodule KafkaEx.Chaos.ProducerTest do
     test "produce with acks=0 (fire and forget) tolerates network issues", ctx do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
 
-      ChaosTestHelpers.with_latency(ctx.proxy_name, 200, fn ->
+      ChaosTestHelpers.with_latency(ctx.toxiproxy_container, ctx.proxy_name, 200, fn ->
         result = KafkaEx.API.produce(client, @test_topic, 0, [%{key: "k", value: "v"}], required_acks: 0)
         assert !is_nil(result)
       end)
@@ -166,7 +166,7 @@ defmodule KafkaEx.Chaos.ProducerTest do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
       messages = Enum.map(1..10, fn i -> %{key: "key_#{i}", value: "value_#{i}"} end)
 
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         result = KafkaEx.API.produce(client, @test_topic, 0, messages)
         assert match?({:error, _}, result), "Expected batch to fail when broker is down"
       end)
@@ -179,7 +179,7 @@ defmodule KafkaEx.Chaos.ProducerTest do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
       messages = Enum.map(1..5, fn i -> %{key: "k#{i}", value: "v#{i}"} end)
 
-      ChaosTestHelpers.with_bandwidth_limit(ctx.proxy_name, 10, fn ->
+      ChaosTestHelpers.with_bandwidth_limit(ctx.toxiproxy_container, ctx.proxy_name, 10, fn ->
         result = KafkaEx.API.produce(client, @test_topic, 0, messages)
         assert !is_nil(result), "Expected produce to complete under bandwidth limit"
       end)
@@ -200,7 +200,7 @@ defmodule KafkaEx.Chaos.ProducerTest do
       {:ok, _} = KafkaEx.API.produce(client, @test_topic, 0, [%{key: "k", value: "v"}])
 
       # reset_peer with small delay: lets request start, then kills connection
-      ChaosTestHelpers.with_reset_peer(ctx.proxy_name, 10, fn ->
+      ChaosTestHelpers.with_reset_peer(ctx.toxiproxy_container, ctx.proxy_name, 10, fn ->
         # Large batch increases chance of mid-flight failure
         messages = Enum.map(1..50, fn i -> %{key: "k#{i}", value: String.duplicate("x", 1000)} end)
         result = KafkaEx.API.produce(client, @test_topic, 0, messages)
@@ -218,7 +218,7 @@ defmodule KafkaEx.Chaos.ProducerTest do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
       {:ok, _} = KafkaEx.API.produce(client, @test_topic, 0, [%{key: "k", value: "v"}])
 
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         tasks =
           Enum.map(1..10, fn i ->
             Task.async(fn ->
@@ -247,7 +247,7 @@ defmodule KafkaEx.Chaos.ProducerTest do
     test "producer recovers after multiple network failures", ctx do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
 
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         result = KafkaEx.API.produce(client, @test_topic, 0, [%{key: "k", value: "v"}])
         assert match?({:error, _}, result)
       end)
@@ -255,7 +255,7 @@ defmodule KafkaEx.Chaos.ProducerTest do
       Process.sleep(500)
       {:ok, _} = KafkaEx.API.produce(client, @test_topic, 0, [%{key: "k1", value: "v1"}])
 
-      ChaosTestHelpers.with_reset_peer(ctx.proxy_name, 0, fn ->
+      ChaosTestHelpers.with_reset_peer(ctx.toxiproxy_container, ctx.proxy_name, 0, fn ->
         result = KafkaEx.API.produce(client, @test_topic, 0, [%{key: "k", value: "v"}])
         assert match?({:error, _}, result)
       end)
@@ -263,7 +263,7 @@ defmodule KafkaEx.Chaos.ProducerTest do
       Process.sleep(500)
       {:ok, _} = KafkaEx.API.produce(client, @test_topic, 0, [%{key: "k2", value: "v2"}])
 
-      ChaosTestHelpers.with_timeout(ctx.proxy_name, 100, fn ->
+      ChaosTestHelpers.with_timeout(ctx.toxiproxy_container, ctx.proxy_name, 100, fn ->
         result = KafkaEx.API.produce(client, @test_topic, 0, [%{key: "k", value: "v"}])
         assert match?({:error, _}, result)
       end)
@@ -275,7 +275,7 @@ defmodule KafkaEx.Chaos.ProducerTest do
     test "new client can produce after previous client failed", ctx do
       {:ok, client1} = ChaosTestHelpers.start_client(ctx)
 
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         _ = KafkaEx.API.produce(client1, @test_topic, 0, [%{key: "k", value: "v"}])
       end)
 

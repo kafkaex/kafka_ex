@@ -65,7 +65,6 @@ defmodule KafkaEx.ChaosTestHelpers do
     {:ok, toxiproxy_container} = Testcontainers.start_container(toxiproxy_config)
     Logger.info("Started Toxiproxy container")
 
-    :ok = ToxiproxyContainer.configure_toxiproxy_ex(toxiproxy_container)
     Logger.info("Toxiproxy API ready at #{ToxiproxyContainer.api_url(toxiproxy_container)}")
 
     # Step 2: Start Kafka - using startup script approach for dynamic advertised listeners
@@ -246,68 +245,91 @@ defmodule KafkaEx.ChaosTestHelpers do
   # Toxic Helpers
   # ---------------------------------------------------------------------------
 
+  import KafkaEx.ToxiproxyHelpers
+
   @doc """
   Execute function with proxy completely down (connection refused).
   """
-  def with_broker_down(proxy_name, fun) do
-    proxy_name |> ToxiproxyEx.get!() |> ToxiproxyEx.down!(fun)
+  def with_broker_down(container, proxy_name, fun) do
+    disable_proxy(container, proxy_name)
+
+    try do
+      fun.()
+    after
+      enable_proxy(container, proxy_name)
+    end
   end
 
   @doc """
   Execute function with added latency on downstream (responses from Kafka).
   """
-  def with_latency(proxy_name, latency_ms, fun) do
-    proxy_name
-    |> ToxiproxyEx.get!()
-    |> ToxiproxyEx.toxic(:latency, latency: latency_ms)
-    |> ToxiproxyEx.apply!(fun)
+  def with_latency(container, proxy_name, latency_ms, fun) do
+    :ok = add_latency(container, proxy_name, latency_ms)
+
+    try do
+      fun.()
+    after
+      remove_toxic(container, proxy_name, "latency_downstream")
+    end
   end
 
   @doc """
   Execute function with connection timeout (data stops, connection stays open).
   """
-  def with_timeout(proxy_name, timeout_ms, fun) do
-    proxy_name
-    |> ToxiproxyEx.get!()
-    |> ToxiproxyEx.toxic(:timeout, timeout: timeout_ms)
-    |> ToxiproxyEx.apply!(fun)
+  def with_timeout(container, proxy_name, timeout_ms, fun) do
+    :ok = add_timeout(container, proxy_name, timeout_ms)
+
+    try do
+      fun.()
+    after
+      remove_toxic(container, proxy_name, "timeout_downstream")
+    end
   end
 
   @doc """
   Execute function with TCP RST (connection reset).
   """
-  def with_reset_peer(proxy_name, delay_ms, fun) do
-    proxy_name
-    |> ToxiproxyEx.get!()
-    |> ToxiproxyEx.toxic(:reset_peer, timeout: delay_ms)
-    |> ToxiproxyEx.apply!(fun)
+  def with_reset_peer(container, proxy_name, delay_ms, fun) do
+    :ok = add_reset_peer(container, proxy_name, delay_ms)
+
+    try do
+      fun.()
+    after
+      remove_toxic(container, proxy_name, "reset_peer_downstream")
+    end
   end
 
   @doc """
   Execute function with bandwidth limit.
   """
-  def with_bandwidth_limit(proxy_name, rate_kb, fun) do
-    proxy_name
-    |> ToxiproxyEx.get!()
-    |> ToxiproxyEx.toxic(:bandwidth, rate: rate_kb)
-    |> ToxiproxyEx.apply!(fun)
+  def with_bandwidth_limit(container, proxy_name, rate_kb, fun) do
+    :ok = add_bandwidth_limit(container, proxy_name, rate_kb)
+
+    try do
+      fun.()
+    after
+      remove_toxic(container, proxy_name, "bandwidth_downstream")
+    end
   end
 
   @doc """
   Execute function with slow close (delay before connection close).
   """
-  def with_slow_close(proxy_name, delay_ms, fun) do
-    proxy_name
-    |> ToxiproxyEx.get!()
-    |> ToxiproxyEx.toxic(:slow_close, delay: delay_ms)
-    |> ToxiproxyEx.apply!(fun)
+  def with_slow_close(container, proxy_name, delay_ms, fun) do
+    :ok = add_slow_close(container, proxy_name, delay_ms)
+
+    try do
+      fun.()
+    after
+      remove_toxic(container, proxy_name, "slow_close_downstream")
+    end
   end
 
   @doc """
   Reset all toxics and re-enable proxies.
   """
-  def reset_all do
-    ToxiproxyEx.reset!()
+  def reset_all(container) do
+    reset_all_proxies(container)
   rescue
     _ -> :ok
   end

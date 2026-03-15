@@ -14,12 +14,12 @@ defmodule KafkaEx.Chaos.NetworkTest do
 
   setup ctx do
     # Reset proxy state BEFORE each test to ensure clean state
-    ChaosTestHelpers.reset_all()
+    ChaosTestHelpers.reset_all(ctx.toxiproxy_container)
     ChaosTestHelpers.stop_client()
     Process.sleep(200)
 
     on_exit(fn ->
-      ChaosTestHelpers.reset_all()
+      ChaosTestHelpers.reset_all(ctx.toxiproxy_container)
       ChaosTestHelpers.stop_client()
     end)
 
@@ -36,7 +36,7 @@ defmodule KafkaEx.Chaos.NetworkTest do
       {:ok, _metadata} = KafkaEx.API.metadata(client)
 
       # Simulate broker down (connection refused)
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         result = KafkaEx.API.metadata(client)
         assert match?({:error, _}, result), "Expected error when broker is down, got: #{inspect(result)}"
       end)
@@ -56,7 +56,7 @@ defmodule KafkaEx.Chaos.NetworkTest do
       {:ok, _metadata} = KafkaEx.API.metadata(client)
 
       # Simulate timeout - connection stays open but data stops after 100ms
-      ChaosTestHelpers.with_timeout(ctx.proxy_name, 100, fn ->
+      ChaosTestHelpers.with_timeout(ctx.toxiproxy_container, ctx.proxy_name, 100, fn ->
         result = KafkaEx.API.metadata(client)
         assert match?({:error, _}, result), "Expected error during timeout, got: #{inspect(result)}"
       end)
@@ -69,7 +69,7 @@ defmodule KafkaEx.Chaos.NetworkTest do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
       {:ok, _metadata} = KafkaEx.API.metadata(client)
 
-      ChaosTestHelpers.with_latency(ctx.proxy_name, 10_000, fn ->
+      ChaosTestHelpers.with_latency(ctx.toxiproxy_container, ctx.proxy_name, 10_000, fn ->
         # High latency causes GenServer.call to exit with timeout
         # We catch this exit and verify it's a timeout
         result =
@@ -99,7 +99,7 @@ defmodule KafkaEx.Chaos.NetworkTest do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
       {:ok, _metadata} = KafkaEx.API.metadata(client)
 
-      ChaosTestHelpers.with_reset_peer(ctx.proxy_name, 50, fn ->
+      ChaosTestHelpers.with_reset_peer(ctx.toxiproxy_container, ctx.proxy_name, 50, fn ->
         result = KafkaEx.API.metadata(client)
         assert match?({:error, _}, result), "Expected error on connection reset, got: #{inspect(result)}"
       end)
@@ -112,7 +112,7 @@ defmodule KafkaEx.Chaos.NetworkTest do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
       {:ok, _metadata} = KafkaEx.API.metadata(client)
 
-      ChaosTestHelpers.with_reset_peer(ctx.proxy_name, 0, fn ->
+      ChaosTestHelpers.with_reset_peer(ctx.toxiproxy_container, ctx.proxy_name, 0, fn ->
         result = KafkaEx.API.metadata(client)
         assert match?({:error, _}, result), "Expected error on immediate reset, got: #{inspect(result)}"
       end)
@@ -131,7 +131,7 @@ defmodule KafkaEx.Chaos.NetworkTest do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
       {:ok, _metadata} = KafkaEx.API.metadata(client)
 
-      ChaosTestHelpers.with_latency(ctx.proxy_name, 500, fn ->
+      ChaosTestHelpers.with_latency(ctx.toxiproxy_container, ctx.proxy_name, 500, fn ->
         result = KafkaEx.API.metadata(client)
         assert match?({:ok, _}, result), "Expected success with moderate latency, got: #{inspect(result)}"
       end)
@@ -141,7 +141,7 @@ defmodule KafkaEx.Chaos.NetworkTest do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
       {:ok, _} = KafkaEx.API.metadata(client)
 
-      ChaosTestHelpers.with_latency(ctx.proxy_name, 2000, fn ->
+      ChaosTestHelpers.with_latency(ctx.toxiproxy_container, ctx.proxy_name, 2000, fn ->
         result = KafkaEx.API.metadata(client)
         assert !is_nil(result), "Expected a response (success or error)"
       end)
@@ -159,7 +159,7 @@ defmodule KafkaEx.Chaos.NetworkTest do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
       {:ok, _metadata} = KafkaEx.API.metadata(client)
 
-      ChaosTestHelpers.with_bandwidth_limit(ctx.proxy_name, 1, fn ->
+      ChaosTestHelpers.with_bandwidth_limit(ctx.toxiproxy_container, ctx.proxy_name, 1, fn ->
         result = KafkaEx.API.metadata(client)
         assert !is_nil(result), "Expected a response under bandwidth limit"
       end)
@@ -177,7 +177,7 @@ defmodule KafkaEx.Chaos.NetworkTest do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
       {:ok, _metadata} = KafkaEx.API.metadata(client)
 
-      ChaosTestHelpers.with_slow_close(ctx.proxy_name, 1000, fn ->
+      ChaosTestHelpers.with_slow_close(ctx.toxiproxy_container, ctx.proxy_name, 1000, fn ->
         result = KafkaEx.API.metadata(client)
         assert match?({:ok, _}, result), "Expected success with slow close, got: #{inspect(result)}"
       end)
@@ -193,7 +193,7 @@ defmodule KafkaEx.Chaos.NetworkTest do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
       {:ok, _} = KafkaEx.API.metadata(client)
 
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         tasks =
           Enum.map(1..10, fn _i ->
             Task.async(fn -> KafkaEx.API.metadata(client) end)
@@ -225,7 +225,7 @@ defmodule KafkaEx.Chaos.NetworkTest do
       {:ok, _} = KafkaEx.API.metadata(client)
 
       Enum.each(1..10, fn i ->
-        ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+        ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
           _ = KafkaEx.API.metadata(client)
         end)
 
@@ -247,7 +247,7 @@ defmodule KafkaEx.Chaos.NetworkTest do
   describe "complex network scenarios" do
     test "new client can connect after network recovers", ctx do
       # While broker is down, client creation should fail (can't negotiate API versions)
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         # Trap exits to catch the linked process crash during GenServer.init
         old_trap = Process.flag(:trap_exit, true)
 

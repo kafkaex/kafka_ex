@@ -15,18 +15,25 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription.Member do
           client_id: binary,
           client_host: binary,
           member_metadata: term,
-          member_assignment: MemberAssignment.t() | nil,
+          member_assignment: MemberAssignment.t(),
           group_instance_id: binary | nil
         }
 
-  defstruct ~w(member_id client_id client_host member_metadata member_assignment group_instance_id)a
+  defstruct [
+    :member_id,
+    :client_id,
+    :client_host,
+    :member_metadata,
+    :group_instance_id,
+    member_assignment: %MemberAssignment{}
+  ]
 
   @type partial_response :: %{
           required(:member_id) => binary,
           required(:client_id) => binary,
           required(:client_host) => binary,
           required(:member_metadata) => term,
-          optional(:member_assignment) => map | nil
+          optional(:member_assignment) => map | binary | nil
         }
 
   @doc """
@@ -65,11 +72,13 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription.Member do
   @doc """
   Returns the member's current partition assignment.
   """
-  @spec assignment(t()) :: MemberAssignment.t() | nil
+  @spec assignment(t()) :: MemberAssignment.t()
   def assignment(%__MODULE__{member_assignment: assignment}), do: assignment
 
-  defp build_member_assignment(nil), do: nil
-  defp build_member_assignment(""), do: nil
+  @empty_assignment %MemberAssignment{}
+
+  defp build_member_assignment(nil), do: @empty_assignment
+  defp build_member_assignment(""), do: @empty_assignment
 
   defp build_member_assignment(binary) when is_binary(binary) do
     deserialize_assignment(binary)

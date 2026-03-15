@@ -16,12 +16,12 @@ defmodule KafkaEx.Chaos.MetadataTest do
 
   setup ctx do
     # Reset proxy state BEFORE each test to ensure clean state
-    ChaosTestHelpers.reset_all()
+    ChaosTestHelpers.reset_all(ctx.toxiproxy_container)
     ChaosTestHelpers.stop_client()
     Process.sleep(200)
 
     on_exit(fn ->
-      ChaosTestHelpers.reset_all()
+      ChaosTestHelpers.reset_all(ctx.toxiproxy_container)
       ChaosTestHelpers.stop_client()
     end)
 
@@ -37,7 +37,7 @@ defmodule KafkaEx.Chaos.MetadataTest do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
       {:ok, _} = KafkaEx.API.metadata(client)
 
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         result = KafkaEx.API.metadata(client)
         assert match?({:error, _}, result), "Expected error when broker is down, got: #{inspect(result)}"
       end)
@@ -49,7 +49,7 @@ defmodule KafkaEx.Chaos.MetadataTest do
     test "metadata for specific topic fails when broker is down", ctx do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
 
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         result = KafkaEx.API.metadata(client, [@test_topic])
         assert match?({:error, _}, result), "Expected error when broker is down"
       end)
@@ -67,7 +67,7 @@ defmodule KafkaEx.Chaos.MetadataTest do
     test "metadata with moderate latency still succeeds", ctx do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
 
-      ChaosTestHelpers.with_latency(ctx.proxy_name, 500, fn ->
+      ChaosTestHelpers.with_latency(ctx.toxiproxy_container, ctx.proxy_name, 500, fn ->
         result = KafkaEx.API.metadata(client)
         assert match?({:ok, _}, result), "Expected success with moderate latency, got: #{inspect(result)}"
       end)
@@ -76,7 +76,7 @@ defmodule KafkaEx.Chaos.MetadataTest do
     test "metadata with data timeout fails gracefully", ctx do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
 
-      ChaosTestHelpers.with_timeout(ctx.proxy_name, 100, fn ->
+      ChaosTestHelpers.with_timeout(ctx.toxiproxy_container, ctx.proxy_name, 100, fn ->
         result = KafkaEx.API.metadata(client)
         assert match?({:error, _}, result), "Expected error during data timeout, got: #{inspect(result)}"
       end)
@@ -88,7 +88,7 @@ defmodule KafkaEx.Chaos.MetadataTest do
     test "metadata with connection reset fails and recovers", ctx do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
 
-      ChaosTestHelpers.with_reset_peer(ctx.proxy_name, 50, fn ->
+      ChaosTestHelpers.with_reset_peer(ctx.toxiproxy_container, ctx.proxy_name, 50, fn ->
         result = KafkaEx.API.metadata(client)
         assert match?({:error, _}, result), "Expected error on connection reset"
       end)
@@ -110,7 +110,7 @@ defmodule KafkaEx.Chaos.MetadataTest do
       {:ok, initial_topics} = KafkaEx.API.topics_metadata(client, [@test_topic])
       assert length(initial_topics) > 0
 
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         result = KafkaEx.API.topics_metadata(client, [@test_topic])
         assert match?({:ok, _}, result), "Expected cached metadata when broker is down, got: #{inspect(result)}"
       end)
@@ -124,7 +124,7 @@ defmodule KafkaEx.Chaos.MetadataTest do
 
       topics = ["topic1", "topic2", "topic3"]
 
-      ChaosTestHelpers.with_latency(ctx.proxy_name, 300, fn ->
+      ChaosTestHelpers.with_latency(ctx.toxiproxy_container, ctx.proxy_name, 300, fn ->
         result = KafkaEx.API.topics_metadata(client, topics)
         assert match?({:ok, _}, result), "Expected success with moderate latency"
       end)
@@ -142,7 +142,7 @@ defmodule KafkaEx.Chaos.MetadataTest do
       # Normal operation
       {:ok, _} = KafkaEx.API.api_versions(client)
 
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         result = KafkaEx.API.api_versions(client)
         assert match?({:error, _}, result), "Expected error when broker is down"
       end)
@@ -154,7 +154,7 @@ defmodule KafkaEx.Chaos.MetadataTest do
     test "api_versions recovers after connection reset", ctx do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
 
-      ChaosTestHelpers.with_reset_peer(ctx.proxy_name, 0, fn ->
+      ChaosTestHelpers.with_reset_peer(ctx.toxiproxy_container, ctx.proxy_name, 0, fn ->
         result = KafkaEx.API.api_versions(client)
         assert match?({:error, _}, result)
       end)
@@ -178,7 +178,7 @@ defmodule KafkaEx.Chaos.MetadataTest do
 
       # During brief outage, cached metadata might still be returned
       # depending on implementation
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         result = KafkaEx.API.cluster_metadata(client)
         assert !is_nil(result)
       end)
@@ -197,7 +197,7 @@ defmodule KafkaEx.Chaos.MetadataTest do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
 
       # First failure - broker down
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         result = KafkaEx.API.metadata(client)
         assert match?({:error, _}, result)
       end)
@@ -206,7 +206,7 @@ defmodule KafkaEx.Chaos.MetadataTest do
       {:ok, _} = KafkaEx.API.metadata(client)
 
       # Second failure - connection reset
-      ChaosTestHelpers.with_reset_peer(ctx.proxy_name, 0, fn ->
+      ChaosTestHelpers.with_reset_peer(ctx.toxiproxy_container, ctx.proxy_name, 0, fn ->
         result = KafkaEx.API.metadata(client)
         assert match?({:error, _}, result)
       end)
@@ -215,7 +215,7 @@ defmodule KafkaEx.Chaos.MetadataTest do
       {:ok, _} = KafkaEx.API.metadata(client)
 
       # Third failure - timeout
-      ChaosTestHelpers.with_timeout(ctx.proxy_name, 100, fn ->
+      ChaosTestHelpers.with_timeout(ctx.toxiproxy_container, ctx.proxy_name, 100, fn ->
         result = KafkaEx.API.metadata(client)
         assert match?({:error, _}, result)
       end)
@@ -228,7 +228,7 @@ defmodule KafkaEx.Chaos.MetadataTest do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
 
       # Slow network
-      ChaosTestHelpers.with_bandwidth_limit(ctx.proxy_name, 5, fn ->
+      ChaosTestHelpers.with_bandwidth_limit(ctx.toxiproxy_container, ctx.proxy_name, 5, fn ->
         result = KafkaEx.API.metadata(client)
         assert !is_nil(result)
       end)
@@ -244,7 +244,7 @@ defmodule KafkaEx.Chaos.MetadataTest do
       # Get metadata then fail
       {:ok, _} = KafkaEx.API.metadata(client1)
 
-      ChaosTestHelpers.with_broker_down(ctx.proxy_name, fn ->
+      ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         _ = KafkaEx.API.metadata(client1)
       end)
 
@@ -266,7 +266,7 @@ defmodule KafkaEx.Chaos.MetadataTest do
     test "metadata with slow close still succeeds", ctx do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
 
-      ChaosTestHelpers.with_slow_close(ctx.proxy_name, 500, fn ->
+      ChaosTestHelpers.with_slow_close(ctx.toxiproxy_container, ctx.proxy_name, 500, fn ->
         result = KafkaEx.API.metadata(client)
         assert match?({:ok, _}, result), "Expected success with slow close"
       end)
@@ -275,7 +275,7 @@ defmodule KafkaEx.Chaos.MetadataTest do
     test "metadata with high latency times out appropriately", ctx do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
 
-      ChaosTestHelpers.with_latency(ctx.proxy_name, 8000, fn ->
+      ChaosTestHelpers.with_latency(ctx.toxiproxy_container, ctx.proxy_name, 8000, fn ->
         result =
           try do
             KafkaEx.API.metadata(client)
