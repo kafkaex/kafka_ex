@@ -38,6 +38,15 @@ defmodule KafkaEx.NetworkClient do
   def close_socket(socket), do: Socket.close(socket)
 
   @impl true
+  def send_async_request(%{socket: nil} = broker, _data) do
+    Logger.log(
+      :error,
+      "Asynchronously sending data to broker #{inspect(broker.host)}:#{inspect(broker.port)} failed: socket is nil"
+    )
+
+    {:error, :closed}
+  end
+
   def send_async_request(broker, data) do
     socket = broker.socket
 

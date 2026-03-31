@@ -52,6 +52,18 @@ defmodule KafkaEx.NetworkClientTest do
     end
   end
 
+  describe "send_async_request/2" do
+    test "returns error tuple when broker socket is nil" do
+      broker = %KafkaEx.New.Structs.Broker{
+        host: "localhost",
+        port: 9092,
+        socket: nil
+      }
+
+      assert {:error, :closed} == send_async_request(broker, <<>>)
+    end
+  end
+
   describe "format_host/1" do
     test "format_host returns Erlang IP address format if IP address string is specified" do
       assert {100, 20, 3, 4} == format_host("100.20.3.4")
