@@ -202,6 +202,20 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.ResponseHelpersTest do
                %Header{key: "header2", value: "value2"}
              ] = result
     end
+
+    test "converts RecordHeader with nil value (null header value from Kafka)" do
+      headers = [
+        %Kayrock.RecordBatch.RecordHeader{key: "trace_context", value: nil},
+        %Kayrock.RecordBatch.RecordHeader{key: "content-type", value: "application/json"}
+      ]
+
+      result = ResponseHelpers.convert_headers(headers)
+
+      assert [
+               %Header{key: "trace_context", value: nil},
+               %Header{key: "content-type", value: "application/json"}
+             ] = result
+    end
   end
 
   describe "compute_last_offset/1" do

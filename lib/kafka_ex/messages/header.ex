@@ -13,7 +13,7 @@ defmodule KafkaEx.Messages.Header do
 
   @type t :: %__MODULE__{
           key: String.t(),
-          value: binary()
+          value: binary() | nil
         }
 
   @doc """
@@ -22,7 +22,7 @@ defmodule KafkaEx.Messages.Header do
   ## Parameters
 
     - `key` - The header key (must be a string)
-    - `value` - The header value (binary data)
+    - `value` - The header value (binary data, or nil per Kafka protocol spec)
 
   ## Examples
 
@@ -32,9 +32,12 @@ defmodule KafkaEx.Messages.Header do
       iex> Header.new("trace-id", <<1, 2, 3>>)
       %Header{key: "trace-id", value: <<1, 2, 3>>}
 
+      iex> Header.new("trace-context", nil)
+      %Header{key: "trace-context", value: nil}
+
   """
-  @spec new(String.t(), binary()) :: t()
-  def new(key, value) when is_binary(key) and is_binary(value) do
+  @spec new(String.t(), binary() | nil) :: t()
+  def new(key, value) when is_binary(key) and (is_binary(value) or is_nil(value)) do
     %__MODULE__{key: key, value: value}
   end
 
@@ -70,8 +73,8 @@ defmodule KafkaEx.Messages.Header do
       %Header{key: "content-type", value: "text/plain"}
 
   """
-  @spec from_tuple({String.t(), binary()}) :: t()
-  def from_tuple({key, value}) when is_binary(key) and is_binary(value) do
+  @spec from_tuple({String.t(), binary() | nil}) :: t()
+  def from_tuple({key, value}) when is_binary(key) and (is_binary(value) or is_nil(value)) do
     new(key, value)
   end
 
@@ -87,7 +90,7 @@ defmodule KafkaEx.Messages.Header do
       {"x-custom", "value"}
 
   """
-  @spec to_tuple(t()) :: {String.t(), binary()}
+  @spec to_tuple(t()) :: {String.t(), binary() | nil}
   def to_tuple(%__MODULE__{key: key, value: value}) do
     {key, value}
   end
@@ -105,7 +108,7 @@ defmodule KafkaEx.Messages.Header do
 
   This is provided for API compatibility with Java's `Header.value()`.
   """
-  @spec value(t()) :: binary()
+  @spec value(t()) :: binary() | nil
   def value(%__MODULE__{value: value}), do: value
 
   @doc """
@@ -118,7 +121,7 @@ defmodule KafkaEx.Messages.Header do
       [{"a", "1"}, {"b", "2"}]
 
   """
-  @spec list_to_tuples([t()]) :: [{String.t(), binary()}]
+  @spec list_to_tuples([t()]) :: [{String.t(), binary() | nil}]
   def list_to_tuples(headers) when is_list(headers) do
     Enum.map(headers, &to_tuple/1)
   end
@@ -133,7 +136,7 @@ defmodule KafkaEx.Messages.Header do
       [%Header{key: "a", value: "1"}, %Header{key: "b", value: "2"}]
 
   """
-  @spec list_from_tuples([{String.t(), binary()}]) :: [t()]
+  @spec list_from_tuples([{String.t(), binary() | nil}]) :: [t()]
   def list_from_tuples(tuples) when is_list(tuples) do
     Enum.map(tuples, &from_tuple/1)
   end
