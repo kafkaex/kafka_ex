@@ -31,13 +31,18 @@ defmodule KafkaEx.Messages.HeaderTest do
       assert result.value == "Hello, \u4e16\u754c"
     end
 
+    test "creates header with nil value (Kafka protocol allows null header values)" do
+      result = Header.new("trace_context", nil)
+      assert %Header{key: "trace_context", value: nil} = result
+    end
+
     test "raises FunctionClauseError for non-string key" do
       assert_raise FunctionClauseError, fn ->
         Header.new(:key, "value")
       end
     end
 
-    test "raises FunctionClauseError for non-binary value" do
+    test "raises FunctionClauseError for non-binary value (atoms other than nil)" do
       assert_raise FunctionClauseError, fn ->
         Header.new("key", :value)
       end
@@ -81,6 +86,11 @@ defmodule KafkaEx.Messages.HeaderTest do
       assert result.value == ""
     end
 
+    test "creates header from tuple with nil value" do
+      result = Header.from_tuple({"trace_context", nil})
+      assert %Header{key: "trace_context", value: nil} = result
+    end
+
     test "raises FunctionClauseError for invalid tuple" do
       assert_raise FunctionClauseError, fn ->
         Header.from_tuple({:key, "value"})
@@ -97,6 +107,11 @@ defmodule KafkaEx.Messages.HeaderTest do
     test "converts header with empty value" do
       header = Header.new("empty", "")
       assert Header.to_tuple(header) == {"empty", ""}
+    end
+
+    test "converts header with nil value" do
+      header = Header.new("trace_context", nil)
+      assert Header.to_tuple(header) == {"trace_context", nil}
     end
   end
 
@@ -116,6 +131,11 @@ defmodule KafkaEx.Messages.HeaderTest do
     test "returns binary value" do
       header = Header.new("key", <<0, 1, 2>>)
       assert Header.value(header) == <<0, 1, 2>>
+    end
+
+    test "returns nil value" do
+      header = Header.new("key", nil)
+      assert Header.value(header) == nil
     end
   end
 
@@ -160,6 +180,16 @@ defmodule KafkaEx.Messages.HeaderTest do
       result = Header.list_from_tuples([{"single", "value"}])
       assert result == [%Header{key: "single", value: "value"}]
     end
+
+    test "converts tuples with nil values" do
+      tuples = [{"a", "1"}, {"b", nil}, {"c", "3"}]
+      result = Header.list_from_tuples(tuples)
+
+      assert length(result) == 3
+      assert Enum.at(result, 0) == %Header{key: "a", value: "1"}
+      assert Enum.at(result, 1) == %Header{key: "b", value: nil}
+      assert Enum.at(result, 2) == %Header{key: "c", value: "3"}
+    end
   end
 
   describe "round-trip conversion" do
@@ -178,6 +208,15 @@ defmodule KafkaEx.Messages.HeaderTest do
       result = Header.to_tuple(header)
 
       assert result == original
+    end
+
+    test "to_tuple -> from_tuple preserves nil value" do
+      original = Header.new("trace_context", nil)
+      tuple = Header.to_tuple(original)
+      restored = Header.from_tuple(tuple)
+
+      assert restored.key == original.key
+      assert restored.value == nil
     end
 
     test "list_to_tuples -> list_from_tuples preserves data" do
