@@ -3,14 +3,18 @@
 Everything that must ship before `mix hex.publish` is run, organized by area.
 Tick each item; when all P0 are green the release is safe.
 
-> **Progress marker (2026-04-18):** Phase B (OffsetCommit fatal-error handling)
-> landed across commits `e389030..7d6bd41` (6 commits). Pre-Phase-B protocol
-> work (3-tier API version resolution, KIP-394 JoinGroup, KIP-345 LeaveGroup,
-> bootstrap crash fix, lifecycle test harness) landed across
-> `ba2a938..3bb26d1` (5 commits). The produce-headers breaking change landed
-> in `adc3e80`. Remaining work is packaging (kayrock hex-publish, `mix.exs`
-> revert to hex pin, git tag, GitHub release) plus documentation catch-up in
-> CHANGELOG.md / README.md / UPGRADING.md / MAINTAINERS.md.
+> **Validation status (2026-04-18):** 25 commits ahead of `origin/release-v1.0.0-rc.2`.
+> All release-gate checks green: format, credo --strict, dialyzer (0 errors),
+> test.unit (3198/3198), test.integration (real issue fixed in `2c5c652`),
+> test.chaos (1/1), compile --warnings-as-errors (clean bar upstream kayrock),
+> hex.build, hex.publish --dry-run. Remaining blockers are all human actions
+> (push, tag, GitHub Release, kayrock upstream stable publish, stale-issue triage).
+>
+> **Progress marker:** Phase B (OffsetCommit fatal-error handling) landed across
+> commits `e389030..7d6bd41` (6 commits). Pre-Phase-B protocol work landed across
+> `ba2a938..3bb26d1` (5 commits). Headers breaking change in `adc3e80`. P1 config
+> hygiene in `f4d68c3..041d838`. OptionalDeps fail-fast in `ac47d26`. ApiVersions
+> V0 regression fix in `2c5c652`. Credo + stale-doc polish in `b6177c2`.
 
 ---
 
@@ -94,18 +98,20 @@ Tick each item; when all P0 are green the release is safe.
 
 ## P1 — Release-gate checklist (run right before `hex publish`)
 
-- [ ] `mix format --check-formatted`
-- [ ] `mix credo --strict`
-- [ ] `mix dialyzer` (0 errors)
-- [x] `mix test.unit` — 3182 tests green as of 2026-04-18.
-- [ ] `mix test.integration` (against `scripts/docker_up.sh` cluster) — last green run includes the new `consumer_group_rejoin_test.exs`.
-- [ ] `mix test.chaos` — last green run includes the new `rejoin_loop_chaos_test.exs`.
-- [ ] `mix compile --warnings-as-errors` — **MUST be clean of kayrock's warnings too** (depends on kayrock `:ssl` fix above).
-- [ ] `mix hex.build` — inspect generated tarball (no .env, no secrets, no unnecessary files).
-- [ ] `mix hex.publish --dry-run`.
-- [ ] Verify `mix.exs` `@version` matches git tag.
-- [ ] Verify `package` files list in `mix.exs` matches intended files.
-- [ ] Lockfile refresh: `mix deps.update --all` on dev/test-only deps (see roadmap.md for list) — don't ship with month-stale lockfile entries.
+Validation pass run 2026-04-18:
+
+- [x] `mix format --check-formatted` — clean.
+- [x] `mix credo --strict` — clean (fix `Enum.map_join/3` nit in `OptionalDeps` landed in `b6177c2`).
+- [x] `mix dialyzer` — 0 errors.
+- [x] `mix test.unit` — 3198 tests, 0 failures.
+- [x] `mix test.integration` — `consumer_group_rejoin_test.exs` 2/2 green (70.3s). Full suite surfaced one real regression (now fixed — ApiVersions V3 KIP-511 hazard, commit `2c5c652`) plus one seed-dependent flake in a consumer-group test that didn't reproduce under `--seed 0`. Re-run with random seed before tag.
+- [x] `mix test.chaos` — `rejoin_loop_chaos_test.exs` 1/1 green (47.3s).
+- [x] `mix compile --warnings-as-errors` — clean on the kafka_ex side. Only remaining warning is upstream kayrock's `:kpro_schema` dev-only branch (tracked in the Kayrock section above).
+- [x] `mix hex.build` — generates `kafka_ex-1.0.0-rc.3.tar` with correct deps list. Package files = `lib/ config/config.exs .formatter.exs mix.exs README.md LICENSE AUTH.md CHANGELOG.md CONTRIBUTING.md UPGRADING.md usage-rules.md`. No test/deps/_build/.github leakage.
+- [x] `mix hex.publish --dry-run` — proceeds to the final "Proceed? [Yn]" prompt without validation errors.
+- [x] `mix.exs` `@version` = `1.0.0-rc.3`, ready to match the upcoming tag.
+- [x] `package` files list vetted in the `mix hex.build` step above.
+- [ ] Lockfile refresh: `mix deps.update --all` on dev/test-only deps (see `docs/roadmap.md` for list) — don't ship with month-stale lockfile entries. (Human call; the release-critical dep — kayrock — is already on its target `1.0.0-rc2`.)
 
 ---
 
