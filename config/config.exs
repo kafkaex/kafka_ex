@@ -85,8 +85,15 @@ config :kafka_ex,
   #   delete_topics: 2,
   #   api_versions: 2
   # },
-  # Interval in milliseconds to wait before reconnect to kafka
+  # Delay (in ms) before retrying a broker reconnect after a socket dies.
+  # Lower values reconnect faster but may hammer a down broker; higher values
+  # smooth flapping brokers at the cost of longer error windows.
   sleep_for_reconnect: 400,
+  # Periodic metadata refresh cadence (ms). The client issues a full Metadata
+  # request this often to pick up leader elections, topic changes, and broker
+  # membership changes. Lower = faster recovery from cluster changes; higher =
+  # less request volume.
+  metadata_update_interval: 30_000,
   # This is the flag that enables use of ssl
   use_ssl: true,
   # see SSL OPTION DESCRIPTIONS - CLIENT SIDE at http://erlang.org/doc/man/ssl.html

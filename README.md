@@ -179,6 +179,31 @@ config :kafka_ex,
   auto_offset_reset: :earliest
 ```
 
+### Advanced tuning
+
+Most users do not need to change these. Shown here with defaults so
+the knobs are discoverable.
+
+```elixir
+config :kafka_ex,
+  # Delay before a broker-reconnect retry (ms). Lower reconnects faster
+  # but hammers down brokers; higher smooths flapping at the cost of
+  # longer error windows.
+  sleep_for_reconnect: 400,
+
+  # Periodic metadata refresh cadence (ms). The client issues a full
+  # Metadata request this often to pick up leader elections, new
+  # topics, and broker membership changes.
+  metadata_update_interval: 30_000,
+
+  # Top-level application supervisor restart intensity — if more than
+  # max_restarts children exit in any max_seconds window, the
+  # supervisor shuts down. Tuning these trades "restart spam on flaps"
+  # against "tolerance for broker brownouts".
+  max_restarts: 10,
+  max_seconds: 60
+```
+
 ### Compression Configuration
 
 Compression is set per-request, not globally:
