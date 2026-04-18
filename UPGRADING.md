@@ -61,6 +61,115 @@ KafkaEx.fetch("topic", 0, 0)  # offset is positional
 {:ok, result} = KafkaEx.API.fetch(client, "topic", 0, 0)
 ```
 
+### Headers API — `[%Header{}]` instead of `[{key, value}]`
+
+The `headers:` option on every produce function now takes a list of
+`%KafkaEx.Messages.Header{}` structs instead of `{key, value}` tuples.
+This is a **runtime breaking change** — your code will compile and
+only fail with `FunctionClauseError` on the first produce. Migrate
+before upgrading in production.
+
+```elixir
+# Before (0.x / rc.2)
+KafkaEx.API.produce(client, "t", 0, [
+  %{value: "v", headers: [{"trace-id", "abc"}, {"tenant", "prod"}]}
+])
+
+# After (1.0)
+alias KafkaEx.Messages.Header
+KafkaEx.API.produce(client, "t", 0, [
+  %{value: "v", headers: [
+    Header.new("trace-id", "abc"),
+    Header.new("tenant", "prod")
+  ]}
+])
+```
+
+Why: the fetch path was already returning `%Header{}` structs. The
+produce side was the asymmetric outlier; a single consistent shape
+across produce and fetch makes round-trip code cleaner.
+
+### Broker version requirements
+
+- **Minimum: Kafka 0.11.0+** — required for RecordBatch format,
+  headers, and timestamps. Earlier brokers will fail at produce.
+- **Tested: Kafka 2.1.0 through 3.8.x.**
+- **Kafka 2.3+ recommended** — needed for KIP-394 two-step
+  JoinGroup semantics with `group.initial.rebalance.delay.ms`.
+  kafka_ex auto-handles the two-step dance, but broker support is
+  required.
+- **Kafka 4.0+** — partial compatibility; tracked in
+  [#497](https://github.com/kafkaex/kafka_ex/issues/497). Consumer
+  groups may hit protocol changes.
+
+### Optional dependency matrix
+
+Some features require additional deps in your app's `mix.exs`. If
+you configure a feature without the backing dep, you'll get an
+`UndefinedFunctionError` at runtime (not at startup).
+
+| Feature | Required dep |
+|---|---|
+| Snappy compression | `{:snappyer, "~> 1.2"}` |
+| Zstd compression | `{:ezstd, "~> 1.0"}` |
+| LZ4 compression | `{:lz4b, "~> 0.0.13"}` |
+| MSK-IAM SASL | `{:jason, "~> 1.0"}`, `{:aws_signature, "~> 0.4"}`, `{:aws_credentials, "~> 1.0"}` |
+| OAuth JWT parsing | user's choice (e.g., `{:joken, "~> 2.6"}` — only if your token_provider needs to parse JWTs) |
+
+### 0.x → 1.0 API cheat-sheet
+
+| 0.x | 1.0 |
+|---|---|
+| `KafkaEx.produce("t", 0, "m")` | `KafkaEx.API.produce_one(client, "t", 0, "m")` |
+| `KafkaEx.fetch("t", 0, offset: 0)` | `KafkaEx.API.fetch(client, "t", 0, 0)` |
+| `KafkaEx.GenConsumer` | `KafkaEx.Consumer.GenConsumer` |
+| `KafkaEx.ConsumerGroup` | `KafkaEx.Consumer.ConsumerGroup` |
+| `config :kafka_ex, kafka_version: "kayrock"` | (remove — no longer needed) |
+| `headers: [{"k", "v"}]` on produce | `headers: [Header.new("k", "v")]` |
+
+### OffsetCommit error handling (new in 1.0)
+
+In earlier kafka_ex, `:illegal_generation` and related errors were
+logged and swallowed — the consumer kept running on a stale
+generation until the next heartbeat happened to also fail.
+
+v1.0 classifies OffsetCommit errors across three paths, matching
+the reference Kafka clients (Java, librdkafka, brod, kafka-python):
+
+- **Terminal** (`:fenced_instance_id`, `:group_authorization_failed`,
+  `:topic_authorization_failed`, `:offset_metadata_too_large`,
+  `:invalid_commit_offset_size`) — consumer stops without rejoining.
+  Under `restart: :transient` the supervisor does not respawn.
+- **Fatal** (`:illegal_generation`, `:unknown_member_id`) — GenConsumer
+  casts `{:rejoin_required, reason, stale_gen}` to the group manager
+  and self-stops. The manager resets member_id/generation_id and
+  runs a rebalance. Duplicate casts from sibling partitions coalesce
+  in the manager's mailbox.
+- **Retryable** (`:rebalance_in_progress`, `:unstable_offset_commit`,
+  `:timeout`, `:coordinator_not_available`, …) — commit is retried
+  with exponential backoff.
+
+No user callback is invoked — kafka_ex v1 does not have a synchronous
+`handle_commit_failure/3` behaviour (deferred post-1.0). Subscribe
+to the new telemetry event to observe failures:
+
+```elixir
+:telemetry.attach(
+  "my-commit-failure-observer",
+  [:kafka_ex, :consumer, :commit_failed],
+  fn _event, %{count: 1}, metadata, _ ->
+    # metadata: %{group_id, topic, partition, offset, kind, error}
+    Logger.warning("Commit failed: #{inspect(metadata)}")
+  end,
+  nil
+)
+```
+
+At-least-once semantics are preserved: any uncommitted messages
+since the last successful commit will be redelivered after the
+rejoin, so your `handle_message_set/2` must be idempotent (or
+tolerate duplicates).
+
 ### GenConsumer Changes
 
 ```elixir
