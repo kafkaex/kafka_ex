@@ -3,7 +3,7 @@ defmodule KafkaEx.Mixfile do
   use Mix.Project
 
   @source_url "https://github.com/kafkaex/kafka_ex"
-  @version "1.0.0-rc.3"
+  @version "1.0.0"
 
   def project do
     [
@@ -54,7 +54,7 @@ defmodule KafkaEx.Mixfile do
 
   defp deps do
     [
-      {:kayrock, "~> 1.0.0-rc1"},
+      {:kayrock, path: "../kayrock"},
       {:telemetry, "~> 1.2"},
       {:credo, "~> 1.1", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: :dev, runtime: false},
