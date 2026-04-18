@@ -73,7 +73,8 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
       %{
         id: gen_consumer_module,
         start: {gen_consumer_module, :start_link, [consumer_module, group_name, topic, partition, opts]},
-        shutdown: Keyword.get(opts, :shutdown, @default_worker_shutdown)
+        shutdown: Keyword.get(opts, :shutdown, @default_worker_shutdown),
+        restart: :transient
       }
     end
 
