@@ -86,6 +86,8 @@ defmodule KafkaEx.Auth.Config do
 
   @spec from_env() :: t | nil
   def from_env do
+    check_legacy_keys!()
+
     case Application.get_env(:kafka_ex, :sasl) do
       nil ->
         nil
@@ -93,15 +95,40 @@ defmodule KafkaEx.Auth.Config do
       raw ->
         cfg = normalize_to_map(raw)
 
-        username = cfg[:username] || Application.get_env(:kafka_ex, :sasl_username)
-        password = cfg[:password] || Application.get_env(:kafka_ex, :sasl_password)
-        mech = cfg[:mechanism] || Application.get_env(:kafka_ex, :sasl_mechanism, :plain)
-
-        if is_binary(username) and is_binary(password) do
-          new(%{cfg | mechanism: mech, username: username, password: password})
+        if is_binary(cfg[:username]) and is_binary(cfg[:password]) do
+          new(Map.put(cfg, :mechanism, cfg[:mechanism] || :plain))
         else
           nil
         end
+    end
+  end
+
+  # kafka_ex 0.x supported top-level :sasl_username / :sasl_password /
+  # :sasl_mechanism app-env keys. Those were removed in 1.0 in favour of
+  # the unified `sasl: %{...}` map. Raise loudly on detection so silent
+  # config drift doesn't produce unauthenticated connections at runtime.
+  defp check_legacy_keys! do
+    legacy = [:sasl_username, :sasl_password, :sasl_mechanism]
+    present = Enum.filter(legacy, &(Application.get_env(:kafka_ex, &1) != nil))
+
+    if present != [] do
+      raise ArgumentError, """
+      These legacy SASL config keys are no longer supported in kafka_ex 1.0:
+
+          #{inspect(present)}
+
+      Use the unified :sasl map instead:
+
+          config :kafka_ex,
+            sasl: %{
+              mechanism: :scram,
+              username: System.get_env("KAFKA_USER"),
+              password: System.get_env("KAFKA_PASS"),
+              mechanism_opts: %{algo: :sha256}
+            }
+
+      See AUTH.md for full configuration examples.
+      """
     end
   end
 
