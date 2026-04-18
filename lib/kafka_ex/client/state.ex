@@ -105,14 +105,29 @@ defmodule KafkaEx.Client.State do
 
   @doc """
   Returns max supported api version for request based on cached values in state.
+
+  Returns `{:ok, version}` when the broker supports the API, or
+  `{:error, :api_not_supported_by_broker}` when the broker does not report the API.
   """
-  def max_supported_api_version(%__MODULE__{api_versions: api_versions}, api, default) when is_atom(api) do
+  def max_supported_api_version(%__MODULE__{api_versions: api_versions}, api) when is_atom(api) do
     api_key = @protocol.api_key(api)
     max_kayrock_version = @protocol.max_supported_version(api)
 
     case Map.get(api_versions, api_key) do
-      {_, vsn} -> min(vsn, max_kayrock_version)
-      nil -> default
+      {_, vsn} -> {:ok, min(vsn, max_kayrock_version)}
+      nil -> {:error, :api_not_supported_by_broker}
+    end
+  end
+
+  @doc """
+  Deprecated 3-arity version kept for backward compatibility.
+  Will be removed when internal callers are migrated.
+  """
+  @deprecated "Use max_supported_api_version/2 instead"
+  def max_supported_api_version(%__MODULE__{} = state, api, default) when is_atom(api) do
+    case max_supported_api_version(state, api) do
+      {:ok, version} -> version
+      {:error, :api_not_supported_by_broker} -> default
     end
   end
 end

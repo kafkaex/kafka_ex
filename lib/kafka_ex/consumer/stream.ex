@@ -3,6 +3,7 @@ defmodule KafkaEx.Consumer.Stream do
 
   alias KafkaEx.API, as: KafkaExAPI
   alias KafkaEx.Support.Retry
+  alias KafkaEx.Support.VersionHelper
 
   defstruct client: nil,
             topic: nil,
@@ -11,7 +12,7 @@ defmodule KafkaEx.Consumer.Stream do
             consumer_group: nil,
             no_wait_at_logend: false,
             fetch_options: [],
-            api_versions: %{fetch: 0, offset_fetch: 0, offset_commit: 0}
+            api_versions: %{}
 
   @type t :: %__MODULE__{
           client: pid() | nil,
@@ -134,7 +135,7 @@ defmodule KafkaEx.Consumer.Stream do
 
     defp commit_offset(%KafkaEx.Consumer.Stream{} = stream_data, offset) do
       partitions = [%{partition_num: stream_data.partition, offset: offset}]
-      opts = [api_version: Map.fetch!(stream_data.api_versions, :offset_commit)]
+      opts = VersionHelper.maybe_put_api_version([], stream_data.api_versions, :offset_commit)
 
       commit_fn = fn ->
         KafkaExAPI.commit_offset(
@@ -159,7 +160,7 @@ defmodule KafkaEx.Consumer.Stream do
 
     # make the actual fetch request
     defp fetch_response(data, offset) do
-      opts = Keyword.put(data.fetch_options, :api_version, Map.fetch!(data.api_versions, :fetch))
+      opts = VersionHelper.maybe_put_api_version(data.fetch_options, data.api_versions, :fetch)
 
       case KafkaExAPI.fetch(data.client, data.topic, data.partition, offset, opts) do
         {:ok, fetch_result} ->

@@ -100,6 +100,7 @@ KafkaEx.Consumer.ConsumerGroup.start_link(
 - [ ] Update `KafkaEx.ConsumerGroup` to `KafkaEx.Consumer.ConsumerGroup` (required - code will not compile)
 - [ ] Update code to use `KafkaEx.API` functions (optional but recommended)
 - [ ] Update any references to `KafkaEx.New.*` modules
+- [ ] If you depend on specific protocol versions, add `api_versions` to config (see API Version Resolution below)
 - [ ] Run tests and fix deprecation warnings
 - [ ] Verify with your Kafka cluster
 
@@ -128,9 +129,30 @@ The new `KafkaEx.API` module provides explicit, client-based functions:
 {:ok, _} = KafkaEx.API.create_topic(client, "new-topic", num_partitions: 3)
 ```
 
-### Automatic API Version Negotiation
+### API Version Resolution
 
-No need to configure Kafka versions - the client automatically negotiates the best API version with your brokers.
+The client now uses the highest protocol version supported by both the broker and the protocol library by default. Previous versions used conservative hardcoded defaults (e.g., fetch v3, produce v3) even when the broker supported higher versions.
+
+If you need to pin specific API versions — for example, to match previous behavior or work around broker-specific issues — use the new `api_versions` application config:
+
+```elixir
+config :kafka_ex,
+  api_versions: %{
+    fetch: 3,
+    produce: 3,
+    metadata: 1
+  }
+```
+
+Version selection follows this priority order:
+
+1. Per-request `:api_version` option (highest priority)
+2. Application config `api_versions` map
+3. Broker-negotiated max (default)
+
+The `GenConsumer` / `ConsumerGroup` `:api_versions` supervisor option continues to work for per-consumer-group overrides. Application config is no longer read by `GenConsumer` directly — it is handled centrally by the client's request builder.
+
+`latest_offset/4` and `earliest_offset/4` no longer force list_offsets v1. They use the standard version resolution like all other API calls.
 
 ### Telemetry & Observability
 

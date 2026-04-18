@@ -61,6 +61,30 @@ config :kafka_ex,
   # - `:latest` - Will move the offset to the most recent.
   # - `:none` - The error will simply be raised
   auto_offset_reset: :none,
+  # API versions for Kafka protocol requests.
+  # By default, KafkaEx uses the highest version supported by both the
+  # connected broker and the protocol library. Use this config to pin
+  # specific APIs to lower versions across your deployment.
+  #
+  # Resolution order: per-request opts > application config > broker-negotiated max
+  #
+  # api_versions: %{
+  #   fetch: 5,
+  #   produce: 3,
+  #   metadata: 4,
+  #   list_offsets: 3,
+  #   offset_fetch: 3,
+  #   offset_commit: 3,
+  #   find_coordinator: 2,
+  #   join_group: 2,
+  #   heartbeat: 2,
+  #   leave_group: 2,
+  #   sync_group: 2,
+  #   describe_groups: 3,
+  #   create_topics: 3,
+  #   delete_topics: 2,
+  #   api_versions: 2
+  # },
   # Interval in milliseconds to wait before reconnect to kafka
   sleep_for_reconnect: 400,
   # This is the flag that enables use of ssl
