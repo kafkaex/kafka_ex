@@ -211,7 +211,64 @@ defmodule KafkaEx.Support.Retry do
   Check if error is safe to retry for commit operations.
 
   Commits are idempotent so we can safely retry on transient errors.
+
+  `:rebalance_in_progress` is also retryable: per Java
+  `ConsumerCoordinator.OffsetCommitResponseHandler`, the broker signals that
+  a rebalance is in flight — we let the heartbeat path drive the eventual
+  rebalance and simply let the commit retry succeed once the rebalance
+  completes. Eager rejoin on this code wastes a round trip and can double-
+  rebalance.
+
+  `:unstable_offset_commit` (KIP-447) — the broker is waiting on an
+  in-progress transaction; retry is the correct handling.
   """
   @spec commit_retryable?(error()) :: boolean()
+  def commit_retryable?(:rebalance_in_progress), do: true
+  def commit_retryable?(:unstable_offset_commit), do: true
   def commit_retryable?(error), do: transient_error?(error)
+
+  @doc """
+  Check if a commit error is fatal and requires rejoining the consumer group.
+
+  These errors cannot be fixed by retry — the consumer's generation or member_id
+  is no longer valid. Callers must propagate these to the group manager to
+  trigger a rebalance.
+
+  Follows Java ConsumerCoordinator.OffsetCommitResponseHandler,
+  brod stabilize/3, kafka-python _handle_offset_commit_response patterns.
+
+  Note: `:rebalance_in_progress` is intentionally NOT in this set — it is
+  retryable; see `commit_retryable?/1`. `:fenced_instance_id` and several
+  authorization/size errors are classified as `commit_terminal_error?/1`.
+  """
+  @spec commit_fatal_error?(error()) :: boolean()
+  def commit_fatal_error?(:illegal_generation), do: true
+  def commit_fatal_error?(:unknown_member_id), do: true
+  def commit_fatal_error?(_), do: false
+
+  @doc """
+  Check if a commit error is terminal: the consumer must stop, NOT rejoin, NOT retry.
+
+    * `:fenced_instance_id` (KIP-345) — another member has taken this
+      `group.instance.id`. Rejoining would either split-brain (two consumers
+      claim the same static slot) or be fenced again. Java raises
+      `FencedInstanceIdException`; librdkafka and brod also treat as
+      non-recoverable.
+
+    * `:group_authorization_failed` / `:topic_authorization_failed` — the
+      credentials don't grant access to the group or topic. Java raises
+      `GroupAuthorizationException` / `TopicAuthorizationException` out of
+      `poll()`. Retrying or rejoining will not help.
+
+    * `:offset_metadata_too_large` / `:invalid_commit_offset_size` — malformed
+      commit payload. Java treats both as non-retriable `KafkaException`.
+      Retrying would hot-loop on a caller bug.
+  """
+  @spec commit_terminal_error?(error()) :: boolean()
+  def commit_terminal_error?(:fenced_instance_id), do: true
+  def commit_terminal_error?(:group_authorization_failed), do: true
+  def commit_terminal_error?(:topic_authorization_failed), do: true
+  def commit_terminal_error?(:offset_metadata_too_large), do: true
+  def commit_terminal_error?(:invalid_commit_offset_size), do: true
+  def commit_terminal_error?(_), do: false
 end
