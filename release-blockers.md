@@ -83,11 +83,11 @@ Tick each item; when all P0 are green the release is safe.
 
 ## P1 — Config hygiene (fix or the first contributor will file bugs)
 
-- [ ] **Remove or wire up `:consumer_group_update_interval`** — stored in `Client.State` (`lib/kafka_ex/client/state.ex:52`), documented in README, **never read anywhere else**. Dead config.
-- [ ] **Document `:sleep_for_reconnect`** (used in `client.ex:951`, default 400ms) — currently invisible to users tuning reconnect behaviour.
-- [ ] **Document `:max_restarts` / `:max_seconds`** (`kafka_ex.ex:150-151`) — supervisor-level knobs not in any config doc.
-- [ ] **Legacy `:sasl_username`/`:sasl_password`/`:sasl_mechanism`** keys — either document the fallback in AUTH.md **or** delete them from `auth/config.ex:96-98`. Silent backwards-compat is a future bug source.
-- [ ] Ensure `config/config.exs` in repo root reflects the documented defaults (for `mix new` users who copy-paste).
+- [x] **Remove dead `:consumer_group_update_interval`.** Field removed from `Client.State` defstruct + @type + default + reader; removed from `KafkaEx.worker_setting` type; removed from `KafkaEx.create_worker/2` moduledoc; removed from the README consumer-group snippet; `state_test.exs` assertions dropped. Zero refs remaining in lib/test/README/config. (Commit `f4d68c3`.)
+- [x] **Document `:sleep_for_reconnect`.** Added to `KafkaEx.Config` moduledoc § Advanced tuning, to `config/config.exs` with an inline rationale, and to README § Advanced tuning. (Commit `abe9732`.)
+- [x] **Document `:max_restarts` / `:max_seconds`.** Same three surfaces. (Commit `abe9732`.)
+- [x] **Legacy `:sasl_username`/`:sasl_password`/`:sasl_mechanism`** — chose "delete with loud error". `Auth.Config.from_env/0` now calls `check_legacy_keys!/0` and raises `ArgumentError` with migration instructions listing the offending keys. Silent-fallback bridge removed. Five new tests cover the raise cases and the non-raise cases. (Commit `cc204e8`.)
+- [x] **`config/config.exs` reflects documented defaults.** Now includes explicit lines for `sleep_for_reconnect`, `metadata_update_interval`, `max_restarts`, `max_seconds`, and the `api_versions` commented example. A `mix new` user copy-pasting this file sees the same defaults as the running library. (Commits `ba2a938`, `abe9732`.)
 - [x] **Document `:api_versions` app config.** ✅ `ba2a938` — added to `config/config.exs` with a full commented example.
 
 ---
