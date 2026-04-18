@@ -11,11 +11,21 @@ defmodule KafkaEx.Client.RequestBuilder do
   alias KafkaEx.Client.State
 
   @doc """
-  Builds request for ApiVersions API
+  Builds request for ApiVersions API.
+
+  ApiVersions is special — it's how the client learns broker-supported
+  versions of every OTHER API. Defaulting it to the broker-negotiated
+  max is a bootstrapping hazard (chicken-and-egg before cache is
+  populated) AND runs into KIP-511 V3 issues where brokers reject
+  requests missing the required client software name/version tagged
+  fields. We pin to V0 unless the caller explicitly opts into a
+  higher version via `:api_version`.
   """
   @spec api_versions_request(Keyword.t(), State.t()) ::
           {:ok, term} | {:error, :api_version_no_supported | :api_not_supported_by_broker}
   def api_versions_request(request_opts, state) do
+    request_opts = Keyword.put_new(request_opts, :api_version, 0)
+
     case get_api_version(state, :api_versions, request_opts) do
       {:ok, api_version} ->
         req = @protocol.build_request(:api_versions, api_version, [])
