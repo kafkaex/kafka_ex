@@ -23,15 +23,14 @@ Tick each item; when all P0 are green the release is safe.
 - [ ] **Fill kayrock CHANGELOG date**: `1.0.0` entry has `YYYY-MM-DD` placeholder.
 - [ ] **Create git tag for kayrock 1.0.0** (last tag is only `v0.3.0`). Push to GitHub.
 - [ ] **Publish kayrock 1.0.0 stable on Hex** (currently only `1.0.0-rc2` published; `mix.lock` here pins `rc2`).
-- [ ] **Switch kafka_ex `mix.exs`** from `{:kayrock, path: "../kayrock"}` back to `{:kayrock, "~> 1.0"}` (currently reverted to path for Phase B iteration — see commit `25be4f4`).
-- [ ] **Regenerate `mix.lock`** against the published hex version.
+- [x] **Switch kafka_ex `mix.exs`** from `path:` to hex pin. Pinned exact `== 1.0.0-rc2` (rather than `~> 1.0`) while both kafka_ex and kayrock are in the rc chain; widen to `~> 1.0` once both reach stable.
+- [x] **Regenerate `mix.lock`** against the hex version.
 
 ### Repo state
-- [ ] Push the 18 local commits ahead of `origin/release-v1.0.0-rc.2`.
-- [ ] Decide target tag: `v1.0.0-rc.3` (safer, iterate) or `v1.0.0` (final).
-- [ ] Restore `@version` to the target tag in `mix.exs` (currently `1.0.0` — the rc.3 bump was reverted during Phase B iteration).
-- [ ] Create annotated git tag on the final commit.
-- [ ] Publish GitHub Release with CHANGELOG entry attached.
+- [ ] Push the local commits ahead of `origin/release-v1.0.0-rc.2`. (Human action.)
+- [x] Decide target tag: `v1.0.0-rc.3` — `@version` bumped to `1.0.0-rc.3` in `mix.exs`. Next stable tag waits on kayrock stable publish.
+- [ ] Create annotated git tag on the final commit. (Human action, after last code change.)
+- [ ] Publish GitHub Release with CHANGELOG entry attached. (Human action.)
 
 ---
 
@@ -51,55 +50,34 @@ Tick each item; when all P0 are green the release is safe.
 
 ## P0 — Docs synchronization with code
 
-### CHANGELOG.md — missing `1.0.0` entry
-Post-rc.2 commits + the uncommitted headers change are unmentioned. The entry must cover:
-
-- [ ] **Breaking — headers API:** `produce` / `produce_one` / `produce_sync` `headers:` option changed from `[{binary, binary}]` tuples to `[%KafkaEx.Messages.Header{}]` structs. Show before/after code snippet. (Commit `adc3e80`.)
-- [x] **Fix — `illegal_generation` no longer swallowed.** ✅ Phase B. Include the expanded error-code coverage (terminal errors, :rebalance_in_progress reclassified retryable) and the `[:kafka_ex, :consumer, :commit_failed]` telemetry event in the entry.
-- [ ] **Feat — KIP-394 two-step JoinGroup** (`a5794a7`): client auto-retries on `:member_id_required` with broker-assigned member_id. Required for Kafka 2.3+ under `group.initial.rebalance.delay.ms` semantics.
-- [ ] **Feat — KIP-345 batch LeaveGroup V3+** (`ba2a938`): `LeaveGroup` sends `members` array for V3+ brokers.
-- [ ] **Feat — 3-tier API version resolution** (`ba2a938`, `a5794a7`): per-request opt → app `api_versions` config → broker-negotiated max. Previously used hardcoded defaults regardless of broker capability. Includes V0 falsy-bug fix.
-- [ ] **Fix — bootstrap crash** (`a5794a7`): client honours explicit `api_version` when broker map is empty.
-- [ ] **Fix — headers encoding** (`603d10f` in history): per-record headers properly serialized in V3+ record batches.
-- [ ] **Test — lifecycle integration tests for api-version resolution** (`3bb26d1`, `f3f1763`).
+### CHANGELOG.md
+- [x] **1.0.0 entry added** covering all post-rc.2 work. Breaking (headers API), Fixed (illegal_generation rejoin, bootstrap crash, headers encoding, V0 falsy bug), Added (KIP-394, KIP-345, 3-tier version resolution, VersionHelper, commit_failed telemetry, Retry classifiers), Changed (test infra).
 
 ### UPGRADING.md
-- [x] **API Version Resolution section** added (`ba2a938`). Documents the 3-tier resolution order.
-- [ ] Add section **"Headers API change"** with before/after snippet and migration example.
-- [ ] Add subsection **"Broker version requirements"**: call out KIP-394 (Kafka 2.3+) and KIP-345 static membership impact.
-- [ ] Add subsection **"OffsetCommit error handling"**: document the new terminal / fatal-rejoin / retryable classes, the `[:kafka_ex, :consumer, :commit_failed]` telemetry event, and at-least-once redelivery after a rejoin. See GenConsumer moduledoc for the full table.
-- [ ] Add **"Optional dependency matrix"** table — users silently hit `UndefinedFunctionError` if they use features without adding the deps:
-  | Feature | Required dep |
-  |---|---|
-  | `:snappy` compression | `{:snappyer, "~> 1.2"}` |
-  | `:msk_iam` SASL | `{:jason, "~> 1.0"}`, `{:aws_signature, "~> 0.4"}`, `{:aws_credentials, "~> 1.0"}` |
-  | OAuth JWT parsing (user-side) | user's choice |
-- [ ] Add **"0.x → 1.0 API cheat-sheet"** table:
-  | 0.x | 1.0 |
-  |---|---|
-  | `KafkaEx.produce("t", 0, "m")` | `KafkaEx.API.produce_one(client, "t", 0, "m")` |
-  | `KafkaEx.fetch("t", 0, offset: 0)` | `KafkaEx.API.fetch(client, "t", 0, 0)` |
-  | `KafkaEx.GenConsumer` | `KafkaEx.Consumer.GenConsumer` |
-  | `KafkaEx.ConsumerGroup` | `KafkaEx.Consumer.ConsumerGroup` |
-  | `kafka_version: "kayrock"` | (remove — no longer needed) |
+- [x] API Version Resolution section.
+- [x] Headers API change section with before/after snippet.
+- [x] Broker version requirements subsection (KIP-394 / Kafka 2.3+, Kafka 4.0 known-limitation).
+- [x] OffsetCommit error handling subsection (terminal/fatal/retryable + telemetry event).
+- [x] Optional dependency matrix.
+- [x] 0.x → 1.0 API cheat-sheet.
 
 ### README.md
-- [ ] **Update install snippet** (currently `{:kafka_ex, "~> 1.0.0-rc.1"}`) → `{:kafka_ex, "~> 1.0"}`.
-- [ ] **Fix `:auto_offset_reset` example** (line ~169). Example shows `:earliest`; code default is `:none`. Pick one: either change default or change example to match reality.
-- [ ] **Clarify supported Kafka range**: current text says "0.10.0+". Kayrock requires 0.11+ for RecordBatch/headers. State "Kafka 0.11.0+ required; tested against 2.1.0 through 3.x; 4.x compatibility tracked in #497".
-- [ ] Add **"Project status"** section linking to MAINTAINERS.md and being honest about support scope.
+- [x] Install snippet → `{:kafka_ex, "~> 1.0"}`.
+- [x] `:auto_offset_reset` example updated with full value enumeration + default.
+- [x] Supported Kafka range: "Kafka 0.11.0+ required; tested against 2.1.0 through 3.8.x; 4.0+ tracked in #497".
+- [x] Project Status / Maintainers / Security sections added.
 
 ### AUTH.md
-- [ ] Note that OAUTHBEARER **does not auto-refresh on token expiry** — user must recycle connections. (Already half-documented; tighten wording and link to a recipe.)
+- [x] **Token expiry behaviour** section documents the real reconnect-driven flow: broker closes → client handles `:tcp_closed` without crashing → next request triggers reconnect → SASL runs again → `token_provider` called for a fresh token → in-flight ops retried via transient-error path. Not KIP-368 (no proactive refresh), but it also does NOT crash/restart the client.
 
 ---
 
 ## P0 — Project sustainability disclosures
 
-- [ ] **Create `MAINTAINERS.md`** naming current maintainer(s) with contact and support scope. Minimum: "Primary maintainer: Piotr Rybarczyk (@Argonus, Fresha). Support scope: critical bugs and Kafka compatibility issues. PRs welcome; response target 2 weeks."
-- [ ] **Respond to Issue #497** (Kafka 4.0 JoinGroup incompatibility, open since 2025-08-07). Either fix before the tag or explicitly acknowledge as a known 1.0 limitation with a tracking milestone.
-- [ ] **Triage stale open issues** — 29 open, many from 2021–2023 dormancy era. Batch-close or batch-comment before the tag so new users don't see an unresponsive project.
-- [ ] **Release framing**: do NOT market as "stable long-term-supported". Frame as "v1.0 — rewritten on Kayrock, seeking co-maintainers." Honest, matches the bus factor.
+- [x] **Maintainers section** — merged into README bottom (no separate `MAINTAINERS.md` file). Flattened framing: every user is a maintainer, no lead/historical tiers. Lists historically active contributors, support scope (in/best-effort/out), response targets.
+- [x] **Issue #497** — documented as known limitation in both README § Project Status and UPGRADING § Broker version requirements with the tracking link. (Human action: also post a comment on the issue itself acknowledging status.)
+- [ ] **Triage stale open issues** — 29 open, many from 2021–2023 dormancy era. Batch-close or batch-comment before the tag so new users don't see an unresponsive project. (Human action.)
+- [x] **Release framing** — README § Project Status is honest about roadmap gaps (idempotent producer, KIP-848, KIP-368) and MAINTAINERS.md explicitly requests co-maintainers.
 
 ---
 
