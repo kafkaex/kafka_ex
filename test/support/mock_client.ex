@@ -35,9 +35,9 @@ defmodule KafkaEx.Test.MockClient do
 
   def init(responses), do: {:ok, %{responses: responses, calls: []}}
 
-  def handle_call({:list_offsets, topic_partitions, _opts}, _from, state) do
+  def handle_call({:list_offsets, topic_partitions, opts}, _from, state) do
     response = Map.get(state.responses, :list_offsets, {:ok, []})
-    {:reply, response, record_call(state, {:list_offsets, topic_partitions})}
+    {:reply, response, record_call(state, {:list_offsets, topic_partitions, opts})}
   end
 
   def handle_call({:metadata, topics, _opts, _api_version}, _from, state) do
@@ -70,9 +70,9 @@ defmodule KafkaEx.Test.MockClient do
     {:reply, response, record_call(state, {:produce, topic, partition, messages})}
   end
 
-  def handle_call({:fetch, topic, partition, offset, _opts}, _from, state) do
+  def handle_call({:fetch, topic, partition, offset, opts}, _from, state) do
     response = Map.get(state.responses, :fetch, {:ok, %Fetch{}})
-    {:reply, response, record_call(state, {:fetch, topic, partition, offset})}
+    {:reply, response, record_call(state, {:fetch, topic, partition, offset, opts})}
   end
 
   def handle_call({:describe_groups, groups, _opts}, _from, state) do
@@ -105,14 +105,14 @@ defmodule KafkaEx.Test.MockClient do
     {:reply, response, record_call(state, {:find_coordinator, group_id})}
   end
 
-  def handle_call({:offset_fetch, group, topic_partitions, _opts}, _from, state) do
+  def handle_call({:offset_fetch, group, topic_partitions, opts}, _from, state) do
     response = Map.get(state.responses, :offset_fetch, {:ok, []})
-    {:reply, response, record_call(state, {:offset_fetch, group, topic_partitions})}
+    {:reply, response, record_call(state, {:offset_fetch, group, topic_partitions, opts})}
   end
 
-  def handle_call({:offset_commit, group, topic_partitions, _opts}, _from, state) do
+  def handle_call({:offset_commit, group, topic_partitions, opts}, _from, state) do
     response = Map.get(state.responses, :offset_commit, {:ok, []})
-    {:reply, response, record_call(state, {:offset_commit, group, topic_partitions})}
+    {:reply, response, record_call(state, {:offset_commit, group, topic_partitions, opts})}
   end
 
   def handle_call({:create_topics, topics, timeout, _opts}, _from, state) do
@@ -142,4 +142,28 @@ defmodule KafkaEx.Test.MockClient do
   Returns the list of calls made to the mock client in order.
   """
   def get_calls(pid), do: GenServer.call(pid, :get_calls)
+
+  @doc """
+  Polls until at least `expected_count` calls have been recorded, then returns them.
+  Raises if the deadline is exceeded.
+  """
+  def wait_for_calls(client, expected_count, timeout \\ 5000) do
+    deadline = System.monotonic_time(:millisecond) + timeout
+    do_wait_for_calls(client, expected_count, deadline)
+  end
+
+  defp do_wait_for_calls(client, expected_count, deadline) do
+    calls = get_calls(client)
+
+    if length(calls) >= expected_count do
+      calls
+    else
+      if System.monotonic_time(:millisecond) >= deadline do
+        raise "Timeout waiting for #{expected_count} MockClient calls, got #{length(calls)}: #{inspect(calls)}"
+      end
+
+      Process.sleep(10)
+      do_wait_for_calls(client, expected_count, deadline)
+    end
+  end
 end

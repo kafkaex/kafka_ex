@@ -13,7 +13,8 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
 
       {:ok, request} = RequestBuilder.metadata_request([topics: nil], state)
 
-      assert Fixtures.request_type?(request, :metadata, 1)
+      # Uses negotiated max (broker max=5)
+      assert Fixtures.request_type?(request, :metadata, 5)
       assert request.topics == nil
     end
 
@@ -22,7 +23,8 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
 
       {:ok, request} = RequestBuilder.metadata_request([topics: []], state)
 
-      assert Fixtures.request_type?(request, :metadata, 1)
+      # Uses negotiated max (broker max=5)
+      assert Fixtures.request_type?(request, :metadata, 5)
       assert request.topics == nil
     end
 
@@ -31,7 +33,8 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
 
       {:ok, request} = RequestBuilder.metadata_request([topics: ["topic1", "topic2"]], state)
 
-      assert Fixtures.request_type?(request, :metadata, 1)
+      # Uses negotiated max (broker max=5)
+      assert Fixtures.request_type?(request, :metadata, 5)
       assert request.topics == [%{name: "topic1"}, %{name: "topic2"}]
     end
 
