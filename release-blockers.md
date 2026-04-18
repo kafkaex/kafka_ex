@@ -123,7 +123,7 @@ Tick each item; when all P0 are green the release is safe.
 **Safe to release when:**
 - All P0 checkboxes are green.
 - Release notes explicitly acknowledge known gaps (no transactions, no KIP-848, no idempotent producer, Kafka 4.0 compat tracked separately).
-- MAINTAINERS.md is in place.
+- Maintainers section (in README bottom) is in place.
 - CI gate on master is green with no kayrock warnings.
 
 **Expect hex-publish to be rejected if:**

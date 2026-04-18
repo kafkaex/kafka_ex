@@ -143,9 +143,5 @@ defmodule KafkaEx.Support.OptionalDeps do
 
   defp module_loadable?(mod) when is_atom(mod), do: Code.ensure_loaded?(mod)
 
-  defp format_missing(modules) do
-    modules
-    |> Enum.map(&inspect/1)
-    |> Enum.join(", ")
-  end
+  defp format_missing(modules), do: Enum.map_join(modules, ", ", &inspect/1)
 end
