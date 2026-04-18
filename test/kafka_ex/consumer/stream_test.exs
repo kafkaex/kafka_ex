@@ -14,7 +14,7 @@ defmodule KafkaEx.Consumer.StreamTest do
       assert stream.consumer_group == nil
       assert stream.no_wait_at_logend == false
       assert stream.fetch_options == []
-      assert stream.api_versions == %{fetch: 0, offset_fetch: 0, offset_commit: 0}
+      assert stream.api_versions == %{}
     end
 
     test "can be initialized with values" do
@@ -37,6 +37,25 @@ defmodule KafkaEx.Consumer.StreamTest do
       assert stream.no_wait_at_logend == true
       assert stream.fetch_options == [max_bytes: 1024]
       assert stream.api_versions == %{fetch: 3, offset_fetch: 1, offset_commit: 2}
+    end
+  end
+
+  describe "api_versions defaults" do
+    test "defaults to empty map (broker decides versions)" do
+      stream = %Stream{}
+      assert stream.api_versions == %{}
+    end
+
+    test "explicit versions are preserved" do
+      stream = %Stream{api_versions: %{fetch: 5, offset_commit: 3}}
+      assert stream.api_versions == %{fetch: 5, offset_commit: 3}
+    end
+
+    test "partial versions leave other keys absent" do
+      stream = %Stream{api_versions: %{fetch: 2}}
+      assert Map.get(stream.api_versions, :fetch) == 2
+      assert Map.get(stream.api_versions, :offset_fetch) == nil
+      assert Map.get(stream.api_versions, :offset_commit) == nil
     end
   end
 

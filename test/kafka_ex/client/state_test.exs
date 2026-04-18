@@ -172,13 +172,37 @@ defmodule KafkaEx.Client.StateTest do
     end
   end
 
-  describe "max_supported_api_version/3" do
-    test "returns min of broker and kayrock version" do
-      # Assume broker supports up to version 10 for produce (api_key 0)
+  describe "max_supported_api_version/2" do
+    test "returns {:ok, version} with min of broker and kayrock max" do
+      # Broker supports up to version 10 for produce (api_key 0)
       state = %State{api_versions: %{0 => {0, 10}}}
 
       # The actual max will be min(broker_max, kayrock_max)
-      # This test verifies the function doesn't crash
+      assert {:ok, version} = State.max_supported_api_version(state, :produce)
+      assert is_integer(version)
+      assert version <= 10
+    end
+
+    test "returns {:error, :api_not_supported_by_broker} when api not in cache" do
+      state = %State{api_versions: %{}}
+
+      assert {:error, :api_not_supported_by_broker} = State.max_supported_api_version(state, :produce)
+    end
+
+    test "caps at kayrock max when broker reports higher" do
+      # Broker reports very high version
+      state = %State{api_versions: %{0 => {0, 999}}}
+
+      assert {:ok, version} = State.max_supported_api_version(state, :produce)
+      # Should be capped at kayrock's max, which is less than 999
+      assert version < 999
+    end
+  end
+
+  describe "max_supported_api_version/3 (deprecated)" do
+    test "returns integer version when api is in cache" do
+      state = %State{api_versions: %{0 => {0, 10}}}
+
       result = State.max_supported_api_version(state, :produce, 0)
       assert is_integer(result)
     end
