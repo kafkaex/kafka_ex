@@ -111,10 +111,10 @@ Tick each item; when all P0 are green the release is safe.
 
 ## P1 — Optional (strongly recommended)
 
-- [ ] Add **`Code.ensure_loaded?/1` guards** in `Client.init/1` for features that depend on optional deps. When the user configures `compression: :snappy` without `{:snappyer, ...}` in their app, crash loudly at startup, not at first produce.
-- [ ] Add **CONTRIBUTING.md maintainer-response note**: "Typical response time X weeks. Security issues to Y."
-- [ ] Add `.github/FUNDING.yml` if interested in sponsorship (signal to community the project has a future).
-- [ ] Consider adding an optional `c:handle_commit_failure/3` behaviour callback on `KafkaEx.Consumer.GenConsumer` (parity with brod's `handle_commit_failure/2`, Java's `CommitFailedException`). Currently users can only observe failures via the `[:kafka_ex, :consumer, :commit_failed]` telemetry event — a synchronous callback would be strictly additive.
+- [x] **`Code.ensure_loaded?/1` guards** in `Client.init/1` for optional deps. `KafkaEx.Support.OptionalDeps.validate!/1` called from `Client.init/1` before broker sockets open. Validates `:msk_iam` SASL → `:aws_signature` + `:aws_credentials` + `Jason`. Validates `:required_compression` app-env list → `:snappyer` (`:snappy`), `:lz4b` (`:lz4`), `:ezstd` (`:zstd`). Raises `ArgumentError` with a concrete mix.exs snippet on the first missing module. 11 unit tests cover every branch including the dep-present, dep-missing, unknown-algo, and non-list cases.
+- [ ] ~~Add CONTRIBUTING.md maintainer-response note~~ — skipped per user decision.
+- [ ] ~~Add `.github/FUNDING.yml`~~ — skipped per user decision.
+- [x] **`handle_commit_failure/3` behaviour callback** — deferred to post-1.0 roadmap (`docs/roadmap.md` v1.1.x § Consumer-group correctness). Users observe commit failures via the `[:kafka_ex, :consumer, :commit_failed]` telemetry event until then; the callback addition is strictly additive and non-breaking.
 
 ---
 
@@ -132,9 +132,9 @@ Tick each item; when all P0 are green the release is safe.
 - `mix.exs` `package.files` includes private files.
 
 **Expect user complaints within 30 days if:**
-- Headers breaking change is undocumented.
+- ~~Headers breaking change is undocumented.~~ ✅ CHANGELOG + UPGRADING cover it.
 - ~~`illegal_generation` bug ships.~~ ✅ Fixed in Phase B.
-- `auto_offset_reset` docs still show `:earliest`.
-- `#497` still hangs open without acknowledgment.
+- ~~`auto_offset_reset` docs still show `:earliest`.~~ ✅ README example now shows `:none` (the library default) with `:earliest` / `:latest` documented as alternatives.
+- `#497` still hangs open without acknowledgment. (Human action: post comment linking to README § Project Status.)
 
 When all of P0 is clean, run the Release-gate checklist once, publish kayrock first, then kafka_ex.
