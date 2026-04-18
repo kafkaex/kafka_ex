@@ -10,7 +10,21 @@ KafkaEx
 [![License](https://img.shields.io/hexpm/l/kafka_ex.svg?style=flat-square)](https://hex.pm/packages/kafka_ex)
 [![API Docs](https://img.shields.io/badge/api-docs-yellow.svg?style=flat-square)](http://hexdocs.pm/kafka_ex/)
 
-KafkaEx is an Elixir client for [Apache Kafka](http://kafka.apache.org/) with support for Kafka versions 0.10.0 and newer. KafkaEx requires Elixir 1.14+ and Erlang OTP 24+.
+KafkaEx is an Elixir client for [Apache Kafka](http://kafka.apache.org/). KafkaEx requires Elixir 1.14+ and Erlang OTP 24+. Supported Kafka versions: 0.11.0 and newer (see [Supported Kafka Versions](#supported-kafka-versions)).
+
+## Project Status
+
+KafkaEx v1.0 is the Kayrock-based release. Scope:
+
+- ✅ Producer, consumer groups, admin APIs
+- ✅ SASL (PLAIN, SCRAM-256/512, OAUTHBEARER, AWS MSK IAM)
+- ✅ Compression (gzip, snappy, lz4, zstd)
+- ✅ Automatic API version negotiation with per-request / per-app overrides
+- ✅ First-class telemetry (27+ events)
+- ❌ Idempotent / transactional producer (planned, post-1.0)
+- ❌ KIP-848 new rebalance protocol (planned, post-1.0)
+- ❌ KIP-368 proactive SASL re-authentication on token expiry (see [AUTH.md § Token expiry behaviour](./AUTH.md#token-expiry-behaviour) for the current reconnect-driven behaviour)
+- ⚠️ Kafka 4.0 compatibility tracked in [#497](https://github.com/kafkaex/kafka_ex/issues/497)
 
 ## 📚 Documentation
 
@@ -56,9 +70,9 @@ KafkaEx v1.0 uses [Kayrock](https://github.com/dantswain/kayrock) for Kafka prot
 
 ### Supported Kafka Versions
 
-- **Minimum:** Kafka 0.10.0+
-- **Recommended:** Kafka 0.11.0+ (for RecordBatch format, headers, timestamps)
-- **Tested with:** Kafka 2.1.0 through 3.x
+- **Minimum:** Kafka 0.11.0+ required (for RecordBatch format, headers, timestamps)
+- **Tested against:** Kafka 2.1.0 through 3.8.x
+- **Kafka 4.0+:** partial compatibility — tracked in [#497](https://github.com/kafkaex/kafka_ex/issues/497)
 
 ## Quick Start
 
@@ -69,10 +83,7 @@ Add KafkaEx to your `mix.exs` dependencies:
 ```elixir
 def deps do
   [
-    # For release candidate:
-    {:kafka_ex, "~> 1.0.0-rc.1"}
-    # For stable release (when available):
-    # {:kafka_ex, "~> 1.0"}
+    {:kafka_ex, "~> 1.0"}
   ]
 end
 ```
@@ -165,8 +176,10 @@ config :kafka_ex,
   commit_interval: 5_000,      # Commit every 5 seconds
   commit_threshold: 100,       # Or every 100 messages
 
-  # What to do when no offset exists
-  auto_offset_reset: :earliest # or :latest
+  # What to do when no offset exists (or the requested offset is out of range).
+  # :earliest | :latest | :none — default is :none (raises on out-of-range).
+  # Most users want :earliest for new consumer groups.
+  auto_offset_reset: :earliest
 ```
 
 ### Compression Configuration
@@ -687,6 +700,57 @@ All contributions are managed through the [KafkaEx GitHub repo](https://github.c
 - **Pull Requests:** See [CONTRIBUTING.md](CONTRIBUTING.md) for our contribution process
 - **Slack:** #kafkaex on [elixir-lang.slack.com](http://elixir-lang.slack.com) ([request invite](http://bit.ly/slackelixir))
 - **Slack Archive:** [slack.elixirhq.com/kafkaex](http://slack.elixirhq.com/kafkaex)
+
+## Maintainers
+
+kafka_ex has no tiered maintainer structure — **every user of kafka_ex is a maintainer**. If you run it in production, triage issues when you hit them, send PRs when you find bugs, and help review others' PRs. The project survives on that.
+
+Historically active contributors you may see around the issues and PRs:
+
+- Piotr Rybarczyk ([@Argonus](https://github.com/Argonus), Fresha)
+- Dan Swain ([@dantswain](https://github.com/dantswain)) — [Kayrock](https://github.com/kafkaex/kayrock) author
+- bjhaid ([@bjhaid](https://github.com/bjhaid))
+- Joshua Scott ([@joshuawscott](https://github.com/joshuawscott))
+- Jack Lund ([@jacklund](https://github.com/jacklund))
+
+### Support scope
+
+v1.0 is the Kayrock-based release. Expect prioritisation rather than blanket coverage.
+
+**In scope:**
+
+- Critical bugs (data loss, crashes, protocol violations)
+- Kafka compatibility issues against supported broker versions (0.11.0–3.8.x)
+- Security vulnerabilities (see below)
+
+**Accepted with best-effort review (PRs welcome):**
+
+- Feature requests that fit the v1.x roadmap (see [Project Status](#project-status))
+- Performance improvements with benchmarks
+- Documentation improvements
+
+**Explicitly out of scope for v1.x:**
+
+- Idempotent / transactional producer (planned post-1.0)
+- KIP-848 new rebalance protocol (planned post-1.0)
+- KIP-368 proactive SASL re-authentication (planned post-1.0 — see [AUTH.md § Token expiry behaviour](./AUTH.md#token-expiry-behaviour))
+- Back-porting fixes to 0.15.x beyond security patches
+- Supporting Kafka < 0.11 (use an earlier kafka_ex tag)
+
+### Response targets
+
+- **Critical bugs / security issues**: 2 weeks
+- **Other PRs**: best-effort; bump the thread if no reply after 3 weeks
+- **Questions / discussion**: GitHub issues or #kafkaex on [elixir-lang.slack.com](https://elixir-lang.slack.com); no SLA
+
+## Security
+
+Do **not** file public GitHub issues for security vulnerabilities. Use either:
+
+- GitHub private vulnerability reporting: <https://github.com/kafkaex/kafka_ex/security/advisories/new>
+- Reach out via the channels listed under [Contributing](#contributing).
+
+Response within ~2 weeks; disclosure coordination typically 30–90 days. Security fixes land on `1.0.x`; `0.15.x` receives security-only patches through 2027-04-17; earlier versions are unsupported.
 
 ## License
 

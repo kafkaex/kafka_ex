@@ -195,6 +195,55 @@ Extensions are KIP-342 custom key-value pairs sent to the broker:
 - Cannot use reserved name `"auth"`
 - Example: `%{"traceId" => "abc", "tenant" => "prod"}`
 
+### Token expiry behaviour
+
+kafka_ex does **not** currently schedule a proactive
+`SaslAuthenticate` re-auth (KIP-368). The `session_lifetime_ms` the
+broker sends in the `SaslAuthenticate` v1+ response is parsed but
+not acted on. This is NOT the same as "the connection breaks and
+the client crashes" — the actual flow is:
+
+1. **Token expires on the broker side.** The broker closes the
+   connection (TCP/TLS close).
+2. **kafka_ex observes the close.** The socket is in active mode,
+   so `{:tcp_closed, socket}` / `{:ssl_closed, socket}` arrives at
+   the `KafkaEx.Client` GenServer. The client **does not crash** —
+   it handles the message by nil-ing the broker's socket in its
+   state and continuing.
+3. **Next request to that broker triggers reconnect.** Reconnect
+   runs the full socket setup: TCP → TLS → SASL handshake → SASL
+   authenticate. Your `token_provider` is **called again** and the
+   fresh token is used. If `token_provider` returns a valid
+   unexpired JWT, the reconnect succeeds transparently.
+4. **In-flight operations.** Requests that were queued on the
+   closed socket fail with `:closed`. These are classified as
+   transient errors (`KafkaEx.Support.Retry.transient_error?/1`)
+   and the client's retry logic replays them on the reconnected
+   socket.
+
+**Practical implications for short-lived JWTs:**
+
+- **Preferred:** make your `token_provider` robust — always return
+  a currently-valid token on each call (cache with a safety buffer
+  before expiry; refetch from the auth server on miss). The
+  `token_provider` is called on every reconnect, so as long as the
+  function itself returns a fresh token, re-auth works.
+- **Expected disruption window:** during the reconnect, the in-flight
+  requests blocked on that broker see a burst of transient errors.
+  Consumer groups may see brief heartbeat or commit timeouts that
+  resolve on retry. Application code that calls
+  `KafkaEx.API.*` synchronously may receive `{:error, :closed}` or
+  `{:error, :timeout}` for one cycle.
+- **Not supported today:** proactive refresh before expiry (KIP-368).
+  Post-1.0 roadmap — if this is blocking, open a GitHub issue.
+
+**What the broker sees:** your `token_provider` is called for each
+new connection, so connections established before the token expiry
+will be closed (by the broker) when the token lifetime elapses; new
+connections will carry a fresh token. The broker's own KIP-368
+`session_lifetime_ms` is effectively replaced by "re-auth whenever
+we reconnect for any reason."
+
 ## Configuration Summary
 
 ### Quick Reference
