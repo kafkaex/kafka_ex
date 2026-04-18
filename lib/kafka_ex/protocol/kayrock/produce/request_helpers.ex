@@ -135,12 +135,14 @@ defmodule KafkaEx.Protocol.Kayrock.Produce.RequestHelpers do
   def compression_to_attributes(:zstd), do: 4
 
   @doc """
-  Builds RecordHeader structs from a list of {key, value} tuples.
+  Builds RecordHeader structs from a list of `%KafkaEx.Messages.Header{}` structs.
   """
-  @spec build_record_headers(nil | [{String.t(), binary()}]) :: [RecordHeader.t()]
+  @spec build_record_headers(nil | [KafkaEx.Messages.Header.t()]) :: [RecordHeader.t()]
   def build_record_headers(nil), do: []
 
   def build_record_headers(headers) when is_list(headers) do
-    Enum.map(headers, &%RecordHeader{key: elem(&1, 0), value: elem(&1, 1)})
+    Enum.map(headers, fn %KafkaEx.Messages.Header{key: key, value: value} ->
+      %RecordHeader{key: key, value: value}
+    end)
   end
 end
