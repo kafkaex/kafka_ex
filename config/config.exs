@@ -85,6 +85,12 @@ config :kafka_ex,
   #   delete_topics: 2,
   #   api_versions: 2
   # },
+  # Declare compression algorithms your app relies on, so Client.init
+  # validates the backing optional deps (snappyer / ezstd / lz4b) at boot
+  # rather than crashing at first produce with UndefinedFunctionError.
+  # Optional — leave unset if your app doesn't use compression.
+  # required_compression: [:snappy],
+  #
   # Delay (in ms) before retrying a broker reconnect after a socket dies.
   # Lower values reconnect faster but may hammer a down broker; higher values
   # smooth flapping brokers at the cost of longer error windows.

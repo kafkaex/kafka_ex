@@ -173,10 +173,14 @@ config :kafka_ex,
   commit_interval: 5_000,      # Commit every 5 seconds
   commit_threshold: 100,       # Or every 100 messages
 
-  # What to do when no offset exists (or the requested offset is out of range).
-  # :earliest | :latest | :none — default is :none (raises on out-of-range).
-  # Most users want :earliest for new consumer groups.
-  auto_offset_reset: :earliest
+  # What to do when no committed offset exists, or the requested offset is
+  # out of range. Allowed values:
+  #   :none     — raise (the library default — strict; good for production
+  #               where an unexpected out-of-range indicates a real problem)
+  #   :earliest — reset to the oldest available offset (common for new
+  #               consumer groups that want to read existing data)
+  #   :latest   — reset to the newest offset (skip backlog, read only new)
+  auto_offset_reset: :none
 ```
 
 ### Advanced tuning
@@ -186,6 +190,12 @@ the knobs are discoverable.
 
 ```elixir
 config :kafka_ex,
+  # Declare the compression algorithms your app uses so Client.init
+  # crashes loudly at boot if the backing optional dep isn't loaded.
+  # Default: [] (no validation). Any of :gzip (needs no dep), :snappy
+  # (needs :snappyer), :lz4 (needs :lz4b), :zstd (needs :ezstd).
+  required_compression: [],
+
   # Delay before a broker-reconnect retry (ms). Lower reconnects faster
   # but hammers down brokers; higher smooths flapping at the cost of
   # longer error windows.

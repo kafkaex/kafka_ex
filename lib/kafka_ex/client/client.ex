@@ -24,6 +24,7 @@ defmodule KafkaEx.Client do
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Messages.Fetch
   alias KafkaEx.Messages.FindCoordinator, as: FindCoordinatorMsg
+  alias KafkaEx.Support.OptionalDeps
   alias KafkaEx.Support.Retry
 
   @protocol Application.compile_env(:kafka_ex, :protocol, KafkaEx.Protocol.KayrockProtocol)
@@ -78,6 +79,12 @@ defmodule KafkaEx.Client do
       raise KafkaEx.InvalidConsumerGroupError,
             state.consumer_group_for_auto_commit
     end
+
+    # Crash loudly at boot if the user's config implies an optional
+    # dep that isn't loaded (e.g. :msk_iam SASL without :aws_signature,
+    # or :snappy compression without :snappyer). Much friendlier than
+    # UndefinedFunctionError at first produce/auth.
+    :ok = OptionalDeps.validate!(state.auth)
 
     brokers =
       state.bootstrap_uris
