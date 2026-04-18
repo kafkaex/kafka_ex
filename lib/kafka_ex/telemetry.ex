@@ -264,6 +264,7 @@ defmodule KafkaEx.Telemetry do
   @consumer_leave_exception [:kafka_ex, :consumer, :leave, :exception]
 
   @consumer_rebalance [:kafka_ex, :consumer, :rebalance]
+  @consumer_commit_failed [:kafka_ex, :consumer, :commit_failed]
 
   @metadata_update_start [:kafka_ex, :metadata, :update, :start]
   @metadata_update_stop [:kafka_ex, :metadata, :update, :stop]
@@ -285,7 +286,9 @@ defmodule KafkaEx.Telemetry do
   @consumer_leave_events [@consumer_leave_start, @consumer_leave_stop, @consumer_leave_exception]
   @consumer_group_events @consumer_join_events ++
                            @consumer_sync_events ++
-                           @consumer_heartbeat_events ++ @consumer_leave_events ++ [@consumer_rebalance]
+                           @consumer_heartbeat_events ++
+                           @consumer_leave_events ++
+                           [@consumer_rebalance, @consumer_commit_failed]
   @consumer_process_events [@consumer_process_start, @consumer_process_stop, @consumer_process_exception]
   @consumer_events @consumer_commit_events ++ @consumer_group_events ++ @consumer_process_events
   @metadata_events [@metadata_update_start, @metadata_update_stop, @metadata_update_exception]
@@ -479,8 +482,12 @@ defmodule KafkaEx.Telemetry do
   end
 
   @doc false
-  @spec emit_rebalance(binary(), binary(), integer() | nil, atom() | {:heartbeat_error, atom()}) ::
-          :ok
+  @spec emit_rebalance(
+          binary(),
+          binary(),
+          integer() | nil,
+          atom() | {:heartbeat_error, atom()} | {:commit_fatal, atom()}
+        ) :: :ok
   def emit_rebalance(group_id, member_id, generation_id, reason) do
     :telemetry.execute(
       @consumer_rebalance,
@@ -490,6 +497,40 @@ defmodule KafkaEx.Telemetry do
         member_id: member_id,
         generation_id: generation_id,
         reason: reason
+      }
+    )
+  end
+
+  @doc """
+  Emitted when an offset commit fails with a fatal or terminal protocol error.
+
+  Fatal errors (`:illegal_generation`, `:unknown_member_id`, `:rebalance_in_progress`)
+  trigger an immediate rejoin — the consumer will reprocess messages since the
+  last successful commit (at-least-once semantics). Terminal errors
+  (`:fenced_instance_id`, KIP-345) stop the consumer without rejoining.
+
+  Parity gap vs. Java's `CommitFailedException` / brod's `handle_commit_failure`
+  callback — attach to this event to observe and react to commit failures.
+  """
+  @spec emit_commit_failed(
+          group_id :: binary(),
+          topic :: binary(),
+          partition :: non_neg_integer(),
+          offset :: integer() | nil,
+          kind :: :fatal | :terminal | :transient,
+          error :: atom()
+        ) :: :ok
+  def emit_commit_failed(group_id, topic, partition, offset, kind, error) do
+    :telemetry.execute(
+      @consumer_commit_failed,
+      %{count: 1},
+      %{
+        group_id: group_id,
+        topic: topic,
+        partition: partition,
+        offset: offset,
+        kind: kind,
+        error: error
       }
     )
   end
