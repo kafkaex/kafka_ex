@@ -58,6 +58,10 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.ResponseHelpers do
            members: parsed_members
          )}
 
+      :member_id_required ->
+        # KIP-394: broker returns member_id that must be used in retry
+        {:error, Error.build(:member_id_required, %{member_id: member_id})}
+
       error_atom ->
         {:error, Error.build(error_atom, %{})}
     end
