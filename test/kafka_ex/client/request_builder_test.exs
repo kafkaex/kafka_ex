@@ -22,13 +22,17 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       assert Fixtures.request_type?(request, :api_versions, 1)
     end
 
-    test "uses negotiated max version when not specified" do
-      state = %KafkaEx.Client.State{api_versions: %{18 => {0, 1}}}
+    test "defaults to V0 when api_version is not specified (bootstrap-safe)" do
+      state = %KafkaEx.Client.State{api_versions: %{18 => {0, 3}}}
 
       {:ok, request} = RequestBuilder.api_versions_request([], state)
 
-      # Uses negotiated max (min of broker max=1 and kayrock max)
-      assert Fixtures.request_type?(request, :api_versions, 1)
+      # ApiVersions is special: we pin V0 by default even when the broker
+      # reports a higher max, so the request works without the V3+
+      # `client_software_name` tagged field (KIP-511) which brokers
+      # require starting with Kafka 2.4+. Callers that want a higher
+      # version must opt in explicitly via `api_version:`.
+      assert Fixtures.request_type?(request, :api_versions, 0)
     end
 
     test "returns error when api version is not supported" do
