@@ -13,7 +13,6 @@ defmodule KafkaEx.Client.StateTest do
       assert state.bootstrap_uris == []
       assert state.worker_name == :test_worker
       assert state.metadata_update_interval == 30_000
-      assert state.consumer_group_update_interval == 30_000
       assert state.allow_auto_topic_creation == true
       assert state.use_ssl == false
       assert state.ssl_options == []
@@ -25,7 +24,6 @@ defmodule KafkaEx.Client.StateTest do
       args = [
         uris: [{"localhost", 9092}],
         metadata_update_interval: 60_000,
-        consumer_group_update_interval: 120_000,
         allow_auto_topic_creation: false,
         use_ssl: true,
         ssl_options: [verify: :verify_peer],
@@ -38,7 +36,6 @@ defmodule KafkaEx.Client.StateTest do
       assert state.bootstrap_uris == [{"localhost", 9092}]
       assert state.worker_name == :custom_worker
       assert state.metadata_update_interval == 60_000
-      assert state.consumer_group_update_interval == 120_000
       assert state.allow_auto_topic_creation == false
       assert state.use_ssl == true
       assert state.ssl_options == [verify: :verify_peer]

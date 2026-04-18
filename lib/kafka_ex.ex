@@ -44,7 +44,6 @@ defmodule KafkaEx do
           {:uris, uri}
           | {:consumer_group, binary | :no_consumer_group}
           | {:metadata_update_interval, non_neg_integer}
-          | {:consumer_group_update_interval, non_neg_integer}
           | {:ssl_options, ssl_options}
           | {:auth, KafkaEx.Auth.Config.t() | nil}
           | {:initial_topics, [binary]}
@@ -57,7 +56,6 @@ defmodule KafkaEx do
   - `consumer_group`: Name of the consumer group, `:no_consumer_group` for none
   - `uris`: List of brokers as `{"host", port}` tuples
   - `metadata_update_interval`: Metadata refresh interval in ms (default: 30000)
-  - `consumer_group_update_interval`: Consumer group refresh interval in ms (default: 30000)
   - `use_ssl`: Enable SSL connections (default: false)
   - `ssl_options`: SSL options (see Erlang ssl docs)
   - `auth`: SASL authentication config (see `KafkaEx.Auth.Config`)

@@ -169,9 +169,6 @@ config :kafka_ex,
 config :kafka_ex,
   default_consumer_group: "my-group",
 
-  # Metadata refresh interval (milliseconds)
-  consumer_group_update_interval: 30_000,
-
   # Auto-commit settings
   commit_interval: 5_000,      # Commit every 5 seconds
   commit_threshold: 100,       # Or every 100 messages
