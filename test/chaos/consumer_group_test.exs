@@ -472,6 +472,11 @@ defmodule KafkaEx.Chaos.ConsumerGroupTest do
         Process.sleep(3_000)
       end)
 
+      # Let the coordinator recover after the brownout. Without this, the
+      # next JoinGroup races the broker's __consumer_offsets recovery and
+      # burns minutes on :coordinator_not_available → :unknown retries.
+      Process.sleep(5_000)
+
       # Stop and restart consumer group to verify offsets were committed
       ConsumerGroupHelpers.stop_consumer_group(cg_pid)
       Process.sleep(2_000)
@@ -480,7 +485,10 @@ defmodule KafkaEx.Chaos.ConsumerGroupTest do
       {:ok, cg_pid2} = ConsumerGroup.start_link(TestGenConsumer, group_name, [@test_topic], opts)
       on_exit(fn -> ConsumerGroupHelpers.stop_consumer_group(cg_pid2) end)
 
-      assert {:ok, :active} = ConsumerGroupHelpers.wait_for_active(cg_pid2, timeout: 30_000)
+      # Longer timeout: cg1's generation is still being released on the
+      # broker side; cg2's first JoinGroup may need multiple retries before
+      # the coordinator confirms the group is free.
+      assert {:ok, :active} = ConsumerGroupHelpers.wait_for_active(cg_pid2, timeout: 90_000)
 
       # New consumer should not re-consume the same messages from the beginning
       # (it should start from committed offset)
