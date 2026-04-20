@@ -24,6 +24,7 @@ defmodule KafkaEx.Client do
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Messages.Fetch
   alias KafkaEx.Messages.FindCoordinator, as: FindCoordinatorMsg
+  alias KafkaEx.Support.OptionalDeps
   alias KafkaEx.Support.Retry
 
   @protocol Application.compile_env(:kafka_ex, :protocol, KafkaEx.Protocol.KayrockProtocol)
@@ -78,6 +79,12 @@ defmodule KafkaEx.Client do
       raise KafkaEx.InvalidConsumerGroupError,
             state.consumer_group_for_auto_commit
     end
+
+    # Crash loudly at boot if the user's config implies an optional
+    # dep that isn't loaded (e.g. :msk_iam SASL without :aws_signature,
+    # or :snappy compression without :snappyer). Much friendlier than
+    # UndefinedFunctionError at first produce/auth.
+    :ok = OptionalDeps.validate!(state.auth)
 
     brokers =
       state.bootstrap_uris
@@ -494,8 +501,18 @@ defmodule KafkaEx.Client do
       stop_metadata = add_join_group_result_metadata(metadata, result)
       {{{:ok, result}, updated_state}, stop_metadata}
     else
-      {:error, error} -> {{:error, error}, metadata}
-      error_result -> {error_result, metadata}
+      # KIP-394: JoinGroup V4+ requires two-step join.
+      # First attempt with empty member_id returns :member_id_required
+      # with an assigned member_id. Retry with that member_id.
+      {{:error, %Error{error: :member_id_required, metadata: %{member_id: assigned_id}}}, updated_state} ->
+        Logger.info("JoinGroup returned member_id_required (KIP-394), retrying with assigned member_id")
+        do_join_group_request(consumer_group, assigned_id, opts, updated_state, metadata)
+
+      {:error, error} ->
+        {{:error, error}, metadata}
+
+      error_result ->
+        {error_result, metadata}
     end
   end
 
@@ -897,8 +914,7 @@ defmodule KafkaEx.Client do
   defp retrieve_metadata(state, sync_timeout, topics, retry) do
     req_opts = [
       topics: topics,
-      allow_auto_topic_creation: state.allow_auto_topic_creation,
-      api_version: State.max_supported_api_version(state, :metadata, 4)
+      allow_auto_topic_creation: state.allow_auto_topic_creation
     ]
 
     with {:ok, request} <- RequestBuilder.metadata_request(req_opts, state),
@@ -1115,7 +1131,7 @@ defmodule KafkaEx.Client do
   end
 
   defp get_api_versions(state) do
-    {:ok, request} = RequestBuilder.api_versions_request([], state)
+    {:ok, request} = RequestBuilder.api_versions_request([api_version: 0], state)
     {{ok_or_error, response}, state_out} = kayrock_network_request(request, NodeSelector.first_available(), state)
 
     case {ok_or_error, response} do

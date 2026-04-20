@@ -1,5 +1,128 @@
 # KafkaEx Changelog
 
+## 1.0.0
+
+Single release entry accumulates all post-rc.2 work. RC tags along the
+way (rc.3, rc.4, …) share this entry — individual rc entries are not
+maintained.
+
+### Breaking Changes
+
+* **Produce headers API** — the `headers:` option on
+  `KafkaEx.API.produce/4,5`, `produce_one/4,5`, and `produce_sync/4,5`
+  now requires `[%KafkaEx.Messages.Header{}]` structs instead of
+  `[{binary, binary}]` tuples. Brings the produce path in line with
+  the fetch path, which already returned `%Header{}` structs.
+
+  Before:
+  ```elixir
+  KafkaEx.API.produce(client, "t", 0, [
+    %{value: "v", headers: [{"key", "val"}]}
+  ])
+  ```
+
+  After:
+  ```elixir
+  alias KafkaEx.Messages.Header
+  KafkaEx.API.produce(client, "t", 0, [
+    %{value: "v", headers: [Header.new("key", "val")]}
+  ])
+  ```
+
+  Silent-at-compile, fails-at-runtime with `FunctionClauseError` —
+  see UPGRADING.md for the migration pattern.
+
+### Fixed
+
+* **Consumer group no longer silently consumes on stale generation**
+  after a non-retryable `OffsetCommit` error. Previously
+  `:illegal_generation` (and siblings) were logged and swallowed;
+  the consumer kept running on a stale generation until the next
+  heartbeat happened to also fail, potentially many seconds of
+  zombie operation. Now classified across three paths matching
+  Java `ConsumerCoordinator`, librdkafka `rdkafka_cgrp`, brod
+  `brod_group_coordinator`, and kafka-python:
+
+  - **Terminal** — `:fenced_instance_id` (KIP-345),
+    `:group_authorization_failed`, `:topic_authorization_failed`,
+    `:offset_metadata_too_large`, `:invalid_commit_offset_size`.
+    Consumer stops without rejoining.
+  - **Fatal** — `:illegal_generation`, `:unknown_member_id`.
+    GenConsumer casts `{:rejoin_required, reason, stale_gen}` to
+    the group manager (with mailbox coalescing for multi-partition
+    storms), self-stops with `{:shutdown, {:rejoin_required, _}}`.
+    Manager resets member_id / generation_id and rebalances. Under
+    `restart: :transient` the supervisor does not respawn the
+    stopped worker; the rebalance spawns a fresh one.
+  - **Retryable** — `:rebalance_in_progress` (flag-and-wait;
+    heartbeat path drives the eventual rebalance, matching Java),
+    `:unstable_offset_commit` (KIP-447), and standard transient
+    errors.
+
+  At-least-once semantics preserved. See
+  [UPGRADING.md](./UPGRADING.md) for details.
+
+* **Bootstrap crash** when `api_version` was set explicitly and the
+  broker map was empty — the client now honors the explicit
+  override instead of returning `:api_not_supported_by_broker`.
+
+* **Record-header encoding** in V3+ record batches (per-record
+  headers were previously dropped).
+
+* **Version-0 falsy bug** in `get_api_version` — V0 was treated as
+  "unset" and fell through to the hardcoded default.
+
+### Added
+
+* **KIP-394 two-step JoinGroup.** Client auto-retries `JoinGroup`
+  with the broker-assigned `member_id` on `:member_id_required`.
+  Required for interop with Kafka 2.3+ under
+  `group.initial.rebalance.delay.ms`.
+
+* **KIP-345 batch LeaveGroup V3+.** `LeaveGroup` sends the `members`
+  array for V3+ brokers.
+
+* **3-tier API version resolution.**
+  1. Per-request `:api_version` option
+  2. Application config `api_versions: %{...}` map
+  3. Broker-negotiated max (`min(broker_max, kayrock_max)`)
+
+  Replaces hardcoded defaults that ignored broker capability.
+  Previously produce/fetch used v3 regardless of what the broker
+  supported; now a Kafka 3.x broker will get the full API surface.
+
+* **`KafkaEx.Support.VersionHelper.maybe_put_api_version/3`** —
+  internal helper for consumer/stream callers. Thin wrapper over
+  the 3-tier resolution.
+
+* **`[:kafka_ex, :consumer, :commit_failed]` telemetry event.**
+  Emitted on every commit-error branch (terminal / fatal /
+  transient) with metadata
+  `%{group_id, topic, partition, offset, kind, error}`. Parity
+  stand-in for Java's `CommitFailedException` — subscribe to the
+  event to observe commit failures.
+
+* **Retry classifiers.**
+  `KafkaEx.Support.Retry.commit_fatal_error?/1` and
+  `commit_terminal_error?/1` — mirrors the reference-client error
+  taxonomy.
+
+### Changed
+
+* **Test infrastructure.** `Process.sleep(50)` replaced with
+  `MockClient.wait_for_calls/3` polling helper for deterministic
+  unit tests. Adds lifecycle integration tests for the 3-tier
+  version resolution and the `:illegal_generation` rejoin loop.
+
+* **Integration + chaos coverage for Phase B.** Live-broker
+  integration tests for rejoin_required cast handling, plus a
+  Testcontainers-isolated chaos test that fires a 30-second storm
+  of fatal casts and asserts the mailbox-drain coalescing ratio.
+
+### Migration
+
+See [UPGRADING.md](./UPGRADING.md).
+
 ## 1.0.0-rc.2 - 2026-03-15
 
 ### Fixed

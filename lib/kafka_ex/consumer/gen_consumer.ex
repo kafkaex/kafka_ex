@@ -157,6 +157,42 @@ defmodule KafkaEx.Consumer.GenConsumer do
   error. Similarly, any messages sent to a `GenConsumer` will log an error if
   there is no corresponding `c:handle_info/2` callback defined.
 
+  ## Commit failure handling
+
+  When an `OffsetCommit` request fails, the commit error is classified and
+  handled according to the reference Kafka client patterns (Java
+  `ConsumerCoordinator.OffsetCommitResponseHandler`, librdkafka
+  `rdkafka_cgrp.c`, brod `brod_group_coordinator`):
+
+  * **Terminal** — `:fenced_instance_id` (KIP-345),
+    `:group_authorization_failed`, `:topic_authorization_failed`,
+    `:offset_metadata_too_large`, `:invalid_commit_offset_size`.
+    The consumer stops immediately without rejoining. Under
+    `restart: :transient` the supervisor does not respawn.
+
+  * **Fatal (rejoin-required)** — `:illegal_generation`,
+    `:unknown_member_id`. The consumer casts `{:rejoin_required, reason,
+    stale_generation_id}` to the group manager and self-stops. The manager
+    resets member_id/generation_id (matching Java `resetGeneration()`) and
+    runs a rebalance. GenConsumers on the new generation are spawned
+    afresh.
+
+  * **Retryable** — `:rebalance_in_progress` (broker-signalled; the next
+    heartbeat will drive the rebalance), `:unstable_offset_commit`
+    (KIP-447), and standard transient errors (`:timeout`,
+    `:coordinator_not_available`, …). The commit is retried with
+    exponential backoff.
+
+  All three paths emit `[:kafka_ex, :consumer, :commit_failed]` telemetry
+  with metadata `%{group_id, topic, partition, offset, kind, error}`
+  where `kind` is `:fatal | :terminal | :transient`. This is the primary
+  user-observable signal for commit failures (kafka_ex does not currently
+  provide a synchronous `handle_commit_failure/2` callback — subscribe to
+  the telemetry event instead).
+
+  At-least-once semantics are preserved: any uncommitted messages since
+  the last successful commit will be re-delivered after the rejoin.
+
   ## Testing
 
   A `KafkaEx.Consumer.GenConsumer` can be unit-tested without a running Kafka broker by sending
@@ -194,6 +230,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
   alias KafkaEx.Config
   alias KafkaEx.Messages.Fetch.Record
   alias KafkaEx.Support.Retry
+  alias KafkaEx.Support.VersionHelper
   alias KafkaEx.Telemetry
 
   require Logger
@@ -401,7 +438,8 @@ defmodule KafkaEx.Consumer.GenConsumer do
       :last_commit,
       :auto_offset_reset,
       :fetch_options,
-      :api_versions
+      :api_versions,
+      :group_manager_pid
     ]
 
     @type t :: %__MODULE__{
@@ -421,7 +459,8 @@ defmodule KafkaEx.Consumer.GenConsumer do
             last_commit: integer() | nil,
             auto_offset_reset: :none | :earliest | :latest,
             fetch_options: Keyword.t(),
-            api_versions: map()
+            api_versions: map(),
+            group_manager_pid: pid() | nil
           }
   end
 
@@ -501,6 +540,22 @@ defmodule KafkaEx.Consumer.GenConsumer do
     )
   end
 
+  # Not used by the internal consumer-group supervision path — the effective
+  # child spec comes from the inline builder in
+  # `KafkaEx.Consumer.GenConsumer.Supervisor.start_link/1`, which already
+  # sets `restart: :transient`. This function exists so external code that
+  # places a GenConsumer directly under its own Supervisor inherits the
+  # same `:transient` restart strategy (stop-on-normal-or-shutdown exit).
+  @doc false
+  def child_spec(opts) do
+    %{
+      id: __MODULE__,
+      start: {__MODULE__, :start_link, [opts]},
+      restart: :transient,
+      type: :worker
+    }
+  end
+
   @doc """
   Returns the topic and partition id for this consumer process
   """
@@ -571,10 +626,9 @@ defmodule KafkaEx.Consumer.GenConsumer do
 
     generation_id = Keyword.get(opts, :generation_id)
     member_id = Keyword.get(opts, :member_id)
+    group_manager_pid = Keyword.get(opts, :group_manager_pid)
 
-    default_api_versions = %{fetch: 0, offset_fetch: 0, offset_commit: 0}
     api_versions = Keyword.get(opts, :api_versions, %{})
-    api_versions = Map.merge(default_api_versions, api_versions)
 
     case consumer_module.init(topic, partition, extra_consumer_args) do
       {:ok, consumer_state} ->
@@ -601,7 +655,8 @@ defmodule KafkaEx.Consumer.GenConsumer do
           generation_id: generation_id,
           member_id: member_id,
           fetch_options: fetch_options,
-          api_versions: api_versions
+          api_versions: api_versions,
+          group_manager_pid: group_manager_pid
         }
 
         Process.flag(:trap_exit, true)
@@ -713,8 +768,11 @@ defmodule KafkaEx.Consumer.GenConsumer do
       {:error, reason} ->
         {:stop, reason, state}
 
-      new_state ->
+      {:noreply, new_state} ->
         {:noreply, new_state, 0}
+
+      {:stop, _reason, _final_state} = stop ->
+        stop
     end
   end
 
@@ -745,9 +803,14 @@ defmodule KafkaEx.Consumer.GenConsumer do
   end
 
   def terminate(_reason, %State{} = state) do
-    # Best-effort commit before shutdown
+    # Best-effort single-shot commit before shutdown. We deliberately do NOT
+    # go through commit_with_retry: the retry ladder is 100+200+400ms of
+    # Process.sleep which can exhaust the worker_shutdown budget when the
+    # broker is unreachable. A brutal-kill mid-retry is worse than no commit
+    # — the next consumer start will re-read from the last committed offset
+    # and re-process at most one batch (at-least-once).
     try do
-      commit(state)
+      terminal_commit(state)
     rescue
       _ -> :ok
     catch
@@ -779,9 +842,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
            fetch_options: fetch_options
          } = state
        ) do
-    fetch_opts =
-      fetch_options
-      |> Keyword.put(:api_version, Map.fetch!(state.api_versions, :fetch))
+    fetch_opts = VersionHelper.maybe_put_api_version(fetch_options, state.api_versions, :fetch)
 
     case KafkaExAPI.fetch(client, topic, partition, offset, fetch_opts) do
       {:ok, fetch_result} ->
@@ -884,7 +945,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
        ) do
     case acked - committed do
       0 ->
-        %State{state | last_commit: :erlang.monotonic_time(:milli_seconds)}
+        {:noreply, %State{state | last_commit: :erlang.monotonic_time(:milli_seconds)}}
 
       n when n >= threshold ->
         commit(state)
@@ -893,17 +954,50 @@ defmodule KafkaEx.Consumer.GenConsumer do
         if :erlang.monotonic_time(:milli_seconds) - last_commit >= interval do
           commit(state)
         else
-          state
+          {:noreply, state}
         end
     end
   end
 
   defp commit(%State{acked_offset: offset, committed_offset: offset} = state) do
-    state
+    {:noreply, state}
   end
 
   defp commit(state) do
     commit_with_retry(state)
+  end
+
+  # Single-shot commit used only by terminate/2 — no retries, no on-retry
+  # callback, no fatal-error cast (group_manager_pid was already nilled by
+  # terminate). The worker is dying regardless; best-effort only. Return
+  # value is discarded by terminate/2.
+  defp terminal_commit(%State{acked_offset: offset, committed_offset: offset}), do: :ok
+
+  defp terminal_commit(%State{
+         client: client,
+         group: group,
+         topic: topic,
+         partition: partition,
+         member_id: member_id,
+         generation_id: generation_id,
+         acked_offset: offset,
+         api_versions: api_versions
+       }) do
+    partitions = [%{partition_num: partition, offset: offset}]
+
+    opts =
+      [member_id: member_id, generation_id: generation_id]
+      |> VersionHelper.maybe_put_api_version(api_versions, :offset_commit)
+
+    case KafkaExAPI.commit_offset(client, group, topic, partitions, opts) do
+      {:ok, _} ->
+        Logger.debug("Terminal commit offset #{topic}/#{partition}@#{offset} for #{group}")
+
+      {:error, reason} ->
+        Logger.warning("Terminal commit failed for #{topic}/#{partition}@#{offset} (#{group}): #{inspect(reason)}")
+    end
+
+    :ok
   end
 
   # Commit with retry and exponential backoff (issue #425)
@@ -922,11 +1016,9 @@ defmodule KafkaEx.Consumer.GenConsumer do
        ) do
     partitions = [%{partition_num: partition, offset: offset}]
 
-    opts = [
-      api_version: Map.fetch!(state.api_versions, :offset_commit),
-      member_id: member_id,
-      generation_id: generation_id
-    ]
+    opts =
+      [member_id: member_id, generation_id: generation_id]
+      |> VersionHelper.maybe_put_api_version(state.api_versions, :offset_commit)
 
     commit_fn = fn ->
       KafkaExAPI.commit_offset(client, group, topic, partitions, opts)
@@ -947,13 +1039,98 @@ defmodule KafkaEx.Consumer.GenConsumer do
     case Retry.with_retry(commit_fn, retry_opts) do
       {:ok, _result} ->
         Logger.debug("Committed offset #{topic}/#{partition}@#{offset} for #{group}")
-        %State{state | committed_offset: offset, last_commit: :erlang.monotonic_time(:milli_seconds)}
+
+        new_state = %State{
+          state
+          | committed_offset: offset,
+            last_commit: :erlang.monotonic_time(:milli_seconds)
+        }
+
+        {:noreply, new_state}
 
       {:error, error} ->
-        Logger.error("Failed to commit offset #{topic}/#{partition}@#{offset} for #{group}: #{inspect(error)}")
-        state
+        handle_commit_error(error, state)
     end
   end
+
+  # Handle a commit failure. Dispatches on error classification:
+  #
+  #   * Terminal (KIP-345 :fenced_instance_id) — stop the consumer, do NOT
+  #     rejoin. Another member has taken this group.instance.id; rejoining
+  #     would split-brain. Matches Java/librdkafka/brod behaviour.
+  #
+  #   * Fatal (:illegal_generation, :unknown_member_id, :rebalance_in_progress)
+  #     — cast to group manager with the stale generation_id so it can discard
+  #     duplicate casts queued by sibling partitions, then self-stop.
+  #
+  #   * Transient — log and continue (retry next cycle).
+  #
+  # All three branches emit [:kafka_ex, :consumer, :commit_failed] telemetry
+  # so operators can observe commit failures without parsing logs.
+  defp handle_commit_error(error, %State{} = state) do
+    cond do
+      Retry.commit_terminal_error?(error) -> handle_terminal_commit_error(error, state)
+      Retry.commit_fatal_error?(error) -> handle_fatal_commit_error(error, state)
+      true -> handle_transient_commit_error(error, state)
+    end
+  end
+
+  defp handle_terminal_commit_error(error, %State{} = state) do
+    %State{group: group, topic: topic, partition: partition, acked_offset: offset} = state
+
+    Logger.error(
+      "Commit terminal error #{inspect(error)} for #{topic}/#{partition}@#{offset} " <>
+        "(group=#{group}): another member owns this group.instance.id. Stopping without rejoin."
+    )
+
+    emit_commit_failed(state, error, :terminal)
+    {:stop, {:shutdown, {:terminal_error, error}}, state}
+  end
+
+  defp handle_fatal_commit_error(error, %State{group_manager_pid: manager_pid} = state)
+       when is_pid(manager_pid) do
+    %State{topic: topic, partition: partition, acked_offset: offset, generation_id: gen} = state
+
+    Logger.warning(
+      "Commit fatal error #{inspect(error)} for #{topic}/#{partition}@#{offset}: " <>
+        "signalling group manager (stale_gen=#{inspect(gen)}) and stopping"
+    )
+
+    emit_commit_failed(state, error, :fatal)
+    GenServer.cast(manager_pid, {:rejoin_required, error, gen})
+    {:stop, {:shutdown, {:rejoin_required, error}}, state}
+  end
+
+  defp handle_fatal_commit_error(error, %State{} = state) do
+    Logger.error(
+      "Commit fatal error #{inspect(error)} with no group_manager_pid; " <>
+        "consumer cannot self-rejoin — stopping"
+    )
+
+    emit_commit_failed(state, error, :fatal)
+    {:stop, {:shutdown, {:rejoin_required, error}}, state}
+  end
+
+  defp handle_transient_commit_error(error, %State{} = state) do
+    %State{topic: topic, partition: partition, acked_offset: offset, group: group} = state
+
+    Logger.error("Failed to commit offset #{topic}/#{partition}@#{offset} for #{group}: #{inspect(error)}")
+    emit_commit_failed(state, error, :transient)
+    {:noreply, state}
+  end
+
+  defp emit_commit_failed(%State{} = state, error, kind) do
+    Telemetry.emit_commit_failed(state.group, state.topic, state.partition, state.acked_offset, kind, error)
+  end
+
+  # Test seam. Allows the test suite to exercise handle_commit_error without
+  # mocking KafkaExAPI.commit_offset/5. Arg order matches handle_commit_error
+  # (error, state) rather than the state-first convention, because this seam
+  # is purely a 1:1 passthrough.
+  @doc false
+  @spec commit_for_test(Retry.error(), State.t()) ::
+          {:noreply, State.t()} | {:stop, term(), State.t()}
+  def commit_for_test(error, state), do: handle_commit_error(error, state)
 
   defp load_offsets(
          %State{
@@ -965,7 +1142,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
          } = state
        ) do
     partitions = [%{partition_num: partition}]
-    opts = [api_version: Map.fetch!(state.api_versions, :offset_fetch)]
+    opts = VersionHelper.maybe_put_api_version([], state.api_versions, :offset_fetch)
 
     case KafkaExAPI.fetch_committed_offset(client, group, topic, partitions, opts) do
       {:ok, [%{partition_offsets: [%{offset: offset, error_code: error_code}]}]} ->

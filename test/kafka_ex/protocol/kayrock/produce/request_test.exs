@@ -1,6 +1,7 @@
 defmodule KafkaEx.Protocol.Kayrock.Produce.RequestTest do
   use ExUnit.Case, async: true
 
+  alias KafkaEx.Messages.Header
   alias KafkaEx.Protocol.Kayrock.Produce.Request
   alias Kayrock.MessageSet
   alias Kayrock.RecordBatch
@@ -124,7 +125,7 @@ defmodule KafkaEx.Protocol.Kayrock.Produce.RequestTest do
         messages: [
           %{
             value: "event data",
-            headers: [{"event-type", "user.created"}, {"version", "1"}]
+            headers: [Header.new("event-type", "user.created"), Header.new("version", "1")]
           }
         ]
       ]
@@ -200,7 +201,7 @@ defmodule KafkaEx.Protocol.Kayrock.Produce.RequestTest do
       opts = [
         topic: "v5-topic",
         partition: 2,
-        messages: [%{value: "v5-data", headers: [{"trace-id", "abc123"}]}],
+        messages: [%{value: "v5-data", headers: [Header.new("trace-id", "abc123")]}],
         acks: 1,
         timeout: 10_000
       ]
@@ -296,7 +297,7 @@ defmodule KafkaEx.Protocol.Kayrock.Produce.RequestTest do
           %{
             value: "event data",
             key: "event-1",
-            headers: [{"event-type", "order.created"}],
+            headers: [Header.new("event-type", "order.created")],
             timestamp: 1_702_300_000_000
           }
         ],
@@ -421,7 +422,7 @@ defmodule KafkaEx.Protocol.Kayrock.Produce.RequestTest do
         messages: [
           %{
             value: "event data",
-            headers: [{"trace-id", "xyz789"}, {"event-type", "payment.completed"}],
+            headers: [Header.new("trace-id", "xyz789"), Header.new("event-type", "payment.completed")],
             timestamp: 1_702_400_000_000
           }
         ],

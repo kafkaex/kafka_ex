@@ -277,7 +277,6 @@ defmodule KafkaEx.API do
   @spec latest_offset(client, topic_name, partition_id) :: {:ok, offset_val} | {:error, error_atom}
   @spec latest_offset(client, topic_name, partition_id, opts) :: {:ok, offset_val} | {:error, error_atom}
   def latest_offset(client, topic, partition_id, opts \\ []) do
-    opts = Keyword.merge([api_version: 1], opts)
     partition = %{partition_num: partition_id, timestamp: :latest}
 
     case list_offsets(client, [{topic, [partition]}], opts) do
@@ -296,7 +295,6 @@ defmodule KafkaEx.API do
   @spec earliest_offset(client, topic_name, partition_id) :: {:ok, offset_val} | {:error, error_atom}
   @spec earliest_offset(client, topic_name, partition_id, opts) :: {:ok, offset_val} | {:error, error_atom}
   def earliest_offset(client, topic, partition_id, opts \\ []) do
-    opts = Keyword.merge([api_version: 1], opts)
     partition = %{partition_num: partition_id, timestamp: :earliest}
 
     case list_offsets(client, [{topic, [partition]}], opts) do

@@ -2,6 +2,7 @@ defmodule KafkaEx.APIProduceTest do
   use ExUnit.Case, async: false
 
   alias KafkaEx.API, as: KafkaExAPI
+  alias KafkaEx.Messages.Header
   alias KafkaEx.Messages.RecordMetadata
 
   # Mock GenServer for testing
@@ -277,7 +278,7 @@ defmodule KafkaEx.APIProduceTest do
     test "passes headers to message" do
       {:ok, client} = MockClient.start_link(%{})
 
-      headers = [{"content-type", "application/json"}, {"trace-id", "abc123"}]
+      headers = [Header.new("content-type", "application/json"), Header.new("trace-id", "abc123")]
       {:ok, _result} = KafkaExAPI.produce_one(client, "test-topic", 0, "value", headers: headers)
 
       last_call = GenServer.call(client, :get_last_call)
@@ -292,7 +293,7 @@ defmodule KafkaEx.APIProduceTest do
         KafkaExAPI.produce_one(client, "test-topic", 0, "value",
           key: "my-key",
           timestamp: 1_702_000_000_000,
-          headers: [{"x-header", "val"}],
+          headers: [Header.new("x-header", "val")],
           acks: 1,
           timeout: 10_000,
           compression: :gzip,
@@ -306,7 +307,7 @@ defmodule KafkaEx.APIProduceTest do
       assert message.value == "value"
       assert message.key == "my-key"
       assert message.timestamp == 1_702_000_000_000
-      assert message.headers == [{"x-header", "val"}]
+      assert message.headers == [Header.new("x-header", "val")]
 
       # Produce opts should have produce-specific fields
       assert Keyword.get(last_call.opts, :acks) == 1

@@ -59,6 +59,38 @@ defmodule KafkaEx.APITest do
 
       assert {:error, :unknown_topic} = KafkaEx.API.latest_offset(client, "test-topic", 0)
     end
+
+    test "does not inject api_version into opts" do
+      offset_response = [
+        %Offset{
+          topic: "test-topic",
+          partition_offsets: [%Offset.PartitionOffset{partition: 0, offset: 100}]
+        }
+      ]
+
+      {:ok, client} = MockClient.start_link(%{list_offsets: {:ok, offset_response}})
+      KafkaEx.API.latest_offset(client, "test-topic", 0)
+
+      calls = MockClient.get_calls(client)
+      assert [{:list_offsets, _tp, opts}] = calls
+      refute Keyword.has_key?(opts, :api_version)
+    end
+
+    test "passes through caller's explicit api_version" do
+      offset_response = [
+        %Offset{
+          topic: "test-topic",
+          partition_offsets: [%Offset.PartitionOffset{partition: 0, offset: 100}]
+        }
+      ]
+
+      {:ok, client} = MockClient.start_link(%{list_offsets: {:ok, offset_response}})
+      KafkaEx.API.latest_offset(client, "test-topic", 0, api_version: 3)
+
+      calls = MockClient.get_calls(client)
+      assert [{:list_offsets, _tp, opts}] = calls
+      assert Keyword.get(opts, :api_version) == 3
+    end
   end
 
   describe "earliest_offset/4" do
@@ -79,6 +111,38 @@ defmodule KafkaEx.APITest do
       {:ok, client} = MockClient.start_link(%{list_offsets: {:error, :unknown_topic}})
 
       assert {:error, :unknown_topic} = KafkaEx.API.earliest_offset(client, "test-topic", 0)
+    end
+
+    test "does not inject api_version into opts" do
+      offset_response = [
+        %Offset{
+          topic: "test-topic",
+          partition_offsets: [%Offset.PartitionOffset{partition: 0, offset: 0}]
+        }
+      ]
+
+      {:ok, client} = MockClient.start_link(%{list_offsets: {:ok, offset_response}})
+      KafkaEx.API.earliest_offset(client, "test-topic", 0)
+
+      calls = MockClient.get_calls(client)
+      assert [{:list_offsets, _tp, opts}] = calls
+      refute Keyword.has_key?(opts, :api_version)
+    end
+
+    test "passes through caller's explicit api_version" do
+      offset_response = [
+        %Offset{
+          topic: "test-topic",
+          partition_offsets: [%Offset.PartitionOffset{partition: 0, offset: 0}]
+        }
+      ]
+
+      {:ok, client} = MockClient.start_link(%{list_offsets: {:ok, offset_response}})
+      KafkaEx.API.earliest_offset(client, "test-topic", 0, api_version: 3)
+
+      calls = MockClient.get_calls(client)
+      assert [{:list_offsets, _tp, opts}] = calls
+      assert Keyword.get(opts, :api_version) == 3
     end
   end
 
@@ -332,7 +396,7 @@ defmodule KafkaEx.APITest do
       assert {:ok, ^fetch_result} = KafkaEx.API.fetch(client, "test-topic", 0, 0)
 
       calls = MockClient.get_calls(client)
-      assert [{:fetch, "test-topic", 0, 0}] = calls
+      assert [{:fetch, "test-topic", 0, 0, _opts}] = calls
     end
 
     test "returns error with error_code map" do

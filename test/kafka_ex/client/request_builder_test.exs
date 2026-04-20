@@ -2,6 +2,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
   use ExUnit.Case, async: true
 
   alias KafkaEx.Client.RequestBuilder
+  alias KafkaEx.Messages.Header
   alias KafkaEx.Test.KayrockFixtures, as: Fixtures
 
   describe "api_versions_request/2" do
@@ -21,12 +22,16 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       assert Fixtures.request_type?(request, :api_versions, 1)
     end
 
-    test "uses default version when not specified" do
-      state = %KafkaEx.Client.State{api_versions: %{18 => {0, 1}}}
+    test "defaults to V0 when api_version is not specified (bootstrap-safe)" do
+      state = %KafkaEx.Client.State{api_versions: %{18 => {0, 3}}}
 
       {:ok, request} = RequestBuilder.api_versions_request([], state)
 
-      # Default is v0 per @default_api_version
+      # ApiVersions is special: we pin V0 by default even when the broker
+      # reports a higher max, so the request works without the V3+
+      # `client_software_name` tagged field (KIP-511) which brokers
+      # require starting with Kafka 2.4+. Callers that want a higher
+      # version must opt in explicitly via `api_version:`.
       assert Fixtures.request_type?(request, :api_versions, 0)
     end
 
@@ -45,7 +50,8 @@ defmodule KafkaEx.Client.RequestBuilderTest do
 
       {:ok, request} = RequestBuilder.metadata_request([topics: ["topic1", "topic2"]], state)
 
-      assert Fixtures.request_type?(request, :metadata, 1)
+      # Uses negotiated max (broker max=2)
+      assert Fixtures.request_type?(request, :metadata, 2)
       assert request.topics == [%{name: "topic1"}, %{name: "topic2"}]
     end
 
@@ -158,7 +164,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       assert length(request.topics) == 1
     end
 
-    test "returns request for CreateTopics API v1 (default)" do
+    test "returns request for CreateTopics API with negotiated max (default)" do
       state = %KafkaEx.Client.State{api_versions: %{19 => {0, 2}}}
 
       topics = [
@@ -172,12 +178,13 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      assert Fixtures.request_type?(request, :create_topics, 1)
+      # Uses negotiated max (broker max=2)
+      assert Fixtures.request_type?(request, :create_topics, 2)
       assert request.timeout_ms == 15_000
       assert length(request.topics) == 2
     end
 
-    test "returns request for CreateTopics API v1 with validate_only" do
+    test "returns request for CreateTopics API with validate_only (negotiated max)" do
       state = %KafkaEx.Client.State{api_versions: %{19 => {0, 2}}}
 
       topics = [%{topic: "validate-topic", num_partitions: 1, replication_factor: 1}]
@@ -188,7 +195,8 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      assert Fixtures.request_type?(request, :create_topics, 1)
+      # Uses negotiated max (broker max=2)
+      assert Fixtures.request_type?(request, :create_topics, 2)
       assert request.validate_only == true
     end
 
@@ -336,15 +344,17 @@ defmodule KafkaEx.Client.RequestBuilderTest do
   end
 
   describe "lists_offset_request/2" do
-    test "returns request for ListOffsets API" do
+    test "returns request for ListOffsets API (negotiated max)" do
       state = %KafkaEx.Client.State{api_versions: %{2 => {0, 2}}}
       topic_data = [{"test-topic", [%{partition_num: 1, timestamp: :latest}]}]
 
       {:ok, request} = RequestBuilder.lists_offset_request([topics: topic_data], state)
 
+      # Uses negotiated max (broker max=2)
       expected_request =
-        Fixtures.build_request(:list_offsets, 1,
+        Fixtures.build_request(:list_offsets, 2,
           replica_id: -1,
+          isolation_level: 0,
           topics: [%{partitions: [%{timestamp: -1, partition: 1}], topic: "test-topic"}]
         )
 
@@ -378,15 +388,16 @@ defmodule KafkaEx.Client.RequestBuilderTest do
   end
 
   describe "offset_fetch_request/2" do
-    test "returns request for OffsetFetch API with default version" do
+    test "returns request for OffsetFetch API with negotiated max version" do
       state = %KafkaEx.Client.State{api_versions: %{9 => {0, 3}}}
       group_id = "test-group"
       topics = [{"test-topic", [%{partition_num: 0}]}]
 
       {:ok, request} = RequestBuilder.offset_fetch_request([group_id: group_id, topics: topics], state)
 
+      # Uses negotiated max (broker max=3)
       expected_request =
-        Fixtures.build_request(:offset_fetch, 1,
+        Fixtures.build_request(:offset_fetch, 3,
           client_id: nil,
           correlation_id: nil,
           group_id: "test-group",
@@ -427,24 +438,26 @@ defmodule KafkaEx.Client.RequestBuilderTest do
   end
 
   describe "offset_commit_request/2" do
-    test "returns request for OffsetCommit API v1 (default)" do
+    test "returns request for OffsetCommit API with negotiated max (default)" do
       state = %KafkaEx.Client.State{api_versions: %{8 => {0, 3}}}
       group_id = "test-group"
       topics = [{"test-topic", [%{partition_num: 0, offset: 100}]}]
 
       {:ok, request} = RequestBuilder.offset_commit_request([group_id: group_id, topics: topics], state)
 
+      # Uses negotiated max (broker max=3)
       expected_request =
-        Fixtures.build_request(:offset_commit, 1,
+        Fixtures.build_request(:offset_commit, 3,
           client_id: nil,
           correlation_id: nil,
           group_id: "test-group",
           generation_id: -1,
           member_id: "",
+          retention_time_ms: -1,
           topics: [
             %{
               name: "test-topic",
-              partitions: [%{partition_index: 0, committed_offset: 100, commit_timestamp: -1, committed_metadata: ""}]
+              partitions: [%{partition_index: 0, committed_offset: 100, committed_metadata: ""}]
             }
           ]
         )
@@ -724,7 +737,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
   end
 
   describe "leave_group_request/2" do
-    test "returns request for LeaveGroup API v1 (default)" do
+    test "returns request for LeaveGroup API with negotiated max (default)" do
       state = %KafkaEx.Client.State{api_versions: %{13 => {0, 2}}}
       group_id = "test-group"
       member_id = "consumer-123"
@@ -735,8 +748,9 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
+      # Uses negotiated max (broker max=2)
       expected_request =
-        Fixtures.build_request(:leave_group, 1,
+        Fixtures.build_request(:leave_group, 2,
           client_id: nil,
           correlation_id: nil,
           group_id: "test-group",
@@ -841,7 +855,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       assert error_value == :api_version_no_supported
     end
 
-    test "uses correct default api version when not specified" do
+    test "uses negotiated max api version when not specified" do
       state = %KafkaEx.Client.State{api_versions: %{13 => {0, 2}}}
 
       {:ok, request} =
@@ -853,8 +867,8 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
-      # Should use v1 as default (changed from v0 for better throttle visibility)
-      assert Fixtures.request_type?(request, :leave_group, 1)
+      # Uses negotiated max (broker max=2)
+      assert Fixtures.request_type?(request, :leave_group, 2)
     end
 
     test "can explicitly request v0 when needed" do
@@ -872,10 +886,56 @@ defmodule KafkaEx.Client.RequestBuilderTest do
 
       assert Fixtures.request_type?(request, :leave_group, 0)
     end
+
+    test "builds V3 request with members array from single member_id" do
+      # KIP-345: V3+ uses members array instead of single member_id
+      state = %KafkaEx.Client.State{api_versions: %{13 => {0, 3}}}
+
+      {:ok, request} =
+        RequestBuilder.leave_group_request(
+          [group_id: "test-group", member_id: "consumer-123"],
+          state
+        )
+
+      assert Fixtures.request_type?(request, :leave_group, 3)
+    end
+
+    test "builds V4 request with members array from single member_id" do
+      # KIP-345 + KIP-482 flexible version
+      state = %KafkaEx.Client.State{api_versions: %{13 => {0, 4}}}
+
+      {:ok, request} =
+        RequestBuilder.leave_group_request(
+          [group_id: "test-group", member_id: "consumer-456"],
+          state
+        )
+
+      assert Fixtures.request_type?(request, :leave_group, 4)
+    end
+
+    test "builds V3 request with explicit members list for batch leave" do
+      # KIP-345: Explicit members list with group_instance_id support
+      state = %KafkaEx.Client.State{api_versions: %{13 => {0, 3}}}
+
+      {:ok, request} =
+        RequestBuilder.leave_group_request(
+          [
+            group_id: "test-group",
+            member_id: "c-1",
+            members: [
+              %{member_id: "c-1"},
+              %{member_id: "c-2", group_instance_id: "static-1"}
+            ]
+          ],
+          state
+        )
+
+      assert Fixtures.request_type?(request, :leave_group, 3)
+    end
   end
 
   describe "join_group_request/2" do
-    test "returns request for JoinGroup API v1 (default)" do
+    test "returns request for JoinGroup API with negotiated max (default)" do
       state = %KafkaEx.Client.State{api_versions: %{11 => {0, 2}}}
       group_id = "test-group"
       member_id = ""
@@ -898,8 +958,9 @@ defmodule KafkaEx.Client.RequestBuilderTest do
           state
         )
 
+      # Uses negotiated max (broker max=2)
       expected_request =
-        Fixtures.build_request(:join_group, 1,
+        Fixtures.build_request(:join_group, 2,
           client_id: nil,
           correlation_id: nil,
           group_id: "test-group",
@@ -1364,7 +1425,7 @@ defmodule KafkaEx.Client.RequestBuilderTest do
         %{
           value: "event-data",
           key: "event-1",
-          headers: [{"content-type", "application/json"}, {"version", "1.0"}]
+          headers: [Header.new("content-type", "application/json"), Header.new("version", "1.0")]
         }
       ]
 
@@ -1470,20 +1531,36 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       assert request.session_epoch == 5
     end
 
-    test "returns error when api version not supported" do
+    test "returns error when broker does not support the API and no explicit version" do
       state = %KafkaEx.Client.State{api_versions: %{}}
+
+      opts = [topic: "test_topic", partition: 0, offset: 0]
+
+      assert {:error, :api_not_supported_by_broker} = RequestBuilder.fetch_request(opts, state)
+    end
+
+    test "explicit api_version is honored even when broker map is empty" do
+      state = %KafkaEx.Client.State{api_versions: %{}}
+
+      opts = [topic: "test_topic", partition: 0, offset: 0, api_version: 10]
+
+      assert {:ok, _request} = RequestBuilder.fetch_request(opts, state)
+    end
+
+    test "returns error when requested api version exceeds max supported" do
+      state = %KafkaEx.Client.State{api_versions: %{1 => {0, 5}}}
 
       opts = [
         topic: "test_topic",
         partition: 0,
         offset: 0,
-        api_version: 10
+        api_version: 8
       ]
 
       assert {:error, :api_version_no_supported} = RequestBuilder.fetch_request(opts, state)
     end
 
-    test "uses default options when not specified" do
+    test "uses negotiated max version when not specified" do
       state = %KafkaEx.Client.State{api_versions: %{1 => {0, 7}}}
 
       opts = [
@@ -1494,8 +1571,8 @@ defmodule KafkaEx.Client.RequestBuilderTest do
 
       assert {:ok, request} = RequestBuilder.fetch_request(opts, state)
 
-      # Default is V3
-      assert Fixtures.request_type?(request, :fetch, 3)
+      # Uses negotiated max (broker max=7)
+      assert Fixtures.request_type?(request, :fetch, 7)
       assert request.max_wait_time == 10_000
       assert request.min_bytes == 1
     end
@@ -1518,6 +1595,239 @@ defmodule KafkaEx.Client.RequestBuilderTest do
       assert request.min_bytes == 100
       [%{partitions: [partition]}] = request.topics
       assert partition.partition_max_bytes == 500_000
+    end
+  end
+
+  describe "version resolution (get_api_version)" do
+    test "uses negotiated max when no opts and no app config" do
+      # Broker reports fetch (api_key=1) with range {0, 8}
+      # Kayrock supports up to v11 for fetch, so negotiated max = min(8, 11) = 8
+      state = %KafkaEx.Client.State{api_versions: %{1 => {0, 8}}}
+
+      assert {:ok, request} =
+               RequestBuilder.fetch_request(
+                 [topic: "test_topic", partition: 0, offset: 0],
+                 state
+               )
+
+      assert Fixtures.request_type?(request, :fetch, 8)
+    end
+
+    test "request opts override negotiated max (downgrade)" do
+      # Broker supports fetch v8, but caller explicitly requests v3
+      state = %KafkaEx.Client.State{api_versions: %{1 => {0, 8}}}
+
+      assert {:ok, request} =
+               RequestBuilder.fetch_request(
+                 [topic: "test_topic", partition: 0, offset: 0, api_version: 3],
+                 state
+               )
+
+      assert Fixtures.request_type?(request, :fetch, 3)
+    end
+
+    test "app config overrides negotiated max" do
+      Application.put_env(:kafka_ex, :api_versions, %{fetch: 5})
+
+      on_exit(fn -> Application.delete_env(:kafka_ex, :api_versions) end)
+
+      # Broker supports fetch v8, but app config pins to v5
+      state = %KafkaEx.Client.State{api_versions: %{1 => {0, 8}}}
+
+      assert {:ok, request} =
+               RequestBuilder.fetch_request(
+                 [topic: "test_topic", partition: 0, offset: 0],
+                 state
+               )
+
+      assert Fixtures.request_type?(request, :fetch, 5)
+    end
+
+    test "request opts override app config" do
+      Application.put_env(:kafka_ex, :api_versions, %{fetch: 5})
+
+      on_exit(fn -> Application.delete_env(:kafka_ex, :api_versions) end)
+
+      # App config pins fetch to v5, but caller explicitly requests v3
+      state = %KafkaEx.Client.State{api_versions: %{1 => {0, 8}}}
+
+      assert {:ok, request} =
+               RequestBuilder.fetch_request(
+                 [topic: "test_topic", partition: 0, offset: 0, api_version: 3],
+                 state
+               )
+
+      assert Fixtures.request_type?(request, :fetch, 3)
+    end
+
+    test "app config for one API doesn't affect another" do
+      Application.put_env(:kafka_ex, :api_versions, %{fetch: 5})
+
+      on_exit(fn -> Application.delete_env(:kafka_ex, :api_versions) end)
+
+      # App config pins fetch to v5, but produce (api_key=0) should use negotiated max
+      state = %KafkaEx.Client.State{api_versions: %{0 => {0, 6}, 1 => {0, 8}}}
+      messages = [%{value: "hello"}]
+
+      assert {:ok, request} =
+               RequestBuilder.produce_request(
+                 [topic: "test-topic", partition: 0, messages: messages],
+                 state
+               )
+
+      # Produce should use negotiated max (6), not fetch's app config (5)
+      assert Fixtures.request_type?(request, :produce, 6)
+    end
+
+    test "error when requested version exceeds max_supported" do
+      # Broker supports fetch up to v5
+      state = %KafkaEx.Client.State{api_versions: %{1 => {0, 5}}}
+
+      assert {:error, :api_version_no_supported} =
+               RequestBuilder.fetch_request(
+                 [topic: "test_topic", partition: 0, offset: 0, api_version: 8],
+                 state
+               )
+    end
+
+    test "error when broker doesn't support the API" do
+      # Empty api_versions map - broker doesn't report any API
+      state = %KafkaEx.Client.State{api_versions: %{}}
+
+      assert {:error, :api_not_supported_by_broker} =
+               RequestBuilder.fetch_request(
+                 [topic: "test_topic", partition: 0, offset: 0],
+                 state
+               )
+    end
+
+    test "empty app config map falls through to negotiated max" do
+      Application.put_env(:kafka_ex, :api_versions, %{})
+
+      on_exit(fn -> Application.delete_env(:kafka_ex, :api_versions) end)
+
+      # Broker supports fetch v8, empty app config -> falls through to negotiated max
+      state = %KafkaEx.Client.State{api_versions: %{1 => {0, 8}}}
+
+      assert {:ok, request} =
+               RequestBuilder.fetch_request(
+                 [topic: "test_topic", partition: 0, offset: 0],
+                 state
+               )
+
+      assert Fixtures.request_type?(request, :fetch, 8)
+    end
+
+    test "app config version that exceeds max_supported returns error" do
+      Application.put_env(:kafka_ex, :api_versions, %{fetch: 15})
+
+      on_exit(fn -> Application.delete_env(:kafka_ex, :api_versions) end)
+
+      # App config asks for v15, but broker only supports up to v8
+      state = %KafkaEx.Client.State{api_versions: %{1 => {0, 8}}}
+
+      assert {:error, :api_version_no_supported} =
+               RequestBuilder.fetch_request(
+                 [topic: "test_topic", partition: 0, offset: 0],
+                 state
+               )
+    end
+
+    test "negotiated max is capped by kayrock max" do
+      # Broker reports very high version, but kayrock can only handle up to its max
+      # Fetch: kayrock supports up to v11
+      state = %KafkaEx.Client.State{api_versions: %{1 => {0, 99}}}
+
+      assert {:ok, request} =
+               RequestBuilder.fetch_request(
+                 [topic: "test_topic", partition: 0, offset: 0],
+                 state
+               )
+
+      # Should be capped at kayrock's max supported version for fetch (v11)
+      # The request version should be at most 11, not 99
+      assert Fixtures.request_type?(request, :fetch, 11)
+    end
+
+    test "app config version 0 is respected (not treated as falsy)" do
+      state = %KafkaEx.Client.State{api_versions: %{1 => {0, 8}}}
+
+      on_exit(fn -> Application.delete_env(:kafka_ex, :api_versions) end)
+      Application.put_env(:kafka_ex, :api_versions, %{fetch: 0})
+
+      {:ok, request} =
+        RequestBuilder.fetch_request(
+          [topic: "test_topic", partition: 0, offset: 0],
+          state
+        )
+
+      assert Fixtures.request_type?(request, :fetch, 0)
+    end
+  end
+
+  describe "error logging" do
+    import ExUnit.CaptureLog
+
+    test "logs error when requested version exceeds max_supported" do
+      state = %KafkaEx.Client.State{api_versions: %{1 => {0, 5}}}
+
+      log =
+        capture_log(fn ->
+          {:error, :api_version_no_supported} =
+            RequestBuilder.fetch_request(
+              [topic: "t", partition: 0, offset: 0, api_version: 8],
+              state
+            )
+        end)
+
+      assert log =~ "fetch"
+      assert log =~ "8"
+      assert log =~ "5"
+    end
+
+    test "logs error when broker doesn't support the API" do
+      state = %KafkaEx.Client.State{api_versions: %{}}
+
+      log =
+        capture_log(fn ->
+          {:error, :api_not_supported_by_broker} =
+            RequestBuilder.fetch_request(
+              [topic: "t", partition: 0, offset: 0],
+              state
+            )
+        end)
+
+      assert log =~ "fetch"
+      assert log =~ "not supported by the connected broker"
+    end
+
+    test "does not log when version is within range" do
+      state = %KafkaEx.Client.State{api_versions: %{1 => {0, 8}}}
+
+      log =
+        capture_log(fn ->
+          {:ok, _request} =
+            RequestBuilder.fetch_request(
+              [topic: "t", partition: 0, offset: 0, api_version: 5],
+              state
+            )
+        end)
+
+      assert log == ""
+    end
+
+    test "explicit api_version bypasses unsupported broker error (bootstrap)" do
+      # During bootstrap, state.api_versions is empty. Explicit api_version
+      # in request opts must be honored without error.
+      state = %KafkaEx.Client.State{api_versions: %{}}
+
+      log =
+        capture_log(fn ->
+          {:ok, _request} =
+            RequestBuilder.api_versions_request([api_version: 0], state)
+        end)
+
+      assert log == ""
     end
   end
 end

@@ -61,8 +61,45 @@ config :kafka_ex,
   # - `:latest` - Will move the offset to the most recent.
   # - `:none` - The error will simply be raised
   auto_offset_reset: :none,
-  # Interval in milliseconds to wait before reconnect to kafka
+  # API versions for Kafka protocol requests.
+  # By default, KafkaEx uses the highest version supported by both the
+  # connected broker and the protocol library. Use this config to pin
+  # specific APIs to lower versions across your deployment.
+  #
+  # Resolution order: per-request opts > application config > broker-negotiated max
+  #
+  # api_versions: %{
+  #   fetch: 5,
+  #   produce: 3,
+  #   metadata: 4,
+  #   list_offsets: 3,
+  #   offset_fetch: 3,
+  #   offset_commit: 3,
+  #   find_coordinator: 2,
+  #   join_group: 2,
+  #   heartbeat: 2,
+  #   leave_group: 2,
+  #   sync_group: 2,
+  #   describe_groups: 3,
+  #   create_topics: 3,
+  #   delete_topics: 2,
+  #   api_versions: 2
+  # },
+  # Declare compression algorithms your app relies on, so Client.init
+  # validates the backing optional deps (snappyer / ezstd / lz4b) at boot
+  # rather than crashing at first produce with UndefinedFunctionError.
+  # Optional — leave unset if your app doesn't use compression.
+  # required_compression: [:snappy],
+  #
+  # Delay (in ms) before retrying a broker reconnect after a socket dies.
+  # Lower values reconnect faster but may hammer a down broker; higher values
+  # smooth flapping brokers at the cost of longer error windows.
   sleep_for_reconnect: 400,
+  # Periodic metadata refresh cadence (ms). The client issues a full Metadata
+  # request this often to pick up leader elections, topic changes, and broker
+  # membership changes. Lower = faster recovery from cluster changes; higher =
+  # less request volume.
+  metadata_update_interval: 30_000,
   # This is the flag that enables use of ssl
   use_ssl: true,
   # see SSL OPTION DESCRIPTIONS - CLIENT SIDE at http://erlang.org/doc/man/ssl.html

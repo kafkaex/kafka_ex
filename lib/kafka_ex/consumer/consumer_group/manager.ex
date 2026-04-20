@@ -219,6 +219,108 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     {:reply, state.group_name, state}
   end
 
+  # Triggered by GenConsumer when OffsetCommit returns a fatal rejoin-required
+  # error (:illegal_generation, :unknown_member_id, :rebalance_in_progress).
+  # Runs the same path as a heartbeat-driven rebalance.
+  #
+  # The cast carries the stale generation_id the consumer saw. This lets us
+  # distinguish "stale" duplicates (same generation as ours before the
+  # rebalance) from "fresh" casts (consumers on a NEW generation that failed)
+  # — see drain_stale_rejoin_casts/2.
+  #
+  # Per Java/librdkafka/brod: on :unknown_member_id the broker has explicitly
+  # forgotten us, so we must reset member_id before rejoining so the broker
+  # assigns a fresh one. We also reset generation_id for symmetry with Java's
+  # resetGeneration() on :illegal_generation.
+  #
+  # Tagged with {:commit_fatal, reason} so operators can distinguish this
+  # trigger from :heartbeat_timeout in the [:kafka_ex, :consumer, :rebalance]
+  # telemetry stream.
+  def handle_cast({:rejoin_required, reason, stale_gen}, %State{} = state) do
+    Logger.warning(
+      "Consumer signalled rejoin-required (#{inspect(reason)}, stale_gen=#{inspect(stale_gen)}); " <>
+        "initiating rebalance."
+    )
+
+    pre_rebalance_gen = state.generation_id
+    state = reset_generation(state, reason)
+    {:ok, new_state} = rebalance(state, {:commit_fatal, reason})
+    dropped = drain_stale_rejoin_casts(0, pre_rebalance_gen)
+
+    if dropped > 0 do
+      Logger.info("Coalesced #{dropped} stale :rejoin_required cast(s) after rebalance.")
+    end
+
+    {:noreply, new_state}
+  end
+
+  # Legacy 2-tuple form (pre-B5 external callers). Treat as stale_gen=nil,
+  # which only drains casts matching the pre-rebalance generation.
+  def handle_cast({:rejoin_required, reason}, %State{} = state) do
+    handle_cast({:rejoin_required, reason, nil}, state)
+  end
+
+  # Per Java ConsumerCoordinator.resetGeneration(): nil out member_id and
+  # generation_id on fatal member-identity errors so the next JoinGroup
+  # request forces a fresh broker-assigned identity.
+  defp reset_generation(%State{} = state, :unknown_member_id) do
+    %State{state | member_id: nil, generation_id: nil}
+  end
+
+  defp reset_generation(%State{} = state, :illegal_generation) do
+    %State{state | generation_id: nil}
+  end
+
+  defp reset_generation(%State{} = state, _reason), do: state
+
+  # Drain casts identifiable as stale:
+  #   * Tagged with any generation <= pre_rebalance_gen (stale — from this
+  #     rebalance cycle OR from even-older leaked consumers that outlived a
+  #     prior rebalance's stop_consumer for any reason).
+  #   * Tagged with nil (sender couldn't read its generation — treat as stale
+  #     rather than trigger yet another rebalance).
+  #   * Legacy 2-tuple form (pre-BUG-1 senders — treat as stale).
+  #
+  # Casts tagged with a generation STRICTLY GREATER than pre_rebalance_gen
+  # survive the drain — they come from fresh GenConsumers on the new (or
+  # later) generation whose commit genuinely failed and still need handling.
+  defp drain_stale_rejoin_casts(count, nil) do
+    # No pre-rebalance generation to compare against — drain every rejoin
+    # cast we find. This is the init-state path where we haven't joined yet
+    # or for test seams passing nil.
+    receive do
+      {:"$gen_cast", {:rejoin_required, _reason, _stale_gen}} ->
+        drain_stale_rejoin_casts(count + 1, nil)
+
+      {:"$gen_cast", {:rejoin_required, _reason}} ->
+        drain_stale_rejoin_casts(count + 1, nil)
+    after
+      0 -> count
+    end
+  end
+
+  defp drain_stale_rejoin_casts(count, pre_rebalance_gen) when is_integer(pre_rebalance_gen) do
+    receive do
+      {:"$gen_cast", {:rejoin_required, _reason, stale_gen}}
+      when is_integer(stale_gen) and stale_gen <= pre_rebalance_gen ->
+        drain_stale_rejoin_casts(count + 1, pre_rebalance_gen)
+
+      {:"$gen_cast", {:rejoin_required, _reason, nil}} ->
+        drain_stale_rejoin_casts(count + 1, pre_rebalance_gen)
+
+      {:"$gen_cast", {:rejoin_required, _reason}} ->
+        drain_stale_rejoin_casts(count + 1, pre_rebalance_gen)
+    after
+      0 -> count
+    end
+  end
+
+  # Test seam. Drains the calling process's mailbox of :rejoin_required
+  # casts that match stale_gen (default nil, matches the legacy 2-tuple form).
+  @doc false
+  @spec drain_for_test(integer() | nil) :: non_neg_integer()
+  def drain_for_test(stale_gen \\ nil), do: drain_stale_rejoin_casts(0, stale_gen)
+
   ######################################################################
 
   # If `member_id` and `generation_id` aren't set, we haven't yet joined the
@@ -246,6 +348,34 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
       Logger.error("Heartbeat failed with unrecoverable error: #{inspect(reason)}")
       {:stop, {:shutdown, {:error, reason}}, state}
     end
+  end
+
+  # If the Client dies unexpectedly (not from our own terminate/2, which
+  # unlinks first), this is unrecoverable — every subsequent API call would
+  # timeout. Stop loudly so the supervisor can decide what to do.
+  def handle_info({:EXIT, pid, reason}, %State{client: pid} = state) do
+    Logger.error("Manager's Kafka client died unexpectedly: #{inspect(reason)}")
+    {:stop, {:shutdown, {:client_died, reason}}, state}
+  end
+
+  # Stale heartbeat-timer EXITs: the timer already signalled us once (and we
+  # started a new one), but the underlying Erlang EXIT signal for the old
+  # pid is now arriving after the swap. Match any `{:shutdown, _}` reason
+  # from a non-current heartbeat pid and silently drop it. Without this,
+  # the default `handle_info` logs a warning for every rebalance cycle.
+  def handle_info({:EXIT, pid, {:shutdown, _}}, %State{heartbeat_timer: current} = state)
+      when pid != current do
+    {:noreply, state}
+  end
+
+  # Normal exits from OTHER linked children (typically an old heartbeat timer
+  # we just replaced via stop_heartbeat_timer/start_heartbeat_timer during a
+  # rebalance). Non-normal EXITs still crash the Manager loudly — this only
+  # swallows intentional-clean-shutdown signals from non-Client pids. Logged
+  # at debug so unusual quiescence patterns stay observable.
+  def handle_info({:EXIT, pid, :normal}, %State{} = state) do
+    Logger.debug("Manager trapping normal :EXIT from linked pid #{inspect(pid)}")
+    {:noreply, state}
   end
 
   # When terminating, inform the group coordinator that this member is leaving
@@ -490,8 +620,17 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   defp stop_heartbeat_timer(%State{heartbeat_timer: nil} = state), do: {:ok, state}
 
   defp stop_heartbeat_timer(%State{heartbeat_timer: heartbeat_timer} = state) do
+    # :gen_server.stop/1 can exit :noproc if the timer dies between our
+    # Process.alive? check and the stop call (classic TOCTOU). It can also
+    # exit :timeout. Either way, we only care that the process ends up dead
+    # — which it will regardless. Absorb the exit so the Manager doesn't
+    # crash under the one_for_all/max_restarts: 0 supervisor.
     if Process.alive?(heartbeat_timer) do
-      :gen_server.stop(heartbeat_timer)
+      try do
+        :gen_server.stop(heartbeat_timer)
+      catch
+        :exit, _ -> :ok
+      end
     end
 
     new_state = %State{state | heartbeat_timer: nil}
@@ -513,8 +652,14 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
          } = state,
          assignments
        ) do
-    # add member_id and generation_id to the consumer opts
-    consumer_opts = Keyword.merge(consumer_opts, generation_id: generation_id, member_id: member_id)
+    # add member_id, generation_id, and group_manager_pid (for rejoin signalling) to the consumer opts
+    consumer_opts =
+      Keyword.merge(consumer_opts,
+        generation_id: generation_id,
+        member_id: member_id,
+        group_manager_pid: self()
+      )
+
     consumer_modules = {gen_consumer_module, consumer_module}
     {:ok, supervisor_pid} = ConsumerGroup.start_consumer(pid, consumer_modules, group_name, assignments, consumer_opts)
     state = %{state | assignments: assignments, consumer_supervisor_pid: supervisor_pid}

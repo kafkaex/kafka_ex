@@ -59,6 +59,43 @@ defmodule KafkaEx.Config do
           password: System.get_env("KAFKA_PASS"),
           mechanism_opts: %{algorithm: :sha256}  # For SCRAM
         }
+
+  ## Advanced tuning
+
+  Most users never need these. They are surfaced here (and in
+  `config/config.exs`) so you can see the real defaults without
+  having to grep the source.
+
+    * `:sleep_for_reconnect` (ms, default `400`) — delay before
+      retrying a broker reconnect. Applied inside
+      `KafkaEx.Client` after the socket has died but before the
+      next `create_socket/5` attempt. Lower values reconnect faster
+      at the cost of hammering a broker that's down; higher values
+      smooth out flapping brokers at the cost of longer error
+      windows.
+
+    * `:metadata_update_interval` (ms, default `30_000`) —
+      periodic metadata refresh cadence. The client does a full
+      `Metadata` request this often to pick up cluster changes
+      (leader elections, new topics, broker additions/removals).
+      Lower values recover faster from cluster changes; higher
+      values reduce request volume.
+
+    * `:max_restarts` (default `10`) — top-level application
+      supervisor restart intensity. If more than `:max_restarts`
+      children exit in any `:max_seconds` window, the supervisor
+      shuts down.
+
+    * `:max_seconds` (default `60`) — the restart-intensity
+      window that `:max_restarts` applies to.
+
+  Example with non-default values:
+
+      config :kafka_ex,
+        sleep_for_reconnect: 1_000,       # slower reconnect, less broker hammering
+        metadata_update_interval: 10_000, # 3x more frequent metadata refresh
+        max_restarts: 3,                  # tighter restart budget
+        max_seconds: 30
   """
 
   alias KafkaEx.Auth.Config, as: AuthConfig

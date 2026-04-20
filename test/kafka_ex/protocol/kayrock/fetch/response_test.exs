@@ -71,7 +71,7 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.ResponseTest do
   defp build_headers([]), do: []
 
   defp build_headers(headers) do
-    Enum.map(headers, fn {k, v} ->
+    Enum.map(headers, fn %Header{key: k, value: v} ->
       %Kayrock.RecordBatch.RecordHeader{key: k, value: v}
     end)
   end
@@ -255,7 +255,7 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.ResponseTest do
           %{
             offset: 30,
             value: "with-headers",
-            headers: [{"content-type", "text/plain"}, {"trace-id", "abc123"}]
+            headers: [Header.new("content-type", "text/plain"), Header.new("trace-id", "abc123")]
           }
         ])
 
@@ -352,7 +352,7 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.ResponseTest do
       record_batch =
         build_record_batch([
           %{offset: 100, key: "k1", value: "v1", timestamp: 1000},
-          %{offset: 101, key: "k2", value: "v2", timestamp: 1001, headers: [{"h", "v"}]}
+          %{offset: 101, key: "k2", value: "v2", timestamp: 1001, headers: [Header.new("h", "v")]}
         ])
 
       response =
@@ -622,7 +622,7 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.ResponseTest do
             key: "k2",
             value: "v2",
             timestamp: 5001,
-            headers: [{"trace-id", "abc"}, {"content-type", "json"}]
+            headers: [Header.new("trace-id", "abc"), Header.new("content-type", "json")]
           }
         ])
 

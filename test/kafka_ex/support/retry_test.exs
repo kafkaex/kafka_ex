@@ -284,4 +284,92 @@ defmodule KafkaEx.Support.RetryTest do
       refute Retry.commit_retryable?(:group_authorization_failed)
     end
   end
+
+  describe "commit_fatal_error?/1" do
+    test "returns true for :illegal_generation" do
+      assert Retry.commit_fatal_error?(:illegal_generation)
+    end
+
+    test "returns true for :unknown_member_id" do
+      assert Retry.commit_fatal_error?(:unknown_member_id)
+    end
+
+    test "returns false for :rebalance_in_progress (retryable, flag-and-wait)" do
+      refute Retry.commit_fatal_error?(:rebalance_in_progress)
+    end
+
+    test "returns false for :fenced_instance_id (terminal)" do
+      refute Retry.commit_fatal_error?(:fenced_instance_id)
+    end
+
+    test "returns false for transient errors" do
+      refute Retry.commit_fatal_error?(:timeout)
+      refute Retry.commit_fatal_error?(:coordinator_not_available)
+      refute Retry.commit_fatal_error?(:request_timed_out)
+    end
+
+    test "returns false for unknown errors" do
+      refute Retry.commit_fatal_error?(:some_weird_error)
+    end
+  end
+
+  describe "commit_terminal_error?/1" do
+    test "returns true for :fenced_instance_id (KIP-345)" do
+      assert Retry.commit_terminal_error?(:fenced_instance_id)
+    end
+
+    test "returns true for :group_authorization_failed (non-retriable)" do
+      assert Retry.commit_terminal_error?(:group_authorization_failed)
+    end
+
+    test "returns true for :topic_authorization_failed (non-retriable)" do
+      assert Retry.commit_terminal_error?(:topic_authorization_failed)
+    end
+
+    test "returns true for :offset_metadata_too_large (malformed payload)" do
+      assert Retry.commit_terminal_error?(:offset_metadata_too_large)
+    end
+
+    test "returns true for :invalid_commit_offset_size (malformed payload)" do
+      assert Retry.commit_terminal_error?(:invalid_commit_offset_size)
+    end
+
+    test "returns false for fatal (rejoinable) errors" do
+      refute Retry.commit_terminal_error?(:illegal_generation)
+      refute Retry.commit_terminal_error?(:unknown_member_id)
+    end
+
+    test "returns false for retryable errors" do
+      refute Retry.commit_terminal_error?(:rebalance_in_progress)
+      refute Retry.commit_terminal_error?(:unstable_offset_commit)
+    end
+
+    test "returns false for transient errors" do
+      refute Retry.commit_terminal_error?(:timeout)
+      refute Retry.commit_terminal_error?(:coordinator_not_available)
+    end
+  end
+
+  describe "commit_retryable?/1 includes retryable errors, excludes fatal and terminal" do
+    test ":rebalance_in_progress is retryable (not fatal)" do
+      assert Retry.commit_retryable?(:rebalance_in_progress)
+    end
+
+    test ":unstable_offset_commit is retryable (KIP-447)" do
+      assert Retry.commit_retryable?(:unstable_offset_commit)
+    end
+
+    test "fatal errors are not retryable commits" do
+      refute Retry.commit_retryable?(:illegal_generation)
+      refute Retry.commit_retryable?(:unknown_member_id)
+    end
+
+    test "terminal errors are not retryable commits" do
+      refute Retry.commit_retryable?(:fenced_instance_id)
+      refute Retry.commit_retryable?(:group_authorization_failed)
+      refute Retry.commit_retryable?(:topic_authorization_failed)
+      refute Retry.commit_retryable?(:offset_metadata_too_large)
+      refute Retry.commit_retryable?(:invalid_commit_offset_size)
+    end
+  end
 end

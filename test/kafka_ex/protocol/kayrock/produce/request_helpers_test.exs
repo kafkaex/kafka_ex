@@ -121,10 +121,12 @@ defmodule KafkaEx.Protocol.Kayrock.Produce.RequestHelpersTest do
     end
 
     test "builds record batch with headers" do
+      alias KafkaEx.Messages.Header
+
       messages = [
         %{
           value: "hello",
-          headers: [{"header1", "value1"}, {"header2", "value2"}]
+          headers: [Header.new("header1", "value1"), Header.new("header2", "value2")]
         }
       ]
 
@@ -170,8 +172,10 @@ defmodule KafkaEx.Protocol.Kayrock.Produce.RequestHelpersTest do
       assert RequestHelpers.build_record_headers([]) == []
     end
 
-    test "converts tuples to RecordHeader structs" do
-      headers = [{"key1", "value1"}, {"key2", "value2"}]
+    test "converts Header structs to RecordHeader structs" do
+      alias KafkaEx.Messages.Header
+
+      headers = [Header.new("key1", "value1"), Header.new("key2", "value2")]
 
       result = RequestHelpers.build_record_headers(headers)
 

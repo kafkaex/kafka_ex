@@ -36,6 +36,12 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
   * `:offset_commit` - Offset commit requests - use v1+ to store offsets in
     Kafka (as opposed to zookeeper)
 
+  Version selection follows this priority order:
+
+  1. Per-supervisor option (`:api_versions` passed to `start_link/4`)
+  2. Application config (`config :kafka_ex, api_versions: %{fetch: 5, ...}`)
+  3. Default from broker (uses the version negotiated with the broker at connect time)
+
   ## Example
 
   Suppose we want to consume from a topic called `"example_topic"` with a
