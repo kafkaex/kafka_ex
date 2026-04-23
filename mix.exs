@@ -3,7 +3,7 @@ defmodule KafkaEx.Mixfile do
   use Mix.Project
 
   @source_url "https://github.com/kafkaex/kafka_ex"
-  @version "1.0.0-rc.3"
+  @version "1.0.0"
 
   def project do
     [
@@ -54,7 +54,7 @@ defmodule KafkaEx.Mixfile do
 
   defp deps do
     [
-      {:kayrock, "== 1.0.0-rc2"},
+      {:kayrock, "~> 1.0"},
       {:telemetry, "~> 1.2"},
       {:credo, "~> 1.1", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: :dev, runtime: false},
@@ -62,6 +62,8 @@ defmodule KafkaEx.Mixfile do
       {:ex_doc, "~> 0.23", only: :dev, runtime: false},
       {:hammox, "~> 0.5.0", only: :test},
       {:snappyer, "~> 1.2", optional: true},
+      {:lz4b, "~> 0.0.13", optional: true},
+      {:ezstd, "~> 1.0", optional: true},
       {:aws_credentials, "~> 1.0", optional: true},
       {:aws_signature, "~> 0.4.2", optional: true},
       {:jason, "~> 1.0", optional: true},

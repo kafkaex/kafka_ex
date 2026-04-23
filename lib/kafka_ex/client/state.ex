@@ -118,7 +118,7 @@ defmodule KafkaEx.Client.State do
   Deprecated 3-arity version kept for backward compatibility.
   Will be removed when internal callers are migrated.
   """
-  @deprecated "Use max_supported_api_version/2 instead"
+  @deprecated "Use max_supported_api_version/2 instead. Will be removed in v2.0."
   def max_supported_api_version(%__MODULE__{} = state, api, default) when is_atom(api) do
     case max_supported_api_version(state, api) do
       {:ok, version} -> version
