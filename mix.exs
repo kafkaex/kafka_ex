@@ -62,6 +62,8 @@ defmodule KafkaEx.Mixfile do
       {:ex_doc, "~> 0.23", only: :dev, runtime: false},
       {:hammox, "~> 0.5.0", only: :test},
       {:snappyer, "~> 1.2", optional: true},
+      {:lz4b, "~> 0.0.13", optional: true},
+      {:ezstd, "~> 1.0", optional: true},
       {:aws_credentials, "~> 1.0", optional: true},
       {:aws_signature, "~> 0.4.2", optional: true},
       {:jason, "~> 1.0", optional: true},

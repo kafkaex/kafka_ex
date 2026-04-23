@@ -504,10 +504,13 @@ defmodule KafkaEx.Telemetry do
   @doc """
   Emitted when an offset commit fails with a fatal or terminal protocol error.
 
-  Fatal errors (`:illegal_generation`, `:unknown_member_id`, `:rebalance_in_progress`)
-  trigger an immediate rejoin — the consumer will reprocess messages since the
-  last successful commit (at-least-once semantics). Terminal errors
+  Fatal errors (`:illegal_generation`, `:unknown_member_id`) trigger an
+  immediate rejoin — the consumer will reprocess messages since the last
+  successful commit (at-least-once semantics). Terminal errors
   (`:fenced_instance_id`, KIP-345) stop the consumer without rejoining.
+  `:rebalance_in_progress` is classified as retryable (see
+  `KafkaEx.Support.Retry.commit_retryable?/1`) — the heartbeat path drives
+  the eventual rebalance.
 
   Parity gap vs. Java's `CommitFailedException` / brod's `handle_commit_failure`
   callback — attach to this event to observe and react to commit failures.

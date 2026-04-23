@@ -220,7 +220,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   end
 
   # Triggered by GenConsumer when OffsetCommit returns a fatal rejoin-required
-  # error (:illegal_generation, :unknown_member_id, :rebalance_in_progress).
+  # error (:illegal_generation, :unknown_member_id).
   # Runs the same path as a heartbeat-driven rebalance.
   #
   # The cast carries the stale generation_id the consumer saw. This lets us

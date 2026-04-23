@@ -119,6 +119,14 @@ maintained.
   Testcontainers-isolated chaos test that fires a 30-second storm
   of fatal casts and asserts the mailbox-drain coalescing ratio.
 
+### Removed
+
+* **`:consumer_group_update_interval` config option** (and
+  corresponding `Client.State` field). The value was silent-ignored
+  long before 1.0; removed to clean up the config surface. No runtime
+  impact — consumer-group polling cadence is driven by
+  heartbeat/session-timeout, which remain configurable.
+
 ### Migration
 
 See [UPGRADING.md](./UPGRADING.md).

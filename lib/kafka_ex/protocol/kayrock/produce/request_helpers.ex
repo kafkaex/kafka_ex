@@ -106,7 +106,7 @@ defmodule KafkaEx.Protocol.Kayrock.Produce.RequestHelpers do
   - `:value` (required) - The message value
   - `:key` (optional) - The message key
   - `:timestamp` (optional) - Message timestamp in milliseconds
-  - `:headers` (optional) - List of {key, value} header tuples
+  - `:headers` (optional) - List of `%KafkaEx.Messages.Header{}` structs
   """
   @spec build_record_batch([map()], atom()) :: RecordBatch.t()
   def build_record_batch(messages, compression) do
