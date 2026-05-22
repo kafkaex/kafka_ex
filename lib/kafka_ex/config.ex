@@ -135,7 +135,7 @@ defmodule KafkaEx.Config do
 
   Deprecated: Use `default_consumer_group/0` instead.
   """
-  @deprecated "Use default_consumer_group/0 instead"
+  @deprecated "Use default_consumer_group/0 instead. Will be removed in v2.0."
   @spec consumer_group() :: String.t() | :no_consumer_group
   def consumer_group do
     default_consumer_group()

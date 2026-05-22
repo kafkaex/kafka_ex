@@ -1059,9 +1059,9 @@ defmodule KafkaEx.Consumer.GenConsumer do
   #     rejoin. Another member has taken this group.instance.id; rejoining
   #     would split-brain. Matches Java/librdkafka/brod behaviour.
   #
-  #   * Fatal (:illegal_generation, :unknown_member_id, :rebalance_in_progress)
-  #     — cast to group manager with the stale generation_id so it can discard
-  #     duplicate casts queued by sibling partitions, then self-stop.
+  #   * Fatal (:illegal_generation, :unknown_member_id) — cast to group manager
+  #     with the stale generation_id so it can discard duplicate casts queued
+  #     by sibling partitions, then self-stop.
   #
   #   * Transient — log and continue (retry next cycle).
   #

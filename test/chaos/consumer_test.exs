@@ -110,7 +110,7 @@ defmodule KafkaEx.Chaos.ConsumerTest do
 
     test "fetch from specific offset works after network recovery", ctx do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
-      {:ok, fetch_result} = KafkaEx.API.fetch(client, @test_topic, 0, 0)
+      {:ok, _fetch_result} = KafkaEx.API.fetch(client, @test_topic, 0, 0)
 
       # Fail and recover
       ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->

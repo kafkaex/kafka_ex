@@ -588,7 +588,7 @@ defmodule KafkaEx.API do
   ## Options
 
     * `:coordinator_type` - 0 for group (default), 1 for transaction
-    * `:api_version` - API version to use (default: 1)
+    * `:api_version` - API version to use. If omitted, resolved via `:api_versions` app-config or broker-negotiated max (`min(broker_max, kayrock_max)`). See CHANGELOG § 3-tier API version resolution.
 
   ## Examples
 
@@ -678,7 +678,7 @@ defmodule KafkaEx.API do
     * `partition` - Partition number, or `nil` to use partitioner
     * `messages` - List of message maps with `:value`, optional `:key`, `:timestamp`, `:headers`
     * `opts` - Options including:
-      * `:api_version` - API version to use
+      * `:api_version` - API version to use. If omitted, resolved via `:api_versions` app-config or broker-negotiated max (`min(broker_max, kayrock_max)`). See CHANGELOG § 3-tier API version resolution.
       * `:required_acks` - Number of acks required (default: 1)
       * `:timeout` - Request timeout
       * `:partitioner` - Custom partitioner module (default: configured or `KafkaEx.Producer.Partitioner.Default`)
@@ -805,7 +805,7 @@ defmodule KafkaEx.API do
     * `:max_wait_time` - Maximum time to wait for records in ms (default: 10,000)
     * `:min_bytes` - Minimum bytes to accumulate before returning (default: 1)
     * `:isolation_level` - 0 for READ_UNCOMMITTED, 1 for READ_COMMITTED (V4+, default: 0)
-    * `:api_version` - API version to use (default: 3)
+    * `:api_version` - API version to use. If omitted, resolved via `:api_versions` app-config or broker-negotiated max (`min(broker_max, kayrock_max)`). See CHANGELOG § 3-tier API version resolution.
 
   ## Examples
 
@@ -860,7 +860,7 @@ defmodule KafkaEx.API do
     * `timeout` - Request timeout in milliseconds (required)
     * `opts` - Optional keyword list with:
       * `:validate_only` - If true, only validate without creating topics (V1+, default: false)
-      * `:api_version` - API version to use (default: 1)
+      * `:api_version` - API version to use. If omitted, resolved via `:api_versions` app-config or broker-negotiated max (`min(broker_max, kayrock_max)`). See CHANGELOG § 3-tier API version resolution.
 
       ## Examples
 
@@ -919,7 +919,7 @@ defmodule KafkaEx.API do
       * `:config_entries` - Topic configuration entries (default: [])
       * `:timeout` - Request timeout in milliseconds (default: 10_000)
       * `:validate_only` - If true, only validate (V1+, default: false)
-      * `:api_version` - API version to use (default: 1)
+      * `:api_version` - API version to use. If omitted, resolved via `:api_versions` app-config or broker-negotiated max (`min(broker_max, kayrock_max)`). See CHANGELOG § 3-tier API version resolution.
 
   ## Examples
 
@@ -948,7 +948,7 @@ defmodule KafkaEx.API do
     * `topics` - List of topic names to delete
     * `timeout` - Request timeout in milliseconds
     * `opts` - Keyword list with:
-      * `:api_version` - API version to use (default: 1)
+      * `:api_version` - API version to use. If omitted, resolved via `:api_versions` app-config or broker-negotiated max (`min(broker_max, kayrock_max)`). See CHANGELOG § 3-tier API version resolution.
 
   ## Returns
 
@@ -992,7 +992,7 @@ defmodule KafkaEx.API do
     * `topic_name` - The name of the topic to delete
     * `opts` - Keyword list with:
       * `:timeout` - Request timeout in milliseconds (default: 30_000)
-      * `:api_version` - API version to use (default: 1)
+      * `:api_version` - API version to use. If omitted, resolved via `:api_versions` app-config or broker-negotiated max (`min(broker_max, kayrock_max)`). See CHANGELOG § 3-tier API version resolution.
 
   ## Examples
 

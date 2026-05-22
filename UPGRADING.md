@@ -202,6 +202,20 @@ KafkaEx.Consumer.ConsumerGroup.start_link(
 )
 ```
 
+## Deprecations
+
+The following functions and modules are deprecated in v1.0 and scheduled for
+removal in v2.0. They continue to work in the entire 1.x series — plan migration
+at your convenience.
+
+| Deprecated                                         | Replacement                                        | Notes                                       |
+|----------------------------------------------------|----------------------------------------------------|---------------------------------------------|
+| `KafkaEx.Config.consumer_group/0`                  | `KafkaEx.Config.default_consumer_group/0`          | Function-for-function swap.                 |
+| `KafkaEx.Client.State.max_supported_api_version/3` | `KafkaEx.Client.State.max_supported_api_version/2` | Drop the default arg and match on `{:ok, vsn}` / `{:error, :api_not_supported_by_broker}`. |
+| `KafkaEx.Producer.Partitioner.Legacy`              | `KafkaEx.Producer.Partitioner.Default`             | See `KafkaEx.Producer.Partitioner` moduledoc. |
+
+Each of these emits an Elixir compile-time `@deprecated` warning — `mix compile --warnings-as-errors` will flag the first call site.
+
 ## Migration Checklist
 
 - [ ] Remove `kafka_version` from config
