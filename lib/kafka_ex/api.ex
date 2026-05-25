@@ -968,7 +968,7 @@ defmodule KafkaEx.API do
         IO.puts("All topics deleted successfully")
       else
         failed = DeleteTopics.failed_topics(result)
-        IO.inspect(failed, label: "Failed to delete")
+        IO.puts("Failed to delete: " <> inspect(failed))
       end
   """
   @spec delete_topics(client, [topic_name], timeout) :: {:ok, DeleteTopics.t()} | {:error, error_atom}
