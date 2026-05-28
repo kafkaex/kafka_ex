@@ -13,8 +13,6 @@ ExUnit.configure(
 
 ExUnit.start()
 
-{:ok, _} = Application.ensure_all_started(:hammox)
-
 # Check if we need Testcontainers (chaos tests requested)
 # Detects --only chaos, --include chaos, or ENABLE_TESTCONTAINERS env
 needs_testcontainers? =

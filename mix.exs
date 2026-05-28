@@ -60,7 +60,7 @@ defmodule KafkaEx.Mixfile do
       {:dialyxir, "~> 1.4", only: :dev, runtime: false},
       {:excoveralls, "~> 0.18", only: :test, runtime: false},
       {:ex_doc, "~> 0.23", only: :dev, runtime: false},
-      {:hammox, "~> 0.5.0", only: :test},
+      {:mimic, "~> 1.7", only: :test},
       {:snappyer, "~> 1.2", optional: true},
       {:lz4b, "~> 0.0.13", optional: true},
       {:ezstd, "~> 1.0", optional: true},
