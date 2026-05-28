@@ -303,6 +303,25 @@ defmodule KafkaEx.ClientTest do
     end
   end
 
+  describe "Client.start_link/2 with all brokers unreachable [issue #298]" do
+    setup do
+      original = Application.get_env(:kafka_ex, :sleep_for_reconnect)
+      Application.put_env(:kafka_ex, :sleep_for_reconnect, 1)
+      on_exit(fn -> Application.put_env(:kafka_ex, :sleep_for_reconnect, original) end)
+
+      Process.flag(:trap_exit, true)
+      :ok
+    end
+
+    test "raises 'Brokers sockets are not opened' for a single unreachable broker" do
+      assert_init_raises_brokers_not_opened([{"127.0.0.1", 1}])
+    end
+
+    test "raises 'Brokers sockets are not opened' when every broker in a multi-broker list is unreachable" do
+      assert_init_raises_brokers_not_opened([{"127.0.0.1", 1}, {"127.0.0.1", 2}])
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Test helpers for remote-close tests (#449)
   # ---------------------------------------------------------------------------
@@ -336,5 +355,43 @@ defmodule KafkaEx.ClientTest do
       port: 9093,
       socket: %Socket{socket: ref, ssl: true}
     }
+  end
+
+  # ---------------------------------------------------------------------------
+  # Test helpers for init validation tests (#298)
+  # ---------------------------------------------------------------------------
+
+  defp assert_init_raises_brokers_not_opened(uris) do
+    args = [uris: uris, consumer_group: :no_consumer_group]
+
+    result =
+      try do
+        Client.start_link(args, :no_name)
+      catch
+        :exit, reason -> {:exit, reason}
+      end
+
+    drain_exits()
+
+    case result do
+      {:error, {%RuntimeError{message: message}, _stacktrace}} ->
+        assert message =~ "Brokers sockets are not opened",
+               "expected 'Brokers sockets are not opened', got: #{inspect(message)}"
+
+      {:exit, {%RuntimeError{message: message}, _stacktrace}} ->
+        assert message =~ "Brokers sockets are not opened",
+               "expected 'Brokers sockets are not opened', got: #{inspect(message)}"
+
+      other ->
+        flunk("expected Client.start_link to raise 'Brokers sockets are not opened', got: #{inspect(other)}")
+    end
+  end
+
+  defp drain_exits do
+    receive do
+      {:EXIT, _pid, _reason} -> drain_exits()
+    after
+      0 -> :ok
+    end
   end
 end
