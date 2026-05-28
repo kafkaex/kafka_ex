@@ -1,5 +1,9 @@
 defmodule KafkaEx.Client.RequestBuilderTest do
-  use ExUnit.Case, async: true
+  # async: false because the file mixes `capture_log` with many tests that
+  # legitimately emit Logger.error from RequestBuilder.get_api_version/3.
+  # capture_log/2 attaches a global handler and would race with parallel
+  # async tests, causing intermittent CI failures on `assert log == ""`.
+  use ExUnit.Case, async: false
 
   alias KafkaEx.Client.RequestBuilder
   alias KafkaEx.Messages.Header
