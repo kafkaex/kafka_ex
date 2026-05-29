@@ -1,5 +1,26 @@
 # KafkaEx Changelog
 
+## Unreleased
+
+### Breaking Changes
+
+* **`KafkaEx.API.start_client/1` no longer registers globally by default.**
+  Previously `start_client()` (no `:name` argument) silently registered
+  the GenServer as `KafkaEx.Client`, while the documented `:name` option
+  was ignored. Two callers collided with `:already_started`.
+
+  Now `start_client()` returns `{:ok, pid}` unnamed. To preserve the old
+  behavior explicitly:
+
+  ```elixir
+  KafkaEx.API.start_client(name: KafkaEx.Client)
+  ```
+
+  `:name` accepts any `GenServer.name()` shape: an atom,
+  `{:global, term}`, or `{:via, Module, term}`. See UPGRADING.md for the
+  full migration. Most callers bind the returned pid
+  (`{:ok, client} = start_client(...)`) and are unaffected.
+
 ## 1.0.0
 
 Single release entry accumulates all post-rc.2 work. RC tags along the

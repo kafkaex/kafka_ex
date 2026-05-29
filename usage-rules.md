@@ -24,7 +24,7 @@ KafkaEx is an Elixir client for Apache Kafka with support for Kafka versions 0.1
 
 # CORRECT - In supervision tree
 children = [
-  {KafkaEx.Client, name: MyApp.KafkaClient, brokers: [{"localhost", 9092}]}
+  {KafkaEx.API, name: MyApp.KafkaClient, brokers: [{"localhost", 9092}]}
 ]
 
 # CORRECT - Using as behaviour
