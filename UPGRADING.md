@@ -202,6 +202,31 @@ KafkaEx.Consumer.ConsumerGroup.start_link(
 )
 ```
 
+### `KafkaEx.API.start_client()` is now unnamed by default
+
+Pre-v1.0 patch — and the v1.0 release prior to this fix — `start_client()`
+with no `:name` registered the resulting GenServer as `KafkaEx.Client`.
+The `:name` option was documented but silently ignored.
+
+After this change, `start_client()` (no `:name`) returns `{:ok, pid}` and
+does NOT register globally. To get the old behavior, pass `:name` explicitly:
+
+```elixir
+# Old implicit behavior:
+{:ok, _} = KafkaEx.API.start_client()
+KafkaEx.API.metadata(KafkaEx.Client)  # used to work, no longer registered
+
+# New explicit behavior:
+{:ok, _} = KafkaEx.API.start_client(name: KafkaEx.Client)
+KafkaEx.API.metadata(KafkaEx.Client)  # works
+```
+
+The `:name` option now also accepts `{:global, term}` and `{:via, mod, term}`
+shapes for distributed / registry-based registration.
+
+Note: most users bind the returned pid (`{:ok, client} = start_client(...)`)
+and pass it to subsequent API calls. Those callers are unaffected.
+
 ## Deprecations
 
 The following functions and modules are deprecated in v1.0 and scheduled for

@@ -14,7 +14,6 @@ defmodule KafkaEx.Client.State do
     correlation_id: 0,
     consumer_group_for_auto_commit: nil,
     metadata_update_interval: nil,
-    worker_name: KafkaEx.Server,
     ssl_options: [],
     auth: nil,
     use_ssl: false,
@@ -29,7 +28,6 @@ defmodule KafkaEx.Client.State do
           correlation_id: non_neg_integer(),
           consumer_group_for_auto_commit: binary() | nil,
           metadata_update_interval: pos_integer() | nil,
-          worker_name: atom() | pid(),
           ssl_options: Keyword.t(),
           auth: term(),
           use_ssl: boolean(),
@@ -41,10 +39,9 @@ defmodule KafkaEx.Client.State do
   @default_metadata_update_interval 30_000
 
   # initialize static parts of the state from args
-  def static_init(args, worker_name) do
+  def static_init(args) do
     %__MODULE__{
       bootstrap_uris: Keyword.get(args, :uris, []),
-      worker_name: worker_name,
       metadata_update_interval: Keyword.get(args, :metadata_update_interval, @default_metadata_update_interval),
       allow_auto_topic_creation: Keyword.get(args, :allow_auto_topic_creation, true),
       use_ssl: Keyword.get(args, :use_ssl, false),

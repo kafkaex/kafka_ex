@@ -6,12 +6,11 @@ defmodule KafkaEx.Client.StateTest do
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Cluster.Broker
 
-  describe "static_init/2" do
+  describe "static_init/1" do
     test "initializes state with default values" do
-      state = State.static_init([], :test_worker)
+      state = State.static_init([])
 
       assert state.bootstrap_uris == []
-      assert state.worker_name == :test_worker
       assert state.metadata_update_interval == 30_000
       assert state.allow_auto_topic_creation == true
       assert state.use_ssl == false
@@ -31,10 +30,9 @@ defmodule KafkaEx.Client.StateTest do
         consumer_group: "my-group"
       ]
 
-      state = State.static_init(args, :custom_worker)
+      state = State.static_init(args)
 
       assert state.bootstrap_uris == [{"localhost", 9092}]
-      assert state.worker_name == :custom_worker
       assert state.metadata_update_interval == 60_000
       assert state.allow_auto_topic_creation == false
       assert state.use_ssl == true

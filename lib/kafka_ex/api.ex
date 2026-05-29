@@ -218,32 +218,45 @@ defmodule KafkaEx.API do
   # ---------------------------------------------------------------------------
 
   @doc """
-  Start a new Kafka client.
+  Start a KafkaEx Client GenServer.
 
   ## Options
 
-    * `:brokers` - List of broker tuples, e.g., `[{"localhost", 9092}]`
-    * `:client_id` - Client identifier string
-    * All options supported by `KafkaEx.Client.start_link/1`
+    * `:brokers` — list of `{host, port}` tuples. To inherit defaults from
+      application config, use `KafkaEx.build_worker_options/1` first (see examples)
+    * `:name` — process registration. Accepts any value valid for
+      `GenServer.start_link/3`'s `name:` option:
+        * an atom — local registration
+        * `{:global, term}` — cluster-wide registration via `:global`
+        * `{:via, Module, term}` — custom registry (e.g. `Registry`)
+      If absent (or `nil`), the client is started unnamed and the pid
+      is the identity.
+    * Other options forwarded to `KafkaEx.Client.start_link/2`.
 
   ## Examples
 
-      # Start with default configuration
-      {:ok, client} = KafkaEx.API.start_client()
+      iex> {:ok, opts} = KafkaEx.build_worker_options([])
+      iex> {:ok, client} = KafkaEx.API.start_client(opts)
+      iex> is_pid(client)
+      true
 
-      # Start with custom brokers
-      {:ok, client} = KafkaEx.API.start_client(brokers: [{"kafka1", 9092}, {"kafka2", 9092}])
-
-      # Start a named client
-      {:ok, client} = KafkaEx.API.start_client(name: MyApp.KafkaClient)
+      iex> {:ok, opts} = KafkaEx.build_worker_options([])
+      iex> {:ok, client} = KafkaEx.API.start_client([{:name, MyApp.KafkaClient} | opts])
+      iex> client == Process.whereis(MyApp.KafkaClient)
+      true
   """
   @spec start_client(opts) :: {:ok, pid} | {:error, term}
   def start_client(opts \\ []) do
-    Client.start_link(opts)
+    {name, client_opts} = Keyword.pop(opts, :name)
+    Client.start_link(client_opts, name || :no_name)
   end
 
   @doc """
-  Returns a child specification for starting a client under a supervisor.
+  Build a supervisor child spec for a KafkaEx client.
+
+  Accepts the same options as `start_client/1`. When `:name` is provided,
+  the supervisor `:id` is set to that name and the child registers under it.
+  Otherwise the child is unnamed and `:id` defaults to `KafkaEx.API`.
 
   ## Examples
 
@@ -255,9 +268,11 @@ defmodule KafkaEx.API do
   """
   @spec child_spec(opts) :: Supervisor.child_spec()
   def child_spec(opts) do
+    {name, client_opts} = Keyword.pop(opts, :name)
+
     %{
-      id: Keyword.get(opts, :name, __MODULE__),
-      start: {KafkaEx.Client, :start_link, [opts]},
+      id: name || __MODULE__,
+      start: {KafkaEx.Client, :start_link, [client_opts, name || :no_name]},
       type: :worker,
       restart: :permanent
     }

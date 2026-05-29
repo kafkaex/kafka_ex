@@ -448,8 +448,7 @@ defmodule KafkaEx.ClientTest do
 
   defp build_state(brokers_by_id) do
     %State{
-      cluster_metadata: %ClusterMetadata{brokers: brokers_by_id},
-      worker_name: :test_worker
+      cluster_metadata: %ClusterMetadata{brokers: brokers_by_id}
     }
   end
 

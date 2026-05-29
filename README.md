@@ -117,7 +117,7 @@ end
 
 # In your application.ex supervision tree:
 children = [
-  {KafkaEx.Client, name: MyApp.KafkaClient, brokers: [{"localhost", 9092}]}
+  {KafkaEx.API, name: MyApp.KafkaClient, brokers: [{"localhost", 9092}]}
 ]
 
 # Now call without passing client:

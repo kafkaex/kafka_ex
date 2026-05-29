@@ -24,15 +24,17 @@ defmodule KafkaEx.APITest do
       assert spec.id == TestClient
       assert spec.type == :worker
       assert spec.restart == :permanent
-      assert {KafkaEx.Client, :start_link, [opts]} = spec.start
-      assert opts[:name] == TestClient
-      assert opts[:brokers] == [{"localhost", 9092}]
+      assert {KafkaEx.Client, :start_link, [client_opts, name]} = spec.start
+      assert name == TestClient
+      refute Keyword.has_key?(client_opts, :name)
+      assert client_opts[:brokers] == [{"localhost", 9092}]
     end
 
     test "uses module name as default id" do
       spec = KafkaEx.API.child_spec(brokers: [{"localhost", 9092}])
 
       assert spec.id == KafkaEx.API
+      assert {KafkaEx.Client, :start_link, [_client_opts, :no_name]} = spec.start
     end
   end
 
