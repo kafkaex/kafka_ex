@@ -36,7 +36,7 @@ defmodule KafkaEx.Client do
   @doc """
   Start the server in a supervision tree
   """
-  @spec start_link(args, atom) :: GenServer.on_start()
+  @spec start_link(args, GenServer.name() | :no_name) :: GenServer.on_start()
   def start_link(args, name \\ __MODULE__)
 
   def start_link(args, :no_name) do
@@ -72,8 +72,8 @@ defmodule KafkaEx.Client do
   @api_versions_retry_base_delay_ms 100
 
   @impl true
-  def init([args, name]) do
-    state = State.static_init(args, name || self())
+  def init([args, _name]) do
+    state = State.static_init(args)
 
     unless KafkaEx.valid_consumer_group?(state.consumer_group_for_auto_commit) do
       raise KafkaEx.InvalidConsumerGroupError,
@@ -381,9 +381,16 @@ defmodule KafkaEx.Client do
 
   @impl true
   def terminate(reason, state) do
-    Logger.debug("Shutting down worker #{inspect(state.worker_name)}, reason: #{inspect(reason)}")
+    Logger.debug("Shutting down worker #{inspect(worker_identity())}, reason: #{inspect(reason)}")
     if state.metadata_timer_ref, do: :timer.cancel(state.metadata_timer_ref), else: nil
     Enum.each(State.brokers(state), &NetworkClient.close_socket(&1, &1.socket, :shutdown))
+  end
+
+  defp worker_identity do
+    case Process.info(self(), :registered_name) do
+      {:registered_name, []} -> self()
+      {:registered_name, name} -> name
+    end
   end
 
   defp update_metadata(state, topics \\ []) do
