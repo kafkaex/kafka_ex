@@ -26,7 +26,10 @@ defmodule KafkaEx.Consumer.Stream do
         }
 
   defimpl Enumerable do
-    def reduce(%KafkaEx.Consumer.Stream{} = data, acc, fun) do
+    require Logger
+    alias KafkaEx.Consumer.Stream, as: ConsumerStream
+
+    def reduce(%ConsumerStream{} = data, acc, fun) do
       start_fun = fn -> data.offset end
       # each iteration we need to take care of fetching and (possibly) committing offsets
       next_fun = fn offset ->
@@ -56,10 +59,26 @@ defmodule KafkaEx.Consumer.Stream do
     ######################################################################
     # Main stream flow control
 
+    # error response -> halt + log
+    #
+    # `offset` is the offset we were about to fetch (the failed fetch emitted no
+    # records), so it is the correct resume point: re-entering the stream from
+    # this offset loses nothing. Do not advance it here.
+    defp stream_control(
+           %{error_code: code},
+           %ConsumerStream{topic: topic, partition: partition},
+           offset
+         )
+         when code != :no_error do
+      Logger.warning("Stream halting after fetch error on #{topic}/#{partition} at offset #{offset}: #{inspect(code)}")
+
+      {:halt, offset}
+    end
+
     # if we get an empty response, we block until messages are ready
     defp stream_control(
            %{error_code: :no_error, last_offset: last_offset, message_set: []},
-           %KafkaEx.Consumer.Stream{no_wait_at_logend: false},
+           %ConsumerStream{no_wait_at_logend: false},
            _offset
          )
          when is_integer(last_offset) do
@@ -78,12 +97,12 @@ defmodule KafkaEx.Consumer.Stream do
     end
 
     # if we don't get any messages and no_wait_at_logend is true, we halt
-    defp stream_control(%{}, %KafkaEx.Consumer.Stream{no_wait_at_logend: true}, offset) do
+    defp stream_control(%{}, %ConsumerStream{no_wait_at_logend: true}, offset) do
       {:halt, offset}
     end
 
     # for all other cases we block until messages are ready
-    defp stream_control(%{}, %KafkaEx.Consumer.Stream{}, offset) do
+    defp stream_control(%{}, %ConsumerStream{}, offset) do
       {[], offset}
     end
 
@@ -93,7 +112,7 @@ defmodule KafkaEx.Consumer.Stream do
     # Offset management
 
     # first, determine if we even need to commit an offset
-    defp maybe_commit_offset(fetch_response, %KafkaEx.Consumer.Stream{} = stream_data, acc) do
+    defp maybe_commit_offset(fetch_response, %ConsumerStream{} = stream_data, acc) do
       auto_commit = Keyword.get(stream_data.fetch_options, :auto_commit, false)
 
       if need_commit?(fetch_response, auto_commit) do
@@ -104,6 +123,8 @@ defmodule KafkaEx.Consumer.Stream do
       fetch_response
     end
 
+    # error response -> never commit (and avoids the message_set KeyError downstream)
+    defp need_commit?(%{error_code: code}, _auto_commit) when code != :no_error, do: false
     # no response -> no commit
     defp need_commit?(fetch_response, _auto_commit) when fetch_response == %{}, do: false
     # no messages in response -> no commit
@@ -133,7 +154,7 @@ defmodule KafkaEx.Consumer.Stream do
     @commit_max_retries 3
     @commit_base_delay_ms 100
 
-    defp commit_offset(%KafkaEx.Consumer.Stream{} = stream_data, offset) do
+    defp commit_offset(%ConsumerStream{} = stream_data, offset) do
       partitions = [%{partition_num: stream_data.partition, offset: offset}]
       opts = VersionHelper.maybe_put_api_version([], stream_data.api_versions, :offset_commit)
 

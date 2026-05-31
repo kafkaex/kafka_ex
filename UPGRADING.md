@@ -227,6 +227,93 @@ shapes for distributed / registry-based registration.
 Note: most users bind the returned pid (`{:ok, client} = start_client(...)`)
 and pass it to subsequent API calls. Those callers are unaffected.
 
+### Fetch timeouts now derive from `:max_wait_time`
+
+Previously `KafkaEx.API.fetch/5`'s GenServer.call timeout (5s default)
+and the per-broker Socket.recv timeout (1-3s from `sync_timeout` app
+config) were not aligned with the `:max_wait_time` option (default
+10s). At logend the broker would hold the long-poll for `max_wait_time`
+ms; both upper timeouts fired first, causing socket close + retry
+loops until the request was abandoned. Symptom: streams built on
+`KafkaEx.Consumer.Stream` or direct `KafkaEx.API.fetch/5` calls
+hanging or returning unexpected errors when the consumer caught up
+to logend.
+
+`KafkaEx.API.fetch/5` now derives both timeouts automatically:
+
+- `network_timeout = max_wait_time + 5_000` (passed via opts to the
+  Client GenServer, used as the Socket.recv timeout).
+- `call_timeout = network_timeout × 3 + 5_000` (used as the
+  GenServer.call timeout). The `× 3` multiplier covers the Client's
+  retry budget (`@retry_count = 3`) so the call does not exit while
+  retries are still in flight, which would leak a dead-mailbox reply.
+
+With the defaults this is `max_wait_time = 10s`, `network_timeout =
+15s`, `call_timeout = 50s`. The high call_timeout is a worst-case
+ceiling, not a typical wait — a healthy fetch returns in `network_timeout`
+or less; only the retry path approaches `call_timeout`. If you need
+a tighter ceiling, pass a smaller `:max_wait_time` (or pass an
+explicit `:network_timeout` opt).
+
+If you bumped `:kafka_ex, :sync_timeout` upward as a workaround, you
+can revert to the default. The `sync_timeout` config still governs
+non-fetch requests (metadata, find_coordinator, etc.) where it works
+correctly.
+
+If you want fast logend halt (e.g. for short-lived streams), pass
+`max_wait_time: 1_000` (or less) explicitly. The derived timeouts
+will follow.
+
+### `KafkaEx.Consumer.Stream` halts on fetch errors
+
+Paired with the timeout fix: when a fetch underlying a stream returns
+`{:error, _}`, `KafkaEx.Consumer.Stream` now terminates cleanly via
+`{:halt, offset}` and emits a `Logger.warning`:
+
+```
+Stream halting after fetch error on <topic>/<partition> at offset <offset>: <error_code>
+```
+
+Previously, with `no_wait_at_logend: false` (default) the stream
+silently looped on a wildcard fallback in `stream_control/3`, never
+yielding events and never surfacing the error. With `no_wait_at_logend:
+true` the stream halted via the same wildcard but emitted no log.
+
+Operators can grep `"Stream halting after fetch error"` to detect
+halts, or attach to `[:kafka_ex, :fetch, :stop]` telemetry with
+`metadata.result == :error` to alert on the underlying fetch failure
+(which fires regardless of stream consumption).
+
+A related crash class is also fixed: `auto_commit: true` plus a fetch
+error response previously raised `KeyError` on `fetch_response.message_set`.
+`need_commit?/2` now returns false for any error response, so no
+commit is attempted and the stream halts cleanly.
+
+This halt applies to **transient** errors too — fetch timeouts,
+connection drops, and leader changes reach the stream only after the
+client's internal retries (3 attempts, with a metadata refresh on
+leadership errors) are exhausted. The stream itself does not retry; it
+halts and leaves recovery to you. (Reference clients such as the Java
+consumer, librdkafka, and brod retry transient errors inside the
+consumer loop; KafkaEx's lazy `Stream` delegates that to a supervisor
+instead. Richer in-stream recovery is tracked for a future release.)
+
+Migration: if your application relied on the silent-spin behavior to
+"wait through" transient errors, wrap your stream construction in a
+supervisor or `Task` restart loop that re-enters the stream after the
+warning fires. Track the offset of the last message you successfully
+process and re-enter from the next one:
+
+```elixir
+%KafkaEx.Consumer.Stream{client: client, topic: topic, partition: p,
+  offset: last_processed_offset + 1, ...}
+```
+
+Re-entering from the *original* stream struct restarts from its initial
+`:offset` and reprocesses everything consumed so far (safe under
+at-least-once if your handler is idempotent, but usually not what you
+want).
+
 ## Deprecations
 
 The following functions and modules are deprecated in v1.0 and scheduled for

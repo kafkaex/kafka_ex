@@ -305,7 +305,7 @@ end
 1. **Always use SSL/TLS in production**
 2. **Use environment variables for credentials** - Never hardcode
 3. **SCRAM is preferred over PLAIN** when both available
-4. **Set reasonable timeouts** - Default `sync_timeout` is 3000ms
+4. **Set reasonable timeouts** - Default `sync_timeout` is 3000ms (governs metadata, find_coordinator, etc.). Fetch requests derive their timeouts from `:max_wait_time` automatically — see `KafkaEx.API.fetch/5`.
 5. **Configure consumer commit settings** - `commit_interval` (5000ms) and `commit_threshold` (100 messages)
 
 ## Testing Patterns

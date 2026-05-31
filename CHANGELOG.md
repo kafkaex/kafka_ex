@@ -21,6 +21,31 @@
   full migration. Most callers bind the returned pid
   (`{:ok, client} = start_client(...)`) and are unaffected.
 
+### Fixed
+
+* **`KafkaEx.API.fetch/5` (and `KafkaEx.Consumer.Stream`) hang at logend.**
+  Previously the GenServer.call default timeout (5s) and the per-broker
+  `Socket.recv` timeout (1-3s from `sync_timeout` config) were not
+  aligned with the user-supplied `:max_wait_time` (default 10s). The
+  broker held the long-poll for up to 10s; both upper timeouts fired
+  first, causing `socket close → reconnect → retry` 3 times, every
+  retry hitting the same mismatch.
+
+  Now `KafkaEx.API.fetch/5` derives both timeouts from `:max_wait_time`
+  automatically (network_timeout = `max_wait_time + 5_000`,
+  call_timeout = `network_timeout × 3 + 5_000`). The `× 3` multiplier
+  covers the Client's retry budget so the GenServer.call does not exit
+  while retries are still in flight. Users who bumped `sync_timeout` as
+  a workaround can revert.
+
+  Two related stream bugs also fixed:
+  - `KafkaEx.Consumer.Stream` no longer silently spins when a fetch
+    returns an error and `no_wait_at_logend: false`. The stream
+    halts and emits a `Logger.warning` with the error code.
+  - `auto_commit: true` + error response no longer raises `KeyError`
+    on `fetch_response.message_set`. `need_commit?/2` returns false
+    for error responses, so no commit is attempted.
+
 ## 1.0.0
 
 Single release entry accumulates all post-rc.2 work. RC tags along the
