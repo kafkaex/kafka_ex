@@ -4,6 +4,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.ResilienceTest do
 
   import KafkaEx.TestHelpers
   import KafkaEx.IntegrationHelpers
+  import KafkaEx.TestSupport.ConsumerGroupHelpers
 
   alias KafkaEx.API
   alias KafkaEx.Client
@@ -33,7 +34,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.ResilienceTest do
       # Rapidly add and remove consumers to trigger rebalances
       Enum.each(1..3, fn i ->
         {:ok, temp_consumer} = ConsumerGroup.start_link(AsyncTestConsumer, consumer_group, [topic_name], opts)
-        Process.sleep(1_000)
+        assert {:ok, :active} = wait_for_active(temp_consumer)
 
         # Produce messages during rebalance
         {:ok, _} = API.produce(client, topic_name, rem(i, 4), [%{value: "rebalance-msg-#{i}"}])
@@ -44,6 +45,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.ResilienceTest do
           :exit, _ -> :ok
         end
 
+        # settle: allow rebalance to propagate after temp_consumer stops (no observable condition)
         Process.sleep(1_000)
       end)
 
@@ -114,9 +116,11 @@ defmodule KafkaEx.Integration.ConsumerGroup.ResilienceTest do
       ]
 
       {:ok, consumer1} = ConsumerGroup.start_link(AsyncTestConsumer, consumer_group, [topic_name], opts)
-      Process.sleep(3_000)
+      assert {:ok, :active} = wait_for_active(consumer1)
       {:ok, consumer2} = ConsumerGroup.start_link(AsyncTestConsumer, consumer_group, [topic_name], opts)
-      Process.sleep(5_000)
+      assert {:ok, :active} = wait_for_active(consumer2)
+      assert {:ok, _} = wait_for_assignments(consumer2)
+      assert {:ok, _} = wait_for_assignments(consumer1)
 
       # Both consumers should be alive and partitions distributed
       assert Process.alive?(consumer1)
@@ -147,11 +151,12 @@ defmodule KafkaEx.Integration.ConsumerGroup.ResilienceTest do
       ]
 
       {:ok, consumer} = ConsumerGroup.start_link(AsyncTestConsumer, consumer_group, [topic_name], opts)
-      Process.sleep(5_000)
+      assert {:ok, :active} = wait_for_active(consumer)
 
       # Send many messages over time to verify continuous operation
       Enum.each(1..5, fn i ->
         {:ok, _} = API.produce(client, topic_name, 0, [%{value: "heartbeat-test-#{i}"}])
+        # settle: pace messages across heartbeat cycles to exercise continuous heartbeating
         Process.sleep(2_000)
       end)
 
@@ -179,7 +184,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.ResilienceTest do
       {:ok, consumer} = ConsumerGroup.start_link(AsyncTestConsumer, consumer_group, [topic_name], opts)
 
       # Should successfully join
-      Process.sleep(5_000)
+      assert {:ok, :active} = wait_for_active(consumer)
       assert Process.alive?(consumer)
 
       # Produce and consume to verify working
