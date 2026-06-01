@@ -4,6 +4,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.AsyncConsumerGroupTest do
 
   import KafkaEx.TestHelpers
   import KafkaEx.IntegrationHelpers
+  import KafkaEx.TestSupport.ConsumerGroupHelpers
 
   alias KafkaEx.API
   alias KafkaEx.Client
@@ -188,11 +189,13 @@ defmodule KafkaEx.Integration.ConsumerGroup.AsyncConsumerGroupTest do
 
   describe "multiple consumers rebalancing" do
     @tag timeout: 90_000
-    # SKIPPED: known #357 regression. Under the post-#357 fetch timeouts a consumer
-    # blocked in a long-poll reacts slowly to rebalance, so a freshly-joined consumer
-    # is not promptly active within this window. Fixed by the GenConsumer Fetcher/
-    # Consumer split — see .context/issue-triage/specs/2026-06-01-genconsumer-fetcher-split-design.md
-    # (Phase 3, which un-skips this test).
+    # B-target: SKIPPED — known #357 regression.
+    # Under the post-#357 fetch timeouts a consumer blocked in a long-poll reacts slowly
+    # to rebalance, so a freshly-joined consumer is not promptly assigned partitions within
+    # this window. Fixed by the GenConsumer Fetcher/Consumer split — see
+    # .context/issue-triage/specs/2026-06-01-genconsumer-fetcher-split-design.md
+    # Phase 3 un-skips this test once the split lands and the condition-based waits below
+    # can actually settle quickly.
     @tag :skip
     test "partitions are redistributed when second consumer joins", %{client: client} do
       topic_name = generate_random_string()
@@ -208,7 +211,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.AsyncConsumerGroupTest do
       ]
 
       {:ok, consumer1} = ConsumerGroup.start_link(AsyncTestConsumer, consumer_group, [topic_name], opts1)
-      Process.sleep(5_000)
+      assert {:ok, :active} = wait_for_active(consumer1)
 
       # Produce messages to all partitions
       Enum.each(0..3, fn p -> {:ok, _} = API.produce(client, topic_name, p, [%{value: "phase1-p#{p}"}]) end)
@@ -231,7 +234,10 @@ defmodule KafkaEx.Integration.ConsumerGroup.AsyncConsumerGroupTest do
       ]
 
       {:ok, consumer2} = ConsumerGroup.start_link(AsyncTestConsumer, consumer_group, [topic_name], opts2)
-      Process.sleep(5_000)
+      # consumer2 is the freshly-joined member; its first non-empty assignment proves rebalance settled
+      assert {:ok, _} = wait_for_assignments(consumer2)
+      # consumer1 holds stale pre-rebalance assignments; re-check liveness after rebalance.
+      assert {:ok, :active} = wait_for_active(consumer1)
 
       # Produce more messages after rebalance
       Enum.each(0..3, fn p -> {:ok, _} = API.produce(client, topic_name, p, [%{value: "phase2-p#{p}"}]) end)
@@ -278,11 +284,15 @@ defmodule KafkaEx.Integration.ConsumerGroup.AsyncConsumerGroupTest do
 
       # Start two consumers - partitions should be split
       {:ok, consumer1} = ConsumerGroup.start_link(AsyncTestConsumer, consumer_group, [topic_name], opts1)
-      wait_for_consumer_active(consumer1)
+      assert {:ok, :active} = wait_for_active(consumer1)
       {:ok, consumer2} = ConsumerGroup.start_link(AsyncTestConsumer, consumer_group, [topic_name], opts2)
-      wait_for_consumer_active(consumer2)
-      # Extra settling time for rebalance to complete
-      Process.sleep(2_000)
+      assert {:ok, :active} = wait_for_active(consumer2)
+      # Wait for the post-join rebalance to settle: consumer2 is the later joiner,
+      # so its first non-empty assignment confirms distribution completed for both.
+      assert {:ok, _} = wait_for_assignments(consumer2)
+      # consumer1 holds stale pre-rebalance assignments (never cleared during sync);
+      # re-check liveness instead — its child-supervisor is torn down during rebalance.
+      assert {:ok, :active} = wait_for_active(consumer1)
 
       # Produce messages to all partitions
       Enum.each(0..3, fn p -> {:ok, _} = API.produce(client, topic_name, p, [%{value: "phase1-p#{p}"}]) end)
@@ -298,6 +308,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.AsyncConsumerGroupTest do
 
       # Stop first consumer - triggers rebalance
       Supervisor.stop(consumer1)
+      # settle: rebalance-on-leave has no positive observable condition (remaining consumer already had assignments)
       Process.sleep(5_000)
 
       # Produce more messages - remaining consumer should get all partitions
