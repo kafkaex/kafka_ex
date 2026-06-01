@@ -101,4 +101,46 @@ defmodule KafkaEx.Integration.ConsumerGroup.ContractCharacterizationTest do
     assert {:ok, :active} = wait_for_active(cg)
     assert wait_for_message_count(4, timeout: 30_000) >= 4
   end
+
+  # Characterization note: telemetry.span/3 (telemetry 1.3.x) does NOT merge
+  # start metadata into stop metadata — the :stop event only carries the fields
+  # the span callback returns (%{commit_mode: ...} plus telemetry_span_context).
+  # group_id/topic/partition/consumer_module live on the :start event.
+  test "emits [:kafka_ex, :consumer, :process] span with group_id/topic/partition metadata", %{client: client} do
+    topic = generate_random_string()
+    group = generate_random_string()
+    _ = create_topic(client, topic, partitions: 1)
+
+    test_pid = self()
+    handler = "char-#{topic}"
+
+    :telemetry.attach_many(
+      handler,
+      [[:kafka_ex, :consumer, :process, :start], [:kafka_ex, :consumer, :process, :stop]],
+      fn event, _measure, meta, _ -> send(test_pid, {:telemetry, event, meta}) end,
+      nil
+    )
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    {:ok, cg} =
+      start_test_consumer_group(
+        uris: uris(), topics: [topic], group_prefix: group,
+        consumer_module: TestGenConsumer, auto_offset_reset: :earliest, test_pid: test_pid
+      )
+
+    register_consumer_group_cleanup(cg)
+    assert {:ok, :active} = wait_for_active(cg)
+    {:ok, _} = API.produce(client, topic, 0, [%{value: "telemetry"}])
+
+    # group_id/topic/partition are on :start (telemetry.span/3 does not forward
+    # start metadata to :stop; the :stop event only carries commit_mode).
+    assert_receive {:telemetry, [:kafka_ex, :consumer, :process, :start], start_meta}, 30_000
+    assert start_meta.topic == topic
+    assert start_meta.partition == 0
+    assert String.starts_with?(start_meta.group_id, group)
+
+    # :stop confirms processing completed and commit_mode is present.
+    assert_receive {:telemetry, [:kafka_ex, :consumer, :process, :stop], stop_meta}, 5_000
+    assert stop_meta.commit_mode in [:async_commit, :sync_commit]
+  end
 end
