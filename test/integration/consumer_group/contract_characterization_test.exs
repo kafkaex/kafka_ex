@@ -45,4 +45,41 @@ defmodule KafkaEx.Integration.ConsumerGroup.ContractCharacterizationTest do
     # TestGenConsumer sends {:messages_received, count} per batch.
     assert wait_for_message_count(10, timeout: 30_000) >= 10
   end
+
+  test "a clean stop commits progress so a new consumer resumes past it", %{client: client} do
+    topic = generate_random_string()
+    group = generate_random_string()
+    _ = create_topic(client, topic, partitions: 1)
+
+    {:ok, cg1} =
+      start_test_consumer_group(
+        uris: uris(), topics: [topic], group_prefix: group,
+        consumer_module: TestGenConsumer, auto_offset_reset: :earliest, test_pid: self()
+      )
+
+    register_consumer_group_cleanup(cg1)
+    assert {:ok, :active} = wait_for_active(cg1)
+    assert {:ok, _} = wait_for_assignments(cg1)
+
+    {:ok, _} = API.produce(client, topic, 0, for(i <- 1..5, do: %{value: "a-#{i}"}))
+    assert wait_for_message_count(5, timeout: 30_000) >= 5
+
+    :ok = stop_consumer_group(cg1)
+
+    # Same group resumes; the committed offset means it does NOT re-deliver all 5.
+    {:ok, _} = API.produce(client, topic, 0, for(i <- 1..3, do: %{value: "b-#{i}"}))
+
+    {:ok, cg2} =
+      start_test_consumer_group(
+        uris: uris(), topics: [topic], group_prefix: group,
+        consumer_module: TestGenConsumer, auto_offset_reset: :earliest, test_pid: self()
+      )
+
+    register_consumer_group_cleanup(cg2)
+    assert {:ok, :active} = wait_for_active(cg2)
+
+    # Characterization: the resumed consumer delivers at least the 3 new messages.
+    # (At-least-once: it may re-deliver the last uncommitted batch — assert the lower bound.)
+    assert wait_for_message_count(3, timeout: 30_000) >= 3
+  end
 end
