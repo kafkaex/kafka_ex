@@ -82,4 +82,23 @@ defmodule KafkaEx.Integration.ConsumerGroup.ContractCharacterizationTest do
     # (At-least-once: it may re-deliver the last uncommitted batch — assert the lower bound.)
     assert wait_for_message_count(3, timeout: 30_000) >= 3
   end
+
+  test "auto_offset_reset :earliest consumes from the start of an existing topic", %{client: client} do
+    topic = generate_random_string()
+    group = generate_random_string()
+    _ = create_topic(client, topic, partitions: 1)
+
+    # Produce BEFORE any consumer exists; :earliest must still see them.
+    {:ok, _} = API.produce(client, topic, 0, for(i <- 1..4, do: %{value: "pre-#{i}"}))
+
+    {:ok, cg} =
+      start_test_consumer_group(
+        uris: uris(), topics: [topic], group_prefix: group,
+        consumer_module: TestGenConsumer, auto_offset_reset: :earliest, test_pid: self()
+      )
+
+    register_consumer_group_cleanup(cg)
+    assert {:ok, :active} = wait_for_active(cg)
+    assert wait_for_message_count(4, timeout: 30_000) >= 4
+  end
 end
