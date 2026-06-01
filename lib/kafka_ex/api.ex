@@ -89,6 +89,22 @@ defmodule KafkaEx.API do
   @type member_id :: binary
   @type generation_id :: non_neg_integer
 
+  # Issue #357 — fetch timeout alignment.
+  # GenServer.call and Socket.recv timeouts derived from :max_wait_time so
+  # the broker's long-poll completes before either fires.
+  #
+  # Two couplings are maintained by hand (kept here as comments rather than
+  # guarded by a test, to avoid exposing internals as public functions):
+  #   * @fetch_max_retries MUST equal KafkaEx.Client's @retry_count — call_timeout
+  #     budgets for that many attempts; if they diverge the call can exit mid-retry.
+  #   * @default_max_wait_time MUST equal the fetch request builder's :max_wait_time
+  #     default (KafkaEx.Protocol.Kayrock.Fetch.RequestHelpers) — if the builder's
+  #     default drifts above this, network_timeout no longer covers the long-poll.
+  @default_max_wait_time 10_000
+  @fetch_network_timeout_buffer 5_000
+  @fetch_call_timeout_buffer 5_000
+  @fetch_max_retries 3
+
   # ---------------------------------------------------------------------------
   # __using__ macro for mixin pattern
   # ---------------------------------------------------------------------------
@@ -817,7 +833,13 @@ defmodule KafkaEx.API do
   ## Options
 
     * `:max_bytes` - Maximum bytes to fetch per partition (default: 1,000,000)
-    * `:max_wait_time` - Maximum time to wait for records in ms (default: 10,000)
+    * `:max_wait_time` - Maximum time to wait for records in ms (default: 10,000).
+      Also drives the derived `:network_timeout` and the `GenServer.call`
+      timeout so the broker's long-poll completes before either fires.
+    * `:network_timeout` - Socket.recv timeout in ms. If omitted, derived as
+      `:max_wait_time + 5_000`. Rarely overridden; exists so the
+      `GenServer.call` and `Socket.recv` timeouts stay aligned with the
+      broker's long-poll.
     * `:min_bytes` - Minimum bytes to accumulate before returning (default: 1)
     * `:isolation_level` - 0 for READ_UNCOMMITTED, 1 for READ_COMMITTED (V4+, default: 0)
     * `:api_version` - API version to use. If omitted, resolved via `:api_versions` app-config or broker-negotiated max (`min(broker_max, kayrock_max)`). See CHANGELOG § 3-tier API version resolution.
@@ -830,11 +852,20 @@ defmodule KafkaEx.API do
   @spec fetch(client, topic_name, partition_id, offset_val) :: {:ok, Fetch.t()} | {:error, error_atom}
   @spec fetch(client, topic_name, partition_id, offset_val, opts) :: {:ok, Fetch.t()} | {:error, error_atom}
   def fetch(client, topic, partition, offset, opts \\ []) do
-    case GenServer.call(client, {:fetch, topic, partition, offset, opts}) do
+    {call_timeout, opts_with_timeout} = derive_fetch_timeouts(opts)
+
+    case GenServer.call(client, {:fetch, topic, partition, offset, opts_with_timeout}, call_timeout) do
       {:ok, result} -> {:ok, result}
       {:error, %{error: error_atom}} -> {:error, error_atom}
       {:error, error_atom} -> {:error, error_atom}
     end
+  end
+
+  defp derive_fetch_timeouts(opts) do
+    max_wait_time = Keyword.get(opts, :max_wait_time, @default_max_wait_time)
+    network_timeout = Keyword.get(opts, :network_timeout, max_wait_time + @fetch_network_timeout_buffer)
+    call_timeout = network_timeout * @fetch_max_retries + @fetch_call_timeout_buffer
+    {call_timeout, Keyword.put_new(opts, :network_timeout, network_timeout)}
   end
 
   @doc """

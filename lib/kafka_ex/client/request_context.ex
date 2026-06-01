@@ -1,0 +1,67 @@
+defmodule KafkaEx.Client.RequestContext do
+  @moduledoc """
+  Invariant inputs for one logical client request, bundled so the retry
+  functions in `KafkaEx.Client` (`handle_request_with_retry`,
+  `handle_request_error`) stay small.
+
+  The retry loop varies only `state`, `retry_count`, and `last_error`;
+  everything in this struct is fixed for the life of the request. It merges the
+  three concerns the loop needs together:
+
+    * request identity/payload — `request`, `node_selector`
+    * response projection — `parser_fn` (deserialized response -> domain result)
+    * retry policy — `retryable?`
+
+  ## Design notes
+
+    * `retryable?` is keyed **per request**, not per error. The reference Kafka
+      clients (Java `RetriableException`, KafkaJS `error.retriable`, librdkafka)
+      classify retriability on the error, but that cannot work here: the same
+      error atom (e.g. `:request_timed_out`) is retryable for fetch yet unsafe
+      for produce (duplicate writes). Only produce overrides the default with
+      `&KafkaEx.Support.Retry.produce_retryable?/1`; everything else inherits
+      always-retry. `KafkaEx.Support.Retry` centralizes error-code
+      classification for the separate `with_retry` loop (stream/consumer);
+      converging the two is deferred follow-up.
+
+    * `network_timeout` is the **per-attempt** `Socket.recv` deadline, set only
+      by fetch (derived from `:max_wait_time` in `KafkaEx.API.fetch/5`, which
+      also widens the matching `GenServer.call` budget). Leave `nil` for every
+      other request so it falls back to `:sync_timeout`. Setting it on a
+      non-fetch request without widening that caller's `GenServer.call` timeout
+      would reintroduce the issue #357 mismatch. It is per-attempt, NOT the
+      total budget.
+
+    * Backoff/jitter between attempts is intentionally absent — the client loop
+      retries immediately (refreshing metadata on leadership errors). If added
+      later, a retry-policy field on this struct is the seam.
+  """
+
+  alias KafkaEx.Client.NodeSelector
+
+  @enforce_keys [:request, :parser_fn, :node_selector]
+  defstruct [
+    :request,
+    :parser_fn,
+    :node_selector,
+    retryable?: &__MODULE__.always_retryable/1,
+    network_timeout: nil
+  ]
+
+  @typedoc "Projects a deserialized response into a domain result."
+  @type parser_fn :: (term() -> {:ok, term()} | {:error, term()})
+
+  @typedoc "Decides whether an error should trigger a retry."
+  @type retryable_fn :: (term() -> boolean())
+
+  @type t :: %__MODULE__{
+          request: struct(),
+          parser_fn: parser_fn(),
+          node_selector: NodeSelector.t(),
+          retryable?: retryable_fn(),
+          network_timeout: non_neg_integer() | nil
+        }
+
+  @doc false
+  def always_retryable(_error), do: true
+end

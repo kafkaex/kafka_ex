@@ -7,6 +7,7 @@ defmodule KafkaEx.Integration.Lifecycle.StreamConsumptionTest do
 
   alias KafkaEx.Client
   alias KafkaEx.API
+  alias KafkaEx.Messages.RecordMetadata
 
   setup do
     {:ok, args} = KafkaEx.build_worker_options([])
@@ -88,6 +89,42 @@ defmodule KafkaEx.Integration.Lifecycle.StreamConsumptionTest do
 
       assert hd(fetch2.records).value == "resume-21"
       assert length(fetch2.records) == 30
+    end
+  end
+
+  describe "KafkaEx.Consumer.Stream with no_wait_at_logend (#357)" do
+    alias KafkaEx.Consumer.Stream, as: ConsumerStream
+
+    @tag timeout: 30_000
+    test "consumes N produced messages and halts at logend within max_wait_time + buffer", %{
+      client: client
+    } do
+      topic = generate_random_string()
+      _ = create_topic(client, topic)
+
+      messages = for i <- 1..20, do: %{value: "msg-#{i}"}
+      {:ok, %RecordMetadata{}} = API.produce(client, topic, 0, messages)
+
+      stream = %ConsumerStream{
+        client: client,
+        topic: topic,
+        partition: 0,
+        offset: 0,
+        no_wait_at_logend: true,
+        fetch_options: [max_wait_time: 2_000],
+        api_versions: %{}
+      }
+
+      {duration_us, records} = :timer.tc(fn -> Enum.to_list(stream) end)
+      duration_ms = div(duration_us, 1_000)
+
+      assert length(records) == 20
+      assert Enum.map(records, & &1.value) == Enum.map(messages, & &1.value)
+
+      # Pre-fix: this exceeds ~5_000ms due to sync_timeout-vs-max_wait_time
+      # mismatch causing 3 retries of ~1s recv timeouts each.
+      # Post-fix: ~2_000-3_000ms (broker max_wait_time + parse).
+      assert duration_ms < 10_000, "expected logend halt within 10s, took #{duration_ms}ms"
     end
   end
 end

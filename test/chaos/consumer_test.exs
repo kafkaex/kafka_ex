@@ -213,10 +213,14 @@ defmodule KafkaEx.Chaos.ConsumerTest do
     test "fetch with high latency times out appropriately", ctx do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
 
+      # Use a short :max_wait_time so the derived recv timeout (max_wait_time +
+      # 5_000 = 6s, see #357) is below the injected 8s latency and the fetch
+      # gives up instead of waiting the latency out. With the default
+      # max_wait_time (10s -> 15s recv) an 8s latency would simply be tolerated.
       ChaosTestHelpers.with_latency(ctx.toxiproxy_container, ctx.proxy_name, 8000, fn ->
         result =
           try do
-            KafkaEx.API.fetch(client, @test_topic, 0, 0)
+            KafkaEx.API.fetch(client, @test_topic, 0, 0, max_wait_time: 1_000)
           catch
             :exit, {:timeout, _} -> {:error, :timeout}
           end

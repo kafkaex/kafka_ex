@@ -18,6 +18,7 @@ defmodule KafkaEx.Client do
   alias KafkaEx.Client.Error
   alias KafkaEx.Client.NodeSelector
   alias KafkaEx.Client.RequestBuilder
+  alias KafkaEx.Client.RequestContext
   alias KafkaEx.Client.ResponseParser
   alias KafkaEx.Client.State
   alias KafkaEx.Cluster.Broker
@@ -48,19 +49,21 @@ defmodule KafkaEx.Client do
   end
 
   @doc """
-  Send a Kayrock request to the appropriate broker
+  Send a protocol request to the appropriate broker
   Broker metadata will be updated if necessary
   """
   @spec send_request(KafkaEx.API.client(), map, KafkaEx.Client.NodeSelector.t(), pos_integer | nil) ::
           {:ok, term} | {:error, term}
   def send_request(server, request, node_selector, timeout \\ nil) do
-    GenServer.call(server, {:kayrock_request, request, node_selector}, timeout_val(timeout))
+    GenServer.call(server, {:network_request, request, node_selector}, timeout_val(timeout))
   end
 
   require Logger
 
   # Default from GenServer
   @default_call_timeout 5_000
+  # @retry_count is also relied on by KafkaEx.API's fetch call_timeout budget
+  # (@fetch_max_retries there must equal this — kept in sync by hand). See #357.
   @retry_count 3
   @sync_timeout 1_000
   @reconnect_max_retries 3
@@ -338,8 +341,8 @@ defmodule KafkaEx.Client do
     end
   end
 
-  def handle_call({:kayrock_request, request, node_selector}, _from, state) do
-    {response, updated_state} = kayrock_network_request(request, node_selector, state)
+  def handle_call({:network_request, request, node_selector}, _from, state) do
+    {response, updated_state} = network_request(request, node_selector, state)
 
     {:reply, response, updated_state}
   end
@@ -628,10 +631,12 @@ defmodule KafkaEx.Client do
 
   defp do_fetch_request(topic, partition, offset, opts, state, metadata) do
     node_selector = NodeSelector.topic_partition(topic, partition)
-    req_data = [{:topic, topic}, {:partition, partition}, {:offset, offset} | opts]
+    {network_timeout, req_opts} = Keyword.pop(opts, :network_timeout)
+    req_data = [{:topic, topic}, {:partition, partition}, {:offset, offset} | req_opts]
 
     with {:ok, request} <- RequestBuilder.fetch_request(req_data, state),
-         {{:ok, result}, updated_state} <- handle_fetch_request(request, node_selector, state) do
+         {{:ok, result}, updated_state} <-
+           handle_fetch_request(request, node_selector, state, network_timeout) do
       filtered_result = Fetch.filter_from_offset(result, offset)
       message_count = length(Map.get(filtered_result, :records, []))
       stop_metadata = Map.put(metadata, :message_count, message_count)
@@ -718,73 +723,104 @@ defmodule KafkaEx.Client do
 
   # ----------------------------------------------------------------------------------------------------
   defp handle_api_versions_request(request, node_selector, state) do
-    handle_request_with_retry(request, &ResponseParser.api_versions_response/1, node_selector, state)
+    %RequestContext{request: request, parser_fn: &ResponseParser.api_versions_response/1, node_selector: node_selector}
+    |> handle_request_with_retry(state)
   end
 
   defp handle_describe_group_request(request, node_selector, state) do
-    handle_request_with_retry(request, &ResponseParser.describe_groups_response/1, node_selector, state)
+    %RequestContext{
+      request: request,
+      parser_fn: &ResponseParser.describe_groups_response/1,
+      node_selector: node_selector
+    }
+    |> handle_request_with_retry(state)
   end
 
   defp handle_lists_offsets_request(request, node_selector, state) do
-    handle_request_with_retry(request, &ResponseParser.list_offsets_response/1, node_selector, state)
+    %RequestContext{request: request, parser_fn: &ResponseParser.list_offsets_response/1, node_selector: node_selector}
+    |> handle_request_with_retry(state)
   end
 
   defp handle_offset_fetch_request(request, node_selector, state) do
-    handle_request_with_retry(request, &ResponseParser.offset_fetch_response/1, node_selector, state)
+    %RequestContext{request: request, parser_fn: &ResponseParser.offset_fetch_response/1, node_selector: node_selector}
+    |> handle_request_with_retry(state)
   end
 
   defp handle_offset_commit_request(request, node_selector, state) do
-    handle_request_with_retry(request, &ResponseParser.offset_commit_response/1, node_selector, state)
+    %RequestContext{request: request, parser_fn: &ResponseParser.offset_commit_response/1, node_selector: node_selector}
+    |> handle_request_with_retry(state)
   end
 
   defp handle_heartbeat_request(request, node_selector, state) do
-    handle_request_with_retry(request, &ResponseParser.heartbeat_response/1, node_selector, state)
+    %RequestContext{request: request, parser_fn: &ResponseParser.heartbeat_response/1, node_selector: node_selector}
+    |> handle_request_with_retry(state)
   end
 
   defp handle_join_group_request(request, node_selector, state) do
-    handle_request_with_retry(request, &ResponseParser.join_group_response/1, node_selector, state)
+    %RequestContext{request: request, parser_fn: &ResponseParser.join_group_response/1, node_selector: node_selector}
+    |> handle_request_with_retry(state)
   end
 
   defp handle_leave_group_request(request, node_selector, state) do
-    handle_request_with_retry(request, &ResponseParser.leave_group_response/1, node_selector, state)
+    %RequestContext{request: request, parser_fn: &ResponseParser.leave_group_response/1, node_selector: node_selector}
+    |> handle_request_with_retry(state)
   end
 
   defp handle_sync_group_request(request, node_selector, state) do
-    handle_request_with_retry(request, &ResponseParser.sync_group_response/1, node_selector, state)
+    %RequestContext{request: request, parser_fn: &ResponseParser.sync_group_response/1, node_selector: node_selector}
+    |> handle_request_with_retry(state)
   end
 
   defp handle_produce_request(request, node_selector, state) do
     # Produce requests should only retry on leadership errors to avoid duplicates.
     # Timeout errors are NOT safe to retry because the message may have been written
     # but the response was lost. Use Kafka's idempotent producer for true exactly-once.
-    handle_request_with_retry(
-      request,
-      &ResponseParser.produce_response/1,
-      node_selector,
-      state,
-      @retry_count,
-      &Retry.produce_retryable?/1
-    )
+    %RequestContext{
+      request: request,
+      parser_fn: &ResponseParser.produce_response/1,
+      node_selector: node_selector,
+      retryable?: &Retry.produce_retryable?/1
+    }
+    |> handle_request_with_retry(state)
   end
 
-  defp handle_fetch_request(request, node_selector, state) do
-    handle_request_with_retry(request, &ResponseParser.fetch_response/1, node_selector, state)
+  defp handle_fetch_request(request, node_selector, state, network_timeout) do
+    %RequestContext{
+      request: request,
+      parser_fn: &ResponseParser.fetch_response/1,
+      node_selector: node_selector,
+      network_timeout: network_timeout
+    }
+    |> handle_request_with_retry(state)
   end
 
   defp handle_find_coordinator_request(request, node_selector, state) do
-    handle_request_with_retry(request, &ResponseParser.find_coordinator_response/1, node_selector, state)
+    %RequestContext{
+      request: request,
+      parser_fn: &ResponseParser.find_coordinator_response/1,
+      node_selector: node_selector
+    }
+    |> handle_request_with_retry(state)
   end
 
   defp handle_create_topics_request(request, node_selector, state) do
-    handle_request_with_retry(request, &ResponseParser.create_topics_response/1, node_selector, state)
+    %RequestContext{request: request, parser_fn: &ResponseParser.create_topics_response/1, node_selector: node_selector}
+    |> handle_request_with_retry(state)
   end
 
   defp handle_delete_topics_request(request, node_selector, state) do
-    handle_request_with_retry(request, &ResponseParser.delete_topics_response/1, node_selector, state)
+    %RequestContext{request: request, parser_fn: &ResponseParser.delete_topics_response/1, node_selector: node_selector}
+    |> handle_request_with_retry(state)
   end
 
   defp handle_metadata_request(request, node_selector, state) do
-    case handle_request_with_retry(request, &ResponseParser.metadata_response/1, node_selector, state) do
+    ctx = %RequestContext{
+      request: request,
+      parser_fn: &ResponseParser.metadata_response/1,
+      node_selector: node_selector
+    }
+
+    case handle_request_with_retry(ctx, state) do
       {{:ok, cluster_metadata}, updated_state} ->
         merged_state = %{updated_state | cluster_metadata: cluster_metadata}
         {{:ok, cluster_metadata}, merged_state}
@@ -797,53 +833,44 @@ defmodule KafkaEx.Client do
   # ----------------------------------------------------------------------------------------------------
   # Request retry logic with optional retryable filter
   #
-  # The `retryable?` parameter allows callers to specify which errors should trigger a retry.
-  # This is important for produce requests where blind retries can cause duplicate messages.
-  # By default, all errors are retried (backwards compatible behavior).
+  # The `retryable?` field on the `%RequestContext{}` lets callers specify which
+  # errors should trigger a retry. This is important for produce requests where
+  # blind retries can cause duplicate messages. By default (the struct's
+  # `always_retryable/1`), all errors are retried (backwards compatible behavior).
   #
-  # For produce requests, use `&Retry.produce_retryable?/1` to only retry leadership errors.
+  # For produce requests, the context sets `&Retry.produce_retryable?/1` to only retry leadership errors.
   # ----------------------------------------------------------------------------------------------------
-  defp handle_request_with_retry(
-         request,
-         parser_fn,
-         node_selector,
-         state,
-         retry_count \\ @retry_count,
-         retryable? \\ fn _ -> true end,
-         last_error \\ nil
-       )
+  defp handle_request_with_retry(ctx, state, retry_count \\ @retry_count, last_error \\ nil)
 
-  defp handle_request_with_retry(_, _, _, state, 0, _retryable?, last_error) do
+  defp handle_request_with_retry(%RequestContext{}, state, 0, last_error) do
     {{:error, last_error}, state}
   end
 
-  defp handle_request_with_retry(request, parser_fn, node_selector, state, retry_count, retryable?, _last_error) do
-    case kayrock_network_request(request, node_selector, state) do
+  defp handle_request_with_retry(%RequestContext{} = ctx, state, retry_count, _last_error) do
+    case network_request(ctx.request, ctx.node_selector, state, ctx.network_timeout) do
       {{:ok, response}, state_out} ->
-        case parser_fn.(response) do
+        case ctx.parser_fn.(response) do
           {:ok, result} ->
             {{:ok, result}, state_out}
 
           {:error, [error | _]} ->
-            handle_request_error(request, parser_fn, node_selector, state, retry_count, retryable?, error)
+            handle_request_error(ctx, state, retry_count, error)
 
           {:error, %Error{} = error} ->
-            handle_request_error(request, parser_fn, node_selector, state, retry_count, retryable?, error)
+            handle_request_error(ctx, state, retry_count, error)
         end
 
       {_, _state_out} ->
-        error = Error.build(:unknown, %{})
-        handle_request_error(request, parser_fn, node_selector, state, retry_count, retryable?, error)
+        handle_request_error(ctx, state, retry_count, Error.build(:unknown, %{}))
     end
   end
 
-  defp handle_request_error(request, parser_fn, node_selector, state, retry_count, retryable?, error) do
-    request_name = request.__struct__
+  defp handle_request_error(%RequestContext{} = ctx, state, retry_count, error) do
+    request_name = ctx.request.__struct__
     error_atom = extract_error_atom(error)
     Logger.warning("Request #{inspect(request_name)} failed with error #{inspect(error_atom)}")
 
-    # Check if this error is retryable
-    if retryable?.(error_atom) do
+    if ctx.retryable?.(error_atom) do
       # Refresh metadata for leadership-related errors before retrying
       updated_state =
         if requires_metadata_refresh?(error_atom) do
@@ -853,7 +880,7 @@ defmodule KafkaEx.Client do
           state
         end
 
-      handle_request_with_retry(request, parser_fn, node_selector, updated_state, retry_count - 1, retryable?, error)
+      handle_request_with_retry(ctx, updated_state, retry_count - 1, error)
     else
       # Non-retryable error - fail immediately
       Logger.info("Error #{inspect(error_atom)} is not retryable for #{inspect(request_name)}, failing immediately")
@@ -926,7 +953,7 @@ defmodule KafkaEx.Client do
 
     with {:ok, request} <- RequestBuilder.metadata_request(req_opts, state),
          {{:ok, response}, state_out} <-
-           kayrock_network_request(request, NodeSelector.first_available(), state) do
+           network_request(request, NodeSelector.first_available(), state) do
       parse_metadata_response(response, state, state_out, sync_timeout, topics, retry)
     else
       {:error, _} ->
@@ -1065,7 +1092,7 @@ defmodule KafkaEx.Client do
 
     with {:ok, request} <- RequestBuilder.find_coordinator_request(req_opts, state),
          {{:ok, raw_response}, updated_state} <-
-           kayrock_network_request(request, NodeSelector.first_available(), state) do
+           network_request(request, NodeSelector.first_available(), state) do
       parse_coordinator_response(raw_response, updated_state, consumer_group)
     else
       {:error, error} ->
@@ -1139,7 +1166,7 @@ defmodule KafkaEx.Client do
 
   defp get_api_versions(state) do
     {:ok, request} = RequestBuilder.api_versions_request([api_version: 0], state)
-    {{ok_or_error, response}, state_out} = kayrock_network_request(request, NodeSelector.first_available(), state)
+    {{ok_or_error, response}, state_out} = network_request(request, NodeSelector.first_available(), state)
 
     case {ok_or_error, response} do
       {:ok, raw_response} ->
@@ -1188,7 +1215,7 @@ defmodule KafkaEx.Client do
     end
   end
 
-  defp kayrock_network_request(request, node_selector, state, network_timeout \\ nil) do
+  defp network_request(request, node_selector, state, network_timeout \\ nil) do
     synchronous = if Map.get(request, :acks) == 0, do: false, else: true
     network_timeout = config_sync_timeout(network_timeout)
     {send_request, updated_state} = get_send_request_function(node_selector, state, network_timeout, synchronous)
