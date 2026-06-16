@@ -116,6 +116,8 @@ defmodule KafkaEx do
   """
   @spec build_worker_options(worker_init) :: {:ok, worker_init} | {:error, :invalid_consumer_group}
   def build_worker_options(worker_init) do
+    worker_init = normalize_broker_key(worker_init)
+
     defaults = [
       uris: Config.brokers(),
       consumer_group: Config.default_consumer_group(),
@@ -131,6 +133,20 @@ defmodule KafkaEx do
       {:ok, worker_init}
     else
       {:error, :invalid_consumer_group}
+    end
+  end
+
+  # `:brokers` is the canonical user-facing key (it matches the `:brokers`
+  # config key). Internally everything reads `:uris`, so translate here.
+  # We normalize BEFORE merging defaults so a user-supplied broker list
+  # overrides the config-derived `:uris`. An explicit `:uris` wins if both
+  # are given. Done here (not in static_init) so every entry point that
+  # calls build_worker_options/1 — start_client, child_spec, create_worker,
+  # start_link_worker — accepts `:brokers` uniformly.
+  defp normalize_broker_key(worker_init) do
+    case Keyword.pop(worker_init, :brokers) do
+      {nil, rest} -> rest
+      {brokers, rest} -> if Keyword.has_key?(rest, :uris), do: rest, else: Keyword.put(rest, :uris, brokers)
     end
   end
 
