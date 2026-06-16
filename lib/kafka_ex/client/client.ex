@@ -647,12 +647,30 @@ defmodule KafkaEx.Client do
       filtered_result = Fetch.filter_from_offset(result, offset)
       message_count = length(Map.get(filtered_result, :records, []))
       stop_metadata = Map.put(metadata, :message_count, message_count)
+      updated_state = cache_preferred_replica(updated_state, topic, partition, filtered_result)
       {{{:ok, filtered_result}, updated_state}, stop_metadata}
     else
       {:error, error} -> {{:error, error}, metadata}
       error_result -> {error_result, metadata}
     end
   end
+
+  # `-1` means "stay where you are" (Java client semantics). Clearing the
+  # cache here would ping-pong subsequent fetches back to the leader.
+  defp cache_preferred_replica(state, _topic, _partition, %Fetch{preferred_read_replica: node_id})
+       when node_id in [nil, -1] do
+    state
+  end
+
+  defp cache_preferred_replica(state, topic, partition, %Fetch{preferred_read_replica: node_id})
+       when is_integer(node_id) do
+    %{
+      state
+      | cluster_metadata: ClusterMetadata.put_preferred_replica(state.cluster_metadata, topic, partition, node_id)
+    }
+  end
+
+  defp cache_preferred_replica(state, _topic, _partition, _other), do: state
 
   defp find_coordinator_request(group_id, opts, state) do
     # FindCoordinator can be sent to any broker
@@ -1399,7 +1417,10 @@ defmodule KafkaEx.Client do
   end
 
   defp broker_to_telemetry_info(nil), do: %{}
-  defp broker_to_telemetry_info(broker), do: %{node_id: broker.node_id, host: broker.host, port: broker.port}
+
+  defp broker_to_telemetry_info(%Broker{} = broker) do
+    %{node_id: broker.node_id, host: broker.host, port: broker.port, rack: broker.rack}
+  end
 
   defp deserialize(data, request) do
     {resp, _} = @protocol.response_deserializer(request).(data)

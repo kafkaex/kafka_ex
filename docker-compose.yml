@@ -26,6 +26,7 @@ services:
       - "9392:9392"   # OAUTH
     environment:
       KAFKA_BROKER_ID: "1"
+      KAFKA_BROKER_RACK: "az-a"
 
       KAFKA_LISTENERS: "INTERNAL://:29092,NOAUTH://:9092,PLAIN://:9192,SCRAM://:9292,OAUTH://:9392"
       KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka-1:29092,NOAUTH://localhost:9092,PLAIN://localhost:9192,SCRAM://localhost:9292,OAUTH://localhost:9392"
@@ -50,6 +51,7 @@ services:
       - "9393:9393"   # OAUTH
     environment:
       KAFKA_BROKER_ID: "2"
+      KAFKA_BROKER_RACK: "az-b"
 
       KAFKA_LISTENERS: "INTERNAL://:29093,NOAUTH://:9093,PLAIN://:9193,SCRAM://:9293,OAUTH://:9393"
       KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka-2:29093,NOAUTH://localhost:9093,PLAIN://localhost:9193,SCRAM://localhost:9293,OAUTH://localhost:9393"
@@ -74,6 +76,7 @@ services:
       - "9394:9394"   # OAUTH
     environment:
       KAFKA_BROKER_ID: "3"
+      KAFKA_BROKER_RACK: "az-c"
 
       KAFKA_LISTENERS: "INTERNAL://:29094,NOAUTH://:9094,PLAIN://:9194,SCRAM://:9294,OAUTH://:9394"
       KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka-3:29094,NOAUTH://localhost:9094,PLAIN://localhost:9194,SCRAM://localhost:9294,OAUTH://localhost:9394"
@@ -112,5 +115,6 @@ services:
         set -euo pipefail
         kafka-topics --zookeeper zookeeper:32181 --create --if-not-exists --partitions 4 --replication-factor 2 --topic consumer_group_implementation_test
         kafka-topics --zookeeper zookeeper:32181 --create --if-not-exists --partitions 4 --replication-factor 2 --topic test0p8p0
+        kafka-topics --zookeeper zookeeper:32181 --create --if-not-exists --partitions 3 --replication-factor 3 --topic rack_aware_test
         kafka-topics --zookeeper zookeeper:32181 --list
       '

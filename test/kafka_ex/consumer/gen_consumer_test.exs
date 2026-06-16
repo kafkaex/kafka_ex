@@ -23,4 +23,33 @@ defmodule KafkaEx.Consumer.GenConsumerTest do
              TestConsumer.handle_info(nil, nil)
            end) =~ "unexpected message in handle_info"
   end
+
+  describe "build_fetch_options/1 (used at init to fold :client_rack into fetch_options)" do
+    alias KafkaEx.Consumer.GenConsumer
+
+    test "preserves the default auto_commit: false" do
+      assert GenConsumer.build_fetch_options([])[:auto_commit] == false
+    end
+
+    test ":client_rack is folded in as :rack_id" do
+      opts = [client_rack: "az-a"]
+      assert GenConsumer.build_fetch_options(opts)[:rack_id] == "az-a"
+    end
+
+    test "no :rack_id is set when :client_rack is absent" do
+      refute Keyword.has_key?(GenConsumer.build_fetch_options([]), :rack_id)
+    end
+
+    test "explicit fetch_options[:rack_id] wins over :client_rack" do
+      opts = [client_rack: "az-a", fetch_options: [rack_id: "az-explicit"]]
+      assert GenConsumer.build_fetch_options(opts)[:rack_id] == "az-explicit"
+    end
+
+    test "user-supplied fetch_options are merged with defaults" do
+      opts = [fetch_options: [max_bytes: 1024]]
+      result = GenConsumer.build_fetch_options(opts)
+      assert result[:auto_commit] == false
+      assert result[:max_bytes] == 1024
+    end
+  end
 end

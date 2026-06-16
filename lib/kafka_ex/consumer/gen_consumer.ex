@@ -246,6 +246,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
           | {:api_versions, map()}
           | {:shutdown, timeout()}
           | {:extra_consumer_args, map()}
+          | {:client_rack, String.t()}
 
   @typedoc """
   Options used when starting a `KafkaEx.Consumer.GenConsumer`.
@@ -506,6 +507,14 @@ defmodule KafkaEx.Consumer.GenConsumer do
   * `:fetch_options` - Optional keyword list that is passed along to the
     fetch operation.
 
+  * `:client_rack` - The consumer's rack identifier (KIP-392). When set, the
+    Fetch v11+ `rack_id` field is populated on every fetch this consumer
+    issues; the broker can then hint at a same-rack replica via the response's
+    `preferred_read_replica`, and the client will route subsequent fetches for
+    that `(topic, partition)` to the hinted broker — reducing cross-AZ traffic
+    in multi-AZ Kafka deployments. An explicit `fetch_options[:rack_id]` wins
+    over `:client_rack` if both are set.
+
   * `:shutdown` - Optional amount of time in milliseconds that the supervisor
     will wait for a `GenConsumer` to terminate after emitting a
     `Process.exit(child, :shutdown)` signal. Defaults to `5_000`.
@@ -637,13 +646,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
       {:ok, consumer_state} ->
         client = resolve_client(opts, group_name)
 
-        default_fetch_options = [
-          auto_commit: false
-        ]
-
-        given_fetch_options = Keyword.get(opts, :fetch_options, [])
-
-        fetch_options = Keyword.merge(default_fetch_options, given_fetch_options)
+        fetch_options = build_fetch_options(opts)
 
         state = %State{
           consumer_module: consumer_module,
@@ -668,6 +671,20 @@ defmodule KafkaEx.Consumer.GenConsumer do
 
       {:stop, reason} ->
         {:stop, reason}
+    end
+  end
+
+  @doc false
+  # Exposed for testability. Explicit `fetch_options[:rack_id]` wins over
+  # `:client_rack` (via `Keyword.put_new`).
+  def build_fetch_options(opts) do
+    default_fetch_options = [auto_commit: false]
+    given_fetch_options = Keyword.get(opts, :fetch_options, [])
+    fetch_options = Keyword.merge(default_fetch_options, given_fetch_options)
+
+    case Keyword.get(opts, :client_rack) do
+      nil -> fetch_options
+      rack when is_binary(rack) -> Keyword.put_new(fetch_options, :rack_id, rack)
     end
   end
 
