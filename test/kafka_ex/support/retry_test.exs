@@ -372,4 +372,17 @@ defmodule KafkaEx.Support.RetryTest do
       refute Retry.commit_retryable?(:invalid_commit_offset_size)
     end
   end
+
+  describe "join_group_retryable?/1" do
+    test "member_id_required is NOT retryable (KIP-394: retry with the assigned id, not the same request)" do
+      refute Retry.join_group_retryable?(:member_id_required)
+    end
+
+    test "other join errors remain retryable" do
+      assert Retry.join_group_retryable?(:coordinator_load_in_progress)
+      assert Retry.join_group_retryable?(:not_coordinator)
+      assert Retry.join_group_retryable?(:request_timed_out)
+      assert Retry.join_group_retryable?(:unknown)
+    end
+  end
 end
