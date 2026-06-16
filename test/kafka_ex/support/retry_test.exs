@@ -272,6 +272,38 @@ defmodule KafkaEx.Support.RetryTest do
     end
   end
 
+  describe "join_group_retryable?/1" do
+    # Regression guard for issue #539: :member_id_required (KIP-394) is a
+    # handshake step, not a transient failure. It must NOT be retried by the
+    # generic loop — otherwise the empty-member_id request is blind-resent and
+    # the broker-assigned id is only used after the retry budget is exhausted,
+    # lapsing under real network latency.
+    test "member_id_required is NOT retryable" do
+      refute Retry.join_group_retryable?(:member_id_required)
+    end
+
+    test "transient errors remain retryable" do
+      assert Retry.join_group_retryable?(:timeout)
+      assert Retry.join_group_retryable?(:request_timed_out)
+      assert Retry.join_group_retryable?(:closed)
+    end
+
+    test "coordinator errors remain retryable" do
+      assert Retry.join_group_retryable?(:coordinator_not_available)
+      assert Retry.join_group_retryable?(:not_coordinator)
+      assert Retry.join_group_retryable?(:coordinator_load_in_progress)
+    end
+
+    test "rebalance_in_progress remains retryable" do
+      assert Retry.join_group_retryable?(:rebalance_in_progress)
+    end
+
+    test "preserves prior always-retry behavior for other errors" do
+      assert Retry.join_group_retryable?(:unknown)
+      assert Retry.join_group_retryable?(:some_other_error)
+    end
+  end
+
   describe "commit_retryable?/1" do
     test "transient errors are commit retryable" do
       assert Retry.commit_retryable?(:timeout)

@@ -208,6 +208,27 @@ defmodule KafkaEx.Support.Retry do
   def consumer_group_retryable?(error), do: transient_error?(error)
 
   @doc """
+  Check if an error is safe to retry for JoinGroup requests.
+
+  `:member_id_required` (KIP-394) is explicitly NOT retryable. It is not a
+  transient failure but a protocol handshake step: the broker rejects the
+  initial empty-`member_id` join and returns the id the client must use on its
+  next attempt. If the generic retry loop handles it, it blind-resends the same
+  empty-`member_id` request and only consumes the assigned id once the retry
+  budget is exhausted — wasting round-trips that lapse the broker-assigned
+  pending member under real network latency (issue #539, MSK 2.2+).
+
+  Returning `false` lets the first `:member_id_required` response bubble up to
+  the KIP-394 two-step handler in `KafkaEx.Client.do_join_group_request/5`,
+  which re-issues the join with the assigned id immediately. Every other error
+  keeps the prior always-retry behavior, so this is a no-op for non-KIP-394
+  join failures.
+  """
+  @spec join_group_retryable?(error()) :: boolean()
+  def join_group_retryable?(:member_id_required), do: false
+  def join_group_retryable?(_error), do: true
+
+  @doc """
   Check if error is safe to retry for commit operations.
 
   Commits are idempotent so we can safely retry on transient errors.

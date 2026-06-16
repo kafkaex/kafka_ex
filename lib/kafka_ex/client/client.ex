@@ -502,7 +502,7 @@ defmodule KafkaEx.Client do
     end)
   end
 
-  defp do_join_group_request(consumer_group, member_id, opts, state, metadata) do
+  defp do_join_group_request(consumer_group, member_id, opts, state, metadata, member_id_assigned? \\ false) do
     node_selector = NodeSelector.consumer_group(consumer_group)
     req_data = [{:group_id, consumer_group}, {:member_id, member_id} | opts]
 
@@ -511,12 +511,20 @@ defmodule KafkaEx.Client do
       stop_metadata = add_join_group_result_metadata(metadata, result)
       {{{:ok, result}, updated_state}, stop_metadata}
     else
-      # KIP-394: JoinGroup V4+ requires two-step join.
-      # First attempt with empty member_id returns :member_id_required
-      # with an assigned member_id. Retry with that member_id.
-      {{:error, %Error{error: :member_id_required, metadata: %{member_id: assigned_id}}}, updated_state} ->
+      # KIP-394: JoinGroup V4+ requires a two-step join. The first attempt with
+      # an empty member_id returns :member_id_required with an assigned id; we
+      # re-issue the join with that id immediately (not via the retry loop, so
+      # the assigned id stays valid under real latency — see #539).
+      {{:error, %Error{error: :member_id_required, metadata: %{member_id: assigned_id}}}, updated_state}
+      when not member_id_assigned? ->
         Logger.info("JoinGroup returned member_id_required (KIP-394), retrying with assigned member_id")
-        do_join_group_request(consumer_group, assigned_id, opts, updated_state, metadata)
+        do_join_group_request(consumer_group, assigned_id, opts, updated_state, metadata, true)
+
+      # A second :member_id_required after we already sent a broker-assigned id
+      # is a protocol violation; fail fast instead of looping.
+      {{:error, %Error{error: :member_id_required} = error}, _updated_state} ->
+        Logger.warning("JoinGroup returned member_id_required again after using the assigned member_id; failing")
+        {{:error, error}, metadata}
 
       {:error, error} ->
         {{:error, error}, metadata}
@@ -757,7 +765,14 @@ defmodule KafkaEx.Client do
   end
 
   defp handle_join_group_request(request, node_selector, state) do
-    %RequestContext{request: request, parser_fn: &ResponseParser.join_group_response/1, node_selector: node_selector}
+    # `:member_id_required` (KIP-394) must NOT go through the blind-retry loop;
+    # it is a handshake step handled by `do_join_group_request/5`. See #539.
+    %RequestContext{
+      request: request,
+      parser_fn: &ResponseParser.join_group_response/1,
+      node_selector: node_selector,
+      retryable?: &Retry.join_group_retryable?/1
+    }
     |> handle_request_with_retry(state)
   end
 
