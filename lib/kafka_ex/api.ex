@@ -290,9 +290,21 @@ defmodule KafkaEx.API do
   def child_spec(opts) do
     {name, client_opts} = Keyword.pop(opts, :name)
 
+    worker_opts =
+      case KafkaEx.build_worker_options(client_opts) do
+        {:ok, worker_opts} ->
+          worker_opts
+
+        {:error, :invalid_consumer_group} ->
+          # child_spec/1 must return a spec map, so we cannot return an
+          # error tuple. Raise eagerly at spec-build time (supervisor boot)
+          # for a clear failure instead of a cryptic GenServer init crash.
+          raise KafkaEx.InvalidConsumerGroupError, Keyword.get(client_opts, :consumer_group)
+      end
+
     %{
       id: name || __MODULE__,
-      start: {KafkaEx.Client, :start_link, [client_opts, name || :no_name]},
+      start: {KafkaEx.Client, :start_link, [worker_opts, name || :no_name]},
       type: :worker,
       restart: :permanent
     }
