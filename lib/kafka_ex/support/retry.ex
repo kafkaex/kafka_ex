@@ -208,6 +208,21 @@ defmodule KafkaEx.Support.Retry do
   def consumer_group_retryable?(error), do: transient_error?(error)
 
   @doc """
+  Check if the error is safe to retry for join group operations.
+
+  KIP-394: JoinGroup V4+ requires two-step join.
+  First attempt with empty member_id returns :member_id_required
+  with an assigned member_id. Then another request needs to be
+  performed with that member_id.
+
+  We do not want to retry the same request if the error is
+  `:member_id_required`, but rather swap in the assigned member_id.
+  """
+  @spec join_group_retryable?(error()) :: boolean()
+  def join_group_retryable?(:member_id_required), do: false
+  def join_group_retryable?(_), do: true
+
+  @doc """
   Check if error is safe to retry for commit operations.
 
   Commits are idempotent so we can safely retry on transient errors.
