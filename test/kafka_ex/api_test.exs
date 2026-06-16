@@ -38,6 +38,13 @@ defmodule KafkaEx.APITest do
     end
   end
 
+  describe "start_client/1" do
+    test "returns {:error, :invalid_consumer_group} for an empty group (no crash)" do
+      assert {:error, :invalid_consumer_group} =
+               KafkaEx.API.start_client(brokers: [{"localhost", 9092}], consumer_group: "")
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Offset Functions Tests
   # ---------------------------------------------------------------------------

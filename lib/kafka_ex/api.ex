@@ -264,7 +264,11 @@ defmodule KafkaEx.API do
   @spec start_client(opts) :: {:ok, pid} | {:error, term}
   def start_client(opts \\ []) do
     {name, client_opts} = Keyword.pop(opts, :name)
-    Client.start_link(client_opts, name || :no_name)
+
+    case KafkaEx.build_worker_options(client_opts) do
+      {:ok, worker_opts} -> Client.start_link(worker_opts, name || :no_name)
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   @doc """
