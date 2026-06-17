@@ -1,6 +1,6 @@
 # KafkaEx Changelog
 
-## Unreleased
+## 1.0.1 (2026-06-17)
 
 ### Breaking Changes
 
@@ -54,6 +54,26 @@
   - `auto_commit: true` + error response no longer raises `KeyError`
     on `fetch_response.message_set`. `need_commit?/2` returns false
     for error responses, so no commit is attempted.
+
+* **KIP-394 two-step `JoinGroup` no longer retries on `:member_id_required`
+  (#541).** The generic retry loop treated `:member_id_required` as a
+  transient error and blindly re-sent the identical request, which the
+  broker rejected again. `JoinGroup` now uses a dedicated
+  `KafkaEx.Support.Retry.join_group_retryable?/1` classifier that returns
+  `false` for `:member_id_required`, so the two-step path swaps in the
+  broker-assigned `member_id` and rejoins as KIP-394 intends. Required for
+  correct interop with Kafka 2.3+ under
+  `group.initial.rebalance.delay.ms`.
+
+### Internal
+
+* Migrated the test suite's mocking from Hammox to Mimic (`mimic ~> 1.7`),
+  dropping the unused `KafkaEx.NetworkClientMock`. No runtime/production
+  changes. (#534)
+* Added regression test coverage pinning previously-untested behavior:
+  remote-close (`:tcp_closed`/`:ssl_closed`) handling and its telemetry in
+  `KafkaEx.Client` (#449), init fail-fast when all brokers are unreachable
+  (#298), and cross-topic response identity on a single client (#445). (#535)
 
 ## 1.0.0
 
