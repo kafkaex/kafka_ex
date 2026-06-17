@@ -18,7 +18,7 @@ defmodule KafkaEx.APITest do
   alias KafkaEx.Test.MockClient
 
   describe "child_spec/1" do
-    test "returns valid child spec" do
+    test "returns valid child spec with merged, normalized options" do
       spec = KafkaEx.API.child_spec(name: TestClient, brokers: [{"localhost", 9092}])
 
       assert spec.id == TestClient
@@ -27,7 +27,10 @@ defmodule KafkaEx.APITest do
       assert {KafkaEx.Client, :start_link, [client_opts, name]} = spec.start
       assert name == TestClient
       refute Keyword.has_key?(client_opts, :name)
-      assert client_opts[:brokers] == [{"localhost", 9092}]
+      # :brokers is normalized to :uris, and config defaults are merged in
+      assert client_opts[:uris] == [{"localhost", 9092}]
+      refute Keyword.has_key?(client_opts, :brokers)
+      assert client_opts[:consumer_group] == "kafka_ex"
     end
 
     test "uses module name as default id" do
@@ -35,6 +38,19 @@ defmodule KafkaEx.APITest do
 
       assert spec.id == KafkaEx.API
       assert {KafkaEx.Client, :start_link, [_client_opts, :no_name]} = spec.start
+    end
+
+    test "raises InvalidConsumerGroupError at spec-build time for an empty group" do
+      assert_raise KafkaEx.InvalidConsumerGroupError, fn ->
+        KafkaEx.API.child_spec(brokers: [{"localhost", 9092}], consumer_group: "")
+      end
+    end
+  end
+
+  describe "start_client/1" do
+    test "returns {:error, :invalid_consumer_group} for an empty group (no crash)" do
+      assert {:error, :invalid_consumer_group} =
+               KafkaEx.API.start_client(brokers: [{"localhost", 9092}], consumer_group: "")
     end
   end
 
