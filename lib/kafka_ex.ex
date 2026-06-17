@@ -41,11 +41,14 @@ defmodule KafkaEx do
           | {:password, binary}
         ]
   @type worker_setting ::
-          {:uris, uri}
+          {:brokers, uri}
+          | {:uris, uri}
           | {:consumer_group, binary | :no_consumer_group}
           | {:metadata_update_interval, non_neg_integer}
+          | {:use_ssl, boolean}
           | {:ssl_options, ssl_options}
           | {:auth, KafkaEx.Auth.Config.t() | nil}
+          | {:allow_auto_topic_creation, boolean}
           | {:initial_topics, [binary]}
 
   @doc """
@@ -53,17 +56,22 @@ defmodule KafkaEx do
 
   ## Options
 
+  - `brokers`: List of brokers as `{"host", port}` tuples
   - `consumer_group`: Name of the consumer group, `:no_consumer_group` for none
-  - `uris`: List of brokers as `{"host", port}` tuples
+    (use `:no_consumer_group` for a produce-only worker)
   - `metadata_update_interval`: Metadata refresh interval in ms (default: 30000)
   - `use_ssl`: Enable SSL connections (default: false)
   - `ssl_options`: SSL options (see Erlang ssl docs)
   - `auth`: SASL authentication config (see `KafkaEx.Auth.Config`)
+  - `allow_auto_topic_creation`: Allow brokers to auto-create topics (default: true;
+    a typo'd topic name can silently create a topic on permissive clusters)
+  - `initial_topics`: Topics to fetch metadata for at startup (default: [])
+  - `uris`: **Deprecated** alias for `brokers`; still accepted
 
   ## Example
 
       {:ok, pid} = KafkaEx.create_worker(:my_worker)
-      {:ok, pid} = KafkaEx.create_worker(:my_worker, uris: [{"localhost", 9092}])
+      {:ok, pid} = KafkaEx.create_worker(:my_worker, brokers: [{"localhost", 9092}])
   """
   @spec create_worker(atom, KafkaEx.worker_init()) :: Supervisor.on_start_child()
   def create_worker(name, worker_init \\ []) do
@@ -112,10 +120,15 @@ defmodule KafkaEx do
   @doc """
   Builds worker options by merging with application config defaults.
 
+  Normalizes the canonical `:brokers` option to the internal `:uris` key
+  (an explicit `:uris` wins if both are given).
+
   Returns `{:error, :invalid_consumer_group}` if consumer group is invalid.
   """
   @spec build_worker_options(worker_init) :: {:ok, worker_init} | {:error, :invalid_consumer_group}
   def build_worker_options(worker_init) do
+    worker_init = normalize_broker_key(worker_init)
+
     defaults = [
       uris: Config.brokers(),
       consumer_group: Config.default_consumer_group(),
@@ -131,6 +144,20 @@ defmodule KafkaEx do
       {:ok, worker_init}
     else
       {:error, :invalid_consumer_group}
+    end
+  end
+
+  # `:brokers` is the canonical user-facing key (it matches the `:brokers`
+  # config key). Internally everything reads `:uris`, so translate here.
+  # We normalize BEFORE merging defaults so a user-supplied broker list
+  # overrides the config-derived `:uris`. An explicit `:uris` wins if both
+  # are given. Done here (not in static_init) so every entry point that
+  # calls build_worker_options/1 — start_client, child_spec, create_worker,
+  # start_link_worker — accepts `:brokers` uniformly.
+  defp normalize_broker_key(worker_init) do
+    case Keyword.pop(worker_init, :brokers) do
+      {nil, rest} -> rest
+      {brokers, rest} -> if Keyword.has_key?(rest, :uris), do: rest, else: Keyword.put(rest, :uris, brokers)
     end
   end
 

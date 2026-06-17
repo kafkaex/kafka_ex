@@ -58,6 +58,7 @@ defmodule KafkaEx.API do
   alias KafkaEx.Client
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Cluster.Topic
+  alias KafkaEx.Config
   alias KafkaEx.Messages.ApiVersions
   alias KafkaEx.Messages.ConsumerGroupDescription
   alias KafkaEx.Messages.CreateTopics
@@ -236,10 +237,27 @@ defmodule KafkaEx.API do
   @doc """
   Start a KafkaEx Client GenServer.
 
+  Application config defaults (`config :kafka_ex, …`) are merged
+  automatically — any option you pass overrides the corresponding default.
+
   ## Options
 
-    * `:brokers` — list of `{host, port}` tuples. To inherit defaults from
-      application config, use `KafkaEx.build_worker_options/1` first (see examples)
+    * `:brokers` — list of `{host, port}` tuples. Defaults to the `:brokers`
+      application config.
+    * `:consumer_group` — consumer group for auto-commit, or
+      `:no_consumer_group`. Defaults to the `:default_consumer_group` config.
+      For a produce-only client, pass `consumer_group: :no_consumer_group` —
+      no group is needed to produce.
+    * `:use_ssl` — enable SSL (default from config, else `false`).
+    * `:ssl_options` — Erlang `:ssl` options (default from config).
+    * `:auth` — SASL auth config, see `KafkaEx.Auth.Config` (default from config).
+    * `:metadata_update_interval` — metadata refresh interval in ms (default `30_000`).
+    * `:allow_auto_topic_creation` — allow brokers to auto-create topics on
+      metadata requests (default `true`). Note: with broker-side
+      `auto.create.topics.enable`, a typo'd topic name can silently create a
+      topic; set to `false` to disable.
+    * `:initial_topics` — topics to fetch metadata for at startup (default `[]`).
+    * `:uris` — **deprecated** alias for `:brokers`; still accepted.
     * `:name` — process registration. Accepts any value valid for
       `GenServer.start_link/3`'s `name:` option:
         * an atom — local registration
@@ -247,24 +265,29 @@ defmodule KafkaEx.API do
         * `{:via, Module, term}` — custom registry (e.g. `Registry`)
       If absent (or `nil`), the client is started unnamed and the pid
       is the identity.
-    * Other options forwarded to `KafkaEx.Client.start_link/2`.
+
+  Returns `{:error, :invalid_consumer_group}` if the resolved consumer
+  group is invalid.
 
   ## Examples
 
-      iex> {:ok, opts} = KafkaEx.build_worker_options([])
-      iex> {:ok, client} = KafkaEx.API.start_client(opts)
-      iex> is_pid(client)
-      true
+      # Inherits brokers + consumer group from application config:
+      {:ok, client} = KafkaEx.API.start_client()
 
-      iex> {:ok, opts} = KafkaEx.build_worker_options([])
-      iex> {:ok, client} = KafkaEx.API.start_client([{:name, MyApp.KafkaClient} | opts])
-      iex> client == Process.whereis(MyApp.KafkaClient)
-      true
+      # Or pass brokers explicitly:
+      {:ok, client} = KafkaEx.API.start_client(brokers: [{"localhost", 9092}])
+
+      # With a registered name:
+      {:ok, client} = KafkaEx.API.start_client(name: MyApp.KafkaClient, brokers: [{"localhost", 9092}])
   """
   @spec start_client(opts) :: {:ok, pid} | {:error, term}
   def start_client(opts \\ []) do
     {name, client_opts} = Keyword.pop(opts, :name)
-    Client.start_link(client_opts, name || :no_name)
+
+    case KafkaEx.build_worker_options(client_opts) do
+      {:ok, worker_opts} -> Client.start_link(worker_opts, name || :no_name)
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   @doc """
@@ -281,14 +304,34 @@ defmodule KafkaEx.API do
       ]
 
       Supervisor.start_link(children, strategy: :one_for_one)
+
+  Application config defaults are merged automatically (same as
+  `start_client/1`). Because a child spec cannot carry an error tuple,
+  an invalid consumer group raises `KafkaEx.InvalidConsumerGroupError`
+  when the spec is built.
   """
   @spec child_spec(opts) :: Supervisor.child_spec()
   def child_spec(opts) do
     {name, client_opts} = Keyword.pop(opts, :name)
 
+    worker_opts =
+      case KafkaEx.build_worker_options(client_opts) do
+        {:ok, worker_opts} ->
+          worker_opts
+
+        {:error, :invalid_consumer_group} ->
+          # child_spec/1 must return a spec map, so we cannot return an
+          # error tuple. Raise eagerly at spec-build time (supervisor boot)
+          # for a clear failure instead of a cryptic GenServer init crash.
+          # Surface the *resolved* group (config default when none supplied)
+          # so the message names the real culprit.
+          raise KafkaEx.InvalidConsumerGroupError,
+                Keyword.get(client_opts, :consumer_group, Config.default_consumer_group())
+      end
+
     %{
       id: name || __MODULE__,
-      start: {KafkaEx.Client, :start_link, [client_opts, name || :no_name]},
+      start: {KafkaEx.Client, :start_link, [worker_opts, name || :no_name]},
       type: :worker,
       restart: :permanent
     }
