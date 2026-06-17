@@ -61,6 +61,12 @@ KafkaEx.fetch("topic", 0, 0)  # offset is positional
 {:ok, result} = KafkaEx.API.fetch(client, "topic", 0, 0)
 ```
 
+> **Option key:** the broker list option is `:brokers` (matching the
+> `config :kafka_ex, brokers:` key). The pre-1.0 `:uris` option is still
+> accepted as a deprecated alias. `start_client/1` now merges `config.exs`
+> defaults automatically, so you no longer need `KafkaEx.build_worker_options/1`
+> just to inherit your configured brokers and consumer group.
+
 ### Headers API — `[%Header{}]` instead of `[{key, value}]`
 
 The `headers:` option on every produce function now takes a list of

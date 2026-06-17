@@ -23,6 +23,15 @@
 
 ### Fixed
 
+* **`KafkaEx.API.start_client/1` and `child_spec/1` now merge `config.exs`
+  defaults and accept the documented `:brokers` option (#538).** Previously
+  `start_client(brokers: [...])` crashed with `InvalidConsumerGroupError: nil`
+  because config defaults were never merged and the `:brokers` key was ignored
+  (the client read `:uris`). `:brokers` is now the canonical key; `:uris` is a
+  deprecated-but-working alias. `start_client/1` returns
+  `{:error, :invalid_consumer_group}` on a bad group; `child_spec/1` raises
+  `KafkaEx.InvalidConsumerGroupError` at spec-build time.
+
 * **`KafkaEx.API.fetch/5` (and `KafkaEx.Consumer.Stream`) hang at logend.**
   Previously the GenServer.call default timeout (5s) and the per-broker
   `Socket.recv` timeout (1-3s from `sync_timeout` config) were not
