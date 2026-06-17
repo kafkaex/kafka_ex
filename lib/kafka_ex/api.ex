@@ -309,6 +309,19 @@ defmodule KafkaEx.API do
   `start_client/1`). Because a child spec cannot carry an error tuple,
   an invalid consumer group raises `KafkaEx.InvalidConsumerGroupError`
   when the spec is built.
+
+  > #### Two unnamed clients under one supervisor {: .warning}
+  >
+  > The child `:id` defaults to `:name` (falling back to `KafkaEx.API`
+  > when no name is given). A single unnamed client is fine, but **two
+  > unnamed clients in the same supervisor both get `id: KafkaEx.API`**,
+  > which the supervisor rejects with a "duplicate child specs" error.
+  > Either give each client a `:name`, or override `:id` explicitly:
+  >
+  >     children = [
+  >       Supervisor.child_spec({KafkaEx.API, brokers: [...]}, id: :kafka_a),
+  >       Supervisor.child_spec({KafkaEx.API, brokers: [...]}, id: :kafka_b)
+  >     ]
   """
   @spec child_spec(opts) :: Supervisor.child_spec()
   def child_spec(opts) do
