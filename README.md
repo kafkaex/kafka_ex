@@ -129,7 +129,10 @@ See [KafkaEx.API documentation](https://hexdocs.pm/kafka_ex/KafkaEx.API.html) fo
 
 ## Configuration
 
-KafkaEx can be configured via `config.exs` or by passing options directly to `KafkaEx.API.start_client/1`.
+KafkaEx can be configured via `config.exs`, by passing options directly to
+`KafkaEx.API.start_client/1`, or both — options passed to `start_client/1`
+override the matching `config.exs` defaults. The broker option key is
+`:brokers` (the legacy `:uris` is still accepted but deprecated).
 
 ### Basic Configuration
 

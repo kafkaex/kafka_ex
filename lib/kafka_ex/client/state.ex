@@ -47,6 +47,12 @@ defmodule KafkaEx.Client.State do
       use_ssl: Keyword.get(args, :use_ssl, false),
       ssl_options: Keyword.get(args, :ssl_options, []),
       auth: Keyword.get(args, :auth, nil),
+      # Inert unless used: group-coordination calls (offset_commit/fetch,
+      # join/sync/leave/heartbeat, describe_groups) and the stream auto-commit
+      # path all take the group as an explicit argument — none fall back to
+      # this stored value. So defaulting a produce-only client to a real group
+      # name never triggers FindCoordinator/JoinGroup/OffsetCommit. Preserve
+      # that invariant if you ever add an implicit default off this field.
       consumer_group_for_auto_commit: Keyword.get(args, :consumer_group)
     }
   end

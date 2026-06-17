@@ -129,6 +129,24 @@ defmodule KafkaEx.Integration.Lifecycle.StartClientTest do
     end
   end
 
+  describe "start_client/1 config-default merging (issue #538)" do
+    test "with :brokers and no build_worker_options inherits config defaults" do
+      # Exact reproduction from issue #538: pass :brokers directly, rely on
+      # config.exs default_consumer_group. Must NOT raise InvalidConsumerGroupError.
+      assert {:ok, client} = API.start_client(brokers: [{"localhost", 9092}])
+      on_exit(fn -> if Process.alive?(client), do: GenServer.stop(client) end)
+
+      assert is_pid(client)
+    end
+
+    test "still accepts the legacy :uris alias" do
+      assert {:ok, client} = API.start_client(uris: [{"localhost", 9092}])
+      on_exit(fn -> if Process.alive?(client), do: GenServer.stop(client) end)
+
+      assert is_pid(client)
+    end
+  end
+
   defp wait_until(getter, predicate, timeout_ms) do
     deadline = System.monotonic_time(:millisecond) + timeout_ms
     do_wait_until(getter, predicate, deadline)
