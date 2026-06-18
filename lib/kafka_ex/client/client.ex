@@ -859,16 +859,23 @@ defmodule KafkaEx.Client do
             {{:ok, result}, state_out}
 
           {:error, [error | _]} ->
-            handle_request_error(ctx, state, retry_count, error)
+            handle_request_error(ctx, state_out, retry_count, error)
 
           {:error, %Error{} = error} ->
-            handle_request_error(ctx, state, retry_count, error)
+            handle_request_error(ctx, state_out, retry_count, error)
         end
 
-      {_, _state_out} ->
-        handle_request_error(ctx, state, retry_count, Error.build(:unknown, %{}))
+      {{:error, reason}, state_out} ->
+        handle_request_error(ctx, state_out, retry_count, build_transport_error(reason))
+
+      {other, state_out} ->
+        Logger.warning("Unexpected network_request result for #{inspect(ctx.request.__struct__)}: #{inspect(other)}")
+        handle_request_error(ctx, state_out, retry_count, Error.build(:unknown, %{}))
     end
   end
+
+  defp build_transport_error(reason) when is_atom(reason), do: Error.build(reason, %{})
+  defp build_transport_error(reason), do: Error.build(:unknown, %{transport_reason: reason})
 
   defp handle_request_error(%RequestContext{} = ctx, state, retry_count, error) do
     request_name = ctx.request.__struct__

@@ -773,7 +773,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   defp recoverable_error?(:unknown_topic_or_partition), do: true
   defp recoverable_error?(:no_broker), do: true
   defp recoverable_error?(:timeout), do: true
-  # :unknown errors often occur during transient issues (coordinator not elected yet, etc.)
+  defp recoverable_error?(:closed), do: true
+  defp recoverable_error?(:not_connected), do: true
   defp recoverable_error?(:unknown), do: true
   defp recoverable_error?(_), do: false
 end

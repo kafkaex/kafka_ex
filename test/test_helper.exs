@@ -11,6 +11,10 @@ ExUnit.configure(
   ]
 )
 
+# Prepare the network I/O seam for unit tests that stub it via Mimic
+# (no-op for tests that don't stub).
+Mimic.copy(KafkaEx.Network.NetworkClient)
+
 ExUnit.start()
 
 # Check if we need Testcontainers (chaos tests requested)
