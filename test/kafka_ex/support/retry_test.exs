@@ -385,4 +385,29 @@ defmodule KafkaEx.Support.RetryTest do
       assert Retry.join_group_retryable?(:unknown)
     end
   end
+
+  describe "sync_group_retryable?/1" do
+    test "rebalance_in_progress is NOT retryable (must bubble so the manager rejoins)" do
+      refute Retry.sync_group_retryable?(:rebalance_in_progress)
+    end
+
+    test "other sync errors remain retryable (manager's sync recovery handles them)" do
+      assert Retry.sync_group_retryable?(:request_timed_out)
+      assert Retry.sync_group_retryable?(:unknown)
+      assert Retry.sync_group_retryable?(:coordinator_not_available)
+    end
+  end
+
+  describe "heartbeat_retryable?/1" do
+    test "rejoin signals are NOT retryable (heartbeat maps them to {:shutdown, :rebalance})" do
+      refute Retry.heartbeat_retryable?(:rebalance_in_progress)
+      refute Retry.heartbeat_retryable?(:unknown_member_id)
+    end
+
+    test "transient errors remain retryable (absorb a blip, avoid a spurious rejoin)" do
+      assert Retry.heartbeat_retryable?(:request_timed_out)
+      assert Retry.heartbeat_retryable?(:unknown)
+      assert Retry.heartbeat_retryable?(:coordinator_not_available)
+    end
+  end
 end

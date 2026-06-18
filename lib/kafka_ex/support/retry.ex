@@ -243,6 +243,43 @@ defmodule KafkaEx.Support.Retry do
   def commit_retryable?(error), do: transient_error?(error)
 
   @doc """
+  Check if a SyncGroup error is safe to retry at the client layer.
+
+  `:rebalance_in_progress` must not be retried at the client layer. A SyncGroup
+  during a rebalance can only succeed after rejoining (the generation is
+  changing), so the error must bubble to the consumer-group manager, whose
+  `sync/2` rejoins on it. Blindly re-sending the same SyncGroup wastes round
+  trips and is the window in which a recv-timeout gets mapped to `:unknown`
+  (which would otherwise crash the manager). Other errors keep the default
+  retry behavior.
+
+  Contrast `commit_retryable?/1`, where retrying `:rebalance_in_progress` is
+  correct — commits are idempotent and need no rejoin.
+  """
+  @spec sync_group_retryable?(error()) :: boolean()
+  def sync_group_retryable?(:rebalance_in_progress), do: false
+  def sync_group_retryable?(_), do: true
+
+  @doc """
+  Check if a Heartbeat error is safe to retry at the client layer.
+
+  The heartbeat process stops on any error and lets the manager react
+  (`Heartbeat.handle_info/2`), so the only retry is here at the client. Its
+  value is absorbing a transient blip (timeout / coordinator hiccup) so a
+  single failed heartbeat does not escalate into a full rejoin + group-wide
+  rebalance — hence default-retry for unclassified errors.
+
+  The broker's two "rejoin now" signals — `:rebalance_in_progress` and
+  `:unknown_member_id` — are mapped by the heartbeat process straight to
+  `{:shutdown, :rebalance}`; retrying them at the client only delays the
+  inevitable rejoin, so they are not retryable.
+  """
+  @spec heartbeat_retryable?(error()) :: boolean()
+  def heartbeat_retryable?(:rebalance_in_progress), do: false
+  def heartbeat_retryable?(:unknown_member_id), do: false
+  def heartbeat_retryable?(_), do: true
+
+  @doc """
   Check if a commit error is fatal and requires rejoining the consumer group.
 
   These errors cannot be fixed by retry — the consumer's generation or member_id
