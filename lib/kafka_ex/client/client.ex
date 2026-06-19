@@ -893,15 +893,7 @@ defmodule KafkaEx.Client do
     Logger.warning("Request #{inspect(request_name)} failed with error #{inspect(error_atom)}")
 
     if ctx.retryable?.(error_atom) do
-      # Refresh metadata for leadership-related errors before retrying
-      updated_state =
-        if requires_metadata_refresh?(error_atom) do
-          Logger.info("Refreshing metadata due to #{inspect(error_atom)} error")
-          update_metadata(state)
-        else
-          state
-        end
-
+      updated_state = refresh_for_error(error_atom, ctx, state)
       handle_request_with_retry(ctx, updated_state, retry_count - 1, error)
     else
       # Non-retryable error - fail immediately
@@ -921,6 +913,34 @@ defmodule KafkaEx.Client do
   defp requires_metadata_refresh?(:not_leader_or_follower), do: true
   defp requires_metadata_refresh?(:fenced_leader_epoch), do: true
   defp requires_metadata_refresh?(_), do: false
+
+  defp requires_coordinator_refresh?(:not_coordinator), do: true
+  defp requires_coordinator_refresh?(:coordinator_not_available), do: true
+  defp requires_coordinator_refresh?(_), do: false
+
+  defp refresh_for_error(error_atom, ctx, state) do
+    cond do
+      requires_metadata_refresh?(error_atom) ->
+        Logger.info("Refreshing metadata due to #{inspect(error_atom)} error")
+        update_metadata(state)
+
+      coordinator_request?(ctx.node_selector) and requires_coordinator_refresh?(error_atom) ->
+        Logger.info("Re-discovering group coordinator due to #{inspect(error_atom)} error")
+        refresh_coordinator(state, ctx.node_selector.consumer_group_name)
+
+      true ->
+        state
+    end
+  end
+
+  defp coordinator_request?(%NodeSelector{strategy: :consumer_group}), do: true
+  defp coordinator_request?(_), do: false
+
+  defp refresh_coordinator(state, consumer_group) do
+    state
+    |> State.drop_consumer_group_coordinator(consumer_group)
+    |> update_consumer_group_coordinator(consumer_group)
+  end
 
   # ----------------------------------------------------------------------------------------------------
   defp maybe_connect_broker(broker, state) do

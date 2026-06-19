@@ -11,9 +11,9 @@ ExUnit.configure(
   ]
 )
 
-# Prepare the network I/O seam for unit tests that stub it via Mimic
-# (no-op for tests that don't stub).
+# Prepare the seams that unit tests stub via Mimic (no-op for tests that don't stub).
 Mimic.copy(KafkaEx.Network.NetworkClient)
+Mimic.copy(KafkaEx.Client.RequestBuilder)
 
 ExUnit.start()
 

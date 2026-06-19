@@ -269,6 +269,42 @@ defmodule KafkaEx.Cluster.ClusterMetadataTest do
       assert merged_cluster.controller_id == 2
       assert Map.has_key?(merged_cluster.topics, "test-topic")
     end
+
+    test "preserves cached consumer group coordinators across a metadata refresh" do
+      old_cluster = %ClusterMetadata{
+        brokers: %{1 => %Broker{node_id: 1, host: "b1.example.com", port: 9092, socket: nil}},
+        consumer_group_coordinators: %{"group-a" => 1}
+      }
+
+      # a fresh Metadata response parse always carries empty coordinators;
+      # the merge must not discard the old ones (the 30s-refresh wipe, M-2)
+      new_cluster = %ClusterMetadata{
+        brokers: %{1 => %Broker{node_id: 1, host: "b1.example.com", port: 9092, socket: nil}},
+        consumer_group_coordinators: %{}
+      }
+
+      {merged_cluster, _} = ClusterMetadata.merge_brokers(old_cluster, new_cluster)
+
+      assert merged_cluster.consumer_group_coordinators == %{"group-a" => 1}
+    end
+  end
+
+  describe "drop_consumer_group_coordinator/2" do
+    test "removes the cached coordinator for the given group, leaving others" do
+      cluster = %ClusterMetadata{consumer_group_coordinators: %{"group-a" => 1, "group-b" => 2}}
+
+      dropped = ClusterMetadata.drop_consumer_group_coordinator(cluster, "group-a")
+
+      assert dropped.consumer_group_coordinators == %{"group-b" => 2}
+    end
+
+    test "is a no-op when the group has no cached coordinator" do
+      cluster = %ClusterMetadata{consumer_group_coordinators: %{"group-b" => 2}}
+
+      dropped = ClusterMetadata.drop_consumer_group_coordinator(cluster, "group-a")
+
+      assert dropped.consumer_group_coordinators == %{"group-b" => 2}
+    end
   end
 
   describe "broker_by_node_id/1" do
