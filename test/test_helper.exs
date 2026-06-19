@@ -11,9 +11,11 @@ ExUnit.configure(
   ]
 )
 
-# Prepare the network I/O seam for unit tests that stub it via Mimic
-# (no-op for tests that don't stub).
-Mimic.copy(KafkaEx.Network.NetworkClient)
+# Prepare the seams that unit tests stub via Mimic (no-op for tests that don't stub).
+# type_check: true validates stub args + return values against the module's typespecs,
+# so a stub can't return a value the real function never could (network I/O seam).
+Mimic.copy(KafkaEx.Network.NetworkClient, type_check: true)
+Mimic.copy(KafkaEx.Client.RequestBuilder)
 
 ExUnit.start()
 

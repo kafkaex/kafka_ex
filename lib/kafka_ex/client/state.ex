@@ -80,6 +80,11 @@ defmodule KafkaEx.Client.State do
     %{state | cluster_metadata: new_metadata}
   end
 
+  def drop_consumer_group_coordinator(%__MODULE__{cluster_metadata: cluster_metadata} = state, group) do
+    new_metadata = ClusterMetadata.drop_consumer_group_coordinator(cluster_metadata, group)
+    %{state | cluster_metadata: new_metadata}
+  end
+
   def remove_topics(%__MODULE__{cluster_metadata: cluster_metadata} = state, topics) do
     %{state | cluster_metadata: ClusterMetadata.remove_topics(cluster_metadata, topics)}
   end

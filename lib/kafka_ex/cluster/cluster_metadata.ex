@@ -126,7 +126,11 @@ defmodule KafkaEx.Cluster.ClusterMetadata do
         end)
       end)
 
-    {%{new_cluster_metadata | brokers: new_brokers}, brokers_to_close}
+    {%{
+       new_cluster_metadata
+       | brokers: new_brokers,
+         consumer_group_coordinators: old_cluster_metadata.consumer_group_coordinators
+     }, brokers_to_close}
   end
 
   @doc """
@@ -165,6 +169,18 @@ defmodule KafkaEx.Cluster.ClusterMetadata do
             coordinator_node_id
           )
     }
+  end
+
+  @doc """
+  Forget the cached coordinator for a consumer group, forcing the next request to
+  re-run FindCoordinator (e.g. after a NOT_COORDINATOR response).
+  """
+  @spec drop_consumer_group_coordinator(t, KafkaExAPI.consumer_group_name()) :: t
+  def drop_consumer_group_coordinator(
+        %__MODULE__{consumer_group_coordinators: consumer_group_coordinators} = cluster_metadata,
+        consumer_group
+      ) do
+    %{cluster_metadata | consumer_group_coordinators: Map.delete(consumer_group_coordinators, consumer_group)}
   end
 
   @doc """
