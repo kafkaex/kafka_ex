@@ -747,7 +747,12 @@ defmodule KafkaEx.Client do
   end
 
   defp handle_offset_commit_request(request, node_selector, state) do
-    %RequestContext{request: request, parser_fn: &ResponseParser.offset_commit_response/1, node_selector: node_selector}
+    %RequestContext{
+      request: request,
+      parser_fn: &ResponseParser.offset_commit_response/1,
+      node_selector: node_selector,
+      retryable?: &Retry.commit_retryable?/1
+    }
     |> handle_request_with_retry(state)
   end
 

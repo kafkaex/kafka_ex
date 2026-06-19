@@ -59,6 +59,10 @@ defmodule KafkaEx.Consumer.Stream do
     ######################################################################
     # Main stream flow control
 
+    defp stream_control(:commit_halt, %ConsumerStream{}, offset) do
+      {:halt, offset}
+    end
+
     # error response -> halt + log
     #
     # `offset` is the offset we were about to fetch (the failed fetch emitted no
@@ -117,10 +121,22 @@ defmodule KafkaEx.Consumer.Stream do
 
       if need_commit?(fetch_response, auto_commit) do
         offset_to_commit = last_offset(acc, fetch_response.message_set)
-        commit_offset(stream_data, offset_to_commit)
-      end
 
-      fetch_response
+        case commit_offset(stream_data, offset_to_commit) do
+          {:error, reason} ->
+            Logger.error(
+              "Stream halting: offset commit failed for #{stream_data.topic}/#{stream_data.partition} " <>
+                "at offset #{offset_to_commit}: #{inspect(reason)}"
+            )
+
+            :commit_halt
+
+          _ ->
+            fetch_response
+        end
+      else
+        fetch_response
+      end
     end
 
     # error response -> never commit (and avoids the message_set KeyError downstream)

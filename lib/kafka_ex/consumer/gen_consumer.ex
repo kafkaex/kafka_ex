@@ -1132,6 +1132,15 @@ defmodule KafkaEx.Consumer.GenConsumer do
           {:noreply, State.t()} | {:stop, term(), State.t()}
   def commit_for_test(error, state), do: handle_commit_error(error, state)
 
+  @load_offsets_max_retries 5
+  @default_load_offsets_retry_backoff_ms 500
+
+  defp load_offsets_retry_backoff_ms do
+    Application.get_env(:kafka_ex, :load_offsets_retry_backoff_ms, @default_load_offsets_retry_backoff_ms)
+  end
+
+  defp load_offsets(%State{} = state), do: load_offsets(state, @load_offsets_max_retries)
+
   defp load_offsets(
          %State{
            client: client,
@@ -1139,28 +1148,47 @@ defmodule KafkaEx.Consumer.GenConsumer do
            topic: topic,
            partition: partition,
            auto_offset_reset: auto_offset_reset
-         } = state
+         } = state,
+         retries_left
        ) do
     partitions = [%{partition_num: partition}]
     opts = VersionHelper.maybe_put_api_version([], state.api_versions, :offset_fetch)
 
     case KafkaExAPI.fetch_committed_offset(client, group, topic, partitions, opts) do
-      {:ok, [%{partition_offsets: [%{offset: offset, error_code: error_code}]}]} ->
-        case error_code do
-          :no_error when offset >= 0 ->
-            %State{state | current_offset: offset, committed_offset: offset, acked_offset: offset}
+      {:ok, [%{partition_offsets: [%{offset: offset, error_code: :no_error}]}]} when offset >= 0 ->
+        %State{state | current_offset: offset, committed_offset: offset, acked_offset: offset}
 
-          _ ->
-            start_from_auto_offset_reset(state, auto_offset_reset)
-        end
+      {:ok, [%{partition_offsets: [%{error_code: :no_error}]}]} ->
+        start_from_auto_offset_reset(state, auto_offset_reset)
 
       {:ok, []} ->
         start_from_auto_offset_reset(state, auto_offset_reset)
 
-      {:error, _reason} ->
-        start_from_auto_offset_reset(state, auto_offset_reset)
+      {:ok, [%{partition_offsets: [%{error_code: error_code}]}]} ->
+        handle_load_offsets_error(state, error_code, retries_left)
+
+      {:error, reason} ->
+        handle_load_offsets_error(state, reason, retries_left)
     end
   end
+
+  defp handle_load_offsets_error(%State{topic: topic, partition: partition} = state, reason, retries_left) do
+    if load_offsets_retryable?(reason) and retries_left > 0 do
+      Logger.warning(
+        "Unable to load committed offsets for #{topic}/#{partition}: #{inspect(reason)}. " <>
+          "Retrying (#{@load_offsets_max_retries - retries_left + 1}/#{@load_offsets_max_retries})."
+      )
+
+      Process.sleep(load_offsets_retry_backoff_ms())
+      load_offsets(state, retries_left - 1)
+    else
+      raise "Unable to load committed offsets for #{topic}/#{partition}: #{inspect(reason)}"
+    end
+  end
+
+  defp load_offsets_retryable?(:unstable_offset_commit), do: true
+  defp load_offsets_retryable?(:rebalance_in_progress), do: true
+  defp load_offsets_retryable?(reason), do: Retry.transient_error?(reason)
 
   defp start_from_auto_offset_reset(%State{client: client, topic: topic, partition: partition} = state, reset) do
     offset =
