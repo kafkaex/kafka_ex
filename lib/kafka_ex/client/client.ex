@@ -752,7 +752,12 @@ defmodule KafkaEx.Client do
   end
 
   defp handle_heartbeat_request(request, node_selector, state) do
-    %RequestContext{request: request, parser_fn: &ResponseParser.heartbeat_response/1, node_selector: node_selector}
+    %RequestContext{
+      request: request,
+      parser_fn: &ResponseParser.heartbeat_response/1,
+      node_selector: node_selector,
+      retryable?: &Retry.heartbeat_retryable?/1
+    }
     |> handle_request_with_retry(state)
   end
 
@@ -772,7 +777,12 @@ defmodule KafkaEx.Client do
   end
 
   defp handle_sync_group_request(request, node_selector, state) do
-    %RequestContext{request: request, parser_fn: &ResponseParser.sync_group_response/1, node_selector: node_selector}
+    %RequestContext{
+      request: request,
+      parser_fn: &ResponseParser.sync_group_response/1,
+      node_selector: node_selector,
+      retryable?: &Retry.sync_group_retryable?/1
+    }
     |> handle_request_with_retry(state)
   end
 

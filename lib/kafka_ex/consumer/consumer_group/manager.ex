@@ -67,7 +67,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
       :members,
       :generation_id,
       :assignments,
-      :heartbeat_timer
+      :heartbeat_timer,
+      :sync_retry_backoff_ms,
+      sync_failures: 0
     ]
 
     @type t :: %__MODULE__{
@@ -89,7 +91,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
             members: [binary()] | nil,
             generation_id: integer() | nil,
             assignments: [{binary(), integer()}] | nil,
-            heartbeat_timer: reference() | nil
+            heartbeat_timer: reference() | nil,
+            sync_retry_backoff_ms: non_neg_integer() | nil,
+            sync_failures: non_neg_integer()
           }
   end
 
@@ -103,6 +107,16 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
 
   @max_join_retries 6
   @max_topic_retries 5
+
+  # Default backoff before a SyncGroup-driven rejoin (see handle_sync_error/3);
+  # overridable per consumer group via the `:sync_retry_backoff_ms` opt. Defined
+  # here (before init/1) because init reads it as the default.
+  @sync_retry_backoff_ms 1_000
+
+  # Max consecutive recoverable SyncGroup failures before giving up (the counter
+  # resets on a successful sync). Bounds the rejoin loop the way @max_join_retries
+  # bounds join — a persistent failure escalates to the supervisor rebuild.
+  @max_sync_retries 3
 
   # Gets a value from opts, falling back to application config, then to default
   defp get_with_default(opts, key, default) do
@@ -132,6 +146,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     session_timeout = get_with_default(opts, :session_timeout, @session_timeout)
     session_timeout_padding = get_with_default(opts, :session_timeout_padding, @session_timeout_padding)
     rebalance_timeout = get_with_default(opts, :rebalance_timeout, session_timeout * @rebalance_timeout_multiplier)
+    sync_retry_backoff_ms = get_with_default(opts, :sync_retry_backoff_ms, @sync_retry_backoff_ms)
 
     partition_assignment_callback =
       Keyword.get(opts, :partition_assignment_callback, &PartitionAssignment.round_robin/2)
@@ -145,7 +160,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
         :session_timeout,
         :session_timeout_padding,
         :rebalance_timeout,
-        :partition_assignment_callback
+        :partition_assignment_callback,
+        :client,
+        :sync_retry_backoff_ms
       ])
 
     # Use Config defaults for connection options if not provided
@@ -159,7 +176,15 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
         initial_topics: topics
       ]
 
-    case Client.start_link(client_opts, :no_name) do
+    # A pre-supplied `:client` (test-only dependency injection) bypasses starting
+    # a real client; production callers never set it, so this is inert in prod.
+    client_result =
+      case Keyword.get(opts, :client) do
+        nil -> Client.start_link(client_opts, :no_name)
+        pid when is_pid(pid) -> {:ok, pid}
+      end
+
+    case client_result do
       {:ok, client} ->
         state = %State{
           supervisor_pid: supervisor_pid,
@@ -174,7 +199,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
           consumer_opts: consumer_opts,
           group_name: group_name,
           topics: topics,
-          member_id: nil
+          member_id: nil,
+          sync_retry_backoff_ms: sync_retry_backoff_ms
         }
 
         Process.flag(:trap_exit, true)
@@ -484,7 +510,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     min(delay, @join_retry_max_delay_ms)
   end
 
-  defp on_successful_join(state, join_response) do
+  defp on_successful_join(%State{} = state, join_response) do
     Logger.debug(
       "Joined consumer group #{state.group_name} generation:#{join_response.generation_id}-#{join_response.member_id}"
     )
@@ -538,6 +564,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
 
     case KafkaExAPI.sync_group(client, group_name, generation_id, member_id, opts) do
       {:ok, sync_response} ->
+        # A successful sync clears the consecutive-recoverable-failure counter.
+        state = %State{state | sync_failures: 0}
         {:ok, state} = start_heartbeat_timer(state)
         {:ok, state} = stop_consumer(state)
         consumer_assignments = extract_consumer_assignments(sync_response.partition_assignments)
@@ -547,7 +575,44 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
         rebalance(state, :rebalance_in_progress)
 
       {:error, reason} ->
+        handle_sync_error(state, group_name, reason)
+    end
+  end
+
+  # SyncGroup recovery — mirrors join/2's recoverable-error handling. A transient
+  # SyncGroup failure (e.g. :unknown / :timeout from a coordinator under rebalance
+  # churn, such as a rolling deploy) must not crash the Manager: the crash escalates
+  # through the one_for_all / max_restarts: 0 consumer-group supervisor into a full
+  # subtree teardown, triggering a group-wide rebalance.
+  # Rejoining is the correct recovery (a fresh generation); retrying sync_group
+  # with the same, possibly stale, generation_id is futile.
+  #
+  # Bounded like join: tolerate up to @max_sync_retries consecutive recoverable
+  # failures (the counter resets on a successful sync), then give up and raise —
+  # escalating a persistent failure to the supervisor rebuild rather than
+  # rejoining forever (cf. join's JoinGroupRetriesExhausted). Non-recoverable
+  # errors raise immediately.
+  defp handle_sync_error(%State{} = state, group_name, reason) do
+    cond do
+      not recoverable_error?(reason) ->
         raise KafkaEx.SyncGroupError, group_name: group_name, reason: reason
+
+      state.sync_failures >= @max_sync_retries ->
+        raise KafkaEx.SyncGroupRetriesExhaustedError,
+          group_name: group_name,
+          last_error: reason,
+          attempts: @max_sync_retries
+
+      true ->
+        attempt = state.sync_failures + 1
+
+        Logger.warning(
+          "Unable to sync consumer group #{inspect(group_name)}: #{inspect(reason)}. " <>
+            "Rejoining in #{div(state.sync_retry_backoff_ms, 1000)}s (attempt #{attempt}/#{@max_sync_retries})."
+        )
+
+        :timer.sleep(state.sync_retry_backoff_ms)
+        rebalance(%State{state | sync_failures: attempt}, {:sync_error, reason})
     end
   end
 

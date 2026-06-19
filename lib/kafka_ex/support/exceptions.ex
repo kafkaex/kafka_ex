@@ -74,6 +74,29 @@ defmodule KafkaEx.SyncGroupError do
   end
 end
 
+defmodule KafkaEx.SyncGroupRetriesExhaustedError do
+  @moduledoc """
+  Raised when syncing a consumer group fails after exhausting all retry attempts.
+
+  Indicates repeated recoverable SyncGroup failures (coordinator errors,
+  timeouts, etc.) during rebalance churn that didn't resolve within the retry
+  window. Distinct from `KafkaEx.SyncGroupError`, which is raised immediately for
+  a non-recoverable sync failure. Mirrors `KafkaEx.JoinGroupRetriesExhaustedError`.
+  """
+  defexception [:message, :group_name, :last_error, :attempts]
+
+  def exception(opts) do
+    group_name = Keyword.fetch!(opts, :group_name)
+    last_error = Keyword.fetch!(opts, :last_error)
+    attempts = Keyword.fetch!(opts, :attempts)
+
+    message =
+      "Unable to sync consumer group #{group_name} after #{attempts} attempts (last error: #{inspect(last_error)})"
+
+    %__MODULE__{message: message, group_name: group_name, last_error: last_error, attempts: attempts}
+  end
+end
+
 defmodule KafkaEx.MetadataUpdateError do
   @moduledoc """
   Raised when periodic metadata updates fail after exhausting all retry attempts.

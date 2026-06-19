@@ -140,6 +140,48 @@ defmodule KafkaEx.Support.ExceptionsTest do
     end
   end
 
+  describe "KafkaEx.SyncGroupRetriesExhaustedError" do
+    test "formats message with all details" do
+      exception =
+        KafkaEx.SyncGroupRetriesExhaustedError.exception(
+          group_name: "my-group",
+          last_error: :unknown,
+          attempts: 3
+        )
+
+      assert exception.message =~ "Unable to sync consumer group my-group"
+      assert exception.message =~ "after 3 attempts"
+      assert exception.message =~ ":unknown"
+      assert exception.group_name == "my-group"
+      assert exception.last_error == :unknown
+      assert exception.attempts == 3
+    end
+
+    test "can be raised and caught" do
+      assert_raise KafkaEx.SyncGroupRetriesExhaustedError, ~r/after \d+ attempts/, fn ->
+        raise KafkaEx.SyncGroupRetriesExhaustedError,
+          group_name: "test-group",
+          last_error: :timeout,
+          attempts: 3
+      end
+    end
+
+    test "exception struct contains all fields" do
+      exception =
+        KafkaEx.SyncGroupRetriesExhaustedError.exception(
+          group_name: "g",
+          last_error: :e,
+          attempts: 1
+        )
+
+      assert %KafkaEx.SyncGroupRetriesExhaustedError{} = exception
+      assert Map.has_key?(exception, :message)
+      assert Map.has_key?(exception, :group_name)
+      assert Map.has_key?(exception, :last_error)
+      assert Map.has_key?(exception, :attempts)
+    end
+  end
+
   describe "KafkaEx.SyncGroupError" do
     test "formats message with group name and reason" do
       exception = KafkaEx.SyncGroupError.exception(group_name: "my-group", reason: :unknown_member_id)

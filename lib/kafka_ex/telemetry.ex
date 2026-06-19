@@ -486,7 +486,7 @@ defmodule KafkaEx.Telemetry do
           binary(),
           binary(),
           integer() | nil,
-          atom() | {:heartbeat_error, atom()} | {:commit_fatal, atom()}
+          atom() | {:heartbeat_error, atom()} | {:commit_fatal, atom()} | {:sync_error, atom()}
         ) :: :ok
   def emit_rebalance(group_id, member_id, generation_id, reason) do
     :telemetry.execute(
