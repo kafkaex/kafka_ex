@@ -59,7 +59,7 @@ defmodule KafkaEx.Client.CoordinatorRefreshTest do
     # FindCoordinator is only built when the client decides to re-discover.
     stub(RequestBuilder, :find_coordinator_request, fn _opts, _state ->
       send(test_pid, :rediscovered)
-      {:error, :stub_short_circuit}
+      {:error, :api_version_no_supported}
     end)
 
     Client.handle_call(

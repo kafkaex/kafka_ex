@@ -14,7 +14,7 @@ defmodule KafkaEx.Cluster.Broker do
           host: binary,
           port: non_neg_integer,
           socket: Socket.t() | nil,
-          rack: binary
+          rack: binary | nil
         }
 
   @doc """
