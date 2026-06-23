@@ -1173,7 +1173,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
   end
 
   defp handle_load_offsets_error(%State{topic: topic, partition: partition} = state, reason, retries_left) do
-    if load_offsets_retryable?(reason) and retries_left > 0 do
+    if Retry.commit_retryable?(reason) and retries_left > 0 do
       Logger.warning(
         "Unable to load committed offsets for #{topic}/#{partition}: #{inspect(reason)}. " <>
           "Retrying (#{@load_offsets_max_retries - retries_left + 1}/#{@load_offsets_max_retries})."
@@ -1185,10 +1185,6 @@ defmodule KafkaEx.Consumer.GenConsumer do
       raise "Unable to load committed offsets for #{topic}/#{partition}: #{inspect(reason)}"
     end
   end
-
-  defp load_offsets_retryable?(:unstable_offset_commit), do: true
-  defp load_offsets_retryable?(:rebalance_in_progress), do: true
-  defp load_offsets_retryable?(reason), do: Retry.transient_error?(reason)
 
   defp start_from_auto_offset_reset(%State{client: client, topic: topic, partition: partition} = state, reset) do
     offset =
