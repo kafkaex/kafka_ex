@@ -61,10 +61,11 @@ config :kafka_ex,
   # - `:latest` - Will move the offset to the most recent.
   # - `:none` - The error will simply be raised
   auto_offset_reset: :none,
-  # Delay (ms) between retries when a GenConsumer's startup committed-offset fetch
-  # hits a retryable error (coordinator not available/loading, timeout, KIP-447
-  # unstable offset). After 5 retries the consumer crashes (supervisor restart)
-  # rather than silently resetting the offset. Keep the total (5 * this value)
+  # Base delay (ms) for the exponential backoff between retries when a GenConsumer's
+  # startup committed-offset fetch hits a retryable error (coordinator not
+  # available/loading, timeout, KIP-447 unstable offset). Delays grow as
+  # base * 2^attempt (capped); after 6 attempts the consumer crashes (supervisor
+  # restart) rather than silently resetting the offset. Keep the cumulative backoff
   # below the worker shutdown budget to avoid a hard kill mid-retry. Default: 500.
   # load_offsets_retry_backoff_ms: 500,
   # API versions for Kafka protocol requests.
