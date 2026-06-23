@@ -51,7 +51,14 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerSyncRecoveryTest do
     # here (no consumer child) -> :ok. No real consumers start because sync never
     # succeeds.
     {:ok, sup} = Supervisor.start_link([], strategy: :one_for_one)
-    on_exit(fn -> if Process.alive?(sup), do: Supervisor.stop(sup) end)
+
+    on_exit(fn ->
+      try do
+        if Process.alive?(sup), do: Supervisor.stop(sup)
+      catch
+        :exit, _ -> :ok
+      end
+    end)
 
     {:ok, mock} =
       MockClient.start_link(%{
