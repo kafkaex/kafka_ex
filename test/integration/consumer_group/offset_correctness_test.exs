@@ -1,17 +1,21 @@
 defmodule KafkaEx.Integration.ConsumerGroup.OffsetCorrectnessTest do
   @moduledoc """
   Integration regression for PR-4 / defect H-6: on consumer startup, `load_offsets`
-  must NOT silently fall back to `auto_offset_reset` when the committed-offset fetch
-  keeps failing with a real error — that loses/duplicates the committed position. It
-  must retry retryable errors and then raise (propagate -> supervisor restart).
+  must resume from the *committed* offset and must NOT fall back to `auto_offset_reset`
+  when a real committed offset exists — silently resetting would replay or skip
+  messages (offset duplication/loss) on a real cluster.
 
-  We force a real NOT_COORDINATOR deterministically (no broker killing) by seeding the
-  client's coordinator cache with the wrong broker via `:sys.replace_state`, then run
-  the consumer's startup offset-load path (`handle_info(:timeout, ...)`) against the
-  live cluster.
+  We commit a known offset, then drive the consumer's startup offset-load path
+  (`handle_info(:timeout, ...)`) against the live cluster and assert it resumes from
+  exactly that offset — not from `auto_offset_reset: :latest` (which would be the
+  log-end), proving the committed position wins.
 
-  The complementary positive path (commit -> restart -> resume from the committed
-  offset, no reprocessing) is covered by SyncConsumerGroupTest.
+  The negative path (load_offsets *raising* instead of silently resetting when the
+  committed-offset fetch keeps failing) is covered deterministically by the unit test
+  `KafkaEx.Consumer.GenConsumerLoadOffsetsTest`: it cannot be reproduced as an
+  integration test, because a healthy cluster self-heals a stale coordinator
+  (`:not_coordinator` -> re-discover, see CoordinatorRediscoveryTest / #547), so a
+  *persistent* real error is not deterministically forceable here.
   """
   use ExUnit.Case, async: false
   @moduletag :consumer_group
@@ -21,7 +25,6 @@ defmodule KafkaEx.Integration.ConsumerGroup.OffsetCorrectnessTest do
 
   alias KafkaEx.API
   alias KafkaEx.Client
-  alias KafkaEx.Client.State, as: ClientState
   alias KafkaEx.Consumer.GenConsumer
   alias KafkaEx.Consumer.GenConsumer.State
 
@@ -30,39 +33,29 @@ defmodule KafkaEx.Integration.ConsumerGroup.OffsetCorrectnessTest do
     {:ok, client} = Client.start_link(args, :no_name)
     on_exit(fn -> if Process.alive?(client), do: GenServer.stop(client) end)
 
-    original = Application.get_env(:kafka_ex, :load_offsets_retry_backoff_ms)
-    Application.put_env(:kafka_ex, :load_offsets_retry_backoff_ms, 0)
-
-    on_exit(fn ->
-      if is_nil(original),
-        do: Application.delete_env(:kafka_ex, :load_offsets_retry_backoff_ms),
-        else: Application.put_env(:kafka_ex, :load_offsets_retry_backoff_ms, original)
-    end)
-
     {:ok, %{client: client}}
   end
 
+  @committed_offset 3
+
   @tag timeout: 60_000
-  test "load_offsets raises instead of silently resetting when the committed-offset fetch keeps failing",
+  test "load_offsets resumes from the committed offset instead of resetting to auto_offset_reset",
        %{client: client} do
     topic = generate_random_string()
     group = generate_random_string()
     _ = create_topic(client, topic, partitions: 1)
     wait_for_topic_in_metadata(client, topic)
 
-    partitions = [%{partition_num: 0}]
+    # produce 5 records (offsets 0..4) so the log-end is 5 -> distinct from the offset
+    # we commit (3); a wrong :latest reset would land on 5, a resume lands on 3.
+    Enum.each(1..5, fn i -> {:ok, _} = API.produce(client, topic, 0, [%{value: "m-#{i}"}]) end)
 
-    # establish the real coordinator and read the broker set
-    assert {:ok, _} = API.fetch_committed_offset(client, group, topic, partitions)
-    cstate = :sys.get_state(client)
-    real_coord = cstate.cluster_metadata.consumer_group_coordinators[group]
-    wrong_node = cstate.cluster_metadata.brokers |> Map.keys() |> Enum.find(&(&1 != real_coord))
+    partitions = [%{partition_num: 0, offset: @committed_offset}]
+    assert {:ok, _} = API.commit_offset(client, group, topic, partitions)
 
-    assert wrong_node, "need a multi-broker cluster to pick a non-coordinator broker"
-
-    # seed the WRONG coordinator -> the startup offset fetch hits a broker that really
-    # is not the coordinator for this group and keeps returning NOT_COORDINATOR
-    :sys.replace_state(client, fn st -> ClientState.put_consumer_group_coordinator(st, group, wrong_node) end)
+    # sanity: the commit is durable and readable from the coordinator
+    assert {:ok, [%{partition_offsets: [%{offset: @committed_offset, error_code: :no_error}]}]} =
+             API.fetch_committed_offset(client, group, topic, [%{partition_num: 0}])
 
     state = %State{
       current_offset: nil,
@@ -75,8 +68,9 @@ defmodule KafkaEx.Integration.ConsumerGroup.OffsetCorrectnessTest do
       api_versions: %{}
     }
 
-    assert_raise RuntimeError, ~r/Unable to load committed offsets/, fn ->
-      GenConsumer.handle_info(:timeout, state)
-    end
+    {:noreply, new_state, 0} = GenConsumer.handle_info(:timeout, state)
+
+    assert new_state.current_offset == @committed_offset,
+           "expected resume from committed offset #{@committed_offset}, got #{inspect(new_state.current_offset)}"
   end
 end
