@@ -1,5 +1,9 @@
 defmodule KafkaEx.Auth.ConfigTest do
-  use ExUnit.Case, async: true
+  # NOT async: these tests mutate global Application env (:sasl_username, :sasl,
+  # ...). App env is VM-global, so running concurrently with other tests lets
+  # them observe the half-set config (e.g. KafkaExTest.build_worker_options
+  # hitting check_legacy_keys! and raising on a transiently-set legacy key).
+  use ExUnit.Case, async: false
   alias KafkaEx.Auth.Config
 
   test "new/1 builds struct and redacts password in inspect" do

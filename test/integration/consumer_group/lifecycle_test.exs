@@ -39,7 +39,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.LifecycleTest do
       ]
 
       opts = [session_timeout: 30_000, rebalance_timeout: 60_000, group_protocols: group_protocols]
-      {:ok, join_response} = API.join_group(client, consumer_group, "", opts)
+      {:ok, join_response} = join_group_with_retry(client, consumer_group, "", opts)
 
       assert %JoinGroup{} = join_response
       assert join_response.generation_id >= 1
@@ -112,7 +112,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.LifecycleTest do
 
       # Join with short session timeout (6 seconds)
       opts = [session_timeout: 6_000, rebalance_timeout: 10_000, group_protocols: group_protocols]
-      {:ok, join_response} = API.join_group(client, consumer_group, "", opts)
+      {:ok, join_response} = join_group_with_retry(client, consumer_group, "", opts)
 
       member_id = join_response.member_id
       generation_id = join_response.generation_id
@@ -161,7 +161,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.LifecycleTest do
       ]
 
       opts = [session_timeout: 30_000, rebalance_timeout: 60_000, group_protocols: group_protocols]
-      {:ok, join_response} = API.join_group(client, consumer_group, "", opts)
+      {:ok, join_response} = join_group_with_retry(client, consumer_group, "", opts)
 
       member_id = join_response.member_id
       generation_id = join_response.generation_id

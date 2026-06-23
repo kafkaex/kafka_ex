@@ -123,7 +123,37 @@ defmodule KafkaEx.IntegrationHelpers do
       timeout: 10_000
     ]
 
-    {:ok, response} = API.join_group(client, consumer_group, "", opts)
+    {:ok, response} = join_group_with_retry(client, consumer_group, "", opts)
     {response.member_id, response.generation_id}
   end
+
+  @doc """
+  Joins a consumer group, retrying the transient coordinator-not-ready errors
+  that occur right after topic creation: the group coordinator's
+  `__consumer_offsets` partition may still be loading, so the first JoinGroup
+  can come back as `:no_broker` / `:coordinator_not_available` before the
+  coordinator is electable. Bounded so a real failure still surfaces.
+  """
+  def join_group_with_retry(client, consumer_group, member_id, opts, retries \\ 20) do
+    case API.join_group(client, consumer_group, member_id, opts) do
+      {:ok, response} ->
+        {:ok, response}
+
+      {:error, reason} when retries > 0 ->
+        if coordinator_not_ready?(reason) do
+          Process.sleep(250)
+          join_group_with_retry(client, consumer_group, member_id, opts, retries - 1)
+        else
+          {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp coordinator_not_ready?(:no_broker), do: true
+  defp coordinator_not_ready?(:coordinator_not_available), do: true
+  defp coordinator_not_ready?(:coordinator_load_in_progress), do: true
+  defp coordinator_not_ready?(_), do: false
 end
