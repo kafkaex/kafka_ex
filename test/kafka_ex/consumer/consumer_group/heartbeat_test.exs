@@ -116,6 +116,21 @@ defmodule KafkaEx.Consumer.ConsumerGroup.HeartbeatTest do
                Heartbeat.handle_info(:timeout, state)
     end
 
+    test "stops terminally on group_authorization_failed (no group access, no rejoin)" do
+      {:ok, client} = MockClient.start_link(%{heartbeat: {:error, :group_authorization_failed}})
+
+      state = %Heartbeat.State{
+        client: client,
+        group_name: "test-group",
+        member_id: "member-1",
+        generation_id: 1,
+        heartbeat_interval: 1000
+      }
+
+      assert {:stop, {:shutdown, {:terminal, :group_authorization_failed}}, ^state} =
+               Heartbeat.handle_info(:timeout, state)
+    end
+
     test "stops with error on other error codes" do
       {:ok, client} = MockClient.start_link(%{heartbeat: {:error, :coordinator_not_available}})
 

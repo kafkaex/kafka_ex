@@ -201,5 +201,12 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerFatalRejoinTest do
       assert_receive {:EXIT, ^manager, {:shutdown, {:terminal, :fenced_instance_id}}}, 30_000
       assert :counters.get(rejoins, 1) == 0
     end
+
+    test ":group_authorization_failed stops terminally without rejoining or raising" do
+      {manager, rejoins} = start_manager_with_sync_error(:group_authorization_failed)
+
+      assert_receive {:EXIT, ^manager, {:shutdown, {:terminal, :group_authorization_failed}}}, 30_000
+      assert :counters.get(rejoins, 1) == 0
+    end
   end
 end

@@ -607,11 +607,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     end
   end
 
-  defp handle_sync_error(%State{} = state, group_name, :fenced_instance_id = reason) do
-    Logger.error(
-      "SyncGroup for #{inspect(group_name)} returned :fenced_instance_id; " <>
-        "another member holds this group.instance.id. Stopping without rejoin"
-    )
+  defp handle_sync_error(%State{} = state, group_name, reason)
+       when reason in [:fenced_instance_id, :group_authorization_failed] do
+    Logger.error("SyncGroup for #{inspect(group_name)} returned terminal #{inspect(reason)}; stopping without rejoin")
 
     send(self(), {:terminal_shutdown, reason})
     {:ok, state}
