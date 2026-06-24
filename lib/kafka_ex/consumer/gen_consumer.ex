@@ -1132,14 +1132,8 @@ defmodule KafkaEx.Consumer.GenConsumer do
           {:noreply, State.t()} | {:stop, term(), State.t()}
   def commit_for_test(error, state), do: handle_commit_error(error, state)
 
-  @load_offsets_max_retries 5
+  @load_offsets_max_attempts 6
   @default_load_offsets_retry_backoff_ms 500
-
-  defp load_offsets_retry_backoff_ms do
-    Application.get_env(:kafka_ex, :load_offsets_retry_backoff_ms, @default_load_offsets_retry_backoff_ms)
-  end
-
-  defp load_offsets(%State{} = state), do: load_offsets(state, @load_offsets_max_retries)
 
   defp load_offsets(
          %State{
@@ -1148,43 +1142,51 @@ defmodule KafkaEx.Consumer.GenConsumer do
            topic: topic,
            partition: partition,
            auto_offset_reset: auto_offset_reset
-         } = state,
-         retries_left
+         } = state
        ) do
     partitions = [%{partition_num: partition}]
     opts = VersionHelper.maybe_put_api_version([], state.api_versions, :offset_fetch)
 
-    case KafkaExAPI.fetch_committed_offset(client, group, topic, partitions, opts) do
-      {:ok, [%{partition_offsets: [%{offset: offset, error_code: :no_error}]}]} when offset >= 0 ->
-        %State{state | current_offset: offset, committed_offset: offset, acked_offset: offset}
-
-      {:ok, [%{partition_offsets: [%{error_code: :no_error}]}]} ->
-        start_from_auto_offset_reset(state, auto_offset_reset)
-
-      {:ok, []} ->
-        start_from_auto_offset_reset(state, auto_offset_reset)
-
-      {:ok, [%{partition_offsets: [%{error_code: error_code}]}]} ->
-        handle_load_offsets_error(state, error_code, retries_left)
-
-      {:error, reason} ->
-        handle_load_offsets_error(state, reason, retries_left)
+    fetch = fn ->
+      classify_committed_offset(KafkaExAPI.fetch_committed_offset(client, group, topic, partitions, opts))
     end
-  end
 
-  defp handle_load_offsets_error(%State{topic: topic, partition: partition} = state, reason, retries_left) do
-    if Retry.commit_retryable?(reason) and retries_left > 0 do
-      Logger.warning(
-        "Unable to load committed offsets for #{topic}/#{partition}: #{inspect(reason)}. " <>
-          "Retrying (#{@load_offsets_max_retries - retries_left + 1}/#{@load_offsets_max_retries})."
+    result =
+      Retry.with_retry(fetch,
+        max_retries: @load_offsets_max_attempts,
+        base_delay_ms:
+          Application.get_env(:kafka_ex, :load_offsets_retry_backoff_ms, @default_load_offsets_retry_backoff_ms),
+        retryable?: &Retry.commit_retryable?/1,
+        on_retry: fn reason, attempt, _delay ->
+          Logger.warning(
+            "Unable to load committed offsets for #{topic}/#{partition}: #{inspect(reason)}. " <>
+              "Retrying (#{attempt}/#{@load_offsets_max_attempts - 1})."
+          )
+        end
       )
 
-      Process.sleep(load_offsets_retry_backoff_ms())
-      load_offsets(state, retries_left - 1)
-    else
-      raise "Unable to load committed offsets for #{topic}/#{partition}: #{inspect(reason)}"
+    case result do
+      {:ok, {:committed, offset}} ->
+        %State{state | current_offset: offset, committed_offset: offset, acked_offset: offset}
+
+      {:ok, :reset} ->
+        start_from_auto_offset_reset(state, auto_offset_reset)
+
+      {:error, reason} ->
+        raise "Unable to load committed offsets for #{topic}/#{partition}: #{inspect(reason)}"
     end
   end
+
+  defp classify_committed_offset({:ok, [%{partition_offsets: [%{offset: offset, error_code: :no_error}]}]})
+       when offset >= 0,
+       do: {:ok, {:committed, offset}}
+
+  defp classify_committed_offset({:ok, [%{partition_offsets: [%{error_code: :no_error}]}]}), do: {:ok, :reset}
+  defp classify_committed_offset({:ok, []}), do: {:ok, :reset}
+
+  defp classify_committed_offset({:ok, [%{partition_offsets: [%{error_code: error_code}]}]}), do: {:error, error_code}
+
+  defp classify_committed_offset({:error, reason}), do: {:error, reason}
 
   defp start_from_auto_offset_reset(%State{client: client, topic: topic, partition: partition} = state, reset) do
     offset =
