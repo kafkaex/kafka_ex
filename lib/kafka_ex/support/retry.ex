@@ -255,9 +255,17 @@ defmodule KafkaEx.Support.Retry do
 
   Contrast `commit_retryable?/1`, where retrying `:rebalance_in_progress` is
   correct — commits are idempotent and need no rejoin.
+
+  `:illegal_generation` / `:unknown_member_id` / `:fenced_instance_id` are also
+  not retryable: the same SyncGroup (same generation/member_id) can only fail
+  the same way. They must bubble so the consumer-group manager rejoins
+  (resetting identity per the reason) or, for `:fenced_instance_id`, stops.
   """
   @spec sync_group_retryable?(error()) :: boolean()
   def sync_group_retryable?(:rebalance_in_progress), do: false
+  def sync_group_retryable?(:illegal_generation), do: false
+  def sync_group_retryable?(:unknown_member_id), do: false
+  def sync_group_retryable?(:fenced_instance_id), do: false
   def sync_group_retryable?(_), do: true
 
   @doc """
@@ -269,14 +277,18 @@ defmodule KafkaEx.Support.Retry do
   single failed heartbeat does not escalate into a full rejoin + group-wide
   rebalance — hence default-retry for unclassified errors.
 
-  The broker's two "rejoin now" signals — `:rebalance_in_progress` and
-  `:unknown_member_id` — are mapped by the heartbeat process straight to
-  `{:shutdown, :rebalance}`; retrying them at the client only delays the
-  inevitable rejoin, so they are not retryable.
+  The broker's "rejoin now" / identity signals — `:rebalance_in_progress`,
+  `:unknown_member_id` and `:illegal_generation` — are mapped by the heartbeat
+  process to a shutdown the manager turns into a rejoin; retrying them at the
+  client only delays the inevitable rejoin, so they are not retryable.
+  `:fenced_instance_id` is terminal (another member holds this
+  `group.instance.id`) — retrying cannot help, so it is not retryable either.
   """
   @spec heartbeat_retryable?(error()) :: boolean()
   def heartbeat_retryable?(:rebalance_in_progress), do: false
   def heartbeat_retryable?(:unknown_member_id), do: false
+  def heartbeat_retryable?(:illegal_generation), do: false
+  def heartbeat_retryable?(:fenced_instance_id), do: false
   def heartbeat_retryable?(_), do: true
 
   @doc """
