@@ -35,6 +35,27 @@ config :kafka_ex,
   brokers: [{"localhost", 9092}]
 ```
 
+### Consumer `auto_offset_reset` default
+
+The default `auto_offset_reset` is now `:latest` (matching the Kafka/Java client
+default), changed from `:none`. This only affects a consumer that has **no valid
+committed offset** — a brand-new consumer group, or one whose offset is out of
+range — and that does **not** set `auto_offset_reset` explicitly:
+
+- Previously (`:none`) such a consumer silently started from the **earliest**
+  offset, replaying the whole topic.
+- Now (`:latest`) it starts from the **newest** offset, consuming only new
+  messages.
+
+`:none` is still available and now does what it says — it **raises** instead of
+guessing, so a missing or out-of-range offset surfaces loudly rather than
+silently replaying or skipping data. To keep the old behavior, set it
+explicitly:
+
+```elixir
+config :kafka_ex, auto_offset_reset: :earliest
+```
+
 ### Module Reorganization
 
 Modules have been reorganized by domain:

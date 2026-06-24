@@ -466,7 +466,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
 
   @commit_interval 5_000
   @commit_threshold 100
-  @auto_offset_reset :none
+  @auto_offset_reset :latest
 
   # Commit retry settings (issue #425)
   # Uses KafkaEx.Support.Retry for unified retry logic with exponential backoff
@@ -496,10 +496,12 @@ defmodule KafkaEx.Consumer.GenConsumer do
   * `:commit_threshold` - Threshold number of messages consumed to commit
     offsets to the broker.  Default 100.
 
-  * `:auto_offset_reset` - The policy for resetting offsets when an
-    `:offset_out_of_range` error occurs. `:earliest` will move the offset to
-    the oldest available, `:latest` moves to the most recent. If anything else
-    is specified, the error will simply be raised.
+  * `:auto_offset_reset` - The policy for choosing a start offset when there is
+    no valid committed offset — either none exists yet (new consumer group) or
+    an `:offset_out_of_range` error occurs. `:latest` (the default) moves to the
+    most recent offset, `:earliest` to the oldest available. `:none` raises
+    instead of guessing, so a missing/out-of-range offset surfaces loudly rather
+    than silently replaying or skipping data.
 
   * `:fetch_options` - Optional keyword list that is passed along to the
     fetch operation.

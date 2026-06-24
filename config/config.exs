@@ -55,12 +55,15 @@ config :kafka_ex,
   # Threshold number of messages consumed for GenConsumer to commit offsets
   # to the broker.
   commit_threshold: 100,
-  # The policy for resetting offsets when an :offset_out_of_range error occurs
+  # The policy for choosing a start offset when there is no valid committed
+  # offset — either none exists yet (new consumer group) or an
+  # :offset_out_of_range error occurs.
   # Options:
-  # - `:earliest` - Will move to the offset to the oldest available
-  # - `:latest` - Will move the offset to the most recent.
-  # - `:none` - The error will simply be raised
-  auto_offset_reset: :none,
+  # - `:latest` (default) - Will move the offset to the most recent.
+  # - `:earliest` - Will move the offset to the oldest available.
+  # - `:none` - The error will simply be raised (strict; surfaces a
+  #   missing/out-of-range offset instead of silently replaying or skipping).
+  auto_offset_reset: :latest,
   # Base delay (ms) for the exponential backoff between retries when a GenConsumer's
   # startup committed-offset fetch hits a retryable error (coordinator not
   # available/loading, timeout, KIP-447 unstable offset). Delays grow as
