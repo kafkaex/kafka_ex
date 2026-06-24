@@ -178,12 +178,14 @@ config :kafka_ex,
 
   # What to do when no committed offset exists, or the requested offset is
   # out of range. Allowed values:
-  #   :none     — raise (the library default — strict; good for production
-  #               where an unexpected out-of-range indicates a real problem)
+  #   :latest   — reset to the newest offset, skip backlog (the library
+  #               default; matches the Kafka/Java client default)
   #   :earliest — reset to the oldest available offset (common for new
   #               consumer groups that want to read existing data)
-  #   :latest   — reset to the newest offset (skip backlog, read only new)
-  auto_offset_reset: :none
+  #   :none     — raise instead of guessing (strict; surfaces a
+  #               missing/out-of-range offset instead of silently
+  #               replaying or skipping data)
+  auto_offset_reset: :latest
 ```
 
 ### Advanced tuning

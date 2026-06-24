@@ -186,6 +186,14 @@ defmodule KafkaEx.Telemetry do
     * Measurements: `%{count: 1}`
     * Metadata: `%{group_id: binary(), member_id: binary(), generation_id: integer(), reason: atom()}`
 
+  * `[:kafka_ex, :consumer, :offset_reset]` - Emitted when a consumer resets to a
+    start offset because it has no valid committed offset — a new consumer group
+    (`:no_committed_offset`) or an out-of-range committed offset
+    (`:offset_out_of_range`). A reset to `:latest` skips backlog and a reset to
+    `:earliest` replays it, so attach to this event to alert on unexpected resets.
+    * Measurements: `%{offset: integer()}`
+    * Metadata: `%{group_id: binary(), topic: binary(), partition: integer(), reset: :earliest | :latest, reason: :no_committed_offset | :offset_out_of_range}`
+
   ### Metadata Events
 
   * `[:kafka_ex, :metadata, :update, :start]` - Emitted when a metadata request begins
@@ -265,6 +273,7 @@ defmodule KafkaEx.Telemetry do
 
   @consumer_rebalance [:kafka_ex, :consumer, :rebalance]
   @consumer_commit_failed [:kafka_ex, :consumer, :commit_failed]
+  @consumer_offset_reset [:kafka_ex, :consumer, :offset_reset]
 
   @metadata_update_start [:kafka_ex, :metadata, :update, :start]
   @metadata_update_stop [:kafka_ex, :metadata, :update, :stop]
@@ -288,7 +297,7 @@ defmodule KafkaEx.Telemetry do
                            @consumer_sync_events ++
                            @consumer_heartbeat_events ++
                            @consumer_leave_events ++
-                           [@consumer_rebalance, @consumer_commit_failed]
+                           [@consumer_rebalance, @consumer_commit_failed, @consumer_offset_reset]
   @consumer_process_events [@consumer_process_start, @consumer_process_stop, @consumer_process_exception]
   @consumer_events @consumer_commit_events ++ @consumer_group_events ++ @consumer_process_events
   @metadata_events [@metadata_update_start, @metadata_update_stop, @metadata_update_exception]
@@ -496,6 +505,34 @@ defmodule KafkaEx.Telemetry do
         group_id: group_id,
         member_id: member_id,
         generation_id: generation_id,
+        reason: reason
+      }
+    )
+  end
+
+  @doc """
+  Emitted when a consumer resets to a start offset for lack of a valid committed
+  offset. `reason` is `:no_committed_offset` (new consumer group) or
+  `:offset_out_of_range` (the committed offset aged out). A `:latest` reset skips
+  backlog; an `:earliest` reset replays it.
+  """
+  @spec emit_offset_reset(
+          group_id :: binary(),
+          topic :: binary(),
+          partition :: non_neg_integer(),
+          offset :: integer(),
+          reset :: :earliest | :latest,
+          reason :: :no_committed_offset | :offset_out_of_range
+        ) :: :ok
+  def emit_offset_reset(group_id, topic, partition, offset, reset, reason) do
+    :telemetry.execute(
+      @consumer_offset_reset,
+      %{offset: offset},
+      %{
+        group_id: group_id,
+        topic: topic,
+        partition: partition,
+        reset: reset,
         reason: reason
       }
     )

@@ -484,6 +484,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.AsyncConsumerGroupTest do
       heartbeat_interval: 1_000,
       session_timeout: 10_000,
       commit_interval: 1_000,
+      auto_offset_reset: :earliest,
       extra_consumer_args: [test_pid: self()]
     ]
     |> Keyword.merge(opts)

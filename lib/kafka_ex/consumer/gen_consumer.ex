@@ -466,7 +466,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
 
   @commit_interval 5_000
   @commit_threshold 100
-  @auto_offset_reset :none
+  @auto_offset_reset :latest
 
   # Commit retry settings (issue #425)
   # Uses KafkaEx.Support.Retry for unified retry logic with exponential backoff
@@ -496,10 +496,12 @@ defmodule KafkaEx.Consumer.GenConsumer do
   * `:commit_threshold` - Threshold number of messages consumed to commit
     offsets to the broker.  Default 100.
 
-  * `:auto_offset_reset` - The policy for resetting offsets when an
-    `:offset_out_of_range` error occurs. `:earliest` will move the offset to
-    the oldest available, `:latest` moves to the most recent. If anything else
-    is specified, the error will simply be raised.
+  * `:auto_offset_reset` - The policy for choosing a start offset when there is
+    no valid committed offset — either none exists yet (new consumer group) or
+    an `:offset_out_of_range` error occurs. `:latest` (the default) moves to the
+    most recent offset, `:earliest` to the oldest available. `:none` raises
+    instead of guessing, so a missing/out-of-range offset surfaces loudly rather
+    than silently replaying or skipping data.
 
   * `:fetch_options` - Optional keyword list that is passed along to the
     fetch operation.
@@ -513,7 +515,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
     implemented, the default implementation calls to `init/2`, dropping the extra
     arguments.
 
-  **NOTE** `:commit_interval`, `auto_commit_reset` and `:commit_threshold` default to the
+  **NOTE** `:commit_interval`, `:auto_offset_reset` and `:commit_threshold` default to the
   application config (e.g., `Application.get_env/2`) if that value is present, or the stated
   default if the application config is not present.
 
@@ -612,11 +614,12 @@ defmodule KafkaEx.Consumer.GenConsumer do
       )
 
     auto_offset_reset =
-      Keyword.get(
-        opts,
+      opts
+      |> Keyword.get(
         :auto_offset_reset,
         Application.get_env(:kafka_ex, :auto_offset_reset, @auto_offset_reset)
       )
+      |> Config.validate_auto_offset_reset!()
 
     extra_consumer_args =
       Keyword.get(
@@ -919,9 +922,11 @@ defmodule KafkaEx.Consumer.GenConsumer do
           {:ok, offset} = KafkaExAPI.latest_offset(client, topic, partition)
           offset
 
-        _ ->
+        :none ->
           raise "Offset out of range while consuming topic #{topic}, partition #{partition}."
       end
+
+    report_offset_reset(state, auto_offset_reset, offset, :offset_out_of_range)
 
     %State{
       state
@@ -1132,14 +1137,9 @@ defmodule KafkaEx.Consumer.GenConsumer do
           {:noreply, State.t()} | {:stop, term(), State.t()}
   def commit_for_test(error, state), do: handle_commit_error(error, state)
 
-  @load_offsets_max_retries 5
+  @load_offsets_max_retries 6
   @default_load_offsets_retry_backoff_ms 500
-
-  defp load_offsets_retry_backoff_ms do
-    Application.get_env(:kafka_ex, :load_offsets_retry_backoff_ms, @default_load_offsets_retry_backoff_ms)
-  end
-
-  defp load_offsets(%State{} = state), do: load_offsets(state, @load_offsets_max_retries)
+  @load_offsets_max_delay_ms 5_000
 
   defp load_offsets(
          %State{
@@ -1148,43 +1148,50 @@ defmodule KafkaEx.Consumer.GenConsumer do
            topic: topic,
            partition: partition,
            auto_offset_reset: auto_offset_reset
-         } = state,
-         retries_left
+         } = state
        ) do
     partitions = [%{partition_num: partition}]
     opts = VersionHelper.maybe_put_api_version([], state.api_versions, :offset_fetch)
 
-    case KafkaExAPI.fetch_committed_offset(client, group, topic, partitions, opts) do
-      {:ok, [%{partition_offsets: [%{offset: offset, error_code: :no_error}]}]} when offset >= 0 ->
-        %State{state | current_offset: offset, committed_offset: offset, acked_offset: offset}
-
-      {:ok, [%{partition_offsets: [%{error_code: :no_error}]}]} ->
-        start_from_auto_offset_reset(state, auto_offset_reset)
-
-      {:ok, []} ->
-        start_from_auto_offset_reset(state, auto_offset_reset)
-
-      {:ok, [%{partition_offsets: [%{error_code: error_code}]}]} ->
-        handle_load_offsets_error(state, error_code, retries_left)
-
-      {:error, reason} ->
-        handle_load_offsets_error(state, reason, retries_left)
+    fetch = fn ->
+      classify_committed_offset(KafkaExAPI.fetch_committed_offset(client, group, topic, partitions, opts))
     end
-  end
 
-  defp handle_load_offsets_error(%State{topic: topic, partition: partition} = state, reason, retries_left) do
-    if Retry.commit_retryable?(reason) and retries_left > 0 do
-      Logger.warning(
-        "Unable to load committed offsets for #{topic}/#{partition}: #{inspect(reason)}. " <>
-          "Retrying (#{@load_offsets_max_retries - retries_left + 1}/#{@load_offsets_max_retries})."
+    result =
+      Retry.with_retry(fetch,
+        max_retries: @load_offsets_max_retries,
+        base_delay_ms:
+          Application.get_env(:kafka_ex, :load_offsets_retry_backoff_ms, @default_load_offsets_retry_backoff_ms),
+        max_delay_ms: @load_offsets_max_delay_ms,
+        retryable?: &Retry.commit_retryable?/1,
+        on_retry: fn reason, attempt, _delay ->
+          Logger.warning(
+            "Unable to load committed offsets for #{topic}/#{partition}: #{inspect(reason)}. " <>
+              "Retrying (#{attempt}/#{@load_offsets_max_retries})."
+          )
+        end
       )
 
-      Process.sleep(load_offsets_retry_backoff_ms())
-      load_offsets(state, retries_left - 1)
-    else
-      raise "Unable to load committed offsets for #{topic}/#{partition}: #{inspect(reason)}"
+    case result do
+      {:ok, {:committed, offset}} ->
+        %State{state | current_offset: offset, committed_offset: offset, acked_offset: offset}
+
+      {:ok, :reset} ->
+        start_from_auto_offset_reset(state, auto_offset_reset)
+
+      {:error, reason} ->
+        raise "Unable to load committed offsets for #{topic}/#{partition}: #{inspect(reason)}"
     end
   end
+
+  defp classify_committed_offset({:ok, [%{partition_offsets: [%{offset: offset, error_code: :no_error}]}]})
+       when offset >= 0,
+       do: {:ok, {:committed, offset}}
+
+  defp classify_committed_offset({:ok, [%{partition_offsets: [%{error_code: :no_error}]}]}), do: {:ok, :reset}
+  defp classify_committed_offset({:ok, []}), do: {:ok, :reset}
+  defp classify_committed_offset({:error, reason}), do: {:error, reason}
+  defp classify_committed_offset(other), do: {:error, {:unexpected_offset_fetch_response, other}}
 
   defp start_from_auto_offset_reset(%State{client: client, topic: topic, partition: partition} = state, reset) do
     offset =
@@ -1197,11 +1204,30 @@ defmodule KafkaEx.Consumer.GenConsumer do
           {:ok, earliest} = KafkaExAPI.earliest_offset(client, topic, partition)
           earliest
 
-        _ ->
-          {:ok, earliest} = KafkaExAPI.earliest_offset(client, topic, partition)
-          earliest
+        :none ->
+          raise "No committed offset for #{topic}/#{partition} and auto_offset_reset is :none."
       end
 
+    report_offset_reset(state, reset, offset, :no_committed_offset)
+
     %State{state | current_offset: offset, committed_offset: offset, acked_offset: offset}
+  end
+
+  defp report_offset_reset(%State{group: group, topic: topic, partition: partition}, reset, offset, reason) do
+    Telemetry.emit_offset_reset(group, topic, partition, offset, reset, reason)
+
+    case reason do
+      :no_committed_offset ->
+        Logger.info(
+          "No committed offset for #{topic}/#{partition}; auto_offset_reset=#{inspect(reset)}, " <>
+            "starting at offset #{offset}"
+        )
+
+      :offset_out_of_range ->
+        Logger.warning(
+          "Offset out of range for #{topic}/#{partition}; auto_offset_reset=#{inspect(reset)}, " <>
+            "resetting to offset #{offset} (this skips or replays data)"
+        )
+    end
   end
 end

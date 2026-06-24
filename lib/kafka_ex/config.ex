@@ -33,7 +33,7 @@ defmodule KafkaEx.Config do
         # GenConsumer settings
         commit_interval: 5_000,
         commit_threshold: 100,
-        auto_offset_reset: :none
+        auto_offset_reset: :latest
 
   ## Broker Configuration
 
@@ -208,6 +208,20 @@ defmodule KafkaEx.Config do
   @spec auth_config() :: AuthConfig.t() | nil
   def auth_config do
     AuthConfig.from_env()
+  end
+
+  @valid_auto_offset_reset [:none, :earliest, :latest]
+
+  @doc """
+  Validates an `auto_offset_reset` policy, returning it unchanged when valid and
+  raising `ArgumentError` otherwise. Called at application boot and consumer
+  start so an unsupported policy fails fast rather than at first offset reset.
+  """
+  @spec validate_auto_offset_reset!(term()) :: :none | :earliest | :latest
+  def validate_auto_offset_reset!(value) when value in @valid_auto_offset_reset, do: value
+
+  def validate_auto_offset_reset!(value) do
+    raise ArgumentError, "invalid auto_offset_reset #{inspect(value)}; expected :none, :earliest, or :latest"
   end
 
   # Broker normalization helpers

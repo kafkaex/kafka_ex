@@ -21,6 +21,17 @@
   full migration. Most callers bind the returned pid
   (`{:ok, client} = start_client(...)`) and are unaffected.
 
+* **Consumer `auto_offset_reset` now defaults to `:latest`** (was `:none`),
+  matching the Kafka/Java client default, and `:none` now *raises* instead of
+  silently starting a fresh consumer group from the earliest offset. This only
+  affects a consumer with no valid committed offset that does not set
+  `auto_offset_reset` explicitly: a new consumer group now consumes only new
+  messages (previously it silently replayed the whole topic), and an
+  out-of-range offset now resets to latest (previously it raised). Set
+  `auto_offset_reset: :earliest` to keep replaying from the beginning, or
+  `:none` for the strict raise-on-bad-offset behavior. An invalid value now
+  fails fast at consumer start. See UPGRADING.md.
+
 ### Fixed
 
 * **`KafkaEx.API.start_client/1` and `child_spec/1` now merge `config.exs`

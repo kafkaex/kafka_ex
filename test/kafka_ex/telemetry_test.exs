@@ -179,8 +179,9 @@ defmodule KafkaEx.TelemetryTest do
     test "returns all consumer events including commit, group, and process events" do
       events = Telemetry.consumer_events()
 
-      # 3 commit + 12 group (join, sync, heartbeat, leave x 3) + 1 rebalance + 1 commit_failed + 3 process = 20
-      assert length(events) == 20
+      # 3 commit + 12 group (join, sync, heartbeat, leave x 3) + 1 rebalance + 1 commit_failed
+      # + 1 offset_reset + 3 process = 21
+      assert length(events) == 21
 
       # Commit events
       assert [:kafka_ex, :consumer, :commit, :start] in events
@@ -201,6 +202,7 @@ defmodule KafkaEx.TelemetryTest do
       assert [:kafka_ex, :consumer, :leave, :stop] in events
       assert [:kafka_ex, :consumer, :leave, :exception] in events
       assert [:kafka_ex, :consumer, :rebalance] in events
+      assert [:kafka_ex, :consumer, :offset_reset] in events
 
       # Process events
       assert [:kafka_ex, :consumer, :process, :start] in events
@@ -213,10 +215,12 @@ defmodule KafkaEx.TelemetryTest do
     test "returns only consumer group lifecycle events" do
       events = Telemetry.consumer_group_events()
 
-      # 12 group events (join, sync, heartbeat, leave x 3) + 1 rebalance + 1 commit_failed = 14
-      assert length(events) == 14
+      # 12 group events (join, sync, heartbeat, leave x 3) + 1 rebalance + 1 commit_failed
+      # + 1 offset_reset = 15
+      assert length(events) == 15
 
       assert [:kafka_ex, :consumer, :commit_failed] in events
+      assert [:kafka_ex, :consumer, :offset_reset] in events
 
       # Group lifecycle events
       assert [:kafka_ex, :consumer, :join, :start] in events
