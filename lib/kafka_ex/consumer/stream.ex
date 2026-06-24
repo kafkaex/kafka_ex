@@ -167,7 +167,7 @@ defmodule KafkaEx.Consumer.Stream do
 
     # Commit retry settings (issue #425)
     # Uses KafkaEx.Support.Retry for unified retry logic with exponential backoff
-    @commit_max_retries 3
+    @commit_max_attempts 3
     @commit_base_delay_ms 100
 
     defp commit_offset(%ConsumerStream{} = stream_data, offset) do
@@ -185,7 +185,7 @@ defmodule KafkaEx.Consumer.Stream do
       end
 
       retry_opts = [
-        max_retries: @commit_max_retries,
+        max_attempts: @commit_max_attempts,
         base_delay_ms: @commit_base_delay_ms,
         retryable?: &Retry.commit_retryable?/1
       ]

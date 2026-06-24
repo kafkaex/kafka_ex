@@ -57,7 +57,7 @@ defmodule KafkaEx.Support.RetryTest do
             :counters.add(counter, 1, 1)
             {:error, :always_fails}
           end,
-          max_retries: 3,
+          max_attempts: 3,
           base_delay_ms: 1
         )
 
@@ -79,7 +79,7 @@ defmodule KafkaEx.Support.RetryTest do
               {:ok, :success}
             end
           end,
-          max_retries: 5,
+          max_attempts: 5,
           base_delay_ms: 1
         )
 
@@ -96,7 +96,7 @@ defmodule KafkaEx.Support.RetryTest do
             :counters.add(counter, 1, 1)
             {:error, :not_retryable}
           end,
-          max_retries: 5,
+          max_attempts: 5,
           base_delay_ms: 1,
           retryable?: fn error -> error == :retryable end
         )
@@ -111,7 +111,7 @@ defmodule KafkaEx.Support.RetryTest do
 
       Retry.with_retry(
         fn -> {:error, :test_error} end,
-        max_retries: 3,
+        max_attempts: 3,
         base_delay_ms: 1,
         on_retry: fn error, attempt, delay ->
           [{:attempts, attempts}] = :ets.lookup(errors, :attempts)
@@ -128,7 +128,7 @@ defmodule KafkaEx.Support.RetryTest do
     end
 
     test "uses default options when not specified" do
-      # Default: max_retries: 3, base_delay_ms: 100, retryable?: fn _ -> true end
+      # Default: max_attempts: 3, base_delay_ms: 100, retryable?: fn _ -> true end
       counter = :counters.new(1, [])
 
       # This would be slow with default 100ms delay, so we override base_delay_ms
@@ -140,7 +140,7 @@ defmodule KafkaEx.Support.RetryTest do
         base_delay_ms: 1
       )
 
-      # Default max_retries is 3
+      # Default max_attempts is 3
       assert :counters.get(counter, 1) == 3
     end
   end

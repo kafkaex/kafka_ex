@@ -470,7 +470,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
 
   # Commit retry settings (issue #425)
   # Uses KafkaEx.Support.Retry for unified retry logic with exponential backoff
-  @commit_max_retries 3
+  @commit_max_attempts 3
   @commit_base_delay_ms 100
 
   # Client API
@@ -1030,13 +1030,13 @@ defmodule KafkaEx.Consumer.GenConsumer do
     end
 
     retry_opts = [
-      max_retries: @commit_max_retries,
+      max_attempts: @commit_max_attempts,
       base_delay_ms: @commit_base_delay_ms,
       retryable?: &Retry.commit_retryable?/1,
       on_retry: fn error, attempt, delay ->
         Logger.warning(
           "Commit failed for #{topic}/#{partition}@#{offset} with #{inspect(error)}, " <>
-            "retrying in #{delay}ms (attempt #{attempt}/#{@commit_max_retries})"
+            "retrying in #{delay}ms (attempt #{attempt}/#{@commit_max_attempts})"
         )
       end
     ]
@@ -1137,7 +1137,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
           {:noreply, State.t()} | {:stop, term(), State.t()}
   def commit_for_test(error, state), do: handle_commit_error(error, state)
 
-  @load_offsets_max_retries 6
+  @load_offsets_max_attempts 6
   @default_load_offsets_retry_backoff_ms 500
   @load_offsets_max_delay_ms 5_000
 
@@ -1159,7 +1159,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
 
     result =
       Retry.with_retry(fetch,
-        max_retries: @load_offsets_max_retries,
+        max_attempts: @load_offsets_max_attempts,
         base_delay_ms:
           Application.get_env(:kafka_ex, :load_offsets_retry_backoff_ms, @default_load_offsets_retry_backoff_ms),
         max_delay_ms: @load_offsets_max_delay_ms,
@@ -1167,7 +1167,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
         on_retry: fn reason, attempt, _delay ->
           Logger.warning(
             "Unable to load committed offsets for #{topic}/#{partition}: #{inspect(reason)}. " <>
-              "Retrying (#{attempt}/#{@load_offsets_max_retries})."
+              "Retrying (#{attempt}/#{@load_offsets_max_attempts})."
           )
         end
       )
