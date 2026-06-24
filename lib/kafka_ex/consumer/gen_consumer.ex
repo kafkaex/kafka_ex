@@ -619,7 +619,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
         :auto_offset_reset,
         Application.get_env(:kafka_ex, :auto_offset_reset, @auto_offset_reset)
       )
-      |> validate_auto_offset_reset!()
+      |> Config.validate_auto_offset_reset!()
 
     extra_consumer_args =
       Keyword.get(
@@ -926,10 +926,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
           raise "Offset out of range while consuming topic #{topic}, partition #{partition}."
       end
 
-    Logger.warning(
-      "Offset out of range for #{topic}/#{partition}; auto_offset_reset=#{inspect(auto_offset_reset)}, " <>
-        "resetting to offset #{offset} (this skips or replays data)"
-    )
+    report_offset_reset(state, auto_offset_reset, offset, :offset_out_of_range)
 
     %State{
       state
@@ -1196,12 +1193,6 @@ defmodule KafkaEx.Consumer.GenConsumer do
   defp classify_committed_offset({:error, reason}), do: {:error, reason}
   defp classify_committed_offset(other), do: {:error, {:unexpected_offset_fetch_response, other}}
 
-  defp validate_auto_offset_reset!(reset) when reset in [:none, :earliest, :latest], do: reset
-
-  defp validate_auto_offset_reset!(reset) do
-    raise ArgumentError, "invalid auto_offset_reset #{inspect(reset)}; expected :none, :earliest, or :latest"
-  end
-
   defp start_from_auto_offset_reset(%State{client: client, topic: topic, partition: partition} = state, reset) do
     offset =
       case reset do
@@ -1217,11 +1208,26 @@ defmodule KafkaEx.Consumer.GenConsumer do
           raise "No committed offset for #{topic}/#{partition} and auto_offset_reset is :none."
       end
 
-    Logger.info(
-      "No committed offset for #{topic}/#{partition}; auto_offset_reset=#{inspect(reset)}, " <>
-        "starting at offset #{offset}"
-    )
+    report_offset_reset(state, reset, offset, :no_committed_offset)
 
     %State{state | current_offset: offset, committed_offset: offset, acked_offset: offset}
+  end
+
+  defp report_offset_reset(%State{group: group, topic: topic, partition: partition}, reset, offset, reason) do
+    Telemetry.emit_offset_reset(group, topic, partition, offset, reset, reason)
+
+    case reason do
+      :no_committed_offset ->
+        Logger.info(
+          "No committed offset for #{topic}/#{partition}; auto_offset_reset=#{inspect(reset)}, " <>
+            "starting at offset #{offset}"
+        )
+
+      :offset_out_of_range ->
+        Logger.warning(
+          "Offset out of range for #{topic}/#{partition}; auto_offset_reset=#{inspect(reset)}, " <>
+            "resetting to offset #{offset} (this skips or replays data)"
+        )
+    end
   end
 end

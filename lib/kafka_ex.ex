@@ -172,6 +172,11 @@ defmodule KafkaEx do
   # OTP Application callback
   @doc false
   def start(_type, _args) do
+    case Application.fetch_env(:kafka_ex, :auto_offset_reset) do
+      {:ok, value} -> Config.validate_auto_offset_reset!(value)
+      :error -> :ok
+    end
+
     max_restarts = Application.get_env(:kafka_ex, :max_restarts, 10)
     max_seconds = Application.get_env(:kafka_ex, :max_seconds, 60)
     {:ok, pid} = KafkaEx.Supervisor.start_link(max_restarts, max_seconds)
