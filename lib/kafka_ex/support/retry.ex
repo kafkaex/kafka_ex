@@ -9,13 +9,13 @@ defmodule KafkaEx.Support.Retry do
 
   ## Usage
 
-      # Simple retry with defaults (3 retries, 100ms base delay)
+      # Simple retry with defaults (3 attempts, 100ms base delay)
       Retry.with_retry(fn -> some_operation() end)
 
       # Custom retry configuration
       Retry.with_retry(
         fn -> some_operation() end,
-        max_retries: 5,
+        max_attempts: 5,
         base_delay_ms: 200,
         max_delay_ms: 5000,
         retryable?: &Retry.transient_error?/1
@@ -31,7 +31,7 @@ defmodule KafkaEx.Support.Retry do
   @type retry_result :: {:ok, term()} | {:error, error()}
 
   @type retry_opts :: [
-          max_retries: non_neg_integer(),
+          max_attempts: non_neg_integer(),
           base_delay_ms: non_neg_integer(),
           max_delay_ms: non_neg_integer() | :infinity,
           retryable?: (error() -> boolean()),
@@ -39,7 +39,7 @@ defmodule KafkaEx.Support.Retry do
         ]
 
   # Default retry settings
-  @default_max_retries 3
+  @default_max_attempts 3
   @default_base_delay_ms 100
   @default_max_delay_ms :infinity
 
@@ -80,7 +80,7 @@ defmodule KafkaEx.Support.Retry do
   Execute a function with retry and exponential backoff.
 
   ## Options
-    - `:max_retries` - Maximum number of retry attempts (default: 3)
+    - `:max_attempts` - Maximum number of attempts, including the first (default: 3)
     - `:base_delay_ms` - Base delay for exponential backoff (default: 100)
     - `:max_delay_ms` - Maximum delay cap (default: `:infinity`)
     - `:retryable?` - Function to determine if error is retryable (default: always true)
@@ -103,13 +103,13 @@ defmodule KafkaEx.Support.Retry do
   """
   @spec with_retry((-> retry_result()), retry_opts()) :: retry_result()
   def with_retry(fun, opts \\ []) do
-    max_retries = Keyword.get(opts, :max_retries, @default_max_retries)
+    max_attempts = Keyword.get(opts, :max_attempts, @default_max_attempts)
     base_delay = Keyword.get(opts, :base_delay_ms, @default_base_delay_ms)
     max_delay = Keyword.get(opts, :max_delay_ms, @default_max_delay_ms)
     retryable? = Keyword.get(opts, :retryable?, fn _ -> true end)
     on_retry = Keyword.get(opts, :on_retry)
 
-    do_retry(fun, 0, max_retries, base_delay, max_delay, retryable?, on_retry, nil)
+    do_retry(fun, 0, max_attempts, base_delay, max_delay, retryable?, on_retry, nil)
   end
 
   defp do_retry(_fun, attempt, max, _base, _max_delay, _retryable?, _on_retry, last_error)

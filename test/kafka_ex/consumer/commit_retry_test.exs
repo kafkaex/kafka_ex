@@ -90,27 +90,27 @@ defmodule KafkaEx.Consumer.CommitRetryTest do
 
   # Test the retry behavior patterns
   describe "retry behavior" do
-    @commit_max_retries 3
+    @commit_max_attempts 3
 
-    test "max retries constant is 3" do
-      assert @commit_max_retries == 3
+    test "max attempts constant is 3" do
+      assert @commit_max_attempts == 3
     end
 
     test "retries eventually exhaust" do
       # Simulate retry countdown
-      retries = Enum.take_while(@commit_max_retries..0//-1, fn n -> n >= 0 end)
+      retries = Enum.take_while(@commit_max_attempts..0//-1, fn n -> n >= 0 end)
       # 3, 2, 1, 0
       assert length(retries) == 4
     end
 
     test "first retry uses attempt 0 delay" do
       # When retries_left = 3 (max), attempt = 3 - 3 = 0
-      assert @commit_max_retries - @commit_max_retries == 0
+      assert @commit_max_attempts - @commit_max_attempts == 0
     end
 
     test "last retry uses attempt 2 delay" do
       # When retries_left = 1, attempt = 3 - 1 = 2
-      assert @commit_max_retries - 1 == 2
+      assert @commit_max_attempts - 1 == 2
     end
   end
 
@@ -146,16 +146,16 @@ defmodule KafkaEx.Consumer.CommitRetryTest do
 
   # Stream module retry logic (should mirror GenConsumer)
   describe "stream commit retry consistency" do
-    @stream_commit_max_retries 3
+    @stream_commit_max_attempts 3
     @stream_commit_retry_base_delay_ms 100
 
     defp stream_retry_delay(retries_left) do
       # This mirrors the stream.ex implementation
-      trunc(@stream_commit_retry_base_delay_ms * :math.pow(2, @stream_commit_max_retries - retries_left))
+      trunc(@stream_commit_retry_base_delay_ms * :math.pow(2, @stream_commit_max_attempts - retries_left))
     end
 
-    test "stream uses same max retries as GenConsumer" do
-      assert @stream_commit_max_retries == 3
+    test "stream uses same max attempts as GenConsumer" do
+      assert @stream_commit_max_attempts == 3
     end
 
     test "stream uses same base delay as GenConsumer" do
