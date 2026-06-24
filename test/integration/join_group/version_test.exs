@@ -18,6 +18,7 @@ defmodule KafkaEx.Integration.JoinGroup.VersionTest do
 
   import KafkaEx.TestHelpers
   import KafkaEx.IntegrationHelpers
+  import KafkaEx.TestSupport.ProcessHelpers
 
   alias KafkaEx.API
   alias KafkaEx.Client
@@ -27,7 +28,7 @@ defmodule KafkaEx.Integration.JoinGroup.VersionTest do
   setup do
     {:ok, args} = KafkaEx.build_worker_options([])
     {:ok, client} = Client.start_link(args, :no_name)
-    on_exit(fn -> if Process.alive?(client), do: GenServer.stop(client) end)
+    on_exit(fn -> stop_safely(client) end)
     {:ok, %{client: client}}
   end
 

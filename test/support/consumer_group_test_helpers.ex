@@ -18,6 +18,8 @@ defmodule KafkaEx.TestSupport.ConsumerGroupHelpers do
       end
   """
 
+  import KafkaEx.TestSupport.ProcessHelpers
+
   alias KafkaEx.Consumer.ConsumerGroup
   alias KafkaEx.TestSupport.TestGenConsumer
 
@@ -181,15 +183,7 @@ defmodule KafkaEx.TestSupport.ConsumerGroupHelpers do
   def stop_consumer_group(nil), do: :ok
 
   def stop_consumer_group(cg_pid) when is_pid(cg_pid) do
-    if Process.alive?(cg_pid) do
-      try do
-        Supervisor.stop(cg_pid, :normal, 5_000)
-      catch
-        :exit, _ -> :ok
-      end
-    end
-
-    :ok
+    stop_safely(cg_pid, :normal, 5_000)
   end
 
   @doc """

@@ -18,6 +18,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerSyncRecoveryTest do
   """
   use ExUnit.Case, async: false
 
+  import KafkaEx.TestSupport.ProcessHelpers
+
   alias KafkaEx.Consumer.ConsumerGroup.Manager
   alias KafkaEx.Consumer.GenConsumer
   alias KafkaEx.Messages.JoinGroup
@@ -52,13 +54,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerSyncRecoveryTest do
     # succeeds.
     {:ok, sup} = Supervisor.start_link([], strategy: :one_for_one)
 
-    on_exit(fn ->
-      try do
-        if Process.alive?(sup), do: Supervisor.stop(sup)
-      catch
-        :exit, _ -> :ok
-      end
-    end)
+    on_exit(fn -> stop_safely(sup) end)
 
     {:ok, mock} =
       MockClient.start_link(%{

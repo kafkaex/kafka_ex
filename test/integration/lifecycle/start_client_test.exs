@@ -9,6 +9,8 @@ defmodule KafkaEx.Integration.Lifecycle.StartClientTest do
   alias KafkaEx.API
   alias KafkaEx.Client
 
+  import KafkaEx.TestSupport.ProcessHelpers
+
   doctest KafkaEx.API
 
   setup do
@@ -19,7 +21,7 @@ defmodule KafkaEx.Integration.Lifecycle.StartClientTest do
   describe "start_client/1 default (no :name)" do
     test "returns a pid and does NOT register globally", %{broker_opts: opts} do
       {:ok, pid} = API.start_client(opts)
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> stop_safely(pid) end)
 
       assert is_pid(pid)
       assert Process.whereis(KafkaEx.Client) == nil
@@ -27,7 +29,7 @@ defmodule KafkaEx.Integration.Lifecycle.StartClientTest do
 
     test "name: nil is equivalent to omitting :name", %{broker_opts: opts} do
       {:ok, pid} = API.start_client(Keyword.put(opts, :name, nil))
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> stop_safely(pid) end)
 
       assert is_pid(pid)
       assert Process.whereis(KafkaEx.Client) == nil
@@ -38,7 +40,7 @@ defmodule KafkaEx.Integration.Lifecycle.StartClientTest do
     test "registers the pid under the given atom", %{broker_opts: opts} do
       name = :"client_#{System.unique_integer([:positive])}"
       {:ok, pid} = API.start_client(Keyword.put(opts, :name, name))
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> stop_safely(pid) end)
 
       assert Process.whereis(name) == pid
     end
@@ -51,8 +53,8 @@ defmodule KafkaEx.Integration.Lifecycle.StartClientTest do
       {:ok, pid_b} = API.start_client(Keyword.put(opts, :name, name_b))
 
       on_exit(fn ->
-        if Process.alive?(pid_a), do: GenServer.stop(pid_a)
-        if Process.alive?(pid_b), do: GenServer.stop(pid_b)
+        stop_safely(pid_a)
+        stop_safely(pid_b)
       end)
 
       assert pid_a != pid_b
@@ -65,7 +67,7 @@ defmodule KafkaEx.Integration.Lifecycle.StartClientTest do
     test "registers the pid globally", %{broker_opts: opts} do
       name = :"global_client_#{System.unique_integer([:positive])}"
       {:ok, pid} = API.start_client(Keyword.put(opts, :name, {:global, name}))
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop({:global, name}) end)
+      on_exit(fn -> stop_safely({:global, name}) end)
 
       assert :global.whereis_name(name) == pid
     end
@@ -81,7 +83,7 @@ defmodule KafkaEx.Integration.Lifecycle.StartClientTest do
     test "registers the pid via Registry", %{broker_opts: opts, registry: registry} do
       via_name = {:via, Registry, {registry, "client-1"}}
       {:ok, pid} = API.start_client(Keyword.put(opts, :name, via_name))
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(via_name) end)
+      on_exit(fn -> stop_safely(via_name) end)
 
       assert [{^pid, _value}] = Registry.lookup(registry, "client-1")
     end
@@ -134,14 +136,14 @@ defmodule KafkaEx.Integration.Lifecycle.StartClientTest do
       # Exact reproduction from issue #538: pass :brokers directly, rely on
       # config.exs default_consumer_group. Must NOT raise InvalidConsumerGroupError.
       assert {:ok, client} = API.start_client(brokers: [{"localhost", 9092}])
-      on_exit(fn -> if Process.alive?(client), do: GenServer.stop(client) end)
+      on_exit(fn -> stop_safely(client) end)
 
       assert is_pid(client)
     end
 
     test "still accepts the legacy :uris alias" do
       assert {:ok, client} = API.start_client(uris: [{"localhost", 9092}])
-      on_exit(fn -> if Process.alive?(client), do: GenServer.stop(client) end)
+      on_exit(fn -> stop_safely(client) end)
 
       assert is_pid(client)
     end

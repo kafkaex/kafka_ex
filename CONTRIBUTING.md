@@ -27,6 +27,23 @@ Run unit tests that don't require a Kafka cluster:
 mix test.unit
 ```
 
+### Test process teardown
+
+Processes started in a test are linked to the test process and die when it
+finishes. Tearing them down with `GenServer.stop`/`Supervisor.stop` (even behind
+`if Process.alive?(pid)`) races their death and intermittently crashes with
+`(EXIT) :noproc`. In `on_exit` and best-effort cleanup, use the race-safe helper:
+
+```elixir
+import KafkaEx.TestSupport.ProcessHelpers
+on_exit(fn -> stop_safely(pid) end)
+```
+
+Better still, let ExUnit own the lifecycle with `start_supervised!/1` (see
+`test/integration/lifecycle/start_client_test.exs`) — it tears down safely with no
+manual stop. Reserve raw `GenServer.stop` for cases where the stop's success is the
+assertion (e.g. `:ok = GenServer.stop(client); refute Process.alive?(client)`).
+
 ### Code Quality Checks (Required for All PRs)
 
 Before submitting a PR, ensure all static checks pass:

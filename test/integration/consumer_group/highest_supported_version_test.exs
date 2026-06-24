@@ -4,6 +4,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.HighestSupportedVersionTest do
 
   import KafkaEx.TestHelpers
   import KafkaEx.IntegrationHelpers
+  import KafkaEx.TestSupport.ProcessHelpers
 
   alias KafkaEx.API
   alias KafkaEx.Client
@@ -17,7 +18,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.HighestSupportedVersionTest do
   setup do
     {:ok, args} = KafkaEx.build_worker_options([])
     {:ok, pid} = Client.start_link(args, :no_name)
-    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+    on_exit(fn -> stop_safely(pid) end)
     {:ok, %{client: pid}}
   end
 

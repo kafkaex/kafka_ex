@@ -16,6 +16,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.RebalanceRecoveryTest do
   @moduletag timeout: 180_000
 
   import KafkaEx.IntegrationHelpers
+  import KafkaEx.TestSupport.ProcessHelpers
 
   alias KafkaEx.Client
   alias KafkaEx.Consumer.ConsumerGroup
@@ -27,7 +28,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.RebalanceRecoveryTest do
     uris = Keyword.fetch!(args, :uris)
 
     {:ok, client} = Client.start_link(args, :no_name)
-    on_exit(fn -> if Process.alive?(client), do: GenServer.stop(client) end)
+    on_exit(fn -> stop_safely(client) end)
 
     topic = "cg_rebalance_recovery_#{:rand.uniform(1_000_000)}"
     create_topic(client, topic, partitions: 2)

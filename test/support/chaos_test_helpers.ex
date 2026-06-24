@@ -16,6 +16,8 @@ defmodule KafkaEx.ChaosTestHelpers do
 
   require Logger
 
+  import KafkaEx.TestSupport.ProcessHelpers
+
   alias Testcontainers.Container
   alias Testcontainers.Docker
   alias Testcontainers.ToxiproxyContainer
@@ -390,13 +392,9 @@ defmodule KafkaEx.ChaosTestHelpers do
         :ok
 
       pid ->
-        try do
-          GenServer.stop(pid, :normal, 5000)
-          # Wait for process to fully terminate
-          wait_for_process_exit(pid, 1000)
-        catch
-          :exit, _ -> :ok
-        end
+        stop_safely(pid, :normal, 5000)
+        # Wait for process to fully terminate
+        wait_for_process_exit(pid, 1000)
     end
   end
 
