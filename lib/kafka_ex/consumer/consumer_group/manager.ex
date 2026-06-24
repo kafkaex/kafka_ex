@@ -383,9 +383,11 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     {:stop, {:shutdown, {:terminal, reason}}, state}
   end
 
-  # If the heartbeat gets an error, attempt to rejoin for recoverable errors.
-  # Recoverable errors: coordinator changed or temporarily unavailable
-  def handle_info({:EXIT, _heartbeat_timer, {:shutdown, {:error, reason}}}, %State{} = state) do
+  # If the CURRENT heartbeat gets an error, attempt to rejoin for recoverable
+  # errors (coordinator changed or temporarily unavailable). Binding `timer` to
+  # the current heartbeat_timer keeps a stale heartbeat's error EXIT from
+  # triggering a spurious rebalance — it falls through to the stale-timer clause.
+  def handle_info({:EXIT, timer, {:shutdown, {:error, reason}}}, %State{heartbeat_timer: timer} = state) do
     if recoverable_error?(reason) do
       Logger.warning("Heartbeat failed with #{inspect(reason)}, attempting to rejoin group")
       {:ok, new_state} = rebalance(state, {:heartbeat_error, reason})
