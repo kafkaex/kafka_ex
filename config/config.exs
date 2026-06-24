@@ -64,9 +64,8 @@ config :kafka_ex,
   # Base delay (ms) for the exponential backoff between retries when a GenConsumer's
   # startup committed-offset fetch hits a retryable error (coordinator not
   # available/loading, timeout, KIP-447 unstable offset). Delays grow as
-  # base * 2^attempt (capped); after 6 attempts the consumer crashes (supervisor
-  # restart) rather than silently resetting the offset. Keep the cumulative backoff
-  # below the worker shutdown budget to avoid a hard kill mid-retry. Default: 500.
+  # base * 2^attempt, capped at 5s per delay; after 6 attempts the consumer crashes
+  # (supervisor restart) rather than silently resetting the offset. Default: 500.
   # load_offsets_retry_backoff_ms: 500,
   # API versions for Kafka protocol requests.
   # By default, KafkaEx uses the highest version supported by both the

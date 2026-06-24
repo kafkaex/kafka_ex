@@ -1132,8 +1132,9 @@ defmodule KafkaEx.Consumer.GenConsumer do
           {:noreply, State.t()} | {:stop, term(), State.t()}
   def commit_for_test(error, state), do: handle_commit_error(error, state)
 
-  @load_offsets_max_attempts 6
+  @load_offsets_max_retries 6
   @default_load_offsets_retry_backoff_ms 500
+  @load_offsets_max_delay_ms 5_000
 
   defp load_offsets(
          %State{
@@ -1153,14 +1154,15 @@ defmodule KafkaEx.Consumer.GenConsumer do
 
     result =
       Retry.with_retry(fetch,
-        max_retries: @load_offsets_max_attempts,
+        max_retries: @load_offsets_max_retries,
         base_delay_ms:
           Application.get_env(:kafka_ex, :load_offsets_retry_backoff_ms, @default_load_offsets_retry_backoff_ms),
+        max_delay_ms: @load_offsets_max_delay_ms,
         retryable?: &Retry.commit_retryable?/1,
         on_retry: fn reason, attempt, _delay ->
           Logger.warning(
             "Unable to load committed offsets for #{topic}/#{partition}: #{inspect(reason)}. " <>
-              "Retrying (#{attempt}/#{@load_offsets_max_attempts - 1})."
+              "Retrying (#{attempt}/#{@load_offsets_max_retries})."
           )
         end
       )
@@ -1183,10 +1185,8 @@ defmodule KafkaEx.Consumer.GenConsumer do
 
   defp classify_committed_offset({:ok, [%{partition_offsets: [%{error_code: :no_error}]}]}), do: {:ok, :reset}
   defp classify_committed_offset({:ok, []}), do: {:ok, :reset}
-
-  defp classify_committed_offset({:ok, [%{partition_offsets: [%{error_code: error_code}]}]}), do: {:error, error_code}
-
   defp classify_committed_offset({:error, reason}), do: {:error, reason}
+  defp classify_committed_offset(other), do: {:error, {:unexpected_offset_fetch_response, other}}
 
   defp start_from_auto_offset_reset(%State{client: client, topic: topic, partition: partition} = state, reset) do
     offset =
@@ -1200,8 +1200,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
           earliest
 
         _ ->
-          {:ok, earliest} = KafkaExAPI.earliest_offset(client, topic, partition)
-          earliest
+          raise "No committed offset for #{topic}/#{partition} and auto_offset_reset is #{inspect(reset)}."
       end
 
     %State{state | current_offset: offset, committed_offset: offset, acked_offset: offset}

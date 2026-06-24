@@ -50,13 +50,24 @@ defmodule KafkaEx.Consumer.GenConsumerLoadOffsetsTest do
     end
   end
 
+  test "raises when there is no committed offset and auto_offset_reset is :none" do
+    {:ok, mock} =
+      MockClient.start_link(%{offset_fetch: {:ok, [%{partition_offsets: [%{offset: -1, error_code: :no_error}]}]}})
+
+    state = %State{base_state(mock) | auto_offset_reset: :none}
+
+    assert_raise RuntimeError, ~r/auto_offset_reset is :none/, fn ->
+      GenConsumer.handle_info(:timeout, state)
+    end
+  end
+
   test ":unstable_offset_commit (KIP-447) is retried, not raised on the first attempt" do
     {:ok, mock} = MockClient.start_link(%{offset_fetch: {:error, :unstable_offset_commit}})
 
     # it still raises once retries are exhausted, but only AFTER retrying
     assert_raise RuntimeError, fn -> GenConsumer.handle_info(:timeout, base_state(mock)) end
 
-    # @load_offsets_max_attempts (6) total attempts before raising
+    # @load_offsets_max_retries (6) total attempts before raising
     fetch_calls = mock |> MockClient.get_calls() |> Enum.count(&match?({:offset_fetch, _, _, _}, &1))
     assert fetch_calls == 6
   end
