@@ -33,7 +33,7 @@ defmodule KafkaEx.Config do
         # GenConsumer settings
         commit_interval: 5_000,
         commit_threshold: 100,
-        auto_offset_reset: :none
+        auto_offset_reset: :latest
 
   ## Broker Configuration
 

@@ -515,7 +515,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
     implemented, the default implementation calls to `init/2`, dropping the extra
     arguments.
 
-  **NOTE** `:commit_interval`, `auto_commit_reset` and `:commit_threshold` default to the
+  **NOTE** `:commit_interval`, `:auto_offset_reset` and `:commit_threshold` default to the
   application config (e.g., `Application.get_env/2`) if that value is present, or the stated
   default if the application config is not present.
 
@@ -614,11 +614,12 @@ defmodule KafkaEx.Consumer.GenConsumer do
       )
 
     auto_offset_reset =
-      Keyword.get(
-        opts,
+      opts
+      |> Keyword.get(
         :auto_offset_reset,
         Application.get_env(:kafka_ex, :auto_offset_reset, @auto_offset_reset)
       )
+      |> validate_auto_offset_reset!()
 
     extra_consumer_args =
       Keyword.get(
@@ -921,9 +922,14 @@ defmodule KafkaEx.Consumer.GenConsumer do
           {:ok, offset} = KafkaExAPI.latest_offset(client, topic, partition)
           offset
 
-        _ ->
+        :none ->
           raise "Offset out of range while consuming topic #{topic}, partition #{partition}."
       end
+
+    Logger.warning(
+      "Offset out of range for #{topic}/#{partition}; auto_offset_reset=#{inspect(auto_offset_reset)}, " <>
+        "resetting to offset #{offset} (this skips or replays data)"
+    )
 
     %State{
       state
@@ -1190,6 +1196,12 @@ defmodule KafkaEx.Consumer.GenConsumer do
   defp classify_committed_offset({:error, reason}), do: {:error, reason}
   defp classify_committed_offset(other), do: {:error, {:unexpected_offset_fetch_response, other}}
 
+  defp validate_auto_offset_reset!(reset) when reset in [:none, :earliest, :latest], do: reset
+
+  defp validate_auto_offset_reset!(reset) do
+    raise ArgumentError, "invalid auto_offset_reset #{inspect(reset)}; expected :none, :earliest, or :latest"
+  end
+
   defp start_from_auto_offset_reset(%State{client: client, topic: topic, partition: partition} = state, reset) do
     offset =
       case reset do
@@ -1201,9 +1213,14 @@ defmodule KafkaEx.Consumer.GenConsumer do
           {:ok, earliest} = KafkaExAPI.earliest_offset(client, topic, partition)
           earliest
 
-        _ ->
-          raise "No committed offset for #{topic}/#{partition} and auto_offset_reset is #{inspect(reset)}."
+        :none ->
+          raise "No committed offset for #{topic}/#{partition} and auto_offset_reset is :none."
       end
+
+    Logger.info(
+      "No committed offset for #{topic}/#{partition}; auto_offset_reset=#{inspect(reset)}, " <>
+        "starting at offset #{offset}"
+    )
 
     %State{state | current_offset: offset, committed_offset: offset, acked_offset: offset}
   end

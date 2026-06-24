@@ -39,18 +39,20 @@ config :kafka_ex,
 
 The default `auto_offset_reset` is now `:latest` (matching the Kafka/Java client
 default), changed from `:none`. This only affects a consumer that has **no valid
-committed offset** — a brand-new consumer group, or one whose offset is out of
-range — and that does **not** set `auto_offset_reset` explicitly:
+committed offset** and does **not** set `auto_offset_reset` explicitly. The old
+default behaved differently in the two cases that trigger a reset:
 
-- Previously (`:none`) such a consumer silently started from the **earliest**
-  offset, replaying the whole topic.
-- Now (`:latest`) it starts from the **newest** offset, consuming only new
-  messages.
+- **New consumer group (no committed offset):** previously started silently from
+  the **earliest** offset, replaying the whole topic. Now starts from the
+  **latest** offset, consuming only messages produced after it joins.
+- **Committed offset out of range:** previously **raised**. Now resets to the
+  **latest** offset.
 
-`:none` is still available and now does what it says — it **raises** instead of
-guessing, so a missing or out-of-range offset surfaces loudly rather than
-silently replaying or skipping data. To keep the old behavior, set it
-explicitly:
+`:none` is still available and is now consistent across both cases — it
+**raises** instead of guessing, so a missing or out-of-range offset surfaces
+loudly rather than silently replaying or skipping data. To replay from the
+beginning (the old new-group behavior), set `:earliest` explicitly; to keep the
+old strict raise-on-bad-offset behavior, set `:none`:
 
 ```elixir
 config :kafka_ex, auto_offset_reset: :earliest

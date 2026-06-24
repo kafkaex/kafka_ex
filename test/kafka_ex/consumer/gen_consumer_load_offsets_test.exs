@@ -1,3 +1,8 @@
+defmodule KafkaEx.Consumer.GenConsumerLoadOffsetsTest.NoopConsumer do
+  @moduledoc false
+  def init(_topic, _partition, _args), do: {:ok, %{}}
+end
+
 defmodule KafkaEx.Consumer.GenConsumerLoadOffsetsTest do
   @moduledoc """
   Regression for PR-4 / defect H-6: when fetching the committed offset fails with a
@@ -11,6 +16,7 @@ defmodule KafkaEx.Consumer.GenConsumerLoadOffsetsTest do
   """
   use ExUnit.Case, async: false
 
+  alias __MODULE__.NoopConsumer
   alias KafkaEx.Consumer.GenConsumer
   alias KafkaEx.Consumer.GenConsumer.State
   alias KafkaEx.Test.MockClient
@@ -40,6 +46,26 @@ defmodule KafkaEx.Consumer.GenConsumerLoadOffsetsTest do
     end)
 
     :ok
+  end
+
+  test "auto_offset_reset defaults to :latest when set by neither opts nor app env" do
+    {:ok, mock} = MockClient.start_link(%{})
+
+    original = Application.get_env(:kafka_ex, :auto_offset_reset)
+    Application.delete_env(:kafka_ex, :auto_offset_reset)
+    on_exit(fn -> unless is_nil(original), do: Application.put_env(:kafka_ex, :auto_offset_reset, original) end)
+
+    {:ok, state, _timeout} = GenConsumer.init({NoopConsumer, "g", "t", 0, [client: mock]})
+
+    assert state.auto_offset_reset == :latest
+  end
+
+  test "init raises on an invalid auto_offset_reset value" do
+    {:ok, mock} = MockClient.start_link(%{})
+
+    assert_raise ArgumentError, ~r/invalid auto_offset_reset/, fn ->
+      GenConsumer.init({NoopConsumer, "g", "t", 0, [client: mock, auto_offset_reset: :bogus]})
+    end
   end
 
   test "raises on a fatal fetch error instead of silently resetting to auto_offset_reset" do
