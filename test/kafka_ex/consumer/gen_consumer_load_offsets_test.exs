@@ -56,7 +56,7 @@ defmodule KafkaEx.Consumer.GenConsumerLoadOffsetsTest do
     # it still raises once retries are exhausted, but only AFTER retrying
     assert_raise RuntimeError, fn -> GenConsumer.handle_info(:timeout, base_state(mock)) end
 
-    # 1 initial attempt + @load_offsets_max_retries (5) retries = 6
+    # @load_offsets_max_attempts (6) total attempts before raising
     fetch_calls = mock |> MockClient.get_calls() |> Enum.count(&match?({:offset_fetch, _, _, _}, &1))
     assert fetch_calls == 6
   end
