@@ -174,3 +174,6 @@ jobs:
 
       - name: Compile with warnings as errors
         run: mix compile --warnings-as-errors
+
+      - name: Teardown race guard
+        run: bash scripts/check_teardown.sh

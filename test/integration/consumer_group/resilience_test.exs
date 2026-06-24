@@ -4,6 +4,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.ResilienceTest do
 
   import KafkaEx.TestHelpers
   import KafkaEx.IntegrationHelpers
+  import KafkaEx.TestSupport.ProcessHelpers
 
   alias KafkaEx.API
   alias KafkaEx.Client
@@ -13,7 +14,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.ResilienceTest do
   setup do
     {:ok, args} = KafkaEx.build_worker_options([])
     {:ok, client} = Client.start_link(args, :no_name)
-    on_exit(fn -> if Process.alive?(client), do: GenServer.stop(client) end)
+    on_exit(fn -> stop_safely(client) end)
 
     {:ok, %{client: client}}
   end
@@ -38,11 +39,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.ResilienceTest do
         # Produce messages during rebalance
         {:ok, _} = API.produce(client, topic_name, rem(i, 4), [%{value: "rebalance-msg-#{i}"}])
 
-        try do
-          Supervisor.stop(temp_consumer)
-        catch
-          :exit, _ -> :ok
-        end
+        stop_safely(temp_consumer)
 
         Process.sleep(1_000)
       end)
@@ -58,11 +55,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.ResilienceTest do
       received = receive_messages_until_found("final-message", 15_000)
       assert "final-message" in received, "Consumer should receive messages after rebalances"
 
-      try do
-        Supervisor.stop(consumer1)
-      catch
-        :exit, _ -> :ok
-      end
+      stop_safely(consumer1)
     end
 
     @tag timeout: 60_000
@@ -92,11 +85,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.ResilienceTest do
       received = receive_messages_until(1, 10_000)
       assert "test-message" in received, "Consumer should receive from available topic"
 
-      try do
-        Supervisor.stop(consumer)
-      catch
-        :exit, _ -> :ok
-      end
+      stop_safely(consumer)
     end
 
     @tag timeout: 60_000
@@ -129,8 +118,8 @@ defmodule KafkaEx.Integration.ConsumerGroup.ResilienceTest do
       received = receive_messages_until(2, 10_000)
       assert length(received) == 2, "Both partitions should receive messages"
 
-      Supervisor.stop(consumer1)
-      Supervisor.stop(consumer2)
+      stop_safely(consumer1)
+      stop_safely(consumer2)
     end
 
     @tag timeout: 60_000
@@ -161,7 +150,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.ResilienceTest do
       received = receive_messages_until(5, 10_000)
       assert length(received) >= 5, "All messages should be received"
 
-      Supervisor.stop(consumer)
+      stop_safely(consumer)
     end
   end
 
@@ -187,7 +176,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.ResilienceTest do
       received = receive_messages_until(1, 5_000)
       assert "backoff-test" in received
 
-      Supervisor.stop(consumer)
+      stop_safely(consumer)
     end
   end
 

@@ -6,6 +6,8 @@ defmodule KafkaEx.Integration.Lifecycle.TelemetryTest do
   alias KafkaEx.API
   alias KafkaEx.Telemetry
 
+  import KafkaEx.TestSupport.ProcessHelpers
+
   setup do
     ref = make_ref()
     test_pid = self()
@@ -19,10 +21,7 @@ defmodule KafkaEx.Integration.Lifecycle.TelemetryTest do
 
     on_exit(fn ->
       :telemetry.detach(ref)
-
-      if Process.alive?(client) do
-        GenServer.stop(client)
-      end
+      stop_safely(client)
     end)
 
     {:ok, ref: ref, handler: handler, client: client}
@@ -87,9 +86,7 @@ defmodule KafkaEx.Integration.Lifecycle.TelemetryTest do
       {:ok, args} = KafkaEx.build_worker_options([])
       {:ok, new_client} = Client.start_link(args, :no_name)
 
-      on_exit(fn ->
-        if Process.alive?(new_client), do: GenServer.stop(new_client)
-      end)
+      on_exit(fn -> stop_safely(new_client) end)
 
       # Verify start event
       assert_receive {:telemetry, ^ref, [:kafka_ex, :connection, :start], start_measurements, start_metadata}, 5000

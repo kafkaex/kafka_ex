@@ -4,6 +4,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.SyncConsumerGroupTest do
 
   import KafkaEx.TestHelpers
   import KafkaEx.IntegrationHelpers
+  import KafkaEx.TestSupport.ProcessHelpers
 
   alias KafkaEx.Client
   alias KafkaEx.API
@@ -14,9 +15,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.SyncConsumerGroupTest do
     {:ok, args} = KafkaEx.build_worker_options([])
     {:ok, client} = Client.start_link(args, :no_name)
 
-    on_exit(fn ->
-      if Process.alive?(client), do: GenServer.stop(client)
-    end)
+    on_exit(fn -> stop_safely(client) end)
 
     {:ok, %{client: client}}
   end
@@ -67,7 +66,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.SyncConsumerGroupTest do
       Process.sleep(2_000)
 
       # Stop consumer
-      Supervisor.stop(consumer_pid)
+      stop_safely(consumer_pid)
       Process.sleep(1_000)
 
       # Produce more messages while consumer is stopped
@@ -159,7 +158,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.SyncConsumerGroupTest do
       refute "old-message" in received, "Should not receive old message with :latest offset"
       assert "new-message" in received, "Should receive new message"
 
-      Supervisor.stop(consumer_pid)
+      stop_safely(consumer_pid)
     end
   end
 
@@ -204,8 +203,8 @@ defmodule KafkaEx.Integration.ConsumerGroup.SyncConsumerGroupTest do
       assert Process.alive?(consumer1)
       assert Process.alive?(consumer2)
 
-      Supervisor.stop(consumer1)
-      Supervisor.stop(consumer2)
+      stop_safely(consumer1)
+      stop_safely(consumer2)
     end
 
     @tag timeout: 90_000
@@ -235,7 +234,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.SyncConsumerGroupTest do
       assert MapSet.size(MapSet.new(Map.keys(partitions_before))) == 4
 
       # Stop first consumer - triggers rebalance
-      Supervisor.stop(consumer1)
+      stop_safely(consumer1)
       Process.sleep(5_000)
 
       # Produce more messages - remaining consumer should get all partitions
@@ -248,7 +247,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.SyncConsumerGroupTest do
       refute Process.alive?(consumer1)
       assert Process.alive?(consumer2)
 
-      Supervisor.stop(consumer2)
+      stop_safely(consumer2)
     end
   end
 
@@ -309,7 +308,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.SyncConsumerGroupTest do
       assert total_received == total_produced, "Expected #{total_produced} messages, got #{total_received}"
       assert Process.alive?(consumer_pid)
 
-      Supervisor.stop(consumer_pid)
+      stop_safely(consumer_pid)
     end
 
     @tag timeout: 120_000
@@ -347,8 +346,8 @@ defmodule KafkaEx.Integration.ConsumerGroup.SyncConsumerGroupTest do
       assert total_produced > 0
       assert total_received == total_produced, "Expected #{total_produced} messages, got #{total_received}"
 
-      Supervisor.stop(consumer1)
-      Supervisor.stop(consumer2)
+      stop_safely(consumer1)
+      stop_safely(consumer2)
     end
   end
 
@@ -424,13 +423,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.SyncConsumerGroupTest do
     {:ok, consumer_pid} = ConsumerGroup.start_link(SyncTestConsumer, name, topics, opts)
     Process.unlink(consumer_pid)
 
-    on_exit(fn ->
-      try do
-        if Process.alive?(consumer_pid), do: Supervisor.stop(consumer_pid)
-      catch
-        :exit, _ -> :ok
-      end
-    end)
+    on_exit(fn -> stop_safely(consumer_pid) end)
 
     consumer_pid
   end

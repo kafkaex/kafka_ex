@@ -1,6 +1,8 @@
 defmodule KafkaEx.SupervisorTest do
   use ExUnit.Case, async: false
 
+  import KafkaEx.TestSupport.ProcessHelpers
+
   alias KafkaEx.Supervisor, as: KafkaExSupervisor
 
   # Mock module for testing
@@ -50,13 +52,7 @@ defmodule KafkaEx.SupervisorTest do
 
       {:ok, sup_pid} = KafkaExSupervisor.start_link(3, 5)
 
-      on_exit(fn ->
-        try do
-          if Process.alive?(sup_pid), do: GenServer.stop(sup_pid)
-        catch
-          :exit, _ -> :ok
-        end
-      end)
+      on_exit(fn -> stop_safely(sup_pid) end)
 
       {:ok, supervisor: sup_pid}
     end
@@ -93,13 +89,7 @@ defmodule KafkaEx.SupervisorTest do
 
       {:ok, sup_pid} = KafkaExSupervisor.start_link(3, 5)
 
-      on_exit(fn ->
-        try do
-          if Process.alive?(sup_pid), do: GenServer.stop(sup_pid)
-        catch
-          :exit, _ -> :ok
-        end
-      end)
+      on_exit(fn -> stop_safely(sup_pid) end)
 
       {:ok, supervisor: sup_pid}
     end

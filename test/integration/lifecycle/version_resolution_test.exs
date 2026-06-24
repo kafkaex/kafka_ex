@@ -10,6 +10,7 @@ defmodule KafkaEx.Integration.Lifecycle.VersionResolutionTest do
 
   import KafkaEx.TestHelpers
   import KafkaEx.IntegrationHelpers
+  import KafkaEx.TestSupport.ProcessHelpers
 
   alias KafkaEx.API
   alias KafkaEx.Client
@@ -20,7 +21,7 @@ defmodule KafkaEx.Integration.Lifecycle.VersionResolutionTest do
 
     on_exit(fn ->
       Application.delete_env(:kafka_ex, :api_versions)
-      if Process.alive?(pid), do: GenServer.stop(pid)
+      stop_safely(pid)
     end)
 
     {:ok, %{client: pid}}

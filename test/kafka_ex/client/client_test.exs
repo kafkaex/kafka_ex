@@ -2,6 +2,7 @@ defmodule KafkaEx.ClientTest do
   use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
+  import KafkaEx.TestSupport.ProcessHelpers
 
   alias KafkaEx.Client
   alias KafkaEx.Client.State
@@ -472,7 +473,7 @@ defmodule KafkaEx.ClientTest do
 
   defp start_shadow(initial_state) do
     {:ok, pid} = ClientHandleInfoShadow.start_link(initial_state)
-    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+    on_exit(fn -> stop_safely(pid) end)
     pid
   end
 

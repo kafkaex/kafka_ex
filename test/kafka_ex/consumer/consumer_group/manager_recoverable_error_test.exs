@@ -11,6 +11,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerRecoverableErrorTest do
   """
   use ExUnit.Case, async: false
 
+  import KafkaEx.TestSupport.ProcessHelpers
+
   alias KafkaEx.Consumer.ConsumerGroup.Manager
   alias KafkaEx.Consumer.ConsumerGroup.Manager.State
   alias KafkaEx.Test.MockClient
@@ -29,10 +31,10 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerRecoverableErrorTest do
     # backoff sleeps, no consumer startup). Reaching join at all proves :closed was
     # routed to the recoverable rejoin path rather than {:stop, ...}.
     {:ok, client} = MockClient.start_link(%{join_group: {:error, :illegal_generation}})
-    on_exit(fn -> if Process.alive?(client), do: GenServer.stop(client) end)
+    on_exit(fn -> stop_safely(client) end)
 
     {:ok, sup} = Supervisor.start_link([], strategy: :one_for_one)
-    on_exit(fn -> if Process.alive?(sup), do: Supervisor.stop(sup) end)
+    on_exit(fn -> stop_safely(sup) end)
 
     state = %State{
       client: client,
