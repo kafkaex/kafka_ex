@@ -91,7 +91,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
             members: [binary()] | nil,
             generation_id: integer() | nil,
             assignments: [{binary(), integer()}] | nil,
-            heartbeat_timer: reference() | nil,
+            heartbeat_timer: pid() | nil,
             sync_retry_backoff_ms: non_neg_integer() | nil,
             sync_failures: non_neg_integer()
           }
@@ -363,6 +363,26 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     {:noreply, state}
   end
 
+  # The heartbeat hit a "rejoin now, with identity reset" signal:
+  # :illegal_generation (stale generation — keep member_id) or
+  # :unknown_member_id (coordinator forgot us — clear member_id). reset_generation/2
+  # applies the right reset, then we rejoin in place. This is recovery, NOT a crash,
+  # so the one_for_all / max_restarts: 0 consumer-group supervisor is never torn down.
+  def handle_info({:EXIT, timer, {:shutdown, {:rejoin, reason}}}, %State{heartbeat_timer: timer} = state) do
+    Logger.warning("Heartbeat signalled rejoin (#{inspect(reason)}), resetting generation and rejoining group")
+    state = reset_generation(state, reason)
+    {:ok, state} = rebalance(state, {:heartbeat_rejoin, reason})
+    {:noreply, state}
+  end
+
+  # The heartbeat hit a terminal error (:fenced_instance_id — another member
+  # holds this static group.instance.id). Rejoining would split-brain or be
+  # fenced again, so stop cleanly and let the supervisor tear the member down.
+  def handle_info({:EXIT, timer, {:shutdown, {:terminal, reason}}}, %State{heartbeat_timer: timer} = state) do
+    Logger.error("Heartbeat hit terminal error #{inspect(reason)}, stopping consumer group member")
+    {:stop, {:shutdown, {:terminal, reason}}, state}
+  end
+
   # If the heartbeat gets an error, attempt to rejoin for recoverable errors.
   # Recoverable errors: coordinator changed or temporarily unavailable
   def handle_info({:EXIT, _heartbeat_timer, {:shutdown, {:error, reason}}}, %State{} = state) do
@@ -402,6 +422,14 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   def handle_info({:EXIT, pid, :normal}, %State{} = state) do
     Logger.debug("Manager trapping normal :EXIT from linked pid #{inspect(pid)}")
     {:noreply, state}
+  end
+
+  # Deferred terminal stop requested from inside the synchronous join/sync call
+  # chain, which can't return {:stop, _, _} directly. handle_sync_error/3 sends
+  # this on a terminal SyncGroup error (:fenced_instance_id) so the member stops
+  # cleanly without rejoining.
+  def handle_info({:terminal_shutdown, reason}, %State{} = state) do
+    {:stop, {:shutdown, {:terminal, reason}}, state}
   end
 
   # When terminating, inform the group coordinator that this member is leaving
@@ -579,22 +607,19 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     end
   end
 
-  # SyncGroup recovery — mirrors join/2's recoverable-error handling. A transient
-  # SyncGroup failure (e.g. :unknown / :timeout from a coordinator under rebalance
-  # churn, such as a rolling deploy) must not crash the Manager: the crash escalates
-  # through the one_for_all / max_restarts: 0 consumer-group supervisor into a full
-  # subtree teardown, triggering a group-wide rebalance.
-  # Rejoining is the correct recovery (a fresh generation); retrying sync_group
-  # with the same, possibly stale, generation_id is futile.
-  #
-  # Bounded like join: tolerate up to @max_sync_retries consecutive recoverable
-  # failures (the counter resets on a successful sync), then give up and raise —
-  # escalating a persistent failure to the supervisor rebuild rather than
-  # rejoining forever (cf. join's JoinGroupRetriesExhausted). Non-recoverable
-  # errors raise immediately.
+  defp handle_sync_error(%State{} = state, group_name, :fenced_instance_id = reason) do
+    Logger.error(
+      "SyncGroup for #{inspect(group_name)} returned :fenced_instance_id; " <>
+        "another member holds this group.instance.id. Stopping without rejoin"
+    )
+
+    send(self(), {:terminal_shutdown, reason})
+    {:ok, state}
+  end
+
   defp handle_sync_error(%State{} = state, group_name, reason) do
     cond do
-      not recoverable_error?(reason) ->
+      not sync_rejoinable?(reason) ->
         raise KafkaEx.SyncGroupError, group_name: group_name, reason: reason
 
       state.sync_failures >= @max_sync_retries ->
@@ -612,9 +637,14 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
         )
 
         :timer.sleep(state.sync_retry_backoff_ms)
+        state = reset_generation(state, reason)
         rebalance(%State{state | sync_failures: attempt}, {:sync_error, reason})
     end
   end
+
+  defp sync_rejoinable?(:illegal_generation), do: true
+  defp sync_rejoinable?(:unknown_member_id), do: true
+  defp sync_rejoinable?(reason), do: recoverable_error?(reason)
 
   # Convert assignments from Manager format to protocol-agnostic format for sync_group request
   # Input: [{member_id, [{topic, [partition_ids]}]}]

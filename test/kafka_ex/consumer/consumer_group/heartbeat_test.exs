@@ -71,7 +71,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.HeartbeatTest do
       assert {:stop, {:shutdown, :rebalance}, ^state} = Heartbeat.handle_info(:timeout, state)
     end
 
-    test "stops with rebalance on unknown_member_id error" do
+    test "stops with rejoin(:unknown_member_id) so the manager resets member_id and rejoins" do
       {:ok, client} = MockClient.start_link(%{heartbeat: {:error, :unknown_member_id}})
 
       state = %Heartbeat.State{
@@ -82,7 +82,38 @@ defmodule KafkaEx.Consumer.ConsumerGroup.HeartbeatTest do
         heartbeat_interval: 1000
       }
 
-      assert {:stop, {:shutdown, :rebalance}, ^state} = Heartbeat.handle_info(:timeout, state)
+      assert {:stop, {:shutdown, {:rejoin, :unknown_member_id}}, ^state} =
+               Heartbeat.handle_info(:timeout, state)
+    end
+
+    test "stops with rejoin(:illegal_generation) so the manager resets generation and rejoins" do
+      {:ok, client} = MockClient.start_link(%{heartbeat: {:error, :illegal_generation}})
+
+      state = %Heartbeat.State{
+        client: client,
+        group_name: "test-group",
+        member_id: "member-1",
+        generation_id: 1,
+        heartbeat_interval: 1000
+      }
+
+      assert {:stop, {:shutdown, {:rejoin, :illegal_generation}}, ^state} =
+               Heartbeat.handle_info(:timeout, state)
+    end
+
+    test "stops terminally on fenced_instance_id (static membership conflict, no rejoin)" do
+      {:ok, client} = MockClient.start_link(%{heartbeat: {:error, :fenced_instance_id}})
+
+      state = %Heartbeat.State{
+        client: client,
+        group_name: "test-group",
+        member_id: "member-1",
+        generation_id: 1,
+        heartbeat_interval: 1000
+      }
+
+      assert {:stop, {:shutdown, {:terminal, :fenced_instance_id}}, ^state} =
+               Heartbeat.handle_info(:timeout, state)
     end
 
     test "stops with error on other error codes" do

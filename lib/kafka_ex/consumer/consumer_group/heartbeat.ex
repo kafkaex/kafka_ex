@@ -15,12 +15,18 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Heartbeat do
      needed.
      * `:rebalance_in_progress` a rebalance has been initiated, so each member
      should re-join.
-     * `:unknown_member_id` means that this heartbeat was from a previous dead
-     generation.
+     * `:unknown_member_id` means the coordinator has forgotten this member; it
+     must re-join with a fresh (reset) member_id.
+     * `:illegal_generation` means this member's generation is stale; it must
+     re-join (keeping its member_id) to pick up the new generation.
+     * `:fenced_instance_id` means another member has claimed this member's
+     static `group.instance.id`; this is terminal and the member stops rather
+     than re-joining.
 
-   For either of the error conditions, the heartbeat process exits, which is
-   trapped by the KafkaEx.Consumer.ConsumerGroup.Manager and handled by re-joining the
-   consumer group. (see KafkaEx.Consumer.ConsumerGroup.Manager.join/1)
+   For the recoverable conditions the heartbeat process exits with a
+   `{:shutdown, _}` reason that the KafkaEx.Consumer.ConsumerGroup.Manager
+   traps and turns into a re-join (resetting identity per the reason) or a
+   clean terminal stop. (see KafkaEx.Consumer.ConsumerGroup.Manager)
   """
 
   use GenServer
@@ -79,8 +85,19 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Heartbeat do
       {:error, :rebalance_in_progress} ->
         {:stop, {:shutdown, :rebalance}, state}
 
+      {:error, :illegal_generation} ->
+        {:stop, {:shutdown, {:rejoin, :illegal_generation}}, state}
+
       {:error, :unknown_member_id} ->
-        {:stop, {:shutdown, :rebalance}, state}
+        {:stop, {:shutdown, {:rejoin, :unknown_member_id}}, state}
+
+      {:error, :fenced_instance_id} ->
+        Logger.error(
+          "Heartbeat fenced (:fenced_instance_id): another member holds this " <>
+            "group.instance.id; stopping without rejoin"
+        )
+
+        {:stop, {:shutdown, {:terminal, :fenced_instance_id}}, state}
 
       {:error, reason} ->
         Logger.warning("Heartbeat failed, got error reason #{inspect(reason)}")
