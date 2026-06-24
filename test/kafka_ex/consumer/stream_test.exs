@@ -224,4 +224,61 @@ defmodule KafkaEx.Consumer.StreamTest do
       assert values == ["a", "b", "c", "d", "e"]
     end
   end
+
+  # A mock whose fetch always returns one record (so auto_commit triggers a commit
+  # every cycle) and whose offset_commit returns a configurable error.
+  defmodule FatalCommitMockClient do
+    @moduledoc false
+    use GenServer
+
+    def start_link(commit_response) do
+      GenServer.start_link(__MODULE__, %{commit_response: commit_response, fetches: 0})
+    end
+
+    def fetches(pid), do: GenServer.call(pid, :fetches)
+
+    @impl true
+    def init(state), do: {:ok, state}
+
+    @impl true
+    def handle_call({:fetch, _topic, _partition, _offset, _opts}, _from, state) do
+      response = {:ok, %{last_offset: 0, records: [%{offset: 0, value: "x"}]}}
+      {:reply, response, %{state | fetches: state.fetches + 1}}
+    end
+
+    def handle_call({:offset_commit, _group, _commits, _opts}, _from, state) do
+      {:reply, state.commit_response, state}
+    end
+
+    def handle_call(:fetches, _from, state), do: {:reply, state.fetches, state}
+  end
+
+  describe "stream offset-commit failure handling (PR-4 / C-4)" do
+    alias KafkaEx.Consumer.Stream, as: ConsumerStream
+
+    @tag timeout: 5_000
+    test "halts on a fatal offset-commit error instead of silently looping (duplicate processing)" do
+      {:ok, mock} = FatalCommitMockClient.start_link({:error, :illegal_generation})
+
+      stream = %ConsumerStream{
+        client: mock,
+        topic: "t",
+        partition: 0,
+        offset: 0,
+        consumer_group: "g",
+        no_wait_at_logend: false,
+        fetch_options: [auto_commit: true],
+        api_versions: %{}
+      }
+
+      {_list, log} = ExUnit.CaptureLog.with_log(fn -> Enum.take(stream, 50) end)
+
+      # post-fix: halts at the first commit (:illegal_generation is non-retryable, so
+      # commit_offset returns immediately) -> exactly 1 fetch. pre-fix: swallows the
+      # error and keeps fetching the same batch (~50 fetches) -> reprocessing forever.
+      assert FatalCommitMockClient.fetches(mock) == 1
+      assert log =~ "Stream halting: offset commit failed"
+      assert log =~ ":illegal_generation"
+    end
+  end
 end
