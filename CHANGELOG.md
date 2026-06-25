@@ -1,6 +1,6 @@
 # KafkaEx Changelog
 
-## 1.0.1 (2026-06-17)
+## 1.0.1 (2026-06-26)
 
 ### Breaking Changes
 
@@ -76,8 +76,71 @@
   correct interop with Kafka 2.3+ under
   `group.initial.rebalance.delay.ms`.
 
+* **Consumer-group heartbeat and SyncGroup errors now rejoin or stop
+  cleanly instead of crashing the group (#554, #555).** Previously
+  `:illegal_generation` / `:unknown_member_id` / `:fenced_instance_id`
+  reached the manager as a generic error and crashed it under the
+  `one_for_all` / `max_restarts: 0` consumer-group supervisor, escalating
+  one member's stale generation into a group-wide rebalance. Now, matching
+  brod's identity handling (terminal codes follow the Java client):
+
+  - `:illegal_generation` → rejoin keeping `member_id` (only the
+    generation is stale).
+  - `:unknown_member_id` → rejoin after clearing `member_id` (the
+    coordinator forgot the member; the broker assigns a fresh one).
+  - `:fenced_instance_id` (KIP-345) and `:group_authorization_failed` →
+    clean terminal stop without rejoining (rejoining would split-brain
+    the static slot or fail authorization again).
+
+  Stale heartbeat-timer EXITs (from a timer already replaced during a
+  rebalance) are dropped instead of acted on. A `{:heartbeat_rejoin,
+  reason}` reason is emitted on the `[:kafka_ex, :consumer, :rebalance]`
+  telemetry event.
+
+* **Client retry loop preserves the real transport error atom (#544).**
+  A `recv` timeout to a broker was mapped to `:unknown`, which crashed the
+  consumer-group manager via `SyncGroupError` (the rebalance-storm root
+  cause). The actual transport atom (`:timeout`, `:closed`, …) is now kept
+  so it is classified and recovered correctly.
+
+* **Consumer-group sync recovery is bounded, not crash-on-error (#546).**
+  Recoverable `SyncGroup` errors now rejoin with a bounded retry budget and
+  generation reset between attempts instead of raising and tearing down the
+  group supervisor.
+
+* **The group coordinator is re-discovered on `:not_coordinator` /
+  `:coordinator_not_available` (#547).** Previously a stale cached
+  coordinator was reused after the coordinator moved (rolling restart),
+  so every subsequent request failed. The cached coordinator is now
+  invalidated and rediscovered.
+
+* **OffsetCommit / OffsetFetch correctness — no silent loss or duplicate
+  processing (#548).** The stream halts on a fatal commit error instead of
+  looping and reprocessing; `load_offsets` retries retryable errors
+  (including `:unstable_offset_commit`, KIP-447) and raises on
+  fatal/exhaustion instead of silently resetting to the earliest offset.
+
+* **Broker connect is bounded by a timeout instead of blocking
+  indefinitely (#556).** Connecting to an unreachable broker no longer
+  hangs the client; the connect is bounded by `:connect_timeout`
+  (default 10s).
+
+* **Transaction control batches are dropped from fetch results, and the
+  fetch offset advances past them (#557).** Control batches (transaction
+  commit/abort markers) were surfaced to consumers as records; they are now
+  filtered out. A fetch that contains only control batches still advances
+  the consumer/stream offset past them (via the batch metadata) instead of
+  re-fetching the same offset forever.
+
 ### Internal
 
+* Consumer-group / config test stabilization: eliminated the `on_exit`
+  teardown `:noproc` race class via `KafkaEx.TestSupport.ProcessHelpers`
+  and stabilized three flaky consumer-group / config tests (#549, #553).
+* `load_offsets` startup retry now rides the unified
+  `KafkaEx.Support.Retry.with_retry/2` with exponential backoff (#551).
+* Renamed the `KafkaEx.Support.Retry` option `:max_retries` to
+  `:max_attempts` for consistency with the retry-count semantics (#552).
 * Migrated the test suite's mocking from Hammox to Mimic (`mimic ~> 1.7`),
   dropping the unused `KafkaEx.NetworkClientMock`. No runtime/production
   changes. (#534)
