@@ -22,6 +22,7 @@ defmodule KafkaEx.Messages.Fetch do
     :records,
     :high_watermark,
     :last_offset,
+    :next_offset,
     :last_stable_offset,
     :log_start_offset,
     :preferred_read_replica,
@@ -40,6 +41,7 @@ defmodule KafkaEx.Messages.Fetch do
           records: [Record.t()],
           high_watermark: non_neg_integer(),
           last_offset: non_neg_integer() | nil,
+          next_offset: non_neg_integer() | nil,
           last_stable_offset: non_neg_integer() | nil,
           log_start_offset: non_neg_integer() | nil,
           preferred_read_replica: integer() | nil,
@@ -61,6 +63,7 @@ defmodule KafkaEx.Messages.Fetch do
       records: records,
       high_watermark: Keyword.fetch!(opts, :high_watermark),
       last_offset: last_offset,
+      next_offset: Keyword.get(opts, :next_offset),
       last_stable_offset: Keyword.get(opts, :last_stable_offset),
       log_start_offset: Keyword.get(opts, :log_start_offset),
       preferred_read_replica: Keyword.get(opts, :preferred_read_replica),
@@ -83,9 +86,16 @@ defmodule KafkaEx.Messages.Fetch do
   def record_count(%__MODULE__{records: records}), do: length(records)
 
   @doc """
-  Returns the next offset to fetch from (last_offset + 1 or high_watermark if empty).
+  Returns the offset to fetch from next.
+
+  Prefers `next_offset` — derived from the raw RecordBatch metadata, so it points
+  past control batches that were filtered out of `records` (otherwise a
+  fetch landing on a trailing control batch would never advance). Falls back to
+  `last_offset + 1` when only records are known, and finally to `high_watermark`
+  when the fetch was genuinely empty (caught up).
   """
   @spec next_offset(t()) :: non_neg_integer()
+  def next_offset(%__MODULE__{next_offset: next}) when is_integer(next), do: next
   def next_offset(%__MODULE__{last_offset: nil, high_watermark: hw}), do: hw
   def next_offset(%__MODULE__{last_offset: last}), do: last + 1
 

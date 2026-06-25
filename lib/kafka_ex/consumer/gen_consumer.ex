@@ -860,9 +860,21 @@ defmodule KafkaEx.Consumer.GenConsumer do
     end
   end
 
-  # Handle response from the new KafkaExAPI.fetch
+  # The broker returned batches but every record was filtered out (control
+  # batches — transaction commit/abort markers). Advance past them to next_offset, otherwise the
+  # next fetch lands on the same batch and the consumer spins forever without
+  # progressing. Mirrors brod/Java, which take the next position from batch
+  # metadata. next_offset comes from the raw batches, so it is strictly ahead of
+  # current_offset here.
+  defp handle_new_fetch_response(%{records: [], next_offset: next}, %State{current_offset: current} = state)
+       when is_integer(next) and is_integer(current) and next > current do
+    new_state = %State{state | acked_offset: next, current_offset: next}
+    handle_commit(:async_commit, new_state)
+  end
+
+  # No batches at all — caught up to the end of the partition. Do not advance;
+  # poll again from the same offset.
   defp handle_new_fetch_response(%{records: []} = _fetch_result, state) do
-    # No messages, just handle async commit
     handle_commit(:async_commit, state)
   end
 

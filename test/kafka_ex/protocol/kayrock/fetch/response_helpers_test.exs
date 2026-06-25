@@ -408,6 +408,63 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.ResponseHelpersTest do
       assert fetch.throttle_time_ms == 5
       assert length(fetch.records) == 1
       assert fetch.last_offset == 0
+      assert fetch.next_offset == 1
+    end
+
+    test "control-only record_set yields no records but advances next_offset past the batch" do
+      response = %{
+        responses: [
+          %{
+            topic: "test_topic",
+            partition_responses: [
+              %{
+                partition_header: %{partition: 0, error_code: 0, high_watermark: 100},
+                record_set: [
+                  %Kayrock.RecordBatch{
+                    attributes: 0x20,
+                    batch_offset: 41,
+                    last_offset_delta: 0,
+                    records: [
+                      %Kayrock.RecordBatch.Record{
+                        offset: 41,
+                        key: <<0, 0, 0, 0>>,
+                        value: <<0, 0>>,
+                        timestamp: 1,
+                        attributes: 0,
+                        headers: nil
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+
+      field_extractor = fn _resp, _part_resp -> [] end
+
+      assert {:ok, fetch} = ResponseHelpers.parse_response(response, field_extractor)
+      assert fetch.records == []
+      # batch_offset 41 + last_offset_delta 0 + 1 — advances past the control batch
+      assert fetch.next_offset == 42
+    end
+
+    test "nil record_set leaves next_offset nil (caught up, do not advance)" do
+      response = %{
+        responses: [
+          %{
+            topic: "test_topic",
+            partition_responses: [
+              %{partition_header: %{partition: 0, error_code: 0, high_watermark: 100}, record_set: nil}
+            ]
+          }
+        ]
+      }
+
+      assert {:ok, fetch} = ResponseHelpers.parse_response(response, fn _r, _p -> [] end)
+      assert fetch.records == []
+      assert fetch.next_offset == nil
     end
 
     test "returns error for empty response" do
