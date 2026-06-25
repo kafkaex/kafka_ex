@@ -102,4 +102,16 @@ defmodule KafkaEx.Network.Socket.Test do
       assert KafkaEx.Network.Socket.send(socket, ~c"ping") in [{:error, :closed}, {:error, :einval}]
     end
   end
+
+  describe "connect timeout" do
+    # 192.0.2.1 is RFC 5737 TEST-NET-1 — guaranteed unrouted, so the SYN is
+    # black-holed and connect can only return via the connect timeout. Without a
+    # timeout (the pre-fix :infinity default) this call blocks for the full OS
+    # TCP timeout and the test would hang until the ExUnit case timeout below.
+    @tag timeout: 5_000
+    test "create/5 bounds a connect to an unreachable host by connect_timeout" do
+      assert {:error, :timeout} =
+               KafkaEx.Network.Socket.create({192, 0, 2, 1}, 9092, [:binary, {:packet, 4}], false, 200)
+    end
+  end
 end

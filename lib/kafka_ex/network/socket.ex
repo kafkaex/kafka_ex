@@ -11,9 +11,15 @@ defmodule KafkaEx.Network.Socket do
   Creates a socket.
   For more information about the available options, see `:ssl.connect/3` for ssl or `:gen_tcp.connect/3` for non ssl.
   """
-  @spec create(:inet.ip_address(), non_neg_integer, [] | [...]) :: {:ok, KafkaEx.Network.Socket.t()} | {:error, any}
-  def create(host, port, socket_options \\ [], is_ssl \\ false) do
-    case create_socket(host, port, is_ssl, socket_options) do
+  # Bounds :gen_tcp.connect / :ssl.connect, which otherwise default to
+  # :infinity and block the calling process for the full OS TCP timeout
+  # (tens of seconds to minutes) against an unreachable/black-holed broker.
+  @default_connect_timeout 10_000
+
+  @spec create(:inet.ip_address(), non_neg_integer, [] | [...], boolean, timeout) ::
+          {:ok, KafkaEx.Network.Socket.t()} | {:error, any}
+  def create(host, port, socket_options \\ [], is_ssl \\ false, connect_timeout \\ @default_connect_timeout) do
+    case create_socket(host, port, is_ssl, socket_options, connect_timeout) do
       {:ok, socket} -> {:ok, %KafkaEx.Network.Socket{socket: socket, ssl: is_ssl}}
       {:error, reason} -> {:error, reason}
     end
@@ -105,6 +111,9 @@ defmodule KafkaEx.Network.Socket do
 
   defp extract_port(socket), do: socket.socket
 
-  defp create_socket(host, port, true, socket_options), do: :ssl.connect(host, port, socket_options)
-  defp create_socket(host, port, false, socket_options), do: :gen_tcp.connect(host, port, socket_options)
+  defp create_socket(host, port, true, socket_options, timeout),
+    do: :ssl.connect(host, port, socket_options, timeout)
+
+  defp create_socket(host, port, false, socket_options, timeout),
+    do: :gen_tcp.connect(host, port, socket_options, timeout)
 end

@@ -159,6 +159,15 @@ defmodule KafkaEx.Config do
   def use_ssl, do: Application.get_env(:kafka_ex, :use_ssl, false)
 
   @doc """
+  Timeout (ms) for establishing a broker TCP/SSL connection.
+
+  Bounds `:gen_tcp.connect` / `:ssl.connect`, which otherwise block for the full
+  OS TCP timeout (tens of seconds to minutes) against an unreachable broker.
+  """
+  @spec connect_timeout() :: timeout()
+  def connect_timeout, do: Application.get_env(:kafka_ex, :connect_timeout, 10_000)
+
+  @doc """
   Returns SSL options for connections.
 
   Validates that ssl_options is a keyword list when SSL is enabled.
