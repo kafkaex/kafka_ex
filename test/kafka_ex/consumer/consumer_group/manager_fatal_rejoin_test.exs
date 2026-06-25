@@ -112,6 +112,70 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerFatalRejoinTest do
     end
   end
 
+  describe "stale heartbeat-timer EXIT routing (#555)" do
+    # A {:shutdown, _} EXIT whose pid is NOT the current heartbeat_timer comes
+    # from a timer we already swapped out during a rebalance, so it is obsolete
+    # by construction. The Manager drops it ({:noreply, state}) instead of acting
+    # on a stale signal; only the current timer drives state transitions. For the
+    # one terminal case (:fenced_instance_id) the condition is persistent, so the
+    # live timer re-detects it and stops on its next cycle.
+
+    test "stale {:terminal, _} is dropped, not stopped or rejoined" do
+      {:ok, client} = MockClient.start_link(%{})
+      on_exit(fn -> ProcessHelpers.stop_safely(client) end)
+
+      current = dead_pid()
+      stale = dead_pid()
+      state = heartbeat_state(client, current)
+
+      assert {:noreply, ^state} =
+               Manager.handle_info({:EXIT, stale, {:shutdown, {:terminal, :fenced_instance_id}}}, state)
+
+      refute Enum.any?(MockClient.get_calls(client), &match?({:join_group, _, _}, &1))
+    end
+
+    test "stale {:rejoin, _} is dropped, no rejoin attempted" do
+      # join_group is scripted to fail non-recoverably: if the stale EXIT were
+      # (wrongly) routed to the rejoin path, join would run and we'd see a call.
+      {:ok, client} = MockClient.start_link(%{join_group: {:error, :illegal_generation}})
+      on_exit(fn -> ProcessHelpers.stop_safely(client) end)
+
+      current = dead_pid()
+      stale = dead_pid()
+      state = heartbeat_state(client, current)
+
+      assert {:noreply, ^state} =
+               Manager.handle_info({:EXIT, stale, {:shutdown, {:rejoin, :illegal_generation}}}, state)
+
+      refute Enum.any?(MockClient.get_calls(client), &match?({:join_group, _, _}, &1))
+    end
+
+    test "stale {:shutdown, :rebalance} is dropped, no rejoin attempted" do
+      {:ok, client} = MockClient.start_link(%{join_group: {:error, :illegal_generation}})
+      on_exit(fn -> ProcessHelpers.stop_safely(client) end)
+
+      current = dead_pid()
+      stale = dead_pid()
+      state = heartbeat_state(client, current)
+
+      assert {:noreply, ^state} =
+               Manager.handle_info({:EXIT, stale, {:shutdown, :rebalance}}, state)
+
+      refute Enum.any?(MockClient.get_calls(client), &match?({:join_group, _, _}, &1))
+    end
+
+    test "current {:terminal, _} still stops (contrast: only the live timer acts)" do
+      {:ok, client} = MockClient.start_link(%{})
+      on_exit(fn -> ProcessHelpers.stop_safely(client) end)
+
+      current = dead_pid()
+      state = heartbeat_state(client, current)
+
+      assert {:stop, {:shutdown, {:terminal, :fenced_instance_id}}, ^state} =
+               Manager.handle_info({:EXIT, current, {:shutdown, {:terminal, :fenced_instance_id}}}, state)
+    end
+  end
+
   describe "SyncGroup error routing" do
     # Drives a real Manager against a scripted MockClient (the :client injection
     # seam): JoinGroup succeeds (leader_id != member_id, so the member skips
