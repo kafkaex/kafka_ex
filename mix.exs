@@ -30,6 +30,7 @@ defmodule KafkaEx.Mixfile do
       package: package(),
       deps: deps(),
       aliases: aliases(),
+      usage_rules: usage_rules(),
       docs: [
         main: "readme",
         extras: [
@@ -67,7 +68,19 @@ defmodule KafkaEx.Mixfile do
       {:aws_credentials, "~> 1.0", optional: true},
       {:aws_signature, "~> 0.4.2", optional: true},
       {:jason, "~> 1.0", optional: true},
-      {:testcontainers, "~> 1.14", only: :test}
+      {:testcontainers, "~> 1.14", only: :test},
+      {:usage_rules, "~> 1.1", only: [:dev], runtime: false}
+    ]
+  end
+
+  # Inlines dependency usage rules into AGENTS.md under a managed marker block.
+  # KafkaEx is built on Kayrock for protocol (de)serialization, so its rules are
+  # the relevant ones for agents working in this repo. Run `mix usage_rules.sync`
+  # to refresh. CLAUDE.md is a symlink to AGENTS.md.
+  defp usage_rules do
+    [
+      file: "AGENTS.md",
+      usage_rules: [:kayrock]
     ]
   end
 
