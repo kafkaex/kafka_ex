@@ -7,12 +7,19 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.ResponseHelpers do
   message formats.
   """
 
+  import Bitwise
+
   alias KafkaEx.Client.Error
   alias KafkaEx.Messages.Fetch
   alias KafkaEx.Messages.Fetch.Record
   alias KafkaEx.Messages.Header
 
   alias Kayrock.ErrorCode
+
+  # RecordBatch attributes bit 5 (0x20) marks a control batch (transaction
+  # commit/abort markers). Its records are not application data and must never
+  # be surfaced to callers — matching brod's is_control filter.
+  @control_batch_flag 0x20
 
   @doc """
   Extracts the first topic and partition response from a Fetch response.
@@ -77,7 +84,9 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.ResponseHelpers do
   end
 
   def convert_records(record_batches, topic, partition) when is_list(record_batches) do
-    Enum.flat_map(record_batches, fn record_batch ->
+    record_batches
+    |> Enum.reject(&control_batch?/1)
+    |> Enum.flat_map(fn record_batch ->
       timestamp_type = extract_timestamp_type_from_batch(record_batch)
 
       Enum.map(record_batch.records, fn record ->
@@ -95,6 +104,12 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.ResponseHelpers do
       end)
     end)
   end
+
+  defp control_batch?(%{attributes: attributes}) when is_integer(attributes) do
+    (attributes &&& @control_batch_flag) != 0
+  end
+
+  defp control_batch?(_), do: false
 
   @doc """
   Converts Kayrock RecordHeader structs to Header structs.

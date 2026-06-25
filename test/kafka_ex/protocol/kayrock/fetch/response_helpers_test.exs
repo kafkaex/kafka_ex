@@ -143,6 +143,59 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.ResponseHelpersTest do
       assert rec2.timestamp_type == :log_append_time
     end
 
+    test "drops control batches (transaction markers) so they are not surfaced as messages" do
+      record_batches = [
+        # control batch (attributes bit 5 / 0x20 set) — a transaction commit/abort
+        # marker; its synthetic record must never reach the caller
+        %Kayrock.RecordBatch{
+          attributes: 0x20,
+          records: [
+            %Kayrock.RecordBatch.Record{
+              offset: 5,
+              key: <<0, 0, 0, 0>>,
+              value: <<0, 0>>,
+              timestamp: 2000,
+              attributes: 0,
+              headers: nil
+            }
+          ]
+        },
+        # normal application batch
+        %Kayrock.RecordBatch{
+          attributes: 0,
+          records: [
+            %Kayrock.RecordBatch.Record{
+              offset: 6,
+              key: "key",
+              value: "value",
+              timestamp: 2001,
+              attributes: 0,
+              headers: nil
+            }
+          ]
+        }
+      ]
+
+      records = ResponseHelpers.convert_records(record_batches, "test_topic", 0)
+
+      assert [%{offset: 6, value: "value"}] = records
+      refute Enum.any?(records, &(&1.offset == 5))
+    end
+
+    test "drops a transactional control batch (transactional + control bits set)" do
+      record_batches = [
+        %Kayrock.RecordBatch{
+          # 0x10 transactional | 0x20 control
+          attributes: 0x30,
+          records: [
+            %Kayrock.RecordBatch.Record{offset: 9, key: <<>>, value: <<>>, timestamp: 1, attributes: 0, headers: nil}
+          ]
+        }
+      ]
+
+      assert [] = ResponseHelpers.convert_records(record_batches, "t", 0)
+    end
+
     test "extracts timestamp_type from MessageSet attributes" do
       # Bit 3 = 0 means CreateTime
       message_set_create = %Kayrock.MessageSet{
