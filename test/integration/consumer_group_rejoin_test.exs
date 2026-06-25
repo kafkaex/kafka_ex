@@ -128,34 +128,10 @@ defmodule KafkaEx.Integration.ConsumerGroupRejoinTest do
     assert wait_for_message_count(1, timeout: 15_000) >= 1
   end
 
-  # Poll generation_id with a short call-timeout; the Manager is busy during
-  # rebalance and cannot respond to the default 5s timeout. Catches exits so
-  # the poll keeps trying until the rebalance completes and a new generation
-  # is assigned.
   defp wait_for_new_generation(cg_pid, gen_before, timeout_ms) do
-    deadline = System.monotonic_time(:millisecond) + timeout_ms
-    do_wait_for_new_generation(cg_pid, gen_before, deadline)
-  end
-
-  defp do_wait_for_new_generation(cg_pid, gen_before, deadline) do
-    if System.monotonic_time(:millisecond) >= deadline do
-      flunk("generation_id did not change from #{inspect(gen_before)} within timeout")
-    end
-
-    result =
-      try do
-        ConsumerGroup.generation_id(cg_pid, 500)
-      catch
-        :exit, _ -> :call_timeout
-      end
-
-    cond do
-      is_integer(result) and result != gen_before ->
-        :ok
-
-      true ->
-        Process.sleep(200)
-        do_wait_for_new_generation(cg_pid, gen_before, deadline)
+    case wait_for_generation_change(cg_pid, gen_before, timeout: timeout_ms) do
+      {:ok, _} -> :ok
+      {:error, :timeout} -> flunk("generation_id did not change from #{inspect(gen_before)} within timeout")
     end
   end
 end

@@ -82,7 +82,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.FatalRejoinRecoveryTest do
 
     # The member rejoins in place: a NEW (valid) generation, the SAME member_id,
     # and the supervisor never went down.
-    assert {:ok, gen1} = wait_for_generation_change(cg, gen0, 60_000)
+    assert {:ok, gen1} = ConsumerGroupHelpers.wait_for_generation_change(cg, gen0, timeout: 60_000)
     assert gen1 != gen0
     assert ConsumerGroup.member_id(cg) == member0, "illegal_generation must keep member_id"
     assert Process.alive?(cg), "the consumer-group supervisor must survive the rejoin"
@@ -93,31 +93,5 @@ defmodule KafkaEx.Integration.ConsumerGroup.FatalRejoinRecoveryTest do
     # Consumption resumes after the in-place rejoin.
     {:ok, _} = API.produce(client, topic, 0, [%{value: "after-rejoin"}])
     assert_receive {:messages_received, _}, 30_000
-  end
-
-  defp wait_for_generation_change(cg, gen0, timeout) do
-    deadline = System.monotonic_time(:millisecond) + timeout
-    do_wait_for_generation_change(cg, gen0, deadline)
-  end
-
-  defp do_wait_for_generation_change(cg, gen0, deadline) do
-    current =
-      try do
-        ConsumerGroup.generation_id(cg)
-      catch
-        :exit, _ -> gen0
-      end
-
-    cond do
-      is_integer(current) and current != gen0 ->
-        {:ok, current}
-
-      System.monotonic_time(:millisecond) >= deadline ->
-        {:error, :timeout}
-
-      true ->
-        Process.sleep(200)
-        do_wait_for_generation_change(cg, gen0, deadline)
-    end
   end
 end

@@ -369,7 +369,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   # applies the right reset, then we rejoin in place. This is recovery, NOT a crash,
   # so the one_for_all / max_restarts: 0 consumer-group supervisor is never torn down.
   def handle_info({:EXIT, timer, {:shutdown, {:rejoin, reason}}}, %State{heartbeat_timer: timer} = state) do
-    Logger.warning("Heartbeat signalled rejoin (#{inspect(reason)}), resetting generation and rejoining group")
+    Logger.warning("Heartbeat signalled rejoin (#{inspect(reason)}), resetting identity and rejoining group")
     state = reset_generation(state, reason)
     {:ok, state} = rebalance(state, {:heartbeat_rejoin, reason})
     {:noreply, state}
@@ -383,9 +383,11 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     {:stop, {:shutdown, {:terminal, reason}}, state}
   end
 
-  # If the heartbeat gets an error, attempt to rejoin for recoverable errors.
-  # Recoverable errors: coordinator changed or temporarily unavailable
-  def handle_info({:EXIT, _heartbeat_timer, {:shutdown, {:error, reason}}}, %State{} = state) do
+  # If the CURRENT heartbeat gets an error, attempt to rejoin for recoverable
+  # errors (coordinator changed or temporarily unavailable). Binding `timer` to
+  # the current heartbeat_timer keeps a stale heartbeat's error EXIT from
+  # triggering a spurious rebalance — it falls through to the stale-timer clause.
+  def handle_info({:EXIT, timer, {:shutdown, {:error, reason}}}, %State{heartbeat_timer: timer} = state) do
     if recoverable_error?(reason) do
       Logger.warning("Heartbeat failed with #{inspect(reason)}, attempting to rejoin group")
       {:ok, new_state} = rebalance(state, {:heartbeat_error, reason})
@@ -607,11 +609,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     end
   end
 
-  defp handle_sync_error(%State{} = state, group_name, :fenced_instance_id = reason) do
-    Logger.error(
-      "SyncGroup for #{inspect(group_name)} returned :fenced_instance_id; " <>
-        "another member holds this group.instance.id. Stopping without rejoin"
-    )
+  defp handle_sync_error(%State{} = state, group_name, reason)
+       when reason in [:fenced_instance_id, :group_authorization_failed] do
+    Logger.error("SyncGroup for #{inspect(group_name)} returned terminal #{inspect(reason)}; stopping without rejoin")
 
     send(self(), {:terminal_shutdown, reason})
     {:ok, state}

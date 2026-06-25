@@ -101,6 +101,46 @@ defmodule KafkaEx.TestSupport.ConsumerGroupHelpers do
   end
 
   @doc """
+  Wait until the consumer group's `generation_id` changes from `gen_before`.
+
+  Polls with a short call-timeout because the Manager is unresponsive while
+  rebalancing (a `:exit` from that timeout is treated as "no change yet").
+
+  Returns `{:ok, new_generation}` or `{:error, :timeout}`.
+
+  ## Options
+    * `:timeout` - Maximum time to wait in milliseconds (default: #{@default_timeout})
+  """
+  @spec wait_for_generation_change(pid(), integer() | nil, keyword()) ::
+          {:ok, integer()} | {:error, :timeout}
+  def wait_for_generation_change(cg_pid, gen_before, opts \\ []) do
+    timeout = Keyword.get(opts, :timeout, @default_timeout)
+    deadline = System.monotonic_time(:millisecond) + timeout
+    do_wait_for_generation_change(cg_pid, gen_before, deadline)
+  end
+
+  defp do_wait_for_generation_change(cg_pid, gen_before, deadline) do
+    current =
+      try do
+        ConsumerGroup.generation_id(cg_pid, 500)
+      catch
+        :exit, _ -> gen_before
+      end
+
+    cond do
+      is_integer(current) and current != gen_before ->
+        {:ok, current}
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        {:error, :timeout}
+
+      true ->
+        Process.sleep(@poll_interval)
+        do_wait_for_generation_change(cg_pid, gen_before, deadline)
+    end
+  end
+
+  @doc """
   Start a consumer group with test-friendly defaults.
 
   Uses `TestGenConsumer` as the consumer module and configures reasonable

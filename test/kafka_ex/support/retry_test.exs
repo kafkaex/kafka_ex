@@ -391,10 +391,11 @@ defmodule KafkaEx.Support.RetryTest do
       refute Retry.sync_group_retryable?(:rebalance_in_progress)
     end
 
-    test "identity/generation errors are NOT retryable (same SyncGroup can only fail the same way)" do
+    test "identity/generation/terminal errors are NOT retryable (same SyncGroup can only fail the same way)" do
       refute Retry.sync_group_retryable?(:illegal_generation)
       refute Retry.sync_group_retryable?(:unknown_member_id)
       refute Retry.sync_group_retryable?(:fenced_instance_id)
+      refute Retry.sync_group_retryable?(:group_authorization_failed)
     end
 
     test "other sync errors remain retryable (manager's sync recovery handles them)" do
@@ -411,8 +412,9 @@ defmodule KafkaEx.Support.RetryTest do
       refute Retry.heartbeat_retryable?(:illegal_generation)
     end
 
-    test "fenced_instance_id is NOT retryable (terminal: another member holds the static id)" do
+    test "terminal errors are NOT retryable (fenced static id / no group access)" do
       refute Retry.heartbeat_retryable?(:fenced_instance_id)
+      refute Retry.heartbeat_retryable?(:group_authorization_failed)
     end
 
     test "transient errors remain retryable (absorb a blip, avoid a spurious rejoin)" do

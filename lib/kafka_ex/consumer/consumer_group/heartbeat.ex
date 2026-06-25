@@ -19,9 +19,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Heartbeat do
      must re-join with a fresh (reset) member_id.
      * `:illegal_generation` means this member's generation is stale; it must
      re-join (keeping its member_id) to pick up the new generation.
-     * `:fenced_instance_id` means another member has claimed this member's
-     static `group.instance.id`; this is terminal and the member stops rather
-     than re-joining.
+     * `:fenced_instance_id` (another member claimed this member's static
+     `group.instance.id`) and `:group_authorization_failed` (no access to the
+     group) are terminal; the member stops rather than re-joining.
 
    For the recoverable conditions the heartbeat process exits with a
    `{:shutdown, _}` reason that the KafkaEx.Consumer.ConsumerGroup.Manager
@@ -91,13 +91,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Heartbeat do
       {:error, :unknown_member_id} ->
         {:stop, {:shutdown, {:rejoin, :unknown_member_id}}, state}
 
-      {:error, :fenced_instance_id} ->
-        Logger.error(
-          "Heartbeat fenced (:fenced_instance_id): another member holds this " <>
-            "group.instance.id; stopping without rejoin"
-        )
-
-        {:stop, {:shutdown, {:terminal, :fenced_instance_id}}, state}
+      {:error, reason} when reason in [:fenced_instance_id, :group_authorization_failed] ->
+        Logger.error("Heartbeat hit terminal error #{inspect(reason)}; stopping without rejoin")
+        {:stop, {:shutdown, {:terminal, reason}}, state}
 
       {:error, reason} ->
         Logger.warning("Heartbeat failed, got error reason #{inspect(reason)}")
