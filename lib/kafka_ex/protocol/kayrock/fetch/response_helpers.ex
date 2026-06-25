@@ -7,12 +7,19 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.ResponseHelpers do
   message formats.
   """
 
+  import Bitwise
+
   alias KafkaEx.Client.Error
   alias KafkaEx.Messages.Fetch
   alias KafkaEx.Messages.Fetch.Record
   alias KafkaEx.Messages.Header
 
   alias Kayrock.ErrorCode
+
+  # RecordBatch attributes bit 5 (0x20) marks a control batch (transaction
+  # commit/abort markers). Its records are not application data and must never
+  # be surfaced to callers — matching brod's is_control filter.
+  @control_batch_flag 0x20
 
   @doc """
   Extracts the first topic and partition response from a Fetch response.
@@ -77,7 +84,9 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.ResponseHelpers do
   end
 
   def convert_records(record_batches, topic, partition) when is_list(record_batches) do
-    Enum.flat_map(record_batches, fn record_batch ->
+    record_batches
+    |> Enum.reject(&control_batch?/1)
+    |> Enum.flat_map(fn record_batch ->
       timestamp_type = extract_timestamp_type_from_batch(record_batch)
 
       Enum.map(record_batch.records, fn record ->
@@ -95,6 +104,50 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.ResponseHelpers do
       end)
     end)
   end
+
+  defp control_batch?(%{attributes: attributes}) when is_integer(attributes) do
+    (attributes &&& @control_batch_flag) != 0
+  end
+
+  defp control_batch?(_), do: false
+
+  # The offset to fetch from next, derived from the RAW record set (before
+  # control-batch filtering). nil means the broker returned no batches — i.e.
+  # the consumer is caught up and must NOT advance. When batches were present, it
+  # is the highest covered offset + 1, so a fetch that filters down to zero
+  # application records (all control) still advances past them. Mirrors brod's
+  # flatten_batches/3, which takes the next begin-offset from batch metadata.
+  defp raw_next_offset(nil), do: nil
+
+  defp raw_next_offset(%Kayrock.MessageSet{messages: []}), do: nil
+
+  defp raw_next_offset(%Kayrock.MessageSet{messages: messages}) do
+    (messages |> Enum.map(& &1.offset) |> Enum.max()) + 1
+  end
+
+  defp raw_next_offset([]), do: nil
+
+  defp raw_next_offset(record_batches) when is_list(record_batches) do
+    case Enum.flat_map(record_batches, &batch_last_offsets/1) do
+      [] -> nil
+      last_offsets -> Enum.max(last_offsets) + 1
+    end
+  end
+
+  defp raw_next_offset(_), do: nil
+
+  # Highest absolute offset covered by a RecordBatch. Prefer the batch metadata
+  # (base_offset + last_offset_delta) so control/empty batches still advance the
+  # fetch position even though their records are dropped; fall back to the
+  # records' own offsets when the metadata is absent.
+  defp batch_last_offsets(%{batch_offset: base, last_offset_delta: delta})
+       when is_integer(base) and is_integer(delta) and delta >= 0,
+       do: [base + delta]
+
+  defp batch_last_offsets(%{records: records}) when is_list(records),
+    do: Enum.map(records, & &1.offset)
+
+  defp batch_last_offsets(_), do: []
 
   @doc """
   Converts Kayrock RecordHeader structs to Header structs.
@@ -208,7 +261,8 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.ResponseHelpers do
           partition: partition,
           records: records,
           high_watermark: high_watermark,
-          last_offset: last_offset
+          last_offset: last_offset,
+          next_offset: raw_next_offset(record_set)
         ]
         |> Keyword.merge(field_extractor.(response, partition_resp))
 

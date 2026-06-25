@@ -137,7 +137,7 @@ defmodule KafkaEx.Messages.FetchTest do
       assert Fetch.next_offset(fetch) == 6
     end
 
-    test "returns high_watermark when no records" do
+    test "returns high_watermark when no records and no next_offset (caught up)" do
       fetch =
         Fetch.build(
           topic: "test_topic",
@@ -147,6 +147,22 @@ defmodule KafkaEx.Messages.FetchTest do
         )
 
       assert Fetch.next_offset(fetch) == 10
+    end
+
+    test "prefers next_offset so control/aborted-only batches advance instead of skipping to high_watermark" do
+      # The fetch landed on a batch covering offset 41 whose records were all
+      # filtered out (control batch). next_offset (from raw batch metadata) is 42;
+      # returning high_watermark (100) here would silently skip offsets 42..99.
+      fetch =
+        Fetch.build(
+          topic: "test_topic",
+          partition: 0,
+          records: [],
+          high_watermark: 100,
+          next_offset: 42
+        )
+
+      assert Fetch.next_offset(fetch) == 42
     end
   end
 

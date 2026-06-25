@@ -281,4 +281,65 @@ defmodule KafkaEx.Consumer.StreamTest do
       assert log =~ ":illegal_generation"
     end
   end
+
+  # MockClient that records the offset of every fetch so we can assert the
+  # stream advanced past a control-only batch instead of re-fetching it.
+  defmodule OffsetRecordingMockClient do
+    @moduledoc false
+    use GenServer
+
+    def start_link(responses) when is_list(responses) do
+      GenServer.start_link(__MODULE__, %{responses: responses, offsets: []})
+    end
+
+    def fetch_offsets(pid), do: pid |> GenServer.call(:get_offsets) |> Enum.reverse()
+
+    @impl true
+    def init(state), do: {:ok, state}
+
+    @impl true
+    def handle_call({:fetch, _topic, _partition, offset, _opts}, _from, state) do
+      state = %{state | offsets: [offset | state.offsets]}
+
+      case state.responses do
+        [response | rest] -> {:reply, response, %{state | responses: rest}}
+        [] -> {:reply, {:ok, %{last_offset: nil, next_offset: nil, records: []}}, state}
+      end
+    end
+
+    def handle_call(:get_offsets, _from, state) do
+      {:reply, state.offsets, state}
+    end
+  end
+
+  describe "stream control-batch handling" do
+    alias KafkaEx.Consumer.Stream, as: ConsumerStream
+
+    test "advances past a control-only fetch instead of re-fetching the same offset" do
+      # First fetch: all records filtered out (control batch) but next_offset (raw
+      # batch metadata) points to 6. Second fetch: caught up (no batches) so the
+      # stream halts under no_wait_at_logend: true.
+      control_only = {:ok, %{last_offset: nil, next_offset: 6, records: []}}
+      caught_up = {:ok, %{last_offset: nil, next_offset: nil, records: []}}
+
+      {:ok, mock} = OffsetRecordingMockClient.start_link([control_only, caught_up])
+
+      stream = %ConsumerStream{
+        client: mock,
+        topic: "t",
+        partition: 0,
+        offset: 0,
+        no_wait_at_logend: true,
+        fetch_options: [],
+        api_versions: %{}
+      }
+
+      assert Enum.to_list(stream) == []
+
+      offsets = OffsetRecordingMockClient.fetch_offsets(mock)
+      # Pre-fix: stream halts/spins at offset 0 and never fetches 6.
+      assert 0 in offsets
+      assert 6 in offsets
+    end
+  end
 end

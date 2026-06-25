@@ -79,6 +79,18 @@ defmodule KafkaEx.Consumer.Stream do
       {:halt, offset}
     end
 
+    # control/aborted-only fetch: every record was filtered out (transaction
+    # markers) but batches were present, so advance past them via next_offset
+    # (from raw batch metadata) instead of re-fetching the same offset forever.
+    defp stream_control(
+           %{error_code: :no_error, message_set: [], next_offset: next},
+           %ConsumerStream{},
+           offset
+         )
+         when is_integer(next) and next > offset do
+      {[], next}
+    end
+
     # if we get an empty response, we block until messages are ready
     defp stream_control(
            %{error_code: :no_error, last_offset: last_offset, message_set: []},
@@ -201,7 +213,12 @@ defmodule KafkaEx.Consumer.Stream do
 
       case KafkaExAPI.fetch(data.client, data.topic, data.partition, offset, opts) do
         {:ok, fetch_result} ->
-          %{error_code: :no_error, last_offset: fetch_result.last_offset, message_set: fetch_result.records}
+          %{
+            error_code: :no_error,
+            last_offset: fetch_result.last_offset,
+            next_offset: Map.get(fetch_result, :next_offset),
+            message_set: fetch_result.records
+          }
 
         {:error, error} ->
           %{error_code: error}
