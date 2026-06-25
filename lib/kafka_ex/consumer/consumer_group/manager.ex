@@ -369,7 +369,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   # applies the right reset, then we rejoin in place. This is recovery, NOT a crash,
   # so the one_for_all / max_restarts: 0 consumer-group supervisor is never torn down.
   def handle_info({:EXIT, timer, {:shutdown, {:rejoin, reason}}}, %State{heartbeat_timer: timer} = state) do
-    Logger.warning("Heartbeat signalled rejoin (#{inspect(reason)}), resetting generation and rejoining group")
+    Logger.warning("Heartbeat signalled rejoin (#{inspect(reason)}), resetting identity and rejoining group")
     state = reset_generation(state, reason)
     {:ok, state} = rebalance(state, {:heartbeat_rejoin, reason})
     {:noreply, state}
