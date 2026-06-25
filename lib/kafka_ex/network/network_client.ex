@@ -21,7 +21,9 @@ defmodule KafkaEx.Network.NetworkClient do
   end
 
   defp do_create_socket(host, port, ssl_options, use_ssl, auth_opts) do
-    case Socket.create(format_host(host), port, build_socket_options(ssl_options), use_ssl) do
+    connect_timeout = KafkaEx.Config.connect_timeout()
+
+    case Socket.create(format_host(host), port, build_socket_options(ssl_options), use_ssl, connect_timeout) do
       {:ok, socket} ->
         finish_socket_setup(socket, enrich_auth_opts(auth_opts, host, port), host, port)
 
