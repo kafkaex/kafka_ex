@@ -74,15 +74,19 @@ defmodule KafkaEx.Integration.ConsumerGroup.AbnormalHeartbeatRecoveryTest do
     assert is_pid(heartbeat) and Process.alive?(heartbeat)
     Process.exit(heartbeat, :kill)
 
-    # The member rejoins in place: a NEW generation, the SAME member_id, and the
-    # supervisor never went down.
+    # The member rejoins in place: a NEW generation, and the supervisor never
+    # went down.
     assert {:ok, gen1} = ConsumerGroupHelpers.wait_for_generation_change(cg, gen0, timeout: 60_000)
     assert gen1 != gen0
-    assert ConsumerGroup.member_id(cg) == member0, "an abnormal heartbeat crash must keep member_id"
     assert Process.alive?(cg), "the consumer-group supervisor must survive the rejoin"
 
     assert {:ok, :active} = ConsumerGroupHelpers.wait_for_active(cg, timeout: 60_000)
     assert {:ok, _} = ConsumerGroupHelpers.wait_for_assignments(cg, timeout: 30_000)
+
+    # member_id is read only after the rejoin has fully settled (active +
+    # assignments), so it can't catch a transient mid-rejoin state. An abnormal
+    # crash carries no identity-reset, so the SAME member_id must come back.
+    assert ConsumerGroup.member_id(cg) == member0, "an abnormal heartbeat crash must keep member_id"
 
     # Consumption resumes after the in-place rejoin.
     {:ok, _} = API.produce(client, topic, 0, [%{value: "after-rejoin"}])
