@@ -78,26 +78,44 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Heartbeat do
           heartbeat_interval: heartbeat_interval
         } = state
       ) do
-    case KafkaExAPI.heartbeat(client, group_name, member_id, generation_id) do
-      {:ok, %KafkaEx.Messages.Heartbeat{}} ->
-        {:noreply, state, heartbeat_interval}
+    try do
+      case KafkaExAPI.heartbeat(client, group_name, member_id, generation_id) do
+        {:ok, %KafkaEx.Messages.Heartbeat{}} ->
+          {:noreply, state, heartbeat_interval}
 
-      {:error, :rebalance_in_progress} ->
-        {:stop, {:shutdown, :rebalance}, state}
+        {:error, :rebalance_in_progress} ->
+          {:stop, {:shutdown, :rebalance}, state}
 
-      {:error, :illegal_generation} ->
-        {:stop, {:shutdown, {:rejoin, :illegal_generation}}, state}
+        {:error, :illegal_generation} ->
+          {:stop, {:shutdown, {:rejoin, :illegal_generation}}, state}
 
-      {:error, :unknown_member_id} ->
-        {:stop, {:shutdown, {:rejoin, :unknown_member_id}}, state}
+        {:error, :unknown_member_id} ->
+          {:stop, {:shutdown, {:rejoin, :unknown_member_id}}, state}
 
-      {:error, reason} when reason in [:fenced_instance_id, :group_authorization_failed] ->
-        Logger.error("Heartbeat hit terminal error #{inspect(reason)}; stopping without rejoin")
-        {:stop, {:shutdown, {:terminal, reason}}, state}
+        {:error, reason} when reason in [:fenced_instance_id, :group_authorization_failed] ->
+          Logger.error("Heartbeat hit terminal error #{inspect(reason)}; stopping without rejoin")
+          {:stop, {:shutdown, {:terminal, reason}}, state}
 
-      {:error, reason} ->
-        Logger.warning("Heartbeat failed, got error reason #{inspect(reason)}")
-        {:stop, {:shutdown, {:error, reason}}, state}
+        {:error, reason} ->
+          Logger.warning("Heartbeat failed, got error reason #{inspect(reason)}")
+          {:stop, {:shutdown, {:error, reason}}, state}
+      end
+    rescue
+      exception ->
+        Logger.error("Heartbeat crashed: " <> Exception.format(:error, exception, __STACKTRACE__))
+        {:stop, {:shutdown, {:terminal, {:crashed, :error}}}, state}
+    catch
+      :throw, value ->
+        Logger.error("Heartbeat threw a value: #{inspect(value)}")
+        {:stop, {:shutdown, {:terminal, {:crashed, :throw}}}, state}
+
+      :exit, reason ->
+        Logger.warning("Heartbeat client call exited (#{inspect(reason)}); treating as recoverable")
+        {:stop, {:shutdown, {:error, normalize_exit_reason(reason)}}, state}
     end
   end
+
+  defp normalize_exit_reason({reason, _call_context}) when is_atom(reason), do: reason
+  defp normalize_exit_reason(reason) when is_atom(reason), do: reason
+  defp normalize_exit_reason(reason), do: reason
 end
