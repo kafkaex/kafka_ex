@@ -418,9 +418,10 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
 
   # Normal exits from OTHER linked children (typically an old heartbeat timer
   # we just replaced via stop_heartbeat_timer/start_heartbeat_timer during a
-  # rebalance). Non-normal EXITs still crash the Manager loudly — this only
-  # swallows intentional-clean-shutdown signals from non-Client pids. Logged
-  # at debug so unusual quiescence patterns stay observable.
+  # rebalance). Abnormal EXITs are handled by the two clauses below — the
+  # current heartbeat's via the rejoin clause, any other pid's via the drop
+  # catch-all — so this clause only swallows intentional-clean-shutdown signals
+  # from non-Client pids. Logged at debug so unusual quiescence stays observable.
   def handle_info({:EXIT, pid, :normal}, %State{} = state) do
     Logger.debug("Manager trapping normal :EXIT from linked pid #{inspect(pid)}")
     {:noreply, state}

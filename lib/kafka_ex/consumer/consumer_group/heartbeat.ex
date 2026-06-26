@@ -102,7 +102,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Heartbeat do
   rescue
     exception ->
       Logger.error("Heartbeat crashed: " <> Exception.format(:error, exception, __STACKTRACE__))
-      {:stop, {:shutdown, {:terminal, {:crashed, :error}}}, state}
+      {:stop, {:shutdown, {:terminal, {:crashed, exception.__struct__}}}, state}
   catch
     :throw, value ->
       Logger.error("Heartbeat threw a value: #{inspect(value)}")
@@ -113,6 +113,6 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Heartbeat do
       {:stop, {:shutdown, {:error, normalize_exit_reason(reason)}}, state}
   end
 
-  defp normalize_exit_reason({reason, _call_context}) when is_atom(reason), do: reason
+  defp normalize_exit_reason({reason, {GenServer, :call, _}}) when is_atom(reason), do: reason
   defp normalize_exit_reason(reason), do: reason
 end

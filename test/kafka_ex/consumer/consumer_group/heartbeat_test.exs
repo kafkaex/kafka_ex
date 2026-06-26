@@ -174,7 +174,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.HeartbeatTest do
         heartbeat_interval: 1000
       }
 
-      assert {:stop, {:shutdown, {:terminal, {:crashed, :error}}}, ^state} =
+      assert {:stop, {:shutdown, {:terminal, {:crashed, CaseClauseError}}}, ^state} =
                Heartbeat.handle_info(:timeout, state)
     end
 
