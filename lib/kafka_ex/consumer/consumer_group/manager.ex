@@ -120,11 +120,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   # bounds join — a persistent failure escalates to the supervisor rebuild.
   @max_sync_retries 3
 
-  # Upper bound (ms) on the randomized jitter slept before a rejoin triggered by
-  # an ABNORMAL heartbeat crash (see the {:heartbeat_crash, _} EXIT clause).
-  # Desynchronizes a fleet hitting a correlated heartbeat-kill (e.g. OOM, bad
-  # deploy) so they don't stampede the coordinator with simultaneous JoinGroups.
-  # Overridable per group via the `:crash_rejoin_max_jitter_ms` opt (0 disables).
+  # Max jitter (ms) before an abnormal-crash rejoin, to desync a fleet hitting a
+  # correlated heartbeat-kill. Per-group via `:crash_rejoin_max_jitter_ms`; 0 off.
   @crash_rejoin_max_jitter_ms 1_000
 
   # Gets a value from opts, falling back to application config, then to default
@@ -387,9 +384,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     {:noreply, state}
   end
 
-  # The heartbeat hit a terminal error (:fenced_instance_id — another member
-  # holds this static group.instance.id). Rejoining would split-brain or be
-  # fenced again, so stop cleanly and let the supervisor tear the member down.
+  # Terminal heartbeat error (fenced instance id, group-auth, or a code-defect
+  # crash): rejoining would be futile, so stop cleanly (emits member_terminated).
   def handle_info({:EXIT, timer, {:shutdown, {:terminal, reason}}}, %State{heartbeat_timer: timer} = state) do
     Logger.error("Heartbeat hit terminal error #{inspect(reason)}, stopping consumer group member")
     stop_terminal(state, reason)
@@ -428,30 +424,16 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     {:noreply, state}
   end
 
-  # Normal exits from OTHER linked children (typically an old heartbeat timer
-  # we just replaced via stop_heartbeat_timer/start_heartbeat_timer during a
-  # rebalance). Abnormal EXITs are handled by the two clauses below — the
-  # current heartbeat's via the rejoin clause, any other pid's via the drop
-  # catch-all — so this clause only swallows intentional-clean-shutdown signals
-  # from non-Client pids. Logged at debug so unusual quiescence stays observable.
+  # Clean exit from a non-current linked child (usually a replaced heartbeat
+  # timer); abnormal EXITs fall to the two clauses below.
   def handle_info({:EXIT, pid, :normal}, %State{} = state) do
     Logger.debug("Manager trapping normal :EXIT from linked pid #{inspect(pid)}")
     {:noreply, state}
   end
 
-  # An abnormal EXIT from the CURRENT heartbeat: a reason no structured clause
-  # matched. heartbeat.ex normalizes everything it can catch into {:shutdown, _},
-  # so this is the residual — an external :kill (OOM, Process.exit/2) or a crash
-  # before heartbeat.ex's try-wrapper installs. Treat a lost heartbeat as a
-  # rejoin, keeping member_id: an abnormal crash carries no protocol reason to
-  # reset identity. A randomized jitter precedes the rejoin so a fleet hitting a
-  # correlated heartbeat-kill doesn't stampede the coordinator in lockstep. A
-  # heartbeat that keeps re-crashing while join/sync succeed still re-loops paced
-  # by heartbeat_interval (sync_failures resets on each success, so the sync
-  # bound does not apply here) — accepted; a hard rejoin bound is a deferred
-  # follow-up. This must never fall through — an unhandled {:EXIT, _, _} would
-  # FunctionClauseError and tear down the one_for_all / max_restarts: 0
-  # supervisor with no restart.
+  # Current heartbeat died abnormally — the residual heartbeat.ex can't catch
+  # (`:kill`). Rejoin keeping member_id (no protocol reason to reset it),
+  # jittered to desync correlated kills.
   def handle_info({:EXIT, timer, reason}, %State{heartbeat_timer: timer} = state) do
     Logger.warning("Heartbeat exited abnormally (#{inspect(reason)}); rejoining group")
     maybe_crash_rejoin_jitter(state)
@@ -459,11 +441,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     {:noreply, state}
   end
 
-  # Any other linked process exiting abnormally. The client is handled above; the
-  # only remaining source is a stale heartbeat we already replaced during a
-  # rebalance, whose late EXIT is obsolete by construction. Drop it — do not act
-  # on a stale signal, and never crash the Manager on an unmatched EXIT. Logged
-  # at debug so an unexpected linked-process death still leaves a trace.
+  # Catch-all so no {:EXIT, _, _} ever FunctionClauseErrors the Manager (which
+  # max_restarts: 0 would turn into a no-restart teardown). The only live source
+  # is a stale heartbeat we already replaced — drop it.
   def handle_info({:EXIT, pid, reason}, %State{} = state) do
     Logger.debug("Manager dropping abnormal :EXIT from non-current linked pid #{inspect(pid)}: #{inspect(reason)}")
     {:noreply, state}
@@ -544,13 +524,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     end
   end
 
-  # Handle join errors. :unknown_member_id means the broker no longer knows this
-  # member (e.g. our session expired during an outage that also took the
-  # heartbeat down) — reset the member_id and rejoin fresh rather than crashing,
-  # per brod should_reset_member_id / Java resetStateAndGeneration. Other
-  # recoverable errors retry as-is; anything else gets the correct loud error.
-  # Recoverability is checked before the retry count so unrecoverable errors
-  # always surface their own message.
+  # :unknown_member_id — the broker forgot us; reset member_id and rejoin fresh
+  # (brod should_reset_member_id / Java resetStateAndGeneration) rather than
+  # crash. Other recoverable errors retry; the rest raise.
   defp handle_join_error(state, group_name, reason, attempt_number) do
     cond do
       reason == :unknown_member_id ->
