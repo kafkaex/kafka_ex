@@ -460,12 +460,14 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   # When terminating, inform the group coordinator that this member is leaving
   # the group so that the group can rebalance without waiting for a session
   # timeout.
-  def terminate(_reason, %State{generation_id: nil, member_id: nil} = state) do
+  def terminate(reason, %State{generation_id: nil, member_id: nil} = state) do
+    emit_termination_telemetry(reason, state)
     Process.unlink(state.client)
     GenServer.stop(state.client, :normal)
   end
 
-  def terminate(_reason, %State{} = state) do
+  def terminate(reason, %State{} = state) do
+    emit_termination_telemetry(reason, state)
     {:ok, _state} = leave(state)
     Process.unlink(state.client)
     GenServer.stop(state.client, :normal)
@@ -474,6 +476,26 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     # if race condition happens, client will be abandoned
     stop_heartbeat_timer(state)
   end
+
+  # Single choke point for member_terminated: every permanent, non-graceful
+  # death (terminal error, unrecoverable heartbeat error, client death, or a
+  # crash/give-up raise) flows through terminate/2; graceful :normal/:shutdown
+  # classify to nil and stay silent.
+  defp emit_termination_telemetry(reason, %State{} = state) do
+    case termination_reason(reason) do
+      nil -> :ok
+      classified -> Telemetry.emit_member_terminated(state.group_name, state.member_id || "", classified)
+    end
+  end
+
+  defp termination_reason({:shutdown, {:terminal, reason}}), do: reason
+  defp termination_reason({:shutdown, {:error, reason}}), do: {:error, reason}
+  defp termination_reason({:shutdown, {:client_died, reason}}), do: {:client_died, reason}
+  defp termination_reason({exception, stacktrace}) when is_list(stacktrace), do: {:crashed, crash_module(exception)}
+  defp termination_reason(_), do: nil
+
+  defp crash_module(%{__struct__: module}), do: module
+  defp crash_module(_), do: :unknown
 
   ### Helpers
 
@@ -733,7 +755,6 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   end
 
   defp stop_terminal(%State{} = state, reason) do
-    Telemetry.emit_member_terminated(state.group_name, state.member_id || "", reason)
     {:stop, {:shutdown, {:terminal, reason}}, state}
   end
 

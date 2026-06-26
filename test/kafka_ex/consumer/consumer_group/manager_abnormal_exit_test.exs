@@ -56,6 +56,11 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerAbnormalExitTest do
     pid
   end
 
+  defp terminate_state do
+    {:ok, client} = MockClient.start_link(%{leave_group: {:ok, %KafkaEx.Messages.LeaveGroup{}}})
+    %State{client: client, group_name: "g", member_id: "m", generation_id: 1}
+  end
+
   test "an abnormal EXIT from the current heartbeat rejoins (keeps member_id), not a crash" do
     # join_group fails non-recoverably so the rejoin raises immediately (no retry
     # sleeps, no consumer startup). Reaching join at all proves the abnormal EXIT
@@ -138,25 +143,60 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerAbnormalExitTest do
     assert {:join_group, "g", ""} in calls, ":unknown_member_id must reset member_id and rejoin fresh"
   end
 
-  test "a terminal heartbeat EXIT emits a member_terminated telemetry event" do
-    test_pid = self()
-    handler_id = {__MODULE__, :member_terminated, make_ref()}
+  describe "member_terminated telemetry (via terminate/2)" do
+    # terminate/2 is the single choke point every permanent member death flows
+    # through (clean {:stop, _} returns AND callback raises); a graceful
+    # :normal/:shutdown must stay silent. State carries a real MockClient so the
+    # terminate path's leave/unlink/stop run.
+    setup do
+      test_pid = self()
+      handler_id = {__MODULE__, :member_terminated, make_ref()}
 
-    :telemetry.attach(
-      handler_id,
-      [:kafka_ex, :consumer, :member_terminated],
-      fn _event, measurements, metadata, _ -> send(test_pid, {:member_terminated, measurements, metadata}) end,
-      nil
-    )
+      :telemetry.attach(
+        handler_id,
+        [:kafka_ex, :consumer, :member_terminated],
+        fn _event, measurements, metadata, _ -> send(test_pid, {:member_terminated, measurements, metadata}) end,
+        nil
+      )
 
-    on_exit(fn -> :telemetry.detach(handler_id) end)
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+      :ok
+    end
 
-    timer = dead_pid()
-    state = %State{group_name: "g", member_id: "m", generation_id: 1, heartbeat_timer: timer}
+    test "terminal error emits the terminal cause" do
+      Manager.terminate({:shutdown, {:terminal, :fenced_instance_id}}, terminate_state())
 
-    assert {:stop, {:shutdown, {:terminal, :fenced_instance_id}}, ^state} =
-             Manager.handle_info({:EXIT, timer, {:shutdown, {:terminal, :fenced_instance_id}}}, state)
+      assert_receive {:member_terminated, %{count: 1}, %{group_id: "g", member_id: "m", reason: :fenced_instance_id}}
+    end
 
-    assert_receive {:member_terminated, %{count: 1}, %{group_id: "g", member_id: "m", reason: :fenced_instance_id}}
+    test "non-recoverable heartbeat {:error, _} emits {:error, _}" do
+      Manager.terminate({:shutdown, {:error, :some_fatal}}, terminate_state())
+
+      assert_receive {:member_terminated, _, %{reason: {:error, :some_fatal}}}
+    end
+
+    test "client death emits {:client_died, _}" do
+      Manager.terminate({:shutdown, {:client_died, :killed}}, terminate_state())
+
+      assert_receive {:member_terminated, _, %{reason: {:client_died, :killed}}}
+    end
+
+    test "a callback raise / give-up emits {:crashed, module}" do
+      Manager.terminate({%RuntimeError{message: "boom"}, []}, terminate_state())
+
+      assert_receive {:member_terminated, _, %{reason: {:crashed, RuntimeError}}}
+    end
+
+    test "a graceful :shutdown does NOT emit" do
+      Manager.terminate(:shutdown, terminate_state())
+
+      refute_receive {:member_terminated, _, _}, 100
+    end
+
+    test "a graceful :normal does NOT emit" do
+      Manager.terminate(:normal, terminate_state())
+
+      refute_receive {:member_terminated, _, _}, 100
+    end
   end
 end

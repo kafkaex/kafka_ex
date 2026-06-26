@@ -195,14 +195,15 @@ defmodule KafkaEx.Telemetry do
     * Metadata: `%{group_id: binary(), topic: binary(), partition: integer(), reset: :earliest | :latest, reason: :no_committed_offset | :offset_out_of_range}`
 
   * `[:kafka_ex, :consumer, :member_terminated]` - Emitted when a consumer-group
-    member stops terminally: it leaves the group and is NOT restarted (under the
-    `one_for_all`/`max_restarts: 0` supervisor). Distinct from a graceful
-    `[:kafka_ex, :consumer, :leave, :stop]` — this is an abnormal,
-    operator-actionable death. Attach to alert on members dying from a fenced
-    static `group.instance.id`, a group authorization failure, or a heartbeat
-    code defect (`{:crashed, module}`).
+    member dies permanently — it stops (or crashes) and is NOT restarted (under
+    the `one_for_all`/`max_restarts: 0` supervisor). Distinct from a graceful
+    `[:kafka_ex, :consumer, :leave, :stop]`; attach to alert on members that
+    won't come back. `reason` distinguishes the cause: `:fenced_instance_id` /
+    `:group_authorization_failed` (terminal), `{:crashed, module}` (an uncaught
+    exception or give-up raise), `{:error, atom}` (an unrecoverable heartbeat
+    error), or `{:client_died, term}`.
     * Measurements: `%{count: 1}`
-    * Metadata: `%{group_id: binary(), member_id: binary(), reason: atom() | {:crashed, module()}}`
+    * Metadata: `%{group_id: binary(), member_id: binary(), reason: atom() | {:crashed, module()} | {:error, atom()} | {:client_died, term()}}`
 
   ### Metadata Events
 
@@ -542,7 +543,7 @@ defmodule KafkaEx.Telemetry do
   @spec emit_member_terminated(
           binary(),
           binary(),
-          atom() | {:crashed, module()}
+          atom() | {:crashed, module()} | {:error, atom()} | {:client_died, term()}
         ) :: :ok
   def emit_member_terminated(group_id, member_id, reason) do
     :telemetry.execute(

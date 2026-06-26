@@ -209,6 +209,17 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerFatalRejoinTest do
 
       on_exit(fn -> :telemetry.detach(handler_id) end)
 
+      term_handler_id = {__MODULE__, :member_terminated, make_ref()}
+
+      :telemetry.attach(
+        term_handler_id,
+        [:kafka_ex, :consumer, :member_terminated],
+        fn _event, _measurements, %{reason: reason}, _ -> send(test_pid, {:member_terminated, reason}) end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(term_handler_id) end)
+
       {:ok, sup} = Supervisor.start_link([], strategy: :one_for_one)
       on_exit(fn -> ProcessHelpers.stop_safely(sup) end)
 
@@ -243,6 +254,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerFatalRejoinTest do
       # The bound still escalates a persistent failure to give-up.
       assert_receive {:EXIT, ^manager, {%KafkaEx.SyncGroupRetriesExhaustedError{}, _stacktrace}}, 30_000
       assert :counters.get(rejoins, 1) == 3
+
+      # The give-up raise is a permanent death -> member_terminated fires.
+      assert_receive {:member_terminated, {:crashed, KafkaEx.SyncGroupRetriesExhaustedError}}, 30_000
     end
 
     test ":unknown_member_id rejoins after resetting member_id, bounded" do
@@ -264,6 +278,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerFatalRejoinTest do
 
       assert_receive {:EXIT, ^manager, {:shutdown, {:terminal, :fenced_instance_id}}}, 30_000
       assert :counters.get(rejoins, 1) == 0
+      assert_receive {:member_terminated, :fenced_instance_id}, 30_000
     end
 
     test ":group_authorization_failed stops terminally without rejoining or raising" do
@@ -271,6 +286,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerFatalRejoinTest do
 
       assert_receive {:EXIT, ^manager, {:shutdown, {:terminal, :group_authorization_failed}}}, 30_000
       assert :counters.get(rejoins, 1) == 0
+      assert_receive {:member_terminated, :group_authorization_failed}, 30_000
     end
   end
 end
