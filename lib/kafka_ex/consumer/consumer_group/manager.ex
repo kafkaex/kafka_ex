@@ -69,6 +69,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
       :assignments,
       :heartbeat_timer,
       :sync_retry_backoff_ms,
+      :crash_rejoin_max_jitter_ms,
       sync_failures: 0
     ]
 
@@ -93,6 +94,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
             assignments: [{binary(), integer()}] | nil,
             heartbeat_timer: pid() | nil,
             sync_retry_backoff_ms: non_neg_integer() | nil,
+            crash_rejoin_max_jitter_ms: non_neg_integer() | nil,
             sync_failures: non_neg_integer()
           }
   end
@@ -117,6 +119,13 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   # resets on a successful sync). Bounds the rejoin loop the way @max_join_retries
   # bounds join — a persistent failure escalates to the supervisor rebuild.
   @max_sync_retries 3
+
+  # Upper bound (ms) on the randomized jitter slept before a rejoin triggered by
+  # an ABNORMAL heartbeat crash (see the {:heartbeat_crash, _} EXIT clause).
+  # Desynchronizes a fleet hitting a correlated heartbeat-kill (e.g. OOM, bad
+  # deploy) so they don't stampede the coordinator with simultaneous JoinGroups.
+  # Overridable per group via the `:crash_rejoin_max_jitter_ms` opt (0 disables).
+  @crash_rejoin_max_jitter_ms 1_000
 
   # Gets a value from opts, falling back to application config, then to default
   defp get_with_default(opts, key, default) do
@@ -147,6 +156,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     session_timeout_padding = get_with_default(opts, :session_timeout_padding, @session_timeout_padding)
     rebalance_timeout = get_with_default(opts, :rebalance_timeout, session_timeout * @rebalance_timeout_multiplier)
     sync_retry_backoff_ms = get_with_default(opts, :sync_retry_backoff_ms, @sync_retry_backoff_ms)
+    crash_rejoin_max_jitter_ms = get_with_default(opts, :crash_rejoin_max_jitter_ms, @crash_rejoin_max_jitter_ms)
 
     partition_assignment_callback =
       Keyword.get(opts, :partition_assignment_callback, &PartitionAssignment.round_robin/2)
@@ -162,7 +172,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
         :rebalance_timeout,
         :partition_assignment_callback,
         :client,
-        :sync_retry_backoff_ms
+        :sync_retry_backoff_ms,
+        :crash_rejoin_max_jitter_ms
       ])
 
     # Use Config defaults for connection options if not provided
@@ -200,7 +211,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
           group_name: group_name,
           topics: topics,
           member_id: nil,
-          sync_retry_backoff_ms: sync_retry_backoff_ms
+          sync_retry_backoff_ms: sync_retry_backoff_ms,
+          crash_rejoin_max_jitter_ms: crash_rejoin_max_jitter_ms
         }
 
         Process.flag(:trap_exit, true)
@@ -380,7 +392,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   # fenced again, so stop cleanly and let the supervisor tear the member down.
   def handle_info({:EXIT, timer, {:shutdown, {:terminal, reason}}}, %State{heartbeat_timer: timer} = state) do
     Logger.error("Heartbeat hit terminal error #{inspect(reason)}, stopping consumer group member")
-    {:stop, {:shutdown, {:terminal, reason}}, state}
+    stop_terminal(state, reason)
   end
 
   # If the CURRENT heartbeat gets an error, attempt to rejoin for recoverable
@@ -432,14 +444,17 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   # so this is the residual — an external :kill (OOM, Process.exit/2) or a crash
   # before heartbeat.ex's try-wrapper installs. Treat a lost heartbeat as a
   # rejoin, keeping member_id: an abnormal crash carries no protocol reason to
-  # reset identity. A heartbeat that keeps re-crashing while join/sync succeed
-  # re-loops paced by heartbeat_interval (sync_failures resets on each success,
-  # so the sync bound does not apply here) — accepted; a rejoin backoff is a
-  # deferred follow-up. This must never fall through — an unhandled
-  # {:EXIT, _, _} would FunctionClauseError and tear down the one_for_all /
-  # max_restarts: 0 supervisor with no restart.
+  # reset identity. A randomized jitter precedes the rejoin so a fleet hitting a
+  # correlated heartbeat-kill doesn't stampede the coordinator in lockstep. A
+  # heartbeat that keeps re-crashing while join/sync succeed still re-loops paced
+  # by heartbeat_interval (sync_failures resets on each success, so the sync
+  # bound does not apply here) — accepted; a hard rejoin bound is a deferred
+  # follow-up. This must never fall through — an unhandled {:EXIT, _, _} would
+  # FunctionClauseError and tear down the one_for_all / max_restarts: 0
+  # supervisor with no restart.
   def handle_info({:EXIT, timer, reason}, %State{heartbeat_timer: timer} = state) do
     Logger.warning("Heartbeat exited abnormally (#{inspect(reason)}); rejoining group")
+    maybe_crash_rejoin_jitter(state)
     {:ok, state} = rebalance(state, {:heartbeat_crash, reason})
     {:noreply, state}
   end
@@ -459,7 +474,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   # this on a terminal SyncGroup error (:fenced_instance_id) so the member stops
   # cleanly without rejoining.
   def handle_info({:terminal_shutdown, reason}, %State{} = state) do
-    {:stop, {:shutdown, {:terminal, reason}}, state}
+    stop_terminal(state, reason)
   end
 
   # When terminating, inform the group coordinator that this member is leaving
@@ -529,13 +544,23 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     end
   end
 
-  # Handle join errors - check recoverability FIRST, then check retry count
-  # This ensures unrecoverable errors always get the correct error message
+  # Handle join errors. :unknown_member_id means the broker no longer knows this
+  # member (e.g. our session expired during an outage that also took the
+  # heartbeat down) — reset the member_id and rejoin fresh rather than crashing,
+  # per brod should_reset_member_id / Java resetStateAndGeneration. Other
+  # recoverable errors retry as-is; anything else gets the correct loud error.
+  # Recoverability is checked before the retry count so unrecoverable errors
+  # always surface their own message.
   defp handle_join_error(state, group_name, reason, attempt_number) do
-    if recoverable_error?(reason) do
-      handle_recoverable_join_error(state, group_name, reason, attempt_number)
-    else
-      raise KafkaEx.JoinGroupError, group_name: group_name, reason: reason
+    cond do
+      reason == :unknown_member_id ->
+        handle_recoverable_join_error(reset_generation(state, :unknown_member_id), group_name, reason, attempt_number)
+
+      recoverable_error?(reason) ->
+        handle_recoverable_join_error(state, group_name, reason, attempt_number)
+
+      true ->
+        raise KafkaEx.JoinGroupError, group_name: group_name, reason: reason
     end
   end
 
@@ -730,6 +755,18 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     {:ok, state} = stop_consumer(state)
     join(state)
   end
+
+  defp stop_terminal(%State{} = state, reason) do
+    Telemetry.emit_member_terminated(state.group_name, state.member_id || "", reason)
+    {:stop, {:shutdown, {:terminal, reason}}, state}
+  end
+
+  defp maybe_crash_rejoin_jitter(%State{crash_rejoin_max_jitter_ms: max})
+       when is_integer(max) and max > 0 do
+    :timer.sleep(:rand.uniform(max))
+  end
+
+  defp maybe_crash_rejoin_jitter(%State{}), do: :ok
 
   ### Timer Management
 
