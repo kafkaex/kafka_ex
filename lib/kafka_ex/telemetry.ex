@@ -498,6 +498,7 @@ defmodule KafkaEx.Telemetry do
           atom()
           | {:heartbeat_error, atom()}
           | {:heartbeat_rejoin, atom()}
+          | {:heartbeat_crash, term()}
           | {:commit_fatal, atom()}
           | {:sync_error, atom()}
         ) :: :ok

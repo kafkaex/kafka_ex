@@ -426,6 +426,28 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     {:noreply, state}
   end
 
+  # An abnormal EXIT from the CURRENT heartbeat: a reason no structured clause
+  # matched. heartbeat.ex normalizes everything it can catch into {:shutdown, _},
+  # so this is the residual — an external :kill (OOM, Process.exit/2) or a crash
+  # before heartbeat.ex's try-wrapper installs. Treat a lost heartbeat as a
+  # recoverable rejoin (the sync step bounds retries), keeping member_id: an
+  # abnormal crash carries no protocol reason to reset identity. This must never
+  # fall through — an unhandled {:EXIT, _, _} would FunctionClauseError and tear
+  # down the one_for_all / max_restarts: 0 supervisor with no restart.
+  def handle_info({:EXIT, timer, reason}, %State{heartbeat_timer: timer} = state) do
+    Logger.warning("Heartbeat exited abnormally (#{inspect(reason)}); rejoining group")
+    {:ok, state} = rebalance(state, {:heartbeat_crash, reason})
+    {:noreply, state}
+  end
+
+  # Any other linked process exiting abnormally. The client is handled above; the
+  # only remaining source is a stale heartbeat we already replaced during a
+  # rebalance, whose late EXIT is obsolete by construction. Drop it — do not act
+  # on a stale signal, and never crash the Manager on an unmatched EXIT.
+  def handle_info({:EXIT, _pid, _reason}, %State{} = state) do
+    {:noreply, state}
+  end
+
   # Deferred terminal stop requested from inside the synchronous join/sync call
   # chain, which can't return {:stop, _, _} directly. handle_sync_error/3 sends
   # this on a terminal SyncGroup error (:fenced_instance_id) so the member stops
