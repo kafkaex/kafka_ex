@@ -430,10 +430,13 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   # matched. heartbeat.ex normalizes everything it can catch into {:shutdown, _},
   # so this is the residual — an external :kill (OOM, Process.exit/2) or a crash
   # before heartbeat.ex's try-wrapper installs. Treat a lost heartbeat as a
-  # recoverable rejoin (the sync step bounds retries), keeping member_id: an
-  # abnormal crash carries no protocol reason to reset identity. This must never
-  # fall through — an unhandled {:EXIT, _, _} would FunctionClauseError and tear
-  # down the one_for_all / max_restarts: 0 supervisor with no restart.
+  # rejoin, keeping member_id: an abnormal crash carries no protocol reason to
+  # reset identity. A heartbeat that keeps re-crashing while join/sync succeed
+  # re-loops paced by heartbeat_interval (sync_failures resets on each success,
+  # so the sync bound does not apply here) — accepted; a rejoin backoff is a
+  # deferred follow-up. This must never fall through — an unhandled
+  # {:EXIT, _, _} would FunctionClauseError and tear down the one_for_all /
+  # max_restarts: 0 supervisor with no restart.
   def handle_info({:EXIT, timer, reason}, %State{heartbeat_timer: timer} = state) do
     Logger.warning("Heartbeat exited abnormally (#{inspect(reason)}); rejoining group")
     {:ok, state} = rebalance(state, {:heartbeat_crash, reason})
@@ -443,8 +446,10 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   # Any other linked process exiting abnormally. The client is handled above; the
   # only remaining source is a stale heartbeat we already replaced during a
   # rebalance, whose late EXIT is obsolete by construction. Drop it — do not act
-  # on a stale signal, and never crash the Manager on an unmatched EXIT.
-  def handle_info({:EXIT, _pid, _reason}, %State{} = state) do
+  # on a stale signal, and never crash the Manager on an unmatched EXIT. Logged
+  # at debug so an unexpected linked-process death still leaves a trace.
+  def handle_info({:EXIT, pid, reason}, %State{} = state) do
+    Logger.debug("Manager dropping abnormal :EXIT from non-current linked pid #{inspect(pid)}: #{inspect(reason)}")
     {:noreply, state}
   end
 

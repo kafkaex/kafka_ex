@@ -109,11 +109,10 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Heartbeat do
       {:stop, {:shutdown, {:terminal, {:crashed, :throw}}}, state}
 
     :exit, reason ->
-      Logger.warning("Heartbeat client call exited (#{inspect(reason)}); treating as recoverable")
+      Logger.warning("Heartbeat client call exited (#{inspect(reason)}); stopping with a structured error")
       {:stop, {:shutdown, {:error, normalize_exit_reason(reason)}}, state}
   end
 
   defp normalize_exit_reason({reason, _call_context}) when is_atom(reason), do: reason
-  defp normalize_exit_reason(reason) when is_atom(reason), do: reason
   defp normalize_exit_reason(reason), do: reason
 end
