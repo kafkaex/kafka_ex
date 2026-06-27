@@ -1,32 +1,34 @@
 defmodule KafkaEx.Consumer.ConsumerGroup.Heartbeat do
   @moduledoc """
-   GenServer to send heartbeats to the broker
+  Sends periodic `HeartbeatRequest`s for a joined consumer-group member.
 
-   A `HeartbeatRequest` is sent periodically by each active group member (after
-   completing the join/sync phase) to inform the broker that the member is
-   still alive and participating in the group. If a group member fails to send
-   a heartbeat before the group's session timeout expires, the coordinator
-   removes that member from the group and initiates a rebalance.
+  The Manager starts this process **linked** and trapping exits. Every failure
+  this process can catch is turned into a structured `{:shutdown, reason}` exit
+  that the Manager maps to a rejoin or a terminal stop. The one failure it
+  cannot catch — `:kill` (untrappable; no callback runs) — reaches the Manager
+  as a plain `:killed` EXIT.
 
-   `HeartbeatResponse` allows the coordinating broker to communicate the
-   group's status to each member:
+  ## Lifecycle
 
-     * `:no_error` indicates that the group is up to date and no action is
-     needed.
-     * `:rebalance_in_progress` a rebalance has been initiated, so each member
-     should re-join.
-     * `:unknown_member_id` means the coordinator has forgotten this member; it
-     must re-join with a fresh (reset) member_id.
-     * `:illegal_generation` means this member's generation is stale; it must
-     re-join (keeping its member_id) to pick up the new generation.
-     * `:fenced_instance_id` (another member claimed this member's static
-     `group.instance.id`) and `:group_authorization_failed` (no access to the
-     group) are terminal; the member stops rather than re-joining.
+      Manager ──start_link (linked)──▶ Heartbeat
+                                          │  loop: every heartbeat_interval
+                                          ▼
+                            send HeartbeatRequest to the broker
+                                          │
+                       :no_error ◀────────┴────────▶ error / crash
+                          │                              │
+                    keep ticking                exit {:shutdown, reason}
 
-   For the recoverable conditions the heartbeat process exits with a
-   `{:shutdown, _}` reason that the KafkaEx.Consumer.ConsumerGroup.Manager
-   traps and turns into a re-join (resetting identity per the reason) or a
-   clean terminal stop. (see KafkaEx.Consumer.ConsumerGroup.Manager)
+      exit reason                                  ─▶ Manager action
+      ────────────────────────────────────────────────────────────────
+      :rebalance                                   ─▶ rejoin
+      {:rejoin, :illegal_generation}               ─▶ rejoin, keep member_id
+      {:rejoin, :unknown_member_id}                ─▶ rejoin, reset member_id
+      {:error, recoverable}  (e.g. :timeout)       ─▶ rejoin
+      {:error, non-recoverable} | {:terminal, _}   ─▶ terminal stop
+      :killed  (uncatchable)                       ─▶ rejoin
+
+  See `KafkaEx.Consumer.ConsumerGroup.Manager` for the EXIT-clause handling.
   """
 
   use GenServer
@@ -99,5 +101,16 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Heartbeat do
         Logger.warning("Heartbeat failed, got error reason #{inspect(reason)}")
         {:stop, {:shutdown, {:error, reason}}, state}
     end
+  rescue
+    exception ->
+      Logger.error("Heartbeat crashed: " <> Exception.format(:error, exception, __STACKTRACE__))
+      {:stop, {:shutdown, {:terminal, {:crashed, exception.__struct__}}}, state}
+  catch
+    :exit, reason ->
+      Logger.warning("Heartbeat client call exited (#{inspect(reason)})")
+      {:stop, {:shutdown, {:error, normalize_exit_reason(reason)}}, state}
   end
+
+  defp normalize_exit_reason({reason, {GenServer, :call, _}}) when is_atom(reason), do: reason
+  defp normalize_exit_reason(reason), do: reason
 end

@@ -194,6 +194,17 @@ defmodule KafkaEx.Telemetry do
     * Measurements: `%{offset: integer()}`
     * Metadata: `%{group_id: binary(), topic: binary(), partition: integer(), reset: :earliest | :latest, reason: :no_committed_offset | :offset_out_of_range}`
 
+  * `[:kafka_ex, :consumer, :member_terminated]` - Emitted when a consumer-group
+    member dies permanently — it stops (or crashes) and is NOT restarted (under
+    the `one_for_all`/`max_restarts: 0` supervisor). Distinct from a graceful
+    `[:kafka_ex, :consumer, :leave, :stop]`; attach to alert on members that
+    won't come back. `reason` distinguishes the cause: `:fenced_instance_id` /
+    `:group_authorization_failed` (terminal), `{:crashed, module}` (an uncaught
+    exception or give-up raise), `{:error, atom}` (an unrecoverable heartbeat
+    error), or `{:client_died, term}`.
+    * Measurements: `%{count: 1}`
+    * Metadata: `%{group_id: binary(), member_id: binary(), reason: atom() | {:crashed, module()} | {:error, atom()} | {:client_died, term()}}`
+
   ### Metadata Events
 
   * `[:kafka_ex, :metadata, :update, :start]` - Emitted when a metadata request begins
@@ -274,6 +285,7 @@ defmodule KafkaEx.Telemetry do
   @consumer_rebalance [:kafka_ex, :consumer, :rebalance]
   @consumer_commit_failed [:kafka_ex, :consumer, :commit_failed]
   @consumer_offset_reset [:kafka_ex, :consumer, :offset_reset]
+  @consumer_member_terminated [:kafka_ex, :consumer, :member_terminated]
 
   @metadata_update_start [:kafka_ex, :metadata, :update, :start]
   @metadata_update_stop [:kafka_ex, :metadata, :update, :stop]
@@ -297,7 +309,12 @@ defmodule KafkaEx.Telemetry do
                            @consumer_sync_events ++
                            @consumer_heartbeat_events ++
                            @consumer_leave_events ++
-                           [@consumer_rebalance, @consumer_commit_failed, @consumer_offset_reset]
+                           [
+                             @consumer_rebalance,
+                             @consumer_commit_failed,
+                             @consumer_offset_reset,
+                             @consumer_member_terminated
+                           ]
   @consumer_process_events [@consumer_process_start, @consumer_process_stop, @consumer_process_exception]
   @consumer_events @consumer_commit_events ++ @consumer_group_events ++ @consumer_process_events
   @metadata_events [@metadata_update_start, @metadata_update_stop, @metadata_update_exception]
@@ -498,6 +515,7 @@ defmodule KafkaEx.Telemetry do
           atom()
           | {:heartbeat_error, atom()}
           | {:heartbeat_rejoin, atom()}
+          | {:heartbeat_crash, term()}
           | {:commit_fatal, atom()}
           | {:sync_error, atom()}
         ) :: :ok
@@ -509,6 +527,31 @@ defmodule KafkaEx.Telemetry do
         group_id: group_id,
         member_id: member_id,
         generation_id: generation_id,
+        reason: reason
+      }
+    )
+  end
+
+  @doc """
+  Emitted when a consumer-group member stops terminally — it leaves the group
+  and is NOT restarted (under the `one_for_all`/`max_restarts: 0` supervisor).
+  Unlike a graceful `[:kafka_ex, :consumer, :leave, :stop]`, this signals an
+  abnormal, operator-actionable death. `reason` is the terminal cause:
+  `:fenced_instance_id`, `:group_authorization_failed`, or `{:crashed, module}`
+  (the exception module that crashed the heartbeat).
+  """
+  @spec emit_member_terminated(
+          binary(),
+          binary(),
+          atom() | {:crashed, module()} | {:error, atom()} | {:client_died, term()}
+        ) :: :ok
+  def emit_member_terminated(group_id, member_id, reason) do
+    :telemetry.execute(
+      @consumer_member_terminated,
+      %{count: 1},
+      %{
+        group_id: group_id,
+        member_id: member_id,
         reason: reason
       }
     )

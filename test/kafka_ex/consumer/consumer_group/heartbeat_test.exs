@@ -158,5 +158,50 @@ defmodule KafkaEx.Consumer.ConsumerGroup.HeartbeatTest do
 
       assert {:stop, {:shutdown, {:error, :network_error}}, ^state} = Heartbeat.handle_info(:timeout, state)
     end
+
+    test "an unexpected response shape is rescued into a terminal {:crashed, _} stop" do
+      # API.heartbeat/4 pattern-matches the client reply in a case; an unknown
+      # shape raises CaseClauseError inside the heartbeat process. The wrapper
+      # must convert that code-defect crash into a clean terminal stop, not let
+      # it escape as a bare abnormal exit.
+      {:ok, client} = MockClient.start_link(%{heartbeat: :unexpected_garbage})
+
+      state = %Heartbeat.State{
+        client: client,
+        group_name: "test-group",
+        member_id: "member-1",
+        generation_id: 1,
+        heartbeat_interval: 1000
+      }
+
+      assert {:stop, {:shutdown, {:terminal, {:crashed, CaseClauseError}}}, ^state} =
+               Heartbeat.handle_info(:timeout, state)
+    end
+
+    test "a client-call exit is caught and converted to a structured {:error, _} stop" do
+      # A dead client makes API.heartbeat's GenServer.call exit
+      # {:noproc, {GenServer, :call, _}}. The wrapper must catch it and exit with
+      # a structured {:shutdown, {:error, :noproc}} the Manager can route, rather
+      # than dying with a bare abnormal reason the Manager can't match.
+      {:ok, client} = MockClient.start_link(%{})
+      Process.unlink(client)
+      ref = Process.monitor(client)
+      Process.exit(client, :kill)
+
+      receive do
+        {:DOWN, ^ref, :process, ^client, _} -> :ok
+      end
+
+      state = %Heartbeat.State{
+        client: client,
+        group_name: "test-group",
+        member_id: "member-1",
+        generation_id: 1,
+        heartbeat_interval: 1000
+      }
+
+      assert {:stop, {:shutdown, {:error, :noproc}}, ^state} =
+               Heartbeat.handle_info(:timeout, state)
+    end
   end
 end

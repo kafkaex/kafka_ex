@@ -70,6 +70,12 @@ config :kafka_ex,
   # base * 2^attempt, capped at 5s per delay; after 6 attempts the consumer crashes
   # (supervisor restart) rather than silently resetting the offset. Default: 500.
   # load_offsets_retry_backoff_ms: 500,
+  # Upper bound (ms) on the randomized jitter slept before a consumer-group
+  # member rejoins after its heartbeat process dies abnormally (an OS/OOM kill,
+  # an uncaught crash, or a client-call timeout). Desynchronizes a fleet hitting
+  # a correlated heartbeat-kill so members don't stampede the coordinator with
+  # simultaneous JoinGroups. Set to 0 to disable. Default: 1000.
+  # crash_rejoin_max_jitter_ms: 1000,
   # API versions for Kafka protocol requests.
   # By default, KafkaEx uses the highest version supported by both the
   # connected broker and the protocol library. Use this config to pin
