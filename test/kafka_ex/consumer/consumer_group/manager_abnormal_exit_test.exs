@@ -166,7 +166,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerAbnormalExitTest do
     test "terminal error emits the terminal cause" do
       Manager.terminate({:shutdown, {:terminal, :fenced_instance_id}}, terminate_state())
 
-      assert_receive {:member_terminated, %{count: 1}, %{group_id: "g", member_id: "m", reason: :fenced_instance_id}}
+      assert_receive {:member_terminated, %{count: 1},
+                      %{group_id: "g", member_id: "m", reason: :fenced_instance_id, terminal_class: :fenced}}
     end
 
     test "non-recoverable heartbeat {:error, _} emits {:error, _}" do
@@ -197,6 +198,146 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerAbnormalExitTest do
       Manager.terminate(:normal, terminate_state())
 
       refute_receive {:member_terminated, _, _}, 100
+    end
+
+    test "a crash-loop give-up emits {:crash_loop, _}" do
+      Manager.terminate({:shutdown, {:terminal, {:crash_loop, :killed}}}, terminate_state())
+
+      assert_receive {:member_terminated, _, %{reason: {:crash_loop, :killed}, terminal_class: :crash_loop}}
+    end
+  end
+
+  describe "heartbeat-crash-loop bound" do
+    # The bound counts abnormal heartbeat-crash rejoins in a sliding window. Past
+    # the budget the member stops terminally instead of rejoining forever. These
+    # drive the real handle_info/2 with pre-seeded crash timestamps: the trip path
+    # returns before rebalance (no client needed), while a non-tripping crash falls
+    # through to join, where the failing-join MockClient raises JoinGroupError —
+    # proving the rejoin branch ran.
+    setup do
+      {:ok, client} = MockClient.start_link(%{join_group: {:error, :illegal_generation}})
+      {:ok, sup} = Supervisor.start_link([], strategy: :one_for_one)
+      on_exit(fn -> stop_safely(client) end)
+      on_exit(fn -> stop_safely(sup) end)
+      %{client: client, sup: sup}
+    end
+
+    defp recent_times(n) do
+      now = System.monotonic_time(:millisecond)
+      List.duplicate(now, n)
+    end
+
+    defp bound_state(overrides) do
+      base = %State{
+        group_name: "g",
+        member_id: "m",
+        generation_id: 1,
+        heartbeat_timer: dead_pid(),
+        crash_rejoin_max_restarts: 3,
+        crash_rejoin_window_ms: 10_000,
+        crash_rejoin_max_jitter_ms: 0,
+        heartbeat_crash_times: []
+      }
+
+      struct!(base, overrides)
+    end
+
+    # A state wired for the rejoin path: the setup's failing-join client + a
+    # supervisor, so a non-tripping crash reaches join and raises JoinGroupError.
+    defp rejoin_state(%{client: client, sup: sup}, overrides) do
+      defaults = [
+        client: client,
+        supervisor_pid: sup,
+        topics: ["t"],
+        session_timeout: 1000,
+        session_timeout_padding: 0,
+        rebalance_timeout: 1000
+      ]
+
+      bound_state(Keyword.merge(defaults, overrides))
+    end
+
+    test "trips to a terminal stop once crashes exceed the budget within the window" do
+      timer = dead_pid()
+      state = bound_state(heartbeat_timer: timer, heartbeat_crash_times: recent_times(3))
+
+      assert {:stop, {:shutdown, {:terminal, {:crash_loop, :killed}}}, _state} =
+               Manager.handle_info({:EXIT, timer, :killed}, state)
+    end
+
+    test "appends and prunes timestamps: the tripped state carries the windowed list" do
+      timer = dead_pid()
+
+      state =
+        bound_state(heartbeat_timer: timer, crash_rejoin_max_restarts: 2, heartbeat_crash_times: recent_times(2))
+
+      assert {:stop, {:shutdown, {:terminal, {:crash_loop, :killed}}}, tripped} =
+               Manager.handle_info({:EXIT, timer, :killed}, state)
+
+      # 2 prior (recent) + this crash = 3 entries, all within the window.
+      assert length(tripped.heartbeat_crash_times) == 3
+    end
+
+    test "does not trip when crashes are spread beyond the window (they age out)", ctx do
+      timer = dead_pid()
+      old = System.monotonic_time(:millisecond) - 10_000 - 1_000
+      state = rejoin_state(ctx, heartbeat_timer: timer, heartbeat_crash_times: List.duplicate(old, 3))
+
+      # Old timestamps are pruned, so this lone crash rejoins (failing join raises)
+      # rather than tripping the bound.
+      assert_raise KafkaEx.JoinGroupError, fn ->
+        Manager.handle_info({:EXIT, timer, :killed}, state)
+      end
+    end
+
+    test "does not trip while crashes stay at or below the budget", ctx do
+      timer = dead_pid()
+      state = rejoin_state(ctx, heartbeat_timer: timer, heartbeat_crash_times: recent_times(2))
+
+      # 2 prior + this one = 3 = budget (not > budget) -> rejoin.
+      assert_raise KafkaEx.JoinGroupError, fn ->
+        Manager.handle_info({:EXIT, timer, :killed}, state)
+      end
+    end
+
+    test "emits heartbeat_crash on each abnormal-crash rejoin (before terminal)", ctx do
+      test_pid = self()
+      handler_id = {__MODULE__, :heartbeat_crash, make_ref()}
+
+      :telemetry.attach(
+        handler_id,
+        [:kafka_ex, :consumer, :heartbeat_crash],
+        fn _e, meas, meta, _ -> send(test_pid, {:heartbeat_crash, meas, meta}) end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      timer = dead_pid()
+      state = rejoin_state(ctx, heartbeat_timer: timer, heartbeat_crash_times: recent_times(1))
+
+      assert_raise KafkaEx.JoinGroupError, fn ->
+        Manager.handle_info({:EXIT, timer, :killed}, state)
+      end
+
+      # 1 prior + this crash = 2 within the window.
+      assert_received {:heartbeat_crash, %{count: 1, crashes_in_window: 2},
+                       %{group_id: "g", member_id: "m", reason: :killed}}
+    end
+
+    test "an :infinity budget never trips", ctx do
+      timer = dead_pid()
+
+      state =
+        rejoin_state(ctx,
+          heartbeat_timer: timer,
+          crash_rejoin_max_restarts: :infinity,
+          heartbeat_crash_times: recent_times(50)
+        )
+
+      assert_raise KafkaEx.JoinGroupError, fn ->
+        Manager.handle_info({:EXIT, timer, :killed}, state)
+      end
     end
   end
 end
