@@ -32,8 +32,45 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   - `:session_timeout_padding` - Extra time added to request timeouts (default: 10000)
   - `:rebalance_timeout` - Time allowed for consumers to rejoin during rebalance (default: `session_timeout * 3`)
   - `:partition_assignment_callback` - Function for custom partition assignment (default: round-robin)
+  - `:crash_rejoin_max_restarts` - Abnormal heartbeat-crash rejoins tolerated within
+    `crash_rejoin_window_ms` before a terminal stop (default: 10; `:infinity` disables the bound)
+  - `:crash_rejoin_window_ms` - Sliding window (ms) for `crash_rejoin_max_restarts` (default: 60000)
 
   Options can also be configured globally via application config under `:kafka_ex`.
+
+  ## Crash-loop bound and recovery
+
+  This bound governs only an **abnormal, uncatchable** heartbeat death — an
+  `:kill` or an unstructured process crash that reaches the manager as a bare
+  `{:EXIT, _, reason}` from the current heartbeat. Every *catchable* heartbeat
+  failure is already classified
+  by the heartbeat process itself (recoverable errors → rejoin; a code exception
+  or `:fenced_instance_id` / `:group_authorization_failed` → immediate terminal
+  stop), so those do not go through this counter.
+
+  Such an abnormal death triggers an in-place rejoin (and a
+  `[:kafka_ex, :consumer, :heartbeat_crash]` event). If they keep happening —
+  more than `crash_rejoin_max_restarts` times within `crash_rejoin_window_ms`
+  (defaults 10 / 60_000 ms; OTP `max_restarts`/`max_seconds` semantics) — the
+  member stops terminally, emits `[:kafka_ex, :consumer, :member_terminated]` with
+  `{:crash_loop, reason}`, and is torn down by its `one_for_all` /
+  `max_restarts: 0` supervisor (whose `max_restarts: 0` is intentional and
+  load-bearing for this escalation). The window is a pure sliding time-window: it
+  is never reset on a successful rejoin, only aged out, so crashes are counted
+  across the member's whole lifetime within the window. **Prior to this change the
+  loop was unbounded; the bound is active by default.**
+
+  To get automatic recovery from a terminal stop, run `ConsumerGroup` under your
+  own supervisor (the common case); it is then restarted fresh under your restart
+  strategy. **A `ConsumerGroup` started standalone will simply stop** (see
+  `UPGRADING.md`). A correlated kill wave (e.g. a fleet-wide OOM or deploy) can
+  trip many members at nearly the same time — per-member windowing limits each
+  member, but jitter does NOT desync the trip itself, so size your own
+  supervisor's `max_restarts`/`max_seconds` to absorb a simultaneous restart; it
+  is the real backstop. The bound counts one crash per heartbeat failure, so with
+  a short `heartbeat_interval` crashes accumulate faster within the window — raise
+  `crash_rejoin_max_restarts` to give more headroom before tripping. Set
+  `crash_rejoin_max_restarts: :infinity` to disable the bound.
   """
   use GenServer
 
@@ -70,7 +107,10 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
       :heartbeat_timer,
       :sync_retry_backoff_ms,
       :crash_rejoin_max_jitter_ms,
-      sync_failures: 0
+      :crash_rejoin_max_restarts,
+      :crash_rejoin_window_ms,
+      sync_failures: 0,
+      heartbeat_crash_times: []
     ]
 
     @type t :: %__MODULE__{
@@ -95,7 +135,10 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
             heartbeat_timer: pid() | nil,
             sync_retry_backoff_ms: non_neg_integer() | nil,
             crash_rejoin_max_jitter_ms: non_neg_integer() | nil,
-            sync_failures: non_neg_integer()
+            crash_rejoin_max_restarts: non_neg_integer() | :infinity | nil,
+            crash_rejoin_window_ms: non_neg_integer() | nil,
+            sync_failures: non_neg_integer(),
+            heartbeat_crash_times: [integer()]
           }
   end
 
@@ -123,6 +166,16 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   # Max jitter (ms) before an abnormal-crash rejoin, to desync a fleet hitting a
   # correlated heartbeat-kill. Per-group via `:crash_rejoin_max_jitter_ms`; 0 off.
   @crash_rejoin_max_jitter_ms 1_000
+
+  # Heartbeat-crash-loop bound (OTP max_restarts/max_seconds applied to the
+  # abnormal-crash rejoin path): more than @crash_rejoin_max_restarts abnormal
+  # heartbeat-crash rejoins within @crash_rejoin_window_ms stops the member
+  # terminally instead of looping forever. Per-group via :crash_rejoin_max_restarts
+  # / :crash_rejoin_window_ms; :infinity restarts disables the bound. Raising the
+  # restart count (not widening the window) is the lever to tolerate a transient
+  # kill burst — a wider window accumulates more crashes and trips more eagerly.
+  @crash_rejoin_max_restarts 10
+  @crash_rejoin_window_ms 60_000
 
   # Gets a value from opts, falling back to application config, then to default
   defp get_with_default(opts, key, default) do
@@ -154,6 +207,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     rebalance_timeout = get_with_default(opts, :rebalance_timeout, session_timeout * @rebalance_timeout_multiplier)
     sync_retry_backoff_ms = get_with_default(opts, :sync_retry_backoff_ms, @sync_retry_backoff_ms)
     crash_rejoin_max_jitter_ms = get_with_default(opts, :crash_rejoin_max_jitter_ms, @crash_rejoin_max_jitter_ms)
+    crash_rejoin_max_restarts = get_with_default(opts, :crash_rejoin_max_restarts, @crash_rejoin_max_restarts)
+    crash_rejoin_window_ms = get_with_default(opts, :crash_rejoin_window_ms, @crash_rejoin_window_ms)
 
     partition_assignment_callback =
       Keyword.get(opts, :partition_assignment_callback, &PartitionAssignment.round_robin/2)
@@ -170,7 +225,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
         :partition_assignment_callback,
         :client,
         :sync_retry_backoff_ms,
-        :crash_rejoin_max_jitter_ms
+        :crash_rejoin_max_jitter_ms,
+        :crash_rejoin_max_restarts,
+        :crash_rejoin_window_ms
       ])
 
     # Use Config defaults for connection options if not provided
@@ -209,7 +266,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
           topics: topics,
           member_id: nil,
           sync_retry_backoff_ms: sync_retry_backoff_ms,
-          crash_rejoin_max_jitter_ms: crash_rejoin_max_jitter_ms
+          crash_rejoin_max_jitter_ms: crash_rejoin_max_jitter_ms,
+          crash_rejoin_max_restarts: crash_rejoin_max_restarts,
+          crash_rejoin_window_ms: crash_rejoin_window_ms
         }
 
         Process.flag(:trap_exit, true)
@@ -433,12 +492,32 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
 
   # Current heartbeat died abnormally — the residual heartbeat.ex can't catch
   # (`:kill`). Rejoin keeping member_id (no protocol reason to reset it),
-  # jittered to desync correlated kills.
+  # jittered to desync correlated kills — unless this member is crash-looping,
+  # in which case stop terminally and let the supervisor decide.
   def handle_info({:EXIT, timer, reason}, %State{heartbeat_timer: timer} = state) do
-    Logger.warning("Heartbeat exited abnormally (#{inspect(reason)}); rejoining group")
-    maybe_crash_rejoin_jitter(state)
-    {:ok, state} = rebalance(state, {:heartbeat_crash, reason})
-    {:noreply, state}
+    case register_heartbeat_crash(state) do
+      {:trip, state} ->
+        Logger.error(
+          "Heartbeat crashed #{length(state.heartbeat_crash_times)} times within " <>
+            "#{state.crash_rejoin_window_ms}ms (limit #{state.crash_rejoin_max_restarts}); " <>
+            "stopping member instead of rejoining"
+        )
+
+        stop_terminal(state, {:crash_loop, reason})
+
+      {:rejoin, state} ->
+        Telemetry.emit_heartbeat_crash(
+          state.group_name,
+          state.member_id || "",
+          reason,
+          length(state.heartbeat_crash_times)
+        )
+
+        Logger.warning("Heartbeat exited abnormally (#{inspect(reason)}); rejoining group")
+        maybe_crash_rejoin_jitter(state)
+        {:ok, state} = rebalance(state, {:heartbeat_crash, reason})
+        {:noreply, state}
+    end
   end
 
   # Catch-all so no {:EXIT, _, _} ever FunctionClauseErrors the Manager (which
@@ -764,6 +843,23 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   end
 
   defp maybe_crash_rejoin_jitter(%State{}), do: :ok
+
+  # Sliding-window restart intensity: keep crash timestamps within the window,
+  # trip terminal once they exceed the budget (current crash included). The
+  # window is never cleared on a successful rejoin — it only ages out — so the
+  # bound counts crashes across the member's whole lifetime within the window.
+  defp register_heartbeat_crash(%State{crash_rejoin_max_restarts: max, crash_rejoin_window_ms: window} = state)
+       when is_integer(max) and max >= 0 and is_integer(window) do
+    now = System.monotonic_time(:millisecond)
+    recent = Enum.filter([now | state.heartbeat_crash_times], &(now - &1 <= window))
+    state = %State{state | heartbeat_crash_times: recent}
+
+    if length(recent) > max, do: {:trip, state}, else: {:rejoin, state}
+  end
+
+  # :infinity (or an unset/invalid budget or window) means never bound — loop
+  # forever (old behaviour).
+  defp register_heartbeat_crash(%State{} = state), do: {:rejoin, state}
 
   ### Timer Management
 

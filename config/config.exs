@@ -76,6 +76,21 @@ config :kafka_ex,
   # a correlated heartbeat-kill so members don't stampede the coordinator with
   # simultaneous JoinGroups. Set to 0 to disable. Default: 1000.
   # crash_rejoin_max_jitter_ms: 1000,
+  # Heartbeat-crash-loop bound. If a consumer-group member's heartbeat process
+  # dies abnormally more than `crash_rejoin_max_restarts` times within
+  # `crash_rejoin_window_ms`, the member stops terminally (emitting
+  # `[:kafka_ex, :consumer, :member_terminated]`) and is torn down by its
+  # supervisor instead of rejoining forever — so a deterministically broken
+  # member fails fast and alertably rather than looping silently. Mirrors OTP's
+  # max_restarts/max_seconds. To tolerate a transient kill burst, raise the
+  # restart count rather than widening the window (a wider window accumulates
+  # more crashes and trips more eagerly). Set restarts to `:infinity` to disable
+  # the bound (loop forever) — use that rather than a 0 window (which effectively
+  # disables it for any restarts > 0) or a huge restart count. (0 restarts is the
+  # opposite extreme: it trips on the very first abnormal crash.) Defaults: 10
+  # restarts / 60_000 ms.
+  # crash_rejoin_max_restarts: 10,
+  # crash_rejoin_window_ms: 60000,
   # API versions for Kafka protocol requests.
   # By default, KafkaEx uses the highest version supported by both the
   # connected broker and the protocol library. Use this config to pin
