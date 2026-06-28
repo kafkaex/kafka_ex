@@ -201,9 +201,26 @@ defmodule KafkaEx.Telemetry do
     won't come back. `reason` distinguishes the cause: `:fenced_instance_id` /
     `:group_authorization_failed` (terminal), `{:crashed, module}` (an uncaught
     exception or give-up raise), `{:error, atom}` (an unrecoverable heartbeat
-    error), or `{:client_died, term}`.
+    error), `{:client_died, term}`, or `{:crash_loop, term}` (the heartbeat
+    crashed repeatedly within the configured window and the member gave up — see
+    `crash_rejoin_max_restarts` / `crash_rejoin_window_ms`). `terminal_class` is a
+    flat, low-cardinality atom (`:fenced | :auth | :crash_loop | :crashed |
+    :error | :client_died | :other`) derived from `reason` — tag alerts on it
+    rather than on `reason`, whose tuple shape carries an unbounded inner term.
     * Measurements: `%{count: 1}`
-    * Metadata: `%{group_id: binary(), member_id: binary(), reason: atom() | {:crashed, module()} | {:error, atom()} | {:client_died, term()}}`
+    * Metadata: `%{group_id: binary(), member_id: binary(), reason: atom() | {:crashed, module()} | {:error, atom()} | {:client_died, term()} | {:crash_loop, term()}, terminal_class: atom()}`
+
+  * `[:kafka_ex, :consumer, :heartbeat_crash]` - Emitted each time a member's
+    heartbeat process dies abnormally and the member rejoins in place. NOT
+    emitted on the crash that exceeds the budget — that one trips a terminal stop
+    and surfaces as `member_terminated` with `{:crash_loop, _}` instead. Attach to
+    a rate metric (on `count`) to spot a flapping-but-recovering member before it
+    trips. Do not tag by `reason` — it carries an unbounded EXIT term; use it for
+    logs/debugging. `crashes_in_window` is the current sliding-window count
+    (decays as old crashes age out of the window; drops to zero only when the
+    member restarts fresh), not a monotonic gauge.
+    * Measurements: `%{count: 1, crashes_in_window: non_neg_integer()}`
+    * Metadata: `%{group_id: binary(), member_id: binary(), reason: term()}`
 
   ### Metadata Events
 
@@ -286,6 +303,7 @@ defmodule KafkaEx.Telemetry do
   @consumer_commit_failed [:kafka_ex, :consumer, :commit_failed]
   @consumer_offset_reset [:kafka_ex, :consumer, :offset_reset]
   @consumer_member_terminated [:kafka_ex, :consumer, :member_terminated]
+  @consumer_heartbeat_crash [:kafka_ex, :consumer, :heartbeat_crash]
 
   @metadata_update_start [:kafka_ex, :metadata, :update, :start]
   @metadata_update_stop [:kafka_ex, :metadata, :update, :stop]
@@ -313,7 +331,8 @@ defmodule KafkaEx.Telemetry do
                              @consumer_rebalance,
                              @consumer_commit_failed,
                              @consumer_offset_reset,
-                             @consumer_member_terminated
+                             @consumer_member_terminated,
+                             @consumer_heartbeat_crash
                            ]
   @consumer_process_events [@consumer_process_start, @consumer_process_stop, @consumer_process_exception]
   @consumer_events @consumer_commit_events ++ @consumer_group_events ++ @consumer_process_events
@@ -537,13 +556,19 @@ defmodule KafkaEx.Telemetry do
   and is NOT restarted (under the `one_for_all`/`max_restarts: 0` supervisor).
   Unlike a graceful `[:kafka_ex, :consumer, :leave, :stop]`, this signals an
   abnormal, operator-actionable death. `reason` is the terminal cause:
-  `:fenced_instance_id`, `:group_authorization_failed`, or `{:crashed, module}`
-  (the exception module that crashed the heartbeat).
+  `:fenced_instance_id`, `:group_authorization_failed`, `{:crashed, module}` (the
+  exception module that crashed the heartbeat), `{:error, atom}` (an unrecoverable
+  heartbeat error), `{:client_died, term}`, or `{:crash_loop, term}` (the heartbeat
+  crashed repeatedly within the window and the member gave up — see
+  `crash_rejoin_max_restarts`). The emitted metadata also carries a flat,
+  low-cardinality `terminal_class` atom derived from `reason` — tag alerts on it;
+  see the `[:kafka_ex, :consumer, :member_terminated]` module-doc entry for the
+  full mapping.
   """
   @spec emit_member_terminated(
           binary(),
           binary(),
-          atom() | {:crashed, module()} | {:error, atom()} | {:client_died, term()}
+          atom() | {:crashed, module()} | {:error, atom()} | {:client_died, term()} | {:crash_loop, term()}
         ) :: :ok
   def emit_member_terminated(group_id, member_id, reason) do
     :telemetry.execute(
@@ -552,8 +577,34 @@ defmodule KafkaEx.Telemetry do
       %{
         group_id: group_id,
         member_id: member_id,
-        reason: reason
+        reason: reason,
+        terminal_class: terminal_class(reason)
       }
+    )
+  end
+
+  defp terminal_class(:fenced_instance_id), do: :fenced
+  defp terminal_class(:group_authorization_failed), do: :auth
+  defp terminal_class({:crash_loop, _}), do: :crash_loop
+  defp terminal_class({:crashed, _}), do: :crashed
+  defp terminal_class({:error, _}), do: :error
+  defp terminal_class({:client_died, _}), do: :client_died
+  defp terminal_class(_), do: :other
+
+  @doc """
+  Emits `[:kafka_ex, :consumer, :heartbeat_crash]` on an abnormal heartbeat-crash
+  rejoin. NOT emitted on the crash that trips the budget — that surfaces as
+  `member_terminated` with `{:crash_loop, _}`. `crashes_in_window` is the count of
+  recent crashes within the bound's window, including this one — attach a rate
+  metric to spot a flapping-but-recovering member before it trips into
+  `member_terminated`.
+  """
+  @spec emit_heartbeat_crash(binary(), binary(), term(), non_neg_integer()) :: :ok
+  def emit_heartbeat_crash(group_id, member_id, reason, crashes_in_window) do
+    :telemetry.execute(
+      @consumer_heartbeat_crash,
+      %{count: 1, crashes_in_window: crashes_in_window},
+      %{group_id: group_id, member_id: member_id, reason: reason}
     )
   end
 
