@@ -231,6 +231,43 @@ KafkaEx.Consumer.ConsumerGroup.start_link(
 )
 ```
 
+### Consumer-group heartbeat crash-loop is now bounded (new in 1.1.0)
+
+A consumer-group member whose heartbeat process keeps dying abnormally (an
+uncatchable `:kill`, OOM, or unstructured crash) used to rejoin **forever** —
+silent, consuming nothing, never alerting. It is now bounded: more than
+`crash_rejoin_max_restarts` such crashes within `crash_rejoin_window_ms`
+(defaults `10` / `60_000` ms) stops the member terminally and emits
+`[:kafka_ex, :consumer, :member_terminated]` with `{:crash_loop, _}`.
+
+**What you must check:**
+
+- **If you start `ConsumerGroup` under your own supervisor** (the common case,
+  and what the docs recommend), there is nothing to do — on a crash-loop trip the
+  member stops and your supervisor restarts the whole `ConsumerGroup` fresh under
+  your restart strategy. Size your supervisor's `max_restarts`/`max_seconds` to
+  absorb a correlated kill wave (e.g. a fleet-wide OOM/deploy) where many members
+  can trip at nearly the same time.
+
+- **If you start `ConsumerGroup` standalone** (not under a supervisor), a
+  crash-loop trip now **permanently stops consumption** instead of looping. Wrap
+  it in a supervisor, or set `crash_rejoin_max_restarts: :infinity` to keep the
+  unbounded rejoin (no terminal give-up):
+
+  ```elixir
+  # loop forever on abnormal heartbeat crashes (unbounded rejoin, no give-up)
+  config :kafka_ex, crash_rejoin_max_restarts: :infinity
+
+  # or per consumer group
+  KafkaEx.Consumer.ConsumerGroup.start_link(
+    MyConsumer, "my-group", ["topic"],
+    crash_rejoin_max_restarts: :infinity
+  )
+  ```
+
+To tune rather than disable, raise the restart **count** rather than widening the
+window (a wider window accumulates more crashes and trips more eagerly).
+
 ### `KafkaEx.API.start_client()` is now unnamed by default
 
 Pre-v1.0 patch — and the v1.0 release prior to this fix — `start_client()`

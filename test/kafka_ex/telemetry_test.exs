@@ -180,8 +180,8 @@ defmodule KafkaEx.TelemetryTest do
       events = Telemetry.consumer_events()
 
       # 3 commit + 12 group (join, sync, heartbeat, leave x 3) + 1 rebalance + 1 commit_failed
-      # + 1 offset_reset + 1 member_terminated + 3 process = 22
-      assert length(events) == 22
+      # + 1 offset_reset + 1 member_terminated + 1 heartbeat_crash + 3 process = 23
+      assert length(events) == 23
 
       # Commit events
       assert [:kafka_ex, :consumer, :commit, :start] in events
@@ -204,6 +204,7 @@ defmodule KafkaEx.TelemetryTest do
       assert [:kafka_ex, :consumer, :rebalance] in events
       assert [:kafka_ex, :consumer, :offset_reset] in events
       assert [:kafka_ex, :consumer, :member_terminated] in events
+      assert [:kafka_ex, :consumer, :heartbeat_crash] in events
 
       # Process events
       assert [:kafka_ex, :consumer, :process, :start] in events
@@ -217,12 +218,13 @@ defmodule KafkaEx.TelemetryTest do
       events = Telemetry.consumer_group_events()
 
       # 12 group events (join, sync, heartbeat, leave x 3) + 1 rebalance + 1 commit_failed
-      # + 1 offset_reset + 1 member_terminated = 16
-      assert length(events) == 16
+      # + 1 offset_reset + 1 member_terminated + 1 heartbeat_crash = 17
+      assert length(events) == 17
 
       assert [:kafka_ex, :consumer, :commit_failed] in events
       assert [:kafka_ex, :consumer, :offset_reset] in events
       assert [:kafka_ex, :consumer, :member_terminated] in events
+      assert [:kafka_ex, :consumer, :heartbeat_crash] in events
 
       # Group lifecycle events
       assert [:kafka_ex, :consumer, :join, :start] in events
