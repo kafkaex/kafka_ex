@@ -1,5 +1,28 @@
 # KafkaEx Changelog
 
+## Unreleased
+
+### Fixed
+
+* **The abnormal heartbeat-crash rejoin loop is now bounded (#560).** When a
+  consumer-group member's heartbeat process dies abnormally — an uncatchable
+  `:kill`, OOM, or unstructured crash — the manager rejoins in place, but if it
+  keeps dying more than `crash_rejoin_max_restarts` times within
+  `crash_rejoin_window_ms` (defaults `10` / `60_000` ms; OTP
+  `max_restarts`/`max_seconds` semantics) the member now stops terminally
+  instead of looping forever. **Behavior change:** such a member previously
+  looped indefinitely (silent, consuming nothing); it now stops, emits
+  `[:kafka_ex, :consumer, :member_terminated]` with reason `{:crash_loop, _}`,
+  and is torn down by its supervisor — delegating recovery to *your* supervisor.
+  Set `crash_rejoin_max_restarts: :infinity` to restore the old unbounded
+  behavior. A `ConsumerGroup` started **without** a supervising parent now stops
+  on a crash-loop instead of looping — see UPGRADING.md. New observability: a
+  `[:kafka_ex, :consumer, :heartbeat_crash]` event fires on each abnormal-crash
+  rejoin (with `crashes_in_window`) for pre-terminal alerting, and
+  `member_terminated` metadata gains a low-cardinality `terminal_class` atom
+  (`:fenced | :auth | :crash_loop | :crashed | :error | :client_died | :other`)
+  for alert routing.
+
 ## 1.0.1 (2026-06-26)
 
 ### Breaking Changes
