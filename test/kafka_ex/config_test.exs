@@ -269,6 +269,52 @@ defmodule KafkaEx.ConfigTest do
     end
   end
 
+  describe "validate_group_instance_id!/1" do
+    test "nil is allowed (static membership off)" do
+      assert KafkaEx.Config.validate_group_instance_id!(nil) == nil
+    end
+
+    test "a non-empty binary is returned unchanged" do
+      assert KafkaEx.Config.validate_group_instance_id!("inst-1") == "inst-1"
+    end
+
+    test "an empty string raises" do
+      assert_raise ArgumentError, ~r/non-empty/, fn ->
+        KafkaEx.Config.validate_group_instance_id!("")
+      end
+    end
+
+    test "a whitespace-only string raises" do
+      assert_raise ArgumentError, ~r/non-empty/, fn ->
+        KafkaEx.Config.validate_group_instance_id!("   ")
+      end
+    end
+
+    test "a non-binary raises" do
+      assert_raise ArgumentError, ~r/binary or nil/, fn ->
+        KafkaEx.Config.validate_group_instance_id!(123)
+      end
+    end
+  end
+
+  describe "resolve_group_instance_id/1" do
+    test "passes a binary through" do
+      assert KafkaEx.Config.resolve_group_instance_id("inst-1") == "inst-1"
+    end
+
+    test "passes nil through" do
+      assert KafkaEx.Config.resolve_group_instance_id(nil) == nil
+    end
+
+    test "calls a zero-arity function" do
+      assert KafkaEx.Config.resolve_group_instance_id(fn -> "from-fun" end) == "from-fun"
+    end
+
+    test "applies an MFA tuple" do
+      assert KafkaEx.Config.resolve_group_instance_id({String, :upcase, ["inst-1"]}) == "INST-1"
+    end
+  end
+
   def get_brokers(opts) do
     port = Keyword.get(opts, :port)
 
