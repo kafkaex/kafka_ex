@@ -557,7 +557,16 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
 
   def terminate(reason, %State{} = state) do
     emit_termination_telemetry(reason, state)
-    {:ok, _state} = leave(state)
+
+    if is_nil(state.group_instance_id) do
+      {:ok, _state} = leave(state)
+    else
+      Logger.debug(
+        "Static member (group_instance_id=#{inspect(state.group_instance_id)}); skipping LeaveGroup " <>
+          "so the broker retains the assignment until session timeout"
+      )
+    end
+
     Process.unlink(state.client)
     GenServer.stop(state.client, :normal)
 
