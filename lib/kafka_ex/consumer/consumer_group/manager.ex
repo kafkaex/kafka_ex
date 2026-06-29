@@ -612,7 +612,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
            rebalance_timeout: rebalance_timeout,
            group_name: group_name,
            topics: topics,
-           member_id: member_id
+           member_id: member_id,
+           group_instance_id: group_instance_id
          } = state,
          attempt_number
        ) do
@@ -620,7 +621,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
       topics: topics,
       session_timeout: session_timeout,
       rebalance_timeout: rebalance_timeout,
-      timeout: session_timeout + session_timeout_padding
+      timeout: session_timeout + session_timeout_padding,
+      group_instance_id: group_instance_id
     ]
 
     join_response = KafkaExAPI.join_group(client, group_name, member_id || "", opts)
@@ -723,6 +725,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
            group_name: group_name,
            member_id: member_id,
            generation_id: generation_id,
+           group_instance_id: group_instance_id,
            session_timeout: session_timeout,
            session_timeout_padding: session_timeout_padding
          } = state,
@@ -730,7 +733,12 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
        ) do
     # Convert assignments to protocol-agnostic format (protocol layer handles Kayrock conversion)
     group_assignment = format_assignments_for_sync_group(assignments)
-    opts = [group_assignment: group_assignment, timeout: session_timeout + session_timeout_padding]
+
+    opts = [
+      group_assignment: group_assignment,
+      timeout: session_timeout + session_timeout_padding,
+      group_instance_id: group_instance_id
+    ]
 
     case KafkaExAPI.sync_group(client, group_name, generation_id, member_id, opts) do
       {:ok, sync_response} ->

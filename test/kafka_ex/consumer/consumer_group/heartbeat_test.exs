@@ -14,7 +14,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.HeartbeatTest do
         member_id: "member-1",
         generation_id: 1,
         client: client,
-        heartbeat_interval: 5000
+        heartbeat_interval: 5000,
+        group_instance_id: nil
       }
 
       {:ok, state, timeout} = Heartbeat.init(init_args)

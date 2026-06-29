@@ -37,14 +37,15 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Heartbeat do
 
   defmodule State do
     @moduledoc false
-    defstruct [:client, :group_name, :member_id, :generation_id, :heartbeat_interval]
+    defstruct [:client, :group_name, :member_id, :generation_id, :heartbeat_interval, :group_instance_id]
 
     @type t :: %__MODULE__{
             client: pid(),
             group_name: binary(),
             member_id: binary(),
             generation_id: integer(),
-            heartbeat_interval: pos_integer()
+            heartbeat_interval: pos_integer(),
+            group_instance_id: binary() | nil
           }
   end
 
@@ -57,14 +58,16 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Heartbeat do
         member_id: member_id,
         generation_id: generation_id,
         client: client,
-        heartbeat_interval: heartbeat_interval
+        heartbeat_interval: heartbeat_interval,
+        group_instance_id: group_instance_id
       }) do
     state = %State{
       client: client,
       group_name: group_name,
       member_id: member_id,
       generation_id: generation_id,
-      heartbeat_interval: heartbeat_interval
+      heartbeat_interval: heartbeat_interval,
+      group_instance_id: group_instance_id
     }
 
     {:ok, state, state.heartbeat_interval}
@@ -77,10 +80,11 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Heartbeat do
           group_name: group_name,
           member_id: member_id,
           generation_id: generation_id,
-          heartbeat_interval: heartbeat_interval
+          heartbeat_interval: heartbeat_interval,
+          group_instance_id: group_instance_id
         } = state
       ) do
-    case KafkaExAPI.heartbeat(client, group_name, member_id, generation_id) do
+    case KafkaExAPI.heartbeat(client, group_name, member_id, generation_id, group_instance_id: group_instance_id) do
       {:ok, %KafkaEx.Messages.Heartbeat{}} ->
         {:noreply, state, heartbeat_interval}
 
