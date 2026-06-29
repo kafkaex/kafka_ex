@@ -99,8 +99,14 @@ defmodule KafkaEx.Client.RequestBuilder do
         group_id = Keyword.fetch!(request_opts, :group_id)
         member_id = Keyword.fetch!(request_opts, :member_id)
         generation_id = Keyword.fetch!(request_opts, :generation_id)
+        group_instance_id = Keyword.get(request_opts, :group_instance_id)
 
-        opts = [group_id: group_id, member_id: member_id, generation_id: generation_id]
+        opts = [
+          group_id: group_id,
+          member_id: member_id,
+          generation_id: generation_id,
+          group_instance_id: group_instance_id
+        ]
 
         req = @protocol.build_request(:heartbeat, api_version, opts)
         {:ok, req}
@@ -169,12 +175,14 @@ defmodule KafkaEx.Client.RequestBuilder do
         generation_id = Keyword.fetch!(request_opts, :generation_id)
         member_id = Keyword.fetch!(request_opts, :member_id)
         group_assignment = Keyword.get(request_opts, :group_assignment, [])
+        group_instance_id = Keyword.get(request_opts, :group_instance_id)
 
         opts = [
           group_id: group_id,
           generation_id: generation_id,
           member_id: member_id,
-          group_assignment: group_assignment
+          group_assignment: group_assignment,
+          group_instance_id: group_instance_id
         ]
 
         req = @protocol.build_request(:sync_group, api_version, opts)

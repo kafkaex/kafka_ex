@@ -1299,6 +1299,53 @@ defmodule KafkaEx.Client.RequestBuilderTest do
     end
   end
 
+  describe "group_instance_id (KIP-345)" do
+    test "heartbeat_request carries group_instance_id on V3+" do
+      state = %KafkaEx.Client.State{api_versions: %{12 => {0, 3}}}
+
+      {:ok, request} =
+        RequestBuilder.heartbeat_request(
+          [group_id: "g", member_id: "m", generation_id: 1, group_instance_id: "inst-1"],
+          state
+        )
+
+      assert request.group_instance_id == "inst-1"
+    end
+
+    test "heartbeat_request leaves group_instance_id nil when not provided" do
+      state = %KafkaEx.Client.State{api_versions: %{12 => {0, 3}}}
+
+      {:ok, request} =
+        RequestBuilder.heartbeat_request([group_id: "g", member_id: "m", generation_id: 1], state)
+
+      assert request.group_instance_id == nil
+    end
+
+    test "sync_group_request carries group_instance_id on V3+" do
+      state = %KafkaEx.Client.State{api_versions: %{14 => {0, 3}}}
+
+      {:ok, request} =
+        RequestBuilder.sync_group_request(
+          [group_id: "g", generation_id: 1, member_id: "m", group_assignment: [], group_instance_id: "inst-1"],
+          state
+        )
+
+      assert request.group_instance_id == "inst-1"
+    end
+
+    test "sync_group_request leaves group_instance_id nil when not provided" do
+      state = %KafkaEx.Client.State{api_versions: %{14 => {0, 3}}}
+
+      {:ok, request} =
+        RequestBuilder.sync_group_request(
+          [group_id: "g", generation_id: 1, member_id: "m", group_assignment: []],
+          state
+        )
+
+      assert request.group_instance_id == nil
+    end
+  end
+
   describe "produce_request/2" do
     test "returns request for Produce API v3 (default)" do
       state = %KafkaEx.Client.State{api_versions: %{0 => {0, 3}}}
