@@ -62,8 +62,9 @@ defmodule KafkaEx.Client do
 
   # Default from GenServer
   @default_call_timeout 5_000
-  # @retry_count is also relied on by KafkaEx.API's fetch call_timeout budget
-  # (@fetch_max_retries there must equal this — kept in sync by hand). See #357.
+  # The request retry budget. This is the single source of truth: KafkaEx.API's
+  # fetch call_timeout budget (@fetch_max_retries) is derived from it via
+  # retry_count/0, so the two can no longer drift by hand. See #357.
   @retry_count 3
   @sync_timeout 1_000
   @reconnect_max_retries 3
@@ -73,6 +74,12 @@ defmodule KafkaEx.Client do
   # Handles intermittent parse errors during initial connection
   @api_versions_max_retries 3
   @api_versions_retry_base_delay_ms 100
+
+  @doc false
+  # The request retry budget (single source of truth for #357). KafkaEx.API
+  # derives its fetch call_timeout from this so the two cannot drift.
+  @spec retry_count() :: pos_integer()
+  def retry_count, do: @retry_count
 
   @impl true
   def init([args, _name]) do

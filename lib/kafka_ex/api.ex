@@ -94,17 +94,18 @@ defmodule KafkaEx.API do
   # GenServer.call and Socket.recv timeouts derived from :max_wait_time so
   # the broker's long-poll completes before either fires.
   #
-  # Two couplings are maintained by hand (kept here as comments rather than
-  # guarded by a test, to avoid exposing internals as public functions):
-  #   * @fetch_max_retries MUST equal KafkaEx.Client's @retry_count — call_timeout
-  #     budgets for that many attempts; if they diverge the call can exit mid-retry.
+  # @fetch_max_retries is derived from KafkaEx.Client.retry_count/0 (its single
+  # source of truth) so the call_timeout budget always matches the client's real
+  # retry count and the two can no longer drift. See #357.
+  #
+  # One coupling is still maintained by hand:
   #   * @default_max_wait_time MUST equal the fetch request builder's :max_wait_time
   #     default (KafkaEx.Protocol.Kayrock.Fetch.RequestHelpers) — if the builder's
   #     default drifts above this, network_timeout no longer covers the long-poll.
   @default_max_wait_time 10_000
   @fetch_network_timeout_buffer 5_000
   @fetch_call_timeout_buffer 5_000
-  @fetch_max_retries 3
+  @fetch_max_retries KafkaEx.Client.retry_count()
 
   # ---------------------------------------------------------------------------
   # __using__ macro for mixin pattern
