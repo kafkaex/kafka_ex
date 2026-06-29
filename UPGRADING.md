@@ -268,6 +268,55 @@ silent, consuming nothing, never alerting. It is now bounded: more than
 To tune rather than disable, raise the restart **count** rather than widening the
 window (a wider window accumulates more crashes and trips more eagerly).
 
+### Static consumer-group membership (new in 1.1.0)
+
+`KafkaEx.Consumer.ConsumerGroup` now supports KIP-345 static membership via a
+new `:group_instance_id` option. **This feature is entirely opt-in — default
+behavior is unchanged.**
+
+When `:group_instance_id` is set, the member presents a stable instance id on
+JoinGroup/SyncGroup/Heartbeat. The broker retains its partition assignment
+across a restart (until `session.timeout.ms`) instead of triggering a rebalance.
+In addition, **LeaveGroup is suppressed on shutdown** — this is a behavior
+change that applies **only when `:group_instance_id` is set**; dynamic members
+(the default) continue to send LeaveGroup as before.
+
+**Uniqueness is mandatory.** Each member in the group must have a distinct
+`:group_instance_id`. If two members share an id, the broker fences the later
+arrival (`:fenced_instance_id` → terminal stop, `member_terminated` telemetry
+with `terminal_class: :fenced`). Common footgun: setting a bare string in
+`config.exs` — every replica shares the same value, and all but one get fenced.
+Derive the id per node instead:
+
+```elixir
+# Good: resolved at runtime, unique per pod/node
+group_instance_id: System.get_env("POD_NAME") || node() |> to_string()
+
+# Or via an MFA tuple (resolved lazily by ConsumerGroup):
+group_instance_id: {MyApp.Kafka, :instance_id, []}
+
+# Bad: every replica shares this string → all but one FENCED
+group_instance_id: "my-consumer"
+```
+
+**Raise `session_timeout` to cover your restart/deploy window.** While the
+assignment is held for `session.timeout.ms` after the last heartbeat, a restart
+that takes longer than this window will cause the broker to expire the session
+and rebalance anyway. The broker default is typically 45 s; set it higher if
+your deployment can take longer:
+
+```elixir
+# Per consumer group (preferred)
+KafkaEx.Consumer.ConsumerGroup.start_link(
+  MyConsumer, "my-group", ["topic"],
+  group_instance_id: System.get_env("POD_NAME"),
+  session_timeout: 120_000   # 2 minutes — cover your deploy window
+)
+```
+
+Requires Kafka >= 2.3. A too-old broker logs a warning and the consumer runs
+with dynamic membership (no error, no crash).
+
 ### `KafkaEx.API.start_client()` is now unnamed by default
 
 Pre-v1.0 patch — and the v1.0 release prior to this fix — `start_client()`
