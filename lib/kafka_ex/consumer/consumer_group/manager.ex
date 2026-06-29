@@ -109,6 +109,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
       :crash_rejoin_max_jitter_ms,
       :crash_rejoin_max_restarts,
       :crash_rejoin_window_ms,
+      :group_instance_id,
       sync_failures: 0,
       heartbeat_crash_times: []
     ]
@@ -137,6 +138,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
             crash_rejoin_max_jitter_ms: non_neg_integer() | nil,
             crash_rejoin_max_restarts: non_neg_integer() | :infinity | nil,
             crash_rejoin_window_ms: non_neg_integer() | nil,
+            group_instance_id: binary() | nil,
             sync_failures: non_neg_integer(),
             heartbeat_crash_times: [integer()]
           }
@@ -210,6 +212,12 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     crash_rejoin_max_restarts = get_with_default(opts, :crash_rejoin_max_restarts, @crash_rejoin_max_restarts)
     crash_rejoin_window_ms = get_with_default(opts, :crash_rejoin_window_ms, @crash_rejoin_window_ms)
 
+    group_instance_id =
+      opts
+      |> get_with_default(:group_instance_id, nil)
+      |> Config.resolve_group_instance_id()
+      |> Config.validate_group_instance_id!()
+
     partition_assignment_callback =
       Keyword.get(opts, :partition_assignment_callback, &PartitionAssignment.round_robin/2)
 
@@ -227,7 +235,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
         :sync_retry_backoff_ms,
         :crash_rejoin_max_jitter_ms,
         :crash_rejoin_max_restarts,
-        :crash_rejoin_window_ms
+        :crash_rejoin_window_ms,
+        :group_instance_id
       ])
 
     # Use Config defaults for connection options if not provided
@@ -268,7 +277,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
           sync_retry_backoff_ms: sync_retry_backoff_ms,
           crash_rejoin_max_jitter_ms: crash_rejoin_max_jitter_ms,
           crash_rejoin_max_restarts: crash_rejoin_max_restarts,
-          crash_rejoin_window_ms: crash_rejoin_window_ms
+          crash_rejoin_window_ms: crash_rejoin_window_ms,
+          group_instance_id: group_instance_id
         }
 
         Process.flag(:trap_exit, true)
