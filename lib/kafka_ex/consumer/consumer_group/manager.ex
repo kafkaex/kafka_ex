@@ -80,6 +80,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   alias KafkaEx.Consumer.ConsumerGroup
   alias KafkaEx.Consumer.ConsumerGroup.Heartbeat
   alias KafkaEx.Consumer.ConsumerGroup.PartitionAssignment
+  alias KafkaEx.Messages.ApiVersions
   alias KafkaEx.Telemetry
   require Logger
 
@@ -1064,8 +1065,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
 
   defp maybe_warn_static_membership_unsupported(client, _group_instance_id) do
     case KafkaExAPI.api_versions(client) do
-      {:ok, %KafkaEx.Messages.ApiVersions{} = versions} ->
-        case KafkaEx.Messages.ApiVersions.max_version_for_api(versions, 11) do
+      {:ok, %ApiVersions{} = versions} ->
+        case ApiVersions.max_version_for_api(versions, 11) do
           {:ok, max_version} when max_version >= 5 ->
             :ok
 
