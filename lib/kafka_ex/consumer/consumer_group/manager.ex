@@ -260,6 +260,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
 
     case client_result do
       {:ok, client} ->
+        maybe_warn_static_membership_unsupported(client, group_instance_id)
+
         state = %State{
           supervisor_pid: supervisor_pid,
           client: client,
@@ -1057,4 +1059,30 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   defp recoverable_error?(:not_connected), do: true
   defp recoverable_error?(:unknown), do: true
   defp recoverable_error?(_), do: false
+
+  defp maybe_warn_static_membership_unsupported(_client, nil), do: :ok
+
+  defp maybe_warn_static_membership_unsupported(client, _group_instance_id) do
+    case KafkaExAPI.api_versions(client) do
+      {:ok, %KafkaEx.Messages.ApiVersions{} = versions} ->
+        case KafkaEx.Messages.ApiVersions.max_version_for_api(versions, 11) do
+          {:ok, max_version} when max_version >= 5 ->
+            :ok
+
+          _ ->
+            Logger.warning(
+              "group_instance_id is set but the broker does not support JoinGroup v5+ " <>
+                "(requires Kafka 2.3+); static membership (KIP-345) will not take effect and " <>
+                "the consumer will join as a dynamic member"
+            )
+        end
+
+      _ ->
+        :ok
+    end
+  rescue
+    _ -> :ok
+  catch
+    _, _ -> :ok
+  end
 end

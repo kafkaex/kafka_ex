@@ -197,6 +197,48 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerStaticMembershipTest do
     end
   end
 
+  describe "too-old-broker warning" do
+    import ExUnit.CaptureLog
+
+    defp init_with(api_versions_resp, group_instance_id) do
+      {:ok, client} =
+        KafkaEx.Test.MockClient.start_link(%{
+          api_versions: api_versions_resp,
+          # recoverable error keeps the Manager alive (retry w/ backoff) instead of raising
+          join_group: {:error, :coordinator_not_available}
+        })
+
+      opts = [supervisor_pid: self(), client: client, group_instance_id: group_instance_id]
+
+      log =
+        capture_log(fn ->
+          {:ok, _state, _t} =
+            Manager.init({{KafkaEx.GenConsumer, __MODULE__.NoopConsumer}, "g", ["t"], opts})
+        end)
+
+      stop_safely(client)
+      log
+    end
+
+    test "warns when the broker's max JoinGroup version is < 5" do
+      versions = {:ok, %KafkaEx.Messages.ApiVersions{api_versions: %{11 => %{min_version: 0, max_version: 4}}}}
+      log = init_with(versions, "inst-1")
+      assert log =~ "static membership"
+    end
+
+    test "does not warn when the broker supports JoinGroup v5+" do
+      versions = {:ok, %KafkaEx.Messages.ApiVersions{api_versions: %{11 => %{min_version: 0, max_version: 5}}}}
+      log = init_with(versions, "inst-1")
+      refute log =~ "static membership"
+    end
+
+    test "does not warn for a dynamic member" do
+      versions = {:ok, %KafkaEx.Messages.ApiVersions{api_versions: %{11 => %{min_version: 0, max_version: 4}}}}
+      log = init_with(versions, nil)
+      refute log =~ "static membership"
+    end
+  end
+
   defmodule NoopConsumer do
     @moduledoc false
   end
