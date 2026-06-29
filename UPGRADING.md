@@ -290,7 +290,7 @@ Derive the id per node instead:
 
 ```elixir
 # Good: resolved at runtime, unique per pod/node
-group_instance_id: System.get_env("POD_NAME") || node() |> to_string()
+group_instance_id: System.get_env("POD_NAME") || (node() |> to_string())
 
 # Or via an MFA tuple (resolved lazily by ConsumerGroup):
 group_instance_id: {MyApp.Kafka, :instance_id, []}

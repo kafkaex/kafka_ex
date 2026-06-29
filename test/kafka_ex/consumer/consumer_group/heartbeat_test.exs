@@ -25,6 +25,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.HeartbeatTest do
       assert state.generation_id == 1
       assert state.client == client
       assert state.heartbeat_interval == 5000
+      assert state.group_instance_id == nil
       assert timeout == 5000
     end
   end

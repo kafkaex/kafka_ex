@@ -56,7 +56,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.StaticMembershipTest do
     cg
   end
 
-  test "a static member keeps its assignment and member_id across a restart (no rebalance)",
+  test "a static member keeps its assignment and generation across a restart (no rebalance)",
        %{uris: uris, topic: topic} do
     group = "cg_static_grp_#{:rand.uniform(1_000_000)}"
     opts = Keyword.put(base_opts(uris), :group_instance_id, "inst-1")
