@@ -136,6 +136,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
           | {:max_restarts, non_neg_integer}
           | {:max_seconds, non_neg_integer}
           | {:uris, KafkaEx.uri()}
+          | {:group_instance_id, binary | nil}
 
   @type options :: [option]
 

@@ -348,7 +348,17 @@ def start(_type, _args) do
             # Optional configuration
             commit_interval: 5_000,
             commit_threshold: 100,
-            auto_offset_reset: :earliest
+            auto_offset_reset: :earliest,
+
+            # Static membership (KIP-345, Kafka >= 2.3): retains partition
+            # assignment across restarts within session_timeout instead of
+            # rebalancing. MUST be unique per member in the group — derive
+            # from POD_NAME / hostname / StatefulSet ordinal. A duplicate id
+            # fences the loser (`:fenced_instance_id` → terminal stop,
+            # `member_terminated` telemetry with `terminal_class: :fenced`).
+            # Raise session_timeout to cover your restart/deploy window.
+            # Default: nil (dynamic membership, feature off).
+            # group_instance_id: System.get_env("POD_NAME") || (node() |> to_string())
           ]
         ]
       }

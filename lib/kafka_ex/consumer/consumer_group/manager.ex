@@ -80,6 +80,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   alias KafkaEx.Consumer.ConsumerGroup
   alias KafkaEx.Consumer.ConsumerGroup.Heartbeat
   alias KafkaEx.Consumer.ConsumerGroup.PartitionAssignment
+  alias KafkaEx.Messages.ApiVersions
   alias KafkaEx.Telemetry
   require Logger
 
@@ -109,6 +110,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
       :crash_rejoin_max_jitter_ms,
       :crash_rejoin_max_restarts,
       :crash_rejoin_window_ms,
+      :group_instance_id,
       sync_failures: 0,
       heartbeat_crash_times: []
     ]
@@ -137,6 +139,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
             crash_rejoin_max_jitter_ms: non_neg_integer() | nil,
             crash_rejoin_max_restarts: non_neg_integer() | :infinity | nil,
             crash_rejoin_window_ms: non_neg_integer() | nil,
+            group_instance_id: binary() | nil,
             sync_failures: non_neg_integer(),
             heartbeat_crash_times: [integer()]
           }
@@ -210,6 +213,11 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     crash_rejoin_max_restarts = get_with_default(opts, :crash_rejoin_max_restarts, @crash_rejoin_max_restarts)
     crash_rejoin_window_ms = get_with_default(opts, :crash_rejoin_window_ms, @crash_rejoin_window_ms)
 
+    group_instance_id =
+      opts
+      |> get_with_default(:group_instance_id, nil)
+      |> Config.resolve_group_instance_id()
+
     partition_assignment_callback =
       Keyword.get(opts, :partition_assignment_callback, &PartitionAssignment.round_robin/2)
 
@@ -227,7 +235,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
         :sync_retry_backoff_ms,
         :crash_rejoin_max_jitter_ms,
         :crash_rejoin_max_restarts,
-        :crash_rejoin_window_ms
+        :crash_rejoin_window_ms,
+        :group_instance_id
       ])
 
     # Use Config defaults for connection options if not provided
@@ -251,6 +260,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
 
     case client_result do
       {:ok, client} ->
+        maybe_warn_static_membership_unsupported(client, group_instance_id)
+
         state = %State{
           supervisor_pid: supervisor_pid,
           client: client,
@@ -268,7 +279,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
           sync_retry_backoff_ms: sync_retry_backoff_ms,
           crash_rejoin_max_jitter_ms: crash_rejoin_max_jitter_ms,
           crash_rejoin_max_restarts: crash_rejoin_max_restarts,
-          crash_rejoin_window_ms: crash_rejoin_window_ms
+          crash_rejoin_window_ms: crash_rejoin_window_ms,
+          group_instance_id: group_instance_id
         }
 
         Process.flag(:trap_exit, true)
@@ -547,7 +559,16 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
 
   def terminate(reason, %State{} = state) do
     emit_termination_telemetry(reason, state)
-    {:ok, _state} = leave(state)
+
+    if is_nil(state.group_instance_id) do
+      {:ok, _state} = leave(state)
+    else
+      Logger.debug(
+        "Static member (group_instance_id=#{inspect(state.group_instance_id)}); skipping LeaveGroup " <>
+          "so the broker retains the assignment until session timeout"
+      )
+    end
+
     Process.unlink(state.client)
     GenServer.stop(state.client, :normal)
 
@@ -602,7 +623,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
            rebalance_timeout: rebalance_timeout,
            group_name: group_name,
            topics: topics,
-           member_id: member_id
+           member_id: member_id,
+           group_instance_id: group_instance_id
          } = state,
          attempt_number
        ) do
@@ -610,7 +632,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
       topics: topics,
       session_timeout: session_timeout,
       rebalance_timeout: rebalance_timeout,
-      timeout: session_timeout + session_timeout_padding
+      timeout: session_timeout + session_timeout_padding,
+      group_instance_id: group_instance_id
     ]
 
     join_response = KafkaExAPI.join_group(client, group_name, member_id || "", opts)
@@ -713,6 +736,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
            group_name: group_name,
            member_id: member_id,
            generation_id: generation_id,
+           group_instance_id: group_instance_id,
            session_timeout: session_timeout,
            session_timeout_padding: session_timeout_padding
          } = state,
@@ -720,7 +744,12 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
        ) do
     # Convert assignments to protocol-agnostic format (protocol layer handles Kayrock conversion)
     group_assignment = format_assignments_for_sync_group(assignments)
-    opts = [group_assignment: group_assignment, timeout: session_timeout + session_timeout_padding]
+
+    opts = [
+      group_assignment: group_assignment,
+      timeout: session_timeout + session_timeout_padding,
+      group_instance_id: group_instance_id
+    ]
 
     case KafkaExAPI.sync_group(client, group_name, generation_id, member_id, opts) do
       {:ok, sync_response} ->
@@ -1030,4 +1059,30 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   defp recoverable_error?(:not_connected), do: true
   defp recoverable_error?(:unknown), do: true
   defp recoverable_error?(_), do: false
+
+  defp maybe_warn_static_membership_unsupported(_client, nil), do: :ok
+
+  defp maybe_warn_static_membership_unsupported(client, _group_instance_id) do
+    case KafkaExAPI.api_versions(client) do
+      {:ok, %ApiVersions{} = versions} ->
+        case ApiVersions.max_version_for_api(versions, 11) do
+          {:ok, max_version} when max_version >= 5 ->
+            :ok
+
+          _ ->
+            Logger.warning(
+              "group_instance_id is set but the broker does not support JoinGroup v5+ " <>
+                "(requires Kafka 2.3+); static membership (KIP-345) will not take effect and " <>
+                "the consumer will join as a dynamic member"
+            )
+        end
+
+      _ ->
+        :ok
+    end
+  rescue
+    _ -> :ok
+  catch
+    _, _ -> :ok
+  end
 end

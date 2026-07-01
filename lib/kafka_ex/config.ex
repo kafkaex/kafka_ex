@@ -233,6 +233,40 @@ defmodule KafkaEx.Config do
     raise ArgumentError, "invalid auto_offset_reset #{inspect(value)}; expected :none, :earliest, or :latest"
   end
 
+  @doc """
+  Resolves and validates a configured `group_instance_id`.
+
+  Accepts `nil` (static membership off), a non-empty binary, a zero-arity
+  function, or an `{module, function, args}` tuple (the last two let app-env
+  supply a per-node-unique id at runtime, mirroring `:brokers`). The resolved
+  value must be `nil` or a non-empty binary, otherwise raises `ArgumentError` —
+  so a misconfigured id fails fast at consumer-group start.
+  """
+  @spec resolve_group_instance_id(term()) :: binary() | nil
+  def resolve_group_instance_id({mod, fun, args}) when is_atom(mod) and is_atom(fun) do
+    mod |> apply(fun, args) |> validate_group_instance_id()
+  end
+
+  def resolve_group_instance_id(fun) when is_function(fun, 0) do
+    fun.() |> validate_group_instance_id()
+  end
+
+  def resolve_group_instance_id(value), do: validate_group_instance_id(value)
+
+  defp validate_group_instance_id(nil), do: nil
+
+  defp validate_group_instance_id(value) when is_binary(value) do
+    if String.trim(value) == "" do
+      raise ArgumentError, "group_instance_id must be a non-empty string; got #{inspect(value)}"
+    end
+
+    value
+  end
+
+  defp validate_group_instance_id(value) do
+    raise ArgumentError, "group_instance_id must be a binary or nil; got #{inspect(value)}"
+  end
+
   # Broker normalization helpers
 
   defp normalize_brokers(nil), do: nil

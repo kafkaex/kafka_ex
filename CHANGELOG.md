@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Added
+
+* **Static consumer-group membership (KIP-345).** New `:group_instance_id` option on
+  `KafkaEx.Consumer.ConsumerGroup` (resolved `opts > app-env > nil`, default off). When set, the
+  member presents a stable instance id on JoinGroup/SyncGroup/Heartbeat and **does not send
+  LeaveGroup on shutdown**, so the broker retains its partition assignment across a restart
+  (until `session.timeout.ms`) instead of rebalancing. Requires Kafka >= 2.3; a too-old broker
+  logs a warning and the consumer runs dynamically. A duplicate id is fenced
+  (`:fenced_instance_id` → terminal stop, `member_terminated{terminal_class: :fenced}`).
+
 ### Fixed
 
 * **The abnormal heartbeat-crash rejoin loop is now bounded (#560).** When a

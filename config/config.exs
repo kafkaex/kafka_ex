@@ -91,6 +91,21 @@ config :kafka_ex,
   # restarts / 60_000 ms.
   # crash_rejoin_max_restarts: 10,
   # crash_rejoin_window_ms: 60000,
+  #
+  # Static consumer-group membership (KIP-345). Set a STABLE, per-member-UNIQUE
+  # `group_instance_id` so a member retains its partition assignment across a
+  # restart instead of triggering a rebalance (the broker holds the assignment
+  # until `session.timeout.ms`). Default: unset (dynamic membership).
+  #
+  # The value MUST be unique per member in the group — derive it per node
+  # (e.g. from POD_NAME / hostname / StatefulSet ordinal). A duplicate id gets
+  # the loser FENCED (`:fenced_instance_id` → terminal stop). A bare string here
+  # is shared by every replica and is almost always WRONG; prefer an MFA tuple
+  # or a zero-arity function that resolves a per-node value, or set it per
+  # consumer group via the `:group_instance_id` start option.
+  # Requires Kafka >= 2.3 and a session_timeout long enough to cover a restart.
+  # group_instance_id: {MyApp.Kafka, :instance_id, []},
+  #
   # API versions for Kafka protocol requests.
   # By default, KafkaEx uses the highest version supported by both the
   # connected broker and the protocol library. Use this config to pin
