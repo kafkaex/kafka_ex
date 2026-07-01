@@ -1,48 +1,3 @@
-defmodule KafkaEx.Consumer.ConsumerGroup.ManagerStaticMembershipTest.CapturingMockClient do
-  @moduledoc false
-  # Records the full opts of join/sync/heartbeat/leave so tests can assert
-  # group_instance_id was threaded through. Returns benign success responses.
-  # Sends {:captured_calls, calls} to watcher (if set) on terminate, so tests
-  # can read the call list even after Manager.terminate/2 stops the client.
-  use GenServer
-
-  def start_link, do: GenServer.start_link(__MODULE__, nil)
-  def calls(pid), do: GenServer.call(pid, :calls)
-  def set_watcher(pid, watcher), do: GenServer.call(pid, {:set_watcher, watcher})
-
-  def init(_), do: {:ok, {[], nil}}
-
-  def handle_call(:calls, _from, {calls, watcher}),
-    do: {:reply, Enum.reverse(calls), {calls, watcher}}
-
-  def handle_call({:set_watcher, watcher}, _from, {calls, _}),
-    do: {:reply, :ok, {calls, watcher}}
-
-  def handle_call({:join_group, group, member_id, opts}, _from, {calls, watcher}) do
-    resp = {:ok, %KafkaEx.Messages.JoinGroup{generation_id: 1, member_id: "m", leader_id: "x", members: []}}
-    {:reply, resp, {[{:join_group, group, member_id, opts} | calls], watcher}}
-  end
-
-  def handle_call({:sync_group, group, gen, member_id, opts}, _from, {calls, watcher}) do
-    resp = {:ok, %KafkaEx.Messages.SyncGroup{partition_assignments: []}}
-    {:reply, resp, {[{:sync_group, group, gen, member_id, opts} | calls], watcher}}
-  end
-
-  def handle_call({:heartbeat, group, member_id, gen, opts}, _from, {calls, watcher}) do
-    {:reply, {:ok, %KafkaEx.Messages.Heartbeat{}}, {[{:heartbeat, group, member_id, gen, opts} | calls], watcher}}
-  end
-
-  def handle_call({:leave_group, group, member_id, opts}, _from, {calls, watcher}) do
-    {:reply, {:ok, %KafkaEx.Messages.LeaveGroup{}}, {[{:leave_group, group, member_id, opts} | calls], watcher}}
-  end
-
-  def terminate(_reason, {calls, watcher}) when is_pid(watcher) do
-    send(watcher, {:captured_calls, Enum.reverse(calls)})
-  end
-
-  def terminate(_reason, _state), do: :ok
-end
-
 defmodule KafkaEx.Consumer.ConsumerGroup.ManagerStaticMembershipTest do
   @moduledoc """
   KIP-345 static membership wiring through the Manager: option resolution/
@@ -56,6 +11,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerStaticMembershipTest do
 
   alias KafkaEx.Consumer.ConsumerGroup.Manager
   alias KafkaEx.Consumer.ConsumerGroup.Manager.State
+  alias KafkaEx.Test.CapturingMockClient
 
   describe "init/1 group_instance_id resolution" do
     test "a valid group_instance_id opt is stored on the State" do
@@ -95,7 +51,6 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerStaticMembershipTest do
   end
 
   describe "group_instance_id threading" do
-    alias KafkaEx.Consumer.ConsumerGroup.ManagerStaticMembershipTest.CapturingMockClient
     alias KafkaEx.Consumer.ConsumerGroup.Heartbeat
 
     test "heartbeat sends group_instance_id when static" do
@@ -146,8 +101,6 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerStaticMembershipTest do
   end
 
   describe "LeaveGroup suppression on terminate" do
-    alias KafkaEx.Consumer.ConsumerGroup.ManagerStaticMembershipTest.CapturingMockClient
-
     defp leave_calls(calls) do
       Enum.filter(calls, &match?({:leave_group, _, _, _}, &1))
     end

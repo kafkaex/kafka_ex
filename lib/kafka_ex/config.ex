@@ -234,25 +234,28 @@ defmodule KafkaEx.Config do
   end
 
   @doc """
-  Resolves a configured `group_instance_id` value. Accepts a binary, `nil`, a
-  zero-arity function, or an `{module, function, args}` tuple (the latter two let
-  app-env supply a per-node-unique id at runtime, mirroring `:brokers`).
-  """
-  @spec resolve_group_instance_id(term()) :: term()
-  def resolve_group_instance_id({mod, fun, args}) when is_atom(mod) and is_atom(fun), do: apply(mod, fun, args)
-  def resolve_group_instance_id(fun) when is_function(fun, 0), do: fun.()
-  def resolve_group_instance_id(value), do: value
+  Resolves and validates a configured `group_instance_id`.
 
-  @doc """
-  Validates a resolved `group_instance_id`, returning it unchanged when valid and
-  raising `ArgumentError` otherwise. `nil` means static membership is off; any
-  other value must be a non-empty (non-whitespace) binary. Called at consumer-group
-  start so a misconfigured id fails fast.
+  Accepts `nil` (static membership off), a non-empty binary, a zero-arity
+  function, or an `{module, function, args}` tuple (the last two let app-env
+  supply a per-node-unique id at runtime, mirroring `:brokers`). The resolved
+  value must be `nil` or a non-empty binary, otherwise raises `ArgumentError` —
+  so a misconfigured id fails fast at consumer-group start.
   """
-  @spec validate_group_instance_id!(term()) :: binary() | nil
-  def validate_group_instance_id!(nil), do: nil
+  @spec resolve_group_instance_id(term()) :: binary() | nil
+  def resolve_group_instance_id({mod, fun, args}) when is_atom(mod) and is_atom(fun) do
+    mod |> apply(fun, args) |> validate_group_instance_id()
+  end
 
-  def validate_group_instance_id!(value) when is_binary(value) do
+  def resolve_group_instance_id(fun) when is_function(fun, 0) do
+    fun.() |> validate_group_instance_id()
+  end
+
+  def resolve_group_instance_id(value), do: validate_group_instance_id(value)
+
+  defp validate_group_instance_id(nil), do: nil
+
+  defp validate_group_instance_id(value) when is_binary(value) do
     if String.trim(value) == "" do
       raise ArgumentError, "group_instance_id must be a non-empty string; got #{inspect(value)}"
     end
@@ -260,7 +263,7 @@ defmodule KafkaEx.Config do
     value
   end
 
-  def validate_group_instance_id!(value) do
+  defp validate_group_instance_id(value) do
     raise ArgumentError, "group_instance_id must be a binary or nil; got #{inspect(value)}"
   end
 

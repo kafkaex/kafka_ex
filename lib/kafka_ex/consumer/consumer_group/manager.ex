@@ -217,7 +217,6 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
       opts
       |> get_with_default(:group_instance_id, nil)
       |> Config.resolve_group_instance_id()
-      |> Config.validate_group_instance_id!()
 
     partition_assignment_callback =
       Keyword.get(opts, :partition_assignment_callback, &PartitionAssignment.round_robin/2)
