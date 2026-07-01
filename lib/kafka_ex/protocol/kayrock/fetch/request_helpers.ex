@@ -88,9 +88,15 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.RequestHelpers do
   """
   @spec add_max_bytes(struct(), map(), integer()) :: struct()
   def add_max_bytes(request, fields, api_version) when api_version >= 3 do
-    # For V3+, max_bytes is at the request level as well
-    request_max_bytes = Keyword.get([max_bytes: fields.max_bytes], :max_bytes, 10_485_760)
-    %{request | max_bytes: request_max_bytes}
+    # V3+ carries max_bytes at the request level (the total response cap) in
+    # addition to the per-partition partition_max_bytes set in build_topics/2.
+    # KafkaEx fetches a single partition per request, so the request-level cap
+    # mirrors the caller's :max_bytes (the same value used for the partition).
+    #
+    # (#269: this previously read from a synthetic one-element keyword list —
+    # `Keyword.get([max_bytes: fields.max_bytes], :max_bytes, 10_485_760)` — which
+    # always returned fields.max_bytes and left the 10 MiB default as dead code.)
+    %{request | max_bytes: fields.max_bytes}
   end
 
   def add_max_bytes(request, _fields, _api_version), do: request
