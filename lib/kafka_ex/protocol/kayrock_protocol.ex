@@ -18,6 +18,7 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
   alias Kayrock.JoinGroup
   alias Kayrock.KafkaSchemaMetadata
   alias Kayrock.LeaveGroup
+  alias Kayrock.ListGroups
   alias Kayrock.ListOffsets
   alias Kayrock.Metadata
   alias Kayrock.OffsetCommit
@@ -58,6 +59,12 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
     api_version
     |> DescribeGroups.get_request_struct()
     |> KayrockProtocol.DescribeGroups.Request.build_request(opts)
+  end
+
+  def build_request(:list_groups, api_version, opts) do
+    api_version
+    |> ListGroups.get_request_struct()
+    |> KayrockProtocol.ListGroups.Request.build_request(opts)
   end
 
   def build_request(:list_offsets, api_version, opts) do
@@ -144,6 +151,7 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
   """
   def parse_response(:api_versions, response), do: KayrockProtocol.ApiVersions.Response.parse_response(response)
   def parse_response(:describe_groups, response), do: KayrockProtocol.DescribeGroups.Response.parse_response(response)
+  def parse_response(:list_groups, response), do: KayrockProtocol.ListGroups.Response.parse_response(response)
   def parse_response(:list_offsets, response), do: KayrockProtocol.ListOffsets.Response.parse_response(response)
   def parse_response(:offset_fetch, response), do: KayrockProtocol.OffsetFetch.Response.parse_response(response)
   def parse_response(:offset_commit, response), do: KayrockProtocol.OffsetCommit.Response.parse_response(response)

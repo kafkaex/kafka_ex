@@ -347,6 +347,32 @@ defmodule KafkaEx.Client.RequestBuilderTest do
     end
   end
 
+  describe "list_groups_request/2" do
+    test "returns request for ListGroups API at negotiated max (default)" do
+      state = %KafkaEx.Client.State{api_versions: %{16 => {0, 3}}}
+
+      {:ok, request} = RequestBuilder.list_groups_request([], state)
+
+      assert Fixtures.request_type?(request, :list_groups, 3)
+    end
+
+    test "honors a caller-supplied api_version" do
+      state = %KafkaEx.Client.State{api_versions: %{16 => {0, 3}}}
+
+      {:ok, request} = RequestBuilder.list_groups_request([api_version: 0], state)
+
+      assert Fixtures.request_type?(request, :list_groups, 0)
+    end
+
+    test "returns error when requested api version exceeds broker max" do
+      state = %KafkaEx.Client.State{api_versions: %{16 => {0, 0}}}
+
+      {:error, error_value} = RequestBuilder.list_groups_request([api_version: 2], state)
+
+      assert error_value == :api_version_no_supported
+    end
+  end
+
   describe "lists_offset_request/2" do
     test "returns request for ListOffsets API (negotiated max)" do
       state = %KafkaEx.Client.State{api_versions: %{2 => {0, 2}}}

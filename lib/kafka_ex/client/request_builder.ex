@@ -54,6 +54,21 @@ defmodule KafkaEx.Client.RequestBuilder do
   end
 
   @doc """
+  Builds request for List Groups API. ListGroups has no request fields.
+  """
+  @spec list_groups_request(Keyword.t(), State.t()) ::
+          {:ok, term} | {:error, :api_version_no_supported | :api_not_supported_by_broker}
+  def list_groups_request(request_opts, state) do
+    case get_api_version(state, :list_groups, request_opts) do
+      {:ok, api_version} ->
+        {:ok, @protocol.build_request(:list_groups, api_version, [])}
+
+      {:error, error_code} ->
+        {:error, error_code}
+    end
+  end
+
+  @doc """
   Builds request for List Offsets API
   """
   @spec lists_offset_request(Keyword.t(), State.t()) ::
