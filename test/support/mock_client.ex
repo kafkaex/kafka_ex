@@ -80,6 +80,12 @@ defmodule KafkaEx.Test.MockClient do
     {:reply, response, record_call(state, {:describe_groups, groups})}
   end
 
+  def handle_call({:list_groups, node_id, opts}, _from, state) do
+    per_node = Map.get(state.responses, :list_groups, %{})
+    response = Map.get(per_node, node_id, {:ok, []})
+    {:reply, response, record_call(state, {:list_groups, node_id, opts})}
+  end
+
   def handle_call({:join_group, group, member_id, _opts}, _from, state) do
     response = Map.get(state.responses, :join_group, {:ok, %JoinGroup{}})
     {:reply, response, record_call(state, {:join_group, group, member_id})}
