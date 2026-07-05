@@ -247,6 +247,13 @@ defmodule KafkaEx.Client do
     end
   end
 
+  def handle_call({:list_groups, node_id, opts}, _from, state) do
+    case list_groups_request(node_id, opts, state) do
+      {:error, error} -> {:reply, {:error, error}, state}
+      {result, updated_state} -> {:reply, result, updated_state}
+    end
+  end
+
   def handle_call({:offset_fetch, consumer_group, [{topic, partitions_data}], opts}, _from, state) do
     if KafkaEx.valid_consumer_group?(consumer_group) and is_binary(consumer_group) do
       case offset_fetch_request(consumer_group, {topic, partitions_data}, opts, state) do
@@ -433,6 +440,15 @@ defmodule KafkaEx.Client do
 
     case RequestBuilder.describe_groups_request(req_data, state) do
       {:ok, request} -> handle_describe_group_request(request, node_selector, state)
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp list_groups_request(node_id, opts, state) do
+    node_selector = NodeSelector.node_id(node_id)
+
+    case RequestBuilder.list_groups_request(opts, state) do
+      {:ok, request} -> handle_list_groups_request(request, node_selector, state)
       {:error, error} -> {:error, error}
     end
   end
@@ -738,6 +754,15 @@ defmodule KafkaEx.Client do
     %RequestContext{
       request: request,
       parser_fn: &ResponseParser.describe_groups_response/1,
+      node_selector: node_selector
+    }
+    |> handle_request_with_retry(state)
+  end
+
+  defp handle_list_groups_request(request, node_selector, state) do
+    %RequestContext{
+      request: request,
+      parser_fn: &ResponseParser.list_groups_response/1,
       node_selector: node_selector
     }
     |> handle_request_with_retry(state)
