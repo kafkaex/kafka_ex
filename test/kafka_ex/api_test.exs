@@ -539,6 +539,31 @@ defmodule KafkaEx.APITest do
                {:error, {:node_error, 2, :coordinator_not_available}}
     end
 
+    test "halts the fan-out on the first broker error and skips remaining brokers", %{
+      cluster: cluster
+    } do
+      {:ok, client} =
+        MockClient.start_link(%{
+          cluster_metadata: {:ok, cluster},
+          list_groups: %{
+            0 => {:error, :coordinator_not_available},
+            1 => {:ok, [%ConsumerGroupListing{group_id: "g1", protocol_type: "consumer"}]},
+            2 => {:ok, [%ConsumerGroupListing{group_id: "g2", protocol_type: "connect"}]}
+          }
+        })
+
+      assert KafkaEx.API.list_groups(client) ==
+               {:error, {:node_error, 0, :coordinator_not_available}}
+
+      node_ids =
+        client
+        |> MockClient.get_calls()
+        |> Enum.filter(&match?({:list_groups, _, _}, &1))
+        |> Enum.map(fn {:list_groups, node_id, _opts} -> node_id end)
+
+      assert node_ids == [0]
+    end
+
     test "returns {:error, :no_brokers_available} when the cluster has no brokers" do
       {:ok, client} =
         MockClient.start_link(%{cluster_metadata: {:ok, %ClusterMetadata{brokers: %{}}}})

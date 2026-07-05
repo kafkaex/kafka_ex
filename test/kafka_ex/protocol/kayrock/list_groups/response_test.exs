@@ -18,7 +18,9 @@ defmodule KafkaEx.Protocol.Kayrock.ListGroups.ResponseTest do
 
     test "surfaces a non-zero top-level error_code" do
       response = %Kayrock.ListGroups.V0.Response{error_code: 15, groups: []}
-      assert ListGroups.Response.parse_response(response) == {:error, :coordinator_not_available}
+
+      assert {:error, %KafkaEx.Client.Error{error: :coordinator_not_available}} =
+               ListGroups.Response.parse_response(response)
     end
   end
 

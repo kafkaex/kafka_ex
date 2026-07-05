@@ -25,9 +25,9 @@ defmodule KafkaEx.Protocol.Kayrock.ListGroups.ResponseHelpersTest do
     assert ResponseHelpers.parse_response(%{error_code: 0, groups: []}) == {:ok, []}
   end
 
-  test "returns {:error, atom} for a non-zero top-level error_code" do
+  test "returns {:error, %KafkaEx.Client.Error{}} for a non-zero top-level error_code" do
     # 15 = coordinator_not_available
-    assert ResponseHelpers.parse_response(%{error_code: 15, groups: []}) ==
-             {:error, :coordinator_not_available}
+    assert {:error, %KafkaEx.Client.Error{error: :coordinator_not_available}} =
+             ResponseHelpers.parse_response(%{error_code: 15, groups: []})
   end
 end

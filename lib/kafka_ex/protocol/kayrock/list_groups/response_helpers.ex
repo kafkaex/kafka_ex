@@ -11,20 +11,20 @@ defmodule KafkaEx.Protocol.Kayrock.ListGroups.ResponseHelpers do
   """
 
   alias KafkaEx.Messages.ConsumerGroupListing
-  alias Kayrock.ErrorCode
+  alias KafkaEx.Client.Error, as: ErrorStruct
 
   @doc """
   Parses a ListGroups response for any version (V0-V3).
 
   Returns `{:ok, [ConsumerGroupListing.t()]}` when the top-level `error_code`
-  is 0, otherwise `{:error, error_atom}`.
+  is 0, otherwise `{:error, ErrorStruct.t()}`.
   """
-  @spec parse_response(map()) :: {:ok, [ConsumerGroupListing.t()]} | {:error, atom}
+  @spec parse_response(map()) :: {:ok, [ConsumerGroupListing.t()]} | {:error, ErrorStruct.t()}
   def parse_response(%{error_code: 0, groups: groups}) do
     {:ok, Enum.map(groups, &ConsumerGroupListing.from_list_groups_response/1)}
   end
 
   def parse_response(%{error_code: error_code}) do
-    {:error, ErrorCode.code_to_atom(error_code)}
+    {:error, ErrorStruct.build(error_code, %{})}
   end
 end

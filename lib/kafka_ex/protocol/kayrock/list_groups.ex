@@ -48,7 +48,7 @@ defmodule KafkaEx.Protocol.Kayrock.ListGroups do
 
     ## Return Values
     - Success: `{:ok, [ConsumerGroupListing.t()]}`
-    - Error: `{:error, atom}` (the top-level error code as an atom)
+    - Error: `{:error, KafkaEx.Client.Error.t()}` (the top-level error code)
 
     All known versions (V0-V3) have explicit implementations.
     The `Any` fallback handles unknown future versions.
@@ -57,7 +57,7 @@ defmodule KafkaEx.Protocol.Kayrock.ListGroups do
 
     alias KafkaEx.Messages.ConsumerGroupListing
 
-    @spec parse_response(t()) :: {:ok, [ConsumerGroupListing.t()]} | {:error, atom}
+    @spec parse_response(t()) :: {:ok, [ConsumerGroupListing.t()]} | {:error, KafkaEx.Client.Error.t()}
     def parse_response(response)
   end
 end
