@@ -10,8 +10,8 @@ defmodule KafkaEx.Protocol.Kayrock.ListGroups.ResponseHelpers do
   Kayrock but are not exposed in the domain layer.
   """
 
-  alias KafkaEx.Messages.ConsumerGroupListing
   alias KafkaEx.Client.Error, as: ErrorStruct
+  alias KafkaEx.Messages.ConsumerGroupListing
 
   @doc """
   Parses a ListGroups response for any version (V0-V3).
