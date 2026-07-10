@@ -60,13 +60,16 @@ defmodule KafkaEx.Client do
 
   require Logger
 
-  # Default from GenServer
-  @default_call_timeout 5_000
   # The request retry budget. This is the single source of truth: KafkaEx.API's
   # fetch call_timeout budget (@fetch_max_retries) is derived from it via
   # retry_count/0, so the two can no longer drift by hand. See #357.
   @retry_count 3
-  @sync_timeout 1_000
+  # JoinGroup/SyncGroup are sent send-once at the client (one attempt, no
+  # transport-level socket retry): the broker legitimately holds these responses
+  # for the rebalance/session window, so retrying the same socket is pointless,
+  # and ConsumerGroup.Manager owns rejoin (@max_join_retries / @max_sync_retries).
+  # Matches Java/kafka-python/librdkafka/brod, which all send-once + rejoin higher up.
+  @coordinator_max_attempts 1
   @reconnect_max_retries 3
   @reconnect_delay_ms 500
 
@@ -95,6 +98,9 @@ defmodule KafkaEx.Client do
     # or :snappy compression without :snappyer). Much friendlier than
     # UndefinedFunctionError at first produce/auth.
     :ok = OptionalDeps.validate!(state.auth)
+
+    # One-time deprecation notice for the legacy :sync_timeout key (→ :request_timeout).
+    :ok = Config.warn_deprecated_timeout_config()
 
     brokers =
       state.bootstrap_uris
@@ -511,10 +517,13 @@ defmodule KafkaEx.Client do
 
   defp do_join_group_request(consumer_group, member_id, opts, state, metadata) do
     node_selector = NodeSelector.consumer_group(consumer_group)
-    req_data = [{:group_id, consumer_group}, {:member_id, member_id} | opts]
+    # :network_timeout is a control opt (derived in KafkaEx.API.join_group from
+    # rebalance_timeout), not a protocol field — pop it before building req_data.
+    {network_timeout, req_opts} = Keyword.pop(opts, :network_timeout)
+    req_data = [{:group_id, consumer_group}, {:member_id, member_id} | req_opts]
 
     with {:ok, request} <- RequestBuilder.join_group_request(req_data, state),
-         {{:ok, result}, updated_state} <- handle_join_group_request(request, node_selector, state) do
+         {{:ok, result}, updated_state} <- handle_join_group_request(request, node_selector, state, network_timeout) do
       stop_metadata = add_join_group_result_metadata(metadata, result)
       {{{:ok, result}, updated_state}, stop_metadata}
     else
@@ -574,10 +583,13 @@ defmodule KafkaEx.Client do
 
   defp do_sync_group_request(consumer_group, generation_id, member_id, opts, state, metadata) do
     node_selector = NodeSelector.consumer_group(consumer_group)
-    req_data = [{:group_id, consumer_group}, {:generation_id, generation_id}, {:member_id, member_id} | opts]
+    # :network_timeout is a control opt (derived in KafkaEx.API.sync_group), not a
+    # protocol field — pop it before building req_data.
+    {network_timeout, req_opts} = Keyword.pop(opts, :network_timeout)
+    req_data = [{:group_id, consumer_group}, {:generation_id, generation_id}, {:member_id, member_id} | req_opts]
 
     with {:ok, request} <- RequestBuilder.sync_group_request(req_data, state),
-         {{:ok, result}, updated_state} <- handle_sync_group_request(request, node_selector, state) do
+         {{:ok, result}, updated_state} <- handle_sync_group_request(request, node_selector, state, network_timeout) do
       assigned_partitions = count_assigned_partitions(result.partition_assignments)
       stop_metadata = Map.put(metadata, :assigned_partitions, assigned_partitions)
       {{{:ok, result}, updated_state}, stop_metadata}
@@ -773,14 +785,15 @@ defmodule KafkaEx.Client do
     |> handle_request_with_retry(state)
   end
 
-  defp handle_join_group_request(request, node_selector, state) do
+  defp handle_join_group_request(request, node_selector, state, network_timeout) do
     %RequestContext{
       request: request,
       parser_fn: &ResponseParser.join_group_response/1,
       node_selector: node_selector,
-      retryable?: &Retry.join_group_retryable?/1
+      retryable?: &Retry.join_group_retryable?/1,
+      network_timeout: network_timeout
     }
-    |> handle_request_with_retry(state)
+    |> handle_request_with_retry(state, @coordinator_max_attempts)
   end
 
   defp handle_leave_group_request(request, node_selector, state) do
@@ -788,14 +801,15 @@ defmodule KafkaEx.Client do
     |> handle_request_with_retry(state)
   end
 
-  defp handle_sync_group_request(request, node_selector, state) do
+  defp handle_sync_group_request(request, node_selector, state, network_timeout) do
     %RequestContext{
       request: request,
       parser_fn: &ResponseParser.sync_group_response/1,
       node_selector: node_selector,
-      retryable?: &Retry.sync_group_retryable?/1
+      retryable?: &Retry.sync_group_retryable?/1,
+      network_timeout: network_timeout
     }
-    |> handle_request_with_retry(state)
+    |> handle_request_with_retry(state, @coordinator_max_attempts)
   end
 
   defp handle_produce_request(request, node_selector, state) do
@@ -904,15 +918,35 @@ defmodule KafkaEx.Client do
     error_atom = extract_error_atom(error)
     Logger.warning("Request #{inspect(request_name)} failed with error #{inspect(error_atom)}")
 
-    if ctx.retryable?.(error_atom) do
-      updated_state = refresh_for_error(error_atom, ctx, state)
-      handle_request_with_retry(ctx, updated_state, retry_count - 1, error)
-    else
-      # Non-retryable error - fail immediately
-      Logger.info("Error #{inspect(error_atom)} is not retryable for #{inspect(request_name)}, failing immediately")
-      {{:error, error}, state}
+    cond do
+      # A socket recv-timeout is sent send-once: this loop runs synchronously
+      # inside the Client GenServer, so retrying the same attempt would block the
+      # whole client for another full network_timeout. Re-issue is delegated to
+      # the higher-level loops (ConsumerGroup.Manager, GenConsumer commit, Stream),
+      # which back off with jitter in their own processes. Mirrors Java/kafka-python/
+      # librdkafka, which treat a request timeout as connection failure rather than
+      # a same-socket retry.
+      transport_timeout?(error_atom) ->
+        Logger.info("Request #{inspect(request_name)} timed out; not retrying at the client (send-once)")
+        {{:error, error}, state}
+
+      ctx.retryable?.(error_atom) ->
+        updated_state = refresh_for_error(error_atom, ctx, state)
+        handle_request_with_retry(ctx, updated_state, retry_count - 1, error)
+
+      true ->
+        # Non-retryable error - fail immediately
+        Logger.info("Error #{inspect(error_atom)} is not retryable for #{inspect(request_name)}, failing immediately")
+        {{:error, error}, state}
     end
   end
+
+  # A `Socket.recv` deadline expiry (surfaced as `:timeout`) is the one error that
+  # costs a full `network_timeout` per attempt, so it is never retried in this
+  # synchronous loop. Protocol/broker error codes (including the broker-side
+  # `:request_timed_out`) come back fast and keep their normal retry behaviour.
+  defp transport_timeout?(:timeout), do: true
+  defp transport_timeout?(_), do: false
 
   defp extract_error_atom(%Error{error: error}), do: error
   defp extract_error_atom(error) when is_atom(error), do: error
@@ -1211,11 +1245,15 @@ defmodule KafkaEx.Client do
     end
   end
 
-  defp timeout_val(nil), do: Application.get_env(:kafka_ex, :sync_timeout, @default_call_timeout)
+  defp timeout_val(nil), do: Config.request_timeout()
   defp timeout_val(timeout) when is_integer(timeout), do: timeout
 
+  # The per-attempt socket-recv deadline for synchronous requests that do not
+  # set their own `network_timeout` (metadata, offset, heartbeat, produce ack,
+  # …). Resolves via `Config.request_timeout/0` (`:request_timeout` > deprecated
+  # `:sync_timeout` > default). JoinGroup/SyncGroup pass an explicit timeout.
   defp config_sync_timeout(timeout \\ nil) do
-    timeout || Application.get_env(:kafka_ex, :sync_timeout, @sync_timeout)
+    timeout || Config.request_timeout()
   end
 
   defp get_api_versions(state) do

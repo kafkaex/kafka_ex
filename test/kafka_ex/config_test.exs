@@ -19,6 +19,64 @@ defmodule KafkaEx.ConfigTest do
     :ok
   end
 
+  describe "request_timeout/0" do
+    setup do
+      on_exit(fn ->
+        Application.delete_env(:kafka_ex, :sync_timeout)
+      end)
+
+      :ok
+    end
+
+    test "defaults to 15_000 when neither :request_timeout nor :sync_timeout is set" do
+      Application.delete_env(:kafka_ex, :request_timeout)
+      Application.delete_env(:kafka_ex, :sync_timeout)
+      assert Config.request_timeout() == 15_000
+    end
+
+    test "uses :request_timeout when set" do
+      Application.put_env(:kafka_ex, :request_timeout, 20_000)
+      assert Config.request_timeout() == 20_000
+    end
+
+    test "falls back to the deprecated :sync_timeout alias" do
+      Application.delete_env(:kafka_ex, :request_timeout)
+      Application.put_env(:kafka_ex, :sync_timeout, 42_000)
+      assert Config.request_timeout() == 42_000
+    end
+
+    test ":request_timeout wins over :sync_timeout" do
+      Application.put_env(:kafka_ex, :request_timeout, 7_000)
+      Application.put_env(:kafka_ex, :sync_timeout, 42_000)
+      assert Config.request_timeout() == 7_000
+    end
+  end
+
+  describe "warn_deprecated_timeout_config/0" do
+    import ExUnit.CaptureLog
+
+    setup do
+      on_exit(fn -> Application.delete_env(:kafka_ex, :sync_timeout) end)
+      :ok
+    end
+
+    test "warns when only the deprecated :sync_timeout is set" do
+      Application.delete_env(:kafka_ex, :request_timeout)
+      Application.put_env(:kafka_ex, :sync_timeout, 30_000)
+
+      log = capture_log(fn -> assert Config.warn_deprecated_timeout_config() == :ok end)
+      assert log =~ ":sync_timeout is deprecated"
+    end
+
+    test "does not warn when :request_timeout is set" do
+      Application.put_env(:kafka_ex, :request_timeout, 15_000)
+      Application.put_env(:kafka_ex, :sync_timeout, 30_000)
+
+      log = capture_log(fn -> assert Config.warn_deprecated_timeout_config() == :ok end)
+      refute log =~ "deprecated"
+    end
+  end
+
   test "ssl_options returns the correct value when configured properly" do
     Application.put_env(:kafka_ex, :use_ssl, true)
     ssl_options = Application.get_env(:kafka_ex, :ssl_options)

@@ -107,6 +107,18 @@ defmodule KafkaEx.API do
   @fetch_call_timeout_buffer 5_000
   @fetch_max_retries KafkaEx.Client.retry_count()
 
+  # JoinGroup's per-attempt socket-recv deadline is derived from rebalance_timeout
+  # plus a fixed grace, mirroring the Java client's JOIN_GROUP_TIMEOUT_LAPSE = 5000.
+  # The broker legitimately holds a JoinGroup response for up to the rebalance
+  # window (>= group.initial.rebalance.delay.ms on a cold group), so a generic
+  # short timeout would fail every cold-start join.
+  @join_group_timeout_lapse 5_000
+  @join_default_rebalance_timeout 60_000
+  @sync_default_timeout 35_000
+  # Outer GenServer.call budget = per-attempt network_timeout + this buffer.
+  # join/sync are send-once at the client, so there is no × retries factor.
+  @coordinator_call_timeout_buffer 5_000
+
   # ---------------------------------------------------------------------------
   # __using__ macro for mixin pattern
   # ---------------------------------------------------------------------------
@@ -585,10 +597,23 @@ defmodule KafkaEx.API do
   @spec join_group(client, consumer_group_name, member_id) :: {:ok, JoinGroup.t()} | {:error, error_atom}
   @spec join_group(client, consumer_group_name, member_id, opts) :: {:ok, JoinGroup.t()} | {:error, error_atom}
   def join_group(client, consumer_group, member_id, opts \\ []) do
-    timeout = Keyword.get(opts, :timeout, Keyword.get(opts, :rebalance_timeout, 60_000) + 10_000)
-    call_opts = Keyword.delete(opts, :timeout)
+    # JoinGroup is held by the broker for up to the rebalance window, so its
+    # per-attempt socket-recv deadline is rebalance_timeout + a fixed grace
+    # (Java's JOIN_GROUP_TIMEOUT_LAPSE = 5000). Sent send-once at the client;
+    # ConsumerGroup.Manager owns rejoin. The outer GenServer.call budget must
+    # cover that per-attempt deadline, so it is derived from it (not a fixed 40s),
+    # otherwise the caller would time out while the broker is still holding a
+    # legitimate rebalance response (the #357 class of mismatch).
+    rebalance_timeout = Keyword.get(opts, :rebalance_timeout, @join_default_rebalance_timeout)
+    network_timeout = Keyword.get(opts, :network_timeout, rebalance_timeout + @join_group_timeout_lapse)
+    call_timeout = network_timeout + @coordinator_call_timeout_buffer
 
-    case GenServer.call(client, {:join_group, consumer_group, member_id, call_opts}, timeout) do
+    call_opts =
+      opts
+      |> Keyword.delete(:timeout)
+      |> Keyword.put(:network_timeout, network_timeout)
+
+    case GenServer.call(client, {:join_group, consumer_group, member_id, call_opts}, call_timeout) do
       {:ok, result} -> {:ok, result}
       {:error, %{error: error_atom}} -> {:error, error_atom}
       {:error, error_atom} -> {:error, error_atom}
@@ -611,11 +636,20 @@ defmodule KafkaEx.API do
   @spec sync_group(client, consumer_group_name, generation_id, member_id, opts) ::
           {:ok, SyncGroup.t()} | {:error, error_atom}
   def sync_group(client, consumer_group, generation_id, member_id, opts \\ []) do
-    # SyncGroup can block until all members sync or session_timeout
-    timeout = Keyword.get(opts, :timeout, 35_000)
-    call_opts = Keyword.delete(opts, :timeout)
+    # SyncGroup can be held by the broker until the leader distributes assignments
+    # (bounded by the session window). Per-attempt socket-recv = the caller-supplied
+    # :timeout (ConsumerGroup.Manager passes session_timeout + padding) or a default;
+    # sent send-once at the client. The outer GenServer.call budget is derived from
+    # that per-attempt deadline so the two cannot mismatch (#357).
+    network_timeout = Keyword.get(opts, :network_timeout, Keyword.get(opts, :timeout, @sync_default_timeout))
+    call_timeout = network_timeout + @coordinator_call_timeout_buffer
 
-    case GenServer.call(client, {:sync_group, consumer_group, generation_id, member_id, call_opts}, timeout) do
+    call_opts =
+      opts
+      |> Keyword.delete(:timeout)
+      |> Keyword.put(:network_timeout, network_timeout)
+
+    case GenServer.call(client, {:sync_group, consumer_group, generation_id, member_id, call_opts}, call_timeout) do
       {:ok, result} -> {:ok, result}
       {:error, %{error: error_atom}} -> {:error, error_atom}
       {:error, error_atom} -> {:error, error_atom}

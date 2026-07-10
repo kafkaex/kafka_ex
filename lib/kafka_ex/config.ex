@@ -17,7 +17,7 @@ defmodule KafkaEx.Config do
 
         # Client settings
         client_id: "kafka_ex",
-        sync_timeout: 3000,
+        request_timeout: 15000,  # per-attempt request socket-recv timeout (was :sync_timeout, now deprecated)
 
         # Consumer group (used for offset storage)
         default_consumer_group: "kafka_ex",
@@ -166,6 +166,45 @@ defmodule KafkaEx.Config do
   """
   @spec connect_timeout() :: timeout()
   def connect_timeout, do: Application.get_env(:kafka_ex, :connect_timeout, 10_000)
+
+  @default_request_timeout 15_000
+
+  @doc """
+  Per-attempt request timeout (ms): the `Socket.recv` deadline for a single
+  synchronous broker request attempt (metadata, offset commit/fetch, heartbeat,
+  produce ack, find-coordinator, …).
+
+  Consumer-group JoinGroup/SyncGroup do **not** use this — they derive their own,
+  longer per-attempt deadlines from the group's rebalance/session timeouts,
+  because the broker legitimately holds those responses for the rebalance window.
+
+  Resolution: `:request_timeout` > deprecated `:sync_timeout` > #{@default_request_timeout}.
+  """
+  @spec request_timeout() :: pos_integer()
+  def request_timeout do
+    Application.get_env(:kafka_ex, :request_timeout) ||
+      Application.get_env(:kafka_ex, :sync_timeout) ||
+      @default_request_timeout
+  end
+
+  @doc """
+  Emits a one-time deprecation warning at client boot when the legacy
+  `:sync_timeout` key is set without the new `:request_timeout`.
+
+  Kept out of `request_timeout/0` so it does not log on every request.
+  """
+  @spec warn_deprecated_timeout_config() :: :ok
+  def warn_deprecated_timeout_config do
+    if is_nil(Application.get_env(:kafka_ex, :request_timeout)) and
+         not is_nil(Application.get_env(:kafka_ex, :sync_timeout)) do
+      Logger.warning(
+        ":sync_timeout is deprecated and will be removed in KafkaEx 2.0. " <>
+          "Use :request_timeout instead (the per-attempt request socket-recv timeout)."
+      )
+    end
+
+    :ok
+  end
 
   @doc """
   Returns SSL options for connections.

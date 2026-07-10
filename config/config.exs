@@ -41,11 +41,11 @@ config :kafka_ex,
   # i.e., if you want to start your own set of named workers
   disable_default_worker: false,
   # Timeout value, in msec, for synchronous operations (e.g., network calls).
-  # If this value is greater than GenServer's default timeout of 5000, it will also
-  # be used as the timeout for work dispatched via KafkaEx.Server.call (e.g., KafkaEx.metadata).
-  # In those cases, it should be considered a 'total timeout', encompassing both network calls and
-  # wait time for the genservers.
-  sync_timeout: 3000,
+  # Per-attempt request socket-recv timeout (ms) for synchronous requests that do
+  # not derive their own (metadata, offset, heartbeat, produce ack, …). Consumer-group
+  # JoinGroup/SyncGroup derive their own, longer deadlines from the group's
+  # rebalance/session timeouts. Was `:sync_timeout` (now a deprecated alias, removed in 2.0).
+  request_timeout: 15000,
   # Supervision max_restarts - the maximum amount of restarts allowed in a time frame
   max_restarts: 10,
   # Supervision max_seconds -  the time frame in which :max_restarts applies
