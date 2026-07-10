@@ -89,6 +89,42 @@ KafkaEx.Consumer.ConsumerGroup.start_link(
 Requires Kafka >= 2.3. A too-old broker logs a warning and the consumer runs
 with dynamic membership (no error, no crash).
 
+## Consumer-group JoinGroup/SyncGroup timeouts and the new `:request_timeout`
+
+**What changed.** JoinGroup and SyncGroup used to fall back to the generic
+socket-recv timeout — effectively `1000` ms for apps that did not set
+`:sync_timeout`. Because the broker legitimately holds a JoinGroup response for
+up to `group.initial.rebalance.delay.ms` (default 3 s) on a cold/empty group,
+the first consumer to join reliably timed out and never joined. These requests
+now derive their own, longer per-attempt deadlines (JoinGroup =
+`rebalance_timeout + 5000`; SyncGroup from the session window) and are sent
+send-once, with the consumer-group manager owning rejoin.
+
+**`:sync_timeout` → `:request_timeout`.** The generic per-attempt request timeout
+is now configured with `:request_timeout` (default `15_000` ms). `:sync_timeout`
+is deprecated but still honored as an alias; it will be removed in 2.0. Setting
+`:sync_timeout` without `:request_timeout` logs a one-time warning at client boot.
+
+```elixir
+# Before
+config :kafka_ex, sync_timeout: 3_000
+
+# After
+config :kafka_ex, request_timeout: 15_000
+```
+
+**If you raised `:sync_timeout` as a workaround for consumer-group join
+timeouts** (e.g. `60_000`), you can remove it — JoinGroup/SyncGroup no longer
+use it. A large `:request_timeout` now only widens the window before a
+silently-unresponsive broker is detected on other requests.
+
+**Behavior note.** A socket recv-timeout is no longer retried inside the
+(synchronous) client `GenServer`; it is surfaced to the higher-level loops
+(consumer-group manager, `GenConsumer` commit, stream), which re-issue with
+±20% jittered backoff (KIP-580). Protocol errors (e.g.
+`not_leader_for_partition`, `not_coordinator`) keep their in-client retry with
+metadata/coordinator refresh.
+
 ---
 
 # Upgrading to KafkaEx 1.0

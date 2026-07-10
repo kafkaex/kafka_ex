@@ -148,8 +148,9 @@ config :kafka_ex,
   # Default consumer group
   default_consumer_group: "my-consumer-group",
 
-  # Request timeout (milliseconds)
-  sync_timeout: 10_000
+  # Per-attempt request timeout, in milliseconds (default 15_000).
+  # Was `:sync_timeout` (now a deprecated alias, removed in 2.0).
+  request_timeout: 10_000
 ```
 
 ### SSL/TLS Configuration
