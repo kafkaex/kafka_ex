@@ -61,6 +61,7 @@ defmodule KafkaEx.API do
   alias KafkaEx.Config
   alias KafkaEx.Messages.ApiVersions
   alias KafkaEx.Messages.ConsumerGroupDescription
+  alias KafkaEx.Messages.ConsumerGroupListing
   alias KafkaEx.Messages.CreateTopics
   alias KafkaEx.Messages.DeleteTopics
   alias KafkaEx.Messages.Fetch
@@ -181,6 +182,10 @@ defmodule KafkaEx.API do
       # Consumer group functions
       def describe_group(group, opts \\ []) do
         unquote(api_module).describe_group(client(), group, opts)
+      end
+
+      def list_groups(opts \\ []) do
+        unquote(api_module).list_groups(client(), opts)
       end
 
       def join_group(group, member_id, opts \\ []) do
@@ -559,6 +564,49 @@ defmodule KafkaEx.API do
       {:ok, [group]} -> {:ok, group}
       {:error, error} -> {:error, error}
     end
+  end
+
+  @doc """
+  Lists the consumer groups known to the cluster.
+
+  ListGroups is answered per broker (each broker reports only the groups it
+  coordinates), so this fans the request out to every known broker and merges
+  the results. A consumer group is coordinated by exactly one broker, so the
+  merged list needs no de-duplication.
+
+  This is all-or-nothing: if any broker is unreachable or returns an error, the
+  call returns `{:error, {:node_error, node_id, reason}}` rather than a silently
+  partial list. Returns `{:error, :no_brokers_available}` if the client knows of
+  no brokers.
+
+  ## Examples
+
+      {:ok, groups} = KafkaEx.API.list_groups(client)
+  """
+  @spec list_groups(client) ::
+          {:ok, [ConsumerGroupListing.t()]}
+          | {:error, {:node_error, node_id, term} | :no_brokers_available}
+  @spec list_groups(client, opts) ::
+          {:ok, [ConsumerGroupListing.t()]}
+          | {:error, {:node_error, node_id, term} | :no_brokers_available}
+  def list_groups(client, opts \\ []) do
+    {:ok, %ClusterMetadata{} = cluster_metadata} = cluster_metadata(client)
+
+    case ClusterMetadata.brokers(cluster_metadata) do
+      [] -> {:error, :no_brokers_available}
+      brokers -> list_groups_across_brokers(client, brokers, opts)
+    end
+  end
+
+  defp list_groups_across_brokers(client, brokers, opts) do
+    node_ids = brokers |> Enum.map(& &1.node_id) |> Enum.sort()
+
+    Enum.reduce_while(node_ids, {:ok, []}, fn node_id, {:ok, acc} ->
+      case GenServer.call(client, {:list_groups, node_id, opts}) do
+        {:ok, listings} -> {:cont, {:ok, acc ++ listings}}
+        {:error, reason} -> {:halt, {:error, {:node_error, node_id, reason}}}
+      end
+    end)
   end
 
   @doc """

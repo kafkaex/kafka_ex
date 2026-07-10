@@ -149,6 +149,23 @@ defmodule KafkaEx.Protocol.KayrockProtocolTest do
 
       assert request != nil
     end
+
+    test "builds list_groups request" do
+      request = KayrockProtocol.build_request(:list_groups, 0, [])
+      assert %Kayrock.ListGroups.V0.Request{} = request
+    end
+  end
+
+  describe "parse_response/2" do
+    test "parses list_groups response" do
+      response = %Kayrock.ListGroups.V0.Response{
+        error_code: 0,
+        groups: [%{group_id: "g1", protocol_type: "consumer"}]
+      }
+
+      assert {:ok, [%KafkaEx.Messages.ConsumerGroupListing{group_id: "g1", protocol_type: "consumer"}]} =
+               KayrockProtocol.parse_response(:list_groups, response)
+    end
   end
 
   describe "request_info/1" do

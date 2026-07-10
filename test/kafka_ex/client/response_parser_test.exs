@@ -843,6 +843,18 @@ defmodule KafkaEx.Client.ResponseParserTest do
     end
   end
 
+  describe "list_groups_response/1" do
+    test "delegates to the protocol and returns ConsumerGroupListing structs" do
+      response = %Kayrock.ListGroups.V0.Response{
+        error_code: 0,
+        groups: [%{group_id: "g1", protocol_type: "consumer"}]
+      }
+
+      assert {:ok, [%KafkaEx.Messages.ConsumerGroupListing{group_id: "g1", protocol_type: "consumer"}]} =
+               KafkaEx.Client.ResponseParser.list_groups_response(response)
+    end
+  end
+
   describe "list_offsets_response/1" do
     test "parses successful ListOffsets v0 response" do
       response =

@@ -7,6 +7,7 @@ defmodule KafkaEx.Client.ResponseParser do
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Messages.ApiVersions
   alias KafkaEx.Messages.ConsumerGroupDescription
+  alias KafkaEx.Messages.ConsumerGroupListing
   alias KafkaEx.Messages.CreateTopics
   alias KafkaEx.Messages.DeleteTopics
   alias KafkaEx.Messages.Fetch
@@ -38,6 +39,14 @@ defmodule KafkaEx.Client.ResponseParser do
 
   @doc """
   Parses response for List Groups API
+  """
+  @spec list_groups_response(term) :: {:ok, [ConsumerGroupListing.t()]} | {:error, Error.t()}
+  def list_groups_response(response) do
+    @protocol.parse_response(:list_groups, response)
+  end
+
+  @doc """
+  Parses response for List Offsets API
   """
   @spec list_offsets_response(term) :: {:ok, [Offset.t()]} | {:error, Error.t()}
   def list_offsets_response(response) do

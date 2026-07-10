@@ -6,6 +6,7 @@ defmodule KafkaEx.APITest do
   alias KafkaEx.Cluster.Topic
   alias KafkaEx.Messages.ApiVersions
   alias KafkaEx.Messages.ConsumerGroupDescription
+  alias KafkaEx.Messages.ConsumerGroupListing
   alias KafkaEx.Messages.CreateTopics
   alias KafkaEx.Messages.DeleteTopics
   alias KafkaEx.Messages.Fetch
@@ -471,6 +472,123 @@ defmodule KafkaEx.APITest do
       {:ok, client} = MockClient.start_link(%{describe_groups: {:error, :group_not_found}})
 
       assert {:error, :group_not_found} = KafkaEx.API.describe_group(client, "unknown-group")
+    end
+  end
+
+  describe "list_groups/2" do
+    setup do
+      cluster = %ClusterMetadata{
+        brokers: %{
+          0 => %Broker{node_id: 0, host: "localhost", port: 9092},
+          1 => %Broker{node_id: 1, host: "localhost", port: 9093},
+          2 => %Broker{node_id: 2, host: "localhost", port: 9094}
+        }
+      }
+
+      {:ok, %{cluster: cluster}}
+    end
+
+    test "merges groups across all brokers (sorted by node_id)", %{cluster: cluster} do
+      {:ok, client} =
+        MockClient.start_link(%{
+          cluster_metadata: {:ok, cluster},
+          list_groups: %{
+            0 => {:ok, [%ConsumerGroupListing{group_id: "g0", protocol_type: "consumer"}]},
+            1 => {:ok, [%ConsumerGroupListing{group_id: "g1", protocol_type: "consumer"}]},
+            2 => {:ok, [%ConsumerGroupListing{group_id: "g2", protocol_type: "connect"}]}
+          }
+        })
+
+      assert {:ok, listings} = KafkaEx.API.list_groups(client)
+
+      assert listings == [
+               %ConsumerGroupListing{group_id: "g0", protocol_type: "consumer"},
+               %ConsumerGroupListing{group_id: "g1", protocol_type: "consumer"},
+               %ConsumerGroupListing{group_id: "g2", protocol_type: "connect"}
+             ]
+    end
+
+    test "queries every broker exactly once", %{cluster: cluster} do
+      {:ok, client} = MockClient.start_link(%{cluster_metadata: {:ok, cluster}, list_groups: %{}})
+
+      {:ok, _} = KafkaEx.API.list_groups(client)
+
+      node_ids =
+        client
+        |> MockClient.get_calls()
+        |> Enum.filter(&match?({:list_groups, _, _}, &1))
+        |> Enum.map(fn {:list_groups, node_id, _opts} -> node_id end)
+
+      assert node_ids == [0, 1, 2]
+    end
+
+    test "is all-or-nothing: any broker error aborts with {:node_error, node_id, reason}", %{
+      cluster: cluster
+    } do
+      {:ok, client} =
+        MockClient.start_link(%{
+          cluster_metadata: {:ok, cluster},
+          list_groups: %{
+            0 => {:ok, [%ConsumerGroupListing{group_id: "g0", protocol_type: "consumer"}]},
+            1 => {:ok, []},
+            2 => {:error, :coordinator_not_available}
+          }
+        })
+
+      assert KafkaEx.API.list_groups(client) ==
+               {:error, {:node_error, 2, :coordinator_not_available}}
+    end
+
+    test "halts the fan-out on the first broker error and skips remaining brokers", %{
+      cluster: cluster
+    } do
+      {:ok, client} =
+        MockClient.start_link(%{
+          cluster_metadata: {:ok, cluster},
+          list_groups: %{
+            0 => {:error, :coordinator_not_available},
+            1 => {:ok, [%ConsumerGroupListing{group_id: "g1", protocol_type: "consumer"}]},
+            2 => {:ok, [%ConsumerGroupListing{group_id: "g2", protocol_type: "connect"}]}
+          }
+        })
+
+      assert KafkaEx.API.list_groups(client) ==
+               {:error, {:node_error, 0, :coordinator_not_available}}
+
+      node_ids =
+        client
+        |> MockClient.get_calls()
+        |> Enum.filter(&match?({:list_groups, _, _}, &1))
+        |> Enum.map(fn {:list_groups, node_id, _opts} -> node_id end)
+
+      assert node_ids == [0]
+    end
+
+    test "returns {:error, :no_brokers_available} when the cluster has no brokers" do
+      {:ok, client} =
+        MockClient.start_link(%{cluster_metadata: {:ok, %ClusterMetadata{brokers: %{}}}})
+
+      assert KafkaEx.API.list_groups(client) == {:error, :no_brokers_available}
+    end
+
+    test "returns {:ok, []} when brokers exist but coordinate no groups", %{cluster: cluster} do
+      {:ok, client} = MockClient.start_link(%{cluster_metadata: {:ok, cluster}, list_groups: %{}})
+
+      assert KafkaEx.API.list_groups(client) == {:ok, []}
+    end
+
+    test "passes a caller-supplied api_version straight through to each broker", %{cluster: cluster} do
+      {:ok, client} = MockClient.start_link(%{cluster_metadata: {:ok, cluster}, list_groups: %{}})
+
+      {:ok, _} = KafkaEx.API.list_groups(client, api_version: 2)
+
+      opts_seen =
+        client
+        |> MockClient.get_calls()
+        |> Enum.filter(&match?({:list_groups, _, _}, &1))
+        |> Enum.map(fn {:list_groups, _node_id, opts} -> opts end)
+
+      assert Enum.all?(opts_seen, &(&1 == [api_version: 2]))
     end
   end
 

@@ -167,6 +167,7 @@ defmodule KafkaEx.Test.KayrockFixtures do
     heartbeat: Kayrock.Heartbeat,
     join_group: Kayrock.JoinGroup,
     leave_group: Kayrock.LeaveGroup,
+    list_groups: Kayrock.ListGroups,
     list_offsets: Kayrock.ListOffsets,
     metadata: Kayrock.Metadata,
     offset_commit: Kayrock.OffsetCommit,
