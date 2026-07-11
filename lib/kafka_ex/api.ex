@@ -56,6 +56,7 @@ defmodule KafkaEx.API do
   """
 
   alias KafkaEx.Client
+  alias KafkaEx.Client.RequestBudget
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Cluster.Topic
   alias KafkaEx.Config
@@ -93,23 +94,23 @@ defmodule KafkaEx.API do
 
   # Timeout model (canonical note; call sites point here). Each request derives a
   # per-attempt Socket.recv deadline (network_timeout) and an outer GenServer.call
-  # budget from it, so the two can't mismatch (#357). Per-attempt deadline by op:
-  # fetch = max_wait_time + buffer; join = rebalance_timeout + lapse (broker holds
-  # it that long); sync = session window; everything else = :request_timeout.
+  # budget from it (via KafkaEx.Client.RequestBudget), so the two can't mismatch
+  # (#357). Per-attempt deadline by op: fetch = max_wait_time + grace; join =
+  # rebalance_timeout + lapse (broker holds it that long); sync = session window;
+  # create/delete = broker op timeout + grace; everything else = :request_timeout.
   # @fetch_max_retries comes from Client.retry_count/0 (single source of truth;
   # makes API compile-depend on Client — acyclic, keep it so). @default_max_wait_time
   # MUST match the fetch builder's :max_wait_time default.
   @default_max_wait_time 10_000
-  @fetch_network_timeout_buffer 5_000
-  @fetch_call_timeout_buffer 5_000
+  # Per-attempt socket-recv grace over a broker-held duration (fetch long-poll,
+  # create/delete op timeout). The outer-call buffer lives in RequestBudget.
+  @network_timeout_buffer 5_000
   @fetch_max_retries KafkaEx.Client.retry_count()
 
   # JoinGroup grace over rebalance_timeout (mirrors Java's JOIN_GROUP_TIMEOUT_LAPSE).
   @join_group_timeout_lapse 5_000
   @join_default_rebalance_timeout 60_000
   @sync_default_timeout 35_000
-  # Outer-call buffer over the per-attempt deadline (join/sync send-once: no ×retries).
-  @coordinator_call_timeout_buffer 5_000
 
   # ---------------------------------------------------------------------------
   # __using__ macro for mixin pattern
@@ -975,15 +976,13 @@ defmodule KafkaEx.API do
 
   defp derive_fetch_timeouts(opts) do
     max_wait_time = Keyword.get(opts, :max_wait_time, @default_max_wait_time)
-    network_timeout = Keyword.get(opts, :network_timeout, max_wait_time + @fetch_network_timeout_buffer)
+    network_timeout = Keyword.get(opts, :network_timeout, max_wait_time + @network_timeout_buffer)
     {call_budget(network_timeout), Keyword.put_new(opts, :network_timeout, network_timeout)}
   end
 
-  # Outer GenServer.call budget for a per-attempt socket-recv deadline: covers the
-  # full client-level retry loop (`per_attempt × retries + buffer`). Single source
-  # for the shape shared by fetch (`derive_fetch_timeouts/1`) and the generic
-  # data-plane wrappers (`generic_call_budget/0`).
-  defp call_budget(per_attempt), do: per_attempt * @fetch_max_retries + @fetch_call_timeout_buffer
+  # Outer GenServer.call budget for a retried request (fetch + generic data-plane):
+  # per-attempt deadline × the client retry budget, via RequestBudget.
+  defp call_budget(per_attempt), do: RequestBudget.retrying(per_attempt, @fetch_max_retries)
 
   # Outer budget for requests whose per-attempt recv is the generic :request_timeout.
   # Derived (not the implicit 5000 default) so a >5000 :request_timeout can't exceed
@@ -995,7 +994,7 @@ defmodule KafkaEx.API do
   # from it (no × retries — send-once), and normalize the reply. Only the message
   # tuple and the `network_timeout` derivation differ between join and sync.
   defp coordinator_call(client, opts, network_timeout, msg_fun) do
-    call_timeout = network_timeout + @coordinator_call_timeout_buffer
+    call_timeout = RequestBudget.send_once(network_timeout)
     call_opts = opts |> Keyword.delete(:timeout) |> Keyword.put(:network_timeout, network_timeout)
 
     case GenServer.call(client, msg_fun.(call_opts), call_timeout) do
@@ -1083,7 +1082,7 @@ defmodule KafkaEx.API do
     # The broker holds CreateTopics for up to its own `timeout`, so the per-attempt
     # socket-recv must cover that (not the generic :request_timeout), and the outer
     # GenServer.call budget is derived from it.
-    network_timeout = timeout + @coordinator_call_timeout_buffer
+    network_timeout = timeout + @network_timeout_buffer
     opts = Keyword.put_new(opts, :network_timeout, network_timeout)
 
     case GenServer.call(client, {:create_topics, topics, timeout, opts}, call_budget(network_timeout)) do
@@ -1166,7 +1165,7 @@ defmodule KafkaEx.API do
     # The broker holds DeleteTopics for up to its own `timeout`, so the per-attempt
     # socket-recv must cover that (not the generic :request_timeout), and the outer
     # GenServer.call budget is derived from it.
-    network_timeout = timeout + @coordinator_call_timeout_buffer
+    network_timeout = timeout + @network_timeout_buffer
     opts = Keyword.put_new(opts, :network_timeout, network_timeout)
 
     case GenServer.call(client, {:delete_topics, topics, timeout, opts}, call_budget(network_timeout)) do

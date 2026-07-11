@@ -17,6 +17,7 @@ defmodule KafkaEx.Client do
 
   alias KafkaEx.Client.Error
   alias KafkaEx.Client.NodeSelector
+  alias KafkaEx.Client.RequestBudget
   alias KafkaEx.Client.RequestBuilder
   alias KafkaEx.Client.RequestContext
   alias KafkaEx.Client.ResponseParser
@@ -70,10 +71,6 @@ defmodule KafkaEx.Client do
   # and ConsumerGroup.Manager owns rejoin (@max_join_retries / @max_sync_retries).
   # Matches Java/kafka-python/librdkafka/brod, which all send-once + rejoin higher up.
   @coordinator_max_attempts 1
-  # Headroom the low-level `send_request/4` helper adds over the per-attempt recv
-  # (`:request_timeout`) for its outer GenServer.call, so the caller does not exit
-  # before the single attempt returns a clean {:error, :timeout} (the #357 class).
-  @send_request_call_buffer 5_000
   @reconnect_max_retries 3
   @reconnect_delay_ms 500
 
@@ -1281,7 +1278,11 @@ defmodule KafkaEx.Client do
     end
   end
 
-  defp timeout_val(nil), do: Config.request_timeout() + @send_request_call_buffer
+  # send_request/4 is send-once (its :network_request handler does one attempt),
+  # so the outer budget is the per-attempt :request_timeout plus RequestBudget's
+  # buffer — never the implicit 5000 default (which a larger :request_timeout
+  # would exceed, exiting the caller mid-flight; the #357 class).
+  defp timeout_val(nil), do: RequestBudget.send_once(Config.request_timeout())
   defp timeout_val(timeout) when is_integer(timeout), do: timeout
 
   # The per-attempt socket-recv deadline for synchronous requests that do not
