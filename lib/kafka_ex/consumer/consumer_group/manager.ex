@@ -145,8 +145,11 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
           }
   end
 
-  @heartbeat_interval 5_000
-  @session_timeout 30_000
+  # Defaults aligned with the Apache Kafka 3.0+ consumer (KIP-735 raised
+  # session.timeout.ms 10s→45s to cut spurious rebalances; heartbeat.interval.ms
+  # stays 3s, ≈ 1/15 of the session and well within the ≤ 1/3 requirement).
+  @heartbeat_interval 3_000
+  @session_timeout 45_000
   @session_timeout_padding 10_000
   # Default rebalance_timeout multiplier (relative to session_timeout)
   # In Java client, rebalance_timeout = max.poll.interval.ms (default 5 min)

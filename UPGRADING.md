@@ -161,6 +161,32 @@ default 3s). Two consequences for that window:
     members, KIP-345, intentionally skip LeaveGroup anyway). Raise the group's
     child `shutdown:` if graceful mid-rebalance leave matters for your deploys.
 
+## Consumer-group defaults aligned with Kafka 3.0
+
+Two consumer-group defaults now match the Apache Kafka 3.0+ consumer:
+
+| Option | Old default | New default | Why |
+|---|---|---|---|
+| `session_timeout` | `30_000` | `45_000` | KIP-735 — fewer spurious rebalances |
+| `heartbeat_interval` | `5_000` | `3_000` | Kafka's canonical pairing (≈ session / 15) |
+
+The derived `rebalance_timeout` default (`session_timeout × 3`) is therefore
+`135_000` ms.
+
+**Behavior change.** A dead/partitioned member is now declared dead after ~45 s
+of missed heartbeats instead of ~30 s — a transient hiccup is less likely to
+trigger a rebalance, at the cost of slightly slower detection of a genuinely
+gone member. Heartbeats are also sent more often (every 3 s). To keep the old
+behavior, set them explicitly:
+
+```elixir
+KafkaEx.Consumer.ConsumerGroup.start_link(
+  MyConsumer, "my-group", ["topic"],
+  session_timeout: 30_000,
+  heartbeat_interval: 5_000
+)
+```
+
 ---
 
 # Upgrading to KafkaEx 1.0
