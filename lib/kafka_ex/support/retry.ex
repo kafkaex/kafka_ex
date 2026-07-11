@@ -92,9 +92,17 @@ defmodule KafkaEx.Support.Retry do
   @spec backoff_delay_jittered(non_neg_integer(), non_neg_integer(), non_neg_integer() | :infinity) ::
           non_neg_integer()
   def backoff_delay_jittered(attempt, base_ms, max_ms \\ @default_max_delay_ms) do
-    attempt
-    |> backoff_delay(base_ms, max_ms)
-    |> apply_jitter()
+    jittered =
+      attempt
+      |> backoff_delay(base_ms, max_ms)
+      |> apply_jitter()
+
+    # Keep the result within the cap — jitter is applied after the exponential
+    # cap, so clamp so a delay never exceeds max_ms (KIP-580 jitters within bound).
+    case max_ms do
+      :infinity -> jittered
+      cap when is_integer(cap) -> min(jittered, cap)
+    end
   end
 
   defp apply_jitter(0), do: 0
@@ -205,6 +213,18 @@ defmodule KafkaEx.Support.Retry do
   def transient_error?(error), do: coordinator_error?(error)
 
   @doc """
+  Check if an error is a socket `Socket.recv` deadline expiry (`:timeout`).
+
+  Distinct from the broker error code `:request_timed_out` (Kafka error 7), which
+  comes back fast. A recv-timeout is the one error that costs a full per-attempt
+  `network_timeout`, so `KafkaEx.Client` sends it **once** rather than retrying it
+  inside its synchronous request loop; higher-level loops re-issue with backoff.
+  """
+  @spec transport_timeout?(error()) :: boolean()
+  def transport_timeout?(:timeout), do: true
+  def transport_timeout?(_), do: false
+
+  @doc """
   Check if error is a leadership-related error requiring metadata refresh.
 
   These errors indicate the client has stale partition leadership information.
@@ -309,9 +329,16 @@ defmodule KafkaEx.Support.Retry do
 
   The heartbeat process stops on any error and lets the manager react
   (`Heartbeat.handle_info/2`), so the only retry is here at the client. Its
-  value is absorbing a transient blip (timeout / coordinator hiccup) so a
-  single failed heartbeat does not escalate into a full rejoin + group-wide
-  rebalance — hence default-retry for unclassified errors.
+  value is absorbing a transient *coordinator hiccup* so a single failed
+  heartbeat does not escalate into a full rejoin + group-wide rebalance — hence
+  default-retry for unclassified errors.
+
+  Note: a socket recv-**timeout** is NOT absorbed here. `KafkaEx.Client` treats a
+  transport `:timeout` as send-once (it would otherwise block the synchronous
+  client for another full `:request_timeout`), so a heartbeat whose recv times
+  out escalates to a rejoin rather than being retried by this classifier. This
+  matches the reference clients, and by then the coordinator is unresponsive for
+  a large fraction of the session window anyway.
 
   The broker's "rejoin now" / identity signals — `:rebalance_in_progress`,
   `:unknown_member_id` and `:illegal_generation` — are mapped by the heartbeat

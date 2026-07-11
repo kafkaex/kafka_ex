@@ -125,6 +125,42 @@ silently-unresponsive broker is detected on other requests.
 `not_leader_for_partition`, `not_coordinator`) keep their in-client retry with
 metadata/coordinator refresh.
 
+**Data-plane failure latency.** Because the generic per-attempt timeout default
+rose (effectively ~1 s → `:request_timeout` = 15 s) and a socket timeout is now
+send-once, a request to a **silently unresponsive** broker (accepted TCP, no
+reply) now returns `{:error, :timeout}` after ~15 s instead of ~1–3 s. A healthy
+broker is unaffected (it replies in ms). Latency-sensitive callers (e.g. a
+produce on a request path) that relied on the old fast-fail should set a lower
+`:request_timeout`, or pass an explicit `:timeout`/`:max_wait_time` per call.
+
+**Heartbeat.** A consumer-group heartbeat now uses a short per-attempt deadline
+(the configured `heartbeat_interval`), not the generic `:request_timeout`, so a
+stalled heartbeat is detected well inside `session_timeout`. A single heartbeat
+whose recv times out is **not** retried in-client (previously up to 3×); it
+escalates to a rejoin, which under a persistent coordinator stall means a
+rebalance — matching the Java/librdkafka "mark coordinator dead, rejoin" model.
+Keep `heartbeat_interval` well below `session_timeout / 3`: the outer heartbeat
+budget is `heartbeat_interval × 3`, so an over-large interval could let a
+retrying heartbeat span the whole session.
+
+**Consumer-group manager responsiveness during a rebalance.** JoinGroup/SyncGroup
+now wait for the broker for as long as it legitimately holds the response (up to
+`rebalance_timeout + 5s` for join). The `ConsumerGroup.Manager` performs the join
+synchronously, so while a *rebalance* is in progress it is busy for that window
+(a cold-start join on an empty group still returns in ~`group.initial.rebalance.delay.ms`,
+default 3s). Two consequences for that window:
+
+  * The `KafkaEx.Consumer.ConsumerGroup` introspection calls
+    (`generation_id/1`, `member_id/1`, `assignments/1`, `active?/1`, …) use a
+    5s `GenServer.call`; during a long rebalance they may exit with a call
+    timeout. Wrap them or pass a longer timeout if you poll them during
+    rebalances.
+  * If your supervisor stops the group mid-rebalance, the default 5s child
+    shutdown may cut off `terminate/2` before it sends `LeaveGroup`; a dynamic
+    member's partitions then wait `session_timeout` to redistribute (static
+    members, KIP-345, intentionally skip LeaveGroup anyway). Raise the group's
+    child `shutdown:` if graceful mid-rebalance leave matters for your deploys.
+
 ---
 
 # Upgrading to KafkaEx 1.0

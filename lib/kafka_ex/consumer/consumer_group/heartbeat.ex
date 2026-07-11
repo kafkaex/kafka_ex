@@ -84,7 +84,13 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Heartbeat do
           group_instance_id: group_instance_id
         } = state
       ) do
-    case KafkaExAPI.heartbeat(client, group_name, member_id, generation_id, group_instance_id: group_instance_id) do
+    # Heartbeat is answered promptly by the coordinator (never held), so bound its
+    # per-attempt socket-recv to heartbeat_interval rather than the generic
+    # :request_timeout — a stalled heartbeat is then detected well inside
+    # session_timeout, leaving the manager time to rejoin before eviction.
+    heartbeat_opts = [group_instance_id: group_instance_id, network_timeout: heartbeat_interval]
+
+    case KafkaExAPI.heartbeat(client, group_name, member_id, generation_id, heartbeat_opts) do
       {:ok, %KafkaEx.Messages.Heartbeat{}} ->
         {:noreply, state, heartbeat_interval}
 

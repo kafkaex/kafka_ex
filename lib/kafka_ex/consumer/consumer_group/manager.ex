@@ -619,7 +619,6 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
          %State{
            client: client,
            session_timeout: session_timeout,
-           session_timeout_padding: session_timeout_padding,
            rebalance_timeout: rebalance_timeout,
            group_name: group_name,
            topics: topics,
@@ -628,11 +627,13 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
          } = state,
          attempt_number
        ) do
+    # No `:timeout` here: KafkaEx.API.join_group derives both the per-attempt
+    # socket-recv deadline and the outer GenServer.call budget from
+    # rebalance_timeout (JoinGroup is held by the broker for the rebalance window).
     opts = [
       topics: topics,
       session_timeout: session_timeout,
       rebalance_timeout: rebalance_timeout,
-      timeout: session_timeout + session_timeout_padding,
       group_instance_id: group_instance_id
     ]
 

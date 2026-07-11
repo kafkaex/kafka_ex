@@ -105,6 +105,9 @@ defmodule KafkaEx.API do
   @default_max_wait_time 10_000
   @fetch_network_timeout_buffer 5_000
   @fetch_call_timeout_buffer 5_000
+  # Single source of truth for the retry budget (kills the #357 hand-sync drift).
+  # NB: this makes KafkaEx.API compile-depend on KafkaEx.Client — safe today (no
+  # cycle, Client does not reference API at module scope); keep it that way.
   @fetch_max_retries KafkaEx.Client.retry_count()
 
   # JoinGroup's per-attempt socket-recv deadline is derived from rebalance_timeout
@@ -417,7 +420,7 @@ defmodule KafkaEx.API do
   @spec list_offsets(client, [{topic_name, [partition_offset_request]}], opts) ::
           {:ok, list(Offset.t())} | {:error, any}
   def list_offsets(client, [{topic, [partition_request]}], opts \\ []) do
-    case GenServer.call(client, {:list_offsets, [{topic, [partition_request]}], opts}) do
+    case GenServer.call(client, {:list_offsets, [{topic, [partition_request]}], opts}, generic_call_budget()) do
       {:ok, offsets} -> {:ok, offsets}
       {:error, %{error: error_atom}} -> {:error, error_atom}
       {:error, error_atom} -> {:error, error_atom}
@@ -442,7 +445,7 @@ defmodule KafkaEx.API do
   """
   @spec topics_metadata(client, [topic_name], boolean) :: {:ok, [Topic.t()]} | {:error, error_atom}
   def topics_metadata(client, topics, allow_topic_creation \\ false) do
-    GenServer.call(client, {:topic_metadata, topics, allow_topic_creation})
+    GenServer.call(client, {:topic_metadata, topics, allow_topic_creation}, generic_call_budget())
   end
 
   @doc """
@@ -458,7 +461,7 @@ defmodule KafkaEx.API do
   """
   @spec cluster_metadata(client) :: {:ok, ClusterMetadata.t()}
   def cluster_metadata(client) do
-    GenServer.call(client, :cluster_metadata)
+    GenServer.call(client, :cluster_metadata, generic_call_budget())
   end
 
   @doc """
@@ -480,7 +483,7 @@ defmodule KafkaEx.API do
   def metadata(client, opts \\ []) do
     api_version = Keyword.get(opts, :api_version, 1)
 
-    case GenServer.call(client, {:metadata, nil, opts, api_version}) do
+    case GenServer.call(client, {:metadata, nil, opts, api_version}, generic_call_budget()) do
       {:ok, cluster_metadata} -> {:ok, cluster_metadata}
       {:error, error} -> {:error, error}
     end
@@ -502,7 +505,7 @@ defmodule KafkaEx.API do
     api_version = Keyword.get(opts, :api_version, 1)
     request_opts = Keyword.put(opts, :topics, topics)
 
-    case GenServer.call(client, {:metadata, topics, request_opts, api_version}) do
+    case GenServer.call(client, {:metadata, topics, request_opts, api_version}, generic_call_budget()) do
       {:ok, cluster_metadata} -> {:ok, cluster_metadata}
       {:error, error} -> {:error, error}
     end
@@ -532,7 +535,7 @@ defmodule KafkaEx.API do
   @spec api_versions(client) :: {:ok, ApiVersions.t()} | {:error, error_atom}
   @spec api_versions(client, opts) :: {:ok, ApiVersions.t()} | {:error, error_atom}
   def api_versions(client, opts \\ []) do
-    case GenServer.call(client, {:api_versions, opts}) do
+    case GenServer.call(client, {:api_versions, opts}, generic_call_budget()) do
       {:ok, versions} -> {:ok, versions}
       {:error, %{error: error_atom}} -> {:error, error_atom}
       {:error, error_atom} -> {:error, error_atom}
@@ -567,7 +570,7 @@ defmodule KafkaEx.API do
   @spec describe_group(client, consumer_group_name) :: {:ok, ConsumerGroupDescription.t()} | {:error, any}
   @spec describe_group(client, consumer_group_name, opts) :: {:ok, ConsumerGroupDescription.t()} | {:error, any}
   def describe_group(client, consumer_group_name, opts \\ []) do
-    case GenServer.call(client, {:describe_groups, [consumer_group_name], opts}) do
+    case GenServer.call(client, {:describe_groups, [consumer_group_name], opts}, generic_call_budget()) do
       {:ok, [group]} -> {:ok, group}
       {:error, error} -> {:error, error}
     end
@@ -606,18 +609,7 @@ defmodule KafkaEx.API do
     # legitimate rebalance response (the #357 class of mismatch).
     rebalance_timeout = Keyword.get(opts, :rebalance_timeout, @join_default_rebalance_timeout)
     network_timeout = Keyword.get(opts, :network_timeout, rebalance_timeout + @join_group_timeout_lapse)
-    call_timeout = network_timeout + @coordinator_call_timeout_buffer
-
-    call_opts =
-      opts
-      |> Keyword.delete(:timeout)
-      |> Keyword.put(:network_timeout, network_timeout)
-
-    case GenServer.call(client, {:join_group, consumer_group, member_id, call_opts}, call_timeout) do
-      {:ok, result} -> {:ok, result}
-      {:error, %{error: error_atom}} -> {:error, error_atom}
-      {:error, error_atom} -> {:error, error_atom}
-    end
+    coordinator_call(client, opts, network_timeout, &{:join_group, consumer_group, member_id, &1})
   end
 
   @doc """
@@ -642,18 +634,7 @@ defmodule KafkaEx.API do
     # sent send-once at the client. The outer GenServer.call budget is derived from
     # that per-attempt deadline so the two cannot mismatch (#357).
     network_timeout = Keyword.get(opts, :network_timeout, Keyword.get(opts, :timeout, @sync_default_timeout))
-    call_timeout = network_timeout + @coordinator_call_timeout_buffer
-
-    call_opts =
-      opts
-      |> Keyword.delete(:timeout)
-      |> Keyword.put(:network_timeout, network_timeout)
-
-    case GenServer.call(client, {:sync_group, consumer_group, generation_id, member_id, call_opts}, call_timeout) do
-      {:ok, result} -> {:ok, result}
-      {:error, %{error: error_atom}} -> {:error, error_atom}
-      {:error, error_atom} -> {:error, error_atom}
-    end
+    coordinator_call(client, opts, network_timeout, &{:sync_group, consumer_group, generation_id, member_id, &1})
   end
 
   @doc """
@@ -671,7 +652,7 @@ defmodule KafkaEx.API do
   @spec leave_group(client, consumer_group_name, member_id, opts) ::
           {:ok, :no_error | LeaveGroup.t()} | {:error, error_atom}
   def leave_group(client, consumer_group, member_id, opts \\ []) do
-    case GenServer.call(client, {:leave_group, consumer_group, member_id, opts}) do
+    case GenServer.call(client, {:leave_group, consumer_group, member_id, opts}, generic_call_budget()) do
       {:ok, result} -> {:ok, result}
       {:error, %{error: error_atom}} -> {:error, error_atom}
       {:error, error_atom} -> {:error, error_atom}
@@ -693,7 +674,18 @@ defmodule KafkaEx.API do
   @spec heartbeat(client, consumer_group_name, member_id, generation_id, opts) ::
           {:ok, Heartbeat.t()} | {:error, error_atom}
   def heartbeat(client, consumer_group, member_id, generation_id, opts \\ []) do
-    case GenServer.call(client, {:heartbeat, consumer_group, member_id, generation_id, opts}) do
+    # Heartbeat is answered promptly (never broker-held), so it uses a short
+    # per-attempt deadline — the caller passes `:network_timeout` (heartbeat_interval)
+    # — instead of the generic :request_timeout, so a stalled heartbeat is detected
+    # well inside session_timeout. Falls back to the generic budget for direct callers.
+    network_timeout = Keyword.get(opts, :network_timeout, Config.request_timeout())
+    opts = Keyword.put(opts, :network_timeout, network_timeout)
+
+    case GenServer.call(
+           client,
+           {:heartbeat, consumer_group, member_id, generation_id, opts},
+           call_budget(network_timeout)
+         ) do
       {:ok, result} -> {:ok, result}
       {:error, %{error: error_atom}} -> {:error, error_atom}
       {:error, error_atom} -> {:error, error_atom}
@@ -724,7 +716,7 @@ defmodule KafkaEx.API do
   @spec find_coordinator(client, consumer_group_name) :: {:ok, FindCoordinator.t()} | {:error, error_atom}
   @spec find_coordinator(client, consumer_group_name, opts) :: {:ok, FindCoordinator.t()} | {:error, error_atom}
   def find_coordinator(client, group_id, opts \\ []) do
-    case GenServer.call(client, {:find_coordinator, group_id, opts}) do
+    case GenServer.call(client, {:find_coordinator, group_id, opts}, generic_call_budget()) do
       {:ok, result} -> {:ok, result}
       {:error, %{error: error_atom}} -> {:error, error_atom}
       {:error, error_atom} -> {:error, error_atom}
@@ -752,7 +744,7 @@ defmodule KafkaEx.API do
   @spec fetch_committed_offset(client, consumer_group_name, topic_name, [partition_id_request], opts) ::
           {:ok, [Offset.t()]} | {:error, error_atom}
   def fetch_committed_offset(client, consumer_group, topic, partitions, opts \\ []) do
-    case GenServer.call(client, {:offset_fetch, consumer_group, [{topic, partitions}], opts}) do
+    case GenServer.call(client, {:offset_fetch, consumer_group, [{topic, partitions}], opts}, generic_call_budget()) do
       {:ok, offsets} -> {:ok, offsets}
       {:error, %{error: error_atom}} -> {:error, error_atom}
       {:error, error_atom} -> {:error, error_atom}
@@ -776,7 +768,7 @@ defmodule KafkaEx.API do
   @spec commit_offset(client, consumer_group_name, topic_name, [partition_offset_commit_request], opts) ::
           {:ok, [Offset.t()]} | {:error, error_atom}
   def commit_offset(client, consumer_group, topic, partitions, opts \\ []) do
-    case GenServer.call(client, {:offset_commit, consumer_group, [{topic, partitions}], opts}) do
+    case GenServer.call(client, {:offset_commit, consumer_group, [{topic, partitions}], opts}, generic_call_budget()) do
       {:ok, offsets} -> {:ok, offsets}
       {:error, %{error: error_atom}} -> {:error, error_atom}
       {:error, error_atom} -> {:error, error_atom}
@@ -845,7 +837,7 @@ defmodule KafkaEx.API do
   end
 
   def produce(client, topic, partition, messages, opts) when is_integer(partition) do
-    case GenServer.call(client, {:produce, topic, partition, messages, opts}) do
+    case GenServer.call(client, {:produce, topic, partition, messages, opts}, generic_call_budget()) do
       {:ok, result} -> {:ok, result}
       {:error, %{error: error_atom}} -> {:error, error_atom}
       {:error, error_atom} -> {:error, error_atom}
@@ -955,8 +947,38 @@ defmodule KafkaEx.API do
   defp derive_fetch_timeouts(opts) do
     max_wait_time = Keyword.get(opts, :max_wait_time, @default_max_wait_time)
     network_timeout = Keyword.get(opts, :network_timeout, max_wait_time + @fetch_network_timeout_buffer)
-    call_timeout = network_timeout * @fetch_max_retries + @fetch_call_timeout_buffer
-    {call_timeout, Keyword.put_new(opts, :network_timeout, network_timeout)}
+    {call_budget(network_timeout), Keyword.put_new(opts, :network_timeout, network_timeout)}
+  end
+
+  # Outer GenServer.call budget for a per-attempt socket-recv deadline: covers the
+  # full client-level retry loop (`per_attempt × retries + buffer`). Single source
+  # for the shape shared by fetch (`derive_fetch_timeouts/1`) and the generic
+  # data-plane wrappers (`generic_call_budget/0`).
+  defp call_budget(per_attempt), do: per_attempt * @fetch_max_retries + @fetch_call_timeout_buffer
+
+  # Outer GenServer.call budget for the requests whose per-attempt socket-recv
+  # falls back to the generic `:request_timeout` (metadata, offset, heartbeat,
+  # find_coordinator, produce, …). It MUST be derived from `:request_timeout`,
+  # never left at the implicit 5000ms GenServer.call default: a `:request_timeout`
+  # above 5000 would otherwise exceed the outer budget, so the caller's call would
+  # exit before the client returns a clean `{:error, :timeout}` (the #357 class of
+  # mismatch). Sized × the retry budget to cover the metadata refresh loop; a
+  # socket timeout is send-once, so normal completions return well inside this.
+  defp generic_call_budget, do: call_budget(Config.request_timeout())
+
+  # Shared plumbing for the send-once coordinator calls (join/sync): inject the
+  # derived per-attempt `network_timeout` as a control opt, size the outer budget
+  # from it (no × retries — send-once), and normalize the reply. Only the message
+  # tuple and the `network_timeout` derivation differ between join and sync.
+  defp coordinator_call(client, opts, network_timeout, msg_fun) do
+    call_timeout = network_timeout + @coordinator_call_timeout_buffer
+    call_opts = opts |> Keyword.delete(:timeout) |> Keyword.put(:network_timeout, network_timeout)
+
+    case GenServer.call(client, msg_fun.(call_opts), call_timeout) do
+      {:ok, result} -> {:ok, result}
+      {:error, %{error: error_atom}} -> {:error, error_atom}
+      {:error, error_atom} -> {:error, error_atom}
+    end
   end
 
   @doc """
@@ -1034,7 +1056,13 @@ defmodule KafkaEx.API do
   @spec create_topics(client, list(), non_neg_integer()) :: {:ok, CreateTopics.t()} | {:error, error_atom}
   @spec create_topics(client, list(), non_neg_integer(), opts) :: {:ok, CreateTopics.t()} | {:error, error_atom}
   def create_topics(client, topics, timeout, opts \\ []) do
-    case GenServer.call(client, {:create_topics, topics, timeout, opts}) do
+    # The broker holds CreateTopics for up to its own `timeout`, so the per-attempt
+    # socket-recv must cover that (not the generic :request_timeout), and the outer
+    # GenServer.call budget is derived from it.
+    network_timeout = timeout + @coordinator_call_timeout_buffer
+    opts = Keyword.put_new(opts, :network_timeout, network_timeout)
+
+    case GenServer.call(client, {:create_topics, topics, timeout, opts}, call_budget(network_timeout)) do
       {:ok, result} -> {:ok, result}
       {:error, %{error: error_atom}} -> {:error, error_atom}
       {:error, error_atom} -> {:error, error_atom}
@@ -1111,7 +1139,13 @@ defmodule KafkaEx.API do
   @spec delete_topics(client, [topic_name], timeout) :: {:ok, DeleteTopics.t()} | {:error, error_atom}
   @spec delete_topics(client, [topic_name], timeout, opts) :: {:ok, DeleteTopics.t()} | {:error, error_atom}
   def delete_topics(client, topics, timeout, opts \\ []) do
-    case GenServer.call(client, {:delete_topics, topics, timeout, opts}) do
+    # The broker holds DeleteTopics for up to its own `timeout`, so the per-attempt
+    # socket-recv must cover that (not the generic :request_timeout), and the outer
+    # GenServer.call budget is derived from it.
+    network_timeout = timeout + @coordinator_call_timeout_buffer
+    opts = Keyword.put_new(opts, :network_timeout, network_timeout)
+
+    case GenServer.call(client, {:delete_topics, topics, timeout, opts}, call_budget(network_timeout)) do
       {:ok, result} -> {:ok, result}
       {:error, %{error: error_atom}} -> {:error, error_atom}
       {:error, error_atom} -> {:error, error_atom}

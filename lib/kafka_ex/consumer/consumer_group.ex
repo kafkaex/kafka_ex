@@ -140,6 +140,14 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
 
   @type options :: [option]
 
+  # Default timeout for the introspection calls into the Manager (generation_id/1,
+  # member_id/1, assignments/1, …). Raised above the old 5000 because the Manager
+  # performs JoinGroup/SyncGroup synchronously in its callback, so during a
+  # rebalance it can be busy for the join/sync window; a 5s query would exit with
+  # a call timeout. Callers can still pass an explicit timeout. (The deeper fix —
+  # a non-blocking Manager — is tracked as a follow-up; see UPGRADING.)
+  @manager_query_timeout 30_000
+
   @doc """
   Starts a consumer group process tree process linked to the current process.
 
@@ -202,7 +210,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
   queried before the initial sync has completed.
   """
   @spec generation_id(Supervisor.supervisor(), timeout) :: integer | nil
-  def generation_id(supervisor_pid, timeout \\ 5000) do
+  def generation_id(supervisor_pid, timeout \\ @manager_query_timeout) do
     call_manager(supervisor_pid, :generation_id, timeout)
   end
 
@@ -213,7 +221,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
   initial sync has completed.
   """
   @spec member_id(Supervisor.supervisor(), timeout) :: binary | nil
-  def member_id(supervisor_pid, timeout \\ 5000) do
+  def member_id(supervisor_pid, timeout \\ @manager_query_timeout) do
     call_manager(supervisor_pid, :member_id, timeout)
   end
 
@@ -224,7 +232,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
   initial sync has completed
   """
   @spec leader_id(Supervisor.supervisor(), timeout) :: binary | nil
-  def leader_id(supervisor_pid, timeout \\ 5000) do
+  def leader_id(supervisor_pid, timeout \\ @manager_query_timeout) do
     call_manager(supervisor_pid, :leader_id, timeout)
   end
 
@@ -235,7 +243,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
   partitions.  Returns false if queried before the initial sync has completed.
   """
   @spec leader?(Supervisor.supervisor(), timeout) :: boolean
-  def leader?(supervisor_pid, timeout \\ 5000) do
+  def leader?(supervisor_pid, timeout \\ @manager_query_timeout) do
     call_manager(supervisor_pid, :am_leader, timeout)
   end
 
@@ -248,7 +256,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
   @spec assignments(Supervisor.supervisor(), timeout) :: [
           {topic :: binary, partition_id :: non_neg_integer}
         ]
-  def assignments(supervisor_pid, timeout \\ 5000) do
+  def assignments(supervisor_pid, timeout \\ @manager_query_timeout) do
     call_manager(supervisor_pid, :assignments, timeout)
   end
 
@@ -259,7 +267,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
   Returns `nil` if called before the initial sync.
   """
   @spec consumer_supervisor_pid(Supervisor.supervisor(), timeout) :: nil | pid
-  def consumer_supervisor_pid(supervisor_pid, timeout \\ 5000) do
+  def consumer_supervisor_pid(supervisor_pid, timeout \\ @manager_query_timeout) do
     call_manager(supervisor_pid, :consumer_supervisor_pid, timeout)
   end
 
@@ -280,7 +288,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
   Returns the name of the consumer group
   """
   @spec group_name(Supervisor.supervisor(), timeout) :: binary
-  def group_name(supervisor_pid, timeout \\ 5000) do
+  def group_name(supervisor_pid, timeout \\ @manager_query_timeout) do
     call_manager(supervisor_pid, :group_name, timeout)
   end
 
@@ -302,7 +310,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
   Returns true if at least one child consumer process is alive
   """
   @spec active?(Supervisor.supervisor(), timeout) :: boolean
-  def active?(supervisor_pid, timeout \\ 5000) do
+  def active?(supervisor_pid, timeout \\ @manager_query_timeout) do
     consumer_supervisor = consumer_supervisor_pid(supervisor_pid, timeout)
 
     consumer_supervisor &&
@@ -381,7 +389,14 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
     opts = Keyword.put(opts, :supervisor_pid, self())
 
     children = [
-      {KafkaEx.Consumer.ConsumerGroup.Manager, {{gen_consumer_module, consumer_module}, group_name, topics, opts}}
+      # Give the Manager more than the default 5s shutdown so terminate/2 can send
+      # LeaveGroup on a graceful stop (LeaveGroup's per-attempt recv is up to
+      # :request_timeout). A stop that lands mid-rebalance can still exceed this —
+      # the full fix (non-blocking join) is a tracked follow-up; see UPGRADING.
+      Supervisor.child_spec(
+        {KafkaEx.Consumer.ConsumerGroup.Manager, {{gen_consumer_module, consumer_module}, group_name, topics, opts}},
+        shutdown: 25_000
+      )
     ]
 
     Supervisor.init(children,

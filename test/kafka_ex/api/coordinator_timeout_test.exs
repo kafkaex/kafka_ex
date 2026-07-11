@@ -56,4 +56,24 @@ defmodule KafkaEx.API.CoordinatorTimeoutTest do
       assert Keyword.get(opts, :network_timeout) == 35_000
     end
   end
+
+  describe "heartbeat/5" do
+    test "uses the caller-supplied short network_timeout (heartbeat_interval), not the generic default" do
+      {:ok, client} = CapturingMockClient.start_link()
+
+      assert {:ok, _} = KafkaEx.API.heartbeat(client, "g", "m", 1, network_timeout: 5_000)
+
+      assert [{:heartbeat, "g", "m", 1, opts}] = CapturingMockClient.calls(client)
+      assert Keyword.get(opts, :network_timeout) == 5_000
+    end
+
+    test "falls back to the generic :request_timeout when no network_timeout is supplied" do
+      {:ok, client} = CapturingMockClient.start_link()
+
+      assert {:ok, _} = KafkaEx.API.heartbeat(client, "g", "m", 1)
+
+      assert [{:heartbeat, _, _, _, opts}] = CapturingMockClient.calls(client)
+      assert Keyword.get(opts, :network_timeout) == KafkaEx.Config.request_timeout()
+    end
+  end
 end

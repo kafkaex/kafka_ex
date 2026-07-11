@@ -70,6 +70,10 @@ defmodule KafkaEx.Client do
   # and ConsumerGroup.Manager owns rejoin (@max_join_retries / @max_sync_retries).
   # Matches Java/kafka-python/librdkafka/brod, which all send-once + rejoin higher up.
   @coordinator_max_attempts 1
+  # Headroom the low-level `send_request/4` helper adds over the per-attempt recv
+  # (`:request_timeout`) for its outer GenServer.call, so the caller does not exit
+  # before the single attempt returns a clean {:error, :timeout} (the #357 class).
+  @send_request_call_buffer 5_000
   @reconnect_max_retries 3
   @reconnect_delay_ms 500
 
@@ -496,10 +500,11 @@ defmodule KafkaEx.Client do
 
   defp do_heartbeat_request(consumer_group, member_id, generation_id, opts, state, metadata) do
     node_selector = NodeSelector.consumer_group(consumer_group)
-    req_data = [{:group_id, consumer_group}, {:member_id, member_id}, {:generation_id, generation_id} | opts]
+    {network_timeout, req_opts} = Keyword.pop(opts, :network_timeout)
+    req_data = [{:group_id, consumer_group}, {:member_id, member_id}, {:generation_id, generation_id} | req_opts]
 
     with {:ok, request} <- RequestBuilder.heartbeat_request(req_data, state),
-         {result, updated_state} <- handle_heartbeat_request(request, node_selector, state) do
+         {result, updated_state} <- handle_heartbeat_request(request, node_selector, state, network_timeout) do
       {{result, updated_state}, metadata}
     else
       {:error, error} -> {{:error, error}, metadata}
@@ -680,10 +685,11 @@ defmodule KafkaEx.Client do
   defp create_topics_request(topics, timeout, opts, state) do
     # CreateTopics must be sent to the controller broker
     node_selector = NodeSelector.controller()
-    req_data = [{:topics, topics}, {:timeout, timeout} | opts]
+    {network_timeout, req_opts} = Keyword.pop(opts, :network_timeout)
+    req_data = [{:topics, topics}, {:timeout, timeout} | req_opts]
 
     case RequestBuilder.create_topics_request(req_data, state) do
-      {:ok, request} -> handle_create_topics_request(request, node_selector, state)
+      {:ok, request} -> handle_create_topics_request(request, node_selector, state, network_timeout)
       {:error, error} -> {:error, error}
     end
   end
@@ -691,10 +697,11 @@ defmodule KafkaEx.Client do
   defp delete_topics_request(topics, timeout, opts, state) do
     # DeleteTopics must be sent to the controller broker
     node_selector = NodeSelector.controller()
-    req_data = [{:topics, topics}, {:timeout, timeout} | opts]
+    {network_timeout, req_opts} = Keyword.pop(opts, :network_timeout)
+    req_data = [{:topics, topics}, {:timeout, timeout} | req_opts]
 
     case RequestBuilder.delete_topics_request(req_data, state) do
-      {:ok, request} -> handle_delete_topics_request(request, node_selector, state)
+      {:ok, request} -> handle_delete_topics_request(request, node_selector, state, network_timeout)
       {:error, error} -> {:error, error}
     end
   end
@@ -775,12 +782,13 @@ defmodule KafkaEx.Client do
     |> handle_request_with_retry(state)
   end
 
-  defp handle_heartbeat_request(request, node_selector, state) do
+  defp handle_heartbeat_request(request, node_selector, state, network_timeout) do
     %RequestContext{
       request: request,
       parser_fn: &ResponseParser.heartbeat_response/1,
       node_selector: node_selector,
-      retryable?: &Retry.heartbeat_retryable?/1
+      retryable?: &Retry.heartbeat_retryable?/1,
+      network_timeout: network_timeout
     }
     |> handle_request_with_retry(state)
   end
@@ -844,13 +852,23 @@ defmodule KafkaEx.Client do
     |> handle_request_with_retry(state)
   end
 
-  defp handle_create_topics_request(request, node_selector, state) do
-    %RequestContext{request: request, parser_fn: &ResponseParser.create_topics_response/1, node_selector: node_selector}
+  defp handle_create_topics_request(request, node_selector, state, network_timeout) do
+    %RequestContext{
+      request: request,
+      parser_fn: &ResponseParser.create_topics_response/1,
+      node_selector: node_selector,
+      network_timeout: network_timeout
+    }
     |> handle_request_with_retry(state)
   end
 
-  defp handle_delete_topics_request(request, node_selector, state) do
-    %RequestContext{request: request, parser_fn: &ResponseParser.delete_topics_response/1, node_selector: node_selector}
+  defp handle_delete_topics_request(request, node_selector, state, network_timeout) do
+    %RequestContext{
+      request: request,
+      parser_fn: &ResponseParser.delete_topics_response/1,
+      node_selector: node_selector,
+      network_timeout: network_timeout
+    }
     |> handle_request_with_retry(state)
   end
 
@@ -926,7 +944,7 @@ defmodule KafkaEx.Client do
       # which back off with jitter in their own processes. Mirrors Java/kafka-python/
       # librdkafka, which treat a request timeout as connection failure rather than
       # a same-socket retry.
-      transport_timeout?(error_atom) ->
+      Retry.transport_timeout?(error_atom) ->
         Logger.info("Request #{inspect(request_name)} timed out; not retrying at the client (send-once)")
         {{:error, error}, state}
 
@@ -940,13 +958,6 @@ defmodule KafkaEx.Client do
         {{:error, error}, state}
     end
   end
-
-  # A `Socket.recv` deadline expiry (surfaced as `:timeout`) is the one error that
-  # costs a full `network_timeout` per attempt, so it is never retried in this
-  # synchronous loop. Protocol/broker error codes (including the broker-side
-  # `:request_timed_out`) come back fast and keep their normal retry behaviour.
-  defp transport_timeout?(:timeout), do: true
-  defp transport_timeout?(_), do: false
 
   defp extract_error_atom(%Error{error: error}), do: error
   defp extract_error_atom(error) when is_atom(error), do: error
@@ -1245,7 +1256,7 @@ defmodule KafkaEx.Client do
     end
   end
 
-  defp timeout_val(nil), do: Config.request_timeout()
+  defp timeout_val(nil), do: Config.request_timeout() + @send_request_call_buffer
   defp timeout_val(timeout) when is_integer(timeout), do: timeout
 
   # The per-attempt socket-recv deadline for synchronous requests that do not
