@@ -985,9 +985,6 @@ defmodule KafkaEx.Client do
   defp extract_error_atom(error) when is_atom(error), do: error
   defp extract_error_atom(_), do: :unknown
 
-  # Error classification (which errors need a refresh) lives in Support.Retry; the
-  # refresh action stays here. A leadership error means stale metadata; a
-  # coordinator_refresh error means the group coordinator moved.
   defp refresh_for_error(error_atom, ctx, state) do
     cond do
       Retry.leadership_error?(error_atom) ->

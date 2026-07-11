@@ -5,14 +5,9 @@ defmodule KafkaEx.Support.Retry do
   This module provides:
   - Exponential backoff calculation with optional cap
   - Generic retry wrapper function
-  - **The single home for Kafka error classification.** Both retry loops (the
-    synchronous `KafkaEx.Client` loop and this `with_retry/2`) classify here:
-    retriability per operation (`data_plane_retryable?`, `produce_retryable?`,
-    `commit_retryable?`, `sync_group_retryable?`, `heartbeat_retryable?`,
-    `join_group_retryable?`); transport (`transport_timeout?`); refresh-need
-    (`leadership_error?` → metadata, `coordinator_refresh_error?` → coordinator);
-    primitives (`transient_error?`, `coordinator_error?`, `leadership_error?`);
-    terminal/fatal (`commit_terminal_error?`, `commit_fatal_error?`).
+  - **The single home for Kafka error classification** — both retry loops (the
+    synchronous `KafkaEx.Client` loop and `with_retry/2`) read their retriability,
+    transport, and refresh-need decisions from the classifiers below.
 
   ## Usage
 
@@ -236,10 +231,9 @@ defmodule KafkaEx.Support.Retry do
   def data_plane_retryable?(_error), do: true
 
   @doc """
-  Coordinator errors that mean the client should re-discover the group coordinator
-  before retrying. A subset of `coordinator_error?/1`: it excludes the transient
-  `:coordinator_load_in_progress`, where re-discovery would find the same (loading)
-  coordinator. `leadership_error?/1` is the metadata-refresh counterpart.
+  Coordinator errors that warrant re-discovering the coordinator before retrying.
+  Subset of `coordinator_error?/1` — excludes transient `:coordinator_load_in_progress`
+  (re-discovery would just find the same loading coordinator).
   """
   @spec coordinator_refresh_error?(error()) :: boolean()
   def coordinator_refresh_error?(:not_coordinator), do: true
