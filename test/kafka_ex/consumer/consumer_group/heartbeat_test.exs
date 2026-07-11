@@ -162,10 +162,10 @@ defmodule KafkaEx.Consumer.ConsumerGroup.HeartbeatTest do
     end
 
     test "an unexpected response shape is rescued into a terminal {:crashed, _} stop" do
-      # API.heartbeat/4 pattern-matches the client reply in a case; an unknown
-      # shape raises CaseClauseError inside the heartbeat process. The wrapper
-      # must convert that code-defect crash into a clean terminal stop, not let
-      # it escape as a bare abnormal exit.
+      # API.heartbeat/4 normalizes the client reply via normalize_reply/1; an
+      # unknown shape raises FunctionClauseError inside the heartbeat process. The
+      # wrapper must convert that code-defect crash into a clean terminal stop, not
+      # let it escape as a bare abnormal exit.
       {:ok, client} = MockClient.start_link(%{heartbeat: :unexpected_garbage})
 
       state = %Heartbeat.State{
@@ -176,7 +176,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.HeartbeatTest do
         heartbeat_interval: 1000
       }
 
-      assert {:stop, {:shutdown, {:terminal, {:crashed, CaseClauseError}}}, ^state} =
+      assert {:stop, {:shutdown, {:terminal, {:crashed, FunctionClauseError}}}, ^state} =
                Heartbeat.handle_info(:timeout, state)
     end
 

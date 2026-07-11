@@ -73,7 +73,7 @@ Effective version per request = **per-request opts > application config (`:api_v
 ## Conventions & gotchas
 
 - `mix compile --warnings-as-errors` is enforced — keep the build warning-free.
-- The client retry budget is split across two modules: `@retry_count` in `client/client.ex` and `@fetch_max_retries` in `api.ex` must stay equal, and are kept in sync **by hand** (see #357). Change both together.
+- The client retry budget lives in `@retry_count` (`client/client.ex`, exposed via `Client.retry_count/0`); `KafkaEx.API` derives `@fetch_max_retries` from it at compile time (#562), so the two can no longer drift — change `@retry_count` only.
 - Test mocking uses **Mimic** (recently migrated off Hammox). Test support lives in `test/support` (compiled only in `:test`).
 - The protocol layer favors keeping Kafka business logic *out* of the `Client` GenServer and *in* the per-version protocol impls, so the client stays stable as the wire protocol evolves.
 

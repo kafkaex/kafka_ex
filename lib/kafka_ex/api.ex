@@ -56,6 +56,7 @@ defmodule KafkaEx.API do
   """
 
   alias KafkaEx.Client
+  alias KafkaEx.Client.RequestBudget
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Cluster.Topic
   alias KafkaEx.Config
@@ -91,25 +92,19 @@ defmodule KafkaEx.API do
   @type member_id :: binary
   @type generation_id :: non_neg_integer
 
-  # Timeout model (canonical note; call sites point here). Each request derives a
-  # per-attempt Socket.recv deadline (network_timeout) and an outer GenServer.call
-  # budget from it, so the two can't mismatch (#357). Per-attempt deadline by op:
-  # fetch = max_wait_time + buffer; join = rebalance_timeout + lapse (broker holds
-  # it that long); sync = session window; everything else = :request_timeout.
-  # @fetch_max_retries comes from Client.retry_count/0 (single source of truth;
-  # makes API compile-depend on Client — acyclic, keep it so). @default_max_wait_time
-  # MUST match the fetch builder's :max_wait_time default.
+  # Per-attempt Socket.recv deadline per op; the outer GenServer.call budget is
+  # derived from it via RequestBudget so the two can't mismatch (#357):
+  #   fetch = max_wait_time + grace · join = rebalance_timeout + lapse
+  #   sync = session window · create/delete = broker op timeout + grace · else = :request_timeout
+  # @default_max_wait_time MUST match the fetch builder's :max_wait_time default.
   @default_max_wait_time 10_000
-  @fetch_network_timeout_buffer 5_000
-  @fetch_call_timeout_buffer 5_000
+  @network_timeout_buffer 5_000
+  # Retry budget's single source of truth (API compile-depends on Client for it; acyclic).
   @fetch_max_retries KafkaEx.Client.retry_count()
 
-  # JoinGroup grace over rebalance_timeout (mirrors Java's JOIN_GROUP_TIMEOUT_LAPSE).
   @join_group_timeout_lapse 5_000
   @join_default_rebalance_timeout 60_000
   @sync_default_timeout 35_000
-  # Outer-call buffer over the per-attempt deadline (join/sync send-once: no ×retries).
-  @coordinator_call_timeout_buffer 5_000
 
   # ---------------------------------------------------------------------------
   # __using__ macro for mixin pattern
@@ -682,11 +677,9 @@ defmodule KafkaEx.API do
   @spec leave_group(client, consumer_group_name, member_id, opts) ::
           {:ok, :no_error | LeaveGroup.t()} | {:error, error_atom}
   def leave_group(client, consumer_group, member_id, opts \\ []) do
-    case GenServer.call(client, {:leave_group, consumer_group, member_id, opts}, generic_call_budget()) do
-      {:ok, result} -> {:ok, result}
-      {:error, %{error: error_atom}} -> {:error, error_atom}
-      {:error, error_atom} -> {:error, error_atom}
-    end
+    client
+    |> GenServer.call({:leave_group, consumer_group, member_id, opts}, generic_call_budget())
+    |> normalize_reply()
   end
 
   @doc """
@@ -710,15 +703,12 @@ defmodule KafkaEx.API do
     network_timeout = Keyword.get(opts, :network_timeout, Config.request_timeout())
     opts = Keyword.put(opts, :network_timeout, network_timeout)
 
-    case GenServer.call(
-           client,
-           {:heartbeat, consumer_group, member_id, generation_id, opts},
-           call_budget(network_timeout)
-         ) do
-      {:ok, result} -> {:ok, result}
-      {:error, %{error: error_atom}} -> {:error, error_atom}
-      {:error, error_atom} -> {:error, error_atom}
-    end
+    client
+    |> GenServer.call(
+      {:heartbeat, consumer_group, member_id, generation_id, opts},
+      RequestBudget.call_budget(network_timeout, @fetch_max_retries)
+    )
+    |> normalize_reply()
   end
 
   @doc """
@@ -745,11 +735,9 @@ defmodule KafkaEx.API do
   @spec find_coordinator(client, consumer_group_name) :: {:ok, FindCoordinator.t()} | {:error, error_atom}
   @spec find_coordinator(client, consumer_group_name, opts) :: {:ok, FindCoordinator.t()} | {:error, error_atom}
   def find_coordinator(client, group_id, opts \\ []) do
-    case GenServer.call(client, {:find_coordinator, group_id, opts}, generic_call_budget()) do
-      {:ok, result} -> {:ok, result}
-      {:error, %{error: error_atom}} -> {:error, error_atom}
-      {:error, error_atom} -> {:error, error_atom}
-    end
+    client
+    |> GenServer.call({:find_coordinator, group_id, opts}, generic_call_budget())
+    |> normalize_reply()
   end
 
   # ---------------------------------------------------------------------------
@@ -866,11 +854,9 @@ defmodule KafkaEx.API do
   end
 
   def produce(client, topic, partition, messages, opts) when is_integer(partition) do
-    case GenServer.call(client, {:produce, topic, partition, messages, opts}, generic_call_budget()) do
-      {:ok, result} -> {:ok, result}
-      {:error, %{error: error_atom}} -> {:error, error_atom}
-      {:error, error_atom} -> {:error, error_atom}
-    end
+    client
+    |> GenServer.call({:produce, topic, partition, messages, opts}, generic_call_budget())
+    |> normalize_reply()
   end
 
   @doc """
@@ -966,44 +952,35 @@ defmodule KafkaEx.API do
   def fetch(client, topic, partition, offset, opts \\ []) do
     {call_timeout, opts_with_timeout} = derive_fetch_timeouts(opts)
 
-    case GenServer.call(client, {:fetch, topic, partition, offset, opts_with_timeout}, call_timeout) do
-      {:ok, result} -> {:ok, result}
-      {:error, %{error: error_atom}} -> {:error, error_atom}
-      {:error, error_atom} -> {:error, error_atom}
-    end
+    client
+    |> GenServer.call({:fetch, topic, partition, offset, opts_with_timeout}, call_timeout)
+    |> normalize_reply()
   end
 
   defp derive_fetch_timeouts(opts) do
     max_wait_time = Keyword.get(opts, :max_wait_time, @default_max_wait_time)
-    network_timeout = Keyword.get(opts, :network_timeout, max_wait_time + @fetch_network_timeout_buffer)
-    {call_budget(network_timeout), Keyword.put_new(opts, :network_timeout, network_timeout)}
+    network_timeout = Keyword.get(opts, :network_timeout, max_wait_time + @network_timeout_buffer)
+    call_timeout = RequestBudget.call_budget(network_timeout, @fetch_max_retries)
+    {call_timeout, Keyword.put_new(opts, :network_timeout, network_timeout)}
   end
 
-  # Outer GenServer.call budget for a per-attempt socket-recv deadline: covers the
-  # full client-level retry loop (`per_attempt × retries + buffer`). Single source
-  # for the shape shared by fetch (`derive_fetch_timeouts/1`) and the generic
-  # data-plane wrappers (`generic_call_budget/0`).
-  defp call_budget(per_attempt), do: per_attempt * @fetch_max_retries + @fetch_call_timeout_buffer
+  # Derived, never the implicit 5000 GenServer.call default: a >5000 :request_timeout
+  # would otherwise exit the caller before the client replies (#357).
+  defp generic_call_budget, do: RequestBudget.call_budget(Config.request_timeout(), @fetch_max_retries)
 
-  # Outer budget for requests whose per-attempt recv is the generic :request_timeout.
-  # Derived (not the implicit 5000 default) so a >5000 :request_timeout can't exceed
-  # the outer call and exit the caller mid-flight (#357).
-  defp generic_call_budget, do: call_budget(Config.request_timeout())
-
-  # Shared plumbing for the send-once coordinator calls (join/sync): inject the
-  # derived per-attempt `network_timeout` as a control opt, size the outer budget
-  # from it (no × retries — send-once), and normalize the reply. Only the message
-  # tuple and the `network_timeout` derivation differ between join and sync.
+  # join/sync share this: inject the per-attempt network_timeout as a control opt,
+  # size the send-once outer budget from it, normalize the reply.
   defp coordinator_call(client, opts, network_timeout, msg_fun) do
-    call_timeout = network_timeout + @coordinator_call_timeout_buffer
+    call_timeout = RequestBudget.call_budget(network_timeout)
     call_opts = opts |> Keyword.delete(:timeout) |> Keyword.put(:network_timeout, network_timeout)
 
-    case GenServer.call(client, msg_fun.(call_opts), call_timeout) do
-      {:ok, result} -> {:ok, result}
-      {:error, %{error: error_atom}} -> {:error, error_atom}
-      {:error, error_atom} -> {:error, error_atom}
-    end
+    client |> GenServer.call(msg_fun.(call_opts), call_timeout) |> normalize_reply()
   end
+
+  # Collapse the client's reply into the public {:ok, _} | {:error, atom} contract.
+  defp normalize_reply({:ok, result}), do: {:ok, result}
+  defp normalize_reply({:error, %{error: error_atom}}), do: {:error, error_atom}
+  defp normalize_reply({:error, error_atom}), do: {:error, error_atom}
 
   @doc """
   Fetch all available records from a topic partition.
@@ -1083,14 +1060,15 @@ defmodule KafkaEx.API do
     # The broker holds CreateTopics for up to its own `timeout`, so the per-attempt
     # socket-recv must cover that (not the generic :request_timeout), and the outer
     # GenServer.call budget is derived from it.
-    network_timeout = timeout + @coordinator_call_timeout_buffer
+    network_timeout = timeout + @network_timeout_buffer
     opts = Keyword.put_new(opts, :network_timeout, network_timeout)
 
-    case GenServer.call(client, {:create_topics, topics, timeout, opts}, call_budget(network_timeout)) do
-      {:ok, result} -> {:ok, result}
-      {:error, %{error: error_atom}} -> {:error, error_atom}
-      {:error, error_atom} -> {:error, error_atom}
-    end
+    client
+    |> GenServer.call(
+      {:create_topics, topics, timeout, opts},
+      RequestBudget.call_budget(network_timeout, @fetch_max_retries)
+    )
+    |> normalize_reply()
   end
 
   @doc """
@@ -1166,14 +1144,15 @@ defmodule KafkaEx.API do
     # The broker holds DeleteTopics for up to its own `timeout`, so the per-attempt
     # socket-recv must cover that (not the generic :request_timeout), and the outer
     # GenServer.call budget is derived from it.
-    network_timeout = timeout + @coordinator_call_timeout_buffer
+    network_timeout = timeout + @network_timeout_buffer
     opts = Keyword.put_new(opts, :network_timeout, network_timeout)
 
-    case GenServer.call(client, {:delete_topics, topics, timeout, opts}, call_budget(network_timeout)) do
-      {:ok, result} -> {:ok, result}
-      {:error, %{error: error_atom}} -> {:error, error_atom}
-      {:error, error_atom} -> {:error, error_atom}
-    end
+    client
+    |> GenServer.call(
+      {:delete_topics, topics, timeout, opts},
+      RequestBudget.call_budget(network_timeout, @fetch_max_retries)
+    )
+    |> normalize_reply()
   end
 
   @doc """
