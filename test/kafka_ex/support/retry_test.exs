@@ -42,6 +42,36 @@ defmodule KafkaEx.Support.RetryTest do
     end
   end
 
+  describe "backoff_delay_jittered/3" do
+    test "stays within ±20% of the exponential base for every attempt" do
+      for attempt <- 0..5 do
+        base = Retry.backoff_delay(attempt, 100)
+        lower = trunc(base * 0.8)
+        upper = base + trunc(base * 0.2)
+
+        for _ <- 1..200 do
+          delay = Retry.backoff_delay_jittered(attempt, 100)
+          assert delay >= lower and delay <= upper
+        end
+      end
+    end
+
+    test "jitters around the max_ms cap, not the uncapped value" do
+      base = 5000
+      lower = trunc(base * 0.8)
+      upper = base + trunc(base * 0.2)
+
+      for _ <- 1..200 do
+        delay = Retry.backoff_delay_jittered(10, 100, 5000)
+        assert delay >= lower and delay <= upper
+      end
+    end
+
+    test "a zero base yields zero" do
+      assert Retry.backoff_delay_jittered(0, 0) == 0
+    end
+  end
+
   describe "with_retry/2" do
     test "returns success immediately on first try" do
       result = Retry.with_retry(fn -> {:ok, :success} end)

@@ -12,7 +12,27 @@
   logs a warning and the consumer runs dynamically. A duplicate id is fenced
   (`:fenced_instance_id` → terminal stop, `member_terminated{terminal_class: :fenced}`).
 
+* **Per-attempt request timeout is now configurable via `:request_timeout`** (default
+  `15_000` ms) — the `Socket.recv` deadline for a single synchronous broker request attempt
+  (metadata, offset commit/fetch, heartbeat, produce ack, …). Consumer-group JoinGroup/SyncGroup
+  derive their own, longer per-attempt deadlines from the group's rebalance/session timeouts.
+
+* **Retry backoff now applies ±20% jitter (KIP-580)** in `KafkaEx.Support.Retry.with_retry/2`,
+  decorrelating retries across many consumer-group members after a shared coordinator/broker blip.
+
 ### Fixed
+
+* **Consumer-group cold start no longer times out (JoinGroup/SyncGroup socket timeouts).**
+  JoinGroup/SyncGroup previously fell back to the `1000` ms generic socket-recv timeout, while the
+  broker legitimately holds a JoinGroup response for up to `group.initial.rebalance.delay.ms`
+  (default 3 s) on a cold/empty group — so the first member reliably timed out and never joined.
+  (The library's own `config.exs` value never propagated to consumers, so the effective default
+  was the `1000` ms code fallback.) JoinGroup's per-attempt deadline is now `rebalance_timeout +
+  5000` and SyncGroup's is derived from the session window; both are sent **send-once** at the
+  client, with `ConsumerGroup.Manager` owning rejoin — matching the Java/kafka-python/librdkafka
+  model. The outer `GenServer.call` budget is derived from the per-attempt deadline so the two can
+  no longer mismatch (the #357 class of bug). A socket recv-timeout is no longer retried inside the
+  synchronous client loop; protocol errors keep their retry + metadata/coordinator refresh.
 
 * **The abnormal heartbeat-crash rejoin loop is now bounded (#560).** When a
   consumer-group member's heartbeat process dies abnormally — an uncatchable
@@ -32,6 +52,23 @@
   `member_terminated` metadata gains a low-cardinality `terminal_class` atom
   (`:fenced | :auth | :crash_loop | :crashed | :error | :client_died | :other`)
   for alert routing.
+
+### Deprecated
+
+* **`:sync_timeout` is deprecated in favour of `:request_timeout`** and will be removed in
+  KafkaEx 2.0. It remains honored as an alias; setting it without `:request_timeout` logs a
+  one-time deprecation warning at client boot. See UPGRADING.md.
+
+### Changed
+
+* **Consumer-group defaults aligned with the Apache Kafka 3.0+ consumer.**
+  `session_timeout` default is now `45_000` ms (was `30_000`; matches KIP-735, which raised
+  `session.timeout.ms` to cut spurious rebalances) and `heartbeat_interval` is now `3_000` ms
+  (was `5_000`; the canonical Kafka pairing, ≈ 1/15 of the session). The derived
+  `rebalance_timeout` default (`session_timeout × 3`) is therefore `135_000` ms. **Behavior
+  change:** a dead member is now detected after ~45 s of missed heartbeats instead of ~30 s
+  (fewer spurious rebalances on transient hiccups), and heartbeats are sent more frequently.
+  Override `:session_timeout` / `:heartbeat_interval` to restore the old values. See UPGRADING.md.
 
 ## 1.0.1 (2026-06-26)
 

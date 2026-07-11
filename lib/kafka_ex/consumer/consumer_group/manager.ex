@@ -145,8 +145,11 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
           }
   end
 
-  @heartbeat_interval 5_000
-  @session_timeout 30_000
+  # Defaults aligned with the Apache Kafka 3.0+ consumer (KIP-735 raised
+  # session.timeout.ms 10s→45s to cut spurious rebalances; heartbeat.interval.ms
+  # stays 3s, ≈ 1/15 of the session and well within the ≤ 1/3 requirement).
+  @heartbeat_interval 3_000
+  @session_timeout 45_000
   @session_timeout_padding 10_000
   # Default rebalance_timeout multiplier (relative to session_timeout)
   # In Java client, rebalance_timeout = max.poll.interval.ms (default 5 min)
@@ -619,7 +622,6 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
          %State{
            client: client,
            session_timeout: session_timeout,
-           session_timeout_padding: session_timeout_padding,
            rebalance_timeout: rebalance_timeout,
            group_name: group_name,
            topics: topics,
@@ -628,11 +630,13 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
          } = state,
          attempt_number
        ) do
+    # No `:timeout` here: KafkaEx.API.join_group derives both the per-attempt
+    # socket-recv deadline and the outer GenServer.call budget from
+    # rebalance_timeout (JoinGroup is held by the broker for the rebalance window).
     opts = [
       topics: topics,
       session_timeout: session_timeout,
       rebalance_timeout: rebalance_timeout,
-      timeout: session_timeout + session_timeout_padding,
       group_instance_id: group_instance_id
     ]
 

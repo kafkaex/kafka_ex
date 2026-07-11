@@ -7,7 +7,7 @@ config :kafka_ex,
 
 config :kayrock, snappy_module: :snappyer
 
-config :kafka_ex, sync_timeout: 60_000
+config :kafka_ex, request_timeout: 60_000
 
 # Help debug tests that are tricky to understand
 config :logger, :console,

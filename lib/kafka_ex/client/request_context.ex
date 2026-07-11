@@ -24,12 +24,14 @@ defmodule KafkaEx.Client.RequestContext do
       classification for the separate `with_retry` loop (stream/consumer);
       converging the two is deferred follow-up.
 
-    * `network_timeout` is the **per-attempt** `Socket.recv` deadline, set only
-      by fetch (derived from `:max_wait_time` in `KafkaEx.API.fetch/5`, which
-      also widens the matching `GenServer.call` budget). Leave `nil` for every
-      other request so it falls back to `:sync_timeout`. Setting it on a
-      non-fetch request without widening that caller's `GenServer.call` timeout
-      would reintroduce the issue #357 mismatch. It is per-attempt, NOT the
+    * `network_timeout` is the **per-attempt** `Socket.recv` deadline. It is set
+      explicitly by the requests the broker legitimately holds — fetch (derived
+      from `:max_wait_time`), JoinGroup (`rebalance_timeout + 5000`) and SyncGroup
+      (session window) — each of which widens its matching `GenServer.call` budget
+      in `KafkaEx.API` so the two cannot mismatch (issue #357). Leave `nil` for
+      every other request so it falls back to the generic `:request_timeout`
+      (`KafkaEx.Config.request_timeout/0`); those callers derive their outer
+      `GenServer.call` budget from the same value. It is per-attempt, NOT the
       total budget.
 
     * Backoff/jitter between attempts is intentionally absent — the client loop

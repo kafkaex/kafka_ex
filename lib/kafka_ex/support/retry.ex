@@ -42,6 +42,11 @@ defmodule KafkaEx.Support.Retry do
   @default_max_attempts 3
   @default_base_delay_ms 100
   @default_max_delay_ms :infinity
+  # ±20% uniform jitter on each backoff, matching Kafka's KIP-580
+  # (retry.backoff.ms grows exponentially up to retry.backoff.max.ms with ±20%
+  # jitter). Jitter decorrelates retries across many members so they do not
+  # thundering-herd the coordinator/broker after a shared failure.
+  @jitter_fraction 0.2
 
   @doc """
   Calculate exponential backoff delay.
@@ -73,6 +78,43 @@ defmodule KafkaEx.Support.Retry do
     case max_ms do
       :infinity -> delay
       cap when is_integer(cap) -> min(delay, cap)
+    end
+  end
+
+  @doc """
+  Exponential backoff (`backoff_delay/3`) with ±20% uniform jitter (KIP-580).
+
+  Returns a delay drawn uniformly from `[0.8 × base, 1.2 × base]`, where `base`
+  is the capped exponential value. Used by `with_retry/2` so concurrent retriers
+  (e.g. all members of a consumer group after a coordinator blip) spread their
+  re-attempts instead of retrying in lockstep. A zero base stays zero.
+  """
+  @spec backoff_delay_jittered(non_neg_integer(), non_neg_integer(), non_neg_integer() | :infinity) ::
+          non_neg_integer()
+  def backoff_delay_jittered(attempt, base_ms, max_ms \\ @default_max_delay_ms) do
+    jittered =
+      attempt
+      |> backoff_delay(base_ms, max_ms)
+      |> apply_jitter()
+
+    # Keep the result within the cap — jitter is applied after the exponential
+    # cap, so clamp so a delay never exceeds max_ms (KIP-580 jitters within bound).
+    case max_ms do
+      :infinity -> jittered
+      cap when is_integer(cap) -> min(jittered, cap)
+    end
+  end
+
+  defp apply_jitter(0), do: 0
+
+  defp apply_jitter(delay) do
+    spread = trunc(delay * @jitter_fraction)
+
+    if spread <= 0 do
+      delay
+    else
+      # uniform in [delay - spread, delay + spread]
+      delay - spread + (:rand.uniform(2 * spread + 1) - 1)
     end
   end
 
@@ -129,7 +171,7 @@ defmodule KafkaEx.Support.Retry do
 
   defp maybe_retry(fun, attempt, max, base, max_delay, retryable?, on_retry, error) do
     if attempt < max - 1 and retryable?.(error) do
-      delay = backoff_delay(attempt, base, max_delay)
+      delay = backoff_delay_jittered(attempt, base, max_delay)
       invoke_on_retry(on_retry, error, attempt + 1, delay)
       Process.sleep(delay)
       do_retry(fun, attempt + 1, max, base, max_delay, retryable?, on_retry, error)
@@ -169,6 +211,18 @@ defmodule KafkaEx.Support.Retry do
   def transient_error?(:closed), do: true
   def transient_error?(:no_broker), do: true
   def transient_error?(error), do: coordinator_error?(error)
+
+  @doc """
+  Check if an error is a socket `Socket.recv` deadline expiry (`:timeout`).
+
+  Distinct from the broker error code `:request_timed_out` (Kafka error 7), which
+  comes back fast. A recv-timeout is the one error that costs a full per-attempt
+  `network_timeout`, so `KafkaEx.Client` sends it **once** rather than retrying it
+  inside its synchronous request loop; higher-level loops re-issue with backoff.
+  """
+  @spec transport_timeout?(error()) :: boolean()
+  def transport_timeout?(:timeout), do: true
+  def transport_timeout?(_), do: false
 
   @doc """
   Check if error is a leadership-related error requiring metadata refresh.
@@ -275,9 +329,16 @@ defmodule KafkaEx.Support.Retry do
 
   The heartbeat process stops on any error and lets the manager react
   (`Heartbeat.handle_info/2`), so the only retry is here at the client. Its
-  value is absorbing a transient blip (timeout / coordinator hiccup) so a
-  single failed heartbeat does not escalate into a full rejoin + group-wide
-  rebalance — hence default-retry for unclassified errors.
+  value is absorbing a transient *coordinator hiccup* so a single failed
+  heartbeat does not escalate into a full rejoin + group-wide rebalance — hence
+  default-retry for unclassified errors.
+
+  Note: a socket recv-**timeout** is NOT absorbed here. `KafkaEx.Client` treats a
+  transport `:timeout` as send-once (it would otherwise block the synchronous
+  client for another full `:request_timeout`), so a heartbeat whose recv times
+  out escalates to a rejoin rather than being retried by this classifier. This
+  matches the reference clients, and by then the coordinator is unresponsive for
+  a large fraction of the session window anyway.
 
   The broker's "rejoin now" / identity signals — `:rebalance_in_progress`,
   `:unknown_member_id` and `:illegal_generation` — are mapped by the heartbeat

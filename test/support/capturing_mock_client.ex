@@ -57,6 +57,14 @@ defmodule KafkaEx.Test.CapturingMockClient do
     {:reply, {:ok, %KafkaEx.Messages.LeaveGroup{}}, {[{:leave_group, group, member_id, opts} | calls], watcher}}
   end
 
+  def handle_call({:create_topics, topics, timeout, opts}, _from, {calls, watcher}) do
+    {:reply, {:ok, %{}}, {[{:create_topics, topics, timeout, opts} | calls], watcher}}
+  end
+
+  def handle_call({:delete_topics, topics, timeout, opts}, _from, {calls, watcher}) do
+    {:reply, {:ok, %{}}, {[{:delete_topics, topics, timeout, opts} | calls], watcher}}
+  end
+
   @impl true
   def terminate(_reason, {calls, watcher}) when is_pid(watcher) do
     send(watcher, {:captured_calls, Enum.reverse(calls)})
