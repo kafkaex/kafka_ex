@@ -90,36 +90,24 @@ defmodule KafkaEx.API do
   @type member_id :: binary
   @type generation_id :: non_neg_integer
 
-  # Issue #357 — fetch timeout alignment.
-  # GenServer.call and Socket.recv timeouts derived from :max_wait_time so
-  # the broker's long-poll completes before either fires.
-  #
-  # @fetch_max_retries is derived from KafkaEx.Client.retry_count/0 (its single
-  # source of truth) so the call_timeout budget always matches the client's real
-  # retry count and the two can no longer drift. See #357.
-  #
-  # One coupling is still maintained by hand:
-  #   * @default_max_wait_time MUST equal the fetch request builder's :max_wait_time
-  #     default (KafkaEx.Protocol.Kayrock.Fetch.RequestHelpers) — if the builder's
-  #     default drifts above this, network_timeout no longer covers the long-poll.
+  # Timeout model (canonical note; call sites point here). Each request derives a
+  # per-attempt Socket.recv deadline (network_timeout) and an outer GenServer.call
+  # budget from it, so the two can't mismatch (#357). Per-attempt deadline by op:
+  # fetch = max_wait_time + buffer; join = rebalance_timeout + lapse (broker holds
+  # it that long); sync = session window; everything else = :request_timeout.
+  # @fetch_max_retries comes from Client.retry_count/0 (single source of truth;
+  # makes API compile-depend on Client — acyclic, keep it so). @default_max_wait_time
+  # MUST match the fetch builder's :max_wait_time default.
   @default_max_wait_time 10_000
   @fetch_network_timeout_buffer 5_000
   @fetch_call_timeout_buffer 5_000
-  # Single source of truth for the retry budget (kills the #357 hand-sync drift).
-  # NB: this makes KafkaEx.API compile-depend on KafkaEx.Client — safe today (no
-  # cycle, Client does not reference API at module scope); keep it that way.
   @fetch_max_retries KafkaEx.Client.retry_count()
 
-  # JoinGroup's per-attempt socket-recv deadline is derived from rebalance_timeout
-  # plus a fixed grace, mirroring the Java client's JOIN_GROUP_TIMEOUT_LAPSE = 5000.
-  # The broker legitimately holds a JoinGroup response for up to the rebalance
-  # window (>= group.initial.rebalance.delay.ms on a cold group), so a generic
-  # short timeout would fail every cold-start join.
+  # JoinGroup grace over rebalance_timeout (mirrors Java's JOIN_GROUP_TIMEOUT_LAPSE).
   @join_group_timeout_lapse 5_000
   @join_default_rebalance_timeout 60_000
   @sync_default_timeout 35_000
-  # Outer GenServer.call budget = per-attempt network_timeout + this buffer.
-  # join/sync are send-once at the client, so there is no × retries factor.
+  # Outer-call buffer over the per-attempt deadline (join/sync send-once: no ×retries).
   @coordinator_call_timeout_buffer 5_000
 
   # ---------------------------------------------------------------------------
@@ -600,15 +588,11 @@ defmodule KafkaEx.API do
   @spec join_group(client, consumer_group_name, member_id) :: {:ok, JoinGroup.t()} | {:error, error_atom}
   @spec join_group(client, consumer_group_name, member_id, opts) :: {:ok, JoinGroup.t()} | {:error, error_atom}
   def join_group(client, consumer_group, member_id, opts \\ []) do
-    # JoinGroup is held by the broker for up to the rebalance window, so its
-    # per-attempt socket-recv deadline is rebalance_timeout + a fixed grace
-    # (Java's JOIN_GROUP_TIMEOUT_LAPSE = 5000). Sent send-once at the client;
-    # ConsumerGroup.Manager owns rejoin. The outer GenServer.call budget must
-    # cover that per-attempt deadline, so it is derived from it (not a fixed 40s),
-    # otherwise the caller would time out while the broker is still holding a
-    # legitimate rebalance response (the #357 class of mismatch).
+    # Per-attempt deadline defaults to rebalance_timeout + grace; an explicit
+    # :network_timeout or :timeout overrides. See the timeout notes above.
     rebalance_timeout = Keyword.get(opts, :rebalance_timeout, @join_default_rebalance_timeout)
-    network_timeout = Keyword.get(opts, :network_timeout, rebalance_timeout + @join_group_timeout_lapse)
+    default_network_timeout = rebalance_timeout + @join_group_timeout_lapse
+    network_timeout = Keyword.get(opts, :network_timeout, Keyword.get(opts, :timeout, default_network_timeout))
     coordinator_call(client, opts, network_timeout, &{:join_group, consumer_group, member_id, &1})
   end
 
@@ -628,11 +612,9 @@ defmodule KafkaEx.API do
   @spec sync_group(client, consumer_group_name, generation_id, member_id, opts) ::
           {:ok, SyncGroup.t()} | {:error, error_atom}
   def sync_group(client, consumer_group, generation_id, member_id, opts \\ []) do
-    # SyncGroup can be held by the broker until the leader distributes assignments
-    # (bounded by the session window). Per-attempt socket-recv = the caller-supplied
-    # :timeout (ConsumerGroup.Manager passes session_timeout + padding) or a default;
-    # sent send-once at the client. The outer GenServer.call budget is derived from
-    # that per-attempt deadline so the two cannot mismatch (#357).
+    # Held by the broker until the leader distributes assignments (session-bounded).
+    # Per-attempt deadline = :network_timeout | :timeout (Manager passes session +
+    # padding) | default; send-once. See the timeout notes above.
     network_timeout = Keyword.get(opts, :network_timeout, Keyword.get(opts, :timeout, @sync_default_timeout))
     coordinator_call(client, opts, network_timeout, &{:sync_group, consumer_group, generation_id, member_id, &1})
   end
@@ -674,10 +656,9 @@ defmodule KafkaEx.API do
   @spec heartbeat(client, consumer_group_name, member_id, generation_id, opts) ::
           {:ok, Heartbeat.t()} | {:error, error_atom}
   def heartbeat(client, consumer_group, member_id, generation_id, opts \\ []) do
-    # Heartbeat is answered promptly (never broker-held), so it uses a short
-    # per-attempt deadline — the caller passes `:network_timeout` (heartbeat_interval)
-    # — instead of the generic :request_timeout, so a stalled heartbeat is detected
-    # well inside session_timeout. Falls back to the generic budget for direct callers.
+    # Answered promptly (never broker-held) → short per-attempt deadline: the caller
+    # passes :network_timeout (heartbeat_interval), else the generic budget. This keeps
+    # a stalled heartbeat detected well inside session_timeout.
     network_timeout = Keyword.get(opts, :network_timeout, Config.request_timeout())
     opts = Keyword.put(opts, :network_timeout, network_timeout)
 
@@ -956,14 +937,9 @@ defmodule KafkaEx.API do
   # data-plane wrappers (`generic_call_budget/0`).
   defp call_budget(per_attempt), do: per_attempt * @fetch_max_retries + @fetch_call_timeout_buffer
 
-  # Outer GenServer.call budget for the requests whose per-attempt socket-recv
-  # falls back to the generic `:request_timeout` (metadata, offset, heartbeat,
-  # find_coordinator, produce, …). It MUST be derived from `:request_timeout`,
-  # never left at the implicit 5000ms GenServer.call default: a `:request_timeout`
-  # above 5000 would otherwise exceed the outer budget, so the caller's call would
-  # exit before the client returns a clean `{:error, :timeout}` (the #357 class of
-  # mismatch). Sized × the retry budget to cover the metadata refresh loop; a
-  # socket timeout is send-once, so normal completions return well inside this.
+  # Outer budget for requests whose per-attempt recv is the generic :request_timeout.
+  # Derived (not the implicit 5000 default) so a >5000 :request_timeout can't exceed
+  # the outer call and exit the caller mid-flight (#357).
   defp generic_call_budget, do: call_budget(Config.request_timeout())
 
   # Shared plumbing for the send-once coordinator calls (join/sync): inject the

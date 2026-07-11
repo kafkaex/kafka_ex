@@ -50,6 +50,20 @@ defmodule KafkaEx.ConfigTest do
       Application.put_env(:kafka_ex, :sync_timeout, 42_000)
       assert Config.request_timeout() == 7_000
     end
+
+    # End-to-end backward-compat: the deprecated alias must reach a *derived
+    # operation timeout*, not just Config. (This test module is async: false, so
+    # mutating the global :kafka_ex env is safe.)
+    test "the deprecated :sync_timeout alias flows end-to-end into a derived operation timeout" do
+      Application.delete_env(:kafka_ex, :request_timeout)
+      Application.put_env(:kafka_ex, :sync_timeout, 22_222)
+
+      {:ok, client} = KafkaEx.Test.CapturingMockClient.start_link()
+      assert {:ok, _} = KafkaEx.API.heartbeat(client, "g", "m", 1)
+
+      assert [{:heartbeat, _, _, _, opts}] = KafkaEx.Test.CapturingMockClient.calls(client)
+      assert Keyword.get(opts, :network_timeout) == 22_222
+    end
   end
 
   describe "warn_deprecated_timeout_config/0" do
