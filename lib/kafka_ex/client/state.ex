@@ -38,7 +38,6 @@ defmodule KafkaEx.Client.State do
 
   @default_metadata_update_interval 30_000
 
-  # initialize static parts of the state from args
   def static_init(args) do
     %__MODULE__{
       bootstrap_uris: Keyword.get(args, :uris, []),

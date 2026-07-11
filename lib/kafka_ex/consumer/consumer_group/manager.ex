@@ -184,7 +184,6 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   @crash_rejoin_max_restarts 10
   @crash_rejoin_window_ms 60_000
 
-  # Gets a value from opts, falling back to application config, then to default
   defp get_with_default(opts, key, default) do
     Keyword.get(opts, key, Application.get_env(:kafka_ex, key, default))
   end
@@ -897,7 +896,6 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
 
   ### Consumer Management
 
-  # Starts consuming from the member's assigned partitions.
   defp start_consumer(
          %State{
            consumer_module: consumer_module,
@@ -910,7 +908,6 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
          } = state,
          assignments
        ) do
-    # add member_id, generation_id, and group_manager_pid (for rejoin signalling) to the consumer opts
     consumer_opts =
       Keyword.merge(consumer_opts,
         generation_id: generation_id,

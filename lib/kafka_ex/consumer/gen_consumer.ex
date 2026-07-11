@@ -820,7 +820,6 @@ defmodule KafkaEx.Consumer.GenConsumer do
       :exit, _ -> :ok
     end
 
-    # Safely stop the client if it's still alive
     if Process.alive?(state.client) do
       Process.unlink(state.client)
 
@@ -879,7 +878,6 @@ defmodule KafkaEx.Consumer.GenConsumer do
   end
 
   defp handle_new_fetch_response(fetch_result, state) do
-    # Pass records directly to the callback
     handle_message_set(fetch_result.records, state)
   end
 
