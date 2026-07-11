@@ -93,9 +93,18 @@ defmodule KafkaEx.API.CoordinatorTimeoutTest do
       calls = CapturingMockClient.calls(client)
       assert {:create_topics, ["t"], 10_000, create_opts} = Enum.at(calls, 0)
       assert {:delete_topics, ["t"], 30_000, delete_opts} = Enum.at(calls, 1)
-      # broker timeout + @coordinator_call_timeout_buffer (5_000)
+      # broker op timeout + @network_timeout_buffer (5_000)
       assert Keyword.get(create_opts, :network_timeout) == 15_000
       assert Keyword.get(delete_opts, :network_timeout) == 35_000
+    end
+
+    test "an explicit :network_timeout overrides the broker-timeout derivation" do
+      {:ok, client} = CapturingMockClient.start_link()
+
+      assert {:ok, _} = KafkaEx.API.create_topics(client, ["t"], 10_000, network_timeout: 99_000)
+
+      assert [{:create_topics, _, _, opts}] = CapturingMockClient.calls(client)
+      assert Keyword.get(opts, :network_timeout) == 99_000
     end
   end
 

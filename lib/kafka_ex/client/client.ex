@@ -1278,11 +1278,9 @@ defmodule KafkaEx.Client do
     end
   end
 
-  # send_request/4 is send-once (its :network_request handler does one attempt),
-  # so the outer budget is the per-attempt :request_timeout plus RequestBudget's
-  # buffer — never the implicit 5000 default (which a larger :request_timeout
-  # would exceed, exiting the caller mid-flight; the #357 class).
-  defp timeout_val(nil), do: RequestBudget.send_once(Config.request_timeout())
+  # send_request/4 is send-once; budget from :request_timeout, never the implicit
+  # 5000 default (a larger :request_timeout would exit the caller; #357).
+  defp timeout_val(nil), do: RequestBudget.call_budget(Config.request_timeout())
   defp timeout_val(timeout) when is_integer(timeout), do: timeout
 
   # The per-attempt socket-recv deadline for synchronous requests that do not
