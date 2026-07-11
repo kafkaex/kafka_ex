@@ -27,8 +27,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
 
   The following options can be passed when starting a consumer group:
 
-  - `:heartbeat_interval` - Interval between heartbeats in ms (default: 5000)
-  - `:session_timeout` - Session timeout in ms (default: 30000)
+  - `:heartbeat_interval` - Interval between heartbeats in ms (default: 3000)
+  - `:session_timeout` - Session timeout in ms (default: 45000)
   - `:session_timeout_padding` - Extra time added to request timeouts (default: 10000)
   - `:rebalance_timeout` - Time allowed for consumers to rejoin during rebalance (default: `session_timeout * 3`)
   - `:partition_assignment_callback` - Function for custom partition assignment (default: round-robin)

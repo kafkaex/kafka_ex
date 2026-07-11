@@ -101,9 +101,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
 
   * `:heartbeat_interval` - How frequently, in milliseconds, to send heartbeats
      to the broker.  This impacts how quickly we will process partition
-     changes as consumers start/stop.  Default: 5000 (5 seconds).
+     changes as consumers start/stop.  Default: 3000 (3 seconds).
   * `:session_timeout` - Consumer group session timeout in milliseconds.
-     Default: 30000 (30 seconds).  See below.
+     Default: 45000 (45 seconds).  See below.
   * `:session_timeout_padding` - Timeout padding for consumer group options.
      Default: 10000 (10 seconds).  See below.
   * Any of `t:KafkaEx.GenConsumer.option/0`,

@@ -151,12 +151,11 @@ synchronously, so while a *rebalance* is in progress it is busy for that window
 default 3s). Two consequences for that window:
 
   * The `KafkaEx.Consumer.ConsumerGroup` introspection calls
-    (`generation_id/1`, `member_id/1`, `assignments/1`, `active?/1`, …) use a
-    5s `GenServer.call`; during a long rebalance they may exit with a call
-    timeout. Wrap them or pass a longer timeout if you poll them during
-    rebalances.
-  * If your supervisor stops the group mid-rebalance, the default 5s child
-    shutdown may cut off `terminate/2` before it sends `LeaveGroup`; a dynamic
+    (`generation_id/1`, `member_id/1`, `assignments/1`, `active?/1`, …) default
+    to a 30s `GenServer.call`; a rebalance longer than that can still exit them
+    with a call timeout. Pass a longer timeout if you poll them during rebalances.
+  * If your supervisor stops the group mid-rebalance, the 25s child shutdown may
+    cut off `terminate/2` before it sends `LeaveGroup`; a dynamic
     member's partitions then wait `session_timeout` to redistribute (static
     members, KIP-345, intentionally skip LeaveGroup anyway). Raise the group's
     child `shutdown:` if graceful mid-rebalance leave matters for your deploys.
