@@ -65,24 +65,22 @@ defmodule KafkaEx.Chaos.NetworkTest do
       {:ok, _metadata} = KafkaEx.API.metadata(client)
     end
 
-    test "client times out with high latency exceeding request timeout", ctx do
+    test "client reconnects and serves cached metadata under high latency", ctx do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
-      {:ok, _metadata} = KafkaEx.API.metadata(client)
+      {:ok, _cached} = KafkaEx.API.metadata(client)
 
-      ChaosTestHelpers.with_latency(ctx.toxiproxy_container, ctx.proxy_name, 10_000, fn ->
-        # High latency causes GenServer.call to exit with timeout
-        # We catch this exit and verify it's a timeout
-        result =
-          try do
+      # Slow socket -> per-attempt recv times out -> the client reconnects and
+      # serves cached cluster metadata within the request budget (no caller timeout).
+      {result, log} =
+        ExUnit.CaptureLog.with_log(fn ->
+          ChaosTestHelpers.with_latency(ctx.toxiproxy_container, ctx.proxy_name, 25_000, fn ->
             KafkaEx.API.metadata(client)
-          catch
-            :exit, {:timeout, _} -> {:error, :timeout}
-          end
+          end)
+        end)
 
-        assert match?({:error, _}, result), "Expected timeout error with high latency, got: #{inspect(result)}"
-      end)
+      assert log =~ "Reconnecting to broker"
+      assert match?({:ok, %KafkaEx.Cluster.ClusterMetadata{}}, result)
 
-      # Client may be in a bad state after timeout, start a fresh one
       ChaosTestHelpers.stop_client()
       Process.sleep(500)
       {:ok, new_client} = ChaosTestHelpers.start_client(ctx)
