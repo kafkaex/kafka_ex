@@ -4,10 +4,11 @@ defmodule KafkaEx.Client.CoordinatorRefreshTest do
   response on a consumer-group request must invalidate the cached coordinator and
   re-run FindCoordinator before retrying — not blind-retry the stale broker.
 
-  Pre-fix, `requires_metadata_refresh?/1` only knew leadership errors, so
+  Pre-fix, the metadata-refresh classifier only knew leadership errors, so
   `:not_coordinator` retried the same cached coordinator and FindCoordinator was
-  never re-issued (the rolling-deploy hang). Driven through the real `handle_call`
-  path; no private function is exposed.
+  never re-issued (the rolling-deploy hang). Coordinator-refresh classification now
+  lives in `Retry.coordinator_refresh_error?/1`. Driven through the real
+  `handle_call` path; no private function is exposed.
 
   The `:not_coordinator` is injected via the network seam (PR-2 now surfaces the
   real atom into the retry loop); the observable is that a FindCoordinator request

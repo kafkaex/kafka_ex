@@ -916,8 +916,8 @@ defmodule KafkaEx.Client do
   #
   # The `retryable?` field on the `%RequestContext{}` lets callers specify which
   # errors should trigger a retry. This is important for produce requests where
-  # blind retries can cause duplicate messages. By default (the struct's
-  # `always_retryable/1`), all errors are retried (backwards compatible behavior).
+  # blind retries can cause duplicate messages. By default
+  # (`Retry.data_plane_retryable?/1`), all errors are retried.
   #
   # For produce requests, the context sets `&Retry.produce_retryable?/1` to only retry leadership errors.
   # ----------------------------------------------------------------------------------------------------
@@ -985,25 +985,16 @@ defmodule KafkaEx.Client do
   defp extract_error_atom(error) when is_atom(error), do: error
   defp extract_error_atom(_), do: :unknown
 
-  # Errors that indicate the client has stale metadata and should refresh before retrying.
-  defp requires_metadata_refresh?(:not_leader_for_partition), do: true
-  defp requires_metadata_refresh?(:leader_not_available), do: true
-  defp requires_metadata_refresh?(:unknown_topic_or_partition), do: true
-  defp requires_metadata_refresh?(:not_leader_or_follower), do: true
-  defp requires_metadata_refresh?(:fenced_leader_epoch), do: true
-  defp requires_metadata_refresh?(_), do: false
-
-  defp requires_coordinator_refresh?(:not_coordinator), do: true
-  defp requires_coordinator_refresh?(:coordinator_not_available), do: true
-  defp requires_coordinator_refresh?(_), do: false
-
+  # Error classification (which errors need a refresh) lives in Support.Retry; the
+  # refresh action stays here. A leadership error means stale metadata; a
+  # coordinator_refresh error means the group coordinator moved.
   defp refresh_for_error(error_atom, ctx, state) do
     cond do
-      requires_metadata_refresh?(error_atom) ->
+      Retry.leadership_error?(error_atom) ->
         Logger.info("Refreshing metadata due to #{inspect(error_atom)} error")
         update_metadata(state)
 
-      coordinator_request?(ctx.node_selector) and requires_coordinator_refresh?(error_atom) ->
+      coordinator_request?(ctx.node_selector) and Retry.coordinator_refresh_error?(error_atom) ->
         Logger.info("Re-discovering group coordinator due to #{inspect(error_atom)} error")
         refresh_coordinator(state, ctx.node_selector.consumer_group_name)
 
