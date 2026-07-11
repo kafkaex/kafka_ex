@@ -59,6 +59,17 @@
   KafkaEx 2.0. It remains honored as an alias; setting it without `:request_timeout` logs a
   one-time deprecation warning at client boot. See UPGRADING.md.
 
+### Changed
+
+* **Consumer-group defaults aligned with the Apache Kafka 3.0+ consumer.**
+  `session_timeout` default is now `45_000` ms (was `30_000`; matches KIP-735, which raised
+  `session.timeout.ms` to cut spurious rebalances) and `heartbeat_interval` is now `3_000` ms
+  (was `5_000`; the canonical Kafka pairing, ≈ 1/15 of the session). The derived
+  `rebalance_timeout` default (`session_timeout × 3`) is therefore `135_000` ms. **Behavior
+  change:** a dead member is now detected after ~45 s of missed heartbeats instead of ~30 s
+  (fewer spurious rebalances on transient hiccups), and heartbeats are sent more frequently.
+  Override `:session_timeout` / `:heartbeat_interval` to restore the old values. See UPGRADING.md.
+
 ## 1.0.1 (2026-06-26)
 
 ### Breaking Changes
