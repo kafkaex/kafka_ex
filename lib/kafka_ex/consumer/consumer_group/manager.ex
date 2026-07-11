@@ -81,6 +81,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   alias KafkaEx.Consumer.ConsumerGroup.Heartbeat
   alias KafkaEx.Consumer.ConsumerGroup.PartitionAssignment
   alias KafkaEx.Messages.ApiVersions
+  alias KafkaEx.Support.Retry
   alias KafkaEx.Telemetry
   require Logger
 
@@ -470,7 +471,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   # the current heartbeat_timer keeps a stale heartbeat's error EXIT from
   # triggering a spurious rebalance — it falls through to the stale-timer clause.
   def handle_info({:EXIT, timer, {:shutdown, {:error, reason}}}, %State{heartbeat_timer: timer} = state) do
-    if recoverable_error?(reason) do
+    if Retry.consumer_group_recoverable?(reason) do
       Logger.warning("Heartbeat failed with #{inspect(reason)}, attempting to rejoin group")
       {:ok, new_state} = rebalance(state, {:heartbeat_error, reason})
       {:noreply, new_state}
@@ -660,7 +661,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
       reason == :unknown_member_id ->
         handle_recoverable_join_error(reset_generation(state, :unknown_member_id), group_name, reason, attempt_number)
 
-      recoverable_error?(reason) ->
+      Retry.consumer_group_recoverable?(reason) ->
         handle_recoverable_join_error(state, group_name, reason, attempt_number)
 
       true ->
@@ -782,7 +783,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
 
   defp handle_sync_error(%State{} = state, group_name, reason) do
     cond do
-      not sync_rejoinable?(reason) ->
+      not Retry.sync_rejoinable?(reason) ->
         raise KafkaEx.SyncGroupError, group_name: group_name, reason: reason
 
       state.sync_failures >= @max_sync_retries ->
@@ -804,10 +805,6 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
         rebalance(%State{state | sync_failures: attempt}, {:sync_error, reason})
     end
   end
-
-  defp sync_rejoinable?(:illegal_generation), do: true
-  defp sync_rejoinable?(:unknown_member_id), do: true
-  defp sync_rejoinable?(reason), do: recoverable_error?(reason)
 
   # Convert assignments from Manager format to protocol-agnostic format for sync_group request
   # Input: [{member_id, [{topic, [partition_ids]}]}]
@@ -1049,20 +1046,6 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   end
 
   ### Error Classification
-
-  # Determines if an error is recoverable via retry/rejoin.
-  # Following Java client pattern (KAFKA-6829): UNKNOWN_TOPIC_OR_PARTITION is
-  # treated like COORDINATOR_LOAD_IN_PROGRESS - both trigger retry behavior.
-  defp recoverable_error?(:coordinator_not_available), do: true
-  defp recoverable_error?(:not_coordinator), do: true
-  defp recoverable_error?(:coordinator_load_in_progress), do: true
-  defp recoverable_error?(:unknown_topic_or_partition), do: true
-  defp recoverable_error?(:no_broker), do: true
-  defp recoverable_error?(:timeout), do: true
-  defp recoverable_error?(:closed), do: true
-  defp recoverable_error?(:not_connected), do: true
-  defp recoverable_error?(:unknown), do: true
-  defp recoverable_error?(_), do: false
 
   defp maybe_warn_static_membership_unsupported(_client, nil), do: :ok
 

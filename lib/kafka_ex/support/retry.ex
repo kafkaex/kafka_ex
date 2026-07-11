@@ -341,6 +341,36 @@ defmodule KafkaEx.Support.Retry do
   def sync_group_retryable?(_), do: true
 
   @doc """
+  Manager-layer: errors on which `ConsumerGroup.Manager` retries a join / rejoins the
+  group rather than escalating. Distinct from the client-layer
+  `consumer_group_retryable?/1` — this drives the Manager's join-retry and
+  heartbeat-error routing, and includes bare transport states (`:not_connected`,
+  `:unknown`) the client layer doesn't.
+  """
+  @spec consumer_group_recoverable?(error()) :: boolean()
+  def consumer_group_recoverable?(:coordinator_not_available), do: true
+  def consumer_group_recoverable?(:not_coordinator), do: true
+  def consumer_group_recoverable?(:coordinator_load_in_progress), do: true
+  def consumer_group_recoverable?(:unknown_topic_or_partition), do: true
+  def consumer_group_recoverable?(:no_broker), do: true
+  def consumer_group_recoverable?(:timeout), do: true
+  def consumer_group_recoverable?(:closed), do: true
+  def consumer_group_recoverable?(:not_connected), do: true
+  def consumer_group_recoverable?(:unknown), do: true
+  def consumer_group_recoverable?(_), do: false
+
+  @doc """
+  Manager-layer: SyncGroup errors that warrant a Manager rejoin — `:illegal_generation`
+  and `:unknown_member_id` (re-identify + rejoin), else `consumer_group_recoverable?/1`.
+  The inverse view of the client-layer `sync_group_retryable?/1`, which returns false
+  for these so they bubble up to the Manager.
+  """
+  @spec sync_rejoinable?(error()) :: boolean()
+  def sync_rejoinable?(:illegal_generation), do: true
+  def sync_rejoinable?(:unknown_member_id), do: true
+  def sync_rejoinable?(reason), do: consumer_group_recoverable?(reason)
+
+  @doc """
   Check if a Heartbeat error is safe to retry at the client layer.
 
   The heartbeat process stops on any error and lets the manager react
