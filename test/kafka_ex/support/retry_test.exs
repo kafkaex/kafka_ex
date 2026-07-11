@@ -455,11 +455,18 @@ defmodule KafkaEx.Support.RetryTest do
   end
 
   describe "data_plane_retryable?/1" do
-    test "is permissive — retries any error" do
+    test "retries transient and leadership errors" do
       assert Retry.data_plane_retryable?(:not_leader_for_partition)
       assert Retry.data_plane_retryable?(:request_timed_out)
-      assert Retry.data_plane_retryable?(:topic_authorization_failed)
-      assert Retry.data_plane_retryable?(:anything)
+      assert Retry.data_plane_retryable?(:timeout)
+      assert Retry.data_plane_retryable?(:coordinator_not_available)
+      assert Retry.data_plane_retryable?(:unknown_topic_or_partition)
+    end
+
+    test "fails fast on fatal broker codes" do
+      refute Retry.data_plane_retryable?(:topic_authorization_failed)
+      refute Retry.data_plane_retryable?(:unsupported_version)
+      refute Retry.data_plane_retryable?(:invalid_request)
     end
   end
 
