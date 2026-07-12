@@ -40,13 +40,14 @@ defmodule KafkaEx.Client.RequestContext do
   """
 
   alias KafkaEx.Client.NodeSelector
+  alias KafkaEx.Support.Retry
 
   @enforce_keys [:request, :parser_fn, :node_selector]
   defstruct [
     :request,
     :parser_fn,
     :node_selector,
-    retryable?: &__MODULE__.always_retryable/1,
+    retryable?: &Retry.data_plane_retryable?/1,
     network_timeout: nil
   ]
 
@@ -63,7 +64,4 @@ defmodule KafkaEx.Client.RequestContext do
           retryable?: retryable_fn(),
           network_timeout: non_neg_integer() | nil
         }
-
-  @doc false
-  def always_retryable(_error), do: true
 end

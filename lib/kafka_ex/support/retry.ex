@@ -5,7 +5,9 @@ defmodule KafkaEx.Support.Retry do
   This module provides:
   - Exponential backoff calculation with optional cap
   - Generic retry wrapper function
-  - Error classifiers for common Kafka error patterns
+  - **The single home for Kafka error classification** — both retry loops (the
+    synchronous `KafkaEx.Client` loop and `with_retry/2`) read their retriability,
+    transport, and refresh-need decisions from the classifiers below.
 
   ## Usage
 
@@ -223,6 +225,20 @@ defmodule KafkaEx.Support.Retry do
   @spec transport_timeout?(error()) :: boolean()
   def transport_timeout?(:timeout), do: true
   def transport_timeout?(_), do: false
+
+  @doc "Permissive retriability default for data-plane requests (metadata, offset, produce, fetch, admin); tightening it is a follow-up."
+  @spec data_plane_retryable?(error()) :: boolean()
+  def data_plane_retryable?(_error), do: true
+
+  @doc """
+  Coordinator errors that warrant re-discovering the coordinator before retrying.
+  Subset of `coordinator_error?/1` — excludes transient `:coordinator_load_in_progress`
+  (re-discovery would just find the same loading coordinator).
+  """
+  @spec coordinator_refresh_error?(error()) :: boolean()
+  def coordinator_refresh_error?(:not_coordinator), do: true
+  def coordinator_refresh_error?(:coordinator_not_available), do: true
+  def coordinator_refresh_error?(_), do: false
 
   @doc """
   Check if error is a leadership-related error requiring metadata refresh.

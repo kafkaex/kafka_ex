@@ -453,4 +453,29 @@ defmodule KafkaEx.Support.RetryTest do
       assert Retry.heartbeat_retryable?(:coordinator_not_available)
     end
   end
+
+  describe "data_plane_retryable?/1" do
+    test "is permissive — retries any error" do
+      assert Retry.data_plane_retryable?(:not_leader_for_partition)
+      assert Retry.data_plane_retryable?(:request_timed_out)
+      assert Retry.data_plane_retryable?(:topic_authorization_failed)
+      assert Retry.data_plane_retryable?(:anything)
+    end
+  end
+
+  describe "coordinator_refresh_error?/1" do
+    test "true only for the coordinator-moved errors" do
+      assert Retry.coordinator_refresh_error?(:not_coordinator)
+      assert Retry.coordinator_refresh_error?(:coordinator_not_available)
+    end
+
+    test "false for the transient loading state (re-discovery would find the same coordinator)" do
+      refute Retry.coordinator_refresh_error?(:coordinator_load_in_progress)
+    end
+
+    test "false for unrelated errors" do
+      refute Retry.coordinator_refresh_error?(:not_leader_for_partition)
+      refute Retry.coordinator_refresh_error?(:timeout)
+    end
+  end
 end
