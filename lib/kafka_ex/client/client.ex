@@ -85,6 +85,12 @@ defmodule KafkaEx.Client do
   @spec retry_count() :: pos_integer()
   def retry_count, do: @retry_count
 
+  @doc false
+  # Client-level attempts for JoinGroup/SyncGroup (send-once). KafkaEx.API sizes
+  # their outer call budget from this so the budget and the loop can't drift.
+  @spec coordinator_max_attempts() :: pos_integer()
+  def coordinator_max_attempts, do: @coordinator_max_attempts
+
   @impl true
   def init([args, _name]) do
     state = State.static_init(args)
@@ -422,7 +428,7 @@ defmodule KafkaEx.Client do
     known_topics = ClusterMetadata.known_topics(state.cluster_metadata)
     topics = Enum.uniq(known_topics ++ topics)
 
-    {updated_state, parsed_metadata} = retrieve_metadata(state, config_sync_timeout(), topics)
+    {updated_state, parsed_metadata} = retrieve_metadata(state, config_request_timeout(), topics)
 
     case parsed_metadata do
       nil ->
@@ -1045,16 +1051,16 @@ defmodule KafkaEx.Client do
     broker
   end
 
-  defp retrieve_metadata(state, sync_timeout, topics) do
-    retrieve_metadata(state, sync_timeout, topics, @retry_count)
+  defp retrieve_metadata(state, request_timeout, topics) do
+    retrieve_metadata(state, request_timeout, topics, @retry_count)
   end
 
-  defp retrieve_metadata(state, _sync_timeout, topics, 0) do
+  defp retrieve_metadata(state, _request_timeout, topics, 0) do
     Logger.log(:error, "Metadata request for topics #{inspect(topics)} failed: leader_not_available after retries")
     {state, nil}
   end
 
-  defp retrieve_metadata(state, sync_timeout, topics, retry) do
+  defp retrieve_metadata(state, request_timeout, topics, retry) do
     req_opts = [
       topics: topics,
       allow_auto_topic_creation: state.allow_auto_topic_creation
@@ -1063,26 +1069,26 @@ defmodule KafkaEx.Client do
     with {:ok, request} <- RequestBuilder.metadata_request(req_opts, state),
          {{:ok, response}, state_out} <-
            network_request(request, NodeSelector.first_available(), state) do
-      parse_metadata_response(response, state, state_out, sync_timeout, topics, retry)
+      parse_metadata_response(response, state, state_out, request_timeout, topics, retry)
     else
       {:error, _} ->
         Logger.error("Unable to build metadata request.")
         {state, nil}
 
       {{:error, _}, state_out} ->
-        Logger.error("Unable to fetch metadata from any brokers. Timeout is #{sync_timeout}.")
+        Logger.error("Unable to fetch metadata from any brokers. Timeout is #{request_timeout}.")
         {state_out, nil}
     end
   end
 
-  defp parse_metadata_response(response, state, state_out, sync_timeout, topics, retry) do
+  defp parse_metadata_response(response, state, state_out, request_timeout, topics, retry) do
     case ResponseParser.metadata_response(response) do
       {:ok, cluster_metadata} ->
         # Check if any requested topics are missing (leader_not_available).
         # The parser filters out topics with errors, so missing = still propagating.
         if topics != [] and has_missing_topics?(topics, cluster_metadata) do
           :timer.sleep(300)
-          retrieve_metadata(state, sync_timeout, topics, retry - 1)
+          retrieve_metadata(state, request_timeout, topics, retry - 1)
         else
           {state_out, cluster_metadata}
         end
@@ -1275,7 +1281,7 @@ defmodule KafkaEx.Client do
   # set their own `network_timeout` (metadata, offset, heartbeat, produce ack,
   # …). Resolves via `Config.request_timeout/0` (`:request_timeout` > deprecated
   # `:sync_timeout` > default). JoinGroup/SyncGroup pass an explicit timeout.
-  defp config_sync_timeout(timeout \\ nil) do
+  defp config_request_timeout(timeout \\ nil) do
     timeout || Config.request_timeout()
   end
 
@@ -1332,7 +1338,7 @@ defmodule KafkaEx.Client do
 
   defp network_request(request, node_selector, state, network_timeout \\ nil) do
     synchronous = if Map.get(request, :acks) == 0, do: false, else: true
-    network_timeout = config_sync_timeout(network_timeout)
+    network_timeout = config_request_timeout(network_timeout)
     {send_request, updated_state} = get_send_request_function(node_selector, state, network_timeout, synchronous)
 
     case send_request do

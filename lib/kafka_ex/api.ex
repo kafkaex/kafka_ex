@@ -971,7 +971,7 @@ defmodule KafkaEx.API do
   # join/sync share this: inject the per-attempt network_timeout as a control opt,
   # size the send-once outer budget from it, normalize the reply.
   defp coordinator_call(client, opts, network_timeout, msg_fun) do
-    call_timeout = RequestBudget.call_budget(network_timeout)
+    call_timeout = RequestBudget.call_budget(network_timeout, Client.coordinator_max_attempts())
     call_opts = opts |> Keyword.delete(:timeout) |> Keyword.put(:network_timeout, network_timeout)
 
     client |> GenServer.call(msg_fun.(call_opts), call_timeout) |> normalize_reply()
