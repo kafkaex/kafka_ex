@@ -478,4 +478,41 @@ defmodule KafkaEx.Support.RetryTest do
       refute Retry.coordinator_refresh_error?(:timeout)
     end
   end
+
+  describe "consumer_group_recoverable?/1 (Manager-layer)" do
+    test "recovers coordinator, transport and unknown-topic errors" do
+      for e <- [
+            :coordinator_not_available,
+            :not_coordinator,
+            :coordinator_load_in_progress,
+            :unknown_topic_or_partition,
+            :no_broker,
+            :timeout,
+            :closed,
+            :not_connected,
+            :unknown
+          ] do
+        assert Retry.consumer_group_recoverable?(e)
+      end
+    end
+
+    test "does not recover terminal/identity errors" do
+      refute Retry.consumer_group_recoverable?(:fenced_instance_id)
+      refute Retry.consumer_group_recoverable?(:group_authorization_failed)
+      refute Retry.consumer_group_recoverable?(:illegal_generation)
+    end
+  end
+
+  describe "sync_rejoinable?/1 (Manager-layer)" do
+    test "rejoins on identity errors and recoverable errors" do
+      assert Retry.sync_rejoinable?(:illegal_generation)
+      assert Retry.sync_rejoinable?(:unknown_member_id)
+      assert Retry.sync_rejoinable?(:coordinator_not_available)
+    end
+
+    test "does not rejoin on terminal errors" do
+      refute Retry.sync_rejoinable?(:fenced_instance_id)
+      refute Retry.sync_rejoinable?(:group_authorization_failed)
+    end
+  end
 end
