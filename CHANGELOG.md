@@ -70,6 +70,12 @@
   (fewer spurious rebalances on transient hiccups), and heartbeats are sent more frequently.
   Override `:session_timeout` / `:heartbeat_interval` to restore the old values. See UPGRADING.md.
 
+* **Data-plane requests fail fast on fatal broker errors.** Metadata / offset / find_coordinator /
+  admin requests previously retried *any* error inside the client's synchronous loop; they now
+  retry only transient/leadership errors and return fatal codes
+  (`:topic_authorization_failed`, `:unsupported_version`, `:invalid_request`, …) immediately
+  instead of burning the retry budget. Mirrors Java's `RetriableException` vs fatal `KafkaException`.
+
 ## 1.0.1 (2026-06-26)
 
 ### Breaking Changes

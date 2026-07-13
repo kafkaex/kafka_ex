@@ -226,9 +226,15 @@ defmodule KafkaEx.Support.Retry do
   def transport_timeout?(:timeout), do: true
   def transport_timeout?(_), do: false
 
-  @doc "Permissive retriability default for data-plane requests (metadata, offset, produce, fetch, admin); tightening it is a follow-up."
+  @doc """
+  Retriability default for data-plane requests (metadata, offset, find_coordinator,
+  admin). Retries only transient/leadership errors — fatal broker codes
+  (`:topic_authorization_failed`, `:unsupported_version`, `:invalid_request`, …)
+  fail fast instead of burning the client's synchronous retry loop. Mirrors Java's
+  `RetriableException` vs fatal `KafkaException` split.
+  """
   @spec data_plane_retryable?(error()) :: boolean()
-  def data_plane_retryable?(_error), do: true
+  def data_plane_retryable?(error), do: transient_error?(error) or leadership_error?(error)
 
   @doc """
   Coordinator errors that warrant re-discovering the coordinator before retrying.
