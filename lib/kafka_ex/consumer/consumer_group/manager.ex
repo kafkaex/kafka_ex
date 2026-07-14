@@ -78,6 +78,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   alias KafkaEx.Client
   alias KafkaEx.Config
   alias KafkaEx.Consumer.ConsumerGroup
+  alias KafkaEx.Consumer.ConsumerGroup.Assignment
   alias KafkaEx.Consumer.ConsumerGroup.Heartbeat
   alias KafkaEx.Consumer.ConsumerGroup.PartitionAssignment
   alias KafkaEx.Messages.ApiVersions
@@ -158,7 +159,6 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   @rebalance_timeout_multiplier 3
 
   @max_join_retries 6
-  @max_topic_retries 5
 
   # Default backoff before a SyncGroup-driven rejoin (see handle_sync_error/3);
   # overridable per consumer group via the `:sync_retry_backoff_ms` opt. Defined
@@ -714,9 +714,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
 
     assignments =
       if is_leader do
-        partitions = assignable_partitions(new_state)
+        partitions = Assignment.assignable_partitions(new_state.client, new_state.topics, new_state.group_name)
         member_ids = Enum.map(join_response.members, & &1.member_id)
-        assign_partitions(new_state, member_ids, partitions)
+        Assignment.for_members(member_ids, partitions, new_state.partition_assignment_callback)
       else
         []
       end
@@ -747,8 +747,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
          } = state,
          assignments
        ) do
-    # Convert assignments to protocol-agnostic format (protocol layer handles Kayrock conversion)
-    group_assignment = format_assignments_for_sync_group(assignments)
+    group_assignment = Assignment.format_for_sync_group(assignments)
 
     opts = [
       group_assignment: group_assignment,
@@ -762,7 +761,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
         state = %State{state | sync_failures: 0}
         {:ok, state} = start_heartbeat_timer(state)
         {:ok, state} = stop_consumer(state)
-        consumer_assignments = extract_consumer_assignments(sync_response.partition_assignments)
+        consumer_assignments = Assignment.from_sync_response(sync_response.partition_assignments)
         start_consumer(state, consumer_assignments)
 
       {:error, :rebalance_in_progress} ->
@@ -804,30 +803,6 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
         state = reset_generation(state, reason)
         rebalance(%State{state | sync_failures: attempt}, {:sync_error, reason})
     end
-  end
-
-  # Convert assignments from Manager format to protocol-agnostic format for sync_group request
-  # Input: [{member_id, [{topic, [partition_ids]}]}]
-  # Output: [%{member_id: ..., topic_partitions: [{topic, [partitions]}]}]
-  # The protocol layer handles conversion to Kayrock structs
-  defp format_assignments_for_sync_group(assignments) do
-    Enum.map(assignments, fn {member_id, topic_partitions} ->
-      %{
-        member_id: member_id,
-        topic_partitions: topic_partitions
-      }
-    end)
-  end
-
-  # Convert partition_assignments from SyncGroup response to consumer format
-  # Input: [%PartitionAssignment{topic: ..., partitions: [...]}]
-  # Output: [{topic, partition}]
-  defp extract_consumer_assignments(partition_assignments) do
-    Enum.flat_map(partition_assignments, fn assignment ->
-      Enum.map(assignment.partitions, fn partition ->
-        {assignment.topic, partition}
-      end)
-    end)
   end
 
   # `LeaveGroupRequest` is used to voluntarily leave a group. This tells the
@@ -954,95 +929,6 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     :ok = ConsumerGroup.stop_consumer(pid)
 
     {:ok, state}
-  end
-
-  ### Partition Assignment
-
-  # Queries the Kafka brokers for a list of partitions for the topics of
-  # interest to this consumer group. This function returns a list of
-  # topic/partition tuples that can be passed to a GenConsumer's
-  # `assign_partitions` method.
-  #
-  # If any topics are missing from metadata (UNKNOWN_TOPIC_OR_PARTITION),
-  # retries with exponential backoff following the Java client pattern.
-  defp assignable_partitions(state), do: assignable_partitions(state, 1)
-
-  defp assignable_partitions(%State{client: client, topics: topics, group_name: group_name} = state, attempt) do
-    {:ok, cluster_metadata} = KafkaExAPI.metadata(client)
-    {found_partitions, missing_topics} = partition_topics_by_availability(cluster_metadata, topics)
-
-    handle_topic_availability(state, found_partitions, missing_topics, group_name, attempt)
-  end
-
-  defp partition_topics_by_availability(cluster_metadata, topics) do
-    Enum.reduce(topics, {[], []}, fn topic, {found_acc, missing_acc} ->
-      case get_partitions_for_topic(cluster_metadata, topic) do
-        [] -> {found_acc, [topic | missing_acc]}
-        partitions -> {found_acc ++ Enum.map(partitions, &{topic, &1}), missing_acc}
-      end
-    end)
-  end
-
-  defp handle_topic_availability(_state, found_partitions, [], _group_name, _attempt), do: found_partitions
-
-  defp handle_topic_availability(_state, found_partitions, missing_topics, group_name, attempt)
-       when attempt >= @max_topic_retries do
-    topics = Enum.join(missing_topics, ", ")
-
-    Logger.warning(
-      "Consumer group #{group_name} could not find topics #{topics} " <>
-        "after #{@max_topic_retries} attempts (UNKNOWN_TOPIC_OR_PARTITION)"
-    )
-
-    found_partitions
-  end
-
-  defp handle_topic_availability(state, _found_partitions, missing_topics, group_name, attempt) do
-    sleep_time = calculate_topic_backoff(attempt)
-    topics = Enum.join(missing_topics, ", ")
-
-    Logger.info(
-      "Consumer group #{group_name}: topics #{topics} not found. " <>
-        "Retrying in #{sleep_time}ms (attempt #{attempt}/#{@max_topic_retries})"
-    )
-
-    :timer.sleep(sleep_time)
-    assignable_partitions(state, attempt + 1)
-  end
-
-  @topic_retry_base_delay_ms 100
-  @topic_retry_max_delay_ms 5000
-  defp calculate_topic_backoff(attempt) do
-    delay = @topic_retry_base_delay_ms * round(:math.pow(2, attempt - 1))
-    min(delay, @topic_retry_max_delay_ms)
-  end
-
-  # Extract partition IDs for a topic from cluster metadata
-  defp get_partitions_for_topic(cluster_metadata, topic_name) do
-    case Map.get(cluster_metadata.topics, topic_name) do
-      nil -> []
-      topic -> Enum.map(topic.partitions, & &1.partition_id)
-    end
-  end
-
-  # This function is used by the group leader to determine partition
-  # assignments during the join/sync phase. `members` is provided to the leader
-  # by the coordinating broker in `JoinGroupResponse`. `partitions` is a list
-  # of topic/partition tuples, obtained from `assignable_partitions/1`. The
-  # return value is a complete list of member assignments in the format needed
-  # by `SyncGroupResponse`.
-  defp assign_partitions(%State{partition_assignment_callback: partition_assignment_callback}, members, partitions) do
-    # Delegate partition assignment to GenConsumer module.
-    assignments = Map.new(partition_assignment_callback.(members, partitions))
-    Enum.map(members, &{&1, pack_assignments(Map.get(assignments, &1, []))})
-  end
-
-  defp pack_assignments(assignments) do
-    assignments
-    |> Enum.reduce(%{}, fn {topic, partition}, assignments ->
-      Map.update(assignments, topic, [partition], &(&1 ++ [partition]))
-    end)
-    |> Map.to_list()
   end
 
   ### Error Classification
