@@ -495,11 +495,19 @@ defmodule KafkaEx.Support.RetryTest do
             :unknown_topic_or_partition,
             :no_broker,
             :timeout,
+            :request_timed_out,
+            :parse_error,
             :closed,
             :not_connected,
             :unknown
           ] do
         assert Retry.consumer_group_recoverable?(e)
+      end
+    end
+
+    test "stays in lockstep with transient_error?/1" do
+      for e <- [:request_timed_out, :parse_error, :timeout, :closed, :no_broker, :coordinator_load_in_progress] do
+        assert Retry.transient_error?(e) and Retry.consumer_group_recoverable?(e)
       end
     end
 

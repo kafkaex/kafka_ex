@@ -348,22 +348,15 @@ defmodule KafkaEx.Support.Retry do
 
   @doc """
   Manager-layer: errors on which `ConsumerGroup.Manager` retries a join / rejoins the
-  group rather than escalating. Distinct from the client-layer
-  `consumer_group_retryable?/1` — this drives the Manager's join-retry and
-  heartbeat-error routing, and includes bare transport states (`:not_connected`,
-  `:unknown`) the client layer doesn't.
+  group rather than escalating. Every `transient_error?/1` error (incl.
+  `:request_timed_out` / `:parse_error`) is recoverable — delegating keeps the two
+  in lockstep — plus the bare transport/metadata states the client layer doesn't
+  surface (`:not_connected`, `:unknown`, `:unknown_topic_or_partition`).
   """
   @spec consumer_group_recoverable?(error()) :: boolean()
-  def consumer_group_recoverable?(:coordinator_not_available), do: true
-  def consumer_group_recoverable?(:not_coordinator), do: true
-  def consumer_group_recoverable?(:coordinator_load_in_progress), do: true
-  def consumer_group_recoverable?(:unknown_topic_or_partition), do: true
-  def consumer_group_recoverable?(:no_broker), do: true
-  def consumer_group_recoverable?(:timeout), do: true
-  def consumer_group_recoverable?(:closed), do: true
-  def consumer_group_recoverable?(:not_connected), do: true
-  def consumer_group_recoverable?(:unknown), do: true
-  def consumer_group_recoverable?(_), do: false
+  def consumer_group_recoverable?(error) do
+    transient_error?(error) or error in [:not_connected, :unknown, :unknown_topic_or_partition]
+  end
 
   @doc """
   Manager-layer: SyncGroup errors that warrant a Manager rejoin — `:illegal_generation`
