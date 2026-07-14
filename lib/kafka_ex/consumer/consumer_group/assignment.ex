@@ -5,8 +5,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Assignment do
   (retrying `UNKNOWN_TOPIC_OR_PARTITION`), run the assignment strategy over the
   members, and translate to/from the SyncGroup wire shape.
 
-  A distinct responsibility run only by the leader — the counterpart to the Java
-  client's `AbstractPartitionAssignor`, kept separate from the coordinator FSM.
+  Run only by the group leader, kept separate from the coordinator FSM.
   """
 
   alias KafkaEx.API, as: KafkaExAPI

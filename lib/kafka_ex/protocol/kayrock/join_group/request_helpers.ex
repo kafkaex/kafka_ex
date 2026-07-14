@@ -29,7 +29,6 @@ defmodule KafkaEx.Protocol.Kayrock.JoinGroup.RequestHelpers do
     }
   end
 
-  # Returns group_protocols if provided, otherwise builds from topics
   defp get_or_build_group_protocols(opts) do
     case Keyword.get(opts, :group_protocols) do
       nil ->

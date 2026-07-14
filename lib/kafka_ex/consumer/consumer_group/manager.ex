@@ -27,8 +27,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
 
   The following options can be passed when starting a consumer group:
 
-  - `:heartbeat_interval` - Interval between heartbeats in ms (default: 5000)
-  - `:session_timeout` - Session timeout in ms (default: 30000)
+  - `:heartbeat_interval` - Interval between heartbeats in ms (default: 3000)
+  - `:session_timeout` - Session timeout in ms (default: 45000)
   - `:session_timeout_padding` - Extra time added to request timeouts (default: 10000)
   - `:rebalance_timeout` - Time allowed for consumers to rejoin during rebalance (default: `session_timeout * 3`)
   - `:partition_assignment_callback` - Function for custom partition assignment (default: round-robin)
@@ -184,7 +184,6 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   @crash_rejoin_max_restarts 10
   @crash_rejoin_window_ms 60_000
 
-  # Gets a value from opts, falling back to application config, then to default
   defp get_with_default(opts, key, default) do
     Keyword.get(opts, key, Application.get_env(:kafka_ex, key, default))
   end
@@ -897,7 +896,6 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
 
   ### Consumer Management
 
-  # Starts consuming from the member's assigned partitions.
   defp start_consumer(
          %State{
            consumer_module: consumer_module,
@@ -910,7 +908,6 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
          } = state,
          assignments
        ) do
-    # add member_id, generation_id, and group_manager_pid (for rejoin signalling) to the consumer opts
     consumer_opts =
       Keyword.merge(consumer_opts,
         generation_id: generation_id,

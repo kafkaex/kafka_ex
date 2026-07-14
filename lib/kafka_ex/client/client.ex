@@ -86,8 +86,7 @@ defmodule KafkaEx.Client do
   def retry_count, do: @retry_count
 
   @doc false
-  # Client-level attempts for JoinGroup/SyncGroup (send-once). KafkaEx.API sizes
-  # their outer call budget from this so the budget and the loop can't drift.
+  # Exposed so KafkaEx.API can size the JoinGroup/SyncGroup call budget from it.
   @spec coordinator_max_attempts() :: pos_integer()
   def coordinator_max_attempts, do: @coordinator_max_attempts
 
@@ -374,7 +373,6 @@ defmodule KafkaEx.Client do
     {:reply, response, updated_state}
   end
 
-  # Simple handler for consumer group name retrieval
   def handle_call(:consumer_group, _from, state) do
     {:reply, state.consumer_group_for_auto_commit, state}
   end
@@ -981,7 +979,6 @@ defmodule KafkaEx.Client do
         handle_request_with_retry(ctx, updated_state, retry_count - 1, error)
 
       true ->
-        # Non-retryable error - fail immediately
         Logger.info("Error #{inspect(error_atom)} is not retryable for #{inspect(request_name)}, failing immediately")
         {{:error, error}, state}
     end
@@ -1151,7 +1148,6 @@ defmodule KafkaEx.Client do
       reconnected_broker = reconnect_broker(broker, state)
 
       if Broker.connected?(reconnected_broker) do
-        # Update the broker in state with new socket
         updated_state = update_broker_in_state(state, reconnected_broker)
         {reconnected_broker, updated_state}
       else

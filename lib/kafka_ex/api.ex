@@ -888,7 +888,6 @@ defmodule KafkaEx.API do
     produce(client, topic, partition, [message], produce_opts)
   end
 
-  # Resolves partition using the configured partitioner
   defp resolve_partition(client, topic, messages, opts) do
     partitioner = Keyword.get(opts, :partitioner, Partitioner.get_partitioner())
 
@@ -898,7 +897,6 @@ defmodule KafkaEx.API do
     key = Map.get(first_message, :key)
     value = Map.get(first_message, :value, "")
 
-    # Get partition count from metadata
     case topics_metadata(client, [topic], true) do
       {:ok, [topic_info]} ->
         partition_count = map_size(topic_info.partition_leaders)
@@ -1187,7 +1185,6 @@ defmodule KafkaEx.API do
   # Private helpers
   # ---------------------------------------------------------------------------
 
-  # Helper to conditionally add keys to a map only if value is not nil
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

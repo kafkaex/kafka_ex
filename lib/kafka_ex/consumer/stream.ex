@@ -39,7 +39,6 @@ defmodule KafkaEx.Consumer.Stream do
         |> stream_control(data, offset)
       end
 
-      # there isn't really any cleanup, so we don't need to do anything with the after_fun callback
       after_fun = fn _last_offset -> :ok end
       Stream.resource(start_fun, next_fun, after_fun).(acc, fun)
     end
@@ -127,7 +126,6 @@ defmodule KafkaEx.Consumer.Stream do
     ######################################################################
     # Offset management
 
-    # first, determine if we even need to commit an offset
     defp maybe_commit_offset(fetch_response, %ConsumerStream{} = stream_data, acc) do
       auto_commit = Keyword.get(stream_data.fetch_options, :auto_commit, false)
 
@@ -207,7 +205,6 @@ defmodule KafkaEx.Consumer.Stream do
 
     ######################################################################
 
-    # make the actual fetch request
     defp fetch_response(data, offset) do
       opts = VersionHelper.maybe_put_api_version(data.fetch_options, data.api_versions, :fetch)
 

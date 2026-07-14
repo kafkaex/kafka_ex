@@ -26,8 +26,8 @@ defmodule KafkaEx.Client.RequestContext do
 
     * `network_timeout` is the **per-attempt** `Socket.recv` deadline. It is set
       explicitly by the requests the broker legitimately holds — fetch (derived
-      from `:max_wait_time`), JoinGroup (`rebalance_timeout + 5000`) and SyncGroup
-      (session window) — each of which widens its matching `GenServer.call` budget
+      from `:max_wait_time`), JoinGroup (rebalance_timeout + a fixed grace) and
+      SyncGroup (session window) — each widens its matching `GenServer.call` budget
       in `KafkaEx.API` so the two cannot mismatch (issue #357). Leave `nil` for
       every other request so it falls back to the generic `:request_timeout`
       (`KafkaEx.Config.request_timeout/0`); those callers derive their outer
