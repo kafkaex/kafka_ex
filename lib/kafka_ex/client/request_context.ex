@@ -18,21 +18,20 @@ defmodule KafkaEx.Client.RequestContext do
       clients (Java `RetriableException`, KafkaJS `error.retriable`, librdkafka)
       classify retriability on the error, but that cannot work here: the same
       error atom (e.g. `:request_timed_out`) is retryable for fetch yet unsafe
-      for produce (duplicate writes). Only produce overrides the default with
-      `&KafkaEx.Support.Retry.produce_retryable?/1`; everything else inherits
-      always-retry. `KafkaEx.Support.Retry` centralizes error-code
-      classification for the separate `with_retry` loop (stream/consumer);
-      converging the two is deferred follow-up.
+      for produce (duplicate writes). The default is
+      `&KafkaEx.Support.Retry.data_plane_retryable?/1`; produce narrows it to
+      `produce_retryable?/1`, and the consumer-group operations use their own
+      classifiers. All of them live in `KafkaEx.Support.Retry` — the single home
+      for error classification, shared with the `with_retry` loop (stream/consumer).
 
     * `network_timeout` is the **per-attempt** `Socket.recv` deadline. It is set
-      explicitly by the requests the broker legitimately holds — fetch (derived
-      from `:max_wait_time`), JoinGroup (rebalance_timeout + a fixed grace) and
-      SyncGroup (session window) — each widens its matching `GenServer.call` budget
-      in `KafkaEx.API` so the two cannot mismatch (issue #357). Leave `nil` for
-      every other request so it falls back to the generic `:request_timeout`
-      (`KafkaEx.Config.request_timeout/0`); those callers derive their outer
-      `GenServer.call` budget from the same value. It is per-attempt, NOT the
-      total budget.
+      explicitly by the requests that need a non-generic deadline — fetch (from
+      `:max_wait_time`), JoinGroup (rebalance_timeout + grace), SyncGroup (session
+      window), Heartbeat (heartbeat_interval) and CreateTopics/DeleteTopics (broker
+      op timeout + grace) — each widening its matching `GenServer.call` budget in
+      `KafkaEx.API` so the two cannot mismatch (issue #357). Leave `nil` for every
+      other request so it falls back to the generic `:request_timeout`
+      (`KafkaEx.Config.request_timeout/0`). It is per-attempt, NOT the total budget.
 
     * Backoff/jitter between attempts is intentionally absent — the client loop
       retries immediately (refreshing metadata on leadership errors). If added

@@ -359,7 +359,10 @@ def start(_type, _args) do
             # `member_terminated` telemetry with `terminal_class: :fenced`).
             # Raise session_timeout to cover your restart/deploy window.
             # Default: nil (dynamic membership, feature off).
-            # group_instance_id: System.get_env("POD_NAME") || (node() |> to_string())
+            # Do NOT fall back to node(): on an unclustered BEAM it is
+            # :nonode@nohost on every instance, so a second consumer would
+            # fence the first. Fail loudly instead if the env var is missing.
+            # group_instance_id: System.fetch_env!("POD_NAME")
           ]
         ]
       }

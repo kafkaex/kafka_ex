@@ -40,11 +40,10 @@ config :kafka_ex,
   # KafkaEx worker to start during application start-up -
   # i.e., if you want to start your own set of named workers
   disable_default_worker: false,
-  # Timeout value, in msec, for synchronous operations (e.g., network calls).
   # Per-attempt request socket-recv timeout (ms) for synchronous requests that do
-  # not derive their own (metadata, offset, heartbeat, produce ack, …). Consumer-group
-  # JoinGroup/SyncGroup derive their own, longer deadlines from the group's
-  # rebalance/session timeouts. Was `:sync_timeout` (now a deprecated alias, removed in 2.0).
+  # not derive their own (metadata, offset, produce ack, …). Consumer-group
+  # JoinGroup/SyncGroup/Heartbeat derive their own deadlines (rebalance/session
+  # window; heartbeat_interval). Was `:sync_timeout` (now a deprecated alias, removed in 2.0).
   request_timeout: 15000,
   # Supervision max_restarts - the maximum amount of restarts allowed in a time frame
   max_restarts: 10,
