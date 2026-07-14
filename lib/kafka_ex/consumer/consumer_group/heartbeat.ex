@@ -121,6 +121,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Heartbeat do
       {:stop, {:shutdown, {:error, normalize_exit_reason(reason)}}, state}
   end
 
-  defp normalize_exit_reason({reason, {GenServer, :call, _}}) when is_atom(reason), do: reason
+  # Unwrap the {reason, {GenServer, :call, _}} client-call exit wrapper regardless
+  # of the inner shape, so a compound reason (e.g. {:shutdown, _}) is classified on
+  # its real value rather than misclassified as the whole nested tuple.
+  defp normalize_exit_reason({reason, {GenServer, :call, _}}), do: reason
   defp normalize_exit_reason(reason), do: reason
 end

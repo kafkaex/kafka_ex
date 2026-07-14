@@ -188,6 +188,18 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     Keyword.get(opts, key, Application.get_env(:kafka_ex, key, default))
   end
 
+  # Fail loudly on a bad crash-loop bound: a non-negative integer bounds it,
+  # :infinity disables it. Anything else (negative, string, float, …) would
+  # otherwise slip through register_heartbeat_crash/1's guard and silently
+  # disable the bound — a footgun for an option meant to fail fast.
+  defp validate_crash_rejoin_max_restarts!(:infinity), do: :ok
+  defp validate_crash_rejoin_max_restarts!(n) when is_integer(n) and n >= 0, do: :ok
+
+  defp validate_crash_rejoin_max_restarts!(other) do
+    raise ArgumentError,
+          "crash_rejoin_max_restarts must be a non-negative integer or :infinity; got #{inspect(other)}"
+  end
+
   @type assignments :: [{binary(), integer()}]
 
   # Client API
@@ -214,6 +226,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     sync_retry_backoff_ms = get_with_default(opts, :sync_retry_backoff_ms, @sync_retry_backoff_ms)
     crash_rejoin_max_jitter_ms = get_with_default(opts, :crash_rejoin_max_jitter_ms, @crash_rejoin_max_jitter_ms)
     crash_rejoin_max_restarts = get_with_default(opts, :crash_rejoin_max_restarts, @crash_rejoin_max_restarts)
+    validate_crash_rejoin_max_restarts!(crash_rejoin_max_restarts)
     crash_rejoin_window_ms = get_with_default(opts, :crash_rejoin_window_ms, @crash_rejoin_window_ms)
 
     group_instance_id =

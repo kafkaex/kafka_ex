@@ -295,11 +295,20 @@ defmodule KafkaEx.Config do
   defp validate_group_instance_id(nil), do: nil
 
   defp validate_group_instance_id(value) when is_binary(value) do
-    if String.trim(value) == "" do
-      raise ArgumentError, "group_instance_id must be a non-empty string; got #{inspect(value)}"
-    end
+    trimmed = String.trim(value)
 
-    value
+    cond do
+      trimmed == "" ->
+        raise ArgumentError, "group_instance_id must be a non-empty string; got #{inspect(value)}"
+
+      # Reject padded ids: they are sent verbatim on the wire, so two sources
+      # differing only in whitespace would register as distinct static members.
+      trimmed != value ->
+        raise ArgumentError, "group_instance_id must not have leading/trailing whitespace; got #{inspect(value)}"
+
+      true ->
+        value
+    end
   end
 
   defp validate_group_instance_id(value) do
