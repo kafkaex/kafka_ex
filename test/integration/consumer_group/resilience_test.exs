@@ -39,7 +39,12 @@ defmodule KafkaEx.Integration.ConsumerGroup.ResilienceTest do
         # Produce messages during rebalance
         {:ok, _} = API.produce(client, topic_name, rem(i, 4), [%{value: "rebalance-msg-#{i}"}])
 
-        stop_safely(temp_consumer)
+        # Kill the throwaway consumer abruptly (crash-style departure, the KAFKA-6829
+        # pattern) rather than a graceful stop: while it is still mid-join its Manager
+        # cannot process a graceful shutdown, so GenServer.stop would block the full
+        # child shutdown timeout (~25s). Unlink first so the :kill does not reach us.
+        Process.unlink(temp_consumer)
+        Process.exit(temp_consumer, :kill)
 
         Process.sleep(1_000)
       end)
@@ -52,7 +57,11 @@ defmodule KafkaEx.Integration.ConsumerGroup.ResilienceTest do
 
       # Produce final message and verify consumer receives it
       {:ok, _} = API.produce(client, topic_name, 0, [%{value: "final-message"}])
-      received = receive_messages_until_found("final-message", 15_000)
+      # Generous budget: the abruptly-killed temp consumers linger as ghosts until
+      # their session times out (~session_timeout), so consumer1 fully reclaims the
+      # partitions only after that. The absolute deadline returns as soon as the
+      # message arrives (~14s observed).
+      received = receive_messages_until_found("final-message", 30_000)
       assert "final-message" in received, "Consumer should receive messages after rebalances"
 
       stop_safely(consumer1)
@@ -181,31 +190,52 @@ defmodule KafkaEx.Integration.ConsumerGroup.ResilienceTest do
   end
 
   # Helper functions
-  defp receive_messages_until(count, timeout), do: receive_messages_until(count, timeout, [])
-  defp receive_messages_until(count, _timeout, acc) when length(acc) >= count, do: acc
+  #
+  # `timeout` is an ABSOLUTE budget for the whole wait, not a per-message idle
+  # timeout: we compute a monotonic deadline once and shrink the `receive ... after`
+  # window as messages arrive. A per-message reset would loop indefinitely under a
+  # steady message stream (e.g. re-delivery during rapid rebalances).
+  defp receive_messages_until(count, timeout) do
+    receive_messages_until(count, System.monotonic_time(:millisecond) + timeout, [])
+  end
 
-  defp receive_messages_until(count, timeout, acc) do
-    receive do
-      {:messages_received, messages} -> receive_messages_until(count, timeout, acc ++ messages)
-    after
-      timeout -> acc
+  defp receive_messages_until(count, _deadline, acc) when length(acc) >= count, do: acc
+
+  defp receive_messages_until(count, deadline, acc) do
+    remaining = deadline - System.monotonic_time(:millisecond)
+
+    if remaining <= 0 do
+      acc
+    else
+      receive do
+        {:messages_received, messages} -> receive_messages_until(count, deadline, acc ++ messages)
+      after
+        remaining -> acc
+      end
     end
   end
 
   defp receive_messages_until_found(target, timeout) do
-    receive_messages_until_found(target, timeout, [])
+    receive_messages_until_found(target, System.monotonic_time(:millisecond) + timeout, [])
   end
 
-  defp receive_messages_until_found(target, timeout, acc) do
-    if target in acc do
-      acc
-    else
-      receive do
-        {:messages_received, messages} ->
-          receive_messages_until_found(target, timeout, acc ++ messages)
-      after
-        timeout -> acc
-      end
+  defp receive_messages_until_found(target, deadline, acc) do
+    remaining = deadline - System.monotonic_time(:millisecond)
+
+    cond do
+      target in acc ->
+        acc
+
+      remaining <= 0 ->
+        acc
+
+      true ->
+        receive do
+          {:messages_received, messages} ->
+            receive_messages_until_found(target, deadline, acc ++ messages)
+        after
+          remaining -> acc
+        end
     end
   end
 
