@@ -89,9 +89,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Assignment do
 
   defp pack_assignments(assignments) do
     assignments
-    |> Enum.reduce(%{}, fn {topic, partition}, acc ->
-      Map.update(acc, topic, [partition], &(&1 ++ [partition]))
-    end)
+    |> Enum.group_by(fn {topic, _partition} -> topic end, fn {_topic, partition} -> partition end)
     |> Map.to_list()
   end
 
