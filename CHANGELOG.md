@@ -4,6 +4,26 @@
 
 ### Added
 
+* **Rack-aware fetching (KIP-392).** Consumers can now route fetches to the
+  closest in-rack replica, eliminating cross-AZ traffic on multi-AZ Kafka
+  deployments (most notably AWS MSK, where cross-AZ data transfer is billed).
+
+  New `:client_rack` option on `KafkaEx.Consumer.GenConsumer.start_link/5`
+  (also accepted by `KafkaEx.Consumer.ConsumerGroup.start_link/4`):
+
+  ```elixir
+  KafkaEx.Consumer.ConsumerGroup.start_link(MyConsumer, "my-group", ["my-topic"],
+    client_rack: System.get_env("AZ_ID")  # e.g. "use1-az2"
+  )
+  ```
+
+  Under the hood, each Fetch v11+ request includes the consumer's rack id;
+  the broker's `RackAwareReplicaSelector` responds with `preferred_read_replica`
+  pointing at a same-rack replica; the client caches that hint per
+  topic-partition in `KafkaEx.Cluster.ClusterMetadata` and routes
+  subsequent fetches to the preferred broker. Requires Kafka 2.4+ brokers
+  with `replica.selector.class=org.apache.kafka.common.replica.RackAwareReplicaSelector`
+  configured.
 * **Static consumer-group membership (KIP-345).** New `:group_instance_id` option on
   `KafkaEx.Consumer.ConsumerGroup` (resolved `opts > app-env > nil`, default off). When set, the
   member presents a stable instance id on JoinGroup/SyncGroup/Heartbeat and **does not send
