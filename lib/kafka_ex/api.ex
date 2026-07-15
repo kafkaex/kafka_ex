@@ -600,9 +600,9 @@ defmodule KafkaEx.API do
     node_ids = brokers |> Enum.map(& &1.node_id) |> Enum.sort()
 
     Enum.reduce_while(node_ids, {:ok, []}, fn node_id, {:ok, acc} ->
-      case GenServer.call(client, {:list_groups, node_id, opts}) do
+      case GenServer.call(client, {:list_groups, node_id, opts}, generic_call_budget()) do
         {:ok, listings} -> {:cont, {:ok, acc ++ listings}}
-        {:error, reason} -> {:halt, {:error, {:node_error, node_id, reason}}}
+        {:error, reason} -> {:halt, {:error, {:node_error, node_id, normalize_error_reason(reason)}}}
       end
     end)
   end
@@ -979,6 +979,11 @@ defmodule KafkaEx.API do
   defp normalize_reply({:ok, result}), do: {:ok, result}
   defp normalize_reply({:error, %{error: error_atom}}), do: {:error, error_atom}
   defp normalize_reply({:error, error_atom}), do: {:error, error_atom}
+
+  # Unwrap a client %Error{} into its plain atom so list_groups' {:node_error, _, reason}
+  # carries the same error atoms every other function returns.
+  defp normalize_error_reason(%{error: error_atom}), do: error_atom
+  defp normalize_error_reason(reason), do: reason
 
   @doc """
   Fetch all available records from a topic partition.
