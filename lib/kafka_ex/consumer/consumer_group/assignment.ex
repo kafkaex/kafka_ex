@@ -19,6 +19,14 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Assignment do
   Topic/partition tuples the leader can assign, from cluster metadata. Retries
   `UNKNOWN_TOPIC_OR_PARTITION` with exponential backoff (Java-client pattern);
   after `#{@max_topic_retries}` attempts it assigns whatever topics were found.
+
+  > #### Blocking hazard {: .warning}
+  > Called by the leader inside the `ConsumerGroup.Manager` GenServer callback,
+  > this `:timer.sleep`s between retries — up to ~1.5s across #{@max_topic_retries}
+  > sequential metadata round-trips — during which the Manager cannot service
+  > heartbeats, introspection, or shutdown. Removing this synchronous block is the
+  > deferred non-blocking-Manager follow-up (run join/sync/assignment off the
+  > callback in a monitored `Task`).
   """
   @spec assignable_partitions(pid(), [binary()], binary()) :: [{binary(), integer()}]
   def assignable_partitions(client, topics, group_name),
