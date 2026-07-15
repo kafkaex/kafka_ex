@@ -439,7 +439,10 @@ defmodule KafkaEx.Consumer.GenConsumer do
       :auto_offset_reset,
       :fetch_options,
       :api_versions,
-      :group_manager_pid
+      :group_manager_pid,
+      # true only when this GenConsumer started its own client (see resolve_client/2);
+      # a caller-supplied :client is shared and must NOT be stopped on terminate.
+      owns_client: false
     ]
 
     @type t :: %__MODULE__{
@@ -460,7 +463,8 @@ defmodule KafkaEx.Consumer.GenConsumer do
             auto_offset_reset: :none | :earliest | :latest,
             fetch_options: Keyword.t(),
             api_versions: map(),
-            group_manager_pid: pid() | nil
+            group_manager_pid: pid() | nil,
+            owns_client: boolean()
           }
   end
 
@@ -635,7 +639,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
 
     case consumer_module.init(topic, partition, extra_consumer_args) do
       {:ok, consumer_state} ->
-        client = resolve_client(opts, group_name)
+        {client, owns_client} = resolve_client(opts, group_name)
 
         default_fetch_options = [
           auto_commit: false
@@ -652,6 +656,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
           commit_threshold: commit_threshold,
           auto_offset_reset: auto_offset_reset,
           client: client,
+          owns_client: owns_client,
           group: group_name,
           topic: topic,
           partition: partition,
@@ -672,7 +677,8 @@ defmodule KafkaEx.Consumer.GenConsumer do
   end
 
   # Resolves the client to use for Kafka operations
-  # Supports both new :client option and starts a new client if not provided
+  # Returns {client, owns_client?}. A caller-supplied :client is shared (owns? =
+  # false); otherwise we start our own and own its lifecycle.
   defp resolve_client(opts, group_name) do
     case Keyword.get(opts, :client) do
       nil ->
@@ -686,10 +692,10 @@ defmodule KafkaEx.Consumer.GenConsumer do
         ]
 
         {:ok, client} = Client.start_link(client_opts, :no_name)
-        client
+        {client, true}
 
       client ->
-        client
+        {client, false}
     end
   end
 
@@ -820,7 +826,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
       :exit, _ -> :ok
     end
 
-    if Process.alive?(state.client) do
+    if state.owns_client and Process.alive?(state.client) do
       Process.unlink(state.client)
 
       try do
