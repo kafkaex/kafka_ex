@@ -118,12 +118,14 @@ timeouts** (e.g. `60_000`), you can remove it — JoinGroup/SyncGroup no longer
 use it. A large `:request_timeout` now only widens the window before a
 silently-unresponsive broker is detected on other requests.
 
-**Behavior note.** A socket recv-timeout is no longer retried inside the
-(synchronous) client `GenServer`; it is surfaced to the higher-level loops
-(consumer-group manager, `GenConsumer` commit, stream), which re-issue with
-±20% jittered backoff (KIP-580). Protocol errors (e.g.
-`not_leader_for_partition`, `not_coordinator`) keep their in-client retry with
-metadata/coordinator refresh.
+**Behavior note.** A socket recv-timeout on a *coordinator* request
+(JoinGroup/SyncGroup/Heartbeat/commit) is no longer retried inside the
+(synchronous) client `GenServer`; it is surfaced to the owning higher-level loop.
+The consumer-group manager rejoins using its own exponential backoff (not
+jittered); `GenConsumer` commit and the stream re-issue with ±20% jittered
+backoff (KIP-580). Data-plane requests (fetch, metadata) keep their in-client
+retry, as do protocol errors (e.g. `not_leader_for_partition`, `not_coordinator`)
+with metadata/coordinator refresh.
 
 **Data-plane failure latency.** Because the generic per-attempt timeout default
 rose (effectively ~1 s → `:request_timeout` = 15 s) and a socket timeout is now
@@ -140,7 +142,7 @@ whose recv times out is **not** retried in-client (previously up to 3×); it
 escalates to a rejoin, which under a persistent coordinator stall means a
 rebalance — matching the Java/librdkafka "mark coordinator dead, rejoin" model.
 Keep `heartbeat_interval` well below `session_timeout / 3`: the outer heartbeat
-budget is `heartbeat_interval × 3`, so an over-large interval could let a
+budget is `heartbeat_interval × 3 + 5s`, so an over-large interval could let a
 retrying heartbeat span the whole session.
 
 **Consumer-group manager responsiveness during a rebalance.** JoinGroup/SyncGroup
