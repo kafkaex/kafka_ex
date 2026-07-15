@@ -109,8 +109,9 @@ defmodule KafkaEx.Consumer.StreamTest do
       end
     end
 
-    def handle_call({:offset_commit, _group, _commits, _opts}, _from, state) do
-      {:reply, {:ok, []}, %{state | commits: [DateTime.utc_now() | state.commits]}}
+    def handle_call({:offset_commit, _group, topic_partitions, _opts}, _from, state) do
+      offsets = for {_topic, partitions} <- topic_partitions, %{offset: o} <- partitions, do: o
+      {:reply, {:ok, []}, %{state | commits: state.commits ++ offsets}}
     end
 
     def handle_call(:get_commits, _from, state) do
@@ -222,6 +223,55 @@ defmodule KafkaEx.Consumer.StreamTest do
         |> Enum.map(& &1.value)
 
       assert values == ["a", "b", "c", "d", "e"]
+    end
+  end
+
+  describe "auto-commit offset accuracy (deferred-by-one-batch)" do
+    alias KafkaEx.Consumer.Stream, as: ConsumerStream
+
+    defp batch(offsets),
+      do: {:ok, %{last_offset: Enum.max(offsets), records: for(o <- offsets, do: %{offset: o, value: "v"})}}
+
+    defp empty(last), do: {:ok, %{last_offset: last, records: []}}
+
+    defp auto_commit_stream(mock, opts \\ [auto_commit: true]),
+      do: %ConsumerStream{
+        client: mock,
+        topic: "t",
+        partition: 0,
+        offset: 100,
+        consumer_group: "g",
+        no_wait_at_logend: true,
+        fetch_options: opts,
+        api_versions: %{}
+      }
+
+    test "truncated Enum.take never commits past the last delivered batch (regression)" do
+      # b1: 100..102, b2: 103..106. take(5) delivers 100,101,102,103,104.
+      {:ok, mock} = MockClient.start_link([batch(100..102), batch(103..106)])
+
+      taken = mock |> auto_commit_stream() |> Enum.take(5) |> Enum.map(& &1.offset)
+
+      assert taken == [100, 101, 102, 103, 104]
+      # b1 fully delivered → committed; truncated b2 not (pre-fix wrongly committed 106).
+      assert MockClient.commits(mock) == [102]
+    end
+
+    test "full drain commits every fully-delivered batch's last offset" do
+      {:ok, mock} = MockClient.start_link([batch(100..102), batch(103..105), empty(105)])
+
+      values = mock |> auto_commit_stream() |> Enum.to_list() |> Enum.map(& &1.offset)
+
+      assert values == [100, 101, 102, 103, 104, 105]
+      assert MockClient.commits(mock) == [102, 105]
+    end
+
+    test "auto_commit: false never commits" do
+      {:ok, mock} = MockClient.start_link([batch(100..102), empty(102)])
+
+      _ = mock |> auto_commit_stream(auto_commit: false) |> Enum.to_list()
+
+      assert MockClient.commits(mock) == []
     end
   end
 

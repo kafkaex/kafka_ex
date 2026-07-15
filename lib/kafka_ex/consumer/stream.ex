@@ -30,17 +30,28 @@ defmodule KafkaEx.Consumer.Stream do
     alias KafkaEx.Consumer.Stream, as: ConsumerStream
 
     def reduce(%ConsumerStream{} = data, acc, fun) do
-      start_fun = fn -> data.offset end
-      # each iteration we need to take care of fetching and (possibly) committing offsets
-      next_fun = fn offset ->
-        data
-        |> fetch_response(offset)
-        |> maybe_commit_offset(data, acc)
-        |> stream_control(data, offset)
+      # {fetch_offset, pending_commit}: a batch commits only once proven fully delivered (next poll).
+      start_fun = fn -> {data.offset, nil} end
+
+      next_fun = fn {offset, pending} ->
+        case commit_pending(data, pending) do
+          :halt -> {:halt, {offset, nil}}
+          :ok -> fetch_and_advance(data, offset)
+        end
       end
 
-      after_fun = fn _last_offset -> :ok end
+      after_fun = fn _acc -> :ok end
       Stream.resource(start_fun, next_fun, after_fun).(acc, fun)
+    end
+
+    defp fetch_and_advance(data, offset) do
+      response = fetch_response(data, offset)
+      new_pending = pending_offset(response, data)
+
+      case stream_control(response, data, offset) do
+        {:halt, next_offset} -> {:halt, {next_offset, nil}}
+        {records, next_offset} -> {records, {next_offset, new_pending}}
+      end
     end
 
     def count(_stream) do
@@ -57,10 +68,6 @@ defmodule KafkaEx.Consumer.Stream do
 
     ######################################################################
     # Main stream flow control
-
-    defp stream_control(:commit_halt, %ConsumerStream{}, offset) do
-      {:halt, offset}
-    end
 
     # error response -> halt + log
     #
@@ -126,26 +133,30 @@ defmodule KafkaEx.Consumer.Stream do
     ######################################################################
     # Offset management
 
-    defp maybe_commit_offset(fetch_response, %ConsumerStream{} = stream_data, acc) do
+    defp commit_pending(_stream_data, nil), do: :ok
+
+    defp commit_pending(%ConsumerStream{} = stream_data, offset) do
+      case commit_offset(stream_data, offset) do
+        {:error, reason} ->
+          Logger.error(
+            "Stream halting: offset commit failed for #{stream_data.topic}/#{stream_data.partition} " <>
+              "at offset #{offset}: #{inspect(reason)}"
+          )
+
+          :halt
+
+        _ ->
+          :ok
+      end
+    end
+
+    defp pending_offset(response, %ConsumerStream{} = stream_data) do
       auto_commit = Keyword.get(stream_data.fetch_options, :auto_commit, false)
 
-      if need_commit?(fetch_response, auto_commit) do
-        offset_to_commit = last_offset(acc, fetch_response.message_set)
-
-        case commit_offset(stream_data, offset_to_commit) do
-          {:error, reason} ->
-            Logger.error(
-              "Stream halting: offset commit failed for #{stream_data.topic}/#{stream_data.partition} " <>
-                "at offset #{offset_to_commit}: #{inspect(reason)}"
-            )
-
-            :commit_halt
-
-          _ ->
-            fetch_response
-        end
+      if need_commit?(response, auto_commit) do
+        response.message_set |> List.last() |> Map.get(:offset)
       else
-        fetch_response
+        nil
       end
     end
 
@@ -157,23 +168,6 @@ defmodule KafkaEx.Consumer.Stream do
     defp need_commit?(%{message_set: []}, _auto_commit), do: false
     # otherwise, use the auto_commit setting
     defp need_commit?(_fetch_response, auto_commit), do: auto_commit
-
-    # if we have requested fewer messages than we fetched, commit the offset
-    # of the last one we will actually consume
-    defp last_offset({:cont, {_, n}}, message_set) when n <= length(message_set) do
-      case Enum.at(message_set, n - 1) do
-        nil -> nil
-        message -> message.offset
-      end
-    end
-
-    # otherwise, commit the offset of the last message
-    defp last_offset({:cont, _}, message_set) do
-      case List.last(message_set) do
-        nil -> nil
-        message -> message.offset
-      end
-    end
 
     # Commit retry settings (issue #425)
     # Uses KafkaEx.Support.Retry for unified retry logic with exponential backoff
