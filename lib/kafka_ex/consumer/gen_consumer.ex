@@ -440,8 +440,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
       :fetch_options,
       :api_versions,
       :group_manager_pid,
-      # true only when this GenConsumer started its own client (see resolve_client/2);
-      # a caller-supplied :client is shared and must NOT be stopped on terminate.
+      # true only when we started the client — a caller-supplied (shared) :client must not be stopped.
       owns_client: false
     ]
 
@@ -676,9 +675,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
     end
   end
 
-  # Resolves the client to use for Kafka operations
-  # Returns {client, owns_client?}. A caller-supplied :client is shared (owns? =
-  # false); otherwise we start our own and own its lifecycle.
+  # Returns {client, owns_client?} — false for a caller-supplied (shared) :client.
   defp resolve_client(opts, group_name) do
     case Keyword.get(opts, :client) do
       nil ->

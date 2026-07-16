@@ -963,16 +963,8 @@ defmodule KafkaEx.Client do
     Logger.warning("Request #{inspect(request_name)} failed with error #{inspect(error_atom)}")
 
     cond do
-      # A recv-timeout on a coordinator request (JoinGroup/SyncGroup/Heartbeat/commit,
-      # routed via the :consumer_group selector) is sent send-once: the broker
-      # legitimately holds these for the rebalance/session window, so retrying the
-      # same synchronous attempt just blocks the client for another full
-      # network_timeout — re-issue is owned by the higher-level loops
-      # (ConsumerGroup.Manager rejoin, GenConsumer commit), which back off with
-      # jitter in their own processes. Data-plane requests (fetch/metadata/offset)
-      # have no such higher-level retry, so they fall through to ctx.retryable?
-      # and are retried at the client as before (produce stays non-retryable on
-      # timeout via its own classifier, avoiding duplicates).
+      # Send-once only for coordinator requests (broker holds them for the rebalance/
+      # session window; rejoin/commit re-issue higher up). Data-plane retries via ctx.retryable?.
       Retry.transport_timeout?(error_atom) and coordinator_request?(ctx.node_selector) ->
         Logger.info("Coordinator request #{inspect(request_name)} timed out; not retrying at the client (send-once)")
         {{:error, error}, state}
