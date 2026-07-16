@@ -1,6 +1,6 @@
 # KafkaEx Changelog
 
-## Unreleased
+## 1.1.0 (2026-07-16)
 
 ### Added
 
@@ -14,11 +14,16 @@
 
 * **Per-attempt request timeout is now configurable via `:request_timeout`** (default
   `15_000` ms) — the `Socket.recv` deadline for a single synchronous broker request attempt
-  (metadata, offset commit/fetch, heartbeat, produce ack, …). Consumer-group JoinGroup/SyncGroup
-  derive their own, longer per-attempt deadlines from the group's rebalance/session timeouts.
+  (metadata, offset commit/fetch, produce ack, …). Consumer-group JoinGroup/SyncGroup/Heartbeat
+  derive their own, longer per-attempt deadlines (rebalance/session window; heartbeat_interval).
 
 * **Retry backoff now applies ±20% jitter (KIP-580)** in `KafkaEx.Support.Retry.with_retry/2`,
   decorrelating retries across many consumer-group members after a shared coordinator/broker blip.
+
+* **Cluster-wide `list_groups/2` admin API (#565).** `KafkaEx.API.list_groups/1,2` fans a
+  ListGroups request out across all brokers and returns `KafkaEx.Messages.ConsumerGroupListing`
+  structs; all-or-nothing (`{:error, {:node_error, node_id, reason}}` if any broker fails). Adds
+  the ListGroups protocol op (v0–v3).
 
 ### Fixed
 
