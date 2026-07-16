@@ -301,8 +301,7 @@ defmodule KafkaEx.Config do
       trimmed == "" ->
         raise ArgumentError, "group_instance_id must be a non-empty string; got #{inspect(value)}"
 
-      # Reject padded ids: they are sent verbatim on the wire, so two sources
-      # differing only in whitespace would register as distinct static members.
+      # Padded ids are sent verbatim → two whitespace-different sources = distinct members.
       trimmed != value ->
         raise ArgumentError, "group_instance_id must not have leading/trailing whitespace; got #{inspect(value)}"
 

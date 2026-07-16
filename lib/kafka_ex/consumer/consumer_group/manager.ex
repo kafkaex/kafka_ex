@@ -188,10 +188,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     Keyword.get(opts, key, Application.get_env(:kafka_ex, key, default))
   end
 
-  # Fail loudly on a bad crash-loop bound: a non-negative integer bounds it,
-  # :infinity disables it. Anything else (negative, string, float, …) would
-  # otherwise slip through register_heartbeat_crash/1's guard and silently
-  # disable the bound — a footgun for an option meant to fail fast.
+  # A bad value (negative/string/float) would silently disable the crash-loop bound — fail loud.
   defp validate_crash_rejoin_max_restarts!(:infinity), do: :ok
   defp validate_crash_rejoin_max_restarts!(n) when is_integer(n) and n >= 0, do: :ok
 
