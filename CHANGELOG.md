@@ -22,6 +22,14 @@
 
 ### Fixed
 
+* **`KafkaEx.Consumer.Stream` auto-commit no longer commits past the last delivered offset.**
+  A stream consumed with `Enum.take/2` spanning more than one fetch batch could commit an offset
+  beyond the last record the caller actually received (the reduce accumulator was captured once and
+  read stale on every batch), so a restart resumed past the gap — silent data loss. The stream now
+  commits a batch's offset only once it is proven fully delivered (deferred by one poll); a
+  truncated `Enum.take` leaves the last partial batch uncommitted, re-delivered on restart
+  (at-least-once). Pre-existing since the v1.0 Kayrock release.
+
 * **Consumer-group cold start no longer times out (JoinGroup/SyncGroup socket timeouts).**
   JoinGroup/SyncGroup previously fell back to the `1000` ms generic socket-recv timeout, while the
   broker legitimately holds a JoinGroup response for up to `group.initial.rebalance.delay.ms`
