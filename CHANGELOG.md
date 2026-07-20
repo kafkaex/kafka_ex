@@ -1,6 +1,6 @@
 # KafkaEx Changelog
 
-## 1.1.0 (2026-07-16)
+## 1.1.0 (2026-07-21)
 
 ### Added
 
@@ -66,12 +66,6 @@
   (`:fenced | :auth | :crash_loop | :crashed | :error | :client_died | :other`)
   for alert routing.
 
-* **Data-plane requests retry again on transient connection drops (`:econnreset` / `:not_connected`).**
-  The retry-classification rework narrowed data-plane retriability to a transient/leadership set;
-  these two recoverable transport atoms fell outside it and began failing fast where v1.0.x retried
-  and self-healed (the client retry loop reconnects the broker on the next attempt). Both are treated
-  as transient again, restoring v1.0.x resilience for fetch/metadata/offset requests.
-
 ### Deprecated
 
 * **`:sync_timeout` is deprecated in favour of `:request_timeout`** and will be removed in
@@ -91,9 +85,11 @@
 
 * **Data-plane requests fail fast on fatal broker errors.** Metadata / offset / find_coordinator /
   admin requests previously retried *any* error inside the client's synchronous loop; they now
-  retry only transient/leadership errors and return fatal codes
-  (`:topic_authorization_failed`, `:unsupported_version`, `:invalid_request`, …) immediately
-  instead of burning the retry budget. Mirrors Java's `RetriableException` vs fatal `KafkaException`.
+  retry only transient/leadership errors — including transient connection drops (`:closed` /
+  `:econnreset` / `:not_connected` / `:timeout`) and leadership/coordinator errors (with
+  metadata/coordinator refresh) — and return fatal codes (`:topic_authorization_failed`,
+  `:unsupported_version`, `:invalid_request`, …) immediately instead of burning the retry budget.
+  Mirrors Java's `RetriableException` vs fatal `KafkaException`.
 
 ## 1.0.1 (2026-06-26)
 
