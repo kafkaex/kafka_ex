@@ -218,6 +218,14 @@ defmodule KafkaEx.Support.RetryTest do
       assert Retry.transient_error?(:no_broker)
     end
 
+    test "econnreset is transient" do
+      assert Retry.transient_error?(:econnreset)
+    end
+
+    test "not_connected is transient" do
+      assert Retry.transient_error?(:not_connected)
+    end
+
     test "coordinator errors are transient" do
       assert Retry.transient_error?(:coordinator_not_available)
       assert Retry.transient_error?(:not_coordinator)

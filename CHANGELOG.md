@@ -66,6 +66,12 @@
   (`:fenced | :auth | :crash_loop | :crashed | :error | :client_died | :other`)
   for alert routing.
 
+* **Data-plane requests retry again on transient connection drops (`:econnreset` / `:not_connected`).**
+  The retry-classification rework narrowed data-plane retriability to a transient/leadership set;
+  these two recoverable transport atoms fell outside it and began failing fast where v1.0.x retried
+  and self-healed (the client retry loop reconnects the broker on the next attempt). Both are treated
+  as transient again, restoring v1.0.x resilience for fetch/metadata/offset requests.
+
 ### Deprecated
 
 * **`:sync_timeout` is deprecated in favour of `:request_timeout`** and will be removed in
