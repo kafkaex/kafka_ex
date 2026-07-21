@@ -212,6 +212,8 @@ defmodule KafkaEx.Support.Retry do
   def transient_error?(:parse_error), do: true
   def transient_error?(:closed), do: true
   def transient_error?(:no_broker), do: true
+  def transient_error?(:econnreset), do: true
+  def transient_error?(:not_connected), do: true
   def transient_error?(error), do: coordinator_error?(error)
 
   @doc """

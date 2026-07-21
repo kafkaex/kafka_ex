@@ -1,6 +1,6 @@
 # KafkaEx Changelog
 
-## Unreleased
+## 1.1.0 (2026-07-21)
 
 ### Added
 
@@ -14,11 +14,16 @@
 
 * **Per-attempt request timeout is now configurable via `:request_timeout`** (default
   `15_000` ms) — the `Socket.recv` deadline for a single synchronous broker request attempt
-  (metadata, offset commit/fetch, heartbeat, produce ack, …). Consumer-group JoinGroup/SyncGroup
-  derive their own, longer per-attempt deadlines from the group's rebalance/session timeouts.
+  (metadata, offset commit/fetch, produce ack, …). Consumer-group JoinGroup/SyncGroup/Heartbeat
+  derive their own, longer per-attempt deadlines (rebalance/session window; heartbeat_interval).
 
 * **Retry backoff now applies ±20% jitter (KIP-580)** in `KafkaEx.Support.Retry.with_retry/2`,
   decorrelating retries across many consumer-group members after a shared coordinator/broker blip.
+
+* **Cluster-wide `list_groups/2` admin API (#565).** `KafkaEx.API.list_groups/1,2` fans a
+  ListGroups request out across all brokers and returns `KafkaEx.Messages.ConsumerGroupListing`
+  structs; all-or-nothing (`{:error, {:node_error, node_id, reason}}` if any broker fails). Adds
+  the ListGroups protocol op (v0–v3).
 
 ### Fixed
 
@@ -80,9 +85,11 @@
 
 * **Data-plane requests fail fast on fatal broker errors.** Metadata / offset / find_coordinator /
   admin requests previously retried *any* error inside the client's synchronous loop; they now
-  retry only transient/leadership errors and return fatal codes
-  (`:topic_authorization_failed`, `:unsupported_version`, `:invalid_request`, …) immediately
-  instead of burning the retry budget. Mirrors Java's `RetriableException` vs fatal `KafkaException`.
+  retry only transient/leadership errors — including transient connection drops (`:closed` /
+  `:econnreset` / `:not_connected` / `:timeout`) and leadership/coordinator errors (with
+  metadata/coordinator refresh) — and return fatal codes (`:topic_authorization_failed`,
+  `:unsupported_version`, `:invalid_request`, …) immediately instead of burning the retry budget.
+  Mirrors Java's `RetriableException` vs fatal `KafkaException`.
 
 ## 1.0.1 (2026-06-26)
 
