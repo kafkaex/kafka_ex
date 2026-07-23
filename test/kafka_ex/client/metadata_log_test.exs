@@ -26,7 +26,7 @@ defmodule KafkaEx.Client.MetadataLogTest do
     end
 
     test "logs the first time (no prior log)", %{hb: hb} do
-      assert MetadataLog.should_log?(MapSet.new(["a"]), MapSet.new(), nil, 1_000, hb)
+      assert MetadataLog.should_log?(MapSet.new(["a"]), MapSet.new(["a"]), nil, 1_000, hb)
     end
 
     test "silent when the missing set is unchanged within the heartbeat window", %{hb: hb} do
