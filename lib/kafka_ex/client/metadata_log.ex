@@ -2,6 +2,7 @@ defmodule KafkaEx.Client.MetadataLog do
   @moduledoc false
   # Pure decision helpers for metadata-refresh logging. No side effects.
 
+  alias KafkaEx.API, as: KafkaExAPI
   alias KafkaEx.Cluster.ClusterMetadata
 
   # Log at most once per this window while the same set of topics stays missing.
@@ -10,7 +11,7 @@ defmodule KafkaEx.Client.MetadataLog do
   @spec heartbeat_ms() :: pos_integer()
   def heartbeat_ms, do: @heartbeat_ms
 
-  @spec missing_topics([String.t()], ClusterMetadata.t()) :: [String.t()]
+  @spec missing_topics([KafkaExAPI.topic_name()], ClusterMetadata.t()) :: [KafkaExAPI.topic_name()]
   def missing_topics(requested, %ClusterMetadata{topics: known}) do
     Enum.reject(requested, &Map.has_key?(known, &1))
   end
