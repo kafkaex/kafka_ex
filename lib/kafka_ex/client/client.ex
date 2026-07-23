@@ -422,11 +422,15 @@ defmodule KafkaEx.Client do
   end
 
   defp update_metadata(state, topics \\ []) do
-    # make sure we update metadata about known topics
-    known_topics = ClusterMetadata.known_topics(state.cluster_metadata)
-    topics = Enum.uniq(known_topics ++ topics)
+    # Track only topics the client actually uses. The refresh set is exactly
+    # this tracked set — never the whole cluster catalog. A topic enters here
+    # via initial_topics, on-demand partition lookups, or explicit topic
+    # metadata calls; it is never absorbed from a full-catalog response.
+    tracked = MapSet.union(state.tracked_topics, MapSet.new(topics))
+    state = %{state | tracked_topics: tracked}
+    refresh_topics = MapSet.to_list(tracked)
 
-    {updated_state, parsed_metadata} = retrieve_metadata(state, config_request_timeout(), topics)
+    {updated_state, parsed_metadata} = retrieve_metadata(state, config_request_timeout(), refresh_topics)
 
     case parsed_metadata do
       nil ->
@@ -439,8 +443,7 @@ defmodule KafkaEx.Client do
         :ok = Enum.each(brokers_to_close, &NetworkClient.close_socket(&1, &1.socket, :metadata_update))
 
         state_with_meta = %{updated_state | cluster_metadata: updated_cluster_metadata}
-        updated_state = State.update_brokers(state_with_meta, &maybe_connect_broker(&1, state))
-        updated_state
+        State.update_brokers(state_with_meta, &maybe_connect_broker(&1, state))
     end
   end
 
