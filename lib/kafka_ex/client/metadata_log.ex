@@ -1,6 +1,5 @@
 defmodule KafkaEx.Client.MetadataLog do
   @moduledoc false
-  # Pure decision helpers for metadata-refresh logging. No side effects.
 
   alias KafkaEx.API, as: KafkaExAPI
   alias KafkaEx.Cluster.ClusterMetadata

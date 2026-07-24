@@ -1,13 +1,8 @@
 defmodule KafkaEx.Client.MetadataMissingTest do
   @moduledoc """
-  Regression for the metadata give-up path (39a43ed / 7a15d49): a tracked topic
-  still missing after `@retry_count` retries must not cause the whole refresh
-  to be discarded (the old `{state, nil}` liveness bug), and the missing-topic
-  warning must be edge-triggered rather than logged on every refresh cycle.
-
-  Driven through the real `KafkaEx.Client` GenServer path (`handle_call(:update_metadata, ...)`);
-  network I/O is stubbed at `NetworkClient.send_sync_request` with hand-built
-  V0 Metadata wire responses so real `ResponseParser` parsing is exercised.
+  Metadata give-up path: a tracked topic still missing after retries must not
+  discard the whole refresh (liveness), and its warning must be edge-triggered.
+  Driven through the real Client GenServer with NetworkClient stubbed.
   """
   use ExUnit.Case, async: false
   use Mimic
@@ -52,12 +47,9 @@ defmodule KafkaEx.Client.MetadataMissingTest do
     end)
   end
 
-  # Hand-rolled Kayrock.Metadata.V0.Response wire bytes (see
-  # deps/kayrock/lib/generated/metadata.ex V0.Response.deserialize/1) — Kayrock
-  # ships no response serializer since it's a client-only library.
+  # Hand-rolled V0 wire bytes: Kayrock ships no response serializer.
   defp build_v0_metadata_response(topic_names) do
     partition = [
-      # error_code, partition_index, leader_id
       <<0::16-signed, 0::32-signed, 1::32-signed>>,
       int32_array([1]),
       int32_array([1])
@@ -92,8 +84,7 @@ defmodule KafkaEx.Client.MetadataMissingTest do
     assert cluster_metadata.topics["present-topic"]
     refute cluster_metadata.topics["missing-topic"]
 
-    # The liveness bug: give-up used to return {state, nil} and update_metadata
-    # discarded the whole refresh, so present-topic's fresh metadata never landed.
+    # Old give-up returned {state, nil}, discarding present-topic's fresh metadata.
     assert updated_state.cluster_metadata.topics["present-topic"]
     assert updated_state.metadata_missing == MapSet.new(["missing-topic"])
   end
@@ -148,6 +139,27 @@ defmodule KafkaEx.Client.MetadataMissingTest do
     assert recovery_log =~ "recovered"
     assert recovered_state.metadata_missing == MapSet.new()
     assert recovered_state.metadata_missing_logged_at == nil
+  end
+
+  test "a changed missing set logs a fresh warning even within the heartbeat window", %{state: state} do
+    stub_metadata_response(["present-topic"])
+
+    {{:reply, _, state_after_first}, first_log} =
+      capture_log_and_result(fn -> Client.handle_call(:update_metadata, self(), state) end)
+
+    assert first_log =~ "[warning]"
+    assert state_after_first.metadata_missing == MapSet.new(["missing-topic"])
+
+    # Both tracked topics now missing: the set changed, so a new warning must fire
+    # despite still being inside the heartbeat window.
+    stub_metadata_response([])
+
+    {{:reply, _, state_after_second}, second_log} =
+      capture_log_and_result(fn -> Client.handle_call(:update_metadata, self(), state_after_first) end)
+
+    assert second_log =~ "[warning]"
+    assert second_log =~ "present-topic"
+    assert state_after_second.metadata_missing == MapSet.new(["present-topic", "missing-topic"])
   end
 
   defp capture_log_and_result(fun) do

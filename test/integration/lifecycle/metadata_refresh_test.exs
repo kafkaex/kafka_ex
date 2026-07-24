@@ -1,10 +1,7 @@
 defmodule KafkaEx.Integration.Lifecycle.MetadataRefreshTest do
   @moduledoc """
-  Regression for the production incident: an unrelated team deleted a topic the
-  client never used, and the old whole-catalog metadata refresh stormed
-  `:error` logs for hours. The fix tracks/refreshes only `tracked_topics`
-  (topics the client actually uses), so a topic it never touches can never
-  enter the missing-topic check, let alone log about it.
+  Incident regression: deleting a topic the client never used must not storm
+  logs — only `tracked_topics` are refreshed, so an untouched topic never gates.
   """
   use ExUnit.Case, async: true
   @moduletag :lifecycle
@@ -32,18 +29,12 @@ defmodule KafkaEx.Integration.Lifecycle.MetadataRefreshTest do
 
       _ = create_topic(client, topic_a)
       {:ok, _} = API.produce(client, topic_a, 0, [%{value: "seed"}])
-      # topics_metadata unconditionally merges into tracked_topics (unlike bare
-      # API.metadata/3, which is a one-off query) - this is what guarantees
-      # topic_a is in the refresh set below, regardless of whether produce's
-      # own node-selection happened to already know the broker.
+      # topics_metadata (unlike a bare metadata query) tracks topic_a.
       {:ok, _} = API.topics_metadata(client, [topic_a])
 
-      # topic_b is created and deleted but the client never uses it, so it never
-      # enters tracked_topics and the refresh set never includes it.
       _ = create_topic(client, topic_b)
       {:ok, _} = API.delete_topic(client, topic_b)
 
-      # Pin down the actual mechanism under test, not just its absence of side effects.
       tracked = :sys.get_state(client).tracked_topics
       assert MapSet.member?(tracked, topic_a)
       refute MapSet.member?(tracked, topic_b)
@@ -66,14 +57,7 @@ defmodule KafkaEx.Integration.Lifecycle.MetadataRefreshTest do
     end
   end
 
-  # A second scenario (a topic the client DOES use gets deleted -> exactly one
-  # edge-triggered warning naming it) was attempted here but dropped: on this
-  # sandbox's shared docker cluster, follower brokers were observed to never
-  # receive the controller's post-delete UpdateMetadataRequest (confirmed by
-  # querying each broker directly - the leader broker correctly reported the
-  # topic gone while followers kept reporting it present, indefinitely, well
-  # past any reasonable propagation window). `NodeSelector.first_available/0`
-  # can land on such a stale follower, making the assertion's timing
-  # fundamentally unreliable in this environment rather than a property of the
-  # code under test. See task report for the full investigation.
+  # The used-topic-deletion warning is covered by metadata_missing_test.exs (unit),
+  # not here: this shared cluster's follower brokers never receive the post-delete
+  # metadata, so a live assertion is env-flaky, not a property of the code.
 end

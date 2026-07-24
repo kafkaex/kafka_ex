@@ -423,10 +423,7 @@ defmodule KafkaEx.Client do
   end
 
   defp update_metadata(state, topics \\ []) do
-    # Track only topics the client actually uses. The refresh set is exactly
-    # this tracked set — never the whole cluster catalog. A topic enters here
-    # via initial_topics, on-demand partition lookups, or explicit topic
-    # metadata calls; it is never absorbed from a full-catalog response.
+    # Refresh only topics the client uses, never the whole cluster catalog.
     tracked = MapSet.union(state.tracked_topics, MapSet.new(topics))
     state = %{state | tracked_topics: tracked}
     refresh_topics = MapSet.to_list(tracked)
@@ -1086,9 +1083,7 @@ defmodule KafkaEx.Client do
             retrieve_metadata(state, request_timeout, topics, retry - 1)
 
           true ->
-            # Last attempt still missing: merge what we DID get (never discard
-            # fresh metadata for available topics — that was the liveness bug),
-            # and log edge-triggered instead of every cycle.
+            # Merge what we got rather than discarding it (the liveness bug).
             {log_metadata_missing(state_out, missing), cluster_metadata}
         end
 
