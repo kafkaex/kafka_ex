@@ -3,7 +3,8 @@ defmodule KafkaEx.Integration.Lifecycle.MetadataRefreshTest do
   Incident regression: deleting a topic the client never used must not storm
   logs — only `tracked_topics` are refreshed, so an untouched topic never gates.
   """
-  use ExUnit.Case, async: true
+  # async: false — CaptureLog is VM-wide; the [error]/[warning] refutes must not see other async tests' logs.
+  use ExUnit.Case, async: false
   @moduletag :lifecycle
 
   import ExUnit.CaptureLog
