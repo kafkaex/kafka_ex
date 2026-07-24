@@ -16,6 +16,7 @@ defmodule KafkaEx.Client do
   alias KafkaEx.Telemetry
 
   alias KafkaEx.Client.Error
+  alias KafkaEx.Client.MetadataLog
   alias KafkaEx.Client.NodeSelector
   alias KafkaEx.Client.RequestBudget
   alias KafkaEx.Client.RequestBuilder
@@ -422,11 +423,12 @@ defmodule KafkaEx.Client do
   end
 
   defp update_metadata(state, topics \\ []) do
-    # make sure we update metadata about known topics
-    known_topics = ClusterMetadata.known_topics(state.cluster_metadata)
-    topics = Enum.uniq(known_topics ++ topics)
+    # Refresh only topics the client uses, never the whole cluster catalog.
+    tracked = MapSet.union(state.tracked_topics, MapSet.new(topics))
+    state = %{state | tracked_topics: tracked}
+    refresh_topics = MapSet.to_list(tracked)
 
-    {updated_state, parsed_metadata} = retrieve_metadata(state, config_request_timeout(), topics)
+    {updated_state, parsed_metadata} = retrieve_metadata(state, config_request_timeout(), refresh_topics)
 
     case parsed_metadata do
       nil ->
@@ -439,8 +441,7 @@ defmodule KafkaEx.Client do
         :ok = Enum.each(brokers_to_close, &NetworkClient.close_socket(&1, &1.socket, :metadata_update))
 
         state_with_meta = %{updated_state | cluster_metadata: updated_cluster_metadata}
-        updated_state = State.update_brokers(state_with_meta, &maybe_connect_broker(&1, state))
-        updated_state
+        State.update_brokers(state_with_meta, &maybe_connect_broker(&1, state))
     end
   end
 
@@ -1047,11 +1048,6 @@ defmodule KafkaEx.Client do
     retrieve_metadata(state, request_timeout, topics, @retry_count)
   end
 
-  defp retrieve_metadata(state, _request_timeout, topics, 0) do
-    Logger.log(:error, "Metadata request for topics #{inspect(topics)} failed: leader_not_available after retries")
-    {state, nil}
-  end
-
   defp retrieve_metadata(state, request_timeout, topics, retry) do
     req_opts = [
       topics: topics,
@@ -1076,13 +1072,19 @@ defmodule KafkaEx.Client do
   defp parse_metadata_response(response, state, state_out, request_timeout, topics, retry) do
     case ResponseParser.metadata_response(response) do
       {:ok, cluster_metadata} ->
-        # Check if any requested topics are missing (leader_not_available).
-        # The parser filters out topics with errors, so missing = still propagating.
-        if topics != [] and has_missing_topics?(topics, cluster_metadata) do
-          :timer.sleep(300)
-          retrieve_metadata(state, request_timeout, topics, retry - 1)
-        else
-          {state_out, cluster_metadata}
+        missing = MetadataLog.missing_topics(topics, cluster_metadata)
+
+        cond do
+          missing == [] ->
+            {clear_metadata_missing(state_out), cluster_metadata}
+
+          retry > 1 ->
+            :timer.sleep(300)
+            retrieve_metadata(state, request_timeout, topics, retry - 1)
+
+          true ->
+            # Merge what we got rather than discarding it (the liveness bug).
+            {log_metadata_missing(state_out, missing), cluster_metadata}
         end
 
       {:error, _reason} ->
@@ -1091,8 +1093,29 @@ defmodule KafkaEx.Client do
     end
   end
 
-  defp has_missing_topics?(requested_topics, %ClusterMetadata{topics: known_topics}) do
-    Enum.any?(requested_topics, fn topic -> not Map.has_key?(known_topics, topic) end)
+  defp clear_metadata_missing(%{metadata_missing: prev} = state) do
+    if MapSet.size(prev) == 0 do
+      state
+    else
+      Logger.info("Kafka metadata recovered for topics #{inspect(Enum.sort(prev))}")
+      %{state | metadata_missing: MapSet.new(), metadata_missing_logged_at: nil}
+    end
+  end
+
+  defp log_metadata_missing(state, missing) do
+    missing_set = MapSet.new(missing)
+    now = System.monotonic_time(:millisecond)
+
+    if MetadataLog.should_log?(missing_set, state.metadata_missing, state.metadata_missing_logged_at, now) do
+      Logger.warning(
+        "Kafka metadata unavailable for topics #{inspect(Enum.sort(missing))} " <>
+          "after #{@retry_count} attempts (topic unknown or leader not available)"
+      )
+
+      %{state | metadata_missing: missing_set, metadata_missing_logged_at: now}
+    else
+      %{state | metadata_missing: missing_set}
+    end
   end
 
   defp sleep_for_reconnect do

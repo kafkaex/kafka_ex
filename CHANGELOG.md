@@ -1,5 +1,26 @@
 # KafkaEx Changelog
 
+## 1.1.1 (2026-07-24)
+
+### Fixed
+
+* **Client no longer tracks metadata for the entire cluster topic catalog.** The periodic metadata
+  refresh previously folded *every* topic the client had ever seen into its request and health-gated
+  the whole set, and an empty topic list (`[]`) was sent to the broker as "all topics" — so the
+  client absorbed the entire cluster catalog on first refresh and never pruned it. A single unrelated
+  topic being deleted then (a) produced a storm of `:error` logs dumping the full topic list on every
+  refresh cycle, and (b) discarded the *whole* metadata refresh — including fresh leader/broker data
+  for topics the client actually uses — because one missing topic aborted the update (a liveness bug:
+  stale metadata for in-use topics until restart). The client now refreshes metadata only for topics
+  it actually uses, merges whatever a refresh returns instead of discarding it, and logs unavailable
+  *used* topics edge-triggered (`:warning` on change, throttled thereafter; `:info` once on recovery)
+  instead of `:error` on every cycle.
+
+  **Behavior change:** metadata is tracked only for topics the client produces to, consumes from, or
+  explicitly requests. The first access to a previously-unused topic now triggers one metadata fetch
+  (the whole cluster catalog is no longer kept warm in the background). The public
+  `KafkaEx.API.metadata/2,3` all-topics query is unchanged.
+
 ## 1.1.0 (2026-07-21)
 
 ### Added

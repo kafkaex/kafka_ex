@@ -19,7 +19,10 @@ defmodule KafkaEx.Client.State do
     use_ssl: false,
     api_versions: %{},
     allow_auto_topic_creation: true,
-    metadata_timer_ref: nil
+    metadata_timer_ref: nil,
+    tracked_topics: MapSet.new(),
+    metadata_missing: MapSet.new(),
+    metadata_missing_logged_at: nil
   )
 
   @type t :: %__MODULE__{
@@ -33,7 +36,10 @@ defmodule KafkaEx.Client.State do
           use_ssl: boolean(),
           api_versions: map(),
           allow_auto_topic_creation: boolean(),
-          metadata_timer_ref: reference() | nil
+          metadata_timer_ref: reference() | nil,
+          tracked_topics: MapSet.t(),
+          metadata_missing: MapSet.t(),
+          metadata_missing_logged_at: integer() | nil
         }
 
   @default_metadata_update_interval 30_000
