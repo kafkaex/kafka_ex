@@ -638,7 +638,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
 
     case consumer_module.init(topic, partition, extra_consumer_args) do
       {:ok, consumer_state} ->
-        {client, owns_client} = resolve_client(opts, group_name)
+        {client, owns_client} = resolve_client(opts, group_name, topic)
 
         default_fetch_options = [
           auto_commit: false
@@ -676,16 +676,18 @@ defmodule KafkaEx.Consumer.GenConsumer do
   end
 
   # Returns {client, owns_client?} — false for a caller-supplied (shared) :client.
-  defp resolve_client(opts, group_name) do
+  defp resolve_client(opts, group_name, topic) do
     case Keyword.get(opts, :client) do
       nil ->
-        # Start a new client with Config defaults for connection options
+        # Seed initial_topics so the client's first refresh is scoped to this
+        # consumer's topic, not the whole cluster catalog.
         client_opts = [
           uris: Keyword.get(opts, :uris, Config.brokers()),
           use_ssl: Keyword.get(opts, :use_ssl, Config.use_ssl()),
           ssl_options: Keyword.get(opts, :ssl_options, Config.ssl_options()),
           auth: Keyword.get(opts, :auth, Config.auth_config()),
-          consumer_group: group_name
+          consumer_group: group_name,
+          initial_topics: [topic]
         ]
 
         {:ok, client} = Client.start_link(client_opts, :no_name)
