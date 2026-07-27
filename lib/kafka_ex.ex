@@ -39,6 +39,8 @@ defmodule KafkaEx do
           | {:certfile, binary}
           | {:keyfile, binary}
           | {:password, binary}
+          # any other Erlang :ssl option (:verify, :cacerts, :versions, …)
+          | {atom, term}
         ]
   @type worker_setting ::
           {:brokers, uri}
