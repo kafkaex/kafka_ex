@@ -7,9 +7,6 @@ defmodule KafkaEx.Client.MetadataLog do
   # Log at most once per this window while the same set of topics stays missing.
   @heartbeat_ms 15 * 60 * 1000
 
-  @spec heartbeat_ms() :: pos_integer()
-  def heartbeat_ms, do: @heartbeat_ms
-
   @spec missing_topics([KafkaExAPI.topic_name()], ClusterMetadata.t()) :: [KafkaExAPI.topic_name()]
   def missing_topics(requested, %ClusterMetadata{topics: known}) do
     Enum.reject(requested, &Map.has_key?(known, &1))

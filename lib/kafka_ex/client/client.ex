@@ -423,7 +423,7 @@ defmodule KafkaEx.Client do
   end
 
   defp update_metadata(state, topics \\ []) do
-    # Refresh only topics the client uses, never the whole cluster catalog.
+    # Refresh the tracked (used) topics, not every known topic.
     tracked = MapSet.union(state.tracked_topics, MapSet.new(topics))
     state = %{state | tracked_topics: tracked}
     refresh_topics = MapSet.to_list(tracked)
@@ -1073,14 +1073,14 @@ defmodule KafkaEx.Client do
     case ResponseParser.metadata_response(response) do
       {:ok, cluster_metadata} ->
         missing = MetadataLog.missing_topics(topics, cluster_metadata)
-        newly_missing = Enum.reject(missing, &MapSet.member?(state.metadata_missing, &1))
+        has_new_missing? = Enum.any?(missing, &(not MapSet.member?(state.metadata_missing, &1)))
 
         cond do
           missing == [] ->
             {clear_metadata_missing(state_out), cluster_metadata}
 
           # Retry-sleep only for newly-missing topics; a known-missing one would otherwise stall every refresh.
-          retry > 1 and newly_missing != [] ->
+          retry > 1 and has_new_missing? ->
             :timer.sleep(300)
             retrieve_metadata(state, request_timeout, topics, retry - 1)
 
