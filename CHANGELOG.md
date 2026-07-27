@@ -18,6 +18,11 @@
   the tracked-topic set is not yet pruned, so an ever-growing set of distinct topic names accumulates
   for the client's lifetime; pruning is planned.
 
+* **A consumer that starts its own client scopes it to its own topic.** A `GenConsumer` with no
+  shared `:client` now seeds the client it starts with `initial_topics: [topic]`, so its first
+  metadata refresh covers just that topic instead of the whole cluster catalog — avoiding N
+  simultaneous whole-catalog fetches at group startup.
+
 ## 1.1.0 (2026-07-21)
 
 ### Added
