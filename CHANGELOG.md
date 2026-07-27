@@ -1,5 +1,28 @@
 # KafkaEx Changelog
 
+## 1.1.1 (2026-07-24)
+
+### Fixed
+
+* **Client tracks metadata only for topics it actually uses.** Previously the periodic refresh
+  folded every topic ever seen into one request and health-gated the whole set, absorbing the entire
+  cluster catalog and never pruning it — so one deleted topic stormed `:error` logs every cycle *and*
+  discarded the whole refresh, including fresh leader data for in-use topics (a liveness bug). The
+  client now refreshes only used topics, merges whatever it gets, and logs unavailable used topics
+  edge-triggered (`:warning`/`:info`) instead of `:error` every cycle. **Behavior change:** the
+  catalog is no longer kept warm; first use of a new topic costs one metadata fetch.
+
+* **Metadata refresh no longer stalls the client on a deleted-but-tracked topic.** A permanently
+  missing tracked topic re-ran the full retry ladder (~600ms of sleeps) inside the client on every
+  refresh; the retry-sleep now runs only the first time a topic goes missing. **Known limitation:**
+  the tracked-topic set is not yet pruned, so an ever-growing set of distinct topic names accumulates
+  for the client's lifetime; pruning is planned.
+
+* **A consumer that starts its own client scopes it to its own topic.** A `GenConsumer` with no
+  shared `:client` now seeds the client it starts with `initial_topics: [topic]`, so its first
+  metadata refresh covers just that topic instead of the whole cluster catalog — avoiding N
+  simultaneous whole-catalog fetches at group startup.
+
 ## 1.1.0 (2026-07-21)
 
 ### Added

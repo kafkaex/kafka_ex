@@ -3,7 +3,7 @@ defmodule KafkaEx.Mixfile do
   use Mix.Project
 
   @source_url "https://github.com/kafkaex/kafka_ex"
-  @version "1.1.0"
+  @version "1.1.1"
 
   def project do
     [
@@ -41,7 +41,7 @@ defmodule KafkaEx.Mixfile do
           "UPGRADING.md"
         ],
         source_url: @source_url,
-        source_ref: @version
+        source_ref: "v#{@version}"
       ]
     ]
   end
