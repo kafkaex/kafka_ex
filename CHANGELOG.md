@@ -21,6 +21,18 @@
   (the whole cluster catalog is no longer kept warm in the background). The public
   `KafkaEx.API.metadata/2,3` all-topics query is unchanged.
 
+* **Metadata refresh no longer stalls the client for a deleted-but-tracked topic.** A tracked topic
+  that stays missing (e.g. it was deleted) previously re-ran the full metadata retry ladder — three
+  broker attempts with a 300ms sleep between each (~600ms) inside the client process — on *every*
+  periodic refresh, blocking all other requests on that client each cycle. The retry-sleep is now
+  spent only the first time a topic goes missing (to tolerate a transient gap); a topic already
+  known-missing skips straight to the merge path.
+
+  **Known limitation:** the tracked-topic set is not yet pruned, so a workload that uses an
+  ever-growing set of *distinct* topic names (e.g. per-day or per-tenant topics) accumulates topic
+  names for the lifetime of the client. Static topic sets are unaffected; pruning is planned for a
+  future release.
+
 ## 1.0.1 (2026-06-26)
 
 ### Breaking Changes
