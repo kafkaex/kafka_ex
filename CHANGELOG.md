@@ -4,34 +4,19 @@
 
 ### Fixed
 
-* **Client no longer tracks metadata for the entire cluster topic catalog.** The periodic metadata
-  refresh previously folded *every* topic the client had ever seen into its request and health-gated
-  the whole set, and an empty topic list (`[]`) was sent to the broker as "all topics" — so the
-  client absorbed the entire cluster catalog on first refresh and never pruned it. A single unrelated
-  topic being deleted then (a) produced a storm of `:error` logs dumping the full topic list on every
-  refresh cycle, and (b) discarded the *whole* metadata refresh — including fresh leader/broker data
-  for topics the client actually uses — because one missing topic aborted the update (a liveness bug:
-  stale metadata for in-use topics until restart). The client now refreshes metadata only for topics
-  it actually uses, merges whatever a refresh returns instead of discarding it, and logs unavailable
-  *used* topics edge-triggered (`:warning` on change, throttled thereafter; `:info` once on recovery)
-  instead of `:error` on every cycle.
+* **Client tracks metadata only for topics it actually uses.** Previously the periodic refresh
+  folded every topic ever seen into one request and health-gated the whole set, absorbing the entire
+  cluster catalog and never pruning it — so one deleted topic stormed `:error` logs every cycle *and*
+  discarded the whole refresh, including fresh leader data for in-use topics (a liveness bug). The
+  client now refreshes only used topics, merges whatever it gets, and logs unavailable used topics
+  edge-triggered (`:warning`/`:info`) instead of `:error` every cycle. **Behavior change:** the
+  catalog is no longer kept warm; first use of a new topic costs one metadata fetch.
 
-  **Behavior change:** metadata is tracked only for topics the client produces to, consumes from, or
-  explicitly requests. The first access to a previously-unused topic now triggers one metadata fetch
-  (the whole cluster catalog is no longer kept warm in the background). The public
-  `KafkaEx.API.metadata/2,3` all-topics query is unchanged.
-
-* **Metadata refresh no longer stalls the client for a deleted-but-tracked topic.** A tracked topic
-  that stays missing (e.g. it was deleted) previously re-ran the full metadata retry ladder — three
-  broker attempts with a 300ms sleep between each (~600ms) inside the client process — on *every*
-  periodic refresh, blocking all other requests on that client each cycle. The retry-sleep is now
-  spent only the first time a topic goes missing (to tolerate a transient gap); a topic already
-  known-missing skips straight to the merge path.
-
-  **Known limitation:** the tracked-topic set is not yet pruned, so a workload that uses an
-  ever-growing set of *distinct* topic names (e.g. per-day or per-tenant topics) accumulates topic
-  names for the lifetime of the client. Static topic sets are unaffected; pruning is planned for a
-  future release.
+* **Metadata refresh no longer stalls the client on a deleted-but-tracked topic.** A permanently
+  missing tracked topic re-ran the full retry ladder (~600ms of sleeps) inside the client on every
+  refresh; the retry-sleep now runs only the first time a topic goes missing. **Known limitation:**
+  the tracked-topic set is not yet pruned, so an ever-growing set of distinct topic names accumulates
+  for the client's lifetime; pruning is planned.
 
 ## 1.1.0 (2026-07-21)
 
