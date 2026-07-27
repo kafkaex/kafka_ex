@@ -22,6 +22,9 @@ defmodule KafkaEx.Client.MetadataMissingTest do
     {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false])
     {:ok, lport} = :inet.port(listen)
     {:ok, sock} = :gen_tcp.connect(~c"localhost", lport, [:binary, active: false])
+    # Advertise this ephemeral port in the fake metadata so merge_brokers reuses the
+    # existing socket instead of dialing a real broker — keeps the test cluster-free.
+    Process.put(:kafkaex_test_broker_port, lport)
 
     on_exit(fn ->
       :gen_tcp.close(sock)
@@ -63,7 +66,7 @@ defmodule KafkaEx.Client.MetadataMissingTest do
     [
       <<1::32-signed>>,
       int32_array_len(1),
-      [<<1::32-signed>>, string("localhost"), <<9092::32-signed>>],
+      [<<1::32-signed>>, string("localhost"), <<Process.get(:kafkaex_test_broker_port)::32-signed>>],
       int32_array_len(length(topic_names)),
       topics
     ]
