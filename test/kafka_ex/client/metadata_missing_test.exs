@@ -163,6 +163,32 @@ defmodule KafkaEx.Client.MetadataMissingTest do
     assert state_after_second.metadata_missing == MapSet.new(["present-topic", "missing-topic"])
   end
 
+  test "a known-missing topic is not sleep-retried on later refreshes (no recurring 600ms stall)", %{
+    state: state,
+    port: port
+  } do
+    calls = :counters.new(1, [])
+
+    stub(NetworkClient, :send_sync_request, fn _broker, _wire, _timeout ->
+      :counters.add(calls, 1, 1)
+      build_v0_metadata_response(["present-topic"], port)
+    end)
+
+    {{:reply, _, state_after_first}, _first_log} =
+      capture_log_and_result(fn -> Client.handle_call(:update_metadata, self(), state) end)
+
+    # First time a topic goes missing we still retry, to tolerate a transient gap.
+    assert :counters.get(calls, 1) > 1
+
+    before_second = :counters.get(calls, 1)
+
+    {{:reply, _, _}, _second_log} =
+      capture_log_and_result(fn -> Client.handle_call(:update_metadata, self(), state_after_first) end)
+
+    # Already known-missing: a single metadata request, no retry ladder, no sleep.
+    assert :counters.get(calls, 1) - before_second == 1
+  end
+
   defp capture_log_and_result(fun) do
     log = capture_log(fn -> send(self(), {:capture_log_and_result, fun.()}) end)
     assert_received {:capture_log_and_result, result}

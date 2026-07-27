@@ -1073,12 +1073,14 @@ defmodule KafkaEx.Client do
     case ResponseParser.metadata_response(response) do
       {:ok, cluster_metadata} ->
         missing = MetadataLog.missing_topics(topics, cluster_metadata)
+        newly_missing = Enum.reject(missing, &MapSet.member?(state.metadata_missing, &1))
 
         cond do
           missing == [] ->
             {clear_metadata_missing(state_out), cluster_metadata}
 
-          retry > 1 ->
+          # Retry-sleep only for newly-missing topics; a known-missing one would otherwise stall every refresh.
+          retry > 1 and newly_missing != [] ->
             :timer.sleep(300)
             retrieve_metadata(state, request_timeout, topics, retry - 1)
 
