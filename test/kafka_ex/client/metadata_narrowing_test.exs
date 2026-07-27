@@ -23,9 +23,6 @@ defmodule KafkaEx.Client.MetadataNarrowingTest do
     {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false])
     {:ok, lport} = :inet.port(listen)
     {:ok, sock} = :gen_tcp.connect(~c"localhost", lport, [:binary, active: false])
-    # Advertise this ephemeral port in the fake metadata so merge_brokers reuses the
-    # existing socket instead of dialing a real broker — keeps the test cluster-free.
-    Process.put(:kafkaex_test_broker_port, lport)
 
     on_exit(fn ->
       :gen_tcp.close(sock)
@@ -41,7 +38,7 @@ defmodule KafkaEx.Client.MetadataNarrowingTest do
       tracked_topics: MapSet.new(["t1", "t2", "t3"])
     }
 
-    stub_metadata_response(["t1", "t2", "t3"])
+    stub_metadata_response(["t1", "t2", "t3"], lport)
 
     {{:reply, {:ok, _}, full_state}, _log} =
       capture_log_and_result(fn -> Client.handle_call(:update_metadata, self(), base_state) end)
@@ -49,17 +46,17 @@ defmodule KafkaEx.Client.MetadataNarrowingTest do
     # Models "t2/t3 were hit-resolved but never tracked": cm has all three, tracked has only t1.
     state = %{full_state | tracked_topics: MapSet.new(["t1"])}
 
-    {:ok, state: state}
+    {:ok, state: state, port: lport}
   end
 
-  defp stub_metadata_response(topic_names) do
+  defp stub_metadata_response(topic_names, port) do
     stub(NetworkClient, :send_sync_request, fn _broker, _wire, _timeout ->
-      build_v0_metadata_response(topic_names)
+      build_v0_metadata_response(topic_names, port)
     end)
   end
 
   # Hand-rolled V0 wire bytes: Kayrock ships no response serializer.
-  defp build_v0_metadata_response(topic_names) do
+  defp build_v0_metadata_response(topic_names, port) do
     partition = [
       <<0::16-signed, 0::32-signed, 1::32-signed>>,
       int32_array([1]),
@@ -74,7 +71,7 @@ defmodule KafkaEx.Client.MetadataNarrowingTest do
     [
       <<1::32-signed>>,
       int32_array_len(1),
-      [<<1::32-signed>>, string("localhost"), <<Process.get(:kafkaex_test_broker_port)::32-signed>>],
+      [<<1::32-signed>>, string("localhost"), <<port::32-signed>>],
       int32_array_len(length(topic_names)),
       topics
     ]
@@ -91,8 +88,11 @@ defmodule KafkaEx.Client.MetadataNarrowingTest do
     {result, log}
   end
 
-  test "narrowing: refresh limited to tracked topics drops untracked topics from cluster_metadata", %{state: state} do
-    stub_metadata_response(["t1"])
+  test "narrowing: refresh limited to tracked topics drops untracked topics from cluster_metadata", %{
+    state: state,
+    port: port
+  } do
+    stub_metadata_response(["t1"], port)
 
     {{:reply, {:ok, cluster_metadata}, updated_state}, _log} =
       capture_log_and_result(fn -> Client.handle_call(:update_metadata, self(), state) end)
@@ -106,14 +106,15 @@ defmodule KafkaEx.Client.MetadataNarrowingTest do
   end
 
   test "recovery: a topic_metadata call for the dropped topic re-adds it without losing the retained one", %{
-    state: state
+    state: state,
+    port: port
   } do
-    stub_metadata_response(["t1"])
+    stub_metadata_response(["t1"], port)
 
     {{:reply, {:ok, _}, narrowed_state}, _log} =
       capture_log_and_result(fn -> Client.handle_call(:update_metadata, self(), state) end)
 
-    stub_metadata_response(["t1", "t2"])
+    stub_metadata_response(["t1", "t2"], port)
 
     {{:reply, {:ok, _topic_metadata}, recovered_state}, _log} =
       capture_log_and_result(fn ->
@@ -125,20 +126,20 @@ defmodule KafkaEx.Client.MetadataNarrowingTest do
     assert recovered_state.tracked_topics == MapSet.new(["t1", "t2"])
   end
 
-  test "convergence: once tracked, a topic survives further refreshes (no thrashing)", %{state: state} do
-    stub_metadata_response(["t1"])
+  test "convergence: once tracked, a topic survives further refreshes (no thrashing)", %{state: state, port: port} do
+    stub_metadata_response(["t1"], port)
 
     {{:reply, {:ok, _}, narrowed_state}, _log} =
       capture_log_and_result(fn -> Client.handle_call(:update_metadata, self(), state) end)
 
-    stub_metadata_response(["t1", "t2"])
+    stub_metadata_response(["t1", "t2"], port)
 
     {{:reply, {:ok, _}, recovered_state}, _log} =
       capture_log_and_result(fn ->
         Client.handle_call({:topic_metadata, ["t2"], false}, self(), narrowed_state)
       end)
 
-    stub_metadata_response(["t1", "t2"])
+    stub_metadata_response(["t1", "t2"], port)
 
     {{:reply, {:ok, cluster_metadata}, converged_state}, _log} =
       capture_log_and_result(fn -> Client.handle_call(:update_metadata, self(), recovered_state) end)
