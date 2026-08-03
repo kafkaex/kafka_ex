@@ -300,3 +300,61 @@ jobs:
       - name: Retry failed tests (2nd retry)
         if: steps.retry-1.outcome == 'failure'
         run: mix test --only auth --failed
+
+  rack-awareness-tests:
+    name: Rack Awareness Tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+
+    env:
+      MIX_ENV: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Elixir & Erlang
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.18"
+          otp-version: "27.2"
+
+      - name: Restore dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-27.2-1.18-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-27.2-1.18-
+
+      - name: Install dependencies
+        run: |
+          mix local.rebar --force
+          mix local.hex --force
+          mix deps.get
+          mix deps.compile
+
+      - name: Check Docker availability
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Docker-compose up
+        run: ./scripts/docker_up.sh
+
+      - name: Run Rack Awareness Tests
+        id: test-run
+        continue-on-error: true
+        run: mix test --only rack_awareness
+
+      - name: Retry failed tests (1st retry)
+        id: retry-1
+        if: steps.test-run.outcome == 'failure'
+        continue-on-error: true
+        run: mix test --only rack_awareness --failed
+
+      - name: Retry failed tests (2nd retry)
+        if: steps.retry-1.outcome == 'failure'
+        run: mix test --only rack_awareness --failed

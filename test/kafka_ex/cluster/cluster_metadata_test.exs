@@ -396,4 +396,122 @@ defmodule KafkaEx.Cluster.ClusterMetadataTest do
       assert ClusterMetadata.known_topics(updated_cluster) == ["topic-one"]
     end
   end
+
+  describe "preferred_replica/3 + put_preferred_replica/4" do
+    test "preferred_replica returns nil when nothing is cached" do
+      cluster = %ClusterMetadata{}
+      assert ClusterMetadata.preferred_replica(cluster, "t", 0) == nil
+    end
+
+    test "put_preferred_replica stores a node_id, preferred_replica returns it" do
+      cluster = %ClusterMetadata{} |> ClusterMetadata.put_preferred_replica("t", 0, 7)
+      assert ClusterMetadata.preferred_replica(cluster, "t", 0) == 7
+    end
+
+    test "put_preferred_replica updates an existing entry" do
+      cluster =
+        %ClusterMetadata{}
+        |> ClusterMetadata.put_preferred_replica("t", 0, 7)
+        |> ClusterMetadata.put_preferred_replica("t", 0, 9)
+
+      assert ClusterMetadata.preferred_replica(cluster, "t", 0) == 9
+    end
+
+    test "put_preferred_replica with -1 clears the entry (Kafka wire 'no preference')" do
+      cluster =
+        %ClusterMetadata{}
+        |> ClusterMetadata.put_preferred_replica("t", 0, 7)
+        |> ClusterMetadata.put_preferred_replica("t", 0, -1)
+
+      assert ClusterMetadata.preferred_replica(cluster, "t", 0) == nil
+    end
+
+    test "put_preferred_replica with nil clears the entry" do
+      cluster =
+        %ClusterMetadata{}
+        |> ClusterMetadata.put_preferred_replica("t", 0, 7)
+        |> ClusterMetadata.put_preferred_replica("t", 0, nil)
+
+      assert ClusterMetadata.preferred_replica(cluster, "t", 0) == nil
+    end
+
+    test "entries for different (topic, partition) tuples are independent" do
+      cluster =
+        %ClusterMetadata{}
+        |> ClusterMetadata.put_preferred_replica("t", 0, 7)
+        |> ClusterMetadata.put_preferred_replica("t", 1, 8)
+        |> ClusterMetadata.put_preferred_replica("u", 0, 9)
+
+      assert ClusterMetadata.preferred_replica(cluster, "t", 0) == 7
+      assert ClusterMetadata.preferred_replica(cluster, "t", 1) == 8
+      assert ClusterMetadata.preferred_replica(cluster, "u", 0) == 9
+    end
+  end
+
+  describe "select_node/2 preferred replica (KIP-392) is fetch-only" do
+    setup do
+      topic =
+        KafkaEx.Cluster.Topic.from_topic_metadata(%{
+          name: "t",
+          is_internal: false,
+          partitions: [
+            %{error_code: 0, partition_index: 0, leader_id: 1, replica_nodes: [], isr_nodes: []}
+          ]
+        })
+
+      cluster = %ClusterMetadata{
+        brokers: %{
+          1 => %KafkaEx.Cluster.Broker{node_id: 1},
+          2 => %KafkaEx.Cluster.Broker{node_id: 2}
+        },
+        topics: %{topic.name => topic}
+      }
+
+      {:ok,
+       cluster: cluster,
+       leader_selector: KafkaEx.Client.NodeSelector.topic_partition("t", 0),
+       replica_selector: KafkaEx.Client.NodeSelector.topic_partition_replica("t", 0)}
+    end
+
+    test ":topic_partition ignores the cache — writes always go to the leader", %{
+      cluster: cluster,
+      leader_selector: leader_selector
+    } do
+      cluster = ClusterMetadata.put_preferred_replica(cluster, "t", 0, 2)
+      assert ClusterMetadata.select_node(cluster, leader_selector) == {:ok, 1}
+    end
+
+    test ":topic_partition_replica returns the preferred replica when cached", %{
+      cluster: cluster,
+      replica_selector: replica_selector
+    } do
+      cluster = ClusterMetadata.put_preferred_replica(cluster, "t", 0, 2)
+      assert ClusterMetadata.select_node(cluster, replica_selector) == {:ok, 2}
+    end
+
+    test ":topic_partition_replica falls back to leader when no preference is cached", %{
+      cluster: cluster,
+      replica_selector: replica_selector
+    } do
+      assert ClusterMetadata.select_node(cluster, replica_selector) == {:ok, 1}
+    end
+
+    test ":topic_partition_replica falls back to leader when the preferred broker no longer exists", %{
+      cluster: cluster,
+      replica_selector: replica_selector
+    } do
+      cluster = ClusterMetadata.put_preferred_replica(cluster, "t", 0, 99)
+      assert ClusterMetadata.select_node(cluster, replica_selector) == {:ok, 1}
+    end
+
+    test ":topic_partition_replica reports :no_such_topic / :no_such_partition like :topic_partition", %{
+      cluster: cluster
+    } do
+      assert ClusterMetadata.select_node(cluster, KafkaEx.Client.NodeSelector.topic_partition_replica("nope", 0)) ==
+               {:error, :no_such_topic}
+
+      assert ClusterMetadata.select_node(cluster, KafkaEx.Client.NodeSelector.topic_partition_replica("t", 9)) ==
+               {:error, :no_such_partition}
+    end
+  end
 end

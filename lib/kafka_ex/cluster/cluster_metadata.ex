@@ -11,13 +11,20 @@ defmodule KafkaEx.Cluster.ClusterMetadata do
   alias KafkaEx.Cluster.Broker
   alias KafkaEx.Cluster.Topic
 
-  defstruct brokers: %{}, controller_id: nil, topics: %{}, consumer_group_coordinators: %{}
+  defstruct brokers: %{},
+            controller_id: nil,
+            topics: %{},
+            consumer_group_coordinators: %{},
+            preferred_replicas: %{}
+
+  @type partition_key :: {KafkaExAPI.topic_name(), KafkaExAPI.partition_id()}
 
   @type t :: %__MODULE__{
           brokers: %{KafkaExAPI.node_id() => Broker.t()},
           controller_id: KafkaExAPI.node_id() | nil,
           topics: %{KafkaExAPI.topic_name() => Topic.t()},
-          consumer_group_coordinators: %{KafkaExAPI.consumer_group_name() => KafkaExAPI.node_id()}
+          consumer_group_coordinators: %{KafkaExAPI.consumer_group_name() => KafkaExAPI.node_id()},
+          preferred_replicas: %{partition_key() => KafkaExAPI.node_id()}
         }
 
   @typedoc """
@@ -28,7 +35,7 @@ defmodule KafkaEx.Cluster.ClusterMetadata do
   @doc """
   List names of topics known by the cluster metadata
 
-  Tthis is a subset of the topics in the cluster - it will only contain topics for which we have fetched metadata
+  This is a subset of the topics in the cluster - it will only contain topics for which we have fetched metadata
   """
   @spec known_topics(t) :: [KafkaExAPI.topic_name()]
   def known_topics(%__MODULE__{topics: topics}), do: Map.keys(topics)
@@ -71,15 +78,16 @@ defmodule KafkaEx.Cluster.ClusterMetadata do
         topic: topic,
         partition: partition
       }) do
-    case Map.fetch(cluster_metadata.topics, topic) do
-      :error ->
-        {:error, :no_such_topic}
+    partition_leader(cluster_metadata, topic, partition)
+  end
 
-      {:ok, %Topic{partition_leaders: partition_leaders}} ->
-        case Map.fetch(partition_leaders, partition) do
-          :error -> {:error, :no_such_partition}
-          {:ok, node_id} -> {:ok, node_id}
-        end
+  def select_node(%__MODULE__{} = cluster_metadata, %NodeSelector{
+        strategy: :topic_partition_replica,
+        topic: topic,
+        partition: partition
+      }) do
+    with {:ok, leader_node_id} <- partition_leader(cluster_metadata, topic, partition) do
+      {:ok, pick_preferred_or_leader(cluster_metadata, topic, partition, leader_node_id)}
     end
   end
 
@@ -152,6 +160,29 @@ defmodule KafkaEx.Cluster.ClusterMetadata do
   end
 
   @doc """
+  Get the cached preferred read replica for `{topic, partition}`, or `nil` if none is cached.
+  """
+  @spec preferred_replica(t, KafkaExAPI.topic_name(), KafkaExAPI.partition_id()) :: KafkaExAPI.node_id() | nil
+  def preferred_replica(%__MODULE__{preferred_replicas: prefs}, topic, partition) do
+    Map.get(prefs, {topic, partition})
+  end
+
+  @doc """
+  Cache (or clear) the preferred read replica for `{topic, partition}`. Passing `nil` or `-1` (the Kafka wire value for
+  "no preference") clears the entry.
+  """
+  @spec put_preferred_replica(t, KafkaExAPI.topic_name(), KafkaExAPI.partition_id(), KafkaExAPI.node_id() | nil) :: t
+  def put_preferred_replica(%__MODULE__{preferred_replicas: prefs} = cluster_metadata, topic, partition, node_id)
+      when node_id in [nil, -1] do
+    %{cluster_metadata | preferred_replicas: Map.delete(prefs, {topic, partition})}
+  end
+
+  def put_preferred_replica(%__MODULE__{preferred_replicas: prefs} = cluster_metadata, topic, partition, node_id)
+      when is_integer(node_id) do
+    %{cluster_metadata | preferred_replicas: Map.put(prefs, {topic, partition}, node_id)}
+  end
+
+  @doc """
   update a consumer group coordinator node id
   """
   @spec put_consumer_group_coordinator(t, KafkaExAPI.consumer_group_name(), KafkaExAPI.node_id()) :: t
@@ -189,5 +220,25 @@ defmodule KafkaEx.Cluster.ClusterMetadata do
   @spec remove_topics(t, [KafkaExAPI.topic_name()]) :: t
   def remove_topics(%__MODULE__{topics: topics} = cluster_metadata, topics_to_remove) do
     %{cluster_metadata | topics: Map.drop(topics, topics_to_remove)}
+  end
+
+  defp partition_leader(%__MODULE__{} = cluster_metadata, topic, partition) do
+    case Map.fetch(cluster_metadata.topics, topic) do
+      :error ->
+        {:error, :no_such_topic}
+
+      {:ok, %Topic{partition_leaders: partition_leaders}} ->
+        case Map.fetch(partition_leaders, partition) do
+          :error -> {:error, :no_such_partition}
+          {:ok, leader_node_id} -> {:ok, leader_node_id}
+        end
+    end
+  end
+
+  defp pick_preferred_or_leader(%__MODULE__{brokers: brokers} = cluster_metadata, topic, partition, leader_node_id) do
+    case preferred_replica(cluster_metadata, topic, partition) do
+      nil -> leader_node_id
+      node_id -> if Map.has_key?(brokers, node_id), do: node_id, else: leader_node_id
+    end
   end
 end

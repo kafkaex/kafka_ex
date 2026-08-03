@@ -21,6 +21,7 @@ KafkaEx v1.0 is the Kayrock-based release. Scope:
 - ✅ Compression (gzip, snappy, lz4, zstd)
 - ✅ Automatic API version negotiation with per-request / per-app overrides
 - ✅ First-class telemetry (27+ events)
+- ✅ KIP-392 Rack-awareness for consumers
 - ❌ Idempotent / transactional producer (planned, post-1.0)
 - ❌ KIP-848 new rebalance protocol (planned, post-1.0)
 - ❌ KIP-368 proactive SASL re-authentication on token expiry (see [AUTH.md § Token expiry behaviour](./AUTH.md#token-expiry-behaviour) for the current reconnect-driven behaviour)
