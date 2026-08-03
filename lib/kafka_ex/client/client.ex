@@ -672,7 +672,7 @@ defmodule KafkaEx.Client do
   end
 
   defp do_fetch_request(topic, partition, offset, opts, state, metadata) do
-    node_selector = NodeSelector.topic_partition(topic, partition)
+    node_selector = NodeSelector.topic_partition_replica(topic, partition)
     {network_timeout, req_opts} = Keyword.pop(opts, :network_timeout)
     req_data = [{:topic, topic}, {:partition, partition}, {:offset, offset} | req_opts]
 
@@ -1226,9 +1226,8 @@ defmodule KafkaEx.Client do
     end
   end
 
-  defp broker_for_partition_with_update(state, topic, partition) do
-    node = NodeSelector.topic_partition(topic, partition)
-    select_broker_with_update(state, node, &update_metadata(&1, [topic]))
+  defp broker_for_partition_with_update(state, %NodeSelector{topic: topic} = selector) do
+    select_broker_with_update(state, selector, &update_metadata(&1, [topic]))
   end
 
   defp broker_for_consumer_group_with_update(state, consumer_group) do
@@ -1435,12 +1434,13 @@ defmodule KafkaEx.Client do
   end
 
   defp get_send_request_function(
-         %NodeSelector{strategy: :topic_partition, topic: topic, partition: partition},
+         %NodeSelector{strategy: strategy} = selector,
          state,
          network_timeout,
          synchronous
-       ) do
-    {broker, updated_state} = broker_for_partition_with_update(state, topic, partition)
+       )
+       when strategy in [:topic_partition, :topic_partition_replica] do
+    {broker, updated_state} = broker_for_partition_with_update(state, selector)
 
     if broker do
       if synchronous do
