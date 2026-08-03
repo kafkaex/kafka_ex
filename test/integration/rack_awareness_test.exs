@@ -10,10 +10,13 @@ defmodule KafkaEx.Integration.RackAwarenessTest do
   `docker-compose-kafka.env`.
   """
   use ExUnit.Case, async: true
+  import ExUnit.CaptureLog
   @moduletag :rack_awareness
 
   alias KafkaEx.Client
   alias KafkaEx.API
+  alias KafkaEx.Client.NodeSelector
+  alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Messages.Fetch
 
   @topic "rack_aware_test"
@@ -86,6 +89,55 @@ defmodule KafkaEx.Integration.RackAwarenessTest do
     test "unknown rack_id → no preference (-1)", %{client: client} do
       {:ok, %Fetch{} = result} = API.fetch(client, @topic, 0, 0, rack_id: "az-unknown", min_bytes: 0)
       assert result.preferred_read_replica in [-1, nil]
+    end
+  end
+
+  describe "preferred-replica cache must not leak into writes" do
+    @partition 0
+
+    setup %{client: client} do
+      {:ok, cm} = API.metadata(client, [@topic], api_version: 9)
+      leader = cm.topics |> Map.fetch!(@topic) |> Map.fetch!(:partition_leaders) |> Map.fetch!(@partition)
+      leader_rack = cm.brokers |> Map.fetch!(leader) |> Map.fetch!(:rack)
+
+      {follower, cross_rack} =
+        cm.brokers
+        |> Map.values()
+        |> Enum.find_value(fn b -> b.rack != leader_rack && {b.node_id, b.rack} end)
+
+      {:ok, leader: leader, follower: follower, cross_rack: cross_rack}
+    end
+
+    test "the topic_partition selector still resolves to the leader after a fetch cached a follower",
+         %{client: client, leader: leader, follower: follower, cross_rack: cross_rack} do
+      assert {:ok, %Fetch{preferred_read_replica: ^follower}} =
+               API.fetch(client, @topic, @partition, 0, rack_id: cross_rack, min_bytes: 0)
+
+      {:ok, cm} = API.cluster_metadata(client)
+      assert ClusterMetadata.preferred_replica(cm, @topic, @partition) == follower
+
+      # produce and list_offsets both select the node via this exact selector; it
+      # must resolve to the leader, never the cached follower.
+      assert ClusterMetadata.select_node(cm, NodeSelector.topic_partition(@topic, @partition)) ==
+               {:ok, leader}
+    end
+
+    test "producing after a cross-rack fetch is not routed to the cached follower",
+         %{client: client, follower: follower, cross_rack: cross_rack} do
+      assert {:ok, %Fetch{preferred_read_replica: ^follower}} =
+               API.fetch(client, @topic, @partition, 0, rack_id: cross_rack, min_bytes: 0)
+
+      # Produce recovers (the leadership error refreshes metadata, dropping the
+      # cache, and the retry hits the leader), so the return value is {:ok, _}.
+      # The bug is the wasted, failed first attempt against the follower —
+      # `:not_leader_for_partition` / `:not_leader_or_follower` in the log.
+      log =
+        capture_log(fn ->
+          assert {:ok, _} = API.produce(client, @topic, @partition, [%{value: "must-hit-leader"}])
+        end)
+
+      refute log =~ "not_leader",
+             "producer was routed to the cached follower instead of the leader:\n#{log}"
     end
   end
 end
