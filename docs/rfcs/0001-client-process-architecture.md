@@ -212,8 +212,11 @@ refreshes, and requests to other brokers.
 - `start_link(args, name)` still returns `{:ok, pid}`, registers `name`, and is ready on return
   (synchronous fail-fast boot).
 - `send_request/4`, `retry_count/0`, `coordinator_max_attempts/0` are unchanged.
-- `[:kafka_ex, :request]` (and all other) telemetry event **shapes** are unchanged (emission moves
-  into the `Connection`).
+- All telemetry event **shapes** (names + measurements) are unchanged. Operation spans
+  (`:produce`/`:fetch`/`:consumer.*`) stay in the front (same pid as today's client); the per-attempt
+  `[:kafka_ex, :request]` span and the `:connection`/`:auth`/`:connection.close` events move to the
+  `Connection` (their emitting pid changes). Under the async model emission shifts from the synchronous
+  `Telemetry.span/3` wrapper to manual `:start`/`:stop`.
 - The front client stays the failure unit that `ConsumerGroup` supervision monitors.
 - `MetadataStore`, `Connection`, the per-client `Infra.Supervisor` grouping them, and the connection
   `Registry` are strictly internal; callers never address them.
@@ -240,7 +243,8 @@ On `{:done, ref, result}` the front runs the **existing** retry classification
 (`Retry.leadership_error?` / `coordinator_refresh_error?` / transport-timeout):
 
 - success → `GenServer.reply(from, result)`, drop the entry;
-- retryable leadership error → cast "refresh" to the store, → `:awaiting_metadata`, decrement budget;
+- retryable leadership error → cast "refresh this topic/partition" to the store (coalesced per key in
+  its `in_flight` map), → `:awaiting_metadata`, decrement budget;
 - retryable coordinator error → cast "re-discover" to the store, → `:awaiting_coordinator`;
 - transport timeout **on a coordinator request** → reply error immediately (send-once, today's
   `@coordinator_max_attempts = 1`; rejoin/commit re-issue higher up);
@@ -269,6 +273,14 @@ the `Connection` (it holds the send timestamp) and is reported to the front as
 `{:done, ref, {:error, :timeout}}`; the **retry decision** stays in the front. If a `Connection`
 dies, the front receives `:DOWN` and fails every `pending` entry on it — so entries never leak.
 Replying to a `from` whose caller already timed out is a harmless no-op.
+
+Each physical dispatch uses a **fresh `ref`** as its `pending` key, so a late `{:done, …}` from a
+superseded or timed-out attempt lands on no entry and is dropped; the connection boundary reinforces
+this — a re-dispatch after a leadership change goes to a *different* `Connection` process (its own
+`correlation_id` space), and a dead one's entries are already failed via `:DOWN`. Distinct from that
+matching key, a **separate `attempt` counter** rides the logical request (it *survives* every retry,
+whereas the key dies with each attempt) and drives backoff, the retry budget, and the telemetry
+attempt number. The two are deliberately **not** one token: their lifetimes are opposite.
 
 ### Supervision tree
 
@@ -365,10 +377,10 @@ per consumed partition (two partitions sharing a leader ⇒ two sockets to that 
   here and never takes the front down; the whole subtree stops with the client because the front is
   its supervised parent (the link). `MetadataStore` is `:transient` and the supervisor's restart
   intensity is tuned so transient store flapping self-heals rather than toppling the front.
-- **`MetadataStore`.** A `:gen_statem` (explicit `:ready`; fail-fast `init`). Owns the metadata ETS
-  table (lock-free reads), is the single writer and the refresh/coordinator-discovery coalescer, and
-  owns the `:metadata`-role connection it uses to refresh (mirroring brod's dedicated `meta_conn`).
-  Reads never touch its mailbox.
+- **`MetadataStore`.** A `:gen_statem` (states `:loading`/`:ready`/`:degraded`; fail-fast `init`).
+  Owns the metadata ETS table (lock-free reads), is the single writer and the per-key
+  refresh/coordinator-discovery coalescer, and uses a `:metadata`-role connection to refresh
+  (mirroring brod's dedicated `meta_conn`). Reads never touch its mailbox.
 - **`ConnectionSupervisor` + `Connection`s.** Per-broker, per-role `:gen_statem` connections
   (see State machines), `:temporary` children created lazily and registered in the `Registry` keyed by
   `{host, port, role}` (ssl/auth are implied by the owning client's identity).
@@ -379,10 +391,11 @@ per consumed partition (two partitions sharing a leader ⇒ two sockets to that 
   leaked) and it is recreated lazily on the next request — no eager reconnect storm.
 - **A front crash affects only its own callers** — and, because infrastructure is per-client, its own
   infrastructure. No other client is touched (there is nothing shared to touch).
-- **A `MetadataStore` crash** restarts under its client's own supervisor and **rebuilds from
-  bootstrap**; during the gap, that front's ETS reads miss → its callers park in `:awaiting_metadata`
-  and re-resolve once the store is back. (An ETS `heir` = the front, to keep the table across a
-  restart, is an optimization, not required for correctness.)
+- **A `MetadataStore` crash** restarts under its client's own supervisor. Its ETS table's `heir` is
+  the **front**, so the snapshot **survives** the restart: during the gap reads keep hitting the
+  (stale) snapshot instead of missing, and the restarted store re-attaches and refreshes. A genuine
+  miss only happens on a true cold boot before the first load — there the front parks in
+  `:awaiting_metadata` and re-resolves once the store reaches `:ready`.
 - **`MetadataStore` (single writer) closes the #445 concurrency class** for its client: concurrent
   produces to a missing topic coalesce onto one refresh instead of racing.
 
@@ -507,11 +520,18 @@ stateDiagram-v2
     connecting --> negotiating: TCP up (no auth)
     authenticating --> negotiating: SASL handshake ok
     negotiating --> connected: ApiVersions negotiated
-    connected --> connecting: transport error / disconnect (backoff)
+    connected --> reconnecting: transport error / disconnect
+    connecting --> reconnecting: connect times out (bounded window)
+    reconnecting --> connecting: backoff elapsed — retry
     connected --> [*]: hard failure (crash - supervised)
     note right of connecting
-        requests that arrive before :connected
-        are postpone-d until ready
+        active connect, bounded window:
+        requests postpone-d until connected
+    end note
+    note right of reconnecting
+        backoff-wait during an outage:
+        in-flight + incoming requests fail fast
+        ({:error, :not_connected}) — no unbounded postpone (I3)
     end note
     note right of connected
         {active, once} event-driven recv
@@ -519,60 +539,87 @@ stateDiagram-v2
     end note
 ```
 
-- `postpone` defers any request that arrives before `:connected` until the connection is ready — no
-  hand-rolled queueing.
+- `postpone` defers a request only **during an active connect, within a bounded window** (the
+  `:connecting` state) — no hand-rolled queueing for the sub-second handshake. Once a drop pushes the
+  connection into **`:reconnecting`** (backoff-wait during an outage) it does **not** postpone: it
+  fails in-flight and incoming requests fast with `{:error, :not_connected}`, so the mailbox can't grow
+  unbounded and no caller is parked past its own deadline (**I3**). The front treats that as a
+  transport error and re-resolves/retries within the caller's budget — symmetric with the store's
+  `:degraded` mode.
 - On a transient disconnect it fails its in-flight requests (replies error to the front), transitions
-  back to `:connecting` with backoff, and self-heals; hard/unexpected failures crash and are handled
-  by supervision. It never re-implements a supervisor.
+  to `:reconnecting` (backoff), and self-heals; hard/unexpected failures crash and are handled by
+  supervision. It never re-implements a supervisor.
 - Registered in the connection `Registry` keyed by `{host, port, role}` within its client's subtree,
   where `role ∈ {:data, :coordinator, :metadata}`. Coordinator/metadata traffic gets a separate socket
   from data traffic **even to the same physical broker** — a convergent pattern in **all three**
   reference clients (see Prior art) and what removes the Heartbeat-vs-fetch head-of-line coupling
   behind RC-1.
 - Multiple in-flight requests per socket are matched by a **`correlation_id → caller` map** (as brod
-  and librdkafka do; order-independent). Produce ordering is preserved by keeping **≤ 1 in-flight per
-  partition** (or idempotent sequence-number gating), not by serializing the whole connection.
+  and librdkafka do; order-independent). Per-partition **produce** ordering is enforced **in the front**
+  (the router/retrier), *not* in the `Connection`: the front admits at most **N in-flight produce per
+  partition** — `N = 1` today (a mute), `N ≤ 5` later gated by idempotent sequence numbers — so the
+  connection never serializes across partitions and a front-driven retry can never reorder a partition.
 
-**`MetadataStore`** is a `:gen_statem` with an explicit `:ready` gate; its states govern the
-*write / refresh* workflow — reads never enter them, they hit ETS lock-free:
+**`MetadataStore`** is a `:gen_statem` whose three states are *lifecycle*, **not**
+refresh-bookkeeping: `:loading` (no usable snapshot yet), `:ready` (serving, cluster reachable), and
+`:degraded` (serving a stale snapshot, cluster currently unreachable). Refresh and `FindCoordinator`
+are **data, not states** — a per-key `in_flight` map (see below). Reads never enter any state; they
+hit ETS lock-free:
 
 ```mermaid
 stateDiagram-v2
     [*] --> loading
-    loading --> ready: first metadata snapshot written to ETS
-    loading --> [*]: init fetch fails — fail-fast (front init raises)
-    ready --> refreshing: refresh trigger (miss / stale-leader / periodic / FindCoordinator)
-    refreshing --> refreshing: same-target trigger coalesces (joins in-flight round)
-    refreshing --> ready: fetch ok — atomic ETS swap + epoch++ + wakeups
-    refreshing --> ready: miss after bounded rounds — answer :unknown_topic_or_partition
-    ready --> loading: :metadata Connection :DOWN (re-acquire + rebuild)
-    refreshing --> loading: :metadata Connection :DOWN
+    loading --> ready: first snapshot in ETS (metadata connection healthy)
+    loading --> [*]: cold-boot fetch fails — fail-fast (front init raises)
+    ready --> degraded: :metadata Connection down / refreshes failing
+    degraded --> ready: connection recovered + snapshot refreshed
     note right of loading
-        refresh/resolve requests are postpone-d until ready
-        (heir keeps a prior ETS snapshot across a restart)
+        no usable snapshot yet -> reads park.
+        after a restart, heir keeps a snapshot, so the store
+        may enter directly at ready or degraded
     end note
     note right of ready
-        lock-free ETS reads never touch this process;
-        single writer, so no read contends on the mailbox
+        lock-free ETS reads never touch this process.
+        refresh + FindCoordinator are DATA: a per-key in_flight
+        map (per topic; per (coordinator_type, key)), coalesced,
+        multiplexed over the :metadata connection
+    end note
+    note right of degraded
+        still serves the stale snapshot; refreshes fail fast
+        or park (bounded); emits degraded / recovered telemetry
     end note
 ```
 
 - `:loading` establishes the store's own `:metadata` `Connection`, negotiates, and does the first
-  metadata fetch into ETS; resolve/refresh requests are `postpone`-d until `:ready` (fail-fast — a
-  failed first fetch crashes the store and the front's `init` raises). Because `heir = front`, a
-  restart re-enters `:loading` with the previous ETS snapshot still readable.
-- `:ready` holds a fresh snapshot; the store is idle — fronts read ETS lock-free, off the mailbox.
-- `:refreshing` runs exactly **one** fetch in flight; concurrent triggers for the same target
-  **coalesce** into it (this is what closes the #445 race), then on completion the store swaps the ETS
-  snapshot atomically, bumps the `epoch`, and wakes every parked/subscribed front before returning to
-  `:ready`. Reads keep hitting the previous snapshot throughout — a refresh never blocks a read.
-- The **lost-wakeup** guard is data-level, not a state: each round carries an `epoch`, a parked front
-  re-checks ETS after parking, and the store always sends a wakeup — so a front that parks just after
-  a refresh completes cannot miss it.
+  metadata fetch into ETS. On a **cold** boot a failed first fetch is fail-fast (crashes the store; the
+  front's `init` raises). With `heir = front`, a **restart** finds the previous snapshot still
+  readable, so the store may skip straight to `:ready` (or `:degraded`, if the cluster is unreachable
+  right then) rather than blocking.
+- `:ready` — a fresh snapshot is in ETS and the cluster is reachable; fronts read lock-free, off the
+  mailbox; refreshes complete normally.
+- `:degraded` — the `:metadata` `Connection` is down (that `Connection`'s own `:gen_statem` is already
+  retrying with backoff one level below); the store keeps serving the **stale** ETS snapshot, but a
+  refresh it cannot complete either fails fast (`{:error, :cluster_unreachable}`) or parks within a
+  bound (the store-side of **I3**). Entering/leaving emits
+  `[:kafka_ex, :metadata_store, :degraded]` / `:recovered` — a resilience signal aligned with the
+  RC-1 motivation.
+- **Refresh & discovery are data.** A per-key `in_flight` map holds one coalescing entry per refresh
+  target (per topic) and per `(coordinator_type, key)` coordinator discovery, each with its waiter set
+  and `epoch`. Concurrent triggers for the same key **join** the in-flight entry (this closes the #445
+  race and de-storms coordinator re-discovery when a coordinator moves); different keys proceed in
+  parallel, multiplexed over the one `:metadata` connection. On completion the store swaps the ETS
+  snapshot atomically, bumps the `epoch`, and wakes its front. This is deliberately **not** a
+  `:refreshing` state — one global refresh state would force global single-flight and serialize
+  unrelated refreshes.
+- The **lost-wakeup** guard is also data: each round carries an `epoch`, a parked front re-checks ETS
+  after parking, and the store always sends a wakeup — so a front parking just after a refresh
+  completes cannot miss it.
 
-(Open here: **I-2** — whether `FindCoordinator` discovery coalesces on its own key
-`(coordinator_type, key)` or shares the metadata round; and a bound on `postpone` in `:loading` during
-a long outage, the store-side analogue of **I3**.)
+(`FindCoordinator` in-flight coalescing keyed per `(coordinator_type, key)` goes one step beyond
+brod/Java/librdkafka — they coalesce only per-instance or dedup the *resolved* result, not the
+in-flight lookup — justified here because the store owns discovery and a waiter list is cheap on the
+BEAM. The one remaining open item nearby is the `Connection`-side **I3**: bounding `postpone` during
+an outage.)
 
 ## Design decisions (resolved review)
 
@@ -583,7 +630,7 @@ findings were cross-checked against **brod, the Java client, and librdkafka** (3
 |---|----------|----------------------|
 | 1 | **Retry in the front; `Connection` is a dumb pipe** (one attempt → reply to front) | 3/3: all put retry above the transport |
 | 2 | **`Connection` keyed per (node, role)** — coordinator/metadata separate from data | 3/3: dedicated coordinator connection; removes RC-1 architecturally |
-| 3 | **One `MetadataStore` per client** (`:gen_statem`, explicit `:ready`), lock-free ETS reads, single-writer, coalesced refresh + FindCoordinator, notify | one coalesced owner decoupled from connections; none uses a blocking read path. Per-client (not shared): Java/librdkafka are per-instance |
+| 3 | **One `MetadataStore` per client** (`:gen_statem`; states `:loading`/`:ready`/`:degraded`), lock-free ETS reads, single-writer, per-key coalesced refresh + FindCoordinator, notify | one coalesced owner decoupled from connections; none uses a blocking read path. Per-client (not shared): Java/librdkafka are per-instance |
 | 4 | **Front request-lifecycle state machine** (`:resolving/:in_flight/:awaiting_*`); coordinator discovery owned by the store | preserves today's retry rules incl. coordinator send-once |
 | 5 | **Synchronous, fail-fast boot** (front ensures its cluster subtree, then uses it) | preserves start/supervision contract |
 | 6 | **Front = `GenServer`; `Connection` = `:gen_statem`** (self-healing; `postpone`) | per-request state ⇒ map, not process FSM; connection has real protocol states (librdkafka parallel) |
@@ -593,6 +640,13 @@ findings were cross-checked against **brod, the Java client, and librdkafka** (3
 | 10 | **One multiplexed connection per (node, role), shared — not a connection pool** | 3/3: Kafka multiplexes over one TCP via `correlation_id` and orders per-connection; a pool multiplies FDs / broker-side conns for no throughput gain and breaks produce ordering |
 | 11 | **No cross-client sharing of metadata/connections** (deferred future option, keyed by `{sorted bootstrap uris, ssl_options, auth}`) | brod shares only via an explicitly named client; auto-sharing adds teardown + blast-radius cost for a footprint already collapsible via a shared `:client` |
 | 12 | **Front owns a linked `Infra.Supervisor` started in `init`, non-trapping; teardown via the link; sockets closed in each `Connection`'s `terminate/2`** | brod_client is the closest precedent (a worker owning its sub-supervisors); verified empirically that the parent-link tears the subtree down on any exit reason (incl. `:normal`) and that fail-fast `init` needs no `trap_exit` |
+| 13 | **Per-partition produce-ordering gate lives in the front** (`max N in-flight per partition`, FIFO-parked): `N = 1` mute now, `N ≤ 5` idempotent-sequence gating deferred with the idempotent producer | the gate and retry must co-locate, and retry is in the front (#1); 3/3 put the gate above the transport (brod `partition_onwire_limit`, Java mute, librdkafka toppar) |
+| 14 | **In-flight requests keyed by a fresh `ref` per physical dispatch (staleness); a separate persistent `attempt` counter for backoff / max-retries / telemetry** | 3/3 decouple the two — brod `corr_id` vs `failures`, Java `correlationId` vs `ProducerBatch.attempts` (→ `record-retry-total`), librdkafka `rkbuf_corrid` vs `rkbuf_retries`; opposite lifetimes, so no single token does both |
+| 15 | **Telemetry split by what a span measures: operation spans (`:produce`/`:fetch`/`:consumer.*`) stay in the front (same pid as today's client); the per-attempt `[:kafka_ex, :request]` span + `:connection`/`:auth`/`:connection.close` move to the `Connection`. Async forces manual `:start`/`:stop` (stored timestamps) instead of the synchronous `Telemetry.span/3` wrapper** | verified `client.ex:1383` — `[:kafka_ex, :request]` wraps one serialize→send→recv (bytes + broker), *not* the retried op; event names/measurements unchanged, only the transport events' emitting pid changes (front→Connection) → review tests asserting on emitter pid |
+| 16 | **`MetadataStore` stays a `:gen_statem` with *lifecycle* states `:loading`/`:ready`/`:degraded` (NOT a `:refreshing` state); refresh/discovery is per-key `in_flight` data** | `:degraded` (cluster unreachable → serve stale + `degraded`/`recovered` telemetry + bounded refresh) is a genuine behavioural mode that earns the FSM; a `:refreshing` state would force global single-flight, conflicting with per-key coalescing (research: 3/3 model in-flight refresh as data, not a state) |
+| 17 | **`FindCoordinator` discovery coalesced in-flight per `(coordinator_type, key)`, kept separate from metadata refresh** | de-storms concurrent re-discovery for one group (Manager + Heartbeat + commit at once); one step beyond brod/Java/librdkafka (which dedup only the resolved result or coalesce per-instance) — cheap on the BEAM (a waiter list) |
+| 18 | **`Connection` `postpone`s only during an active connect (bounded window, `:connecting`); in `:reconnecting` backoff-wait it fails requests fast (`{:error, :not_connected}`)** | bounds mailbox growth and caller parking during a long outage; front re-resolves/retries within budget; symmetric with the store's `:degraded`; matches Java (`client.ready` gate + connect timeout) / librdkafka (outbuf message-timeout) |
+| 19 | **ETS `heir = front`: the metadata snapshot survives a store restart** — reads hit the stale snapshot during the gap; a genuine miss occurs only on a cold boot before the first load | keeps reads available across a store crash (the store owns a `:protected`, single-writer table); the front is the natural heir (same lifetime as the client) |
 
 ## Delivery
 
@@ -618,8 +672,10 @@ front, the `:gen_statem` `Connection`s, and the per-client `MetadataStore` + its
   breaking change.
 - Async multiplexing must preserve per-partition produce ordering (≤ 1 in-flight per partition, or
   idempotent sequence numbers) and re-key `correlation_id` per connection.
-- Telemetry emission moves into the `Connection`; the event shape is unchanged but the emitting
-  process differs — tests asserting on the emitting pid must be reviewed.
+- The transport events (`[:kafka_ex, :request]`, `:connection`, `:auth`) move to the `Connection`, so
+  their emitting pid changes (operation spans stay in the front, pid unchanged); event shapes are
+  identical, but emission shifts from the synchronous `Telemetry.span/3` wrapper to manual
+  `:start`/`:stop` under the async model — tests asserting on the emitting pid must be reviewed.
 - It moves KafkaEx away from its deliberately centralized design; we bound this by stopping at
   per-broker/per-role connections and a per-client store (see alternatives).
 
@@ -682,23 +738,12 @@ own connection — 3/3. None fuse socket I/O and metadata in one mailbox as Kafk
 
 ## Unresolved questions
 
-- **Telemetry placement (SB6).** Recommendation: the `[:kafka_ex, :request]` span stays in the
-  **front** (it owns the request lifecycle and retry); only transport sub-events move into the
-  `Connection`. Keep event names/measurements identical; confirm no consumer asserts on the emitting
-  pid.
-- **Produce-ordering mechanism (SB4).** The exact choice for keeping order under multi-in-flight, and
-  where the "≤ 1 in-flight per partition" gate physically lives (front vs `Connection`): mute a
-  partition at one in-flight vs idempotent sequence-number gating.
-- **Stale-attempt handling (I1).** A superseded attempt's late `{:done, ref, …}` must not be applied
-  to the current attempt (fresh key per attempt vs an explicit `{ref, attempt}` token).
-- **`postpone` bounding during an outage (I3).** How long a `Connection` may `postpone` requests while
-  reconnecting before it starts failing them, so callers are not parked unboundedly.
-- **`FindCoordinator` coalescing (I-2).** Coalesce in-flight discovery keyed per `(coordinator_type,
-  key)` so concurrent joins/commits for the same group share one discovery.
-- **Store restart read behaviour.** Rebuild-from-bootstrap (chosen) vs ETS `heir = front` to survive a
-  restart; precise behaviour of front reads during the gap.
-- **On-demand refresh triggering.** How a front signals "leader for this topic-partition is stale" to
-  its store.
+Every design branch raised in the review is now resolved and captured in **Design decisions** above
+(#1–#19). What remains is implementation-level and out of scope for this RFC: exact timer/backoff
+constants (connect window, reconnect backoff, `:degraded` bound, retry budget), the precise
+`:degraded` refresh policy (fail-fast vs bounded park), and the ETS snapshot representation. The
+**Forward compatibility** and **Future possibilities** sections below list capabilities deliberately
+deferred.
 
 ## Forward compatibility — does this foreclose anything?
 
