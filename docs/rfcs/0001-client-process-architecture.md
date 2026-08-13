@@ -2,10 +2,10 @@
 
 - **Status:** Draft — request for comments
 - **Author:** (KafkaEx maintainers / proposer)
-- **Date:** 2026-07-28
+- **Date:** 2026-07-28 (last updated 2026-08-04)
 - **Target release:** v1.2.0 (delivered incrementally; the public API is unchanged throughout)
 - **Related issues:** #357 (`KafkaEx.stream` times out fetching at log-end), #445 (metadata cache not updated on produce)
-- **Related design notes:** Connection + pure Broker (06), decentralised data plane (10), deepen ClusterMetadata (14), shared metadata store / `TopicsLibrary` (23)
+- **Related design notes:** Connection + pure Broker (06), decentralised data plane (10), deepen ClusterMetadata (14), shared metadata store / `TopicsLibrary` (23, superseded here by per-client — see Alternatives)
 
 ## Summary
 
@@ -19,8 +19,8 @@ shared across clients**: this mirrors the Java client and librdkafka (per-instan
 shares only through an explicitly named client). The "N clients per consumer group" footprint is
 addressed by the existing opt-in shared `:client` (`GenConsumer.resolve_client`, #581), **not** by
 auto-keyed cross-client sharing, which is left as a future option. The change is **fully backward
-compatible**: the public API, the `client` process identity and message contract, telemetry, and
-failure semantics are unchanged.
+compatible**: the public API, the `client` process identity and message contract, telemetry event
+shapes, and failure semantics are unchanged.
 
 ## Current Limitations
 
@@ -52,9 +52,10 @@ one request in flight** at any moment. Because everything shares one mailbox and
   mailbox.
 
 Separately, because each client owns its own metadata and sockets, a consumer group holds **N copies**:
-the `Manager` and every `GenConsumer` start their **own** `Client` unless handed a shared `:client`
-(`manager.ex:266-270`, `gen_consumer.ex:641,679-693`; `resolve_client/3`, #581) — so N metadata
-catalogs, N refresh loops, and N socket sets to the same brokers.
+in production the `Manager` **always** starts its own `Client` (its `:client` opt is test-only,
+`manager.ex:266-270`), and every `GenConsumer` starts its own unless handed a shared `:client`
+(`gen_consumer.ex:641,679-693`; `resolve_client/3`, #581) — so N metadata catalogs, N refresh loops,
+and N socket sets to the same brokers.
 
 Today's request flow — one blocking `recv` in one mailbox means one broker freezes everything:
 
@@ -79,8 +80,8 @@ The goal is to remove head-of-line blocking and make metadata handling correct *
 any public API** — the client must stay a drop-in for every existing caller (`KafkaEx.API`, the
 legacy `KafkaEx.*` worker API, `ConsumerGroup.Manager`, `Heartbeat`, `GenConsumer`, `Stream`).
 
-**Expected outcome:** #357 fixed, #445 fixed, RC-1/RC-3 fixed, and metadata
-refresh/heartbeats/produce to independent brokers proceeding in parallel — with zero changes required
+**Expected outcome (by design):** #357 and #445 eliminated by the split, RC-1/RC-3 removed
+architecturally, and metadata refresh/heartbeats/produce to independent brokers proceeding in parallel — with zero changes required
 from any library consumer. The "N clients per group = N metadata copies + N refresh loops + N socket
 sets" footprint is **not** removed here; it remains collapsible, as today, by handing the group a
 shared `:client` (`resolve_client`, #581). Cross-client sharing of metadata and connections is a
@@ -165,10 +166,11 @@ flowchart TD
     GC1 -. "resolve_client: shared :client or own Client" .-> CL2["Client (own / shared)"]
 ```
 
-**Key fact (verified in code):** the `Manager` and every `GenConsumer` **start their own `Client`**
-unless handed a shared `:client` in opts. Hence "N clients per group = N metadata copies + N refresh
-loops + N socket sets" — a footprint this RFC leaves collapsible via that same shared `:client`, not
-via auto-sharing. The new processes this RFC introduces (`Connection`, `ConnectionSupervisor`,
+**Key fact (verified in code):** in production the `Manager` **always** starts its own `Client` (its
+`:client` opt is test-only), and every `GenConsumer` starts its own unless handed a shared `:client`.
+Hence "N clients per group = N metadata copies + N refresh loops + N socket sets" — a footprint this
+RFC leaves collapsible for the `GenConsumer`s via a shared `:client`, not via auto-sharing (the
+`Manager`'s own client stays separate). The new processes this RFC introduces (`Connection`, `ConnectionSupervisor`,
 `MetadataStore`, and the supervisor that groups them) are **per-client infrastructure**: each
 `Client` keeps its identity as a thin front and owns its own store and connection set, independently
 supervised from the front.
@@ -284,8 +286,8 @@ attempt number. The two are deliberately **not** one token: their lifetimes are 
 
 ### Supervision tree
 
-Solid arrows are **supervision** links; dotted arrows are **runtime use** (lock-free ETS read,
-routing), not supervision.
+Edge styles follow the legend below the diagram: thick `⇒` = link / supervision (lifetime-coupled),
+dotted `⇢` = monitor or lock-free use (no lifetime coupling).
 
 ```mermaid
 flowchart TD
@@ -371,9 +373,11 @@ per consumed partition (two partitions sharing a leader ⇒ two sockets to that 
   `Registry`, `ConnectionSupervisor`) is owned by this client via an `Infra.Supervisor` it **starts
   and links to in `init`** (the front does not trap exits); that link makes teardown automatic (see
   Lifetime & teardown) and keeps the front the caller-facing pid without itself being a supervisor.
-- **`Infra.Supervisor` (per client, `:rest_for_one`).** Groups the client's `Registry`,
-  `MetadataStore`, and `ConnectionSupervisor` (Registry first, so the others can register). Started
-  and linked by the front in `init`. A `MetadataStore`/`Connection` crash is absorbed by a restart
+- **`Infra.Supervisor` (per client, `:rest_for_one`).** Groups, in order, the client's `Registry`,
+  `ConnectionSupervisor`, then `MetadataStore` — Registry first so the others can register, and
+  `ConnectionSupervisor` before the store because the store obtains its `:metadata` `Connection`
+  *through* the `ConnectionSupervisor` (so under `:rest_for_one` a `ConnectionSupervisor` restart also
+  restarts the store, its dependant). Started and linked by the front in `init`. A `MetadataStore`/`Connection` crash is absorbed by a restart
   here and never takes the front down; the whole subtree stops with the client because the front is
   its supervised parent (the link). `MetadataStore` is `:transient` and the supervisor's restart
   intensity is tuned so transient store flapping self-heals rather than toppling the front.
@@ -391,11 +395,11 @@ per consumed partition (two partitions sharing a leader ⇒ two sockets to that 
   leaked) and it is recreated lazily on the next request — no eager reconnect storm.
 - **A front crash affects only its own callers** — and, because infrastructure is per-client, its own
   infrastructure. No other client is touched (there is nothing shared to touch).
-- **A `MetadataStore` crash** restarts under its client's own supervisor. Its ETS table's `heir` is
-  the **front**, so the snapshot **survives** the restart: during the gap reads keep hitting the
-  (stale) snapshot instead of missing, and the restarted store re-attaches and refreshes. A genuine
-  miss only happens on a true cold boot before the first load — there the front parks in
-  `:awaiting_metadata` and re-resolves once the store reaches `:ready`.
+- **A `MetadataStore` crash** restarts under its client's own supervisor. Its ETS table dies with it
+  (a dead owner's tables are destroyed on the BEAM), so the restarted store re-enters `:loading` and
+  rebuilds the snapshot; during that brief gap the front's reads miss → it parks callers in
+  `:awaiting_metadata` and re-resolves once the store is `:ready` again. The gap is one metadata fetch
+  and touches only this client.
 - **`MetadataStore` (single writer) closes the #445 concurrency class** for its client: concurrent
   produces to a missing topic coalesce onto one refresh instead of racing.
 
@@ -410,10 +414,10 @@ registry. Reading the edges as *observer → observed*:
 | `ConnectionSupervisor` → `Connection` | supervision link, `:temporary`, bounded shutdown | **not** restarted (temporary); recreated lazily on the next request. On an ordered shutdown the `Connection` (which traps exits) closes its socket in its own `terminate/2` |
 | connection `Registry` → `Connection` | Registry's built-in monitor | Registry **auto-removes** the `{host, port, role}` entry — no manual cleanup; a later lookup misses and the front asks `ConnectionSupervisor` for a fresh one |
 | front → `Connection` | **monitor** (not link) | on `:DOWN` the front fails every `pending` entry routed to that connection (never leaked); the crash never takes the front down. The front demonitors when it stops routing there |
-| `MetadataStore` → its meta/coordinator `Connection` | **monitor** | a mid-refresh `:DOWN` fails the in-flight refresh; the store re-acquires a connection on the next refresh |
+| `MetadataStore` → its `:metadata` `Connection` | **monitor** | a mid-refresh `:DOWN` fails the in-flight refresh; the store re-acquires the connection on the next refresh |
 | front → its `MetadataStore` | **monitor** (+ notify subscription) | a store restart makes ETS reads miss; the front parks callers in `:awaiting_metadata` and re-resolves once the store is `:ready` again |
 | front → its `Infra.Supervisor` | **link** (started in `init`) | this is the teardown mechanism: the front's death (any reason) tears the whole subtree down in order. Conversely, if `Infra.Supervisor` exhausts its restart intensity and exits, the non-trapping front dies with it and its parent recreates the client |
-| `Infra.Supervisor` → {`Registry`, `MetadataStore`, `ConnectionSupervisor`} | supervision link | a `MetadataStore` restart rebuilds from bootstrap (that front parks and re-resolves); a `Registry`/`ConnectionSupervisor` restart drops connection registrations, recreated lazily |
+| `Infra.Supervisor` → {`Registry`, `ConnectionSupervisor`, `MetadataStore`} (`:rest_for_one`) | supervision link | a `MetadataStore` restart rebuilds from bootstrap (that front parks and re-resolves); a `Registry`/`ConnectionSupervisor` restart also restarts the store (its dependant) and drops connection registrations, recreated lazily |
 | `KafkaEx.Supervisor` → per-client subtrees | supervision link | standard supervision; each client's front and its own infrastructure restart independently of every other client |
 
 So the connection lifecycle is bookkept **twice, both automatically**: the `Registry` drops a dead
@@ -466,9 +470,10 @@ sequenceDiagram
 ```
 
 **2. Client boot.** The front's `init` stays **synchronous and fail-fast** (matching
-`client.ex:95-181`): it starts and links its own `Infra.Supervisor` (`Registry`, `MetadataStore`,
-`ConnectionSupervisor`); the store establishes the meta/bootstrap `Connection`, negotiates
-ApiVersions, and performs the first metadata fetch into the ETS snapshot. `init` **raises on any
+`client.ex:95-181`): it starts and links its own `Infra.Supervisor` (`Registry`,
+`ConnectionSupervisor`, `MetadataStore`); the store obtains a `:metadata` `Connection` **through the
+`ConnectionSupervisor`**, negotiates ApiVersions, and performs the first metadata fetch into the ETS
+snapshot. `init` **raises on any
 failure** — a fail-fast infra child makes `Supervisor.start_link` return `{:error, …}` cleanly,
 *without* a race and *without* the front needing to trap exits — so `start_link` returning means the
 client is ready, and an unreachable cluster at boot crashes for the parent to retry. `initial_topics`
@@ -483,7 +488,7 @@ sequenceDiagram
     Front->>Sup: start this client's own infrastructure subtree
     Note over Sup: one subtree per client - never shared
     Sup->>Store: start
-    Store->>Meta: start meta/bootstrap Connection
+    Store->>Meta: get :metadata Connection (via ConnectionSupervisor)
     Meta->>Meta: connect + negotiate ApiVersions
     Front->>Store: request first metadata (initial_topics)
     Store->>Meta: Metadata fetch
@@ -550,10 +555,12 @@ stateDiagram-v2
   to `:reconnecting` (backoff), and self-heals; hard/unexpected failures crash and are handled by
   supervision. It never re-implements a supervisor.
 - Registered in the connection `Registry` keyed by `{host, port, role}` within its client's subtree,
-  where `role ∈ {:data, :coordinator, :metadata}`. Coordinator/metadata traffic gets a separate socket
-  from data traffic **even to the same physical broker** — a convergent pattern in **all three**
-  reference clients (see Prior art) and what removes the Heartbeat-vs-fetch head-of-line coupling
-  behind RC-1.
+  where `role ∈ {:data, :coordinator, :metadata}`. The **coordinator** gets its own connection —
+  separate from data traffic even to the same physical broker — a convergent pattern in **all three**
+  reference clients (see Prior art), and what removes the Heartbeat-vs-fetch head-of-line coupling
+  behind RC-1. The dedicated **`:metadata`** socket is **brod-only** among the three; we adopt it
+  anyway because sockets are cheap on the BEAM and it decouples metadata correctness from the
+  fetch/data model.
 - Multiple in-flight requests per socket are matched by a **`correlation_id → caller` map** (as brod
   and librdkafka do; order-independent). Per-partition **produce** ordering is enforced **in the front**
   (the router/retrier), *not* in the `Connection`: the front admits at most **N in-flight produce per
@@ -574,9 +581,9 @@ stateDiagram-v2
     ready --> degraded: :metadata Connection down / refreshes failing
     degraded --> ready: connection recovered + snapshot refreshed
     note right of loading
-        no usable snapshot yet -> reads park.
-        after a restart, heir keeps a snapshot, so the store
-        may enter directly at ready or degraded
+        no usable snapshot yet -> reads miss, callers park.
+        a store crash destroys the ETS table, so a
+        restart re-enters loading and rebuilds
     end note
     note right of ready
         lock-free ETS reads never touch this process.
@@ -590,11 +597,11 @@ stateDiagram-v2
     end note
 ```
 
-- `:loading` establishes the store's own `:metadata` `Connection`, negotiates, and does the first
-  metadata fetch into ETS. On a **cold** boot a failed first fetch is fail-fast (crashes the store; the
-  front's `init` raises). With `heir = front`, a **restart** finds the previous snapshot still
-  readable, so the store may skip straight to `:ready` (or `:degraded`, if the cluster is unreachable
-  right then) rather than blocking.
+- `:loading` obtains the store's `:metadata` `Connection` (through the `ConnectionSupervisor`),
+  negotiates, and does the first metadata fetch into ETS. A failed first fetch is fail-fast (crashes
+  the store; on cold boot the front's `init` raises). A **store crash destroys its ETS table**, so a
+  restart also re-enters `:loading` and rebuilds — during that gap the front's reads miss and callers
+  park until `:ready`.
 - `:ready` — a fresh snapshot is in ETS and the cluster is reachable; fronts read lock-free, off the
   mailbox; refreshes complete normally.
 - `:degraded` — the `:metadata` `Connection` is down (that `Connection`'s own `:gen_statem` is already
@@ -632,7 +639,7 @@ findings were cross-checked against **brod, the Java client, and librdkafka** (3
 | 2 | **`Connection` keyed per (node, role)** — coordinator/metadata separate from data | 3/3: dedicated coordinator connection; removes RC-1 architecturally |
 | 3 | **One `MetadataStore` per client** (`:gen_statem`; states `:loading`/`:ready`/`:degraded`), lock-free ETS reads, single-writer, per-key coalesced refresh + FindCoordinator, notify | one coalesced owner decoupled from connections; none uses a blocking read path. Per-client (not shared): Java/librdkafka are per-instance |
 | 4 | **Front request-lifecycle state machine** (`:resolving/:in_flight/:awaiting_*`); coordinator discovery owned by the store | preserves today's retry rules incl. coordinator send-once |
-| 5 | **Synchronous, fail-fast boot** (front ensures its cluster subtree, then uses it) | preserves start/supervision contract |
+| 5 | **Synchronous, fail-fast boot** (front ensures its own infrastructure subtree, then uses it) | preserves start/supervision contract |
 | 6 | **Front = `GenServer`; `Connection` = `:gen_statem`** (self-healing; `postpone`) | per-request state ⇒ map, not process FSM; connection has real protocol states (librdkafka parallel) |
 | 7 | **Per-client infra (`MetadataStore` + connections), supervised independently of the front but living/dying with the client** | front can't be a supervisor (caller holds its pid); no cross-client sharing ⇒ no teardown/ref-counting question |
 | 8 | **`Transport` behaviour + in-process fake transport for unit tests** (+ some fake-broker + integration) | forced by `{active, once}`; mechanical port of existing stubs |
@@ -646,7 +653,7 @@ findings were cross-checked against **brod, the Java client, and librdkafka** (3
 | 16 | **`MetadataStore` stays a `:gen_statem` with *lifecycle* states `:loading`/`:ready`/`:degraded` (NOT a `:refreshing` state); refresh/discovery is per-key `in_flight` data** | `:degraded` (cluster unreachable → serve stale + `degraded`/`recovered` telemetry + bounded refresh) is a genuine behavioural mode that earns the FSM; a `:refreshing` state would force global single-flight, conflicting with per-key coalescing (research: 3/3 model in-flight refresh as data, not a state) |
 | 17 | **`FindCoordinator` discovery coalesced in-flight per `(coordinator_type, key)`, kept separate from metadata refresh** | de-storms concurrent re-discovery for one group (Manager + Heartbeat + commit at once); one step beyond brod/Java/librdkafka (which dedup only the resolved result or coalesce per-instance) — cheap on the BEAM (a waiter list) |
 | 18 | **`Connection` `postpone`s only during an active connect (bounded window, `:connecting`); in `:reconnecting` backoff-wait it fails requests fast (`{:error, :not_connected}`)** | bounds mailbox growth and caller parking during a long outage; front re-resolves/retries within budget; symmetric with the store's `:degraded`; matches Java (`client.ready` gate + connect timeout) / librdkafka (outbuf message-timeout) |
-| 19 | **ETS `heir = front`: the metadata snapshot survives a store restart** — reads hit the stale snapshot during the gap; a genuine miss occurs only on a cold boot before the first load | keeps reads available across a store crash (the store owns a `:protected`, single-writer table); the front is the natural heir (same lifetime as the client) |
+| 19 | **`MetadataStore` is the sole owner of its `:protected`, single-writer ETS table; on a store crash the table is discarded and the restarted store rebuilds it** (reads briefly miss → front parks and re-resolves) | an ETS `heir` to preserve the table was considered and rejected as over-engineering: a BEAM table dies with its owner, so preserving it needs another live process holding it, and the brief rebuild park (one metadata fetch, one client) is cheaper than that machinery |
 
 ## Delivery
 
@@ -699,8 +706,9 @@ front, the `:gen_statem` `Connection`s, and the per-client `MetadataStore` + its
 - **Front as `:gen_statem`.** Rejected: the front multiplexes many concurrent requests, so per-request
   state must live in a map, not in a single process state. The `Connection` is the correct FSM.
 - **Chosen: control-plane / data-plane split with per-client infra.** Satisfies every driver
-  (head-of-line blocking, #445, RC-1) and unifies notes 06/10/14/23 into one coherent target, while
-  leaving cross-client sharing as a clean future opt-in.
+  (head-of-line blocking, #445, RC-1) and unifies notes 06/10/14 into one coherent target (superseding
+  note 23's shared-store direction with per-client), while leaving cross-client sharing as a clean
+  future opt-in.
 
 ## Prior art
 
@@ -717,8 +725,8 @@ Source-grounded (read from current `master`/`trunk`), organised by the four axes
 - **Apache Kafka Java client.** `NetworkClient` + `Selector` is a single-threaded non-blocking loop
   (`poll()`), not thread-per-connection. `InFlightRequests` tracks a per-node `Deque` (FIFO;
   `correlation_id` for sanity only), `max.in.flight.requests.per.connection` default **5**. A single
-  shared `Metadata` object refreshes with **one** request in flight (`hasFetchInProgress`);
-  `metadata.max.age.ms` (periodic) + `metadata.max.idle.ms` (idle-topic eviction). Retry lives in
+  shared `Metadata` object single-flights its refresh (`needFullUpdate`/`needPartialUpdate` flags + a
+  version counter); `metadata.max.age.ms` (periodic) + `metadata.max.idle.ms` (idle-topic eviction). Retry lives in
   `Sender`/coordinator (`InvalidMetadataException → metadata.requestUpdate`), never in
   `NetworkClient`. The coordinator is a separate logical connection (`GroupCoordinatorNode`, id
   prefixed `+`) to the same physical broker. Ordering: mute the partition at in-flight 1, or
@@ -732,9 +740,9 @@ Source-grounded (read from current `master`/`trunk`), organised by the four axes
   is dumb. The coordinator is its **own logical broker + thread** (`rd_kafka_broker_add_logical`),
   separate from the physical broker's data connection.
 
-**Mapping to this RFC:** (a) retry above the transport — 3/3; (b) one coalesced metadata owner
-decoupled from connections — 3/3; (c) multi-in-flight per connection — 3/3; (d) coordinator on its
-own connection — 3/3. None fuse socket I/O and metadata in one mailbox as KafkaEx does today.
+**Mapping to this RFC:** (a) retry above the transport — 3/3; (b) a metadata owner decoupled from
+connections — 3/3 (single-flighted in Java/librdkafka; brod owns it separately but re-fetches);
+(c) multi-in-flight per connection — 3/3; (d) coordinator on its own connection — 3/3. None fuse socket I/O and metadata in one mailbox as KafkaEx does today.
 
 ## Unresolved questions
 
@@ -820,7 +828,7 @@ same node-local constraint applies to the shared subtree.
   partition's produces across sockets (would break ordering).
 - Independent liveness detection (TCP keepalive / periodic probe) so the transport timeout is no
   longer the sole detector of a silently-hung broker.
-- Partition-count-change awareness and cooperative rebalancing, which a shared, actively-refreshed
+- Partition-count-change awareness and cooperative rebalancing, which an actively-refreshed
   metadata store makes materially easier.
 
 ## References
