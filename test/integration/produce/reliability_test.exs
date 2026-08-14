@@ -17,19 +17,35 @@ defmodule KafkaEx.Integration.Produce.ReliabilityTest do
   end
 
   describe "produce with different acks settings" do
-    test "produce with acks=0 (fire and forget) succeeds", %{client: client} do
+    test "produce with acks=0 (fire and forget) returns no offset", %{client: client} do
       topic_name = generate_random_string()
       _ = create_topic(client, topic_name)
 
       messages = [%{value: "acks-0-message"}]
 
-      {:ok, result} = API.produce(client, topic_name, 0, messages, required_acks: 0)
+      {:ok, result} = API.produce(client, topic_name, 0, messages, acks: 0)
+      {:ok, _} = API.produce(client, topic_name, 0, messages, acks: 0)
 
       assert %RecordMetadata{} = result
       assert result.topic == topic_name
       assert result.partition == 0
+      assert result.base_offset == nil
 
-      # Wait for message to arrive and verify via fetch
+      # Two async sends followed by a synchronous request on the same socket: proves the
+      # response-less produce leaves no bytes behind to desynchronise the next request.
+      Process.sleep(500)
+      {:ok, latest} = API.latest_offset(client, topic_name, 0)
+      assert latest >= 2
+    end
+
+    test "produce with the deprecated required_acks: 0 alias still fires and forgets", %{client: client} do
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      {:ok, result} = API.produce(client, topic_name, 0, [%{value: "alias-message"}], required_acks: 0)
+
+      assert %RecordMetadata{base_offset: nil} = result
+
       Process.sleep(500)
       {:ok, latest} = API.latest_offset(client, topic_name, 0)
       assert latest >= 1
