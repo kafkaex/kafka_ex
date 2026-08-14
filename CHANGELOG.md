@@ -1,5 +1,57 @@
 # KafkaEx Changelog
 
+## 1.0.3 (2026-08-17)
+
+### Fixed
+
+* **The acks option reaches the broker again (regression since 1.0).** 0.x translated
+  `required_acks` onto the wire in the legacy adapter; that adapter was removed in the 1.0 rewrite
+  and the translation went with it, while `KafkaEx.API.produce/5` kept documenting the option. The
+  request builder reads `:acks`, so since 1.0 **every produce went out with `acks: -1`** no matter
+  what the caller asked for. `:acks` is now the canonical option; `:required_acks` is honoured as a
+  **deprecated alias** (removal in 2.0) and loses to `:acks` when both are given. The documented
+  default was also wrong and is corrected: it is `-1` (all in-sync replicas), not `1`.
+
+  **Upgrade note — read this if you pass either option.** Callers who pass neither are unaffected.
+  Callers who do are moved from the durability they were silently getting to the one they asked
+  for: `required_acks: 1` goes from all-in-sync-replicas to leader-only, and `required_acks: 0`
+  goes from a fully acknowledged produce with a real offset to fire-and-forget with
+  `base_offset: nil` — code doing arithmetic on that offset will break, and records can now be
+  lost. Pass `acks: -1` explicitly to keep the 1.0.x behavior.
+
+* **`acks: 0` (fire-and-forget) works.** It was unreachable through the public API and, once
+  reachable, crashed the client (`byte_size/1` on the async send result). A produce with `acks: 0`
+  is now sent asynchronously, **never retried** (a resend would duplicate records — the broker
+  sends no response to confirm the first one), and returns
+  `{:ok, %KafkaEx.Messages.RecordMetadata{base_offset: nil}}`. **Typespec change:**
+  `RecordMetadata.base_offset` is now `non_neg_integer() | nil`. Note that at `acks: 0` the broker
+  reports errors by closing the connection rather than answering, so a rejected batch surfaces as a
+  later disconnect, not as an error from the call that produced it.
+
+* **An acks value the wire cannot carry is now rejected** with `{:error, :invalid_acks}` instead of
+  reaching Kayrock's int16 encoder, where it raised and took the whole client down (`acks: :all`,
+  `acks: nil`) or silently truncated to a different value than the one the client acted on
+  (`acks: 65_536` was sent as `0` while the client waited for a response that never came).
+
+* **A socket error no longer kills the client.** `KafkaEx.Client` defines its own `handle_info/2`
+  clauses, which replaces the catch-all `use GenServer` provides, so any unmatched message —
+  including `{:tcp_error, _, _}` / `{:ssl_error, _, _}`, which a connection reset delivers ahead of
+  `{:tcp_closed, _}` — crashed the process and took every broker socket and all cluster metadata
+  with it. Socket errors now close just that broker's socket; other messages are logged and
+  ignored.
+
+* **`[:kafka_ex, :produce, :start]` telemetry reports the value actually sent.** The
+  `required_acks` metadata field previously reported its own default of `1` while `-1` went on the
+  wire. The field keeps its name in this patch; renaming it to `acks` is a contract change left
+  for a minor release. Note that the `:stop` event for an `acks: 0` produce carries **no**
+  `:offset` key, since there is no offset — a handler written as `metadata.offset` rather than
+  `Map.get/2` will raise and be detached by `:telemetry`.
+
+* **`KafkaEx.Network.NetworkClient.send_async_request/2` returns `{:error, reason}` on a failed
+  send**, as its behaviour already specified, instead of a bare reason atom, and now closes the
+  broken socket the way the synchronous send already did — otherwise the next produce reused a
+  dead socket.
+
 ## 1.0.2 (2026-07-27)
 
 ### Fixed

@@ -52,6 +52,19 @@ messages = [%{value: "msg1", key: "k1"}, %{value: "msg2", key: "k2"}]
 # CORRECT - With compression
 {:ok, metadata} = KafkaEx.API.produce(client, "topic", 0, messages, compression: :gzip)
 
+# CORRECT - Durability: -1 (default) all in-sync replicas, 1 leader only.
+# Only -1, 0 and 1 are accepted; anything else returns {:error, :invalid_acks}
+{:ok, metadata} = KafkaEx.API.produce(client, "topic", 0, messages, acks: 1)
+
+# CAUTION - acks: 0 is fire-and-forget: {:ok, _} only means "handed to the socket",
+# metadata.base_offset is nil, nothing is retried, and a broker-side rejection shows up
+# as a closed connection, so records can be lost silently. The call still round-trips
+# through the client process, so it is not a latency escape hatch.
+{:ok, %{base_offset: nil}} = KafkaEx.API.produce(client, "topic", 0, messages, acks: 0)
+
+# DEPRECATED - :required_acks is an alias for :acks, removed in 2.0
+KafkaEx.API.produce(client, "topic", 0, messages, required_acks: 1)
+
 # WRONG - Missing client parameter
 KafkaEx.produce("topic", 0, "message")  # This is legacy API, don't use in v1.0 code
 ```

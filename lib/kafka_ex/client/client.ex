@@ -26,6 +26,7 @@ defmodule KafkaEx.Client do
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Messages.Fetch
   alias KafkaEx.Messages.FindCoordinator, as: FindCoordinatorMsg
+  alias KafkaEx.Messages.RecordMetadata
   alias KafkaEx.Support.OptionalDeps
   alias KafkaEx.Support.Retry
 
@@ -370,6 +371,23 @@ defmodule KafkaEx.Client do
     {:noreply, state_out}
   end
 
+  # A broker rejecting an acks=0 produce answers by resetting the connection, so a socket error
+  # is a normal signal here, not an exotic one.
+  def handle_info({:tcp_error, socket, reason}, state) do
+    {:noreply, close_broker_by_socket(state, socket, reason)}
+  end
+
+  def handle_info({:ssl_error, socket, reason}, state) do
+    {:noreply, close_broker_by_socket(state, socket, reason)}
+  end
+
+  # Defining any handle_info/2 replaces the catch-all `use GenServer` injects, and without one
+  # an unmatched message kills the client.
+  def handle_info(message, state) do
+    Logger.debug("#{inspect(__MODULE__)} ignoring unexpected message: #{inspect(message)}")
+    {:noreply, state}
+  end
+
   defp update_metadata_with_retry(_state, retries_left) when retries_left <= 0 do
     raise KafkaEx.MetadataUpdateError, attempts: @max_metadata_update_retries
   end
@@ -588,16 +606,14 @@ defmodule KafkaEx.Client do
   end
 
   defp produce_request(topic, partition, messages, opts, state) do
-    message_count = length(messages)
-    required_acks = Keyword.get(opts, :required_acks, 1)
-    client_id = Config.client_id()
+    with {:ok, acks} <- resolve_acks(opts) do
+      metadata = Telemetry.produce_metadata(topic, partition, Config.client_id(), acks)
+      start_measurements = %{message_count: length(messages)}
 
-    metadata = Telemetry.produce_metadata(topic, partition, client_id, required_acks)
-    start_measurements = %{message_count: message_count}
-
-    Telemetry.span([:kafka_ex, :produce], Map.merge(metadata, start_measurements), fn ->
-      do_produce_request(topic, partition, messages, opts, state, metadata)
-    end)
+      Telemetry.span([:kafka_ex, :produce], Map.merge(metadata, start_measurements), fn ->
+        do_produce_request(topic, partition, messages, Keyword.put(opts, :acks, acks), state, metadata)
+      end)
+    end
   end
 
   defp do_produce_request(topic, partition, messages, opts, state, metadata) do
@@ -611,6 +627,16 @@ defmodule KafkaEx.Client do
     else
       {:error, error} -> {{:error, error}, metadata}
       error_result -> {error_result, metadata}
+    end
+  end
+
+  # :required_acks is the deprecated spelling of :acks, kept working until 2.0. Anything the
+  # broker rejects is caught here: unvalidated, it reaches Kayrock's int16 encoder and an
+  # exception there takes the whole client down.
+  defp resolve_acks(opts) do
+    case Keyword.get(opts, :acks, Keyword.get(opts, :required_acks, -1)) do
+      acks when acks in [-1, 0, 1] -> {:ok, acks}
+      _ -> {:error, :invalid_acks}
     end
   end
 
@@ -790,6 +816,20 @@ defmodule KafkaEx.Client do
       retryable?: &Retry.sync_group_retryable?/1
     }
     |> handle_request_with_retry(state)
+  end
+
+  # acks=0: the broker sends no response, and a resend would duplicate records.
+  defp handle_produce_request(%{acks: 0} = request, node_selector, state) do
+    %NodeSelector{topic: topic, partition: partition} = node_selector
+
+    case network_request(request, node_selector, state) do
+      {{:ok, :no_response}, updated_state} ->
+        {{:ok, RecordMetadata.build(topic: topic, partition: partition, base_offset: nil)}, updated_state}
+
+      {{:error, reason}, updated_state} ->
+        Logger.warning("Fire-and-forget produce to #{topic}/#{partition} failed with #{inspect(reason)}")
+        {{:error, build_transport_error(reason)}, updated_state}
+    end
   end
 
   defp handle_produce_request(request, node_selector, state) do
@@ -1328,6 +1368,9 @@ defmodule KafkaEx.Client do
       case send_request.(wire_request) do
         {{:error, reason}, broker} ->
           {{:error, reason}, 0, broker_to_telemetry_info(broker)}
+
+        {:ok, broker} ->
+          {{:ok, :no_response}, 0, broker_to_telemetry_info(broker)}
 
         {data, broker} when synchronous ->
           {deserialize(data, client_request), byte_size(data), broker_to_telemetry_info(broker)}
