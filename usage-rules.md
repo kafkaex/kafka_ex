@@ -94,6 +94,12 @@ partition_request = %{partition_num: 0, timestamp: timestamp}
 {:ok, offsets} = KafkaEx.API.list_offsets(client, [{"topic", [partition_request]}])
 ```
 
+**Commit one partition from one process.** Concurrent `commit_offset/5` calls for the same
+(group, topic, partition) from *different* processes are not ordered against each other and can move
+the committed offset backwards, causing redelivery. `GenConsumer` and `Stream` already guarantee this
+by committing from the single process that owns the partition — if you commit by hand, keep the same
+discipline.
+
 ### Topic Management
 
 ```elixir
@@ -348,6 +354,34 @@ Common error atoms:
 - `:sasl_authentication_failed` - Invalid credentials
 - `:plain_requires_tls` - PLAIN auth without SSL
 - `:correlation_mismatch` - Protocol error (shouldn't happen)
+
+## Escape Hatch: Raw Protocol Requests
+
+`KafkaEx.API` wraps 16 Kafka operations; Kayrock generates ~44. For the rest — `DescribeConfigs`,
+`AlterConfigs`, `DeleteRecords`, `CreatePartitions`, `DeleteGroups`, ACLs, delegation tokens — use
+`KafkaEx.Client.send_request/4`, which sends a raw Kayrock struct through the client's connections,
+authentication, node selection and metadata.
+
+```elixir
+# CORRECT - reach an operation KafkaEx.API does not wrap
+alias KafkaEx.Client.NodeSelector
+
+request = %Kayrock.DescribeConfigs.V0.Request{resources: [...]}
+{:ok, response} = KafkaEx.Client.send_request(client, request, NodeSelector.controller())
+
+# WRONG - do not use it for operations KafkaEx.API already covers
+KafkaEx.Client.send_request(client, %Kayrock.Metadata.V0.Request{}, NodeSelector.first_available())
+# use KafkaEx.API.metadata/2 instead - you get native structs and retries
+```
+
+Know what you give up:
+
+- **One attempt, no retries.** Unlike every `KafkaEx.API` call, this bypasses the retry loop
+  entirely — you handle transient errors yourself.
+- **Raw Kayrock structs in and out.** No translation to `KafkaEx.Messages.*`; the response shape
+  follows Kayrock and the negotiated API version, and is not covered by KafkaEx's compatibility
+  guarantees across versions.
+- **You pick the target broker** via `NodeSelector` — there is no operation-aware routing.
 
 ## Module Organization
 
