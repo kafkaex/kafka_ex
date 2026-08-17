@@ -802,6 +802,40 @@ prudent but means nobody exercises the new path, so its defects surface only whe
 — deferring the risk instead of reducing it, while withholding the fixes that motivate the work.
 `:serial` is documented from the outset as a temporary hatch, slated for removal in 1.3.0.
 
+### Test strategy
+
+The existing suite carries a **quantified migration cost, and it falls due at PR 3, not PR 6**. Eight
+test files make **26 direct `handle_call/3` calls**, asserting on the synchronous return value. A
+comment left by an earlier maintainer in `test/kafka_ex/client/transport_error_test.exs:27-29` already
+anticipates this refactor — "the request runs in THIS process … a future refactor to a real GenServer
+would need `set_mimic_global`" — but understates it: after the cutover `handle_call/3` returns
+`{:noreply, state}`, so there is no value left to assert on. These are rewrites against the async
+protocol, not a change of mock mode. And they come due at PR 3, because that is where I/O first
+leaves the test process: Mimic's private mode binds stubs to the *calling* process, so stubs set in a
+test stop applying the moment the socket lives in a `Connection`.
+
+- **The answer is the injected fake, not `set_mimic_global`.** Decision #8's `Transport` behaviour and
+  the fake `Connection` are passed in as configuration, so tests stay `async: true` and deterministic.
+  Global Mimic mode would force `async: false` across the client suite and reintroduce cross-test
+  interference — curing the symptom at the cost of the property that makes the suite trustworthy. The
+  ten `NetworkClient` stub sites migrate onto the fake.
+- **CI's automatic retries must be off for PRs touching the front.** `integration-tests.yml` (four
+  jobs) and `chaos-tests.yml` each retry failures twice. That masks precisely the failure class this
+  refactor introduces: a genuine race looks like a flake and passes on the second attempt. For the
+  duration of the cutover a retry is evidence, not noise.
+- **Model-based coverage of the front's state machine** (**proposed — needs maintainer sign-off, as it
+  adds `{:stream_data, "~> 1.1", only: [:dev, :test]}`**). The invariants at risk are quantified over
+  *interleavings*, so example tests can only sample them: every admitted entry reaches **exactly one**
+  terminal path; no gate slot is ever leaked; the retry budget never goes negative; no entry replies
+  twice. A leaked gate slot stalls one partition silently and forever, which is exactly what retried
+  CI hides. **This is worth doing only if the front's decision logic is a pure
+  `transition(entry, event) → {entry', effects}` function** — then the property test needs no
+  processes, no sockets and no clock, runs fast, and shrinks to a readable counterexample. If that
+  logic is instead spread across `handle_info` clauses, a property test would have to drive a live
+  process against wall-clock time, would be slow and flaky, and should not be written; stay with
+  example tests in that case. The purity requirement is worth adopting on its own merits: it keeps
+  every retry decision in one readable place.
+
 ## Drawbacks
 
 - Converting the recursive, blocking retry loop into the asynchronous `ref`-keyed state machine is
