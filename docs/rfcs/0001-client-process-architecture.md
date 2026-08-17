@@ -3,9 +3,13 @@
 - **Status:** Draft — request for comments
 - **Author:** (KafkaEx maintainers / proposer)
 - **Date:** 2026-07-28 (last updated 2026-08-04)
-- **Target release:** v1.2.0 (delivered incrementally; the public API is unchanged throughout)
+- **Target release:** v1.2.0 (delivered incrementally; the public API's shape is unchanged throughout)
 - **Related issues:** #357 (`KafkaEx.stream` times out fetching at log-end), #445 (metadata cache not updated on produce)
-- **Related design notes:** Connection + pure Broker (06), decentralised data plane (10), deepen ClusterMetadata (14), shared metadata store / `TopicsLibrary` (23, superseded here by per-client — see Alternatives)
+- **Supersedes** four earlier internal design notes, whose substance is carried in full by this
+  document (they are not repository artifacts and this RFC does not depend on them): evicting the
+  socket from `Broker` and naming the connection; decentralising the data plane into per-broker
+  connections; deepening `ClusterMetadata`; and a cluster-shared metadata store — the last of which is
+  superseded rather than adopted, in favour of per-client infrastructure (see Alternatives).
 
 ## Summary
 
@@ -746,15 +750,28 @@ findings were cross-checked against **brod, the Java client, and librdkafka** (3
 
 ## Delivery
 
-Ships **incrementally** as reviewable, individually releasable PRs, building up to the architecture
-above. The public API's **shape** is unchanged throughout, so no step is source-breaking; the one
-observable behavioural change — the loss of the global cross-caller request ordering that today's
-single mailbox imposes — is stated in the compatibility contract and lands with the front. The recommended
-starting point is **Improvement 06** (a pure in-place refactor: evict the socket from `Broker` so it
-is a plain value, extract the connection *concern* + a `Transport` seam, hold connections as a
-`node ⇒ conn` map) — it benefits the current client immediately (metadata stops transplanting live
-sockets) and lays the seam every later step builds on. Subsequent steps introduce the non-blocking
-front, the `:gen_statem` `Connection`s, and the per-client `MetadataStore` + its supervisor.
+Ships **incrementally** as reviewable, individually releasable PRs. The organising rule is that
+**PRs 1–5 move responsibilities between processes without changing observable behaviour, and PR 6 is
+the single semantic cutover.** Everything a reviewer must scrutinise for behaviour change, and
+everything a rollback would have to undo, is therefore concentrated in one place instead of smeared
+across the series. The public API's **shape** is unchanged throughout, so no step is source-breaking;
+the one observable behavioural change — the loss of the global cross-caller request ordering that
+today's single mailbox imposes — is stated in the compatibility contract and lands with PR 6.
+
+| # | PR | What moves | Observable change |
+|---|---|---|---|
+| 1 | **Pure `Broker` + `Transport` seam** | The socket leaves the `Broker` struct, which becomes a plain value; the client holds a separate `node_id ⇒ connection` map; a `Transport` behaviour wraps `NetworkClient`, with an in-process fake for tests | None. Metadata refresh stops transplanting live sockets, which is a latent-bug fix, not a contract change |
+| 2 | **Selection + coordinator cache into `ClusterMetadata`** | Leader/controller/coordinator selection and refresh-on-error move out of `Client` (today `client.ex:1061-1174`) behind a small interface | None; still in-process and synchronous |
+| 3 | **`Connection` as `:gen_statem`** | One connection per `{host, port, role}` under a `ConnectionSupervisor` + `Registry`, both owned by the client's `Infra.Supervisor`; sockets, SASL and ApiVersions negotiation move into it. **The client still calls it synchronously** | None by contract. The largest single step and the first candidate to split further |
+| 4 | **`MetadataStore` as `:gen_statem`** | ETS table, the store's own `:metadata` connection, per-key coalesced refresh and `FindCoordinator`; the client reads ETS lock-free instead of holding `cluster_metadata` in its state. Request path still synchronous | Closes #445 on its own |
+| 5 | **Telemetry split + deadline threading** | Per-attempt `[:kafka_ex, :request]` and the `:connection`/`:auth` events move to the `Connection`; operation spans stay in the front. Separately, `KafkaEx.API` threads the caller budget it already computes into the request message | Emitting pid changes for transport events; shapes identical. The threaded deadline is unused until PR 6, which is what keeps that PR small |
+| 6 | **Cutover: the non-blocking front** | `handle_call` returns `{:noreply, …}`; the `ref`-keyed `pending` map, absolute deadlines, caller monitors, the per-partition produce gate, and the retry state machine | **The one semantic step.** Order becomes per-caller rather than global; head-of-line blocking (#357) and the RC-1 heartbeat stall are removed here |
+| 7 | **Cleanup** | Delete the recursive synchronous retry loop and the now-dead `send_sync_request` paths | None |
+
+Ordering note: the `Connection` (3) deliberately precedes the `MetadataStore` (4), even though the
+store closes #445 and would deliver visible value sooner. The store owns its own `:metadata`
+connection, so landing it first would mean giving it a connection in the old shape and then rebuilding
+it in step 3 — paying for the same work twice.
 
 ## Drawbacks
 
@@ -797,8 +814,9 @@ front, the `:gen_statem` `Connection`s, and the per-client `MetadataStore` + its
 - **Front as `:gen_statem`.** Rejected: the front multiplexes many concurrent requests, so per-request
   state must live in a map, not in a single process state. The `Connection` is the correct FSM.
 - **Chosen: control-plane / data-plane split with per-client infra.** Satisfies every driver
-  (head-of-line blocking, #445, RC-1) and unifies notes 06/10/14 into one coherent target (superseding
-  note 23's shared-store direction with per-client), while leaving cross-client sharing as a clean
+  (head-of-line blocking, #445, RC-1) and unifies the three earlier notes it supersedes — pure
+  `Broker`, decentralised data plane, deepened `ClusterMetadata` — into one coherent target, replacing
+  the fourth note's cluster-shared store with per-client infrastructure, while leaving sharing as a clean
   future opt-in.
 
 ## Prior art
