@@ -472,11 +472,17 @@ defmodule KafkaEx.ClientTest do
       assert broker.socket == nil
     end
 
-    test "an unknown message does not kill the client" do
+    test "an unknown message does not kill the client and is logged" do
       port = open_tcp_port()
       state = build_state(%{1 => broker_with_port(1, port)})
 
-      assert {:noreply, ^state} = Client.handle_info(:something_unexpected, state)
+      log =
+        capture_log(fn ->
+          assert {:noreply, ^state} = Client.handle_info(:something_unexpected, state)
+        end)
+
+      assert log =~ "ignoring unexpected message"
+      assert log =~ ":something_unexpected"
     end
   end
 
