@@ -384,7 +384,7 @@ defmodule KafkaEx.Client do
   # Defining any handle_info/2 replaces the catch-all `use GenServer` injects, and without one
   # an unmatched message kills the client.
   def handle_info(message, state) do
-    Logger.debug("#{inspect(__MODULE__)} ignoring unexpected message: #{inspect(message)}")
+    Logger.warning("#{inspect(__MODULE__)} ignoring unexpected message: #{inspect(message)}")
     {:noreply, state}
   end
 
