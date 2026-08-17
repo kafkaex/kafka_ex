@@ -20,7 +20,9 @@ shares only through an explicitly named client). The "N clients per consumer gro
 addressed by the existing opt-in shared `:client` (`GenConsumer.resolve_client`, #581), **not** by
 auto-keyed cross-client sharing, which is left as a future option. The change is **fully backward
 compatible**: the public API, the `client` process identity and message contract, telemetry event
-shapes, and failure semantics are unchanged.
+shapes, and error atoms are unchanged. One behavioural change is deliberate and stated in the
+compatibility contract below: request order is preserved **per caller process** rather than globally
+across all callers, as today's single mailbox incidentally does.
 
 ## Current Limitations
 
@@ -213,7 +215,32 @@ refreshes, and requests to other brokers.
   messages.
 - `start_link(args, name)` still returns `{:ok, pid}`, registers `name`, and is ready on return
   (synchronous fail-fast boot).
-- `send_request/4`, `retry_count/0`, `coordinator_max_attempts/0` are unchanged.
+- `send_request/4`, `retry_count/0`, `coordinator_max_attempts/0` are unchanged. `send_request/4` in
+  particular keeps **send-once, no-retry** semantics: today its handler bypasses the retry loop
+  entirely (`client.ex:371-375`, unlike `handle_request_with_retry`), so the front must **exempt** it
+  from the uniform `{:done, …}` retry classification. Without that exemption it would silently gain
+  retries — one `:timeout` today, up to three afterwards. It remains a deliberate escape hatch to the
+  ~28 Kafka APIs Kayrock generates but `KafkaEx.API` does not wrap, and is documented as such in
+  `usage-rules.md`.
+- **Error atoms are unchanged, and this RFC introduces none.** Every failure mode maps onto an atom
+  already in `KafkaEx.Support.Retry`'s classification, because an unknown atom falls through
+  `transient_error?/1` to `false` and would silently turn a retryable condition into a fatal one. The
+  atoms the front returns are exactly today's: `:timeout` (written but unanswered — retryable, except
+  on coordinator requests where send-once applies), `:not_connected` (never written — parks, never
+  fatal), `:no_broker` (no target selectable, including from a `:degraded` store), plus the unchanged
+  broker error codes.
+- **One behavioural change, stated deliberately.** Today's single `GenServer` imposes a *global total
+  order* on every request from every caller — an accident of having one mailbox. The front preserves
+  order only **per caller process**; requests from different processes become genuinely concurrent and
+  may reach the broker in either order. Worth naming concretely: two processes committing offsets for
+  the same partition can now move the committed offset backwards (redelivery — at-least-once still
+  holds, nothing is lost). The common path is unaffected, because `GenConsumer` and `Stream` block on
+  their own commit (`gen_consumer.ex:1026`, `stream.ex:182`), so at most one commit per
+  (group, topic, partition) is ever in flight. **That is a load-bearing invariant of the consumer
+  layer, not a coincidence** — any future change that stops the consumer blocking on its commit must
+  supply an equivalent guarantee. We deliberately do *not* add a commit-ordering gate: none of the
+  three reference clients gates commits (Java's consumer is single-threaded per instance; brod and
+  librdkafka serialize through the group coordinator).
 - All telemetry event **shapes** (names + measurements) are unchanged. Operation spans
   (`:produce`/`:fetch`/`:consumer.*`) stay in the front (same pid as today's client); the per-attempt
   `[:kafka_ex, :request]` span and the `:connection`/`:auth`/`:connection.close` events move to the
@@ -228,11 +255,23 @@ refreshes, and requests to other brokers.
 
 ### Sequence
 
-The caller keeps issuing a blocking `GenServer.call` (this contract also gives us **free
-backpressure** — each caller process can only have one call in flight, so the front's `pending` map
-is bounded by the number of caller processes). The front is a plain `GenServer` that multiplexes many
-in-flight requests; each request's state lives in a `pending` map keyed by `ref`, **not** in the
-process state (so `:gen_statem` does not fit the front — see Design decisions):
+The caller keeps issuing a blocking `GenServer.call`. The front is a plain `GenServer` that
+multiplexes many in-flight requests; each request's state lives in a `pending` map keyed by `ref`,
+**not** in the process state (so `:gen_statem` does not fit the front — see Design decisions).
+
+**What a `pending` entry holds.** Besides the `from` and the request: the current phase, the
+persistent `attempt` counter, a **monitor on the caller** (whose pid arrives free in `from`), the
+per-partition **gate slot** it holds (produce only), and an **absolute deadline**. The deadline is
+admitted *with* the request. `KafkaEx.API` already computes the caller's budget via
+`RequestBudget.call_budget/2` (`api.ex:967`) but passes it **only** as the `GenServer.call` timeout,
+so the server never sees it — which means a promise like "no caller parked past its own deadline" is
+not implementable until that number crosses the process boundary. It is therefore threaded into the
+request message and stored as `deadline = monotonic_now + budget`. Re-deriving it inside the front
+from `network_timeout` and `@retry_count` is the tempting shortcut and is wrong: `send_request/4`
+lets a caller pass an arbitrary explicit timeout (`client.ex:1294`), and two independent computations
+of one budget is exactly the drift #562 closed by making `@retry_count` the single source of truth.
+
+Phases:
 
 - `:resolving` — pick the target. Read the leader/coordinator from the `MetadataStore`'s ETS
   (lock-free). Hit → dispatch to the right `(node, role)` `Connection` (→ `:in_flight`). Miss → cast
@@ -240,18 +279,44 @@ process state (so `:gen_statem` does not fit the front — see Design decisions)
 - `:in_flight` — sent to a `Connection`; awaiting `{:done, ref, result}`.
 - `:awaiting_metadata` / `:awaiting_coordinator` — waiting for the store's (coalesced) refresh to
   complete and notify; on notification, re-enter `:resolving`.
+- `:awaiting_connection` — the target `Connection` refused a request it never wrote
+  (`{:error, :not_connected}`); the entry waits for that connection to report `:connected`, bounded by
+  its own deadline. This costs **no** retry attempt — see `Connection`, below, for why.
 
 On `{:done, ref, result}` the front runs the **existing** retry classification
 (`Retry.leadership_error?` / `coordinator_refresh_error?` / transport-timeout):
 
-- success → `GenServer.reply(from, result)`, drop the entry;
+- success → `GenServer.reply(from, result)`, terminal;
 - retryable leadership error → cast "refresh this topic/partition" to the store (coalesced per key in
   its `in_flight` map), → `:awaiting_metadata`, decrement budget;
 - retryable coordinator error → cast "re-discover" to the store, → `:awaiting_coordinator`;
-- transport timeout **on a coordinator request** → reply error immediately (send-once, today's
-  `@coordinator_max_attempts = 1`; rejoin/commit re-issue higher up);
+- transport timeout **on a coordinator request** → reply error immediately (send-once). Today's
+  `@coordinator_max_attempts = 1` stays a **structural** cap on JoinGroup/SyncGroup — not an
+  error-keyed one — so it protects them whatever the transport returns; rejoin/commit re-issue higher
+  up;
 - other transport timeout (data) → re-dispatch (→ `:in_flight`), decrement budget;
-- non-retryable / budget exhausted → reply error, drop.
+- `{:error, :not_connected}` → `:awaiting_connection`, budget untouched;
+- non-retryable / budget exhausted → reply error, terminal.
+
+**The terminal paths are the load-bearing part.** An entry that ends without being cleaned up does not
+merely leak memory: while it holds a produce-gate slot at `N = 1` it stalls its entire partition,
+silently and indefinitely — the very failure class (#357) this RFC exists to remove. An entry is
+dropped, its caller demonitored and its gate slot released (waking the next FIFO waiter) on **all** of:
+reply to the caller, retry-budget exhaustion, **deadline expiry**, **caller `:DOWN`**, and
+`Connection` `:DOWN`. The deadline and the caller monitor are complementary, not redundant — the
+monitor catches a caller that died (which is what a `GenServer.call` timeout does to an ordinary
+process), the deadline catches one that survived by catching the exit, and the deadline additionally
+stops the front from *starting* an attempt that cannot finish in time.
+
+**On backpressure.** The blocking contract does bound concurrency — one in-flight call per caller
+process — but it bounds the `pending` map only for *live* callers. Boundedness under caller churn
+comes from the monitors and deadlines above, not from the blocking contract itself. In-flight requests
+per connection are therefore ceilinged by the number of concurrently calling processes; we state that
+as an invariant rather than leave it an accident, and defer an explicit per-connection cap to the
+future async primitive that breaks the one-call-per-caller property (see Broadway / GenStage). Java's
+`max.in.flight.requests.per.connection` (default 5) exists mainly to bound reordering under retry —
+which decision #13's `N = 1` produce gate already covers here — so a second cap would buy no
+correctness we do not already have.
 
 ```mermaid
 sequenceDiagram
@@ -272,8 +337,8 @@ The one substantive refactor is turning the recursive retry loop — whose state
 blocking stack frame — into this `ref`-keyed state machine. Retry stays centralized in the front;
 metadata refresh is delegated to the store; only blocking I/O moves out. Per-attempt timeout lives in
 the `Connection` (it holds the send timestamp) and is reported to the front as
-`{:done, ref, {:error, :timeout}}`; the **retry decision** stays in the front. If a `Connection`
-dies, the front receives `:DOWN` and fails every `pending` entry on it — so entries never leak.
+`{:done, ref, {:error, :timeout}}`; the **retry decision** stays in the front. A `Connection` `:DOWN`
+fails every `pending` entry routed to it — one of the five terminal paths above, not the only one.
 Replying to a `from` whose caller already timed out is a harmless no-op.
 
 Each physical dispatch uses a **fresh `ref`** as its `pending` key, so a late `{:done, …}` from a
@@ -413,9 +478,10 @@ registry. Reading the edges as *observer → observed*:
 |---|---|---|
 | `ConnectionSupervisor` → `Connection` | supervision link, `:temporary`, bounded shutdown | **not** restarted (temporary); recreated lazily on the next request. On an ordered shutdown the `Connection` (which traps exits) closes its socket in its own `terminate/2` |
 | connection `Registry` → `Connection` | Registry's built-in monitor | Registry **auto-removes** the `{host, port, role}` entry — no manual cleanup; a later lookup misses and the front asks `ConnectionSupervisor` for a fresh one |
-| front → `Connection` | **monitor** (not link) | on `:DOWN` the front fails every `pending` entry routed to that connection (never leaked); the crash never takes the front down. The front demonitors when it stops routing there |
+| front → `Connection` | **monitor** (not link) | on `:DOWN` the front fails every `pending` entry routed to that connection — one of the five terminal paths that clean an entry up, see Sequence; the crash never takes the front down. The front demonitors when it stops routing there |
 | `MetadataStore` → its `:metadata` `Connection` | **monitor** | a mid-refresh `:DOWN` fails the in-flight refresh; the store re-acquires the connection on the next refresh |
 | front → its `MetadataStore` | **monitor** (+ notify subscription) | a store restart makes ETS reads miss; the front parks callers in `:awaiting_metadata` and re-resolves once the store is `:ready` again |
+| front → **the caller** | **monitor** per admitted request (the pid arrives free in `from`) | on `:DOWN` the front drops that `pending` entry and releases everything it held — most importantly its per-partition produce-gate slot, whose loss would stall that partition silently and permanently. A `GenServer.call` timeout kills an ordinary caller, so this covers the common give-up path; a caller that survives by catching the exit is covered instead by the entry's absolute deadline |
 | front → its `Infra.Supervisor` | **link** (started in `init`) | this is the teardown mechanism: the front's death (any reason) tears the whole subtree down in order. Conversely, if `Infra.Supervisor` exhausts its restart intensity and exits, the non-trapping front dies with it and its parent recreates the client |
 | `Infra.Supervisor` → {`Registry`, `ConnectionSupervisor`, `MetadataStore`} (`:rest_for_one`) | supervision link | a `MetadataStore` restart rebuilds from bootstrap (that front parks and re-resolves); a `Registry`/`ConnectionSupervisor` restart also restarts the store (its dependant) and drops connection registrations, recreated lazily |
 | `KafkaEx.Supervisor` → per-client subtrees | supervision link | standard supervision; each client's front and its own infrastructure restart independently of every other client |
@@ -547,13 +613,31 @@ stateDiagram-v2
 - `postpone` defers a request only **during an active connect, within a bounded window** (the
   `:connecting` state) — no hand-rolled queueing for the sub-second handshake. Once a drop pushes the
   connection into **`:reconnecting`** (backoff-wait during an outage) it does **not** postpone: it
-  fails in-flight and incoming requests fast with `{:error, :not_connected}`, so the mailbox can't grow
-  unbounded and no caller is parked past its own deadline (**I3**). The front treats that as a
-  transport error and re-resolves/retries within the caller's budget — symmetric with the store's
-  `:degraded` mode.
-- On a transient disconnect it fails its in-flight requests (replies error to the front), transitions
-  to `:reconnecting` (backoff), and self-heals; hard/unexpected failures crash and are handled by
-  supervision. It never re-implements a supervisor.
+  answers immediately, so its mailbox cannot grow unbounded (**I3**). Waiting, where waiting is the
+  right answer, happens in the **front** — the only process that holds the caller's absolute deadline.
+  The `Connection` never learns that deadline, which is exactly why it must not be the process that
+  parks on it. Symmetric with the store's `:degraded` mode.
+- **The error atom is keyed on whether the request's bytes reached the socket.** That is the only
+  thing separating "the broker never saw this" from "the broker may already have executed it", and the
+  `Connection` is the sole process that knows which:
+  - **never written** (it arrived while reconnecting) → `{:error, :not_connected}`. Re-sending cannot
+    duplicate anything, so the front **parks** the entry until the `Connection` reports `:connected`
+    or the caller's deadline expires — and **spends no retry attempt** on it.
+  - **written, connection died before a response** → `{:error, :timeout}`, the same atom today's
+    recv-deadline produces. `Retry.transport_timeout?/1` therefore keeps firing and coordinator
+    requests keep their send-once rule (`client.ex:967-971`) bit-for-bit.
+- Collapsing both into one retryable atom would do two silent kinds of damage: it would convert
+  send-once coordinator requests into retried ones during precisely the rebalance/outage window where
+  today's client deliberately refuses, and it would let three fail-fast refusals burn a caller's entire
+  retry budget in microseconds without one real network attempt. Today's client is safe from the
+  second only by accident — its retry recursion (`client.ex:929-956`) has **no** inter-attempt delay
+  and is spaced solely by blocking I/O. Fail-fast removes that spacing, so it is replaced deliberately:
+  by parking against a deadline rather than by counting attempts. Any delay in the front is a timer
+  plus a parked entry, **never** `Process.sleep` — `Retry.with_retry/2` sleeps (`retry.ex:180`) and is
+  therefore unusable in a process that serves every caller.
+- On a transient disconnect it fails its in-flight requests (replying to the front under the split
+  above), transitions to `:reconnecting` (backoff), and self-heals; hard/unexpected failures crash and
+  are handled by supervision. It never re-implements a supervisor.
 - Registered in the connection `Registry` keyed by `{host, port, role}` within its client's subtree,
   where `role ∈ {:data, :coordinator, :metadata}`. The **coordinator** gets its own connection —
   separate from data traffic even to the same physical broker — a convergent pattern in **all three**
@@ -606,8 +690,13 @@ stateDiagram-v2
   mailbox; refreshes complete normally.
 - `:degraded` — the `:metadata` `Connection` is down (that `Connection`'s own `:gen_statem` is already
   retrying with backoff one level below); the store keeps serving the **stale** ETS snapshot, but a
-  refresh it cannot complete either fails fast (`{:error, :cluster_unreachable}`) or parks within a
-  bound (the store-side of **I3**). Entering/leaving emits
+  refresh it cannot complete either fails fast with `{:error, :no_broker}` — the atom today's client
+  already returns when no broker can be selected (`client.ex:1361`) and which
+  `Retry.transient_error?/1` already classifies as retryable — or parks within a
+  bound (the store-side of **I3**). A *new* atom here would be worse than a less descriptive one:
+  unknown atoms fall through `Retry.transient_error?/1` to `false`, so naming the most transient
+  condition there is would make the client give up on it permanently. The descriptive signal belongs
+  in telemetry, not in the return value. Entering/leaving emits
   `[:kafka_ex, :metadata_store, :degraded]` / `:recovered` — a resilience signal aligned with the
   RC-1 motivation.
 - **Refresh & discovery are data.** A per-key `in_flight` map holds one coalescing entry per refresh
@@ -647,18 +736,20 @@ findings were cross-checked against **brod, the Java client, and librdkafka** (3
 | 10 | **One multiplexed connection per (node, role), shared — not a connection pool** | 3/3: Kafka multiplexes over one TCP via `correlation_id` and orders per-connection; a pool multiplies FDs / broker-side conns for no throughput gain and breaks produce ordering |
 | 11 | **No cross-client sharing of metadata/connections** (deferred future option, keyed by `{sorted bootstrap uris, ssl_options, auth}`) | brod shares only via an explicitly named client; auto-sharing adds teardown + blast-radius cost for a footprint already collapsible via a shared `:client` |
 | 12 | **Front owns a linked `Infra.Supervisor` started in `init`, non-trapping; teardown via the link; sockets closed in each `Connection`'s `terminate/2`** | brod_client is the closest precedent (a worker owning its sub-supervisors); verified empirically that the parent-link tears the subtree down on any exit reason (incl. `:normal`) and that fail-fast `init` needs no `trap_exit` |
-| 13 | **Per-partition produce-ordering gate lives in the front** (`max N in-flight per partition`, FIFO-parked): `N = 1` mute now, `N ≤ 5` idempotent-sequence gating deferred with the idempotent producer | the gate and retry must co-locate, and retry is in the front (#1); 3/3 put the gate above the transport (brod `partition_onwire_limit`, Java mute, librdkafka toppar) |
+| 13 | **Per-partition produce-ordering gate lives in the front** (`max N in-flight per partition`, FIFO-parked): `N = 1` mute now, `N ≤ 5` idempotent-sequence gating deferred with the idempotent producer. A slot is held for the whole **logical** request — across retries, *not* per dispatch — and released on every terminal path (reply, retry exhaustion, deadline expiry, caller `:DOWN`, connection `:DOWN`), each release waking the next FIFO waiter | the gate and retry must co-locate, and retry is in the front (#1); 3/3 put the gate above the transport (brod `partition_onwire_limit`, Java mute, librdkafka toppar); releasing per dispatch would let a second producer interleave *between* attempts, defeating the ordering the gate exists for, and an unreleased slot silently stalls one partition forever |
 | 14 | **In-flight requests keyed by a fresh `ref` per physical dispatch (staleness); a separate persistent `attempt` counter for backoff / max-retries / telemetry** | 3/3 decouple the two — brod `corr_id` vs `failures`, Java `correlationId` vs `ProducerBatch.attempts` (→ `record-retry-total`), librdkafka `rkbuf_corrid` vs `rkbuf_retries`; opposite lifetimes, so no single token does both |
 | 15 | **Telemetry split by what a span measures: operation spans (`:produce`/`:fetch`/`:consumer.*`) stay in the front (same pid as today's client); the per-attempt `[:kafka_ex, :request]` span + `:connection`/`:auth`/`:connection.close` move to the `Connection`. Async forces manual `:start`/`:stop` (stored timestamps) instead of the synchronous `Telemetry.span/3` wrapper** | verified `client.ex:1383` — `[:kafka_ex, :request]` wraps one serialize→send→recv (bytes + broker), *not* the retried op; event names/measurements unchanged, only the transport events' emitting pid changes (front→Connection) → review tests asserting on emitter pid |
 | 16 | **`MetadataStore` stays a `:gen_statem` with *lifecycle* states `:loading`/`:ready`/`:degraded` (NOT a `:refreshing` state); refresh/discovery is per-key `in_flight` data** | `:degraded` (cluster unreachable → serve stale + `degraded`/`recovered` telemetry + bounded refresh) is a genuine behavioural mode that earns the FSM; a `:refreshing` state would force global single-flight, conflicting with per-key coalescing (research: 3/3 model in-flight refresh as data, not a state) |
 | 17 | **`FindCoordinator` discovery coalesced in-flight per `(coordinator_type, key)`, kept separate from metadata refresh** | de-storms concurrent re-discovery for one group (Manager + Heartbeat + commit at once); one step beyond brod/Java/librdkafka (which dedup only the resolved result or coalesce per-instance) — cheap on the BEAM (a waiter list) |
-| 18 | **`Connection` `postpone`s only during an active connect (bounded window, `:connecting`); in `:reconnecting` backoff-wait it fails requests fast (`{:error, :not_connected}`)** | bounds mailbox growth and caller parking during a long outage; front re-resolves/retries within budget; symmetric with the store's `:degraded`; matches Java (`client.ready` gate + connect timeout) / librdkafka (outbuf message-timeout) |
+| 18 | **`Connection` `postpone`s only during an active connect (bounded window, `:connecting`); outside it the error atom is keyed on whether the request's bytes reached the socket — never written → `{:error, :not_connected}` (front parks it, no attempt spent); written but unanswered → `{:error, :timeout}` (a real attempt; coordinator send-once applies)** | bounds mailbox growth without moving the caller's deadline into the `Connection`, which never learns it; the split preserves today's send-once rule, whose reason is that the broker may already have executed a *written* request — a distinction one atom cannot carry; matches Java (`client.ready` gate + connect timeout) / librdkafka (outbuf message-timeout) |
 | 19 | **`MetadataStore` is the sole owner of its `:protected`, single-writer ETS table; on a store crash the table is discarded and the restarted store rebuilds it** (reads briefly miss → front parks and re-resolves) | an ETS `heir` to preserve the table was considered and rejected as over-engineering: a BEAM table dies with its owner, so preserving it needs another live process holding it, and the brief rebuild park (one metadata fetch, one client) is cheaper than that machinery |
 
 ## Delivery
 
 Ships **incrementally** as reviewable, individually releasable PRs, building up to the architecture
-above; the public API is unchanged throughout, so no step is a breaking change. The recommended
+above. The public API's **shape** is unchanged throughout, so no step is source-breaking; the one
+observable behavioural change — the loss of the global cross-caller request ordering that today's
+single mailbox imposes — is stated in the compatibility contract and lands with the front. The recommended
 starting point is **Improvement 06** (a pure in-place refactor: evict the socket from `Broker` so it
 is a plain value, extract the connection *concern* + a `Transport` seam, hold connections as a
 `node ⇒ conn` map) — it benefits the current client immediately (metadata stops transplanting live
@@ -793,10 +884,15 @@ never scatters into them.
 a demand-driven pipeline stage would freeze. Removing head-of-line blocking (per-broker isolation) and
 making heartbeats reliable under load (the RC-1 fix) is exactly what a Broadway pipeline needs.
 
-**Constraint to keep the door open:** keep an **async request primitive** available (the
-`{:done, ref, result}` path behind `send_request/4`) so one GenStage producer process can hold **many
-concurrent fetches** in flight. If the only path were a blocking `GenServer.call`, the free-backpressure
-property (one in-flight call per caller process) would become a throughput ceiling for a pull pipeline.
+**Constraint to keep the door open:** KafkaEx has **no async request primitive today**, and this RFC
+does not add one — `send_request/4` is, and stays, blocking and send-once (see the compatibility
+contract). The constraint is therefore about *not foreclosing* one: the front's internal
+`{:done, ref, result}` path must keep a shape into which a future **additive** public async API (a
+call that returns a `ref` and later delivers `{:done, ref, result}` to the caller) can be layered
+without rearchitecting the front. Without such a primitive a pull pipeline is capped at one in-flight
+fetch per producer process. That future API is also the single place where the free-backpressure
+property (one in-flight call per caller process) stops holding, so it — not this RFC — is where a
+per-connection in-flight cap becomes necessary (decision #9).
 Everything else stays additive — the `Broadway.Producer` (assignment, ack → offset commit,
 drain-before-revoke) lives in the connector; KafkaEx itself need not become GenStage-aware.
 
