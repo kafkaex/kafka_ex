@@ -747,6 +747,7 @@ findings were cross-checked against **brod, the Java client, and librdkafka** (3
 | 17 | **`FindCoordinator` discovery coalesced in-flight per `(coordinator_type, key)`, kept separate from metadata refresh** | de-storms concurrent re-discovery for one group (Manager + Heartbeat + commit at once); one step beyond brod/Java/librdkafka (which dedup only the resolved result or coalesce per-instance) — cheap on the BEAM (a waiter list) |
 | 18 | **`Connection` `postpone`s only during an active connect (bounded window, `:connecting`); outside it the error atom is keyed on whether the request's bytes reached the socket — never written → `{:error, :not_connected}` (front parks it, no attempt spent); written but unanswered → `{:error, :timeout}` (a real attempt; coordinator send-once applies)** | bounds mailbox growth without moving the caller's deadline into the `Connection`, which never learns it; the split preserves today's send-once rule, whose reason is that the broker may already have executed a *written* request — a distinction one atom cannot carry; matches Java (`client.ready` gate + connect timeout) / librdkafka (outbuf message-timeout) |
 | 19 | **`MetadataStore` is the sole owner of its `:protected`, single-writer ETS table; on a store crash the table is discarded and the restarted store rebuilds it** (reads briefly miss → front parks and re-resolves) | an ETS `heir` to preserve the table was considered and rejected as over-engineering: a BEAM table dies with its owner, so preserving it needs another live process holding it, and the brief rebuild park (one metadata fetch, one client) is cheaper than that machinery |
+| 20 | **Rollback is `request_concurrency: :multiplexed` (default) \| `:serial`, implemented as a cap of one simultaneously admitted `pending` entry — not as a second request path**; temporary, removed in 1.3.0 | one entry at a time makes mailbox order equal execution order, restoring today's global total order exactly, without keeping two retry implementations alive in one release; a `:legacy` *code path* would be a third configuration nobody runs in production, and after PRs 1–5 there is no old path left to select anyway. Default `:multiplexed` because a safe default means the new path goes unexercised until the flag is removed — deferring risk, not reducing it |
 
 ## Delivery
 
@@ -772,6 +773,34 @@ Ordering note: the `Connection` (3) deliberately precedes the `MetadataStore` (4
 store closes #445 and would deliver visible value sooner. The store owns its own `:metadata`
 connection, so landing it first would mean giving it a connection in the old shape and then rebuilding
 it in step 3 — paying for the same work twice.
+
+### Rollback
+
+A minor bump carrying a concurrency change needs an escape hatch, and we have our own precedent for
+why: v1.1.0's metadata-refresh behaviour change required the unplanned v1.1.1 patch cycle three days
+later, and two entries in that changelog are marked "Behavior change". PR 6's failure mode is worse in
+kind — races, the class that survives CI and appears under production load.
+
+The escape hatch is **`request_concurrency: :multiplexed` (default) | `:serial`**, and the important
+part is what it is *not*: it does **not** select between two request paths. `:serial` caps the number
+of simultaneously admitted `pending` entries at **one**. Same state machine, same retry
+classification, same telemetry — the front simply handles entries one at a time, so mailbox order
+becomes execution order again and today's global total order is restored exactly. There is no second
+retry implementation to keep alive, which matters because retry is where the correctness lives.
+
+Two things about it must stay explicit:
+
+- **It restores head-of-line blocking on purpose.** A user choosing `:serial` is knowingly trading
+  back the #357 and RC-1 fixes for the old ordering. That is the correct trade for a rollback switch
+  and a bad one for a default.
+- **It does not roll back the process topology.** Sockets still live in `Connection`s and metadata in
+  the `MetadataStore`, so a defect introduced by PR 3 or PR 4 is *not* recoverable with this flag; for
+  those, the rollback is a version pin to 1.1.x. The flag covers the cutover, nothing else.
+
+The default is `:multiplexed` from 1.2.0 rather than a cautious `:serial`. A safe default sounds
+prudent but means nobody exercises the new path, so its defects surface only when the flag is removed
+— deferring the risk instead of reducing it, while withholding the fixes that motivate the work.
+`:serial` is documented from the outset as a temporary hatch, slated for removal in 1.3.0.
 
 ## Drawbacks
 
