@@ -398,12 +398,13 @@ defmodule KafkaEx.Client do
 
   # A broker rejecting an acks=0 produce answers by resetting the connection, so a socket error
   # is a normal signal here, not an exotic one.
+  # The telemetry contract fixes reason to a known atom, so the raw term goes to the log instead.
   def handle_info({:tcp_error, socket, reason}, state) do
-    {:noreply, close_broker_by_socket(state, socket, reason)}
+    {:noreply, close_broker_by_socket(state, socket, :recv_error, reason)}
   end
 
   def handle_info({:ssl_error, socket, reason}, state) do
-    {:noreply, close_broker_by_socket(state, socket, reason)}
+    {:noreply, close_broker_by_socket(state, socket, :recv_error, reason)}
   end
 
   # Defining any handle_info/2 replaces the catch-all `use GenServer` injects, and without one
@@ -1550,10 +1551,10 @@ defmodule KafkaEx.Client do
     {topic_metadata, %{updated_state | allow_auto_topic_creation: allow_auto_topic_creation}}
   end
 
-  defp close_broker_by_socket(state, socket, reason \\ :remote_closed) do
+  defp close_broker_by_socket(state, socket, reason \\ :remote_closed, detail \\ nil) do
     State.update_brokers(state, fn broker ->
       if Broker.has_socket?(broker, socket) do
-        Logger.debug("#{Broker.to_string(broker)} closed connection")
+        log_connection_close(broker, detail)
         # Socket is already closed (received :tcp_closed/:ssl_closed), just emit telemetry
         NetworkClient.close_socket(broker, socket, reason)
         Broker.put_socket(broker, nil)
@@ -1562,4 +1563,9 @@ defmodule KafkaEx.Client do
       end
     end)
   end
+
+  defp log_connection_close(broker, nil), do: Logger.debug("#{Broker.to_string(broker)} closed connection")
+
+  defp log_connection_close(broker, detail),
+    do: Logger.warning("#{Broker.to_string(broker)} closed connection: #{inspect(detail)}")
 end
