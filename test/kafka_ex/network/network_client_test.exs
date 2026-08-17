@@ -1,5 +1,6 @@
 defmodule KafkaEx.Network.NetworkClientTest do
   use ExUnit.Case, async: true
+  import ExUnit.CaptureLog
   import KafkaEx.TestHelpers
 
   alias KafkaEx.Network.NetworkClient
@@ -103,6 +104,39 @@ defmodule KafkaEx.Network.NetworkClientTest do
 
       Process.exit(pid, :normal)
       :gen_tcp.close(tcp_socket)
+    end
+
+    test "a failed send returns the reason and closes the socket with :send_error" do
+      port = get_free_port(3070)
+      pid = KafkaEx.TestSupport.Server.start(port)
+
+      {:ok, tcp_socket} = :gen_tcp.connect(~c"localhost", port, [:binary, {:active, false}, {:packet, 0}])
+
+      kafka_socket = %KafkaEx.Network.Socket{socket: tcp_socket, ssl: false}
+      broker = %{socket: kafka_socket, host: "localhost", port: port}
+      :ok = :gen_tcp.close(tcp_socket)
+
+      handler_id = "network-client-send-error-#{System.unique_integer([:positive])}"
+      test_pid = self()
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          [:kafka_ex, :connection, :close],
+          fn _name, measurements, metadata, _ -> send(test_pid, {:telemetry, measurements, metadata}) end,
+          nil
+        )
+
+      try do
+        capture_log(fn ->
+          assert {:error, :closed} == NetworkClient.send_async_request(broker, "test data")
+        end)
+
+        assert_receive {:telemetry, %{count: 1}, %{reason: :send_error, port: ^port}}
+      after
+        :telemetry.detach(handler_id)
+        Process.exit(pid, :normal)
+      end
     end
   end
 

@@ -38,7 +38,9 @@
   including `{:tcp_error, _, _}` / `{:ssl_error, _, _}`, which a connection reset delivers ahead of
   `{:tcp_closed, _}` — crashed the process and took every broker socket and all cluster metadata
   with it. Socket errors now close just that broker's socket; other messages are logged and
-  ignored.
+  ignored. Such a close reports `reason: :recv_error` on `[:kafka_ex, :connection, :close]`, so the
+  metadata stays within the documented set of atoms — the underlying reason, which for `:ssl_error`
+  can be a whole alert term, goes to the log instead.
 
 * **`[:kafka_ex, :produce, :start]` telemetry reports the value actually sent.** The
   `required_acks` metadata field previously reported its own default of `1` while `-1` went on the

@@ -517,6 +517,35 @@ defmodule KafkaEx.ClientTest do
       end)
     end
 
+    test "emits :recv_error on :tcp_error rather than the raw posix reason" do
+      port = open_tcp_port()
+      broker = broker_with_port(1, port)
+      state = build_state(%{1 => broker})
+
+      with_telemetry_handler(fn ->
+        log = capture_log(fn -> {:noreply, _} = Client.handle_info({:tcp_error, port, :econnreset}, state) end)
+
+        assert_receive {:telemetry, [:kafka_ex, :connection, :close], %{count: 1}, metadata}
+        assert metadata.reason == :recv_error
+        assert log =~ ":econnreset"
+      end)
+    end
+
+    test "emits :recv_error on :ssl_error even when the reason is a complex term" do
+      ref = make_ref()
+      broker = broker_with_ssl_ref(1, ref)
+      state = build_state(%{1 => broker})
+      alert = {:tls_alert, {:handshake_failure, ~c"bad certificate"}}
+
+      with_telemetry_handler(fn ->
+        log = capture_log(fn -> {:noreply, _} = Client.handle_info({:ssl_error, ref, alert}, state) end)
+
+        assert_receive {:telemetry, [:kafka_ex, :connection, :close], %{count: 1}, metadata}
+        assert metadata.reason == :recv_error
+        assert log =~ "handshake_failure"
+      end)
+    end
+
     test "does not emit when no broker matches the socket" do
       port_in_state = open_tcp_port()
       port_unknown = open_tcp_port()
