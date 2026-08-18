@@ -325,6 +325,19 @@ Phases:
   (`{:error, :not_connected}`); the entry waits for that connection to report `:connected`, bounded by
   its own deadline. This costs **no** retry attempt — see `Connection`, below, for why.
 
+**The unanswered-request case must be handled explicitly, or the design breaks a working feature.**
+A `produce` with `acks: 0` gets **no broker response at all** — there is nothing to correlate and
+nothing to wait for. Today the client already knows this: `client.ex:1356` sets `synchronous = false`
+when `Map.get(request, :acks) == 0`. A front that waits for `{:done, ref, result}` on every dispatch
+would park such a caller until its deadline and then report `{:error, :timeout}` for a send that
+**succeeded** — turning a working fire-and-forget produce into a reported failure.
+
+The rule: for a request the broker will not answer, the `Connection` completes it **on a successful
+socket write** — it replies `{:done, ref, :ok}`, registers **no** `correlation_id`, and arms **no**
+per-attempt timeout. The front replies success to the caller with no offset, and **never retries** it:
+a resend could duplicate records, and there is no acknowledgement that could ever tell us whether the
+first attempt landed (the same reasoning already recorded at `client.ex:851-853`).
+
 On `{:done, ref, result}` the front runs the **existing** retry classification
 (`Retry.leadership_error?` / `coordinator_refresh_error?` / transport-timeout):
 
@@ -654,9 +667,9 @@ stateDiagram-v2
     note right of reconnecting
         backoff-wait during an outage — answers at once,
         never postpones. Atom keyed on whether the
-        bytes were written: never written -> :not_connected
+        bytes were written. Never written gives :not_connected
         (front parks, no attempt spent); written but
-        unanswered -> :timeout (a real attempt)
+        unanswered gives :timeout (a real attempt)
     end note
     note right of connected
         {active, once} event-driven recv
@@ -798,6 +811,7 @@ findings were cross-checked against **brod, the Java client, and librdkafka** (3
 | 18 | **`Connection` `postpone`s only during an active connect (bounded window, `:connecting`); outside it the error atom is keyed on whether the request's bytes reached the socket — never written → `{:error, :not_connected}` (front parks it, no attempt spent); written but unanswered → `{:error, :timeout}` (a real attempt; coordinator send-once applies)** | bounds mailbox growth without moving the caller's deadline into the `Connection`, which never learns it; the split preserves today's send-once rule, whose reason is that the broker may already have executed a *written* request — a distinction one atom cannot carry; matches Java (`client.ready` gate + connect timeout) / librdkafka (outbuf message-timeout) |
 | 19 | **`MetadataStore` is the sole owner of its `:protected`, single-writer ETS table; on a store crash the table is discarded and the restarted store rebuilds it** (reads briefly miss → front parks and re-resolves) | an ETS `heir` to preserve the table was considered and rejected as over-engineering: a BEAM table dies with its owner, so preserving it needs another live process holding it, and the brief rebuild park (one metadata fetch, one client) is cheaper than that machinery |
 | 20 | **Rollback is `request_concurrency: :multiplexed` (default) \| `:serial`, implemented as a cap of one simultaneously admitted `pending` entry — not as a second request path**; temporary, removed in 1.3.0 | one entry at a time makes mailbox order equal execution order, restoring today's global total order exactly, without keeping two retry implementations alive in one release; a `:legacy` *code path* would be a third configuration nobody runs in production, and after PRs 1–5 there is no old path left to select anyway. Default `:multiplexed` because a safe default means the new path goes unexercised until the flag is removed — deferring risk, not reducing it |
+| 21 | **A request the broker will not answer (`produce` with `acks: 0`) is completed by the `Connection` on a successful socket write**: `{:done, ref, :ok}`, no `correlation_id` registered, no per-attempt timeout armed; the front replies success without an offset and never retries it | there is no response to correlate, so a front that waited would park the caller to its deadline and report `{:error, :timeout}` for a send that succeeded; today `client.ex:1356` already branches on `acks == 0`. No retry, because a resend can duplicate records and no acknowledgement could ever say whether the first attempt landed (`client.ex:851-853`) |
 
 ## Delivery
 
@@ -1040,7 +1054,7 @@ connections — 3/3 (single-flighted in Java/librdkafka; brod owns it separately
 ## Unresolved questions
 
 Every design branch raised in the review is now resolved and captured in **Design decisions** above
-(#1–#20). What remains is implementation-level and out of scope for this RFC: exact timer/backoff
+(#1–#21). What remains is implementation-level and out of scope for this RFC: exact timer/backoff
 constants (connect window, reconnect backoff, `:degraded` bound, retry budget), the precise
 `:degraded` refresh policy (fail-fast vs bounded park), and the ETS snapshot representation. The
 **Forward compatibility** and **Future possibilities** sections below list capabilities deliberately
