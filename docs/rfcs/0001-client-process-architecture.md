@@ -5,23 +5,31 @@
 - **Date:** 2026-07-28 (last updated 2026-08-18)
 - **Target release:** v1.2.0 (delivered incrementally; the public API's shape is unchanged throughout)
 - **Related issues:** #357 (`KafkaEx.stream` times out fetching at log-end), #445 (metadata cache not updated on produce)
-- **Supersedes** four earlier internal design notes, whose substance is carried in full by this
-  document (they are not repository artifacts and this RFC does not depend on them): evicting the
-  socket from `Broker` and naming the connection; decentralising the data plane into per-broker
-  connections; deepening `ClusterMetadata`; and a cluster-shared metadata store — the last of which is
-  superseded rather than adopted, in favour of per-client infrastructure (see Alternatives).
+- **Reviewers:** _(name 3–5; an RFC addressed to everyone is reviewed by no one)_
+- **Review deadline:** _(set one — two weeks is usually enough)_
+- **Supersedes** four earlier internal design notes: a pure `Broker` with a named connection, a
+  decentralised data plane, a deepened `ClusterMetadata`, and a cluster-shared metadata store. This
+  document is self-contained and restates whatever it needs from them; the shared store is rejected
+  here rather than adopted (see Alternatives).
 
 ## Contents
 
-- [Summary](#summary) · [Non-goals](#non-goals)
-- [Current Limitations](#current-limitations) — the three drivers, in code
-- [Current Architecture](#current-architecture) · [End State Architecture](#end-state-architecture)
-  ([Sequence](#sequence), [Supervision tree](#supervision-tree), [Startup](#startup),
-  [State machines](#state-machines))
-- [Design decisions](#design-decisions-resolved-review) — the 20-row table reviewers should read first
+**If you read only four sections**, read [Summary](#summary), [The problem](#the-problem),
+[Design decisions](#design-decisions) and [Trade-offs](#trade-offs) — together they are what approval
+commits you to. The rest is evidence and mechanism.
+
+- [Summary](#summary) — the problem, the proposal and its cost, in three paragraphs
+- [The problem](#the-problem) — the three failures, each traced to code
+- [Where this sits in the current codebase](#where-this-sits-in-the-current-codebase) ·
+  [Goals and non-goals](#goals-and-non-goals)
+- [The proposed architecture](#the-proposed-architecture) — the model, then the mechanism in detail:
+  [Sequence](#sequence), [Supervision tree](#supervision-tree), [Startup](#startup),
+  [State machines](#state-machines)
+- [Design decisions](#design-decisions) — every decision with the evidence behind it
 - [Delivery](#delivery) — the 7-PR plan, [Rollback](#rollback), [Test strategy](#test-strategy),
   [Benchmarks](#benchmarks), [Success criteria](#success-criteria)
-- [Drawbacks](#drawbacks) · [Rationale and alternatives](#rationale-and-alternatives) ·
+- [Trade-offs](#trade-offs) — what this costs, worst first
+- [Rationale and alternatives](#rationale-and-alternatives) ·
   [Security considerations](#security-considerations) · [Prior art](#prior-art)
 - [Unresolved questions](#unresolved-questions) ·
   [Forward compatibility](#forward-compatibility--does-this-foreclose-anything) ·
@@ -29,43 +37,26 @@
 
 ## Summary
 
-Split the single `KafkaEx.Client` `GenServer` into a small process tree that separates the
-**control plane** (metadata, coordinator resolution, routing, retry) from the **data plane**
-(per-broker socket I/O), so that no single slow or unresponsive broker can block unrelated work.
-Each client owns its **own** supervised infrastructure — one `MetadataStore` and one set of
-`Connection`s per client — independently supervised from the front so that blocking socket I/O and
-metadata refresh never share the front's mailbox. Infrastructure is deliberately **per-client, not
-shared across clients**: this mirrors the Java client and librdkafka (per-instance) and brod (which
-shares only through an explicitly named client). The "N clients per consumer group" footprint is
-addressed by the existing opt-in shared `:client` (`GenConsumer.resolve_client`, #581), **not** by
-auto-keyed cross-client sharing, which is left as a future option. The change is **fully backward
-compatible**: the public API, the `client` process identity and message contract, telemetry event
-shapes, and error atoms are unchanged. One behavioural change is deliberate and stated in the
-compatibility contract below: request order is preserved **per caller process** rather than globally
-across all callers, as today's single mailbox incidentally does.
+**The problem.** `KafkaEx.Client` is one `GenServer` that holds at most one request in flight and
+blocks inside `handle_call` waiting for a broker to answer. One slow or unresponsive broker therefore
+stalls every other caller of that client. That is how a long-poll `fetch` at the log end times out
+unrelated calls (#357), how metadata refresh races a produce into stale leader data (#445), and how a
+single unreachable broker can rebalance an entire consumer group.
 
-## Non-goals
+**The proposal.** Split that process into a small tree: a **control plane** that routes, retries and
+owns metadata, and a **data plane** of per-broker, per-role `Connection` processes that each own one
+socket, are event-driven rather than blocking, and block only themselves. Each client owns its own
+supervised infrastructure; nothing is shared between clients.
 
-Stating these up front, because each has been proposed before and each would change what a reviewer
-is being asked to approve:
+**What it costs.** The public API does not change — not one function, option or return shape — and
+neither do telemetry event shapes, error atoms, or the client's process identity. **One behavioural
+change is deliberate:** today's single mailbox incidentally imposes a global order on requests from
+*all* callers, and the new client preserves order only **per caller process**. That change, the
+resource and complexity costs, and the migration cost to the test suite are set out in
+[Trade-offs](#trade-offs); a configuration switch reverses the concurrency change in production
+without a downgrade.
 
-- **No public API change.** Not a single new function, option or return shape is required by this
-  work. Anything additive (an async request primitive, pause/resume, a rebalance listener) is a
-  separate proposal — see Forward compatibility.
-- **No process-per-topic-partition data plane.** We adopt the per-broker (× role) split and stop
-  there; the brod-style producer/consumer process per partition is explicitly rejected in
-  Alternatives.
-- **No cross-client sharing of metadata or connections.** Infrastructure is per-client. The
-  N-clients-per-group footprint is *not* addressed here and stays collapsible the way it already is,
-  via a shared `:client`.
-- **No incremental fetch sessions (KIP-227), no idempotent or transactional producer, no cooperative
-  rebalancing.** The design must not foreclose them, which is a weaker and cheaper obligation than
-  building them.
-- **No performance tuning as a goal in itself.** The target is removing head-of-line blocking. A
-  throughput gain at high concurrency is expected to follow, but the benchmarks exist to catch a
-  *regression*, not to chase a number.
-
-## Current Limitations
+## The problem
 
 `KafkaEx.Client` today is one `GenServer` that fuses three responsibilities into a single mailbox:
 
@@ -131,7 +122,7 @@ N-clients-per-group footprint is **not** removed here; it remains collapsible, a
 the group a shared `:client` (`resolve_client`, #581). Cross-client sharing of metadata and connections is a
 possible future option (see Alternatives), not part of this change.
 
-## Current Architecture
+## Where this sits in the current codebase
 
 Where this change sits in the existing module layout, in the project's own vocabulary — *public
 surface → client → dispatch hub → per-operation protocol modules*, plus *control plane / data plane*,
@@ -210,8 +201,8 @@ flowchart TD
     GC1 -. "resolve_client: shared :client or own Client" .-> CL2["Client (own / shared)"]
 ```
 
-**Key fact (verified in code):** in production the `Manager` **always** starts its own `Client` (its
-`:client` opt is test-only), and every `GenConsumer` starts its own unless handed a shared `:client`.
+In production the `Manager` **always** starts its own `Client` (its `:client` option is test-only),
+and every `GenConsumer` starts its own unless handed a shared `:client`.
 Hence the N-clients-per-group footprint named above — one this RFC leaves collapsible for the
 `GenConsumer`s via a shared `:client`, not via auto-sharing (the `Manager`'s own client stays
 separate). The new processes this RFC introduces (`Connection`, `ConnectionSupervisor`,
@@ -219,7 +210,38 @@ separate). The new processes this RFC introduces (`Connection`, `ConnectionSuper
 `Client` keeps its identity as a thin front and owns its own store and connection set, independently
 supervised from the front.
 
-## End State Architecture
+## Goals and non-goals
+
+**Goals.** In priority order, because they conflict at the margin:
+
+1. **One slow or unresponsive broker must not affect requests to any other broker.** This is the
+   whole point; everything else is subordinate to it.
+2. **Metadata must stay correct under load** — reads must not queue behind socket I/O, and a
+   concurrent refresh must not hand a produce a stale leader.
+3. **Existing code must not change.** Every current caller — `KafkaEx.API`, the legacy worker API,
+   `ConsumerGroup.Manager`, `Heartbeat`, `GenConsumer`, `Stream` — keeps working untouched.
+4. **The change must be reversible in production**, without downgrading the dependency.
+
+**Non-goals.** Each of these is a plausible next step that this RFC deliberately excludes, because
+including any of them would change what approval means:
+
+- **No public API change.** Not a single new function, option or return shape is required by this
+  work. Anything additive (an async request primitive, pause/resume, a rebalance listener) is a
+  separate proposal — see Forward compatibility.
+- **No process-per-topic-partition data plane.** We adopt the per-broker (× role) split and stop
+  there; the brod-style producer/consumer process per partition is explicitly rejected in
+  Alternatives.
+- **No cross-client sharing of metadata or connections.** Infrastructure is per-client. The
+  N-clients-per-group footprint is *not* addressed here and stays collapsible the way it already is,
+  via a shared `:client`.
+- **No incremental fetch sessions (KIP-227), no idempotent or transactional producer, no cooperative
+  rebalancing.** The design must not foreclose them, which is a weaker and cheaper obligation than
+  building them.
+- **No performance tuning as a goal in itself.** The target is removing head-of-line blocking. A
+  throughput gain at high concurrency is expected to follow, but the benchmarks exist to catch a
+  *regression*, not to chase a number.
+
+## The proposed architecture
 
 The mental model is a **control plane vs data plane** split, on two axes:
 
@@ -294,6 +316,15 @@ refreshes, and requests to other brokers.
 - The OTP application boot (`KafkaEx.Supervisor`) and the `disable_default_worker` flag are unchanged:
   a disabled default worker still means no client and no connections until one is explicitly started,
   so `mix test.unit` still needs no Kafka cluster.
+
+---
+
+**The four sections that follow are mechanism, not proposal.** Everything a reviewer is asked to
+approve is above this line and in [Design decisions](#design-decisions) and
+[Trade-offs](#trade-offs). What follows shows *how* the model works — request lifecycle, process
+ownership and teardown, boot, and the two state machines — so that a reader can check the design is
+sound and an implementer can build it. Skim it on a first pass; return to it when a decision looks
+questionable.
 
 ### Sequence
 
@@ -484,15 +515,16 @@ black-holed-broker stall. The number of
 per consumed partition (two partitions sharing a leader ⇒ two sockets to that broker), while the
 `share_leader_conn` knob collapses them to one per broker.
 
-An earlier draft justified that knob by a KIP-227 fetch-session-slot ceiling. **That justification does
-not hold and has been removed:** KafkaEx sends `session_id: 0` with `epoch: -1` on every v7+ fetch
-(`protocol/kayrock/fetch/request_helpers.ex:121-122`), nothing in `lib/` ever overrides either, and the
-`session_id` a broker returns is never threaded into the next request. KafkaEx therefore never sustains
-an incremental fetch session — every fetch is a full fetch — so per-partition connections multiply
-nothing on the broker's session cache. The ceiling becomes real only if incremental fetch is adopted
-later, at which point it is a **precondition of that change**, not a cost of this one. The knob's
-justification is the ordinary one: fewer sockets and fewer broker-side connections when a consumer
-holds many partitions on one broker.
+The knob exists for the ordinary reason: fewer sockets, and fewer broker-side connections, when one
+consumer holds many partitions led by the same broker.
+
+It is worth stating what per-partition connections do **not** cost, since fetch sessions (KIP-227) are
+the obvious worry. KafkaEx sends `session_id: 0` with `epoch: -1` on every v7+ fetch
+(`protocol/kayrock/fetch/request_helpers.ex:121-122`), nothing in `lib/` overrides either, and the
+`session_id` a broker returns is never carried into the next request — so no incremental fetch session
+is ever sustained and every fetch is a full fetch. Per-partition connections therefore consume nothing
+from a broker's session-slot cache. That ceiling becomes real only if incremental fetch is adopted
+later, where it is a **precondition of that change** rather than a cost of this one.
 
 **Who owns what.**
 
@@ -784,7 +816,7 @@ brod/Java/librdkafka — they coalesce only per-instance or dedup the *resolved*
 in-flight lookup — justified here because the store owns discovery and a waiter list is cheap on the
 BEAM.)
 
-## Design decisions (resolved review)
+## Design decisions
 
 Grilled one branch at a time; the connection-model, metadata-ownership, in-flight and coordinator
 findings were cross-checked against **brod, the Java client, and librdkafka** (3/3 unless noted).
@@ -869,12 +901,12 @@ prudent but means nobody exercises the new path, so its defects surface only whe
 ### Test strategy
 
 The existing suite carries a **quantified migration cost, and it falls due at PR 3, not PR 6**. Eight
-test files make **26 direct `handle_call/3` calls**, asserting on the synchronous return value. A
-comment left by an earlier maintainer in `test/kafka_ex/client/transport_error_test.exs:27-29` already
-anticipates this refactor — "the request runs in THIS process … a future refactor to a real GenServer
-would need `set_mimic_global`" — but understates it: after the cutover `handle_call/3` returns
-`{:noreply, state}`, so there is no value left to assert on. These are rewrites against the async
-protocol, not a change of mock mode. And they come due at PR 3, because that is where I/O first
+test files make **26 direct `handle_call/3` calls**, asserting on the synchronous return value.
+`test/kafka_ex/client/transport_error_test.exs:27-29` already flags the exposure — "the request runs
+in THIS process … a future refactor to a real GenServer would need `set_mimic_global`" — though the
+cost is larger than a change of mock mode: after the cutover `handle_call/3` returns
+`{:noreply, state}`, so there is no value left to assert on, and these become rewrites against the
+async protocol. They come due at PR 3, because that is where I/O first
 leaves the test process: Mimic's private mode binds stubs to the *calling* process, so stubs set in a
 test stop applying the moment the socket lives in a `Connection`.
 
@@ -948,26 +980,57 @@ The work is done, and this RFC is discharged, when all of the following hold:
 6. **`request_concurrency: :serial` reproduces today's behaviour** on the same test suite, so the
    rollback path is proven rather than assumed.
 
-## Drawbacks
+## Trade-offs
 
-- Converting the recursive, blocking retry loop into the asynchronous `ref`-keyed state machine is
-  the main correctness risk (state can interleave across concurrent calls).
-- The `Connection` `:gen_statem` (SASL/ApiVersions handshake, self-healing reconnect) is more
-  machinery than a plain socket call.
-- **Per-client infra multiplies the resource footprint**: N clients to the same cluster keep N
-  `MetadataStore`s, N metadata-refresh loops, and N connection sets — the "N clients per group" waste
-  is *not* removed here (it stays collapsible only via a shared `:client`). We accept this because it
-  keeps the trust boundary trivial and the blast radius per-client, and because cross-client sharing —
-  with its teardown/ref-counting and wider blast radius — can be added later as an opt-in without a
-  breaking change.
-- Async multiplexing must preserve per-partition produce ordering (≤ 1 in-flight per partition, or
-  idempotent sequence numbers) and re-key `correlation_id` per connection.
-- The transport events (`[:kafka_ex, :request]`, `:connection`, `:auth`) move to the `Connection`, so
-  their emitting pid changes (operation spans stay in the front, pid unchanged); event shapes are
-  identical, but emission shifts from the synchronous `Telemetry.span/3` wrapper to manual
-  `:start`/`:stop` under the async model — tests asserting on the emitting pid must be reviewed.
-- It moves KafkaEx away from its deliberately centralized design; we bound this by stopping at
-  per-broker/per-role connections and a per-client store (see alternatives).
+What this change costs, worst first. Items 1 and 2 are the ones a reviewer is being asked to accept;
+the rest are consequences to be aware of.
+
+**1. Request ordering weakens from global to per-caller.** This is the only observable behavioural
+change, and it is permanent. Today's single mailbox serialises every request from every caller into
+one total order — an accident of the architecture, not a documented guarantee, but real and relied
+upon. The new client preserves order only within a caller process. Concretely: two processes
+committing offsets for the same partition can now interleave and move the committed offset backwards,
+causing redelivery. At-least-once still holds and nothing is lost. The common path is unaffected,
+because `GenConsumer` and `Stream` each commit from the single process that owns the partition — an
+invariant now recorded in the compatibility contract precisely so a later change cannot break it
+unknowingly. Direct callers of `commit_offset/5` are warned in `usage-rules.md`.
+
+**2. Concurrency bugs replace blocking bugs.** Converting a recursive, blocking retry loop into an
+asynchronous `ref`-keyed state machine trades a failure mode that is obvious and reproducible for one
+that is intermittent and load-dependent. This is the main correctness risk in the proposal. It is
+mitigated, not eliminated: the cutover is confined to a single PR, a configuration switch reverses it
+in production, and the test strategy exists specifically to attack interleavings. A reviewer who
+believes that mitigation is insufficient should say so — it is the load-bearing claim of the whole
+delivery plan.
+
+**3. A per-request cost that did not exist before.** Every request now crosses a process boundary
+(two extra message sends each way) and reads its routing target out of ETS, which copies the term;
+today that read is a map lookup in the client's own state, with no copy. Single-caller latency is
+expected to regress slightly, which is why the benchmarks measure it separately from the concurrent
+case.
+
+**4. The test suite pays a migration cost, at PR 3.** Twenty-six assertions across eight files are
+written against a synchronous return value that stops existing. See Test strategy.
+
+**5. More machinery.** The `Connection` `:gen_statem` (SASL and ApiVersions handshake, self-healing
+reconnect) is more moving parts than a plain socket call, and async multiplexing must actively
+preserve per-partition produce ordering and re-key `correlation_id` per connection — properties a
+single blocking client got for free.
+
+**6. Transport telemetry changes emitter.** `[:kafka_ex, :request]`, `:connection` and `:auth` move to
+the `Connection`, so their emitting pid changes; operation spans stay in the front with the pid
+unchanged. Event shapes are identical, but emission moves from the synchronous `Telemetry.span/3`
+wrapper to manual `:start`/`:stop`. Tests asserting on the emitting pid must be reviewed.
+
+**7. It moves KafkaEx away from its deliberately centralised design.** We bound that by stopping at
+per-broker, per-role connections and a per-client store, rather than the per-partition process model
+the alternatives section rejects.
+
+**8. Per-client infrastructure multiplies the resource footprint.** N clients against the same cluster
+keep N `MetadataStore`s, N refresh loops and N connection sets; the N-clients-per-group waste is *not*
+removed here and stays collapsible only via a shared `:client`. We accept it because it keeps the
+trust boundary trivial and the blast radius per-client, and because cross-client sharing can be added
+later as an opt-in without a breaking change.
 
 ## Rationale and alternatives
 
@@ -1053,12 +1116,12 @@ connections — 3/3 (single-flighted in Java/librdkafka; brod owns it separately
 
 ## Unresolved questions
 
-Every design branch raised in the review is now resolved and captured in **Design decisions** above
-(#1–#21). What remains is implementation-level and out of scope for this RFC: exact timer/backoff
-constants (connect window, reconnect backoff, `:degraded` bound, retry budget), the precise
-`:degraded` refresh policy (fail-fast vs bounded park), and the ETS snapshot representation. The
-**Forward compatibility** and **Future possibilities** sections below list capabilities deliberately
-deferred.
+Nothing in the design is left undecided; every choice and its justification is in **Design decisions**
+above. What this RFC deliberately does not fix is implementation-level and belongs to code review:
+exact timer and backoff constants (connect window, reconnect backoff, `:degraded` bound, retry
+budget), the precise `:degraded` refresh policy (fail fast or park within a bound), and the ETS
+snapshot representation. **Forward compatibility** and **Future possibilities** below list
+capabilities deliberately deferred.
 
 Two questions are genuinely open and need a maintainer answer before implementation starts:
 
