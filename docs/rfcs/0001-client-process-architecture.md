@@ -430,8 +430,17 @@ One physical broker can back **several** sockets under different roles — here 
 is exactly the role separation that removes the Heartbeat-vs-fetch coupling (RC-1). The number of
 `:data` `Connection`s is the one variable the fetch model sets: **per-partition** (default) gives one
 per consumed partition (two partitions sharing a leader ⇒ two sockets to that broker), while the
-`share_leader_conn` knob collapses them to one per broker — the KIP-227 session-slot ceiling in
-**SB1**, and part of the open **SB4**.
+`share_leader_conn` knob collapses them to one per broker.
+
+An earlier draft justified that knob by a KIP-227 fetch-session-slot ceiling. **That justification does
+not hold and has been removed:** KafkaEx sends `session_id: 0` with `epoch: -1` on every v7+ fetch
+(`protocol/kayrock/fetch/request_helpers.ex:121-122`), nothing in `lib/` ever overrides either, and the
+`session_id` a broker returns is never threaded into the next request. KafkaEx therefore never sustains
+an incremental fetch session — every fetch is a full fetch — so per-partition connections multiply
+nothing on the broker's session cache. The ceiling becomes real only if incremental fetch is adopted
+later, at which point it is a **precondition of that change**, not a cost of this one. The knob's
+justification is the ordinary one: fewer sockets and fewer broker-side connections when a consumer
+holds many partitions on one broker.
 
 **Who owns what.**
 
@@ -604,9 +613,11 @@ stateDiagram-v2
         requests postpone-d until connected
     end note
     note right of reconnecting
-        backoff-wait during an outage:
-        in-flight + incoming requests fail fast
-        ({:error, :not_connected}) — no unbounded postpone (I3)
+        backoff-wait during an outage — answers at once,
+        never postpones (I3). Atom keyed on whether the
+        bytes were written: never written -> :not_connected
+        (front parks, no attempt spent); written but
+        unanswered -> :timeout (a real attempt)
     end note
     note right of connected
         {active, once} event-driven recv
@@ -835,6 +846,32 @@ test stop applying the moment the socket lives in a `Connection`.
   process against wall-clock time, would be slow and flaky, and should not be written; stay with
   example tests in that case. The purity requirement is worth adopting on its own merits: it keeps
   every retry decision in one readable place.
+
+### Benchmarks
+
+There is no benchmark infrastructure today — no `bench/` directory and no `benchee` dependency — so a
+baseline has to be created before anything moves. A small suite lands in **PR 1**, precisely so the
+baseline exists while the client is still the code we ship, and is re-run after PRs 3, 4 and 6.
+
+Two costs this architecture introduces are worth measuring rather than asserting away:
+
+- **A cross-process hop per request.** Two extra message sends in each direction. Cheap on the BEAM,
+  not free.
+- **An ETS read per request copies the term out of the table.** Today metadata lives in the client's
+  own process state, so a leader lookup is a map read with no copy. This is not an argument against
+  ETS; it is an argument for a **narrow** read, and we adopt that as a design constraint: the hot-path
+  lookup is keyed `{topic, partition}` and returns the minimal routing tuple. Reading a whole topic's
+  partition structure per request would be a copy that does not exist today.
+
+Measure produce and fetch throughput and p99 latency at **1, 10 and 100 concurrent callers**. The two
+ends carry different burdens of proof: the **single-caller** case is the one at risk — it pays the hop
+and the copy and gains nothing from multiplexing — while the **100-caller** case is where the win must
+appear, since without it the work has no justification. The acceptance threshold for single-caller
+regression is deliberately left for the maintainers to set once PR 1's baseline exists; naming a
+percentage now would be inventing one.
+
+`benchee` (dev/test only) is proposed alongside `stream_data`; both are **subject to maintainer
+sign-off**, as this RFC does not unilaterally add dependencies.
 
 ## Drawbacks
 
