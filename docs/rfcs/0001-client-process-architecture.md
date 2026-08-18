@@ -2,7 +2,7 @@
 
 - **Status:** Draft — request for comments
 - **Author:** (KafkaEx maintainers / proposer)
-- **Date:** 2026-07-28 (last updated 2026-08-04)
+- **Date:** 2026-07-28 (last updated 2026-08-18)
 - **Target release:** v1.2.0 (delivered incrementally; the public API's shape is unchanged throughout)
 - **Related issues:** #357 (`KafkaEx.stream` times out fetching at log-end), #445 (metadata cache not updated on produce)
 - **Supersedes** four earlier internal design notes, whose substance is carried in full by this
@@ -10,6 +10,22 @@
   socket from `Broker` and naming the connection; decentralising the data plane into per-broker
   connections; deepening `ClusterMetadata`; and a cluster-shared metadata store — the last of which is
   superseded rather than adopted, in favour of per-client infrastructure (see Alternatives).
+
+## Contents
+
+- [Summary](#summary) · [Non-goals](#non-goals)
+- [Current Limitations](#current-limitations) — the three drivers, in code
+- [Current Architecture](#current-architecture) · [End State Architecture](#end-state-architecture)
+  ([Sequence](#sequence), [Supervision tree](#supervision-tree), [Startup](#startup),
+  [State machines](#state-machines))
+- [Design decisions](#design-decisions-resolved-review) — the 20-row table reviewers should read first
+- [Delivery](#delivery) — the 7-PR plan, [Rollback](#rollback), [Test strategy](#test-strategy),
+  [Benchmarks](#benchmarks), [Success criteria](#success-criteria)
+- [Drawbacks](#drawbacks) · [Rationale and alternatives](#rationale-and-alternatives) ·
+  [Security considerations](#security-considerations) · [Prior art](#prior-art)
+- [Unresolved questions](#unresolved-questions) ·
+  [Forward compatibility](#forward-compatibility--does-this-foreclose-anything) ·
+  [Future possibilities](#future-possibilities) · [References](#references)
 
 ## Summary
 
@@ -27,6 +43,27 @@ compatible**: the public API, the `client` process identity and message contract
 shapes, and error atoms are unchanged. One behavioural change is deliberate and stated in the
 compatibility contract below: request order is preserved **per caller process** rather than globally
 across all callers, as today's single mailbox incidentally does.
+
+## Non-goals
+
+Stating these up front, because each has been proposed before and each would change what a reviewer
+is being asked to approve:
+
+- **No public API change.** Not a single new function, option or return shape is required by this
+  work. Anything additive (an async request primitive, pause/resume, a rebalance listener) is a
+  separate proposal — see Forward compatibility.
+- **No process-per-topic-partition data plane.** We adopt the per-broker (× role) split and stop
+  there; the brod-style producer/consumer process per partition is explicitly rejected in
+  Alternatives.
+- **No cross-client sharing of metadata or connections.** Infrastructure is per-client. The
+  N-clients-per-group footprint is *not* addressed here and stays collapsible the way it already is,
+  via a shared `:client`.
+- **No incremental fetch sessions (KIP-227), no idempotent or transactional producer, no cooperative
+  rebalancing.** The design must not foreclose them, which is a weaker and cheaper obligation than
+  building them.
+- **No performance tuning as a goal in itself.** The target is removing head-of-line blocking. A
+  throughput gain at high concurrency is expected to follow, but the benchmarks exist to catch a
+  *regression*, not to chase a number.
 
 ## Current Limitations
 
@@ -49,7 +86,8 @@ one request in flight** at any moment. Because everything shares one mailbox and
   (up to ~60 s), so every other caller `GenServer.call` times out.
 - **#445** — metadata reads and refresh queue behind slow socket I/O, so a produce can observe stale
   or mismatched topic metadata.
-- **RC-1 / RC-3** (internal findings) — one "black-holed" broker (TCP up, no application reply)
+- **The black-holed-broker stall** (an internal finding; stated in full here because it is not a
+  repository artifact) — one broker that is "black-holed" (TCP up, no application reply)
   monopolises the shared client; the consumer-group `Heartbeat`'s queued call then exits `:timeout`,
   the `Manager` rebalances, and if the stall exceeds `session_timeout` the coordinator evicts the
   member: **a group-wide rebalance triggered by one unrelated broker**.
@@ -76,7 +114,7 @@ sequenceDiagram
     C->>BrA: send + blocking recv
     Note over C: single mailbox blocked for up to 60s
     HB->>C: GenServer.call {:heartbeat} (waits in mailbox)
-    Note over HB,C: heartbeat cannot be served -> exits :timeout -> rebalance (RC-1)
+    Note over HB,C: heartbeat cannot be served -> exits :timeout -> rebalance
     BrA-->>C: response (or :timeout)
     deactivate C
     C-->>S: reply
@@ -86,11 +124,11 @@ The goal is to remove head-of-line blocking and make metadata handling correct *
 any public API** — the client must stay a drop-in for every existing caller (`KafkaEx.API`, the
 legacy `KafkaEx.*` worker API, `ConsumerGroup.Manager`, `Heartbeat`, `GenConsumer`, `Stream`).
 
-**Expected outcome (by design):** #357 and #445 eliminated by the split, RC-1/RC-3 removed
-architecturally, and metadata refresh/heartbeats/produce to independent brokers proceeding in parallel — with zero changes required
-from any library consumer. The "N clients per group = N metadata copies + N refresh loops + N socket
-sets" footprint is **not** removed here; it remains collapsible, as today, by handing the group a
-shared `:client` (`resolve_client`, #581). Cross-client sharing of metadata and connections is a
+**Expected outcome (by design):** #357 and #445 eliminated by the split, the black-holed-broker stall
+removed architecturally, and metadata refresh, heartbeats and produce to independent brokers
+proceeding in parallel — with zero changes required from any library consumer. The
+N-clients-per-group footprint is **not** removed here; it remains collapsible, as today, by handing
+the group a shared `:client` (`resolve_client`, #581). Cross-client sharing of metadata and connections is a
 possible future option (see Alternatives), not part of this change.
 
 ## Current Architecture
@@ -154,7 +192,7 @@ flowchart TD
 
 **Callers of the client.** All reach the client through `KafkaEx.API` → `GenServer.call(client, …)`:
 `ConsumerGroup.Manager` (join / sync / leave, offset fetch / commit), `ConsumerGroup.Heartbeat`
-(**its call is the one that exits `:timeout`** when the client is blocked → RC-1), `GenConsumer`
+(**its call is the one that exits `:timeout`** when the client is blocked → the black-holed-broker stall), `GenConsumer`
 (fetch, offset commit), `Stream` (fetch; the long-poll at log-end is **#357**), `Producer.*`, and the
 legacy `KafkaEx.*` worker API.
 
@@ -174,9 +212,9 @@ flowchart TD
 
 **Key fact (verified in code):** in production the `Manager` **always** starts its own `Client` (its
 `:client` opt is test-only), and every `GenConsumer` starts its own unless handed a shared `:client`.
-Hence "N clients per group = N metadata copies + N refresh loops + N socket sets" — a footprint this
-RFC leaves collapsible for the `GenConsumer`s via a shared `:client`, not via auto-sharing (the
-`Manager`'s own client stays separate). The new processes this RFC introduces (`Connection`, `ConnectionSupervisor`,
+Hence the N-clients-per-group footprint named above — one this RFC leaves collapsible for the
+`GenConsumer`s via a shared `:client`, not via auto-sharing (the `Manager`'s own client stays
+separate). The new processes this RFC introduces (`Connection`, `ConnectionSupervisor`,
 `MetadataStore`, and the supervisor that groups them) are **per-client infrastructure**: each
 `Client` keeps its identity as a thin front and owns its own store and connection set, independently
 supervised from the front.
@@ -427,7 +465,8 @@ The singletons (`front`, `Infra.Supervisor`, `Registry`, `MetadataStore`, `Conne
 **one each regardless of broker count**; only `Connection`s scale, one per `{broker, role}` in use.
 One physical broker can back **several** sockets under different roles — here `b1` carries both
 `:metadata` and the `p0` `:data` socket, `b2` both `:coordinator` and the `p1` `:data` socket — which
-is exactly the role separation that removes the Heartbeat-vs-fetch coupling (RC-1). The number of
+is exactly the role separation that removes the Heartbeat-vs-fetch coupling behind the
+black-holed-broker stall. The number of
 `:data` `Connection`s is the one variable the fetch model sets: **per-partition** (default) gives one
 per consumed partition (two partitions sharing a leader ⇒ two sockets to that broker), while the
 `share_leader_conn` knob collapses them to one per broker.
@@ -614,7 +653,7 @@ stateDiagram-v2
     end note
     note right of reconnecting
         backoff-wait during an outage — answers at once,
-        never postpones (I3). Atom keyed on whether the
+        never postpones. Atom keyed on whether the
         bytes were written: never written -> :not_connected
         (front parks, no attempt spent); written but
         unanswered -> :timeout (a real attempt)
@@ -628,7 +667,7 @@ stateDiagram-v2
 - `postpone` defers a request only **during an active connect, within a bounded window** (the
   `:connecting` state) — no hand-rolled queueing for the sub-second handshake. Once a drop pushes the
   connection into **`:reconnecting`** (backoff-wait during an outage) it does **not** postpone: it
-  answers immediately, so its mailbox cannot grow unbounded (**I3**). Waiting, where waiting is the
+  answers immediately, so its mailbox cannot grow unbounded. Waiting, where waiting is the
   right answer, happens in the **front** — the only process that holds the caller's absolute deadline.
   The `Connection` never learns that deadline, which is exactly why it must not be the process that
   parks on it. Symmetric with the store's `:degraded` mode.
@@ -657,7 +696,7 @@ stateDiagram-v2
   where `role ∈ {:data, :coordinator, :metadata}`. The **coordinator** gets its own connection —
   separate from data traffic even to the same physical broker — a convergent pattern in **all three**
   reference clients (see Prior art), and what removes the Heartbeat-vs-fetch head-of-line coupling
-  behind RC-1. The dedicated **`:metadata`** socket is **brod-only** among the three; we adopt it
+  behind the black-holed-broker stall. The dedicated **`:metadata`** socket is **brod-only** among the three; we adopt it
   anyway because sockets are cheap on the BEAM and it decouples metadata correctness from the
   fetch/data model.
 - Multiple in-flight requests per socket are matched by a **`correlation_id → caller` map** (as brod
@@ -708,12 +747,13 @@ stateDiagram-v2
   refresh it cannot complete either fails fast with `{:error, :no_broker}` — the atom today's client
   already returns when no broker can be selected (`client.ex:1361`) and which
   `Retry.transient_error?/1` already classifies as retryable — or parks within a
-  bound (the store-side of **I3**). A *new* atom here would be worse than a less descriptive one:
+  bound (the store-side of the same "never park unboundedly during an outage" rule). A *new* atom
+  here would be worse than a less descriptive one:
   unknown atoms fall through `Retry.transient_error?/1` to `false`, so naming the most transient
   condition there is would make the client give up on it permanently. The descriptive signal belongs
   in telemetry, not in the return value. Entering/leaving emits
   `[:kafka_ex, :metadata_store, :degraded]` / `:recovered` — a resilience signal aligned with the
-  RC-1 motivation.
+  black-holed-broker motivation.
 - **Refresh & discovery are data.** A per-key `in_flight` map holds one coalescing entry per refresh
   target (per topic) and per `(coordinator_type, key)` coordinator discovery, each with its waiter set
   and `epoch`. Concurrent triggers for the same key **join** the in-flight entry (this closes the #445
@@ -729,8 +769,7 @@ stateDiagram-v2
 (`FindCoordinator` in-flight coalescing keyed per `(coordinator_type, key)` goes one step beyond
 brod/Java/librdkafka — they coalesce only per-instance or dedup the *resolved* result, not the
 in-flight lookup — justified here because the store owns discovery and a waiter list is cheap on the
-BEAM. The one remaining open item nearby is the `Connection`-side **I3**: bounding `postpone` during
-an outage.)
+BEAM.)
 
 ## Design decisions (resolved review)
 
@@ -740,7 +779,7 @@ findings were cross-checked against **brod, the Java client, and librdkafka** (3
 | # | Decision | Evidence / rationale |
 |---|----------|----------------------|
 | 1 | **Retry in the front; `Connection` is a dumb pipe** (one attempt → reply to front) | 3/3: all put retry above the transport |
-| 2 | **`Connection` keyed per (node, role)** — coordinator/metadata separate from data | 3/3: dedicated coordinator connection; removes RC-1 architecturally |
+| 2 | **`Connection` keyed per (node, role)** — coordinator/metadata separate from data | 3/3: dedicated coordinator connection; removes the black-holed-broker stall architecturally |
 | 3 | **One `MetadataStore` per client** (`:gen_statem`; states `:loading`/`:ready`/`:degraded`), lock-free ETS reads, single-writer, per-key coalesced refresh + FindCoordinator, notify | one coalesced owner decoupled from connections; none uses a blocking read path. Per-client (not shared): Java/librdkafka are per-instance |
 | 4 | **Front request-lifecycle state machine** (`:resolving/:in_flight/:awaiting_*`); coordinator discovery owned by the store | preserves today's retry rules incl. coordinator send-once |
 | 5 | **Synchronous, fail-fast boot** (front ensures its own infrastructure subtree, then uses it) | preserves start/supervision contract |
@@ -777,7 +816,7 @@ today's single mailbox imposes — is stated in the compatibility contract and l
 | 3 | **`Connection` as `:gen_statem`** | One connection per `{host, port, role}` under a `ConnectionSupervisor` + `Registry`, both owned by the client's `Infra.Supervisor`; sockets, SASL and ApiVersions negotiation move into it. **The client still calls it synchronously** | None by contract. The largest single step and the first candidate to split further |
 | 4 | **`MetadataStore` as `:gen_statem`** | ETS table, the store's own `:metadata` connection, per-key coalesced refresh and `FindCoordinator`; the client reads ETS lock-free instead of holding `cluster_metadata` in its state. Request path still synchronous | Closes #445 on its own |
 | 5 | **Telemetry split + deadline threading** | Per-attempt `[:kafka_ex, :request]` and the `:connection`/`:auth` events move to the `Connection`; operation spans stay in the front. Separately, `KafkaEx.API` threads the caller budget it already computes into the request message | Emitting pid changes for transport events; shapes identical. The threaded deadline is unused until PR 6, which is what keeps that PR small |
-| 6 | **Cutover: the non-blocking front** | `handle_call` returns `{:noreply, …}`; the `ref`-keyed `pending` map, absolute deadlines, caller monitors, the per-partition produce gate, and the retry state machine | **The one semantic step.** Order becomes per-caller rather than global; head-of-line blocking (#357) and the RC-1 heartbeat stall are removed here |
+| 6 | **Cutover: the non-blocking front** | `handle_call` returns `{:noreply, …}`; the `ref`-keyed `pending` map, absolute deadlines, caller monitors, the per-partition produce gate, and the retry state machine | **The one semantic step.** Order becomes per-caller rather than global; head-of-line blocking (#357) and the black-holed-broker heartbeat stall are removed here |
 | 7 | **Cleanup** | Delete the recursive synchronous retry loop and the now-dead `send_sync_request` paths | None |
 
 Ordering note: the `Connection` (3) deliberately precedes the `MetadataStore` (4), even though the
@@ -802,7 +841,7 @@ retry implementation to keep alive, which matters because retry is where the cor
 Two things about it must stay explicit:
 
 - **It restores head-of-line blocking on purpose.** A user choosing `:serial` is knowingly trading
-  back the #357 and RC-1 fixes for the old ordering. That is the correct trade for a rollback switch
+  back the #357 and black-holed-broker fixes for the old ordering. That is the correct trade for a rollback switch
   and a bad one for a default.
 - **It does not roll back the process topology.** Sockets still live in `Connection`s and metadata in
   the `MetadataStore`, so a defect introduced by PR 3 or PR 4 is *not* recoverable with this flag; for
@@ -873,6 +912,28 @@ percentage now would be inventing one.
 `benchee` (dev/test only) is proposed alongside `stream_data`; both are **subject to maintainer
 sign-off**, as this RFC does not unilaterally add dependencies.
 
+### Success criteria
+
+The work is done, and this RFC is discharged, when all of the following hold:
+
+1. **#357 is closed by construction**: a long-poll `fetch` at the log end no longer delays any other
+   caller's request. Demonstrated by a test that issues a `fetch` with a long `wait_time` and asserts
+   an unrelated `metadata` call returns promptly on the same client.
+2. **The black-holed-broker stall cannot occur**: a broker accepting TCP but never replying stops
+   affecting requests to other brokers, and a consumer-group `Heartbeat` is served throughout.
+   Demonstrated in the chaos suite, which already has the fault injection for it.
+3. **#445 is closed**: metadata reads no longer queue behind socket I/O, and a produce cannot observe
+   the stale mismatched metadata that race produced.
+4. **No behavioural change beyond the one declared.** The compatibility contract holds item by item:
+   same public API shape, same process identity, same telemetry event shapes, same error atoms — with
+   per-caller rather than global ordering as the single declared exception.
+5. **No unexplained performance regression.** Single-caller p99 latency stays within the threshold the
+   maintainers set against PR 1's baseline, and the 100-caller case shows the throughput improvement
+   that justifies the work. A regression at high concurrency invalidates the premise and is a blocker,
+   not a tuning task.
+6. **`request_concurrency: :serial` reproduces today's behaviour** on the same test suite, so the
+   rollback path is proven rather than assumed.
+
 ## Drawbacks
 
 - Converting the recursive, blocking retry loop into the asynchronous `ref`-keyed state machine is
@@ -903,8 +964,8 @@ sign-off**, as this RFC does not unilaterally add dependencies.
   it fights the centralized design and multiplies supervision complexity. We borrow the **per-broker
   (× role)** split, not the per-partition one.
 - **Shared per-cluster metadata/connections (keyed by security identity).** Rejected as the default,
-  kept as a future opt-in: it would remove the "N clients per group = N metadata copies + N refresh
-  loops + N socket sets" waste, but at the cost of cross-client blast radius, a subtree-teardown /
+  kept as a future opt-in: it would remove the N-clients-per-group waste, but at the cost of
+  cross-client blast radius, a subtree-teardown /
   ref-counting question, and a trust boundary that must be enforced on every socket. Reference clients
   are per-instance (Java, librdkafka) or share only through an explicitly named client (brod); the same
   footprint is already collapsible here via a shared `:client`.
@@ -914,10 +975,33 @@ sign-off**, as this RFC does not unilaterally add dependencies.
 - **Front as `:gen_statem`.** Rejected: the front multiplexes many concurrent requests, so per-request
   state must live in a map, not in a single process state. The `Connection` is the correct FSM.
 - **Chosen: control-plane / data-plane split with per-client infra.** Satisfies every driver
-  (head-of-line blocking, #445, RC-1) and unifies the three earlier notes it supersedes — pure
+  (head-of-line blocking, #445, the black-holed-broker stall) and unifies the three earlier notes it supersedes — pure
   `Broker`, decentralised data plane, deepened `ClusterMetadata` — into one coherent target, replacing
   the fourth note's cluster-shared store with per-client infrastructure, while leaving sharing as a clean
   future opt-in.
+
+## Security considerations
+
+The change is close to neutral here, but not entirely, so the three points worth a reviewer's
+attention:
+
+- **The credential trust boundary stays trivial, and that is a deliberate consequence of per-client
+  infrastructure.** Because no `Connection` is ever shared between clients, a socket authenticated
+  with one client's SASL credentials can never carry another client's traffic. Cross-client sharing
+  would have required enforcing that boundary on every socket — one of the reasons it is rejected as
+  the default (see Alternatives).
+- **SASL handshakes move into the `Connection` `:gen_statem`, and its `:authenticating` state must
+  fail closed.** A connection that has not completed authentication is not `:connected`, so no
+  request can be dispatched over it; the existing `:plain_requires_tls` enforcement moves with the
+  handshake and is not weakened. Credentials must not appear in the `Connection`'s state dumps —
+  `sys:get_state/1` and crash reports on a `:gen_statem` print state by default, which the current
+  synchronous path does not expose in the same way.
+- **The new telemetry emitters must not widen what is published.** The `:auth` events move to the
+  `Connection`; their measurements and metadata stay as they are, and no credential material enters
+  them.
+
+No new network listener, no new port, no new configuration that accepts a secret, and no change to
+how SSL options are resolved.
 
 ## Prior art
 
@@ -956,11 +1040,18 @@ connections — 3/3 (single-flighted in Java/librdkafka; brod owns it separately
 ## Unresolved questions
 
 Every design branch raised in the review is now resolved and captured in **Design decisions** above
-(#1–#19). What remains is implementation-level and out of scope for this RFC: exact timer/backoff
+(#1–#20). What remains is implementation-level and out of scope for this RFC: exact timer/backoff
 constants (connect window, reconnect backoff, `:degraded` bound, retry budget), the precise
 `:degraded` refresh policy (fail-fast vs bounded park), and the ETS snapshot representation. The
 **Forward compatibility** and **Future possibilities** sections below list capabilities deliberately
 deferred.
+
+Two questions are genuinely open and need a maintainer answer before implementation starts:
+
+- **Two dev-only dependencies** — `stream_data` for model-based coverage of the front's state machine
+  and `benchee` for the baseline. Both are argued for under Test strategy and Benchmarks; neither is
+  added unilaterally by this RFC.
+- **The single-caller latency threshold**, which can only be set once PR 1 establishes a baseline.
 
 ## Forward compatibility — does this foreclose anything?
 
@@ -1000,7 +1091,7 @@ never scatters into them.
 (`GenConsumer.handle_message_set`); a connector would drive fetch itself on demand rather than through
 `GenConsumer`. The blocker today is precisely **#357** — a blocking fetch stalls the whole client, so
 a demand-driven pipeline stage would freeze. Removing head-of-line blocking (per-broker isolation) and
-making heartbeats reliable under load (the RC-1 fix) is exactly what a Broadway pipeline needs.
+making heartbeats reliable under load (fixing the black-holed-broker stall) is exactly what a Broadway pipeline needs.
 
 **Constraint to keep the door open:** KafkaEx has **no async request primitive today**, and this RFC
 does not add one — `send_request/4` is, and stays, blocking and send-once (see the compatibility
