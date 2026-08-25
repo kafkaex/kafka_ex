@@ -91,7 +91,8 @@ defmodule KafkaEx.Consumer.GenConsumer do
 
   * `:commit_interval` is the maximum time (in milliseconds) that a
     `KafkaEx.Consumer.GenConsumer` will delay committing the offset for an acknowledged
-    message.
+    message. The interval is a deadline checked at the end of a fetch cycle, not a
+    timer, so a fetch backoff (see *Fetch failure handling*) stretches it.
 
   * `:commit_threshold` is the maximum number of acknowledged messages that a
     `KafkaEx.Consumer.GenConsumer` will allow to be uncommitted before triggering a
@@ -115,6 +116,19 @@ defmodule KafkaEx.Consumer.GenConsumer do
   For low-volume topics, `:commit_interval` is the dominant factor for how
   often a `KafkaEx.Consumer.GenConsumer` auto-commits. For high-volume topics,
   `:commit_threshold` is the dominant factor.
+
+  ## Fetch failure handling
+
+  A fetch error that `KafkaEx.Support.Retry.fetch_retryable?/1` accepts — a leader
+  move (`:not_leader_for_partition`, `:leader_not_available`), `:no_broker`, a
+  closed socket, a timeout — makes the consumer back off and retry rather than
+  stop. Stopping would take the whole group down, because
+  `KafkaEx.Consumer.ConsumerGroup` supervises with `max_restarts: 0`. Retries are
+  unbounded, matching brod, KafkaJS and librdkafka, with jittered exponential
+  backoff from `:fetch_retry_base_delay_ms` (500) to `:fetch_retry_max_delay_ms`
+  (5000), both settable in the `:kafka_ex` app environment. Every retry logs a
+  warning naming the error and the consecutive failure count. Any other fetch
+  error still stops the consumer.
 
   ## Handler state and interaction
 
@@ -439,7 +453,9 @@ defmodule KafkaEx.Consumer.GenConsumer do
       :auto_offset_reset,
       :fetch_options,
       :api_versions,
-      :group_manager_pid
+      :group_manager_pid,
+      :fetch_retry_at,
+      fetch_error_count: 0
     ]
 
     @type t :: %__MODULE__{
@@ -460,7 +476,9 @@ defmodule KafkaEx.Consumer.GenConsumer do
             auto_offset_reset: :none | :earliest | :latest,
             fetch_options: Keyword.t(),
             api_versions: map(),
-            group_manager_pid: pid() | nil
+            group_manager_pid: pid() | nil,
+            fetch_retry_at: integer() | nil,
+            fetch_error_count: non_neg_integer()
           }
   end
 
@@ -472,6 +490,13 @@ defmodule KafkaEx.Consumer.GenConsumer do
   # Uses KafkaEx.Support.Retry for unified retry logic with exponential backoff
   @commit_max_attempts 3
   @commit_base_delay_ms 100
+
+  # Capped near librdkafka's retry.backoff.max.ms (1s) and brod's flat 1s rather
+  # than KafkaJS's 30s: a leader move is usually sub-second, so a high cap only
+  # delays noticing recovery. Jittered because a broker restart fails every
+  # partition it led at the same instant.
+  @fetch_retry_base_delay_ms 500
+  @fetch_retry_max_delay_ms 5_000
 
   # Client API
 
@@ -769,15 +794,11 @@ defmodule KafkaEx.Consumer.GenConsumer do
   end
 
   def handle_info(:timeout, %State{} = state) do
-    case consume(state) do
-      {:error, reason} ->
-        {:stop, reason, state}
-
-      {:noreply, new_state} ->
-        {:noreply, new_state, 0}
-
-      {:stop, _reason, _final_state} = stop ->
-        stop
+    # Any inbound message re-arms this callback with timeout 0, so an unrelated
+    # message would otherwise cut a backoff short. The deadline is the truth.
+    case fetch_backoff_remaining(state) do
+      0 -> consume_cycle(state)
+      remaining -> {:noreply, state, remaining}
     end
   end
 
@@ -851,16 +872,64 @@ defmodule KafkaEx.Consumer.GenConsumer do
 
     case KafkaExAPI.fetch(client, topic, partition, offset, fetch_opts) do
       {:ok, fetch_result} ->
-        handle_new_fetch_response(fetch_result, state)
+        handle_new_fetch_response(fetch_result, clear_fetch_errors(state))
 
       {:error, :offset_out_of_range} ->
-        new_state = handle_offset_out_of_range(state)
+        new_state = handle_offset_out_of_range(clear_fetch_errors(state))
         handle_commit(:async_commit, new_state)
 
       {:error, reason} ->
-        {:error, reason}
+        {:error, reason, state}
     end
   end
+
+  defp consume_cycle(%State{} = state) do
+    case consume(state) do
+      {:error, reason, new_state} ->
+        handle_fetch_error(reason, new_state)
+
+      {:noreply, new_state} ->
+        {:noreply, new_state, 0}
+
+      {:stop, _reason, _final_state} = stop ->
+        stop
+    end
+  end
+
+  defp handle_fetch_error(reason, %State{fetch_error_count: count} = state) do
+    if Retry.fetch_retryable?(reason) do
+      delay = Retry.backoff_delay_jittered(count, fetch_retry_base_delay_ms(), fetch_retry_max_delay_ms())
+
+      Logger.warning(
+        "Fetch failed for #{state.topic}/#{state.partition} with #{inspect(reason)}, " <>
+          "retrying in #{delay}ms (consecutive failures: #{count + 1})"
+      )
+
+      new_state = %State{
+        state
+        | fetch_error_count: count + 1,
+          fetch_retry_at: :erlang.monotonic_time(:milli_seconds) + delay
+      }
+
+      {:noreply, new_state, delay}
+    else
+      {:stop, reason, state}
+    end
+  end
+
+  defp fetch_backoff_remaining(%State{fetch_retry_at: nil}), do: 0
+
+  defp fetch_backoff_remaining(%State{fetch_retry_at: retry_at}),
+    do: max(retry_at - :erlang.monotonic_time(:milli_seconds), 0)
+
+  defp clear_fetch_errors(%State{fetch_error_count: 0, fetch_retry_at: nil} = state), do: state
+  defp clear_fetch_errors(%State{} = state), do: %{state | fetch_error_count: 0, fetch_retry_at: nil}
+
+  defp fetch_retry_base_delay_ms,
+    do: Application.get_env(:kafka_ex, :fetch_retry_base_delay_ms, @fetch_retry_base_delay_ms)
+
+  defp fetch_retry_max_delay_ms,
+    do: Application.get_env(:kafka_ex, :fetch_retry_max_delay_ms, @fetch_retry_max_delay_ms)
 
   # The broker returned batches but every record was filtered out (control
   # batches — transaction commit/abort markers). Advance past them to next_offset, otherwise the
