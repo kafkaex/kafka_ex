@@ -423,4 +423,11 @@ defmodule KafkaEx.Support.RetryTest do
       assert Retry.heartbeat_retryable?(:coordinator_not_available)
     end
   end
+
+  describe "backoff_delay/3 with an unbounded retry loop" do
+    test "stays at the cap instead of overflowing the exponent" do
+      assert Retry.backoff_delay(2000, 500, 5000) == 5000
+      assert Retry.backoff_delay_jittered(2000, 500, 5000) <= 5000
+    end
+  end
 end
