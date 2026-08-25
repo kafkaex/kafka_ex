@@ -18,6 +18,11 @@
   that `:commit_interval` is a deadline checked at the end of a fetch cycle, not a timer, so a
   backoff stretches the interval between commits.
 
+* **`:no_broker` says why in the log.** Three different causes — unknown topic, unknown partition,
+  unknown node — all surfaced as the same bare `:no_broker`, so a leaderless partition could not be
+  told apart from a deleted topic. The reason from node selection is now logged with the topic and
+  partition. The returned error is unchanged.
+
 * **The acks option reaches the broker again (regression since 1.0).** 0.x translated
   `required_acks` onto the wire in the legacy adapter; that adapter was removed in the 1.0 rewrite
   and the translation went with it, while `KafkaEx.API.produce/5` kept documenting the option. The
