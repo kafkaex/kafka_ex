@@ -85,16 +85,31 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpers do
   @spec parse_partitions([map()]) :: [PartitionInfo.t()]
   def parse_partitions(kayrock_partitions) when is_list(kayrock_partitions) do
     kayrock_partitions
-    |> Enum.filter(&(ErrorCode.code_to_atom(&1.error_code) == :no_error))
-    |> Enum.map(fn partition_map ->
+    |> Enum.map(&{ErrorCode.code_to_atom(&1.error_code), &1})
+    |> Enum.filter(fn {error, _} -> usable_partition?(error) end)
+    |> Enum.map(fn {error, partition_map} ->
       %PartitionInfo{
         partition_id: partition_map.partition_index,
         leader: partition_map.leader_id,
         replicas: partition_map.replica_nodes || [],
-        isr: partition_map.isr_nodes || []
+        isr: partition_map.isr_nodes || [],
+        error_code: error
       }
     end)
   end
+
+  # A partition whose leader is moving comes back with an error code and leader
+  # -1. Dropping it makes it indistinguishable from a partition that does not
+  # exist, and shrinks the partition count the partitioner keys off. Keep it and
+  # let node selection report :leader_not_available. Mirrors kpro's
+  # discover_partition_leader/4 and librdkafka's NULL broker delegation.
+  defp usable_partition?(:no_error), do: true
+  defp usable_partition?(:leader_not_available), do: true
+  defp usable_partition?(:replica_not_available), do: true
+  defp usable_partition?(:not_leader_for_partition), do: true
+  defp usable_partition?(:not_leader_or_follower), do: true
+  defp usable_partition?(:kafka_storage_error), do: true
+  defp usable_partition?(_), do: false
 
   @doc """
   Checks if the metadata response contains any errors.

@@ -8,13 +8,14 @@ defmodule KafkaEx.Cluster.PartitionInfo do
   Java equivalent: `org.apache.kafka.common.PartitionInfo`
   """
 
-  defstruct partition_id: nil, leader: -1, replicas: [], isr: []
+  defstruct partition_id: nil, leader: -1, replicas: [], isr: [], error_code: :no_error
 
   @type t :: %__MODULE__{
           partition_id: integer(),
           leader: integer(),
           replicas: [integer()],
-          isr: [integer()]
+          isr: [integer()],
+          error_code: atom()
         }
 
   @doc """

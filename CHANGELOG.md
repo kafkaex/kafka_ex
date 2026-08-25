@@ -4,6 +4,20 @@
 
 ### Fixed
 
+* **A key could silently change partition while a leader was moving.** Metadata parsing dropped
+  every partition the broker reported with an error code, so a partition whose leader was in
+  transit disappeared from the client's view. `KafkaEx.API.produce/5` derives the partition count
+  for the default partitioner from `map_size(partition_leaders)`, so that count shrank mid-move and
+  the partitioner sent the same key to a different partition — breaking per-key ordering with no
+  error anywhere. Partitions carrying a leader-move error (`:leader_not_available`,
+  `:replica_not_available`, `:not_leader_for_partition`, `:not_leader_or_follower`,
+  `:kafka_storage_error`) are now retained with the leader the broker reported, and
+  `KafkaEx.Cluster.PartitionInfo` carries the broker's `error_code`. Partitions with any other
+  error, and topics with any error other than `:leader_not_available`, are still dropped.
+  `KafkaEx.Cluster.ClusterMetadata.select_node/2` now answers `{:error, :leader_not_available}` for
+  such a partition instead of resolving a negative node id to `{:error, :broker_not_found}`.
+  **Note:** `partition_leaders` can now contain `-1`, meaning "leader currently unknown".
+
 * **A moving partition leader no longer takes down the whole consumer group.** `GenConsumer`
   stopped on any fetch error other than `:offset_out_of_range`, including errors the library itself
   classifies as transient (`:no_broker`, `:not_leader_for_partition`, `:leader_not_available`,

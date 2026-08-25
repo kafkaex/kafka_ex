@@ -308,6 +308,13 @@ defmodule KafkaEx.APITest do
       assert [{:topic_metadata, ["test-topic"]}, {:produce, "test-topic", _partition, ^messages}] = calls
     end
 
+    test "counts a partition whose leader is moving, so keys keep their partition" do
+      settled = %Topic{name: "test-topic", partition_leaders: %{0 => 1, 1 => 2, 2 => 1}}
+      moving = %Topic{name: "test-topic", partition_leaders: %{0 => 1, 1 => -1, 2 => 1}}
+
+      assert partition_for(settled, "user-123") == partition_for(moving, "user-123")
+    end
+
     test "returns error when topic has no partitions (nil partition)" do
       topic_info = %Topic{name: "test-topic", partition_leaders: %{}}
 
@@ -820,5 +827,18 @@ defmodule KafkaEx.APITest do
 
       assert {:error, :invalid_consumer_group} = KafkaEx.API.set_consumer_group_for_auto_commit(client, nil)
     end
+  end
+
+  defp partition_for(topic_info, key) do
+    {:ok, client} =
+      MockClient.start_link(%{
+        topic_metadata: {:ok, [topic_info]},
+        produce: {:ok, %RecordMetadata{topic: topic_info.name, partition: 0, base_offset: 0}}
+      })
+
+    {:ok, _} = KafkaEx.API.produce(client, topic_info.name, nil, [%{key: key, value: "data"}])
+
+    [_, {:produce, _, partition, _}] = MockClient.get_calls(client)
+    partition
   end
 end

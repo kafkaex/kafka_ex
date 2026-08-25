@@ -202,17 +202,28 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpersTest do
       assert partition.isr == [1, 2]
     end
 
-    test "filters out partitions with errors" do
+    test "keeps a partition whose leader is moving, tagged with the broker's error" do
       partitions = [
         %{partition_index: 0, error_code: 0, leader_id: 1, replica_nodes: [], isr_nodes: []},
         %{partition_index: 1, error_code: 9, leader_id: -1, replica_nodes: [], isr_nodes: []}
       ]
 
-      result = ResponseHelpers.parse_partitions(partitions)
+      assert [first, second] = ResponseHelpers.parse_partitions(partitions)
+      assert first.partition_id == 0
+      assert first.error_code == :no_error
+      assert second.partition_id == 1
+      assert second.leader == -1
+      assert second.error_code == :replica_not_available
+    end
 
-      assert length(result) == 1
-      [partition] = result
-      assert partition.partition_id == 0
+    test "drops a partition whose error is not a leader move" do
+      partitions = [
+        %{partition_index: 0, error_code: 0, leader_id: 1, replica_nodes: [], isr_nodes: []},
+        %{partition_index: 1, error_code: 29, leader_id: -1, replica_nodes: [], isr_nodes: []}
+      ]
+
+      assert [only] = ResponseHelpers.parse_partitions(partitions)
+      assert only.partition_id == 0
     end
 
     test "handles nil replicas and isr" do
