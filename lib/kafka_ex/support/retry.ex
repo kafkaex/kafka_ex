@@ -263,6 +263,17 @@ defmodule KafkaEx.Support.Retry do
   def leadership_error?(_), do: false
 
   @doc """
+  Retriability for the consumer's fetch loop.
+
+  A leader move leaves the partition unreachable for as long as the new leader
+  takes to open it, so stopping the consumer would take the whole group down with
+  it. brod (`err_op/1` → `reset_connection`), KafkaJS (`retriable` errors restart
+  the consumer) and librdkafka (fast leader query) all back off and retry instead.
+  """
+  @spec fetch_retryable?(error()) :: boolean()
+  def fetch_retryable?(error), do: transient_error?(error) or leadership_error?(error)
+
+  @doc """
   Check if error is safe to retry for produce operations.
 
   Produce retries are only safe for leadership errors where we know the

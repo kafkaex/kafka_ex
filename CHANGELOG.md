@@ -4,6 +4,20 @@
 
 ### Fixed
 
+* **A moving partition leader no longer takes down the whole consumer group.** `GenConsumer`
+  stopped on any fetch error other than `:offset_out_of_range`, including errors the library itself
+  classifies as transient (`:no_broker`, `:not_leader_for_partition`, `:leader_not_available`,
+  `:timeout`). Because `KafkaEx.Consumer.ConsumerGroup` supervises with `max_restarts: 0`, one
+  partition losing its leader killed every consumer in the group. Most visible with
+  replication-factor 1, where there is no follower to promote and the partition is genuinely
+  leaderless for the length of a broker restart, but the same path runs on any leader move. The
+  consumer now retries such errors indefinitely with jittered exponential backoff (500 ms to 5 s,
+  configurable via `:fetch_retry_base_delay_ms` / `:fetch_retry_max_delay_ms`), logging a warning
+  with the error and the consecutive failure count, and still stops on anything else. This matches
+  brod, KafkaJS and librdkafka, none of which fail a consumer over a leaderless partition. Note
+  that `:commit_interval` is a deadline checked at the end of a fetch cycle, not a timer, so a
+  backoff stretches the interval between commits.
+
 * **The acks option reaches the broker again (regression since 1.0).** 0.x translated
   `required_acks` onto the wire in the legacy adapter; that adapter was removed in the 1.0 rewrite
   and the translation went with it, while `KafkaEx.API.produce/5` kept documenting the option. The
