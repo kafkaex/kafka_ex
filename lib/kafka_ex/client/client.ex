@@ -1190,14 +1190,27 @@ defmodule KafkaEx.Client do
         updated_state = state_updater.(state)
 
         case State.select_broker(updated_state, selector) do
-          {:error, _} -> {nil, updated_state}
-          {:ok, broker} -> ensure_broker_connected(broker, updated_state)
+          {:error, reason} ->
+            # :no_broker alone cannot tell a missing topic from a leaderless
+            # partition from an unknown node, so name the reason here.
+            Logger.warning("No broker for #{describe_selector(selector)} after metadata refresh: #{inspect(reason)}")
+
+            {nil, updated_state}
+
+          {:ok, broker} ->
+            ensure_broker_connected(broker, updated_state)
         end
 
       {:ok, broker} ->
         ensure_broker_connected(broker, state)
     end
   end
+
+  defp describe_selector(%NodeSelector{strategy: :topic_partition, topic: topic, partition: partition}),
+    do: "#{topic}/#{partition}"
+
+  defp describe_selector(%NodeSelector{strategy: :consumer_group, consumer_group_name: group}),
+    do: "consumer group #{group}"
 
   # Ensures broker is connected, reconnecting if necessary.
   # Returns {broker, updated_state} where broker may have a new socket,
