@@ -111,4 +111,30 @@ defmodule KafkaEx.Consumer.GenConsumerFetchRetryTest do
     wait_until(fn -> fetch_count(client) > recovered + 2 end)
     assert Process.alive?(pid)
   end
+
+  test "backs off instead of crashing when the offset reset cannot reach a leader" do
+    {:ok, client} =
+      MockClient.start_link(%{
+        offset_fetch: {:ok, [%{partition_offsets: [%{offset: 0, error_code: :no_error}]}]},
+        fetch: {:error, Error.build(:offset_out_of_range, %{})},
+        list_offsets: {:error, Error.build(:no_broker, %{})},
+        offset_commit: {:ok, []}
+      })
+
+    Process.unlink(client)
+
+    {:ok, pid} = GenServer.start_link(GenConsumer, {TestConsumer, "g", "t", 0, [client: client]})
+    Process.unlink(pid)
+
+    on_exit(fn ->
+      stop_safely(pid)
+      stop_safely(client)
+    end)
+
+    ref = Process.monitor(pid)
+
+    refute_receive {:DOWN, ^ref, :process, ^pid, _}, 500
+
+    assert fetch_count(client) >= 3
+  end
 end

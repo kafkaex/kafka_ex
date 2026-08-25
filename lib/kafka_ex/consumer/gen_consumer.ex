@@ -126,9 +126,15 @@ defmodule KafkaEx.Consumer.GenConsumer do
   `KafkaEx.Consumer.ConsumerGroup` supervises with `max_restarts: 0`. Retries are
   unbounded, matching brod, KafkaJS and librdkafka, with jittered exponential
   backoff from `:fetch_retry_base_delay_ms` (500) to `:fetch_retry_max_delay_ms`
-  (5000), both settable in the `:kafka_ex` app environment. Every retry logs a
-  warning naming the error and the consecutive failure count. Any other fetch
-  error still stops the consumer.
+  (5000), both settable in the `:kafka_ex` app environment. A warning naming the
+  error and the consecutive failure count is logged while the backoff ramps, then
+  roughly once a minute. Any other fetch error still stops the consumer.
+
+  The same backoff covers a failed `:offset_out_of_range` reset, which needs a
+  live leader of its own. It does **not** cover establishing the starting offset
+  at startup: `load_offsets/1` still raises if the committed offset or the reset
+  offset cannot be read, so a consumer that starts while its leader is moving
+  still fails to start.
 
   ## Handler state and interaction
 
@@ -877,8 +883,10 @@ defmodule KafkaEx.Consumer.GenConsumer do
         handle_new_fetch_response(fetch_result, clear_fetch_errors(state))
 
       {:error, :offset_out_of_range} ->
-        new_state = handle_offset_out_of_range(clear_fetch_errors(state))
-        handle_commit(:async_commit, new_state)
+        case handle_offset_out_of_range(clear_fetch_errors(state)) do
+          {:ok, new_state} -> handle_commit(:async_commit, new_state)
+          {:error, reason} -> {:error, reason, state}
+        end
 
       {:error, reason} ->
         {:error, reason, state}
@@ -902,10 +910,12 @@ defmodule KafkaEx.Consumer.GenConsumer do
     if Retry.fetch_retryable?(reason) do
       delay = Retry.backoff_delay_jittered(count, fetch_retry_base_delay_ms(), fetch_retry_max_delay_ms())
 
-      Logger.warning(
-        "Fetch failed for #{state.topic}/#{state.partition} with #{inspect(reason)}, " <>
-          "retrying in #{delay}ms (consecutive failures: #{count + 1})"
-      )
+      if log_fetch_retry?(count) do
+        Logger.warning(
+          "Fetch failed for #{state.topic}/#{state.partition} with #{inspect(reason)}, " <>
+            "retrying in #{delay}ms (consecutive failures: #{count + 1})"
+        )
+      end
 
       new_state = %State{
         state
@@ -918,6 +928,10 @@ defmodule KafkaEx.Consumer.GenConsumer do
       {:stop, reason, state}
     end
   end
+
+  # Loud while the backoff ramps, then roughly once a minute at the cap, so a
+  # permanently unavailable partition stays visible without flooding the log.
+  defp log_fetch_retry?(count), do: count < 5 or rem(count, 12) == 0
 
   defp fetch_backoff_remaining(%State{fetch_retry_at: nil}), do: 0
 
@@ -996,29 +1010,30 @@ defmodule KafkaEx.Consumer.GenConsumer do
            auto_offset_reset: auto_offset_reset
          } = state
        ) do
-    offset =
-      case auto_offset_reset do
-        :earliest ->
-          {:ok, offset} = KafkaExAPI.earliest_offset(client, topic, partition)
-          offset
+    # The reset needs a live leader too, so it fails exactly when a leader is
+    # moving. Hand that back rather than letting a MatchError kill the group.
+    case reset_offset(client, topic, partition, auto_offset_reset) do
+      {:ok, offset} ->
+        report_offset_reset(state, auto_offset_reset, offset, :offset_out_of_range)
 
-        :latest ->
-          {:ok, offset} = KafkaExAPI.latest_offset(client, topic, partition)
-          offset
+        {:ok,
+         %State{
+           state
+           | current_offset: offset,
+             committed_offset: offset,
+             acked_offset: offset
+         }}
 
-        :none ->
-          raise "Offset out of range while consuming topic #{topic}, partition #{partition}."
-      end
-
-    report_offset_reset(state, auto_offset_reset, offset, :offset_out_of_range)
-
-    %State{
-      state
-      | current_offset: offset,
-        committed_offset: offset,
-        acked_offset: offset
-    }
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
+
+  defp reset_offset(client, topic, partition, :earliest), do: KafkaExAPI.earliest_offset(client, topic, partition)
+  defp reset_offset(client, topic, partition, :latest), do: KafkaExAPI.latest_offset(client, topic, partition)
+
+  defp reset_offset(_client, topic, partition, :none),
+    do: raise("Offset out of range while consuming topic #{topic}, partition #{partition}.")
 
   defp handle_commit(:sync_commit, %State{} = state), do: commit(state)
 

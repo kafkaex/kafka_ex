@@ -49,6 +49,8 @@ defmodule KafkaEx.Support.Retry do
   # jitter). Jitter decorrelates retries across many members so they do not
   # thundering-herd the coordinator/broker after a shared failure.
   @jitter_fraction 0.2
+  # Past this the delay dwarfs any sane cap; clamping keeps the shift cheap.
+  @max_backoff_exponent 32
 
   @doc """
   Calculate exponential backoff delay.
@@ -75,7 +77,9 @@ defmodule KafkaEx.Support.Retry do
   @spec backoff_delay(non_neg_integer(), non_neg_integer(), non_neg_integer() | :infinity) ::
           non_neg_integer()
   def backoff_delay(attempt, base_ms, max_ms \\ @default_max_delay_ms) do
-    delay = trunc(base_ms * :math.pow(2, attempt))
+    # Integer shift, not :math.pow: the float overflows into ArithmeticError past
+    # attempt 1023, and an unbounded retry loop does reach that.
+    delay = base_ms * Bitwise.bsl(1, min(attempt, @max_backoff_exponent))
 
     case max_ms do
       :infinity -> delay

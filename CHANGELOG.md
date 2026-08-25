@@ -13,7 +13,7 @@
   `:replica_not_available`, `:not_leader_for_partition`, `:not_leader_or_follower`,
   `:kafka_storage_error`) are now retained with the leader the broker reported, and
   `KafkaEx.Cluster.PartitionInfo` carries the broker's `error_code`. Partitions with any other
-  error, and topics with any error other than `:leader_not_available`, are still dropped.
+  error, and topics carrying any error at all, are still dropped.
   `KafkaEx.Cluster.ClusterMetadata.select_node/2` now answers `{:error, :leader_not_available}` for
   such a partition instead of resolving a negative node id to `{:error, :broker_not_found}`.
   **Note:** `partition_leaders` can now contain `-1`, meaning "leader currently unknown".
@@ -28,9 +28,12 @@
   consumer now retries such errors indefinitely with jittered exponential backoff (500 ms to 5 s,
   configurable via `:fetch_retry_base_delay_ms` / `:fetch_retry_max_delay_ms`), logging a warning
   with the error and the consecutive failure count, and still stops on anything else. This matches
-  brod, KafkaJS and librdkafka, none of which fail a consumer over a leaderless partition. Note
-  that `:commit_interval` is a deadline checked at the end of a fetch cycle, not a timer, so a
-  backoff stretches the interval between commits.
+  brod, KafkaJS and librdkafka, none of which fail a consumer over a leaderless partition. The same
+  backoff covers a failed `:offset_out_of_range` reset, which needs a live leader of its own and
+  previously raised a `MatchError`. It does **not** cover establishing the starting offset at
+  startup — `load_offsets/1` still raises if that cannot be read, so a consumer starting while its
+  leader moves still fails to start. Note that `:commit_interval` is a deadline checked at the end
+  of a fetch cycle, not a timer, so a backoff stretches the interval between commits.
 
 * **`:no_broker` says why in the log.** Three different causes — unknown topic, unknown partition,
   unknown node — all surfaced as the same bare `:no_broker`, so a leaderless partition could not be
