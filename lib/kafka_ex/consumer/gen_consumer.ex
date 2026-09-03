@@ -130,6 +130,14 @@ defmodule KafkaEx.Consumer.GenConsumer do
   error and the consecutive failure count is logged while the backoff ramps, then
   roughly once a minute. Any other fetch error still stops the consumer.
 
+  Retries never give up, so a partition that is not merely mid-leader-move but genuinely stuck (a
+  deleted topic, a leader that never returns) is surfaced once, after
+  `:fetch_unavailable_warn_ms` (default 30000, settable in the `:kafka_ex` app environment) of
+  continuous failure, as a `Logger.error` and a `[:kafka_ex, :consumer, :partition_unavailable]`
+  telemetry event. The consumer keeps retrying; the signal just makes a non-recovering partition
+  alertable without a human reading the logs. This mirrors librdkafka's
+  `topic.metadata.propagation.max.ms`.
+
   The same backoff covers a failed `:offset_out_of_range` reset, which needs a
   live leader of its own. It does **not** cover establishing the starting offset
   at startup: `load_offsets/1` still raises if the committed offset or the reset
@@ -461,9 +469,11 @@ defmodule KafkaEx.Consumer.GenConsumer do
       :api_versions,
       :group_manager_pid,
       :fetch_retry_at,
+      :fetch_failing_since,
       # true only when we started the client — a caller-supplied (shared) :client must not be stopped.
       owns_client: false,
-      fetch_error_count: 0
+      fetch_error_count: 0,
+      fetch_unavailable_reported: false
     ]
 
     @type t :: %__MODULE__{
@@ -486,8 +496,10 @@ defmodule KafkaEx.Consumer.GenConsumer do
             api_versions: map(),
             group_manager_pid: pid() | nil,
             fetch_retry_at: integer() | nil,
+            fetch_failing_since: integer() | nil,
             owns_client: boolean(),
-            fetch_error_count: non_neg_integer()
+            fetch_error_count: non_neg_integer(),
+            fetch_unavailable_reported: boolean()
           }
   end
 
@@ -506,6 +518,11 @@ defmodule KafkaEx.Consumer.GenConsumer do
   # partition it led at the same instant.
   @fetch_retry_base_delay_ms 500
   @fetch_retry_max_delay_ms 5_000
+
+  # Retries stay unbounded (as in brod/Java/librdkafka), but after this long of continuous fetch
+  # failure the partition is clearly not just mid-leader-move — surface it once. Mirrors
+  # librdkafka's topic.metadata.propagation.max.ms default.
+  @fetch_unavailable_warn_ms 30_000
 
   # Client API
 
@@ -908,6 +925,8 @@ defmodule KafkaEx.Consumer.GenConsumer do
 
   defp handle_fetch_error(reason, %State{fetch_error_count: count} = state) do
     if Retry.fetch_retryable?(reason) do
+      now = :erlang.monotonic_time(:milli_seconds)
+      failing_since = state.fetch_failing_since || now
       delay = Retry.backoff_delay_jittered(count, fetch_retry_base_delay_ms(), fetch_retry_max_delay_ms())
 
       if log_fetch_retry?(count) do
@@ -917,15 +936,36 @@ defmodule KafkaEx.Consumer.GenConsumer do
         )
       end
 
-      new_state = %State{
-        state
-        | fetch_error_count: count + 1,
-          fetch_retry_at: :erlang.monotonic_time(:milli_seconds) + delay
-      }
+      new_state =
+        %State{
+          state
+          | fetch_error_count: count + 1,
+            fetch_retry_at: now + delay,
+            fetch_failing_since: failing_since
+        }
+        |> maybe_report_unavailable(reason, now - failing_since)
 
       {:noreply, new_state, delay}
     else
       {:stop, reason, state}
+    end
+  end
+
+  # Retries never stop the consumer, so a partition that is genuinely stuck (missing topic, leader
+  # that never returns) would otherwise only ever show up in logs. Surface it once via telemetry.
+  defp maybe_report_unavailable(%State{fetch_unavailable_reported: true} = state, _reason, _elapsed), do: state
+
+  defp maybe_report_unavailable(%State{} = state, reason, elapsed) do
+    if elapsed >= fetch_unavailable_warn_ms() do
+      Logger.error(
+        "Partition #{state.topic}/#{state.partition} has been unavailable for #{elapsed}ms " <>
+          "(#{inspect(reason)}); still retrying"
+      )
+
+      Telemetry.emit_partition_unavailable(state.group, state.topic, state.partition, elapsed, reason)
+      %State{state | fetch_unavailable_reported: true}
+    else
+      state
     end
   end
 
@@ -938,14 +978,26 @@ defmodule KafkaEx.Consumer.GenConsumer do
   defp fetch_backoff_remaining(%State{fetch_retry_at: retry_at}),
     do: max(retry_at - :erlang.monotonic_time(:milli_seconds), 0)
 
-  defp clear_fetch_errors(%State{fetch_error_count: 0, fetch_retry_at: nil} = state), do: state
-  defp clear_fetch_errors(%State{} = state), do: %{state | fetch_error_count: 0, fetch_retry_at: nil}
+  defp clear_fetch_errors(%State{fetch_error_count: 0, fetch_retry_at: nil, fetch_failing_since: nil} = state),
+    do: state
+
+  defp clear_fetch_errors(%State{} = state),
+    do: %{
+      state
+      | fetch_error_count: 0,
+        fetch_retry_at: nil,
+        fetch_failing_since: nil,
+        fetch_unavailable_reported: false
+    }
 
   defp fetch_retry_base_delay_ms,
     do: Application.get_env(:kafka_ex, :fetch_retry_base_delay_ms, @fetch_retry_base_delay_ms)
 
   defp fetch_retry_max_delay_ms,
     do: Application.get_env(:kafka_ex, :fetch_retry_max_delay_ms, @fetch_retry_max_delay_ms)
+
+  defp fetch_unavailable_warn_ms,
+    do: Application.get_env(:kafka_ex, :fetch_unavailable_warn_ms, @fetch_unavailable_warn_ms)
 
   # The broker returned batches but every record was filtered out (control
   # batches — transaction commit/abort markers). Advance past them to next_offset, otherwise the

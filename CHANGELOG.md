@@ -1,6 +1,6 @@
 # KafkaEx Changelog
 
-## 1.1.2 (2026-08-14)
+## 1.1.2 (2026-09-03)
 
 ### Fixed
 
@@ -33,11 +33,21 @@
   previously raised a `MatchError`. It does **not** cover establishing the starting offset at
   startup — `load_offsets/1` still raises if that cannot be read, so a consumer starting while its
   leader moves still fails to start. Note that `:commit_interval` is a deadline checked at the end
-  of a fetch cycle, not a timer, so a backoff stretches the interval between commits.
+  of a fetch cycle, not a timer, so a backoff stretches the interval between commits. Because the
+  retries never give up, a partition that is genuinely stuck (a deleted topic, a leader that never
+  returns) is surfaced once, after `:fetch_unavailable_warn_ms` (default 30000) of continuous
+  failure, as a `Logger.error` and a `[:kafka_ex, :consumer, :partition_unavailable]` telemetry
+  event — the consumer keeps retrying, but a non-recovering partition is now alertable.
+
+* **A broker restart over SSL no longer takes the consumer group down.** A non-atom transport
+  reason (an SSL `{:tls_alert, _}` tuple, say) was normalised to `:unknown`, which the fetch loop
+  treated as fatal — so on TLS clusters the very broker-restart case the retry fix targets still
+  killed the group. Such reasons are now normalised to a retryable `:transport_error`.
 
 * **`:no_broker` says why in the log.** Three different causes — unknown topic, unknown partition,
   unknown node — all surfaced as the same bare `:no_broker`, so a leaderless partition could not be
-  told apart from a deleted topic. The reason from node selection is now logged with the topic and
+  told apart from a deleted topic. The reason from node selection is now logged (at debug level —
+  the consumer's own throttled retry log is the operator-facing signal) with the topic and
   partition. The returned error is unchanged.
 
 * **The acks option reaches the broker again (regression since 1.0).** 0.x translated
