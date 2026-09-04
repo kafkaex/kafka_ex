@@ -383,7 +383,9 @@ defmodule KafkaEx.Client do
   end
 
   # Defining any handle_info/2 replaces the catch-all `use GenServer` injects, and without one
-  # an unmatched message kills the client.
+  # an unmatched message kills the client. Stray active-mode data ({:tcp, _, _} / {:ssl, _, _}) —
+  # e.g. a late reply on an acks=0 socket the broker never should have sent — is dropped here on
+  # purpose, not buffered.
   def handle_info(message, state) do
     Logger.warning("#{inspect(__MODULE__)} ignoring unexpected message: #{inspect(message)}")
     {:noreply, state}
@@ -932,7 +934,9 @@ defmodule KafkaEx.Client do
   end
 
   defp build_transport_error(reason) when is_atom(reason), do: Error.build(reason, %{})
-  defp build_transport_error(reason), do: Error.build(:unknown, %{transport_reason: reason})
+  # A non-atom reason (SSL `{:tls_alert, _}` etc.) would collapse to :unknown, which the consumer
+  # fetch loop treats as fatal and stops — taking the whole group down. Tag it retryable instead.
+  defp build_transport_error(reason), do: Error.build(:transport_error, %{transport_reason: reason})
 
   defp handle_request_error(%RequestContext{} = ctx, state, retry_count, error) do
     request_name = ctx.request.__struct__
@@ -1131,9 +1135,10 @@ defmodule KafkaEx.Client do
 
         case State.select_broker(updated_state, selector) do
           {:error, reason} ->
-            # :no_broker alone cannot tell a missing topic from a leaderless
-            # partition from an unknown node, so name the reason here.
-            Logger.warning("No broker for #{describe_selector(selector)} after metadata refresh: #{inspect(reason)}")
+            # :no_broker alone cannot tell a missing topic from a leaderless partition from an
+            # unknown node, so name the reason. Debug, not warning: the consumer's fetch loop
+            # retries this same lookup and owns the throttled operator-facing log.
+            Logger.debug("No broker for #{describe_selector(selector)} after metadata refresh: #{inspect(reason)}")
 
             {nil, updated_state}
 

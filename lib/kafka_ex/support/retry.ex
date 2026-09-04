@@ -208,6 +208,9 @@ defmodule KafkaEx.Support.Retry do
   def transient_error?(:parse_error), do: true
   def transient_error?(:closed), do: true
   def transient_error?(:no_broker), do: true
+  # A non-atom socket reason (e.g. an SSL `{:tls_alert, _}` tuple) is normalised to this by the
+  # client; a broken connection is transient, so the fetch loop must retry rather than stop.
+  def transient_error?(:transport_error), do: true
   def transient_error?(error), do: coordinator_error?(error)
 
   @doc """

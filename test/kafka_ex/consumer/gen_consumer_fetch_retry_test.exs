@@ -93,11 +93,48 @@ defmodule KafkaEx.Consumer.GenConsumerFetchRetryTest do
     wait_until(fn -> fetch_count(client) > before + 1 end)
   end
 
+  test "keeps retrying a non-atom transport error (e.g. an SSL alert) instead of stopping" do
+    {client, pid} =
+      start_consumer({:error, Error.build(:transport_error, %{transport_reason: {:tls_alert, :bad_record_mac}})})
+
+    ref = Process.monitor(pid)
+
+    refute_receive {:DOWN, ^ref, :process, ^pid, _}, 500
+
+    assert fetch_count(client) >= 3
+  end
+
   test "still stops on a fetch error that is not retryable" do
     {_client, pid} = start_consumer({:error, Error.build(:topic_authorization_failed, %{})})
     ref = Process.monitor(pid)
 
     assert_receive {:DOWN, ^ref, :process, ^pid, :topic_authorization_failed}, 2_000
+  end
+
+  test "surfaces a persistently unavailable partition once via telemetry, without stopping" do
+    Application.put_env(:kafka_ex, :fetch_unavailable_warn_ms, 0)
+    on_exit(fn -> Application.delete_env(:kafka_ex, :fetch_unavailable_warn_ms) end)
+
+    handler_id = "gen-consumer-unavailable-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      [:kafka_ex, :consumer, :partition_unavailable],
+      fn _name, measurements, metadata, _ -> send(test_pid, {:unavailable, measurements, metadata}) end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    {client, pid} = start_consumer({:error, Error.build(:no_broker, %{})})
+
+    assert_receive {:unavailable, %{unavailable_ms: ms}, %{topic: "t", partition: 0, reason: :no_broker}}, 1_000
+    assert is_integer(ms) and ms >= 0
+
+    wait_until(fn -> fetch_count(client) >= 5 end)
+    refute_receive {:unavailable, _, _}, 200
+    assert Process.alive?(pid)
   end
 
   test "recovers and resumes consuming once the leader is back" do

@@ -188,6 +188,11 @@ defmodule KafkaEx.Support.RetryTest do
       assert Retry.transient_error?(:no_broker)
     end
 
+    test "transport_error (normalised non-atom socket reason) is transient" do
+      assert Retry.transient_error?(:transport_error)
+      assert Retry.fetch_retryable?(:transport_error)
+    end
+
     test "coordinator errors are transient" do
       assert Retry.transient_error?(:coordinator_not_available)
       assert Retry.transient_error?(:not_coordinator)
