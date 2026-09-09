@@ -26,6 +26,15 @@
   `PartitionInfo` carries the broker's `error_code`.
 * **`:no_broker` says why in the log.** Unknown topic vs. leaderless partition vs. unknown node are
   now distinguished (logged at debug); the returned error is unchanged.
+* **A moving partition leader no longer takes down the whole consumer group.** `GenConsumer` used to
+  stop on any fetch error but `:offset_out_of_range`, and because `ConsumerGroup` supervises with
+  `max_restarts: 0`, one partition losing its leader killed the whole group. The fetch loop now
+  retries transient errors — leader moves, `:no_broker`, timeouts, and non-atom SSL reasons (mapped
+  to a retryable `:transport_error`) — with jittered backoff (`:fetch_retry_base_delay_ms` to
+  `:fetch_retry_max_delay_ms`) instead of stopping, matching brod, KafkaJS and librdkafka. A
+  partition stuck past `:fetch_unavailable_warn_ms` (default 30s) is surfaced once via a
+  `Logger.error` and a `[:kafka_ex, :consumer, :partition_unavailable]` telemetry event. A failed
+  `:offset_out_of_range` reset backs off instead of raising a `MatchError`.
 
 ## 1.1.1 (2026-07-24)
 

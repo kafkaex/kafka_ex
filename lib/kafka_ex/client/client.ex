@@ -994,7 +994,9 @@ defmodule KafkaEx.Client do
   end
 
   defp build_transport_error(reason) when is_atom(reason), do: Error.build(reason, %{})
-  defp build_transport_error(reason), do: Error.build(:unknown, %{transport_reason: reason})
+  # A non-atom reason (SSL {:tls_alert, _}) would collapse to :unknown, which the fetch loop treats
+  # as fatal; tag it retryable instead.
+  defp build_transport_error(reason), do: Error.build(:transport_error, %{transport_reason: reason})
 
   defp handle_request_error(%RequestContext{} = ctx, state, retry_count, error) do
     request_name = ctx.request.__struct__
