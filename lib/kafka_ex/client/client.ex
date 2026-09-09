@@ -371,9 +371,6 @@ defmodule KafkaEx.Client do
     {:noreply, state_out}
   end
 
-  # A broker rejecting an acks=0 produce answers by resetting the connection, so a socket error
-  # is a normal signal here, not an exotic one.
-  # The telemetry contract fixes reason to a known atom, so the raw term goes to the log instead.
   def handle_info({:tcp_error, socket, reason}, state) do
     {:noreply, close_broker_by_socket(state, socket, :recv_error, reason)}
   end
@@ -382,10 +379,8 @@ defmodule KafkaEx.Client do
     {:noreply, close_broker_by_socket(state, socket, :recv_error, reason)}
   end
 
-  # Defining any handle_info/2 replaces the catch-all `use GenServer` injects, and without one
-  # an unmatched message kills the client. Stray active-mode data ({:tcp, _, _} / {:ssl, _, _}) —
-  # e.g. a late reply on an acks=0 socket the broker never should have sent — is dropped here on
-  # purpose, not buffered.
+  # Defining any handle_info/2 replaces the catch-all use GenServer injects; without one an
+  # unmatched message would crash the client.
   def handle_info(message, state) do
     Logger.warning("#{inspect(__MODULE__)} ignoring unexpected message: #{inspect(message)}")
     {:noreply, state}
@@ -633,9 +628,7 @@ defmodule KafkaEx.Client do
     end
   end
 
-  # :required_acks is the deprecated spelling of :acks, kept working until 2.0. Anything the
-  # broker rejects is caught here: unvalidated, it reaches Kayrock's int16 encoder and an
-  # exception there takes the whole client down.
+  # Reject a bad acks value here; unvalidated it reaches Kayrock's int16 encoder and crashes the client.
   defp resolve_acks(opts) do
     case Keyword.get(opts, :acks, Keyword.get(opts, :required_acks, -1)) do
       acks when acks in [-1, 0, 1] -> {:ok, acks}
@@ -934,8 +927,8 @@ defmodule KafkaEx.Client do
   end
 
   defp build_transport_error(reason) when is_atom(reason), do: Error.build(reason, %{})
-  # A non-atom reason (SSL `{:tls_alert, _}` etc.) would collapse to :unknown, which the consumer
-  # fetch loop treats as fatal and stops — taking the whole group down. Tag it retryable instead.
+  # A non-atom reason (SSL {:tls_alert, _}) would collapse to :unknown, which the fetch loop treats
+  # as fatal; tag it retryable instead.
   defp build_transport_error(reason), do: Error.build(:transport_error, %{transport_reason: reason})
 
   defp handle_request_error(%RequestContext{} = ctx, state, retry_count, error) do
@@ -1135,9 +1128,7 @@ defmodule KafkaEx.Client do
 
         case State.select_broker(updated_state, selector) do
           {:error, reason} ->
-            # :no_broker alone cannot tell a missing topic from a leaderless partition from an
-            # unknown node, so name the reason. Debug, not warning: the consumer's fetch loop
-            # retries this same lookup and owns the throttled operator-facing log.
+            # Debug, not warning: the consumer's fetch loop retries this lookup and owns the throttled log.
             Logger.debug("No broker for #{describe_selector(selector)} after metadata refresh: #{inspect(reason)}")
 
             {nil, updated_state}
