@@ -83,7 +83,7 @@ defmodule KafkaEx.Cluster.TopicTest do
       assert topic.name == "__consumer_offsets"
     end
 
-    test "raises FunctionClauseError on partition with non-zero error_code" do
+    test "keeps a partition carrying a leader-move error code, with leader -1" do
       metadata = %{
         name: "error-topic",
         is_internal: false,
@@ -92,9 +92,12 @@ defmodule KafkaEx.Cluster.TopicTest do
         ]
       }
 
-      assert_raise FunctionClauseError, fn ->
-        Topic.from_topic_metadata(metadata)
-      end
+      topic = Topic.from_topic_metadata(metadata)
+
+      assert topic.partition_leaders == %{0 => -1}
+
+      assert [%KafkaEx.Cluster.PartitionInfo{partition_id: 0, leader: -1, error_code: :leader_not_available}] =
+               topic.partitions
     end
 
     test "handles empty partitions list" do
