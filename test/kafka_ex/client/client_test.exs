@@ -161,12 +161,25 @@ defmodule KafkaEx.ClientTest do
     test "an acks value the wire cannot carry is rejected without touching the socket", %{state: state} do
       stub_sends(:ok)
 
-      for opts <- [[acks: :all], [required_acks: 65_536], [acks: nil], [required_acks: 2]] do
+      for opts <- [[acks: :bogus], [required_acks: 65_536], [acks: nil], [required_acks: 2]] do
         assert {:reply, {:error, :invalid_acks}, ^state} = produce(state, opts)
       end
 
       refute_received :async_sent
       refute_received :sync_sent
+    end
+
+    test "the Java/librdkafka :all / :any spelling reaches the wire as -1", %{state: state} do
+      stub_sends()
+      attach_produce_start_handler()
+
+      produce(state, acks: :all)
+      assert_received {:produce_start, %{required_acks: -1}}
+
+      produce(state, acks: :any)
+      assert_received {:produce_start, %{required_acks: -1}}
+
+      assert_received :sync_sent
     end
 
     test "the deprecated :required_acks is honoured when :acks is absent", %{state: state} do

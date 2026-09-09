@@ -102,9 +102,8 @@ defmodule KafkaEx.Network.NetworkClient do
       {_, reason} ->
         broker_str = inspect_broker(broker.host, broker.port)
         Logger.error("Asynchronously sending data to broker #{broker_str} failed with #{inspect(reason)}")
-        # Free the fd but do not emit a close event: the socket is active-mode, so the client's
-        # {:tcp_error}/{:tcp_closed} handler is the single owner of the connection-close telemetry.
-        Socket.close(socket)
+        # A self-close is silent (no {:tcp_closed} to the owner), so emit the close event here.
+        close_socket(broker, socket, :send_error)
         {:error, reason}
     end
   end

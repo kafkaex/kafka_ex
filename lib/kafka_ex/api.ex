@@ -811,7 +811,8 @@ defmodule KafkaEx.API do
     * `opts` - Options including:
       * `:api_version` - API version to use. If omitted, resolved via `:api_versions` app-config or broker-negotiated max (`min(broker_max, kayrock_max)`). See CHANGELOG § 3-tier API version resolution.
       * `:acks` - Acknowledgements required: `-1` (default) all in-sync replicas, `1` leader only,
-        `0` fire-and-forget. Any other value is rejected with `{:error, :invalid_acks}`.
+        `0` fire-and-forget. `:all` / `:any` (the Java/librdkafka spelling) are accepted as `-1`.
+        Any other value is rejected with `{:error, :invalid_acks}`.
         With `0` the broker sends no response at all, so `{:ok, _}` means only that the batch was
         handed to the socket, the call is never retried, the returned `RecordMetadata` has
         `base_offset: nil`, and a broker-side rejection (stale leader, oversized batch) arrives as

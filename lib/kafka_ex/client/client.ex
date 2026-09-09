@@ -673,6 +673,8 @@ defmodule KafkaEx.Client do
   defp resolve_acks(opts) do
     case Keyword.get(opts, :acks, Keyword.get(opts, :required_acks, -1)) do
       acks when acks in [-1, 0, 1] -> {:ok, acks}
+      # Java/librdkafka spelling for "all in-sync replicas"; accept it as the -1 the wire carries.
+      acks when acks in [:all, :any] -> {:ok, -1}
       _ -> {:error, :invalid_acks}
     end
   end
@@ -1207,6 +1209,9 @@ defmodule KafkaEx.Client do
 
   defp describe_selector(%NodeSelector{strategy: :consumer_group, consumer_group_name: group}),
     do: "consumer group #{group}"
+
+  # Never let a future selector strategy crash this log path.
+  defp describe_selector(selector), do: inspect(selector)
 
   # Ensures broker is connected, reconnecting if necessary.
   # Returns {broker, updated_state} where broker may have a new socket,

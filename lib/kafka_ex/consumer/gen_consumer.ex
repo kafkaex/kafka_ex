@@ -125,7 +125,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
   stop. Stopping would take the whole group down, because
   `KafkaEx.Consumer.ConsumerGroup` supervises with `max_restarts: 0`. Retries are
   unbounded, matching brod, KafkaJS and librdkafka, with jittered exponential
-  backoff from `:fetch_retry_base_delay_ms` (500) to `:fetch_retry_max_delay_ms`
+  backoff from `:fetch_retry_base_delay_ms` (250) to `:fetch_retry_max_delay_ms`
   (5000), both settable in the `:kafka_ex` app environment. A warning naming the
   error and the consecutive failure count is logged while the backoff ramps, then
   roughly once a minute. Any other fetch error still stops the consumer.
@@ -513,7 +513,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
   @commit_base_delay_ms 100
 
   # Low cap — a leader move is usually sub-second; jittered against a synchronized restart.
-  @fetch_retry_base_delay_ms 500
+  @fetch_retry_base_delay_ms 250
   @fetch_retry_max_delay_ms 5_000
 
   # After this long of continuous failure a partition is clearly stuck, not mid-move; surface it once.

@@ -8,6 +8,9 @@ defmodule KafkaEx.Cluster.PartitionInfo do
   Java equivalent: `org.apache.kafka.common.PartitionInfo`
   """
 
+  alias Kayrock.ErrorCode
+
+  # Informational only: node selection keys off `leader` (< 0 = no leader), not this field.
   defstruct partition_id: nil, leader: -1, replicas: [], isr: [], error_code: :no_error
 
   @type t :: %__MODULE__{
@@ -24,7 +27,8 @@ defmodule KafkaEx.Cluster.PartitionInfo do
   ## Parameters
 
   The metadata map should contain:
-    - `:error_code` - Must be 0 for successful parsing
+    - `:error_code` - The broker's partition error code (0 = no error); a leader-move code comes
+      with `leader_id` -1 and is retained, mirroring the production `parse_partitions` path
     - `:partition` - The partition number
     - `:leader` - The leader node ID
     - `:replicas` - List of replica node IDs
@@ -33,7 +37,7 @@ defmodule KafkaEx.Cluster.PartitionInfo do
   """
   @spec from_partition_metadata(map()) :: t()
   def from_partition_metadata(%{
-        error_code: 0,
+        error_code: error_code,
         partition_index: partition,
         leader_id: leader,
         replica_nodes: replicas,
@@ -43,7 +47,8 @@ defmodule KafkaEx.Cluster.PartitionInfo do
       partition_id: partition,
       leader: leader,
       replicas: replicas,
-      isr: isr
+      isr: isr,
+      error_code: ErrorCode.code_to_atom(error_code)
     }
   end
 

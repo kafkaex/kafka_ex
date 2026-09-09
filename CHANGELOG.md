@@ -2,6 +2,30 @@
 
 ## 1.1.2 (2026-09-03)
 
+### Changed (Breaking)
+
+These follow from the fixes below; the detailed rationale is in **### Fixed**.
+
+* **Producer durability now honours the `acks` / `required_acks` option.** Since 1.0 every produce
+  silently went out at `acks: -1` regardless of the option. A caller passing `required_acks: 1`
+  moves from all-in-sync-replicas to **leader-only**; `required_acks: 0` moves from a durable,
+  retried produce to **fire-and-forget** — records can be lost and `base_offset` is `nil`. **Pass
+  `acks: -1` explicitly to keep the 1.0/1.1 behaviour.** `:acks` is now canonical; `:required_acks`
+  is a deprecated alias (removed in 2.0).
+* **`RecordMetadata.base_offset` typespec widened to `non_neg_integer() | nil`** (`nil` under
+  `acks: 0`). Code doing arithmetic on the offset after an `acks: 0` produce must handle `nil`.
+* **Invalid `acks` values are rejected** with `{:error, :invalid_acks}` instead of crashing the
+  client or truncating silently. `:all` / `:any` are accepted as `-1`.
+* **`[:kafka_ex, :produce, :stop]` for an `acks: 0` produce carries no `:offset` key.** A handler
+  reading `metadata.offset` rather than `Map.get/2` raises and is detached by `:telemetry`.
+* **Consumer fetch now retries transient errors instead of stopping.** A moving leader no longer
+  takes the group down; there is no opt-out, so a consumer that previously relied on stopping on a
+  leader move now backs off and retries.
+* **`ClusterMetadata.select_node/2` may return `{:error, :leader_not_available}`** and
+  `partition_leaders` may now contain `-1` ("leader currently unknown").
+* **`NetworkClient.send_async_request/2` returns `{:error, reason}`** (not a bare atom) on a failed
+  send.
+
 ### Fixed
 
 * **A key could silently change partition while a leader was moving.** Metadata parsing dropped
@@ -25,7 +49,7 @@
   partition losing its leader killed every consumer in the group. Most visible with
   replication-factor 1, where there is no follower to promote and the partition is genuinely
   leaderless for the length of a broker restart, but the same path runs on any leader move. The
-  consumer now retries such errors indefinitely with jittered exponential backoff (500 ms to 5 s,
+  consumer now retries such errors indefinitely with jittered exponential backoff (250 ms to 5 s,
   configurable via `:fetch_retry_base_delay_ms` / `:fetch_retry_max_delay_ms`), logging a warning
   with the error and the consecutive failure count, and still stops on anything else. This matches
   brod, KafkaJS and librdkafka, none of which fail a consumer over a leaderless partition. The same
@@ -75,9 +99,10 @@
   later disconnect, not as an error from the call that produced it.
 
 * **An acks value the wire cannot carry is now rejected** with `{:error, :invalid_acks}` instead of
-  reaching Kayrock's int16 encoder, where it raised and took the whole client down (`acks: :all`,
-  `acks: nil`) or silently truncated to a different value than the one the client acted on
-  (`acks: 65_536` was sent as `0` while the client waited for a response that never came).
+  reaching Kayrock's int16 encoder, where it raised and took the whole client down (`acks: nil`) or
+  silently truncated to a different value than the one the client acted on (`acks: 65_536` was sent
+  as `0` while the client waited for a response that never came). `:all` / `:any` (the
+  Java/librdkafka spelling) are accepted as `-1`.
 
 * **A socket error no longer kills the client.** `KafkaEx.Client` defines its own `handle_info/2`
   clauses, which replaces the catch-all `use GenServer` provides, so any unmatched message —

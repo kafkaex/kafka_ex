@@ -53,7 +53,8 @@ messages = [%{value: "msg1", key: "k1"}, %{value: "msg2", key: "k2"}]
 {:ok, metadata} = KafkaEx.API.produce(client, "topic", 0, messages, compression: :gzip)
 
 # CORRECT - Durability: -1 (default) all in-sync replicas, 1 leader only.
-# Only -1, 0 and 1 are accepted; anything else returns {:error, :invalid_acks}
+# -1/0/1 plus :all/:any (Java spelling, treated as -1) are accepted; anything else
+# returns {:error, :invalid_acks}
 {:ok, metadata} = KafkaEx.API.produce(client, "topic", 0, messages, acks: 1)
 
 # CAUTION - acks: 0 is fire-and-forget: {:ok, _} only means "handed to the socket",

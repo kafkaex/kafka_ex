@@ -23,16 +23,13 @@ defmodule KafkaEx.Cluster.Topic do
         partitions: partition_metadata,
         is_internal: is_internal
       }) do
-    partition_leaders =
-      Enum.into(
-        partition_metadata,
-        %{},
-        fn %{error_code: 0, leader_id: leader, partition_index: partition_id} ->
-          {partition_id, leader}
-        end
-      )
-
     partitions = Enum.map(partition_metadata, &PartitionInfo.from_partition_metadata/1)
+
+    # Keep leaderless partitions (leader -1); dropping them shrinks the count the partitioner keys off.
+    partition_leaders =
+      Enum.into(partitions, %{}, fn %PartitionInfo{partition_id: id, leader: leader} ->
+        {id, leader}
+      end)
 
     %__MODULE__{
       name: name,
