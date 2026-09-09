@@ -11,7 +11,7 @@
   partition losing its leader killed every consumer in the group. Most visible with
   replication-factor 1, where there is no follower to promote and the partition is genuinely
   leaderless for the length of a broker restart, but the same path runs on any leader move. The
-  consumer now retries such errors indefinitely with jittered exponential backoff (500 ms to 5 s,
+  consumer now retries such errors indefinitely with jittered exponential backoff (250 ms to 5 s,
   configurable via `:fetch_retry_base_delay_ms` / `:fetch_retry_max_delay_ms`), logging a warning
   with the error and the consecutive failure count, and still stops on anything else. This matches
   brod, KafkaJS and librdkafka, none of which fail a consumer over a leaderless partition. The same
@@ -24,6 +24,15 @@
   returns) is surfaced once, after `:fetch_unavailable_warn_ms` (default 30000) of continuous
   failure, as a `Logger.error` and a `[:kafka_ex, :consumer, :partition_unavailable]` telemetry
   event — the consumer keeps retrying, but a non-recovering partition is now alertable.
+
+* **A key could silently change partition during a leader move.** Metadata parsing dropped every
+  partition the broker reported with an error, shrinking the count the default partitioner keys off
+  — so the same key could land on a different partition, and a transiently-leaderless partition was
+  indistinguishable from one that does not exist. Partitions carrying a leader-move error are now
+  retained with the reported leader (`-1` = leader unknown), `ClusterMetadata.select_node/2` answers
+  `{:error, :leader_not_available}` for them, and `PartitionInfo` carries the broker's `error_code`.
+  This keeps the partition assignable so the consumer's fetch retry (above) can recover it once the
+  leader returns, instead of the partition dropping out of the cluster model entirely.
 
 * **A broker restart over SSL no longer takes the consumer group down.** A non-atom transport
   reason (an SSL `{:tls_alert, _}` tuple, say) was normalised to `:unknown`, which the fetch loop

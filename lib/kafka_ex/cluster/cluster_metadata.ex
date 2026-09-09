@@ -23,7 +23,8 @@ defmodule KafkaEx.Cluster.ClusterMetadata do
   @typedoc """
   Possible errors given by `select_node/2`
   """
-  @type node_select_error :: :no_such_node | :no_such_topic | :no_such_partition | :no_such_consumer_group
+  @type node_select_error ::
+          :no_such_node | :no_such_topic | :no_such_partition | :no_such_consumer_group | :leader_not_available
 
   @doc """
   List names of topics known by the cluster metadata
@@ -78,6 +79,7 @@ defmodule KafkaEx.Cluster.ClusterMetadata do
       {:ok, %Topic{partition_leaders: partition_leaders}} ->
         case Map.fetch(partition_leaders, partition) do
           :error -> {:error, :no_such_partition}
+          {:ok, node_id} when node_id < 0 -> {:error, :leader_not_available}
           {:ok, node_id} -> {:ok, node_id}
         end
     end
