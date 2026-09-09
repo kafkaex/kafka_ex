@@ -39,6 +39,21 @@ defmodule KafkaEx.Cluster.PartitionInfoTest do
 
       assert partition.isr == [21]
     end
+
+    test "maps a zero error_code to :no_error", %{metadata: metadata} do
+      partition = PartitionInfo.from_partition_metadata(metadata)
+
+      assert partition.error_code == :no_error
+    end
+
+    test "retains a leader-move partition instead of crashing, mapping its error_code" do
+      metadata = %{error_code: 5, partition_index: 0, leader_id: -1, replica_nodes: [], isr_nodes: []}
+
+      partition = PartitionInfo.from_partition_metadata(metadata)
+
+      assert partition.leader == -1
+      assert partition.error_code == :leader_not_available
+    end
   end
 
   describe "build/1" do
