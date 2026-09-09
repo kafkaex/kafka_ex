@@ -1,13 +1,18 @@
 defmodule KafkaEx.ClientTest do
   use ExUnit.Case, async: false
+  use Mimic
 
   import ExUnit.CaptureLog
   import KafkaEx.TestSupport.ProcessHelpers
 
   alias KafkaEx.Client
+  alias KafkaEx.Client.Error
   alias KafkaEx.Client.State
   alias KafkaEx.Cluster.Broker
   alias KafkaEx.Cluster.ClusterMetadata
+  alias KafkaEx.Cluster.Topic
+  alias KafkaEx.Messages.RecordMetadata
+  alias KafkaEx.Network.NetworkClient
   alias KafkaEx.Network.Socket
 
   # Tiny GenServer that delegates :tcp_closed/:ssl_closed to
@@ -98,6 +103,120 @@ defmodule KafkaEx.ClientTest do
         )
 
       assert match?({:reply, _, _}, result)
+    end
+  end
+
+  # Regression: `:required_acks` never reached the wire (the request builder reads `:acks`), so
+  # `acks: 0` was unreachable — and once reachable it crashed on `byte_size(:ok)` and was retried.
+  describe "handle_call/3 - produce acks" do
+    setup :set_mimic_private
+
+    setup do
+      {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false])
+      {:ok, lport} = :inet.port(listen)
+      {:ok, sock} = :gen_tcp.connect(~c"localhost", lport, [:binary, active: false])
+
+      on_exit(fn ->
+        :gen_tcp.close(sock)
+        :gen_tcp.close(listen)
+      end)
+
+      broker = %Broker{node_id: 1, host: "localhost", port: lport, socket: %Socket{socket: sock, ssl: false}}
+
+      state = %State{
+        api_versions: %{0 => {0, 8}},
+        correlation_id: 1,
+        cluster_metadata: %ClusterMetadata{
+          brokers: %{1 => broker},
+          topics: %{"t" => %Topic{name: "t", partition_leaders: %{0 => 1}}}
+        }
+      }
+
+      {:ok, state: state}
+    end
+
+    test "acks: 0 is sent fire-and-forget, exactly once, and returns no offset", %{state: state} do
+      stub_sends(:ok)
+
+      {:reply, reply, state_out} = produce(state, acks: 0)
+
+      assert {:ok, %RecordMetadata{topic: "t", partition: 0, base_offset: nil}} = reply
+      assert state_out.correlation_id == state.correlation_id + 1
+      assert_received :async_sent
+      refute_received :async_sent
+      refute_received :sync_sent
+    end
+
+    test "a failed fire-and-forget send is reported as an error, not a crash, and is sent once", %{state: state} do
+      stub_sends({:error, :closed})
+
+      {:reply, reply, state_out} = produce(state, acks: 0)
+
+      assert {:error, %Error{error: :closed}} = reply
+      assert state_out.correlation_id == state.correlation_id + 1
+      assert_received :async_sent
+      refute_received :async_sent
+    end
+
+    test "an acks value the wire cannot carry is rejected without touching the socket", %{state: state} do
+      stub_sends(:ok)
+
+      for opts <- [[acks: :bogus], [required_acks: 65_536], [acks: nil], [required_acks: 2]] do
+        assert {:reply, {:error, :invalid_acks}, ^state} = produce(state, opts)
+      end
+
+      refute_received :async_sent
+      refute_received :sync_sent
+    end
+
+    test "the Java/librdkafka :all / :any spelling reaches the wire as -1", %{state: state} do
+      stub_sends()
+      attach_produce_start_handler()
+
+      produce(state, acks: :all)
+      assert_received {:produce_start, %{required_acks: -1}}
+
+      produce(state, acks: :any)
+      assert_received {:produce_start, %{required_acks: -1}}
+
+      assert_received :sync_sent
+    end
+
+    test "the deprecated :required_acks is honoured when :acks is absent", %{state: state} do
+      stub_sends(:ok)
+
+      {:reply, reply, _state} = produce(state, required_acks: 0)
+
+      assert {:ok, %RecordMetadata{base_offset: nil}} = reply
+      assert_received :async_sent
+    end
+
+    test "the deprecated :required_acks loses to an explicit :acks", %{state: state} do
+      stub_sends()
+
+      produce(state, required_acks: 0, acks: 1)
+
+      assert_received :sync_sent
+      refute_received :sync_sent
+      refute_received :async_sent
+    end
+
+    test "telemetry reports the acks value that reaches the wire", %{state: state} do
+      stub_sends()
+      attach_produce_start_handler()
+
+      produce(state, acks: 1, required_acks: -1)
+
+      assert_received {:produce_start, %{required_acks: 1}}
+    end
+
+    test "acks defaults to -1 when neither option is given", %{state: state} do
+      stub_sends()
+      attach_produce_start_handler()
+
+      produce(state, [])
+
+      assert_received {:produce_start, %{required_acks: -1}}
     end
   end
 
@@ -343,6 +462,43 @@ defmodule KafkaEx.ClientTest do
     end
   end
 
+  # A broker rejecting an acks=0 produce signals it by resetting the connection, so these
+  # messages are on the normal error path for fire-and-forget, not an exotic case.
+  describe "handle_info/2 - socket errors and unknown messages" do
+    test "{:tcp_error, port, reason} clears the matching broker's socket" do
+      port = open_tcp_port()
+      state = build_state(%{1 => broker_with_port(1, port)})
+
+      assert {:noreply, new_state} = Client.handle_info({:tcp_error, port, :econnreset}, state)
+
+      [broker] = State.brokers(new_state)
+      assert broker.socket == nil
+    end
+
+    test "{:ssl_error, ref, reason} clears the matching broker's socket" do
+      ref = make_ref()
+      state = build_state(%{1 => broker_with_ssl_ref(1, ref)})
+
+      assert {:noreply, new_state} = Client.handle_info({:ssl_error, ref, :closed}, state)
+
+      [broker] = State.brokers(new_state)
+      assert broker.socket == nil
+    end
+
+    test "an unknown message does not kill the client and is logged" do
+      port = open_tcp_port()
+      state = build_state(%{1 => broker_with_port(1, port)})
+
+      log =
+        capture_log(fn ->
+          assert {:noreply, ^state} = Client.handle_info(:something_unexpected, state)
+        end)
+
+      assert log =~ "ignoring unexpected message"
+      assert log =~ ":something_unexpected"
+    end
+  end
+
   describe "telemetry emission on remote close [issue #449]" do
     test "emits [:kafka_ex, :connection, :close] with :remote_closed on :tcp_closed" do
       port = open_tcp_port()
@@ -371,6 +527,35 @@ defmodule KafkaEx.ClientTest do
         assert metadata.host == broker.host
         assert metadata.port == broker.port
         assert metadata.reason == :remote_closed
+      end)
+    end
+
+    test "emits :recv_error on :tcp_error rather than the raw posix reason" do
+      port = open_tcp_port()
+      broker = broker_with_port(1, port)
+      state = build_state(%{1 => broker})
+
+      with_telemetry_handler(fn ->
+        log = capture_log(fn -> {:noreply, _} = Client.handle_info({:tcp_error, port, :econnreset}, state) end)
+
+        assert_receive {:telemetry, [:kafka_ex, :connection, :close], %{count: 1}, metadata}
+        assert metadata.reason == :recv_error
+        assert log =~ ":econnreset"
+      end)
+    end
+
+    test "emits :recv_error on :ssl_error even when the reason is a complex term" do
+      ref = make_ref()
+      broker = broker_with_ssl_ref(1, ref)
+      state = build_state(%{1 => broker})
+      alert = {:tls_alert, {:handshake_failure, ~c"bad certificate"}}
+
+      with_telemetry_handler(fn ->
+        log = capture_log(fn -> {:noreply, _} = Client.handle_info({:ssl_error, ref, alert}, state) end)
+
+        assert_receive {:telemetry, [:kafka_ex, :connection, :close], %{count: 1}, metadata}
+        assert metadata.reason == :recv_error
+        assert log =~ "handshake_failure"
       end)
     end
 
@@ -530,5 +715,36 @@ defmodule KafkaEx.ClientTest do
     after
       0 -> :ok
     end
+  end
+
+  defp produce(state, opts) do
+    Client.handle_call({:produce, "t", 0, [%{value: "v"}], opts}, self(), state)
+  end
+
+  defp stub_sends(async_result \\ :ok) do
+    test_pid = self()
+
+    stub(NetworkClient, :send_async_request, fn _broker, _wire ->
+      send(test_pid, :async_sent)
+      async_result
+    end)
+
+    stub(NetworkClient, :send_sync_request, fn _broker, _wire, _timeout ->
+      send(test_pid, :sync_sent)
+      {:error, :stubbed}
+    end)
+  end
+
+  defp attach_produce_start_handler do
+    handler_id = "produce-acks-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach(
+      handler_id,
+      [:kafka_ex, :produce, :start],
+      fn _event, _measurements, metadata, pid -> send(pid, {:produce_start, metadata}) end,
+      self()
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
   end
 end
