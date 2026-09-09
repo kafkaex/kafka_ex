@@ -396,4 +396,23 @@ defmodule KafkaEx.Cluster.ClusterMetadataTest do
       assert ClusterMetadata.known_topics(updated_cluster) == ["topic-one"]
     end
   end
+
+  describe "select_node/2 with a leaderless partition" do
+    test "reports :leader_not_available rather than a bogus node id" do
+      metadata = %ClusterMetadata{
+        brokers: %{1 => %KafkaEx.Cluster.Broker{node_id: 1, host: "h", port: 9092}},
+        topics: %{"t" => %KafkaEx.Cluster.Topic{name: "t", partition_leaders: %{0 => 1, 1 => -1}}}
+      }
+
+      alias KafkaEx.Client.NodeSelector
+
+      assert {:ok, 1} = ClusterMetadata.select_node(metadata, NodeSelector.topic_partition("t", 0))
+
+      assert {:error, :leader_not_available} =
+               ClusterMetadata.select_node(metadata, NodeSelector.topic_partition("t", 1))
+
+      assert {:error, :no_such_partition} =
+               ClusterMetadata.select_node(metadata, NodeSelector.topic_partition("t", 9))
+    end
+  end
 end
