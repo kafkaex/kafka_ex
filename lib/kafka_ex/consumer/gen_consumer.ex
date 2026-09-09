@@ -512,16 +512,11 @@ defmodule KafkaEx.Consumer.GenConsumer do
   @commit_max_attempts 3
   @commit_base_delay_ms 100
 
-  # Capped near librdkafka's retry.backoff.max.ms (1s) and brod's flat 1s rather
-  # than KafkaJS's 30s: a leader move is usually sub-second, so a high cap only
-  # delays noticing recovery. Jittered because a broker restart fails every
-  # partition it led at the same instant.
+  # Low cap — a leader move is usually sub-second; jittered against a synchronized restart.
   @fetch_retry_base_delay_ms 500
   @fetch_retry_max_delay_ms 5_000
 
-  # Retries stay unbounded (as in brod/Java/librdkafka), but after this long of continuous fetch
-  # failure the partition is clearly not just mid-leader-move — surface it once. Mirrors
-  # librdkafka's topic.metadata.propagation.max.ms default.
+  # After this long of continuous failure a partition is clearly stuck, not mid-move; surface it once.
   @fetch_unavailable_warn_ms 30_000
 
   # Client API
@@ -820,8 +815,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
   end
 
   def handle_info(:timeout, %State{} = state) do
-    # Any inbound message re-arms this callback with timeout 0, so an unrelated
-    # message would otherwise cut a backoff short. The deadline is the truth.
+    # Any inbound message re-arms this at timeout 0, so honour the backoff deadline held in state.
     case fetch_backoff_remaining(state) do
       0 -> consume_cycle(state)
       remaining -> {:noreply, state, remaining}
@@ -951,8 +945,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
     end
   end
 
-  # Retries never stop the consumer, so a partition that is genuinely stuck (missing topic, leader
-  # that never returns) would otherwise only ever show up in logs. Surface it once via telemetry.
+  # Retries never stop, so a genuinely stuck partition would otherwise only show in logs; flag it once.
   defp maybe_report_unavailable(%State{fetch_unavailable_reported: true} = state, _reason, _elapsed), do: state
 
   defp maybe_report_unavailable(%State{} = state, reason, elapsed) do
@@ -969,8 +962,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
     end
   end
 
-  # Loud while the backoff ramps, then roughly once a minute at the cap, so a
-  # permanently unavailable partition stays visible without flooding the log.
+  # Loud while the backoff ramps, then ~once a minute, so a stuck partition stays visible.
   defp log_fetch_retry?(count), do: count < 5 or rem(count, 12) == 0
 
   defp fetch_backoff_remaining(%State{fetch_retry_at: nil}), do: 0
