@@ -42,6 +42,10 @@ defmodule KafkaEx.Support.Retry do
   @default_max_attempts 3
   @default_base_delay_ms 100
   @default_max_delay_ms :infinity
+  # ±20% jitter (KIP-580) decorrelates retries so members don't thundering-herd after a shared failure.
+  @jitter_fraction 0.2
+  # Past this the delay dwarfs any sane cap; clamping keeps the shift cheap.
+  @max_backoff_exponent 32
 
   @doc """
   Calculate exponential backoff delay.
@@ -68,11 +72,45 @@ defmodule KafkaEx.Support.Retry do
   @spec backoff_delay(non_neg_integer(), non_neg_integer(), non_neg_integer() | :infinity) ::
           non_neg_integer()
   def backoff_delay(attempt, base_ms, max_ms \\ @default_max_delay_ms) do
-    delay = trunc(base_ms * :math.pow(2, attempt))
+    # Integer shift, not :math.pow, which overflows to ArithmeticError past attempt 1023.
+    delay = base_ms * Bitwise.bsl(1, min(attempt, @max_backoff_exponent))
 
     case max_ms do
       :infinity -> delay
       cap when is_integer(cap) -> min(delay, cap)
+    end
+  end
+
+  @doc """
+  Exponential backoff (`backoff_delay/3`) with ±20% uniform jitter (KIP-580).
+
+  Returns a delay drawn uniformly from `[0.8 × base, 1.2 × base]`, where `base` is
+  the capped exponential value, so concurrent retriers spread their re-attempts
+  instead of retrying in lockstep. A zero base stays zero.
+  """
+  @spec backoff_delay_jittered(non_neg_integer(), non_neg_integer(), non_neg_integer() | :infinity) ::
+          non_neg_integer()
+  def backoff_delay_jittered(attempt, base_ms, max_ms \\ @default_max_delay_ms) do
+    jittered =
+      attempt
+      |> backoff_delay(base_ms, max_ms)
+      |> apply_jitter()
+
+    case max_ms do
+      :infinity -> jittered
+      cap when is_integer(cap) -> min(jittered, cap)
+    end
+  end
+
+  defp apply_jitter(0), do: 0
+
+  defp apply_jitter(delay) do
+    spread = trunc(delay * @jitter_fraction)
+
+    if spread <= 0 do
+      delay
+    else
+      delay - spread + (:rand.uniform(2 * spread + 1) - 1)
     end
   end
 
@@ -168,6 +206,8 @@ defmodule KafkaEx.Support.Retry do
   def transient_error?(:parse_error), do: true
   def transient_error?(:closed), do: true
   def transient_error?(:no_broker), do: true
+  # Normalised non-atom socket reason (e.g. SSL {:tls_alert, _}); a broken connection is transient.
+  def transient_error?(:transport_error), do: true
   def transient_error?(error), do: coordinator_error?(error)
 
   @doc """
@@ -183,6 +223,17 @@ defmodule KafkaEx.Support.Retry do
   def leadership_error?(:fenced_leader_epoch), do: true
   def leadership_error?(:unknown_topic_or_partition), do: true
   def leadership_error?(_), do: false
+
+  @doc """
+  Retriability for the consumer's fetch loop.
+
+  A leader move leaves the partition unreachable for as long as the new leader
+  takes to open it, so stopping the consumer would take the whole group down with
+  it. brod (`err_op/1` → `reset_connection`), KafkaJS (`retriable` errors restart
+  the consumer) and librdkafka (fast leader query) all back off and retry instead.
+  """
+  @spec fetch_retryable?(error()) :: boolean()
+  def fetch_retryable?(error), do: transient_error?(error) or leadership_error?(error)
 
   @doc """
   Check if error is safe to retry for produce operations.

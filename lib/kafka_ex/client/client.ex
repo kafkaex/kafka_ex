@@ -26,6 +26,7 @@ defmodule KafkaEx.Client do
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Messages.Fetch
   alias KafkaEx.Messages.FindCoordinator, as: FindCoordinatorMsg
+  alias KafkaEx.Messages.RecordMetadata
   alias KafkaEx.Support.OptionalDeps
   alias KafkaEx.Support.Retry
 
@@ -370,6 +371,21 @@ defmodule KafkaEx.Client do
     {:noreply, state_out}
   end
 
+  def handle_info({:tcp_error, socket, reason}, state) do
+    {:noreply, close_broker_by_socket(state, socket, :recv_error, reason)}
+  end
+
+  def handle_info({:ssl_error, socket, reason}, state) do
+    {:noreply, close_broker_by_socket(state, socket, :recv_error, reason)}
+  end
+
+  # Defining any handle_info/2 replaces the catch-all use GenServer injects; without one an
+  # unmatched message would crash the client.
+  def handle_info(message, state) do
+    Logger.warning("#{inspect(__MODULE__)} ignoring unexpected message: #{inspect(message)}")
+    {:noreply, state}
+  end
+
   defp update_metadata_with_retry(_state, retries_left) when retries_left <= 0 do
     raise KafkaEx.MetadataUpdateError, attempts: @max_metadata_update_retries
   end
@@ -588,16 +604,14 @@ defmodule KafkaEx.Client do
   end
 
   defp produce_request(topic, partition, messages, opts, state) do
-    message_count = length(messages)
-    required_acks = Keyword.get(opts, :required_acks, 1)
-    client_id = Config.client_id()
+    with {:ok, acks} <- resolve_acks(opts) do
+      metadata = Telemetry.produce_metadata(topic, partition, Config.client_id(), acks)
+      start_measurements = %{message_count: length(messages)}
 
-    metadata = Telemetry.produce_metadata(topic, partition, client_id, required_acks)
-    start_measurements = %{message_count: message_count}
-
-    Telemetry.span([:kafka_ex, :produce], Map.merge(metadata, start_measurements), fn ->
-      do_produce_request(topic, partition, messages, opts, state, metadata)
-    end)
+      Telemetry.span([:kafka_ex, :produce], Map.merge(metadata, start_measurements), fn ->
+        do_produce_request(topic, partition, messages, Keyword.put(opts, :acks, acks), state, metadata)
+      end)
+    end
   end
 
   defp do_produce_request(topic, partition, messages, opts, state, metadata) do
@@ -611,6 +625,14 @@ defmodule KafkaEx.Client do
     else
       {:error, error} -> {{:error, error}, metadata}
       error_result -> {error_result, metadata}
+    end
+  end
+
+  # Reject a bad acks value here; unvalidated it reaches Kayrock's int16 encoder and crashes the client.
+  defp resolve_acks(opts) do
+    case Keyword.get(opts, :acks, Keyword.get(opts, :required_acks, -1)) do
+      acks when acks in [-1, 0, 1] -> {:ok, acks}
+      _ -> {:error, :invalid_acks}
     end
   end
 
@@ -792,6 +814,20 @@ defmodule KafkaEx.Client do
     |> handle_request_with_retry(state)
   end
 
+  # acks=0: the broker sends no response, and a resend would duplicate records.
+  defp handle_produce_request(%{acks: 0} = request, node_selector, state) do
+    %NodeSelector{topic: topic, partition: partition} = node_selector
+
+    case network_request(request, node_selector, state) do
+      {{:ok, :no_response}, updated_state} ->
+        {{:ok, RecordMetadata.build(topic: topic, partition: partition, base_offset: nil)}, updated_state}
+
+      {{:error, reason}, updated_state} ->
+        Logger.warning("Fire-and-forget produce to #{topic}/#{partition} failed with #{inspect(reason)}")
+        {{:error, build_transport_error(reason)}, updated_state}
+    end
+  end
+
   defp handle_produce_request(request, node_selector, state) do
     # Produce requests should only retry on leadership errors to avoid duplicates.
     # Timeout errors are NOT safe to retry because the message may have been written
@@ -891,7 +927,9 @@ defmodule KafkaEx.Client do
   end
 
   defp build_transport_error(reason) when is_atom(reason), do: Error.build(reason, %{})
-  defp build_transport_error(reason), do: Error.build(:unknown, %{transport_reason: reason})
+  # A non-atom reason (SSL {:tls_alert, _}) would collapse to :unknown, which the fetch loop treats
+  # as fatal; tag it retryable instead.
+  defp build_transport_error(reason), do: Error.build(:transport_error, %{transport_reason: reason})
 
   defp handle_request_error(%RequestContext{} = ctx, state, retry_count, error) do
     request_name = ctx.request.__struct__
@@ -1089,14 +1127,26 @@ defmodule KafkaEx.Client do
         updated_state = state_updater.(state)
 
         case State.select_broker(updated_state, selector) do
-          {:error, _} -> {nil, updated_state}
-          {:ok, broker} -> ensure_broker_connected(broker, updated_state)
+          {:error, reason} ->
+            # Debug, not warning: the consumer's fetch loop retries this lookup and owns the throttled log.
+            Logger.debug("No broker for #{describe_selector(selector)} after metadata refresh: #{inspect(reason)}")
+
+            {nil, updated_state}
+
+          {:ok, broker} ->
+            ensure_broker_connected(broker, updated_state)
         end
 
       {:ok, broker} ->
         ensure_broker_connected(broker, state)
     end
   end
+
+  defp describe_selector(%NodeSelector{strategy: :topic_partition, topic: topic, partition: partition}),
+    do: "#{topic}/#{partition}"
+
+  defp describe_selector(%NodeSelector{strategy: :consumer_group, consumer_group_name: group}),
+    do: "consumer group #{group}"
 
   # Ensures broker is connected, reconnecting if necessary.
   # Returns {broker, updated_state} where broker may have a new socket,
@@ -1329,6 +1379,9 @@ defmodule KafkaEx.Client do
         {{:error, reason}, broker} ->
           {{:error, reason}, 0, broker_to_telemetry_info(broker)}
 
+        {:ok, broker} ->
+          {{:ok, :no_response}, 0, broker_to_telemetry_info(broker)}
+
         {data, broker} when synchronous ->
           {deserialize(data, client_request), byte_size(data), broker_to_telemetry_info(broker)}
 
@@ -1442,10 +1495,10 @@ defmodule KafkaEx.Client do
     {topic_metadata, %{updated_state | allow_auto_topic_creation: allow_auto_topic_creation}}
   end
 
-  defp close_broker_by_socket(state, socket, reason \\ :remote_closed) do
+  defp close_broker_by_socket(state, socket, reason \\ :remote_closed, detail \\ nil) do
     State.update_brokers(state, fn broker ->
       if Broker.has_socket?(broker, socket) do
-        Logger.debug("#{Broker.to_string(broker)} closed connection")
+        log_connection_close(broker, detail)
         # Socket is already closed (received :tcp_closed/:ssl_closed), just emit telemetry
         NetworkClient.close_socket(broker, socket, reason)
         Broker.put_socket(broker, nil)
@@ -1454,4 +1507,9 @@ defmodule KafkaEx.Client do
       end
     end)
   end
+
+  defp log_connection_close(broker, nil), do: Logger.debug("#{Broker.to_string(broker)} closed connection")
+
+  defp log_connection_close(broker, detail),
+    do: Logger.warning("#{Broker.to_string(broker)} closed connection: #{inspect(detail)}")
 end

@@ -188,6 +188,11 @@ defmodule KafkaEx.Support.RetryTest do
       assert Retry.transient_error?(:no_broker)
     end
 
+    test "transport_error (normalised non-atom socket reason) is transient" do
+      assert Retry.transient_error?(:transport_error)
+      assert Retry.fetch_retryable?(:transport_error)
+    end
+
     test "coordinator errors are transient" do
       assert Retry.transient_error?(:coordinator_not_available)
       assert Retry.transient_error?(:not_coordinator)
@@ -421,6 +426,13 @@ defmodule KafkaEx.Support.RetryTest do
       assert Retry.heartbeat_retryable?(:request_timed_out)
       assert Retry.heartbeat_retryable?(:unknown)
       assert Retry.heartbeat_retryable?(:coordinator_not_available)
+    end
+  end
+
+  describe "backoff_delay/3 with an unbounded retry loop" do
+    test "stays at the cap instead of overflowing the exponent" do
+      assert Retry.backoff_delay(2000, 500, 5000) == 5000
+      assert Retry.backoff_delay_jittered(2000, 500, 5000) <= 5000
     end
   end
 end

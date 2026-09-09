@@ -194,6 +194,14 @@ defmodule KafkaEx.Telemetry do
     * Measurements: `%{offset: integer()}`
     * Metadata: `%{group_id: binary(), topic: binary(), partition: integer(), reset: :earliest | :latest, reason: :no_committed_offset | :offset_out_of_range}`
 
+  * `[:kafka_ex, :consumer, :partition_unavailable]` - Emitted once when a partition has been
+    continuously unavailable to a consumer for longer than `:fetch_unavailable_warn_ms` (default
+    30s). The consumer keeps retrying regardless; this only flags a partition that is not
+    recovering (a persistently missing topic, a leader that never returns). Attach to alert on a
+    stuck partition without waiting for a human to read the logs.
+    * Measurements: `%{unavailable_ms: non_neg_integer()}`
+    * Metadata: `%{group_id: binary(), topic: binary(), partition: non_neg_integer(), reason: atom()}`
+
   ### Metadata Events
 
   * `[:kafka_ex, :metadata, :update, :start]` - Emitted when a metadata request begins
@@ -274,6 +282,7 @@ defmodule KafkaEx.Telemetry do
   @consumer_rebalance [:kafka_ex, :consumer, :rebalance]
   @consumer_commit_failed [:kafka_ex, :consumer, :commit_failed]
   @consumer_offset_reset [:kafka_ex, :consumer, :offset_reset]
+  @consumer_partition_unavailable [:kafka_ex, :consumer, :partition_unavailable]
 
   @metadata_update_start [:kafka_ex, :metadata, :update, :start]
   @metadata_update_stop [:kafka_ex, :metadata, :update, :stop]
@@ -297,7 +306,12 @@ defmodule KafkaEx.Telemetry do
                            @consumer_sync_events ++
                            @consumer_heartbeat_events ++
                            @consumer_leave_events ++
-                           [@consumer_rebalance, @consumer_commit_failed, @consumer_offset_reset]
+                           [
+                             @consumer_rebalance,
+                             @consumer_commit_failed,
+                             @consumer_offset_reset,
+                             @consumer_partition_unavailable
+                           ]
   @consumer_process_events [@consumer_process_start, @consumer_process_stop, @consumer_process_exception]
   @consumer_events @consumer_commit_events ++ @consumer_group_events ++ @consumer_process_events
   @metadata_events [@metadata_update_start, @metadata_update_stop, @metadata_update_exception]
@@ -539,6 +553,27 @@ defmodule KafkaEx.Telemetry do
         reset: reset,
         reason: reason
       }
+    )
+  end
+
+  @doc """
+  Emitted once when a partition has been continuously unavailable to a consumer for longer than
+  `:fetch_unavailable_warn_ms` (default 30s). The consumer keeps retrying — this only surfaces a
+  partition that is not recovering (a persistently missing topic, a leader that never returns).
+  `unavailable_ms` is how long the failure streak had lasted; `reason` is the last fetch error.
+  """
+  @spec emit_partition_unavailable(
+          group_id :: binary(),
+          topic :: binary(),
+          partition :: non_neg_integer(),
+          unavailable_ms :: non_neg_integer(),
+          reason :: atom()
+        ) :: :ok
+  def emit_partition_unavailable(group_id, topic, partition, unavailable_ms, reason) do
+    :telemetry.execute(
+      @consumer_partition_unavailable,
+      %{unavailable_ms: unavailable_ms},
+      %{group_id: group_id, topic: topic, partition: partition, reason: reason}
     )
   end
 

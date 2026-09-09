@@ -134,6 +134,10 @@ defmodule KafkaEx.Test.MockClient do
     {:reply, Enum.reverse(state.calls), state}
   end
 
+  def handle_call({:put_response, operation, response}, _from, state) do
+    {:reply, :ok, %{state | responses: Map.put(state.responses, operation, response)}}
+  end
+
   defp record_call(state, call) do
     %{state | calls: [call | state.calls]}
   end
@@ -142,6 +146,11 @@ defmodule KafkaEx.Test.MockClient do
   Returns the list of calls made to the mock client in order.
   """
   def get_calls(pid), do: GenServer.call(pid, :get_calls)
+
+  @doc """
+  Swaps the canned reply for one operation, so a test can script recovery.
+  """
+  def put_response(pid, operation, response), do: GenServer.call(pid, {:put_response, operation, response})
 
   @doc """
   Polls until at least `expected_count` calls have been recorded, then returns them.
