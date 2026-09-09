@@ -170,7 +170,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseTest do
       refute cluster_metadata.topics["bad-topic"]
     end
 
-    test "filters out partitions with errors" do
+    test "keeps a partition whose leader is moving, and drops a fatal one" do
       response = %V0.Response{
         brokers: [
           %{node_id: 1, host: "broker1.example.com", port: 9092}
@@ -181,7 +181,8 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseTest do
             name: "test-topic",
             partitions: [
               %{error_code: 0, partition_index: 0, leader_id: 1, replica_nodes: [1], isr_nodes: [1]},
-              %{error_code: 5, partition_index: 1, leader_id: -1, replica_nodes: [], isr_nodes: []}
+              %{error_code: 5, partition_index: 1, leader_id: -1, replica_nodes: [], isr_nodes: []},
+              %{error_code: 29, partition_index: 2, leader_id: -1, replica_nodes: [], isr_nodes: []}
             ]
           }
         ]
@@ -190,8 +191,8 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseTest do
       {:ok, cluster_metadata} = MetadataResponse.parse_response(response)
 
       topic = cluster_metadata.topics["test-topic"]
-      assert length(topic.partitions) == 1
-      assert Enum.at(topic.partitions, 0).partition_id == 0
+      assert Enum.map(topic.partitions, & &1.partition_id) == [0, 1]
+      assert topic.partition_leaders == %{0 => 1, 1 => -1}
     end
   end
 

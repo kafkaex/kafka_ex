@@ -18,6 +18,14 @@
   `base_offset: nil`. A failed async send closes the socket, and the client now handles
   `{:tcp_error}` / `{:ssl_error}` plus a catch-all `handle_info/2` instead of crashing on an
   unmatched message.
+* **A key could silently change partition during a leader move.** Metadata parsing dropped every
+  partition the broker reported with an error, shrinking the count the default partitioner keys
+  off — so the same key could land on a different partition. Partitions carrying a leader-move
+  error are now retained with the reported leader (`-1` = leader unknown),
+  `ClusterMetadata.select_node/2` answers `{:error, :leader_not_available}` for them, and
+  `PartitionInfo` carries the broker's `error_code`.
+* **`:no_broker` says why in the log.** Unknown topic vs. leaderless partition vs. unknown node are
+  now distinguished (logged at debug); the returned error is unchanged.
 
 ## 1.1.1 (2026-07-24)
 
