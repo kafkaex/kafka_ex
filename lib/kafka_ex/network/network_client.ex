@@ -102,7 +102,9 @@ defmodule KafkaEx.Network.NetworkClient do
       {_, reason} ->
         broker_str = inspect_broker(broker.host, broker.port)
         Logger.error("Asynchronously sending data to broker #{broker_str} failed with #{inspect(reason)}")
-        reason
+        # A self-close is silent (no {:tcp_closed} to the owner), so emit the close event here.
+        close_socket(broker, socket, :send_error)
+        {:error, reason}
     end
   end
 

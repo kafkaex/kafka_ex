@@ -1,5 +1,24 @@
 # KafkaEx Changelog
 
+## 1.1.2 (unreleased)
+
+### Changed (Breaking)
+
+* **`acks` / `required_acks` now reaches the broker.** Since 1.0 every produce ran at `acks: -1`
+  regardless of the option. `required_acks: 1` now means leader-only and `required_acks: 0` means
+  fire-and-forget (records can be lost, `base_offset: nil`). Pass `acks: -1` to keep the old
+  behaviour. `:acks` is canonical; `:required_acks` is a deprecated alias (removed in 2.0).
+
+### Fixed
+
+* **The `acks` option is honoured again (regression since 1.0).** Resolved once to the wire;
+  invalid values are rejected with `{:error, :invalid_acks}` instead of crashing Kayrock's int16
+  encoder; `:all` / `:any` map to `-1`.
+* **`acks: 0` fire-and-forget works.** Sent asynchronously, never retried, returns
+  `base_offset: nil`. A failed async send closes the socket, and the client now handles
+  `{:tcp_error}` / `{:ssl_error}` plus a catch-all `handle_info/2` instead of crashing on an
+  unmatched message.
+
 ## 1.1.1 (2026-07-24)
 
 ### Fixed

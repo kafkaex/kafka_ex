@@ -17,22 +17,56 @@ defmodule KafkaEx.Integration.Produce.ReliabilityTest do
   end
 
   describe "produce with different acks settings" do
-    test "produce with acks=0 (fire and forget) succeeds", %{client: client} do
+    test "produce with acks=0 (fire and forget) returns no offset", %{client: client} do
       topic_name = generate_random_string()
       _ = create_topic(client, topic_name)
 
+      # A fire-and-forget batch is dropped without a trace while the partition leader is still
+      # being elected, so establish the leader with an acknowledged produce first.
+      {:ok, %RecordMetadata{base_offset: base_offset}} =
+        API.produce(client, topic_name, 0, [%{value: "leader-warmup"}], acks: -1)
+
       messages = [%{value: "acks-0-message"}]
 
-      {:ok, result} = API.produce(client, topic_name, 0, messages, required_acks: 0)
+      {:ok, result} = API.produce(client, topic_name, 0, messages, acks: 0)
+      {:ok, _} = API.produce(client, topic_name, 0, messages, acks: 0)
 
       assert %RecordMetadata{} = result
       assert result.topic == topic_name
       assert result.partition == 0
+      assert result.base_offset == nil
 
-      # Wait for message to arrive and verify via fetch
-      Process.sleep(500)
-      {:ok, latest} = API.latest_offset(client, topic_name, 0)
-      assert latest >= 1
+      # Two async sends followed by a synchronous request on the same socket: proves the
+      # response-less produce leaves no bytes behind to desynchronise the next request.
+      wait_for(
+        fn ->
+          {:ok, latest} = API.latest_offset(client, topic_name, 0)
+          latest >= base_offset + 3
+        end,
+        200,
+        25
+      )
+    end
+
+    test "produce with the deprecated required_acks: 0 alias still fires and forgets", %{client: client} do
+      topic_name = generate_random_string()
+      _ = create_topic(client, topic_name)
+
+      {:ok, %RecordMetadata{base_offset: base_offset}} =
+        API.produce(client, topic_name, 0, [%{value: "leader-warmup"}], acks: -1)
+
+      {:ok, result} = API.produce(client, topic_name, 0, [%{value: "alias-message"}], required_acks: 0)
+
+      assert %RecordMetadata{base_offset: nil} = result
+
+      wait_for(
+        fn ->
+          {:ok, latest} = API.latest_offset(client, topic_name, 0)
+          latest >= base_offset + 2
+        end,
+        200,
+        25
+      )
     end
 
     test "produce with acks=1 (leader only) succeeds", %{client: client} do

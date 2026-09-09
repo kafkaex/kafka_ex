@@ -11,7 +11,8 @@ defmodule KafkaEx.Messages.RecordMetadata do
 
     * `:topic` - The topic the messages were produced to
     * `:partition` - The partition the messages were produced to
-    * `:base_offset` - The offset assigned to the first message in the batch
+    * `:base_offset` - The offset assigned to the first message in the batch; `nil` when
+      produced with `acks: 0`, where the broker sends no response
     * `:log_append_time` - The timestamp assigned by the broker (v2+, -1 if not available)
     * `:log_start_offset` - The start offset of the log (v5+)
     * `:throttle_time_ms` - Time in ms the request was throttled (v3+)
@@ -29,7 +30,7 @@ defmodule KafkaEx.Messages.RecordMetadata do
   @type t :: %__MODULE__{
           topic: String.t(),
           partition: non_neg_integer(),
-          base_offset: non_neg_integer(),
+          base_offset: non_neg_integer() | nil,
           log_append_time: integer() | nil,
           log_start_offset: non_neg_integer() | nil,
           throttle_time_ms: non_neg_integer() | nil
@@ -42,7 +43,7 @@ defmodule KafkaEx.Messages.RecordMetadata do
 
     * `:topic` - (required) The topic name
     * `:partition` - (required) The partition number
-    * `:base_offset` - (required) The base offset assigned to the batch
+    * `:base_offset` - (required) The base offset assigned to the batch, `nil` for `acks: 0`
     * `:log_append_time` - The broker-assigned timestamp (-1 if not using LogAppendTime)
     * `:log_start_offset` - The log start offset (v5+)
     * `:throttle_time_ms` - Request throttle time in milliseconds (v3+)
@@ -64,7 +65,7 @@ defmodule KafkaEx.Messages.RecordMetadata do
 
   This is an alias for `base_offset` to match Java API.
   """
-  @spec offset(t()) :: non_neg_integer()
+  @spec offset(t()) :: non_neg_integer() | nil
   def offset(%__MODULE__{base_offset: offset}), do: offset
 
   @doc """

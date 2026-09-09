@@ -810,8 +810,17 @@ defmodule KafkaEx.API do
     * `messages` - List of message maps with `:value`, optional `:key`, `:timestamp`, `:headers`
     * `opts` - Options including:
       * `:api_version` - API version to use. If omitted, resolved via `:api_versions` app-config or broker-negotiated max (`min(broker_max, kayrock_max)`). See CHANGELOG § 3-tier API version resolution.
-      * `:required_acks` - Number of acks required (default: 1)
-      * `:timeout` - Request timeout
+      * `:acks` - Acknowledgements required: `-1` (default) all in-sync replicas, `1` leader only,
+        `0` fire-and-forget. `:all` / `:any` (the Java/librdkafka spelling) are accepted as `-1`.
+        Any other value is rejected with `{:error, :invalid_acks}`.
+        With `0` the broker sends no response at all, so `{:ok, _}` means only that the batch was
+        handed to the socket, the call is never retried, the returned `RecordMetadata` has
+        `base_offset: nil`, and a broker-side rejection (stale leader, oversized batch) arrives as
+        a closed connection — records produced before the client notices are lost.
+      * `:required_acks` - Deprecated alias for `:acks`, honoured only when `:acks` is absent.
+        Will be removed in 2.0.
+      * `:timeout` - How long the broker waits for the required acknowledgements, in ms
+        (default 5000). Only has an effect with `acks: -1`.
       * `:partitioner` - Custom partitioner module (default: configured or `KafkaEx.Producer.Partitioner.Default`)
 
   ## Partitioning
