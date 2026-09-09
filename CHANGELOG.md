@@ -1,6 +1,6 @@
 # KafkaEx Changelog
 
-## 1.1.2 (unreleased)
+## 1.1.2 (2026-09-09)
 
 ### Changed (Breaking)
 
