@@ -226,6 +226,11 @@ defmodule KafkaEx.Support.RetryTest do
       assert Retry.transient_error?(:not_connected)
     end
 
+    test "transport_error (normalised non-atom socket reason) is transient" do
+      assert Retry.transient_error?(:transport_error)
+      assert Retry.fetch_retryable?(:transport_error)
+    end
+
     test "coordinator errors are transient" do
       assert Retry.transient_error?(:coordinator_not_available)
       assert Retry.transient_error?(:not_coordinator)
@@ -536,6 +541,13 @@ defmodule KafkaEx.Support.RetryTest do
     test "does not rejoin on terminal errors" do
       refute Retry.sync_rejoinable?(:fenced_instance_id)
       refute Retry.sync_rejoinable?(:group_authorization_failed)
+    end
+  end
+
+  describe "backoff_delay/3 with an unbounded retry loop" do
+    test "stays at the cap instead of overflowing the exponent" do
+      assert Retry.backoff_delay(2000, 500, 5000) == 5000
+      assert Retry.backoff_delay_jittered(2000, 500, 5000) <= 5000
     end
   end
 end
