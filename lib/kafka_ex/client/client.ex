@@ -1022,6 +1022,7 @@ defmodule KafkaEx.Client do
 
   defp extract_error_atom(%Error{error: error}), do: error
   defp extract_error_atom(error) when is_atom(error), do: error
+  defp extract_error_atom({_group_id, error}) when is_atom(error), do: error
   defp extract_error_atom(_), do: :unknown
 
   defp refresh_for_error(error_atom, ctx, state) do
