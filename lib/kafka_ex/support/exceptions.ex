@@ -43,8 +43,9 @@ defmodule KafkaEx.JoinGroupRetriesExhaustedError do
   @moduledoc """
   Raised when joining a consumer group fails after exhausting all retry attempts.
 
-  This indicates repeated transient failures (coordinator unavailable, timeouts, etc.)
-  that didn't resolve within the retry window.
+  No longer raised: a recoverable JoinGroup error now retries until it clears,
+  since a coordinator move is transient and giving up costs a full group restart.
+  Kept because it is public API.
   """
   defexception [:message, :group_name, :last_error, :attempts]
 
@@ -81,7 +82,7 @@ defmodule KafkaEx.SyncGroupRetriesExhaustedError do
   Indicates repeated recoverable SyncGroup failures (coordinator errors,
   timeouts, etc.) during rebalance churn that didn't resolve within the retry
   window. Distinct from `KafkaEx.SyncGroupError`, which is raised immediately for
-  a non-recoverable sync failure. Mirrors `KafkaEx.JoinGroupRetriesExhaustedError`.
+  a non-recoverable sync failure.
   """
   defexception [:message, :group_name, :last_error, :attempts]
 
