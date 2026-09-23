@@ -83,6 +83,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerAbnormalExitTest do
       session_timeout: 1000,
       session_timeout_padding: 0,
       rebalance_timeout: 1000,
+      join_retry_base_delay_ms: 5,
+      join_retry_max_delay_ms: 5,
       heartbeat_timer: timer
     }
 
@@ -131,6 +133,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerAbnormalExitTest do
       session_timeout: 1000,
       session_timeout_padding: 0,
       rebalance_timeout: 1000,
+      join_retry_base_delay_ms: 5,
+      join_retry_max_delay_ms: 5,
       heartbeat_timer: timer
     }
 

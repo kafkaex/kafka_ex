@@ -70,7 +70,7 @@ defmodule KafkaEx.Client do
   # JoinGroup/SyncGroup are sent send-once at the client (one attempt, no
   # transport-level socket retry): the broker legitimately holds these responses
   # for the rebalance/session window, so retrying the same socket is pointless,
-  # and ConsumerGroup.Manager owns rejoin (@max_join_retries / @max_sync_retries).
+  # and ConsumerGroup.Manager owns rejoin, retrying recoverable errors until they clear.
   # Matches Java/kafka-python/librdkafka/brod, which all send-once + rejoin higher up.
   @coordinator_max_attempts 1
   @reconnect_max_retries 3
