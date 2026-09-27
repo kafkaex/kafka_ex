@@ -35,8 +35,9 @@ group.
 
 We propose to split that process into a small tree. The **front** (`KafkaEx.Client`, same name, same
 pid callers hold today) only routes and retries. A per-client **`MetadataStore`** owns metadata and
-coordinator discovery and serves reads from ETS. Per-broker, per-role **`Connection`** processes each
-own one socket, are event-driven, and block only themselves. Every client owns its own tree; nothing
+coordinator discovery and serves reads from ETS. **`Connection`** processes each own one socket, are
+event-driven, and block only themselves: one per broker and role, plus one per consumed partition
+for fetch, so a long-poll never queues anything behind it. Every client owns its own tree; nothing
 is shared between clients.
 
 **What stays the same.** Every public function, option and return shape. `KafkaEx.Client` stays the
@@ -53,7 +54,7 @@ and says so in telemetry. Three introspection functions keep their shapes but sh
 (`cluster_metadata/1`'s brokers no longer carry a socket, `correlation_id/1` counts admitted
 requests, `api_versions/2` reports the metadata connection's negotiation); §4.1 has the details.
 
-**What this costs.** The three things a reviewer is really being asked to accept:
+**What this costs.** The four things a reviewer is really being asked to accept:
 
 1. **Request ordering weakens from global to per-caller.** Permanent. Two processes committing offsets
    for the same partition can now interleave. `GenConsumer` and `Stream` are unaffected because each
@@ -65,6 +66,9 @@ requests, `api_versions/2` reports the metadata connection's negotiation); §4.1
 3. **A per-request cost that did not exist before.** Every request now crosses a process boundary and
    reads its target out of ETS, which copies. Single-caller latency is expected to regress slightly;
    the 100-caller case is where the win has to show.
+4. **Sockets scale with consumed partitions.** Each consumed partition fetches over its own
+   connection, with its own handshake (D1). About even with today for an unshared consumer, more for
+   a shared client consuming many partitions.
 
 Before and after, in one picture:
 
@@ -79,10 +83,12 @@ flowchart LR
         F["KafkaEx.Client — front<br/>routing + retry, never blocks"]
         S["MetadataStore<br/>metadata + coordinator discovery, in ETS"]
         CA["Connection {A, :data}"]
+        CF["Connection {A, fetch orders/0}"]
         CB["Connection {B, :data}"]
         CC["Connection {B, :coordinator}"]
         F -. "lock-free ETS read" .-> S
         F --> CA --> A2(("broker A"))
+        F --> CF --> A2
         F --> CB --> B2(("broker B"))
         F --> CC --> B2
     end
@@ -144,8 +150,10 @@ In priority order, because they conflict at the margin. Each says how we will kn
    point. Met when a `fetch` with a long `wait_time` no longer delays an unrelated `metadata` call on
    the same client (a test). Also met when a broker that accepts TCP but never replies stops affecting
    other brokers while the group `Heartbeat` keeps being served (the chaos suite already has the fault
-   injection for this). What this goal does not promise: requests to the *same* broker over the
-   *same* socket still queue at the broker (D1).
+   injection for this). Also met when a produce to, or a fetch of another partition from, the same
+   broker is not delayed by that long-poll. A fetch shares its socket only with other fetches of the
+   same partition (D1); what still shares one is the short traffic on a broker's `:data` socket, such
+   as produce and `list_offsets`, which the broker works through one at a time.
 2. **Metadata must stay correct under load.** Reads never queue behind socket I/O, and a concurrent
    refresh cannot hand a produce a stale leader. Met when a produce can no longer observe a snapshot
    mid-replacement, which a test drives with a concurrent produce and refresh on one topic.
@@ -164,7 +172,9 @@ Each of these is a plausible next step. Leaving them out is what keeps approval 
 - **No breaking public API change.** Nothing is removed or renamed; the only additions are the rollback
   option and two telemetry events. An async request primitive, pause/resume, a rebalance listener —
   those are separate proposals (§4.8).
-- **No process-per-topic-partition data plane.** We split per broker × role and stop there.
+- **No producer or consumer process per partition** (brod's `brod_producer` / `brod_consumer`). A
+  fetch *connection* per consumed partition is in (D1); the processes that drive it stay
+  `GenConsumer` and `Stream`.
 - **No cross-client sharing of metadata or connections** (D2).
 - **No incremental fetch sessions (KIP-227), no idempotent or transactional producer, no cooperative
   rebalancing.** We must not foreclose them, which is cheaper than building them.
@@ -271,9 +281,9 @@ The model is a **control plane / data plane** split:
 
 - **Control plane** — the front `KafkaEx.Client` (routing + retry, one per user client) and its
   `MetadataStore` (metadata + coordinator discovery).
-- **Data plane** — per-broker, per-role `Connection` processes. Each owns exactly one socket and its
-  own `correlation_id` space, is event-driven (`{active, once}`, never a blocking `recv`), and blocks
-  only itself.
+- **Data plane** — `Connection` processes: one per broker and role, plus one per consumed partition
+  for fetch. Each owns exactly one socket and its own `correlation_id` space, is event-driven
+  (`{active, once}`, never a blocking `recv`), and blocks only itself.
 
 Infrastructure is **per client**. Two clients with identical credentials to the same cluster never
 share a socket or a metadata refresh.
@@ -286,7 +296,8 @@ caller under a `ref`, and stays free to serve heartbeats, refreshes and requests
 **What approval commits to.** The numbered decision blocks D1–D26 below are normative. The prose and
 diagrams around them explain the mechanism so the design can be checked for soundness; they are not
 commitments. Left to code review on purpose: the exact timer and backoff constants (connect window,
-reconnect backoff, the liveness bound, the retry budget) and the ETS snapshot representation.
+reconnect backoff, the liveness bound, the fetch-connection idle timeout, the retry budget) and the
+ETS snapshot representation.
 
 Edge styles in the diagram: thick `⇒` = link / supervision (lifetime-coupled), dotted `⇢` = monitor or
 lock-free use (no lifetime coupling).
@@ -300,19 +311,22 @@ flowchart TD
     ISUP ==>|supervises| CONNSUP["ConnectionSupervisor<br/>DynamicSupervisor"]
     ISUP ==>|supervises| STORE["MetadataStore<br/>:gen_statem · :transient · owns ETS (single-writer)"]
     CONNSUP ==>|"supervises · :temporary"| CD["Connection :data<br/>:gen_statem · traps exits · closes socket in terminate · bounded shutdown"]
+    CONNSUP ==>|supervises| CF["Connection {:fetch, topic, partition}<br/>one per consumed partition · idles out"]
     CONNSUP ==>|supervises| CC["Connection :coordinator"]
     CONNSUP ==>|supervises| CM["Connection :metadata"]
     FRONT -. "read ETS (lock-free)" .-> STORE
     FRONT -. "route via" .-> REG
     FRONT -. "monitor (per in-flight dispatch)" .-> CD
+    FRONT -. "monitor (per in-flight dispatch)" .-> CF
     STORE -. "monitor + refresh via" .-> CM
     CD --> BK(("leader broker"))
+    CF --> BK
     CC --> BC(("group coordinator"))
 ```
 
 **Decisions at a glance.**
 
-- [D1. Split per broker and per role, not per partition](#d1-split-per-broker-and-per-role-not-per-partition)
+- [D1. Split per broker and per role, with a fetch connection per partition](#d1-split-per-broker-and-per-role-with-a-fetch-connection-per-partition)
 - [D2. Infrastructure is per client, nothing is shared](#d2-infrastructure-is-per-client-nothing-is-shared)
 - [D3. The front stays a plain GenServer and the pid callers hold](#d3-the-front-stays-a-plain-genserver-and-the-pid-callers-hold)
 - [D4. Telemetry splits by what a span measures](#d4-telemetry-splits-by-what-a-span-measures)
@@ -324,7 +338,7 @@ flowchart TD
 - [D10. acks 0 completes on write and is never retried](#d10-acks-0-completes-on-write-and-is-never-retried)
 - [D11. Retry decisions are a pure function](#d11-retry-decisions-are-a-pure-function)
 - [D12. One multiplexed connection per node and role, not a pool](#d12-one-multiplexed-connection-per-node-and-role-not-a-pool)
-- [D13. Three roles: data, coordinator, metadata](#d13-three-roles-data-coordinator-metadata)
+- [D13. Four connection kinds: data, fetch, coordinator, metadata](#d13-four-connection-kinds-data-fetch-coordinator-metadata)
 - [D14. A Connection is a state machine with real protocol states](#d14-a-connection-is-a-state-machine-with-real-protocol-states)
 - [D15. The error atom says whether the bytes were written](#d15-the-error-atom-says-whether-the-bytes-were-written)
 - [D16. Data connections are created lazily](#d16-data-connections-are-created-lazily)
@@ -384,7 +398,9 @@ internal and hangs off the front's own `Infra.Supervisor`.
   since wire correlation ids are per `Connection` now. `api_versions/2` returns the versions the
   client's `:metadata` connection negotiated; per-request `api_version` opts and the `:api_versions`
   config still take precedence, as today.
-- Telemetry event names and measurements are unchanged. Transport events change emitting pid (D4).
+- Telemetry event names and measurements are unchanged. Transport events change emitting pid (D4),
+  and event volume changes: fetch connections open lazily and close when idle, so `:connection` /
+  `:connection.close` fire per consumed partition and on every idle close or leader move.
 - The front stays the failure unit `ConsumerGroup` supervision monitors. `MetadataStore`,
   `Connection`, `Infra.Supervisor` and the `Registry` are never addressed by callers.
 - Application boot and `disable_default_worker` are unchanged (D25).
@@ -412,27 +428,38 @@ snapshot, keeps retrying one level below with backoff, and marks the transition 
 `[:kafka_ex, :metadata_store, :degraded]` / `:recovered`. Anyone who relied on the crash to notice
 an unreachable cluster should watch those events.
 
-#### D1. Split per broker and per role, not per partition
+#### D1. Split per broker and per role, with a fetch connection per partition
 
-- **What:** the data plane is one `Connection` per `{host, port, role}`, with
-  `role ∈ {:data, :coordinator, :metadata}`. No producer or consumer process per partition.
-- **Why:** every failure in §2 is "one broker blocks everything". Isolating brokers from each other,
-  and coordinator / metadata traffic from data traffic on the same broker, removes them. A
-  per-partition process model would fix the same failures at far higher supervision cost, and it
-  fights KafkaEx's deliberately centralised design.
-- **Others:** brod runs `brod_producer` / `brod_consumer` per partition on top of per-connection
-  processes; Java and librdkafka do not (they work per broker). We take the per-broker × role split all
-  three share and skip brod's per-partition layer.
-- **Risk:** the broker processes requests on one connection one at a time (it mutes the channel until
-  the response has gone out), so a `{broker, :data}` socket is a queue. Isolation is across brokers
-  and across roles, not within one socket: a long-poll fetch (10 s by default) delays every other data
-  request to that broker from the same client, including a produce, a `list_offsets`, or another
-  partition's fetch, and a fetch queued behind a sibling's long-poll can run into its own
-  `max_wait_time + 5_000` budget. Today's default setup, one client per `GenConsumer`, never shares a
-  socket and sees none of this; a group that shares a `:client` does, and is still strictly better
-  off than today's single mailbox. A dedicated fetch connection is an open question in §4.7.
-- **Trade-off:** KafkaEx moves from "one process does it all" to a small tree. We bound that at
-  per-broker × role plus a per-client store: fewer processes than brod, more than today.
+- **What:** the data plane is one `Connection` per `{host, port, role}`, where `role` is `:data`,
+  `:coordinator`, `:metadata`, or `{:fetch, topic, partition}`. Every consumed partition fetches over
+  its own connection to its leader, created on the first fetch and closed after an idle period
+  without one. Produce and the other short requests share the broker's `:data` connection. No
+  producer or consumer *process* per partition.
+- **Why:** every failure in §2 is "one broker blocks everything", and the broker itself processes
+  one request per connection at a time (it mutes the channel until the response has gone out).
+  Isolating brokers and roles from each other removes the cross-broker failures. Giving each
+  partition's long-poll its own socket removes the last place a 10 s wait could queue someone else:
+  a produce, a `list_offsets`, or another partition's fetch to the same broker. Short requests can
+  share a socket because nothing on it waits.
+- **Others:** brod's default (`share_leader_conn: false`) gives each consumer and producer its own
+  connection to the leader, for the same reason and with the same 10 s `max_wait_time`. Java and
+  librdkafka keep one connection per broker but avoid the problem differently: one fetch per broker
+  covering all its partitions, 500 ms waits, and separate producer and consumer instances with
+  separate connections. KafkaEx fetches per partition with 10 s waits, so brod's answer is the one
+  that fits. We do not copy brod's per-partition *producer* connection: a produce does not long-poll,
+  and D9 orders it in the front.
+- **Risk:** sockets per client grow from one per broker to roughly one per consumed partition plus
+  one per `{broker, role}` in use: about even with today for an unshared `GenConsumer` client, more
+  for a shared `:client` consuming many partitions, and a broker leading many of them sees that many
+  connections from one client. Every fetch connection pays its own TCP / TLS, SASL and ApiVersions
+  handshake, so authentication load on the client, the token provider and the broker scales with
+  consumed partitions and with leader churn. And the connection is keyed per partition, not per
+  caller: concurrent fetches of one partition within a client, or a fetch issued after an abandoned
+  long-poll, still queue behind each other at the broker. The isolation is between partitions, not
+  between callers of the same partition.
+- **Trade-off:** KafkaEx moves from "one process does it all" to a small tree that scales with
+  consumed partitions. We stop there: no per-partition processes, and a per-client store rather than
+  per-partition state.
 
 #### D2. Infrastructure is per client, nothing is shared
 
@@ -492,7 +519,8 @@ its absolute deadline (D7).
 Phases:
 
 - `:resolving` — pick the target from the store's ETS (lock-free): the partition leader for
-  `:topic_partition`, the coordinator for `:consumer_group`, the controller for `:controller`, the
+  `:topic_partition` (a fetch goes to that partition's own connection, anything else to the leader's
+  `:data` one, D1), the coordinator for `:consumer_group`, the controller for `:controller`, the
   named broker for `:node_id`, any broker in the snapshot for `:first_available` / `:random`. Hit:
   dispatch to the `(node, role)` `Connection` and move to `:in_flight`. Miss: cast "refresh X" to the
   store and park in `:awaiting_metadata` / `:awaiting_coordinator`.
@@ -683,7 +711,8 @@ per-connection cap to the future async primitive that breaks the one-call-per-ca
 ### 4.3 Connections: the data plane
 
 A `Connection` is a `:gen_statem`, one per `{host, port, role}` within its client's subtree,
-registered in the client's `Registry` (SSL and auth are implied by the owning client). It owns one
+registered in the client's `Registry` (SSL and auth are implied by the owning client; for fetch the
+role carries the partition, `{:fetch, topic, partition}`, D1). It owns one
 socket in `{active, once}`, keeps a `correlation_id → caller` map so several requests can be in
 flight at once, and reports each result to the front as `{:done, ref, result}`.
 
@@ -693,7 +722,8 @@ It also does all the protocol work for its socket. The front hands it `{op, args
 `correlation_id`, serialises, sends, deserialises and decompresses the reply and runs
 `ResponseParser`. So the front receives `{:done, ref, {:ok, %Messages.*{}} | {:error, reason}}` and
 never touches a payload, which is what keeps a large fetch from delaying heartbeats. The decode cost
-lands on that socket's siblings instead, which is D1's per-broker isolation. `send_request/4` is the
+stays in the `Connection` that received it; for a fetch that is the partition's own connection, so it
+delays no other partition, produce or heartbeat (D1). `send_request/4` is the
 pass-through: the `Connection` takes the prebuilt Kayrock struct, stamps its id, serialises, and
 returns the deserialised response without `ResponseParser`, as today.
 
@@ -727,7 +757,8 @@ stateDiagram-v2
 
 The diagram in §4 shows roles, not counts. Instantiated for a 3-broker cluster (`b1` / `b2` / `b3`),
 one topic `orders` whose partitions `p0` / `p1` / `p2` lead on `b1` / `b2` / `b3`, a consumer group
-whose coordinator is `b2`, and a client consuming all three partitions:
+whose coordinator is `b2`, and a client consuming all three partitions from committed offsets (so no
+`list_offsets` is sent) and producing to `p1`:
 
 ```mermaid
 flowchart TD
@@ -738,32 +769,36 @@ flowchart TD
     ISUP ==> STORE["MetadataStore  (1)"]
     CONNSUP ==> M["Conn {b1, :metadata}"]
     CONNSUP ==> CO["Conn {b2, :coordinator}"]
-    CONNSUP ==> CD0["Conn {b1, :data} — fetch p0"]
-    CONNSUP ==> CD1["Conn {b2, :data} — fetch p1"]
-    CONNSUP ==> CD2["Conn {b3, :data} — fetch p2"]
+    CONNSUP ==> CF0["Conn {b1, fetch orders/0}"]
+    CONNSUP ==> CF1["Conn {b2, fetch orders/1}"]
+    CONNSUP ==> CD1["Conn {b2, :data} — produce p1"]
+    CONNSUP ==> CF2["Conn {b3, fetch orders/2}"]
     STORE -. monitor .-> M
     FRONT -. monitor .-> CO
-    FRONT -. monitor .-> CD0
+    FRONT -. monitor .-> CF0
+    FRONT -. monitor .-> CF1
     FRONT -. monitor .-> CD1
-    FRONT -. monitor .-> CD2
+    FRONT -. monitor .-> CF2
     M --> B1(("broker b1"))
-    CD0 --> B1
+    CF0 --> B1
     CO --> B2(("broker b2"))
+    CF1 --> B2
     CD1 --> B2
-    CD2 --> B3(("broker b3"))
+    CF2 --> B3(("broker b3"))
 ```
 
 The singletons (front, `Infra.Supervisor`, `Registry`, `MetadataStore`, `ConnectionSupervisor`) are
-one each regardless of broker count; only `Connection`s scale, one per `{broker, role}` in use. One
-physical broker can back several sockets under different roles: here `b1` carries `:metadata` and its
-`:data` socket, `b2` carries `:coordinator` and its `:data` socket. That role separation is D13's
-payoff.
+one each regardless of broker count; only `Connection`s scale: one per `{broker, role}` in use plus
+one per consumed partition. One physical broker can back several sockets: here `b1` carries
+`:metadata` and the fetch for `p0`, `b2` carries `:coordinator`, the fetch for `p1` and the `:data`
+socket the produce uses. That separation is D13's payoff.
 
 #### D12. One multiplexed connection per node and role, not a pool
 
 - **What:** every request to a given broker and role goes over one socket, with multiple requests in
   flight matched by a `correlation_id → caller` map. There is no pool of interchangeable sockets per
-  broker. A per-request timeout fails only that request: the `Connection` keeps the socket open and
+  broker; a fetch connection is one socket for one partition, not a pool either. A per-request
+  timeout fails only that request: the `Connection` keeps the socket open and
   keeps the abandoned `correlation_id` registered so the late reply is read off the socket and
   dropped (framing stays in sync; the front drops it anyway by fresh `ref`, D6). The socket is closed
   and reconnected only on a transport error, a TCP / SSL close, or a per-socket liveness bound:
@@ -772,38 +807,44 @@ payoff.
 - **Why:** Kafka multiplexes over one TCP connection via `correlation_id` and orders per connection.
   A pool multiplies file descriptors and broker-side connections for no throughput gain, and splitting
   one partition's produces across sockets would break ordering. The timeout rule follows from
-  sharing: today a recv timeout closes the socket, but on a shared socket a sibling's timeout will
-  routinely fire because a healthy long-poll is queued ahead of it (D1), and closing would turn one
-  slow request into a failure for every sibling, the long-poll included, and would fail a produce
-  sibling outright since produce never retries `:timeout`.
+  sharing: today a recv timeout closes the socket, but on a shared socket a sibling's timeout can
+  fire because a large response is queued ahead of it, and closing would turn one slow request into
+  a failure for every sibling, and would fail a produce sibling outright since produce never retries
+  `:timeout`.
 - **Others:** same as all three for several requests in flight over one socket (brod
   `kpro_sent_reqs`, Java `InFlightRequests`, librdkafka `rkb_waitresps`). brod and librdkafka match
   responses by `correlation_id` as we do; Java keeps a FIFO deque per node and uses the
   `correlation_id` only as a sanity check, relying on Kafka's per-connection response order.
-- **Risk:** the queueing described in D1: the broker works through one socket serially, so a
-  long-poll or a large response holds up its siblings. If that ever measures as the bottleneck, a
-  dedicated fetch connection (§4.7) or a small bounded `:data` pool (§4.8) is possible later, never
-  splitting one partition across sockets.
-- **Trade-off:** fewer sockets and simpler ordering, for no per-broker parallelism beyond in-flight
-  multiplexing. We add no per-connection in-flight cap yet: we rely on the caller-blocking invariant
+- **Risk:** the broker works through one socket serially, so on a `:data` socket a large response
+  holds up its siblings (long-polls have their own sockets, D1). If that ever measures as the
+  bottleneck, a small bounded `:data` pool (§4.8) is possible later, never splitting one partition
+  across sockets.
+- **Trade-off:** no pool on the `:data` socket and simpler ordering, for no parallelism for short
+  requests to one broker beyond in-flight multiplexing; long-poll parallelism comes from the
+  per-partition fetch connections (D1), not from a pool. We add no per-connection in-flight cap yet:
+  we rely on the caller-blocking invariant
   stated under Backpressure in §4.2, and Java's `max.in.flight.requests.per.connection` (default 5)
   exists mainly to bound reordering under retry, which D9 already covers.
 
-#### D13. Three roles: data, coordinator, metadata
+#### D13. Four connection kinds: data, fetch, coordinator, metadata
 
 - **What:** the group coordinator gets its own connection, separate from data traffic even to the
   same physical broker. Metadata refresh and `FindCoordinator` go over a dedicated `:metadata`
-  connection owned by the store.
-- **Why:** the dedicated coordinator connection is what removes the Heartbeat-vs-fetch head-of-line
-  coupling behind the black-holed-broker stall. The dedicated metadata connection keeps metadata
-  correctness independent of whatever the fetch path is doing.
+  connection owned by the store. Each consumed partition fetches over its own connection (D1).
+  Everything else, produce first of all, goes over the broker's `:data` connection.
+- **Why:** the dedicated coordinator connection keeps `Heartbeat` from queueing behind produce and
+  other `:data` traffic to the same broker, and, together with the per-partition fetch connection,
+  removes the Heartbeat-vs-fetch coupling behind the black-holed-broker stall. The dedicated metadata
+  connection keeps metadata correctness independent of the `:data` path. The per-partition fetch
+  connection keeps a long-poll from queueing anything else.
 - **Others:** coordinator on its own connection is in all three (brod says outright that the
   coordinator "has to be dedicated"; Java's `GroupCoordinatorNode` with the `+`-prefixed id;
   librdkafka's `rd_kafka_broker_add_logical`). A dedicated metadata connection is brod-only
-  (`meta_conn`); Java and librdkafka fetch metadata over any node. We follow brod because a socket is
-  cheap on the BEAM and it decouples metadata from the data path.
-- **Risk:** up to three sockets to one broker instead of one. On a large cluster with many clients
-  that is more broker-side connections. And the broker processes requests on the `:coordinator`
+  (`meta_conn`); Java and librdkafka fetch metadata over any node. A fetch connection per partition
+  is brod's default too (D1). We follow brod on both because a socket is cheap on the BEAM.
+- **Risk:** several sockets to one broker instead of one: `:data`, `:coordinator`, `:metadata`, and
+  one per consumed partition it leads. On a large cluster with many clients that is more broker-side
+  connections. And the broker processes requests on the `:coordinator`
   socket one at a time as well, so a JoinGroup or SyncGroup held for the rebalance timeout delays a
   heartbeat of *another* group served by the same client. Rare in practice, because the `Manager`
   always has its own client.
@@ -854,8 +895,17 @@ payoff.
 
 - **What:** at boot the store opens only its `:metadata` connection (needed for fail-fast). A
   `{broker, :data}` or `:coordinator` connection is created on the first request routed to it, through
-  the `ConnectionSupervisor`, and registered in the `Registry`. A dead `Connection` is recreated the
-  same way, on demand. A `Connection` whose broker has disappeared from the metadata snapshot is
+  the `ConnectionSupervisor`, and registered in the `Registry`. A `{:fetch, topic, partition}`
+  connection is created on the first fetch for that partition and stops itself after an idle period
+  without one (the constant is left to code review; longer than the largest `max_wait_time`, and the
+  idle clock does not run while a request is outstanding), so a consumer that stops leaves no socket
+  behind. An idle stop that races a dispatch costs no attempt: the connection first unregisters from
+  the `Registry`, then answers anything already in its mailbox with `{:error, :not_connected}`
+  (D15), then exits `:normal`. A leader move is handled by routing, not by the connection: the
+  in-flight fetch comes back with a leadership or transport error and takes §4.2's refresh row, the
+  re-resolved fetch goes to a new `{new_leader, {:fetch, topic, partition}}` connection, and the old
+  one sits idle until its timeout closes it. A dead `Connection` is recreated the same way, on
+  demand. A `Connection` whose broker has disappeared from the metadata snapshot is
   stopped by the store's snapshot swap, as `merge_brokers` closes those sockets today, so nothing
   sits in `:reconnecting` for a broker that is gone.
 - **Why:** today `init` opens a socket to every bootstrap broker and `update_metadata` to every broker
@@ -865,8 +915,9 @@ payoff.
 - **Risk:** an unreachable data broker is discovered on first live use, not at boot. Today's eager
   connect surfaces it at start-up (or in the next refresh); with D16 plus fail-fast boot (D25), boot
   only proves the bootstrap broker.
-- **Trade-off:** a cold first request per broker (connect + SASL + ApiVersions, during which the
-  request is `postpone`d, D15) for fewer idle sockets.
+- **Trade-off:** a cold first request per broker and role, and per consumed partition for fetch,
+  repeated after an idle close or a leader move (connect + SASL + ApiVersions, during which the
+  request is `postpone`d, D15), for fewer idle sockets.
 
 #### D17. SASL fails closed, no credentials in state dumps
 
@@ -1049,7 +1100,8 @@ drift from reality. Reading the edges as observer → observed:
 So the connection lifecycle is bookkept twice, both automatically: the `Registry` drops a dead
 `Connection` from *routing*, and the front's monitor drops it from *in-flight accounting*. The front
 holds exactly one link, to its `Infra.Supervisor`; everything else is a monitor. Teardown needs no
-ref-counting and no idle-expiry negotiation, because the subtree has exactly one client.
+ref-counting, because the subtree has exactly one client; the only idle expiry is a `{:fetch, …}`
+connection stopping itself (D16), a local `:normal` exit, not a negotiation.
 
 **Blast radius.** A `Connection` crash is isolated: its front treats the entries in flight on it as
 failed attempts (D8) and it is recreated lazily on the next request. A front crash affects only its own callers and its own
@@ -1132,17 +1184,18 @@ last column says whether we do the same and, if not, why.
 
 | Axis | brod / kafka_protocol (Erlang) | Java client | librdkafka (C) | This RFC |
 |---|---|---|---|---|
-| Transport unit | `kpro_connection`, one `proc_lib` process per socket, `{active, once}` | one `NetworkClient` + `Selector` loop, not thread-per-connection | one thread per broker (`rd_kafka_broker_thread_main`) | **Same idea as brod / librdkafka:** one process per `{broker, role}`, `{active, once}` (D1, D14) |
+| Transport unit | `kpro_connection`, one `proc_lib` process per socket, `{active, once}` | one `NetworkClient` + `Selector` loop, not thread-per-connection | one thread per broker (`rd_kafka_broker_thread_main`) | **Same idea as brod / librdkafka:** one process per `{broker, role}` plus one per consumed partition for fetch, `{active, once}` (D1, D14) |
 | Retry above the transport | `brod_producer` (`is_retriable/1`, `schedule_retry`) | `Sender` / coordinator, never `NetworkClient` | `rdkafka_request.c` (`ERR_ACTION_RETRY` / `REFRESH`) | **Same:** retry in the front, `Connection` is a dumb pipe (D5) |
 | Multiple in-flight per connection | `kpro_sent_reqs` map by `correlation_id` | `InFlightRequests` per-node deque, `max.in.flight.requests.per.connection` = 5 | `rkb_waitresps` by `correlation_id`, `max.in.flight` = 1 000 000 (5 with idempotence) | **Same:** `correlation_id → caller` map; no explicit cap yet (D12) |
 | Connection pool per broker | no | no | no | **Same:** no pool (D12) |
 | Coordinator on its own connection | yes ("coordinator has to be dedicated") | yes (`GroupCoordinatorNode`, `+`-prefixed id) | yes (`rd_kafka_broker_add_logical`) | **Same** (D13) |
-| Dedicated metadata connection | yes (`meta_conn`) | no, any node | no, any broker thread | **brod-style:** yes; sockets are cheap on the BEAM and it keeps metadata off the fetch path (D13) |
+| Dedicated metadata connection | yes (`meta_conn`) | no, any node | no, any broker thread | **brod-style:** yes; sockets are cheap on the BEAM and it keeps metadata off the `:data` path (D13) |
 | Metadata owner decoupled from connections | `brod_client`, lazy refresh single-flighted by the mailbox | shared `Metadata`, `needFullUpdate` + version counter | `rk_metadata_cache` + `rd_kafka_metadata_cache_hint` dedup | **Same:** `MetadataStore`, lock-free ETS reads (D19) |
 | In-flight refresh modelled as | data | data | data | **Same;** and we also coalesce the in-flight `FindCoordinator` per key, which goes one step further (D20) |
 | Produce in-flight per partition | `partition_onwire_limit` = 1 | mute at 1, or idempotent sequence gating ≤ 5 | clamped to 5 under idempotence | **Same:** `N = 1` gate in the front, `N ≤ 5` later with idempotence (D9) |
 | Stale-reply key vs attempt counter | `corr_id` vs `failures` | `correlationId` vs `ProducerBatch.attempts` | `rkbuf_corrid` vs `rkbuf_retries` | **Same** (D6) |
-| Process per partition | yes (`brod_producer` / `brod_consumer`) | no | no | **Differs from brod:** no; per-broker × role is enough for our failures and cheaper to supervise (D1) |
+| Connection per partition | yes by default (`share_leader_conn: false`) | no: one fetch per broker for all its partitions, 500 ms waits, separate producer and consumer instances | no: same approach as Java | **brod-style for fetch:** one connection per consumed partition; produce shares the broker's `:data` socket (D1) |
+| Process per partition | yes (`brod_producer` / `brod_consumer`) | no | no | **Same as Java / librdkafka:** no; `GenConsumer` and `Stream` drive the fetch connections (D1) |
 | Sharing across client instances | only via an explicitly named client | per instance | per instance | **Same:** per client; sharing is a future opt-in (D2) |
 | Commit-ordering gate | no (serialised via the coordinator) | no (single-threaded consumer) | no (serialised via the coordinator) | **Same:** none; the consumer layer's blocking commit is the guarantee (§4.1) |
 
@@ -1192,10 +1245,10 @@ have to undo, is concentrated in one place.
 |---|---|---|---|
 | 1 | Pure `Broker` + `Transport` seam | The socket leaves `%Broker{}` into a `node_id ⇒ connection` map; `Transport` behaviour + in-process fake (D18); benchmark baseline | `Broker.socket` always `nil` (§4.1). Refresh stops transplanting live sockets: a latent-bug fix, not a contract change |
 | 2 | Selection + coordinator cache into `ClusterMetadata` | Leader / controller / coordinator selection and refresh-on-error move out of `Client` (`select_broker_with_update/3`, the `broker_for_*_with_update` helpers, `refresh_for_error/3`) behind a small interface | None; still in-process and synchronous |
-| 3 | `Connection` as `:gen_statem` | One per `{host, port, role}` under `ConnectionSupervisor` + `Registry`, both under `Infra.Supervisor`; sockets, SASL and ApiVersions negotiation move in. The client still calls it synchronously | None by contract. The largest step, and where the test migration falls due |
+| 3 | `Connection` as `:gen_statem` | One per `{host, port, role}` (fetch per partition, D1) under `ConnectionSupervisor` + `Registry`, both under `Infra.Supervisor`; sockets, SASL and ApiVersions negotiation move in. The client still calls it synchronously | None by contract. The largest step, and where the test migration falls due |
 | 4 | `MetadataStore` as `:gen_statem` | ETS, the store's own `:metadata` connection, per-key coalesced refresh and `FindCoordinator`; the client reads ETS instead of holding `cluster_metadata` | Removes the #445 race on its own: the store is the single writer and swaps snapshots atomically, so a produce cannot see metadata mid-replacement |
 | 5 | Telemetry split + deadline threading | Per-attempt and connection events move to the `Connection`; `KafkaEx.API` passes the budget it already computes into the request | Transport events change emitting pid. The deadline is unused until PR 6, which keeps this PR small |
-| 6 | Cutover: the non-blocking front | `handle_call` returns `{:noreply, …}`; the `pending` map, deadlines, caller monitors, the produce gate, the retry state machine, `request_concurrency` | **The one semantic step.** Ordering becomes per-caller; #357's cross-broker and cross-role blocking and the black-holed-broker stall end here (what remains is the per-socket queueing in D1) |
+| 6 | Cutover: the non-blocking front | `handle_call` returns `{:noreply, …}`; the `pending` map, deadlines, caller monitors, the produce gate, the retry state machine, `request_concurrency` | **The one semantic step.** Ordering becomes per-caller; #357 and the black-holed-broker stall end here |
 | 7 | Cleanup | Delete the recursive synchronous retry loop and the now-dead `send_sync_request` paths | None |
 
 The `Connection` (3) precedes the `MetadataStore` (4) even though the store closes #445 and would
@@ -1217,20 +1270,12 @@ of proof. The single-caller case is the one at risk (it pays the hop and the ETS
 nothing from multiplexing); the 100-caller case is where the win must appear. A regression at high
 concurrency invalidates the premise and is a blocker, not a tuning task.
 
-**Open for maintainers.** Three things this RFC does not decide unilaterally:
+**Open for maintainers.** Two things this RFC does not decide unilaterally:
 
 - Two dev-only dependencies: `stream_data` for property tests over the front's transition function
   (D11) and `benchee` for the baseline. Neither is added without sign-off.
 - The single-caller latency threshold, which can only be set once PR 1's baseline exists. Naming a
   percentage now would be inventing one.
-- **A dedicated fetch connection.** D1 keeps one `:data` socket per broker, and the broker works
-  through it serially, so a long-poll fetch delays sibling data requests to that broker from the same
-  client. Two extensions fit the model without touching callers: a `:fetch` role per broker (produce
-  never waits behind a fetch; consumers sharing a client on one broker still queue their long-polls),
-  or a fetch connection per consumed partition (brod's `share_leader_conn: false` default gives each
-  consumer its own leader connection; one socket per partition, which is still fewer than today's
-  client per `GenConsumer`). The per-`(node, role)` model was settled deliberately; this RFC states
-  the limit and leaves the extension to maintainers.
 
 ### 4.8 What this leaves open
 
@@ -1264,6 +1309,10 @@ respect so the door stays open.
   the default in D2.
 - **A small per-broker `:data` pool.** Only if measurements ever show one multiplexed socket is the
   bottleneck, and never splitting one partition's produces across sockets (D12).
+- **Multi-partition fetch and fetch sessions (KIP-227).** Both rely on one fetch per broker covering
+  several partitions, which is not how D1 routes today. **Constraint:** the fetch role stays an
+  opaque routing key chosen by the front, so a later `{:fetch, broker}` role covering several
+  partitions changes only resolution, not the `Connection`.
 - **Independent liveness detection** (TCP keepalive or a periodic probe). After this change the
   per-socket liveness bound in D12 is still the only detector of a silently hung broker; the
   architecture isolates the hang, it does not detect it faster.
