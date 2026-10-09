@@ -1223,8 +1223,9 @@ defmodule KafkaEx.Client do
     end
   end
 
-  defp describe_selector(%NodeSelector{strategy: :topic_partition, topic: topic, partition: partition}),
-    do: "#{topic}/#{partition}"
+  defp describe_selector(%NodeSelector{strategy: topic_partition_strategy, topic: topic, partition: partition})
+       when topic_partition_strategy in [:topic_partition, :topic_partition_replica],
+       do: "#{topic}/#{partition}"
 
   defp describe_selector(%NodeSelector{strategy: :consumer_group, consumer_group_name: group}),
     do: "consumer group #{group}"
