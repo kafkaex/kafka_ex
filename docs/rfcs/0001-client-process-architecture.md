@@ -45,17 +45,17 @@ named process you call. Error atoms and telemetry event shapes stay as they are.
 has to change code; §4.1 lists the handful of semantics notes worth reading.
 
 **What changes.** Two additive things: one config option (`request_concurrency`, the rollback switch)
-and two telemetry events (`[:kafka_ex, :metadata_store, :degraded]` / `:recovered`). And three
-deliberate behavioural changes, all set out in §4.1. First, today's single mailbox happens to impose a
-**global order** on requests from all callers; the new client orders requests only **per caller
-process**. Second, when a metadata refresh *raises* today the client crashes after three tries
-(`MetadataUpdateError`); the new client enters a `:degraded` state, serves its last snapshot and says
-so in telemetry. Ordinary cluster unreachability already keeps the old state today, so only the raising
-path changes. Third, on the failure path where no broker can be resolved, `:no_broker` now comes back
-later, after the request parks to its deadline instead of failing at once. Three introspection
-functions keep their shapes but shift meaning (`cluster_metadata/1`'s brokers no longer carry a socket,
-`correlation_id/1` counts admitted requests rather than attempts, `api_versions/2` stays a live query
-but runs over the `:metadata` connection); §4.1 has the details.
+and two telemetry events (`[:kafka_ex, :metadata_store, :degraded]` / `:recovered`). Beyond those,
+three deliberate behavioural changes and three introspection functions that keep their shape but shift
+meaning. Each is spelled out in §4.1; one line apiece here:
+
+- **Ordering** weakens from today's global total order to per-caller.
+- A metadata refresh that *raises* now **degrades** and serves its last snapshot instead of crashing
+  after three tries; ordinary unreachability already behaves this way, so only the raising path changes.
+- **`:no_broker`**, on the path where no broker resolves, returns at the deadline instead of at once.
+- Introspection shifts: `cluster_metadata/1` brokers no longer carry a socket, `correlation_id/1`
+  counts admitted requests rather than attempts, and `api_versions/2` stays a live query but over the
+  `:metadata` connection.
 
 **What this costs.** The four things a reviewer is really being asked to accept:
 
@@ -338,30 +338,30 @@ flowchart TD
 
 - [D1. Split per broker and per role, with a fetch connection per partition](#d1-split-per-broker-and-per-role-with-a-fetch-connection-per-partition)
 - [D2. Infrastructure is per client, nothing is shared](#d2-infrastructure-is-per-client-nothing-is-shared)
-- [D3. The front stays a plain GenServer and the pid callers hold](#d3-the-front-stays-a-plain-genserver-and-the-pid-callers-hold)
-- [D4. Telemetry splits by what a span measures](#d4-telemetry-splits-by-what-a-span-measures)
-- [D5. Retry lives in the front, a Connection is a dumb pipe](#d5-retry-lives-in-the-front-a-connection-is-a-dumb-pipe)
-- [D6. Fresh ref per dispatch, separate attempt counter](#d6-fresh-ref-per-dispatch-separate-attempt-counter)
+- [D3. The front stays a plain GenServer, the same pid callers use today](#d3-the-front-stays-a-plain-genserver-the-same-pid-callers-use-today)
+- [D4. Each telemetry event comes from the process that does the measured work](#d4-each-telemetry-event-comes-from-the-process-that-does-the-measured-work)
+- [D5. Retry lives in the front, a Connection never retries](#d5-retry-lives-in-the-front-a-connection-never-retries)
+- [D6. A new ref for every send, a separate attempt counter](#d6-a-new-ref-for-every-send-a-separate-attempt-counter)
 - [D7. The deadline travels with the request](#d7-the-deadline-travels-with-the-request)
-- [D8. Monitor the caller, clean up on every terminal path](#d8-monitor-the-caller-clean-up-on-every-terminal-path)
-- [D9. Per-partition produce gate in the front](#d9-per-partition-produce-gate-in-the-front)
+- [D8. Monitor the caller and clean up however a request ends](#d8-monitor-the-caller-and-clean-up-however-a-request-ends)
+- [D9. The front limits in-flight produce requests per partition](#d9-the-front-limits-in-flight-produce-requests-per-partition)
 - [D10. acks 0 completes on write and is never retried](#d10-acks-0-completes-on-write-and-is-never-retried)
 - [D11. Retry decisions are a pure function](#d11-retry-decisions-are-a-pure-function)
 - [D12. One multiplexed connection per node and role, not a pool](#d12-one-multiplexed-connection-per-node-and-role-not-a-pool)
 - [D13. Four connection kinds: data, fetch, coordinator, metadata](#d13-four-connection-kinds-data-fetch-coordinator-metadata)
-- [D14. A Connection is a state machine with real protocol states](#d14-a-connection-is-a-state-machine-with-real-protocol-states)
-- [D15. The error atom says whether the bytes were written](#d15-the-error-atom-says-whether-the-bytes-were-written)
+- [D14. A Connection is a state machine with one state per protocol step](#d14-a-connection-is-a-state-machine-with-one-state-per-protocol-step)
+- [D15. The error tells the front whether the request was written to the socket](#d15-the-error-tells-the-front-whether-the-request-was-written-to-the-socket)
 - [D16. Data connections are created lazily](#d16-data-connections-are-created-lazily)
-- [D17. SASL fails closed, no credentials in state dumps](#d17-sasl-fails-closed-no-credentials-in-state-dumps)
+- [D17. No traffic before SASL succeeds, no credentials in process state](#d17-no-traffic-before-sasl-succeeds-no-credentials-in-process-state)
 - [D18. A Transport behaviour with an in-process fake](#d18-a-transport-behaviour-with-an-in-process-fake)
 - [D19. One MetadataStore per client with lifecycle states](#d19-one-metadatastore-per-client-with-lifecycle-states)
-- [D20. Refresh and discovery are coalesced per key](#d20-refresh-and-discovery-are-coalesced-per-key)
+- [D20. Concurrent refreshes and coordinator lookups for the same key share one request](#d20-concurrent-refreshes-and-coordinator-lookups-for-the-same-key-share-one-request)
 - [D21. The store owns its ETS table, no heir](#d21-the-store-owns-its-ets-table-no-heir)
 - [D22. No new error atom](#d22-no-new-error-atom)
-- [D23. The hot-path metadata read is narrow](#d23-the-hot-path-metadata-read-is-narrow)
+- [D23. Each request reads only its partition's routing data](#d23-each-request-reads-only-its-partitions-routing-data)
 - [D24. The front owns a linked Infra supervisor](#d24-the-front-owns-a-linked-infra-supervisor)
 - [D25. Client boot is synchronous and fail-fast](#d25-client-boot-is-synchronous-and-fail-fast)
-- [D26. The rollback switch is a cap, not a second path](#d26-the-rollback-switch-is-a-cap-not-a-second-path)
+- [D26. The rollback switch runs the new code one request at a time](#d26-the-rollback-switch-runs-the-new-code-one-request-at-a-time)
 
 ### 4.1 Overview and the contract with callers
 
@@ -402,23 +402,23 @@ internal and hangs off the front's own `Infra.Supervisor`.
   the front asks the store to refresh those topics, honouring the per-call
   `allow_auto_topic_creation`, and replies with the new snapshot. The `:update_metadata` call does the
   same; `:set_consumer_group_for_auto_commit` stays front state.
-- Three introspection functions keep their shapes and shift meaning. `cluster_metadata/1` still
-  returns `%ClusterMetadata{}` with `%Broker{}` structs of the same shape; `Broker.socket` stays as a
-  field and is always `nil` from PR 3 on, so `Broker.connected?/1` and `has_socket?/1` return `false`
-  then (through PRs 1–2 they still reflect connection state, read from the client's `node_id ⇒ connection`
-  map, so broker selection keeps working — B2). Connection state is observable through the `:connection`
-  telemetry events instead.
-  `correlation_id/1` still returns an integer, but a different count: today it increments in
-  `network_request/4` on every network attempt (so it counts *attempts*, failed ones included); the
-  front's version counts *admitted requests*, since wire correlation ids are per `Connection` now. The
-  two are independent, neither derives from the other, and code that read it to gauge retries will see
-  a different number. `api_versions/2` **stays a live query** — today it sends an `ApiVersions` request
-  to a random broker and returns that broker's answer, and it keeps doing exactly that, over the
-  `:metadata` connection. It is not turned into a cache read. Do not confuse it with the per-`Connection`
-  version negotiation in D14: that negotiation is what each connection builds its own requests against,
-  and during a rolling upgrade two connections to two brokers may legitimately negotiate different
-  versions of the same API. A data request is built at the versions of the connection that carries it;
-  per-request `api_version` opts and the `:api_versions` config still take precedence, as today.
+- Three introspection functions keep their shape but shift meaning:
+  - `cluster_metadata/1` still returns `%ClusterMetadata{}` with `%Broker{}` structs of the same
+    shape. `Broker.socket` stays a field but is always `nil` from PR 3 on, so `Broker.connected?/1`
+    and `has_socket?/1` return `false` then. (Through PRs 1–2 they still reflect connection state,
+    read from the client's `node_id ⇒ connection` map, so broker selection keeps working — B2.)
+    Connection state is observable through the `:connection` telemetry events.
+  - `correlation_id/1` still returns an integer, but a different count. Today it counts *attempts*
+    (it increments in `network_request/4` on every network attempt, failed ones included); the front
+    counts *admitted requests*, because wire correlation ids are now per `Connection`. The two are
+    independent, so code that read it to gauge retries will see a different number.
+  - `api_versions/2` **stays a live query**: today it sends an `ApiVersions` request to a random
+    broker and returns that broker's answer, and it keeps doing exactly that, now over the `:metadata`
+    connection — not a cache read. This is separate from the per-`Connection` version negotiation in
+    D14, which is what each connection builds its own requests against; during a rolling upgrade two
+    connections may negotiate different versions of the same API. A data request is built at its
+    connection's versions, and per-request `api_version` opts and the `:api_versions` config still
+    take precedence, as today.
 - Telemetry event names and measurements are unchanged. Transport events change emitting pid (D4),
   and event volume changes: fetch connections open lazily and close when idle, so `:connection` /
   `:connection.close` fire per consumed partition and on every idle close or leader move.
@@ -426,23 +426,25 @@ internal and hangs off the front's own `Infra.Supervisor`.
   `Connection`, `Infra.Supervisor` and the `Registry` are never addressed by callers.
 - Application boot and `disable_default_worker` are unchanged (D25).
 
-**Declared change 1: ordering.** Today's single mailbox imposes a global total order on
-requests from every caller. Nobody documented it, but it is real and it is relied on. The front
-preserves order only **per caller process**; requests from different processes become genuinely
-concurrent and may reach a broker in either order. Concretely: two processes committing offsets for
-the same partition can now move the committed offset backwards and cause redelivery (at-least-once
-still holds; nothing is lost). The common path is unaffected, because `GenConsumer` and `Stream` block
-on their own commit (the private `commit/1` in `gen_consumer.ex`, reached from
-`handle_commit(:sync_commit, …)`, and the private `commit_offset/2` in `stream.ex`), so at most one
-commit per `(group, topic, partition)` is ever in flight.
-**That is a load-bearing invariant of the consumer layer, not a coincidence.** Any future change that
-stops the consumer blocking on its commit, an async API included, must supply an equivalent
-guarantee. We deliberately add no commit-ordering gate: none of the three reference clients gates
-commits (Java's consumer is single-threaded per instance; brod and librdkafka serialise through the
-group coordinator). Direct callers of `commit_offset/5` are warned in `usage-rules.md` today, but that
-warning is currently about intent more than risk: the global mailbox order makes an accidental
-cross-process double-commit practically impossible right now. After the cutover it becomes a real
-hazard, so the cutover PR strengthens that warning rather than just pointing at it.
+**Declared change 1: ordering.** Today's single mailbox imposes a global total order on requests from
+every caller — undocumented, but real and relied on. The front preserves order only **per caller
+process**; requests from different processes become genuinely concurrent and may reach a broker in
+either order. The concrete hazard: two processes committing offsets for the same partition can move
+the committed offset backwards and cause redelivery (at-least-once still holds; nothing is lost).
+
+The common path is unaffected, because `GenConsumer` and `Stream` block on their own commit (the
+private `commit/1` in `gen_consumer.ex`, reached from `handle_commit(:sync_commit, …)`, and the
+private `commit_offset/2` in `stream.ex`), so at most one commit per `(group, topic, partition)` is
+ever in flight. **That is a load-bearing invariant of the consumer layer, not a coincidence:** any
+future change that stops the consumer blocking on its commit, an async API included, must supply an
+equivalent guarantee.
+
+We deliberately add no commit-ordering gate — none of the three reference clients gates commits
+(Java's consumer is single-threaded per instance; brod and librdkafka serialise through the group
+coordinator). Direct callers of `commit_offset/5` are warned in `usage-rules.md` today, but that
+warning is about intent more than risk: the global mailbox order makes an accidental cross-process
+double-commit practically impossible right now. After the cutover it becomes a real hazard, so the
+cutover PR strengthens that warning rather than just pointing at it.
 
 **Declared change 2: a *raising* refresh degrades instead of crashing.** Be precise about today's
 behaviour, because it is narrower than it looks. An ordinary network error during the periodic refresh
@@ -512,7 +514,7 @@ same rule D15 applies to `:not_connected`.
 - **Trade-off:** we pay the N-fold footprint to avoid enforcing a credential boundary on every socket
   and to keep failures isolated per client. Sharing can be added later without a breaking change.
 
-#### D3. The front stays a plain GenServer and the pid callers hold
+#### D3. The front stays a plain GenServer, the same pid callers use today
 
 - **What:** `KafkaEx.Client` remains the process `start_link/2` returns and registers under `name`.
   It is a `GenServer`, not a `:gen_statem` and not a supervisor.
@@ -523,11 +525,11 @@ same rule D15 applies to `:not_connected`.
 - **Others:** no direct analogue; `brod_client` is the closest (a worker that owns its own
   sub-supervisors).
 - **Risk:** a `GenServer` holding a `pending` map gets no framework help with per-entry lifecycle.
-  Every terminal path has to be written by hand (D8).
+  Every way a request can end has to be handled by hand (D8).
 - **Trade-off:** we give up `:gen_statem`'s `postpone` and state-enter conveniences in the front in
   exchange for a natural fit with N concurrent requests.
 
-#### D4. Telemetry splits by what a span measures
+#### D4. Each telemetry event comes from the process that does the measured work
 
 - **What:** operation spans (`:produce` / `:fetch` / `:consumer.*`) stay in the front, same pid as
   today's client. The per-attempt `[:kafka_ex, :request]` span and the `:connection` / `:auth` /
@@ -618,10 +620,10 @@ calling processes, for *live* callers. Under caller churn, boundedness comes fro
 deadlines in D8, not from the blocking contract. We state that as an invariant and defer an explicit
 per-connection cap to the future async primitive that breaks the one-call-per-caller property (§4.8).
 
-#### D5. Retry lives in the front, a Connection is a dumb pipe
+#### D5. Retry lives in the front, a Connection never retries
 
 - **What:** a `Connection` makes exactly one attempt per dispatch and reports `{:done, ref, result}`.
-  Dumb about retry, not about the codec: it builds, serialises and parses (§4.3). All retry
+  It knows nothing about retry, but it does the codec work: it builds, serialises and parses (§4.3). All retry
   classification (leadership error → refresh, coordinator error → re-discover, transport timeout →
   re-dispatch, budget exhausted → fail) happens in the front, with today's `Support.Retry` predicates
   and today's per-request `retryable?` rule from `RequestContext`, so produce still retries only
@@ -638,7 +640,7 @@ per-connection cap to the future async primitive that breaks the one-call-per-ca
 - **Trade-off:** an extra message hop per attempt versus retry logic scattered across N connection
   processes. We take the hop.
 
-#### D6. Fresh ref per dispatch, separate attempt counter
+#### D6. A new ref for every send, a separate attempt counter
 
 - **What:** `pending` is keyed by a fresh `ref` per physical dispatch, so a late `{:done, …}` from a
   superseded or timed-out attempt lands on no entry and is dropped. A separate `attempt` counter
@@ -689,10 +691,10 @@ per-connection cap to the future async primitive that breaks the one-call-per-ca
 - **Trade-off:** one extra key in `opts`, threaded through a handful of internal messages, for a
   promise the front can actually keep.
 
-#### D8. Monitor the caller, clean up on every terminal path
+#### D8. Monitor the caller and clean up however a request ends
 
 - **What:** on admission the front monitors the caller (its pid arrives free in `from`). An entry ends
-  on exactly one of four terminal paths: reply to the caller, retry-budget exhaustion, deadline
+  in exactly one of four ways: reply to the caller, retry-budget exhaustion, deadline
   expiry, caller `:DOWN`. On each, the entry is dropped and the caller demonitored. **The caller's wait
   and the physical dispatch are bookkept separately**, because a produce dispatch can outlive the entry
   that started it. Ending the entry ends the caller's wait; the produce-gate slot (D9) is tied to the
@@ -704,7 +706,7 @@ per-connection cap to the future async primitive that breaks the one-call-per-ca
   (D12), **not** by the per-attempt timeout, because after a produce attempt timeout D12 keeps the
   socket open rather than closing it. Releasing the slot on the bare `{:done, …, :timeout}` alone would
   break "at most N in flight per partition" (D9), since the broker may still process the bytes already
-  on the wire. A `Connection` `:DOWN` is **not** terminal: the front classifies every entry in flight
+  on the wire. A `Connection` `:DOWN` does **not** end the entry: the front classifies every entry in flight
   on it as `{:error, :timeout}` (the crash may have come after a write, so the attempt is spent, the
   coordinator send-once rule applies, and each request's own predicate decides whether it is
   re-dispatched to a re-resolved target), releases any gate slots those dispatches held (the socket is
@@ -726,7 +728,7 @@ per-connection cap to the future async primitive that breaks the one-call-per-ca
   property-test.
 - **Trade-off:** one monitor per in-flight request. Cheap on the BEAM, not free.
 
-#### D9. Per-partition produce gate in the front
+#### D9. The front limits in-flight produce requests per partition
 
 - **What:** the front admits at most N in-flight produce requests per partition. `N = 1` now (a
   mute); `N ≤ 5` later, gated by idempotent sequence numbers. A slot is held for the whole *logical*
@@ -768,8 +770,8 @@ per-connection cap to the future async primitive that breaks the one-call-per-ca
   function with no processes, sockets or clock inside. The `handle_info` clauses only feed it events
   and execute the effects.
 - **Why:** it keeps every retry decision in one readable place, and it is the precondition for
-  property-testing the invariants that matter: every admitted entry reaches exactly one terminal
-  path; no gate slot is ever leaked; the retry budget never goes negative; no entry replies twice.
+  property-testing the invariants that matter: every admitted entry ends exactly
+  once; no gate slot is ever leaked; the retry budget never goes negative; no entry replies twice.
   Those invariants are over *interleavings*, which example tests can only sample. If the logic were
   spread across `handle_info` clauses, a property test would need a live process and wall-clock time,
   would be slow and flaky, and should not be written.
@@ -931,7 +933,7 @@ socket the produce uses. That separation is D13's payoff.
 - **Trade-off:** more sockets for isolation between traffic classes. On the BEAM that is the cheap
   side of the trade.
 
-#### D14. A Connection is a state machine with real protocol states
+#### D14. A Connection is a state machine with one state per protocol step
 
 - **What:** states `:connecting → :authenticating → :negotiating → :connected`, plus `:reconnecting`
   (backoff after a drop). On a transient disconnect it fails its in-flight requests (replying to the
@@ -948,7 +950,7 @@ socket the produce uses. That separation is D13's payoff.
 - **Trade-off:** moving parts we did not have, for a connection that recovers on its own and never
   blocks anyone else.
 
-#### D15. The error atom says whether the bytes were written
+#### D15. The error tells the front whether the request was written to the socket
 
 - **What:** while `:connecting` (a bounded window) a request is `postpone`d, and when the handshake
   completes the `Connection` checks the request's deadline (D7) **once, immediately before the write**:
@@ -1007,7 +1009,7 @@ socket the produce uses. That separation is D13's payoff.
   repeated after an idle close or a leader move (connect + SASL + ApiVersions, during which the
   request is `postpone`d, D15), for fewer idle sockets.
 
-#### D17. SASL fails closed, no credentials in state dumps
+#### D17. No traffic before SASL succeeds, no credentials in process state
 
 - **What:** a connection that has not completed `:authenticating` is not `:connected`, so nothing can
   be dispatched over it. `:plain_requires_tls` moves with the handshake, unchanged. Credentials are
@@ -1093,7 +1095,7 @@ stateDiagram-v2
 - **Trade-off:** an explicit degraded mode we can observe and bound, for a little state-machine
   ceremony.
 
-#### D20. Refresh and discovery are coalesced per key
+#### D20. Concurrent refreshes and coordinator lookups for the same key share one request
 
 - **What:** a per-key `in_flight` map holds one coalescing entry per topic refresh and per
   `(coordinator_type, key)` discovery, each with its waiter set and an `epoch`. Concurrent triggers for
@@ -1161,7 +1163,7 @@ stateDiagram-v2
 - **Trade-off:** a less precise atom for retry behaviour that stays correct without touching the
   classifier.
 
-#### D23. The hot-path metadata read is narrow
+#### D23. Each request reads only its partition's routing data
 
 - **What:** the per-request lookup is keyed `{topic, partition}` and returns the minimal routing
   tuple. Nothing on the request path reads a whole topic's partition structure.
@@ -1286,7 +1288,7 @@ last column says whether we do the same and, if not, why.
 | Axis | brod / kafka_protocol (Erlang) | Java client | librdkafka (C) | This RFC |
 |---|---|---|---|---|
 | Transport unit | `kpro_connection`, one `proc_lib` process per socket, `{active, once}` | one `NetworkClient` + `Selector` loop, not thread-per-connection | one thread per broker (`rd_kafka_broker_thread_main`) | **Same idea as brod / librdkafka:** one process per `{broker, role}` plus one per consumed partition for fetch, `{active, once}` (D1, D14) |
-| Retry above the transport | `brod_producer` (`is_retriable/1`, `schedule_retry`) | `Sender` / coordinator, never `NetworkClient` | `rdkafka_request.c` (`ERR_ACTION_RETRY` / `REFRESH`) | **Same:** retry in the front, `Connection` is a dumb pipe (D5) |
+| Retry above the transport | `brod_producer` (`is_retriable/1`, `schedule_retry`) | `Sender` / coordinator, never `NetworkClient` | `rdkafka_request.c` (`ERR_ACTION_RETRY` / `REFRESH`) | **Same:** retry in the front, `Connection` never retries (D5) |
 | Multiple in-flight per connection | `kpro_sent_reqs` map by `correlation_id` | `InFlightRequests` per-node deque, `max.in.flight.requests.per.connection` = 5 | `rkb_waitresps` by `correlation_id`, `max.in.flight` = 1 000 000 (5 with idempotence) | **Same:** `correlation_id → caller` map; no explicit cap yet (D12) |
 | Connection pool per broker | no | no | no | **Same:** no pool (D12) |
 | Coordinator on its own connection | yes ("coordinator has to be dedicated") | yes (`GroupCoordinatorNode`, `+`-prefixed id) | yes (`rd_kafka_broker_add_logical`) | **Same** (D13) |
@@ -1308,7 +1310,7 @@ things contain it: the cutover is one PR, a config switch reverses it in product
 are aimed at interleavings (D11, D18). Nothing in this subsection is a changelog or upgrade
 commitment; it is how the design keeps its worst risk bounded.
 
-#### D26. The rollback switch is a cap, not a second path
+#### D26. The rollback switch runs the new code one request at a time
 
 - **What:** `request_concurrency: :multiplexed` (default) `| :serial`. `:serial` caps simultaneously
   admitted `pending` entries at **one**. Same state machine, same retry classification, same
@@ -1391,8 +1393,8 @@ respect so the door stays open.
   sequences per `producer_id`, so different producers' writes may interleave on the wire.
   **Constraint:** the transactional session (pid / epoch, per-partition sequence, added-partitions
   set, commit / abort state, epoch fencing) has a single owner per `transactional.id`, dispatches
-  in order and gap-free per partition, and layers *above* the `Connection`. Connections stay dumb
-  pipes; sequence state never scatters into them.
+  in order and gap-free per partition, and layers *above* the `Connection`. Connections never
+  hold sequence state.
 - **Broadway / GenStage.** A demand-driven producer needs a client that does not freeze on one fetch,
   which is precisely #357; this RFC unblocks it. KafkaEx has no async request primitive today and this
   RFC adds none. **Constraint:** the front's internal `{:done, ref, result}` path must keep a shape
