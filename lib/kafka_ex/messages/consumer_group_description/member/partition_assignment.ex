@@ -3,14 +3,17 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription.Member.MemberAssignment.Part
   A topic-partition assignment for a consumer group member.
 
   Contains the topic name and list of partition IDs assigned to a member.
+  `topic_id` (16-byte topic id) is set for ConsumerGroupDescribe results
+  (KIP-848) and `nil` for DescribeGroups results.
   """
 
   @type t :: %__MODULE__{
           topic: binary,
-          partitions: list(non_neg_integer)
+          partitions: list(non_neg_integer),
+          topic_id: <<_::128>> | nil
         }
 
-  defstruct ~w(topic partitions)a
+  defstruct ~w(topic partitions topic_id)a
 
   @type response_partial :: %{
           required(:topic) => binary,
