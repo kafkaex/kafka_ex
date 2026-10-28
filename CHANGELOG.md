@@ -18,7 +18,8 @@
   still use the classic protocol). `KafkaEx.API.consumer_group_heartbeat/3` sends
   ConsumerGroupHeartbeat v0-v1 (join with `member_epoch: 0`, heartbeat, leave with `-1`/`-2`;
   omitted fields are sent as "unchanged"; on v1 a member id is generated on join when none is
-  given, per KIP-1082) and returns `KafkaEx.Messages.ConsumerGroupHeartbeat`, whose assignment is a
+  given, per KIP-1082; `KafkaEx.API.generate_member_id/0` creates one up front so retries of a
+  join reuse it) and returns `KafkaEx.Messages.ConsumerGroupHeartbeat`, whose assignment is a
   list of `KafkaEx.Messages.TopicPartitions` (topic id, name resolved from cluster metadata when
   known) or `nil` when unchanged. `KafkaEx.API.describe_consumer_group/3` sends
   ConsumerGroupDescribe v0-v1 and returns a `ConsumerGroupDescription`. Both are routed to the
@@ -26,6 +27,8 @@
   Telemetry: `[:kafka_ex, :consumer, :consumer_group_heartbeat, :start | :stop | :exception]`.
   `KafkaEx.Support.Retry` gains `consumer_group_heartbeat_retryable?/1`,
   `consumer_group_heartbeat_rejoin_error?/1` and `consumer_group_heartbeat_terminal_error?/1`.
+  Malformed `:topic_partitions` / `:member_epoch` return `{:error, :invalid_topic_partitions}` /
+  `{:error, :invalid_member_epoch}` instead of raising inside the shared client process.
 * **New optional fields** (`nil` for DescribeGroups results): `ConsumerGroupDescription` `type`,
   `group_epoch`, `assignment_epoch`; `ConsumerGroupDescription.Member` `member_epoch`, `rack_id`,
   `subscribed_topic_names`, `subscribed_topic_regex`, `target_assignment`, `member_type`;

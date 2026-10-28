@@ -765,6 +765,15 @@ defmodule KafkaEx.API do
   # ---------------------------------------------------------------------------
 
   @doc """
+  Generates a client-side member id for a KIP-848 consumer group join
+  (ConsumerGroupHeartbeat v1+, KIP-1082): a random UUID, URL-safe base64
+  without padding, like the Java client. Keep it for the member's lifetime,
+  including retries of the join.
+  """
+  @spec generate_member_id() :: member_id
+  defdelegate generate_member_id(), to: KafkaEx.Protocol.Kayrock.ConsumerGroupHeartbeat.RequestHelpers
+
+  @doc """
   Send a ConsumerGroupHeartbeat (KIP-848) to the group coordinator.
 
   ConsumerGroupHeartbeat is the one RPC of the next-generation "consumer" group
@@ -807,7 +816,11 @@ defmodule KafkaEx.API do
 
     * `:member_epoch` (required) - `0` to join, the current epoch to heartbeat,
       `-1` / `-2` to leave
-    * `:member_id` - the member id (generated on a v1+ join when omitted)
+    * `:member_id` - the member id. On a v1+ join (KIP-1082) the client
+      chooses it; when omitted one is generated per call. Generate it once
+      with `generate_member_id/0` and reuse it for retries of the join, so a
+      join that timed out but reached the broker is not left behind as a
+      second member until its session expires.
     * `:instance_id` - static membership instance id
     * `:rack_id` - the member's rack id
     * `:rebalance_timeout_ms` - max time the coordinator waits for the member

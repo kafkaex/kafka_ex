@@ -162,9 +162,15 @@ defmodule KafkaEx.Client.RequestBuilder do
   rather than silently dropping the subscription.
   """
   @spec consumer_group_heartbeat_request(Keyword.t(), State.t()) ::
-          {:ok, term} | {:error, :api_version_no_supported | :api_not_supported_by_broker}
+          {:ok, term}
+          | {:error,
+             :api_version_no_supported
+             | :api_not_supported_by_broker
+             | :invalid_member_epoch
+             | :invalid_topic_partitions}
   def consumer_group_heartbeat_request(request_opts, state) do
-    with {:ok, api_version} <- get_api_version(state, :consumer_group_heartbeat, request_opts),
+    with :ok <- check_consumer_group_heartbeat_opts(request_opts),
+         {:ok, api_version} <- get_api_version(state, :consumer_group_heartbeat, request_opts),
          :ok <- check_subscribed_topic_regex(api_version, request_opts) do
       opts = Keyword.take(request_opts, @consumer_group_heartbeat_fields)
       {:ok, @protocol.build_request(:consumer_group_heartbeat, api_version, opts)}
@@ -186,6 +192,33 @@ defmodule KafkaEx.Client.RequestBuilder do
   end
 
   defp check_subscribed_topic_regex(_api_version, _request_opts), do: :ok
+
+  # The request is built inside the client GenServer, so malformed input must
+  # become an error here rather than a FunctionClauseError that takes the
+  # shared client down for every caller.
+  defp check_consumer_group_heartbeat_opts(request_opts) do
+    cond do
+      not is_integer(Keyword.get(request_opts, :member_epoch)) ->
+        {:error, :invalid_member_epoch}
+
+      not valid_owned_topic_partitions?(Keyword.get(request_opts, :topic_partitions)) ->
+        {:error, :invalid_topic_partitions}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp valid_owned_topic_partitions?(nil), do: true
+
+  defp valid_owned_topic_partitions?(topic_partitions) when is_list(topic_partitions) do
+    Enum.all?(topic_partitions, fn
+      %{topic_id: <<_::128>>, partitions: partitions} when is_list(partitions) -> Enum.all?(partitions, &is_integer/1)
+      _ -> false
+    end)
+  end
+
+  defp valid_owned_topic_partitions?(_), do: false
 
   @doc """
   Builds request for ConsumerGroupDescribe API (KIP-848).
