@@ -201,4 +201,51 @@ defmodule KafkaEx.Protocol.KayrockProtocolTest do
       assert KayrockProtocol.request_info(request) == {:unknown, 0}
     end
   end
+
+  describe "max_supported_version/1" do
+    # Every API KafkaEx builds requests for has a directory of explicit
+    # vN_request_impl.ex / vN_response_impl.ex files; the cap must equal the
+    # highest N present for both, so adding a version's impls without raising
+    # the cap (or raising the cap without impls) fails here.
+    @impl_root Path.expand("../../../lib/kafka_ex/protocol/kayrock", __DIR__)
+
+    defp implemented_versions(api, kind) do
+      Path.join([@impl_root, Atom.to_string(api), "v*_#{kind}_impl.ex"])
+      |> Path.wildcard()
+      |> Enum.map(fn path ->
+        [_, n] = Regex.run(~r/v(\d+)_#{kind}_impl\.ex$/, path)
+        String.to_integer(n)
+      end)
+    end
+
+    test "the cap table covers exactly the APIs with impl directories" do
+      dirs =
+        @impl_root
+        |> File.ls!()
+        |> Enum.filter(&File.dir?(Path.join(@impl_root, &1)))
+        |> Enum.map(&String.to_atom/1)
+        |> Enum.sort()
+
+      assert dirs == KayrockProtocol.implemented_max_versions() |> Map.keys() |> Enum.sort()
+    end
+
+    test "each cap is the highest version with both request and response impls" do
+      for {api, cap} <- KayrockProtocol.implemented_max_versions() do
+        requests = implemented_versions(api, "request")
+        responses = implemented_versions(api, "response")
+
+        assert Enum.max(requests) == cap, "#{api}: request impls go up to v#{Enum.max(requests)}, cap is v#{cap}"
+        assert Enum.max(responses) == cap, "#{api}: response impls go up to v#{Enum.max(responses)}, cap is v#{cap}"
+        assert Enum.sort(requests) == Enum.to_list(0..cap), "#{api}: request impls have gaps"
+        assert Enum.sort(responses) == Enum.to_list(0..cap), "#{api}: response impls have gaps"
+      end
+    end
+
+    test "never exceeds the cap, even when Kayrock generates newer versions" do
+      for {api, cap} <- KayrockProtocol.implemented_max_versions() do
+        {_, kayrock_max} = Kayrock.KafkaSchemaMetadata.version_range(api)
+        assert KayrockProtocol.max_supported_version(api) == min(cap, kayrock_max)
+      end
+    end
+  end
 end
