@@ -19,6 +19,22 @@
 * **`:member_epoch` option** for `commit_offset` (OffsetCommit v9+) and `fetch_committed_offset`
   (OffsetFetch v9+, with `:member_id`), for groups using the consumer protocol. `:require_stable`
   is accepted for OffsetFetch v7+.
+* **KIP-848 consumer group protocol APIs** (protocol + client only; `ConsumerGroup`/`GenConsumer`
+  still use the classic protocol). `KafkaEx.API.consumer_group_heartbeat/3` sends
+  ConsumerGroupHeartbeat v0-v1 (join with `member_epoch: 0`, heartbeat, leave with `-1`/`-2`;
+  omitted fields are sent as "unchanged"; on v1 a member id is generated on join when none is
+  given, per KIP-1082) and returns `KafkaEx.Messages.ConsumerGroupHeartbeat`, whose assignment is a
+  list of `KafkaEx.Messages.TopicPartitions` (topic id, name resolved from cluster metadata when
+  known) or `nil` when unchanged. `KafkaEx.API.describe_consumer_group/3` sends
+  ConsumerGroupDescribe v0-v1 and returns a `ConsumerGroupDescription`. Both are routed to the
+  group coordinator and re-discover it on `:not_coordinator` / `:coordinator_not_available`.
+  Telemetry: `[:kafka_ex, :consumer, :consumer_group_heartbeat, :start | :stop | :exception]`.
+  `KafkaEx.Support.Retry` gains `consumer_group_heartbeat_retryable?/1`,
+  `consumer_group_heartbeat_rejoin_error?/1` and `consumer_group_heartbeat_terminal_error?/1`.
+* **New optional fields** (`nil` for DescribeGroups results): `ConsumerGroupDescription` `type`,
+  `group_epoch`, `assignment_epoch`; `ConsumerGroupDescription.Member` `member_epoch`, `rack_id`,
+  `subscribed_topic_names`, `subscribed_topic_regex`, `target_assignment`, `member_type`;
+  `PartitionAssignment.topic_id`.
 * **`mix test.kafka4`**: integration tests against an `apache/kafka:4.4.0` KRaft broker started
   with Testcontainers (Docker required; tag `:kafka4`, excluded by default).
 
