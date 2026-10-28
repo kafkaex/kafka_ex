@@ -22,7 +22,27 @@ defmodule KafkaEx.Kafka4.ApiVersionsTest do
   alias KafkaEx.Messages.Offset
   alias KafkaEx.Messages.Offset.PartitionOffset
   alias KafkaEx.TestSupport.ConsumerGroupHelpers
-  alias KafkaEx.TestSupport.TestGenConsumer
+
+  defmodule RecordingConsumer do
+    @moduledoc false
+    # Reports every record as {offset, value} to the test process, tagged with
+    # the :tag from extra_consumer_args, so a test can tell consumer groups apart.
+    use KafkaEx.Consumer.GenConsumer
+
+    alias KafkaEx.Messages.Fetch.Record
+
+    @impl true
+    def init(_topic, _partition), do: {:ok, %{test_pid: nil, tag: nil}}
+
+    @impl true
+    def init(_topic, _partition, %{test_pid: pid, tag: tag}), do: {:ok, %{test_pid: pid, tag: tag}}
+
+    @impl true
+    def handle_message_set(records, state) do
+      send(state.test_pid, {:records, state.tag, Enum.map(records, fn %Record{offset: o, value: v} -> {o, v} end)})
+      {:async_commit, state}
+    end
+  end
 
   setup_all do
     {:ok, ctx} = Kafka4TestHelpers.start_kafka()
@@ -208,7 +228,8 @@ defmodule KafkaEx.Kafka4.ApiVersionsTest do
   end
 
   describe "classic consumer group (GenConsumer/ConsumerGroup)" do
-    test "consumes and commits end to end on the new versions", %{client: client} = ctx do
+    test "consumes, commits and resumes from the committed offset on the new versions",
+         %{client: client} = ctx do
       topic = create_topic!(client)
       group = "kafka4_cg_" <> generate_random_string()
 
@@ -216,14 +237,20 @@ defmodule KafkaEx.Kafka4.ApiVersionsTest do
 
       # commit_threshold: 1 -> every acked message set commits (async commits
       # otherwise wait for the next message set after commit_interval).
-      opts =
-        Kafka4TestHelpers.consumer_group_opts(ctx, commit_threshold: 1, extra_consumer_args: %{test_pid: self()})
+      opts = fn tag ->
+        Kafka4TestHelpers.consumer_group_opts(ctx,
+          commit_threshold: 1,
+          extra_consumer_args: %{test_pid: self(), tag: tag}
+        )
+      end
 
-      {:ok, cg} = ConsumerGroup.start_link(TestGenConsumer, group, [topic], opts)
+      {:ok, cg} = ConsumerGroup.start_link(RecordingConsumer, group, [topic], opts.(:first))
       on_exit(fn -> ConsumerGroupHelpers.stop_consumer_group(cg) end)
 
       assert {:ok, :active} = ConsumerGroupHelpers.wait_for_active(cg, timeout: 60_000)
-      assert ConsumerGroupHelpers.wait_for_message_count(5, timeout: 30_000) >= 5
+
+      assert [{0, "msg-1"}, {1, "msg-2"}, {2, "msg-3"}, {3, "msg-4"}, {4, "msg-5"}] =
+               collect_records(:first, 5)
 
       # Committed through OffsetCommit v10.
       assert_receive {:request, :offset_commit, 10}, 10_000
@@ -235,28 +262,57 @@ defmodule KafkaEx.Kafka4.ApiVersionsTest do
         )
       end)
 
-      ConsumerGroupHelpers.stop_consumer_group(cg)
+      # Wait for the first group to be fully gone before producing more, so it
+      # cannot consume msg-6/msg-7 itself. The Manager is given 25s to leave the
+      # group on shutdown, so the default 5s stop timeout is not enough.
+      stop_and_await_down(cg)
 
-      # Restart: resumes from the committed offset (loaded via OffsetFetch v10).
       Enum.each(6..7, &API.produce(client, topic, 0, [%{value: "msg-#{&1}"}]))
-      flush_messages()
+      flush_records()
       flush_requests()
 
-      {:ok, cg2} = ConsumerGroup.start_link(TestGenConsumer, group, [topic], opts)
+      {:ok, cg2} = ConsumerGroup.start_link(RecordingConsumer, group, [topic], opts.(:second))
       on_exit(fn -> ConsumerGroupHelpers.stop_consumer_group(cg2) end)
       assert {:ok, :active} = ConsumerGroupHelpers.wait_for_active(cg2, timeout: 60_000)
-      assert ConsumerGroupHelpers.wait_for_message_count(2, timeout: 30_000) == 2
 
-      # The consumer group's own client sent the new versions (telemetry is global).
+      # The second group resumes at the committed offset 5: it sees exactly
+      # msg-6 and msg-7, and nothing it already consumed.
+      assert [{5, "msg-6"}, {6, "msg-7"}] = collect_records(:second, 2)
+      refute_receive {:records, _, _}, 2_000
+
+      # Its committed offsets were loaded through OffsetFetch v10, and the group
+      # client negotiated the other new versions (telemetry is global, and the
+      # test client sent nothing since the flush).
       assert_received {:request, :offset_fetch, 10}
       assert_received {:request, :find_coordinator, 6}
       assert_received {:request, :metadata, 13}
     end
   end
 
-  defp flush_messages do
+  defp stop_and_await_down(pid) do
+    ref = Process.monitor(pid)
+    Process.unlink(pid)
+    KafkaEx.TestSupport.ProcessHelpers.stop_safely(pid, :normal, 60_000)
+    assert_receive {:DOWN, ^ref, :process, ^pid, _}, 60_000
+  end
+
+  # Records reported by RecordingConsumer for the consumer group tagged `tag`, in
+  # offset order, until `count` have arrived.
+  defp collect_records(tag, count, acc \\ []) do
+    if length(acc) >= count do
+      Enum.sort(acc)
+    else
+      receive do
+        {:records, ^tag, records} -> collect_records(tag, count, acc ++ records)
+      after
+        30_000 -> flunk("expected #{count} records, got #{inspect(Enum.sort(acc))}")
+      end
+    end
+  end
+
+  defp flush_records do
     receive do
-      {:messages_received, _} -> flush_messages()
+      {:records, _, _} -> flush_records()
     after
       0 -> :ok
     end

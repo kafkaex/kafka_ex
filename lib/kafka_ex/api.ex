@@ -764,6 +764,10 @@ defmodule KafkaEx.API do
   ## Options
 
     * `:api_version` - OffsetFetch API version to use (default: negotiated)
+    * `:require_stable` - OffsetFetch v7+ (KIP-447): when `true`, the broker
+      returns `:unstable_offset_commit` for partitions with pending
+      transactional offset commits instead of their latest committed offset
+      (default: `false`; ignored on older versions)
     * `:member_id` / `:member_epoch` - member identity sent with OffsetFetch
       v9+; only validated by the broker for KIP-848 consumer-protocol groups
 
