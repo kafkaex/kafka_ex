@@ -425,6 +425,67 @@ defmodule KafkaEx.Support.Retry do
   def heartbeat_retryable?(_), do: true
 
   @doc """
+  Check if a ConsumerGroupHeartbeat (KIP-848) error is safe to retry at the
+  client layer.
+
+  Only transient errors are retried (`transient_error?/1`): connection
+  problems and the coordinator errors. `:not_coordinator` /
+  `:coordinator_not_available` re-discover the coordinator before the retry,
+  exactly as for classic group requests. Re-sending the same heartbeat is safe:
+  the broker answers a repeated epoch with the same state, and from v1 the
+  member id is fixed by the client, so a repeated join reuses it.
+
+  Everything else is returned to the caller, which must act on it; see
+  `consumer_group_heartbeat_rejoin_error?/1` and
+  `consumer_group_heartbeat_terminal_error?/1`. As for classic heartbeats, a
+  socket recv-timeout is sent once, not retried (see `heartbeat_retryable?/1`).
+  """
+  @spec consumer_group_heartbeat_retryable?(error()) :: boolean()
+  def consumer_group_heartbeat_retryable?(error), do: transient_error?(error)
+
+  @doc """
+  ConsumerGroupHeartbeat (KIP-848) errors after which the member must rejoin:
+  send a heartbeat with `member_epoch: 0` (and its existing member id), after
+  releasing its partitions.
+
+    * `:fenced_member_epoch` - the epoch the member sent is not its current
+      epoch (it missed an update or was fenced by the coordinator)
+    * `:unknown_member_id` - the coordinator no longer knows the member, e.g.
+      it was removed after its session expired
+
+  Follows the Java client's `ConsumerMembershipManager.transitionToFenced`.
+  """
+  @spec consumer_group_heartbeat_rejoin_error?(error()) :: boolean()
+  def consumer_group_heartbeat_rejoin_error?(:fenced_member_epoch), do: true
+  def consumer_group_heartbeat_rejoin_error?(:unknown_member_id), do: true
+  def consumer_group_heartbeat_rejoin_error?(_), do: false
+
+  @doc """
+  ConsumerGroupHeartbeat (KIP-848) errors that neither a retry nor a rejoin
+  can fix; the member must stop. Mirrors the errors the Java client's
+  `ConsumerHeartbeatRequestManager` treats as fatal:
+
+    * `:group_authorization_failed` - no access to the group
+    * `:fenced_instance_id` / `:unreleased_instance_id` - another member holds
+      this static `instance_id`, or the previous holder has not left yet
+    * `:unsupported_assignor` - the broker has no such `server_assignor`
+    * `:group_max_size_reached` - the group is full
+    * `:invalid_regular_expression` - `subscribed_topic_regex` does not parse
+    * `:invalid_request` / `:unsupported_version` - malformed request, or the
+      group protocol is disabled on the broker
+  """
+  @spec consumer_group_heartbeat_terminal_error?(error()) :: boolean()
+  def consumer_group_heartbeat_terminal_error?(:group_authorization_failed), do: true
+  def consumer_group_heartbeat_terminal_error?(:fenced_instance_id), do: true
+  def consumer_group_heartbeat_terminal_error?(:unreleased_instance_id), do: true
+  def consumer_group_heartbeat_terminal_error?(:unsupported_assignor), do: true
+  def consumer_group_heartbeat_terminal_error?(:group_max_size_reached), do: true
+  def consumer_group_heartbeat_terminal_error?(:invalid_regular_expression), do: true
+  def consumer_group_heartbeat_terminal_error?(:invalid_request), do: true
+  def consumer_group_heartbeat_terminal_error?(:unsupported_version), do: true
+  def consumer_group_heartbeat_terminal_error?(_), do: false
+
+  @doc """
   Check if a commit error is fatal and requires rejoining the consumer group.
 
   These errors cannot be fixed by retry — the consumer's generation or member_id

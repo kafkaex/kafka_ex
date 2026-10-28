@@ -16,6 +16,20 @@ defmodule KafkaEx.Client.RequestBuilder do
   @offset_fetch_topic_id_version 10
   # First Metadata version whose brokers honour topic-id lookups.
   @metadata_topic_id_lookup_version 12
+  # First ConsumerGroupHeartbeat version with subscribed_topic_regex.
+  @consumer_group_heartbeat_regex_version 1
+  @consumer_group_heartbeat_fields [
+    :group_id,
+    :member_id,
+    :member_epoch,
+    :instance_id,
+    :rack_id,
+    :rebalance_timeout_ms,
+    :subscribed_topic_names,
+    :subscribed_topic_regex,
+    :server_assignor,
+    :topic_partitions
+  ]
 
   @doc """
   Builds request for ApiVersions API.
@@ -135,6 +149,53 @@ defmodule KafkaEx.Client.RequestBuilder do
 
       {:error, error_code} ->
         {:error, error_code}
+    end
+  end
+
+  @doc """
+  Builds request for ConsumerGroupHeartbeat API (KIP-848).
+
+  Passes the heartbeat fields through to the protocol layer, which applies the
+  "`nil` = unchanged" defaults and, on v1+, generates a member id for a join
+  without one (KIP-1082). `:subscribed_topic_regex` needs v1+; with v0
+  negotiated the request is not built (`{:error, :api_version_no_supported}`)
+  rather than silently dropping the subscription.
+  """
+  @spec consumer_group_heartbeat_request(Keyword.t(), State.t()) ::
+          {:ok, term} | {:error, :api_version_no_supported | :api_not_supported_by_broker}
+  def consumer_group_heartbeat_request(request_opts, state) do
+    with {:ok, api_version} <- get_api_version(state, :consumer_group_heartbeat, request_opts),
+         :ok <- check_subscribed_topic_regex(api_version, request_opts) do
+      opts = Keyword.take(request_opts, @consumer_group_heartbeat_fields)
+      {:ok, @protocol.build_request(:consumer_group_heartbeat, api_version, opts)}
+    end
+  end
+
+  defp check_subscribed_topic_regex(api_version, request_opts)
+       when api_version < @consumer_group_heartbeat_regex_version do
+    if is_nil(Keyword.get(request_opts, :subscribed_topic_regex)) do
+      :ok
+    else
+      Logger.error(
+        "ConsumerGroupHeartbeat :subscribed_topic_regex needs v#{@consumer_group_heartbeat_regex_version}+, " <>
+          "but v#{api_version} was selected."
+      )
+
+      {:error, :api_version_no_supported}
+    end
+  end
+
+  defp check_subscribed_topic_regex(_api_version, _request_opts), do: :ok
+
+  @doc """
+  Builds request for ConsumerGroupDescribe API (KIP-848).
+  """
+  @spec consumer_group_describe_request(Keyword.t(), State.t()) ::
+          {:ok, term} | {:error, :api_version_no_supported | :api_not_supported_by_broker}
+  def consumer_group_describe_request(request_opts, state) do
+    with {:ok, api_version} <- get_api_version(state, :consumer_group_describe, request_opts) do
+      opts = Keyword.take(request_opts, [:group_ids, :include_authorized_operations])
+      {:ok, @protocol.build_request(:consumer_group_describe, api_version, opts)}
     end
   end
 
