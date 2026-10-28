@@ -19,8 +19,14 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator do
     - Request: Compact string encoding, +`tagged_fields`
     - Response: Compact string encoding, +`tagged_fields`
     - Domain-relevant fields identical to V1/V2
+  - **V4**: Batching (KIP-699)
+    - Request: `key` replaced by `coordinator_keys` array (KafkaEx sends one key)
+    - Response: `coordinators` array with per-entry `error_code`/`error_message`;
+      the single entry is parsed into the same result as V1-V3
+  - **V5**: Same schema as V4; adds `TRANSACTION_ABORTABLE` (KIP-890)
+  - **V6**: Same schema as V4; adds the share-group key type (KIP-932, unused)
 
-  All known versions (V0-V3) have explicit `defimpl` implementations.
+  All known versions (V0-V6) have explicit `defimpl` implementations.
   An `Any` fallback is retained for forward compatibility with unknown
   future Kayrock versions.
 
@@ -41,7 +47,7 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator do
     - `coordinator_key` (required): The key to look up (group_id or transactional_id)
     - `coordinator_type` (optional): 0 for group (default), 1 for transaction
 
-    All known versions (V0-V3) have explicit implementations.
+    All known versions (V0-V6) have explicit implementations.
     The `Any` fallback handles unknown future versions.
     """
     @fallback_to_any true
@@ -59,7 +65,7 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator do
     - `{:ok, FindCoordinator.t()}` on success with coordinator info
     - `{:error, Error.t()}` on error with error details
 
-    All known versions (V0-V3) have explicit implementations.
+    All known versions (V0-V6) have explicit implementations.
     The `Any` fallback handles unknown future versions.
     """
     @fallback_to_any true
