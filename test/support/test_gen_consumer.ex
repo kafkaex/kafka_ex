@@ -19,6 +19,9 @@ defmodule KafkaEx.TestSupport.TestGenConsumer do
         {:messages_received, count} -> IO.puts("Got \#{count} messages")
       end
 
+      # Or wait for specific records (robust to re-delivery after a rejoin):
+      ConsumerGroupHelpers.wait_for_values(["v1", "v2"])
+
   ## State queries
 
   You can query the consumer state via GenServer.call:
@@ -57,9 +60,13 @@ defmodule KafkaEx.TestSupport.TestGenConsumer do
         message_count: state.message_count + length(message_set)
     }
 
-    # Notify test process if provided
+    # Notify test process if provided. `:message_values_received` lets tests
+    # wait for specific records: under at-least-once delivery a rejoining
+    # member re-reads from the last successful commit, so a raw count can't
+    # tell new records from re-deliveries.
     if state.test_pid do
       send(state.test_pid, {:messages_received, length(message_set)})
+      send(state.test_pid, {:message_values_received, new_messages})
     end
 
     {:async_commit, new_state}
