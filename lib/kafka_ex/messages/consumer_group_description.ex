@@ -4,7 +4,21 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription do
 
   Java equivalent: `org.apache.kafka.clients.admin.ConsumerGroupDescription`
 
-  Contains information about a consumer group's state, protocol, and members as returned by the DescribeGroups API.
+  Contains information about a consumer group's state, protocol, and members as returned by the DescribeGroups API
+  (`KafkaEx.API.describe_group/3`) or, for groups using the KIP-848 "consumer" protocol, the ConsumerGroupDescribe
+  API (`KafkaEx.API.describe_consumer_group/3`).
+
+  ## Fields set by ConsumerGroupDescribe only
+
+  These are `nil` in DescribeGroups results.
+
+    * `type` - `:consumer`
+    * `group_epoch` - the group epoch
+    * `assignment_epoch` - the epoch of the group's current target assignment
+
+  For ConsumerGroupDescribe results `protocol_type` is `"consumer"`, `protocol` is the name of the server-side
+  assignor in use (e.g. `"uniform"`) and members carry the consumer-protocol fields described in
+  `KafkaEx.Messages.ConsumerGroupDescription.Member`.
   """
 
   alias KafkaEx.Messages.ConsumerGroupDescription.Member
@@ -15,10 +29,13 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription do
           protocol_type: binary,
           protocol: binary,
           members: list(Member.t()),
-          authorized_operations: integer() | nil
+          authorized_operations: integer() | nil,
+          type: :consumer | nil,
+          group_epoch: integer() | nil,
+          assignment_epoch: integer() | nil
         }
 
-  defstruct ~w(group_id state protocol_type protocol members authorized_operations)a
+  defstruct ~w(group_id state protocol_type protocol members authorized_operations type group_epoch assignment_epoch)a
 
   @doc """
   Builds a ConsumerGroupDescription from a DescribeGroups API response.
@@ -32,6 +49,24 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription do
       protocol: describe_group.protocol_data,
       members: Enum.map(describe_group.members, &build_consumer_group_member/1),
       authorized_operations: Map.get(describe_group, :authorized_operations)
+    }
+  end
+
+  @doc """
+  Builds a ConsumerGroupDescription from one group of a ConsumerGroupDescribe API response (KIP-848).
+  """
+  @spec from_consumer_group_describe_response(map) :: __MODULE__.t()
+  def from_consumer_group_describe_response(described_group) do
+    %__MODULE__{
+      group_id: described_group.group_id,
+      state: described_group.group_state,
+      protocol_type: "consumer",
+      protocol: described_group.assignor_name,
+      members: Enum.map(described_group.members, &Member.from_consumer_group_describe_response/1),
+      authorized_operations: Map.get(described_group, :authorized_operations),
+      type: :consumer,
+      group_epoch: described_group.group_epoch,
+      assignment_epoch: described_group.assignment_epoch
     }
   end
 
