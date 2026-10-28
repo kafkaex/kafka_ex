@@ -111,6 +111,22 @@ defmodule KafkaEx.Test.MockClient do
     {:reply, response, record_call(state, {:find_coordinator, group_id})}
   end
 
+  def handle_call({:consumer_group_heartbeat, group, opts}, _from, state) do
+    response =
+      Map.get(
+        state.responses,
+        :consumer_group_heartbeat,
+        {:ok, %KafkaEx.Messages.ConsumerGroupHeartbeat{member_epoch: 1, heartbeat_interval_ms: 5_000}}
+      )
+
+    {:reply, response, record_call(state, {:consumer_group_heartbeat, group, opts})}
+  end
+
+  def handle_call({:consumer_group_describe, groups, opts}, _from, state) do
+    response = Map.get(state.responses, :consumer_group_describe, {:ok, []})
+    {:reply, response, record_call(state, {:consumer_group_describe, groups, opts})}
+  end
+
   def handle_call({:offset_fetch, group, topic_partitions, opts}, _from, state) do
     response = Map.get(state.responses, :offset_fetch, {:ok, []})
     {:reply, response, record_call(state, {:offset_fetch, group, topic_partitions, opts})}
