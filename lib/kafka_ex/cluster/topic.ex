@@ -8,13 +8,22 @@ defmodule KafkaEx.Cluster.Topic do
   defstruct name: nil,
             partition_leaders: %{},
             is_internal: false,
-            partitions: []
+            partitions: [],
+            topic_id: nil
+
+  @typedoc """
+  Kafka topic id: the raw 16-byte UUID as sent on the wire (Metadata v10+).
+  `nil` when the broker did not report one (older Metadata versions, or the
+  all-zero "null" UUID).
+  """
+  @type topic_id :: <<_::128>>
 
   @type t :: %__MODULE__{
           name: String.t(),
           partition_leaders: %{integer() => integer()},
           is_internal: boolean(),
-          partitions: [PartitionInfo.t()]
+          partitions: [PartitionInfo.t()],
+          topic_id: topic_id() | nil
         }
 
   @doc false

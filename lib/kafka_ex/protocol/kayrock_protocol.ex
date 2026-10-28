@@ -194,7 +194,7 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
     leave_group: 4,
     list_groups: 3,
     list_offsets: 5,
-    metadata: 9,
+    metadata: 13,
     offset_commit: 8,
     offset_fetch: 6,
     produce: 8,
