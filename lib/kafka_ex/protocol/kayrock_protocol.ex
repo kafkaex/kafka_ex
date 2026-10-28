@@ -166,6 +166,34 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
   def parse_response(:create_topics, response), do: KayrockProtocol.CreateTopics.Response.parse_response(response)
   def parse_response(:delete_topics, response), do: KayrockProtocol.DeleteTopics.Response.parse_response(response)
 
+  @doc """
+  Parses a response that may need client context.
+
+  OffsetCommit / OffsetFetch v10+ responses name topics by id only. Pass
+  `topic_name_resolver: (topic_id -> {:ok, name} | {:error, _})` (typically
+  backed by `KafkaEx.Cluster.ClusterMetadata.topic_name_by_id/2`) so the
+  result is keyed by topic name, as for earlier versions. Responses of other
+  versions or APIs ignore the option.
+  """
+  @spec parse_response(atom(), term(), Keyword.t()) :: {:ok, term()} | {:error, term()}
+  def parse_response(:offset_commit, response, opts) do
+    response
+    |> KayrockProtocol.OffsetCommit.ResponseHelpers.put_topic_names(topic_name_resolver(opts))
+    |> KayrockProtocol.OffsetCommit.Response.parse_response()
+  end
+
+  def parse_response(:offset_fetch, response, opts) do
+    response
+    |> KayrockProtocol.OffsetFetch.ResponseHelpers.put_topic_names(topic_name_resolver(opts))
+    |> KayrockProtocol.OffsetFetch.Response.parse_response()
+  end
+
+  def parse_response(operation, response, _opts), do: parse_response(operation, response)
+
+  defp topic_name_resolver(opts) do
+    Keyword.get(opts, :topic_name_resolver) || fn _topic_id -> {:error, :no_such_topic} end
+  end
+
   # -----------------------------------------------------------------------------
   # Utility wrappers — allow code outside lib/kafka_ex/protocol/ to avoid
   # importing Kayrock modules directly.
@@ -195,8 +223,8 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
     list_groups: 3,
     list_offsets: 5,
     metadata: 13,
-    offset_commit: 8,
-    offset_fetch: 6,
+    offset_commit: 10,
+    offset_fetch: 10,
     produce: 8,
     sync_group: 4
   }

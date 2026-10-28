@@ -819,18 +819,32 @@ defmodule KafkaEx.Client do
   end
 
   defp handle_offset_fetch_request(request, node_selector, state) do
-    %RequestContext{request: request, parser_fn: &ResponseParser.offset_fetch_response/1, node_selector: node_selector}
+    parse_opts = topic_name_parse_opts(state)
+
+    %RequestContext{
+      request: request,
+      parser_fn: &ResponseParser.offset_fetch_response(&1, parse_opts),
+      node_selector: node_selector
+    }
     |> handle_request_with_retry(state)
   end
 
   defp handle_offset_commit_request(request, node_selector, state) do
+    parse_opts = topic_name_parse_opts(state)
+
     %RequestContext{
       request: request,
-      parser_fn: &ResponseParser.offset_commit_response/1,
+      parser_fn: &ResponseParser.offset_commit_response(&1, parse_opts),
       node_selector: node_selector,
       retryable?: &Retry.commit_retryable?/1
     }
     |> handle_request_with_retry(state)
+  end
+
+  # OffsetCommit/OffsetFetch v10+ responses name topics by id; resolve them
+  # against the metadata the request's topic ids were taken from.
+  defp topic_name_parse_opts(%State{cluster_metadata: cluster_metadata}) do
+    [topic_name_resolver: &ClusterMetadata.topic_name_by_id(cluster_metadata, &1)]
   end
 
   defp handle_heartbeat_request(request, node_selector, state, network_timeout) do

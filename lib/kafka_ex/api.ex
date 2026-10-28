@@ -461,10 +461,20 @@ defmodule KafkaEx.API do
   By default, fetches metadata for all topics in the cluster. To fetch metadata
   for specific topics only, use `metadata/3`.
 
+  ## Options
+
+    * `:api_version` - Metadata API version to use (default: negotiated)
+    * `:topic_ids` - list of 16-byte topic ids to look up by id instead of
+      by name. Needs Metadata v12+ (Kafka 3.x+); with an older negotiated
+      version the call returns `{:error, :api_version_no_supported}`. Ids are
+      reported on `KafkaEx.Cluster.Topic.topic_id` (Metadata v10+) and can be
+      mapped back with `KafkaEx.Cluster.ClusterMetadata.topic_name_by_id/2`.
+
   ## Examples
 
       {:ok, metadata} = KafkaEx.API.metadata(client)
       {:ok, metadata} = KafkaEx.API.metadata(client, api_version: 2)
+      {:ok, metadata} = KafkaEx.API.metadata(client, topic_ids: [topic_id])
   """
   @spec metadata(client) :: {:ok, ClusterMetadata.t()} | {:error, error_atom}
   @spec metadata(client, opts) :: {:ok, ClusterMetadata.t()} | {:error, error_atom}
@@ -751,6 +761,15 @@ defmodule KafkaEx.API do
   for a consumer group. This is useful for tracking consumer group progress
   and implementing manual offset management.
 
+  ## Options
+
+    * `:api_version` - OffsetFetch API version to use (default: negotiated)
+    * `:member_id` / `:member_epoch` - member identity sent with OffsetFetch
+      v9+; only validated by the broker for KIP-848 consumer-protocol groups
+
+  OffsetFetch v10+ identifies topics by id. When the topic's id is not known
+  from cluster metadata, v9 is used instead.
+
   ## Examples
 
       partitions = [%{partition_num: 0}]
@@ -774,6 +793,17 @@ defmodule KafkaEx.API do
   Stores the committed offsets for the specified topic/partition(s) for a
   consumer group. This is used for manual offset management and consumer
   group coordination.
+
+  ## Options
+
+    * `:api_version` - OffsetCommit API version to use (default: negotiated)
+    * `:generation_id` / `:member_id` - classic group membership (v1+)
+    * `:member_epoch` - member epoch of a KIP-848 consumer-protocol group
+      (v9+); sent instead of `:generation_id` when both are given
+    * `:group_instance_id` - static membership id (v7+)
+
+  OffsetCommit v10+ identifies topics by id. When the topic's id is not known
+  from cluster metadata, v9 is used instead.
 
   ## Examples
 

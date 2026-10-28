@@ -15,6 +15,16 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit do
   - **v6**: Adds committed_leader_epoch per partition
   - **v7**: Adds group_instance_id for static membership (KIP-345)
   - **v8**: Flexible version with compact encodings + tagged_fields (KIP-482)
+  - **v9**: First version usable with the KIP-848 consumer protocol;
+    `generation_id` becomes `generation_id_or_member_epoch` (fed from
+    `:member_epoch`, else `:generation_id`); can return `STALE_MEMBER_EPOCH`
+    and `GROUP_ID_NOT_FOUND`
+  - **v10**: Topics identified by `topic_id` instead of name (KIP-848); used
+    only when the ids of all committed topics are known from cluster metadata,
+    otherwise v9 is sent
+
+  All versions V0-V10 have explicit implementations; the `Any` fallback is
+  retained only for forward compatibility.
   """
 
   defprotocol Request do

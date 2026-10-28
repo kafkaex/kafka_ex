@@ -166,6 +166,80 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestHelpers do
   end
 
   @doc """
+  Builds an OffsetCommit v9 request.
+
+  V9 renames `generation_id` to `generation_id_or_member_epoch` (KIP-848): it
+  carries the classic generation id, or the member epoch for groups using the
+  consumer protocol. See `extract_generation_id_or_member_epoch/1`. Otherwise
+  the same as V7/V8 (group_instance_id + committed_leader_epoch).
+  """
+  @spec build_v9_request(struct(), Keyword.t()) :: struct()
+  def build_v9_request(request_template, opts) do
+    %{group_id: group_id} = extract_common_fields(opts)
+
+    request_template
+    |> Map.put(:group_id, group_id)
+    |> Map.put(:generation_id_or_member_epoch, extract_generation_id_or_member_epoch(opts))
+    |> Map.put(:member_id, Keyword.get(opts, :member_id, ""))
+    |> Map.put(:group_instance_id, extract_group_instance_id(opts))
+    |> Map.put(:topics, build_topics_with_leader_epoch(opts))
+  end
+
+  @doc """
+  Builds an OffsetCommit v10 request.
+
+  V10 identifies topics by `topic_id` instead of name (KIP-848). The
+  `:topic_ids` option must map every committed topic name to its 16-byte id
+  (`KafkaEx.Client.RequestBuilder` fills it from cluster metadata); a topic
+  with no id raises `ArgumentError`. Otherwise the same as V9.
+  """
+  @spec build_v10_request(struct(), Keyword.t()) :: struct()
+  def build_v10_request(request_template, opts) do
+    topic_ids = Keyword.get(opts, :topic_ids, %{})
+
+    topics =
+      opts
+      |> build_topics_with_leader_epoch()
+      |> Enum.map(fn %{name: name} = topic ->
+        topic
+        |> Map.delete(:name)
+        |> Map.put(:topic_id, fetch_topic_id!(topic_ids, name))
+      end)
+
+    request_template
+    |> build_v9_request(opts)
+    |> Map.put(:topics, topics)
+  end
+
+  @doc """
+  Resolves the `generation_id_or_member_epoch` field for v9+ requests.
+
+  `:member_epoch` (consumer-protocol groups) takes precedence over
+  `:generation_id` (classic groups); with neither, `-1` (no group membership
+  check, as for a standalone/admin commit).
+  """
+  @spec extract_generation_id_or_member_epoch(Keyword.t()) :: integer()
+  def extract_generation_id_or_member_epoch(opts) do
+    case Keyword.get(opts, :member_epoch) do
+      nil -> Keyword.get(opts, :generation_id) || -1
+      member_epoch -> member_epoch
+    end
+  end
+
+  @doc false
+  @spec fetch_topic_id!(map(), String.t()) :: <<_::128>>
+  def fetch_topic_id!(topic_ids, name) do
+    case Map.get(topic_ids, name) do
+      <<_::128>> = topic_id ->
+        topic_id
+
+      _ ->
+        raise ArgumentError,
+              "no topic id known for topic #{inspect(name)}; OffsetCommit/OffsetFetch v10+ identify topics by id"
+    end
+  end
+
+  @doc """
   Extracts group_instance_id field for v7+ versions.
   Returns nil when not provided (nullable field).
   """
