@@ -43,6 +43,29 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription.Member.MemberAssignment do
   end
 
   @doc """
+  Builds a MemberAssignment from a ConsumerGroupDescribe `Assignment`
+  (`%{topic_partitions: [%{topic_id, topic_name, partitions}]}`).
+
+  The consumer protocol has no assignment version or user data, so they are
+  `0` and `<<>>`.
+  """
+  @spec from_topic_partitions(%{topic_partitions: [map]} | nil) :: __MODULE__.t()
+  def from_topic_partitions(nil), do: %__MODULE__{}
+
+  def from_topic_partitions(%{topic_partitions: topic_partitions}) do
+    %__MODULE__{
+      partition_assignments:
+        Enum.map(topic_partitions || [], fn topic_partition ->
+          %PartitionAssignment{
+            topic: topic_partition.topic_name,
+            topic_id: topic_partition.topic_id,
+            partitions: topic_partition.partitions
+          }
+        end)
+    }
+  end
+
+  @doc """
   Returns the assignment version.
   """
   @spec version(t()) :: non_neg_integer
