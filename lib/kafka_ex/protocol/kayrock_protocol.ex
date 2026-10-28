@@ -188,7 +188,7 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
     delete_topics: 4,
     describe_groups: 5,
     fetch: 11,
-    find_coordinator: 3,
+    find_coordinator: 6,
     heartbeat: 4,
     join_group: 6,
     leave_group: 4,

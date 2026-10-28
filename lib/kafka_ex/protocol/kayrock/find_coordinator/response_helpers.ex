@@ -79,4 +79,20 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.ResponseHelpers do
         error
     end
   end
+
+  @doc """
+  Parses a V4+ response (KIP-699 batching).
+
+  KafkaEx looks up one key per request, so the single `coordinators` entry is
+  parsed into the same `FindCoordinator.t()` as V1-V3 (its per-entry
+  `error_code` / `error_message` take the place of the top-level ones).
+  """
+  @spec parse_v4_plus_response(map()) :: {:ok, FindCoordinator.t()} | {:error, Error.t()}
+  def parse_v4_plus_response(%{coordinators: [coordinator | _]} = response) do
+    parse_v1_response(Map.put(coordinator, :throttle_time_ms, response.throttle_time_ms))
+  end
+
+  def parse_v4_plus_response(%{coordinators: _}) do
+    {:error, Error.build(:coordinator_not_available, %{reason: :empty_coordinators})}
+  end
 end

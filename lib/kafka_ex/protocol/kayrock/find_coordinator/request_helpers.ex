@@ -60,4 +60,15 @@ defmodule KafkaEx.Protocol.Kayrock.FindCoordinator.RequestHelpers do
       1 -> 1
     end
   end
+
+  @doc """
+  Builds a V4+ request (KIP-699 batching): the single coordinator key goes into
+  `coordinator_keys`, alongside `key_type`.
+  """
+  @spec build_v4_plus_request(map(), Keyword.t()) :: map()
+  def build_v4_plus_request(request, opts) do
+    {coordinator_key, coordinator_type} = extract_v1_fields(opts)
+
+    %{request | coordinator_keys: [coordinator_key], key_type: coordinator_type}
+  end
 end
