@@ -24,7 +24,8 @@ defmodule KafkaEx.Mixfile do
         "coveralls.html": :test,
         "test.unit": :test,
         "test.integration": :test,
-        "test.chaos": :test
+        "test.chaos": :test,
+        "test.kafka4": :test
       ],
       description: description(),
       package: package(),
@@ -55,7 +56,9 @@ defmodule KafkaEx.Mixfile do
 
   defp deps do
     [
-      {:kayrock, "~> 1.0"},
+      # Kayrock master (not yet on hex) generates the Kafka 4.4.0 protocol
+      # versions KafkaEx implements, including the KIP-848 consumer group APIs.
+      {:kayrock, github: "kafkaex/kayrock", branch: "master"},
       {:telemetry, "~> 1.2"},
       {:credo, "~> 1.1", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: :dev, runtime: false},
@@ -94,7 +97,9 @@ defmodule KafkaEx.Mixfile do
         "test --exclude auth --exclude consume --exclude consumer_group --exclude chaos --exclude lifecycle --exclude produce",
       "test.integration":
         "test --include auth --include consume --include consumer_group --include lifecycle --include produce",
-      "test.chaos": "test --only chaos"
+      "test.chaos": "test --only chaos",
+      # Kafka 4.x (KRaft) protocol tests against a Testcontainers broker; needs Docker.
+      "test.kafka4": "test --only kafka4"
     ]
   end
 
