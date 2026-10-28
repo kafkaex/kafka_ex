@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### Added
+
+* **KIP-848-era versions of existing APIs.** Metadata v10-v13, OffsetCommit v9-v10, OffsetFetch
+  v7-v10 and FindCoordinator v4-v6 now have explicit implementations, and the negotiation cap is
+  raised to match. Results are the same `KafkaEx.Messages.*` / `KafkaEx.Cluster.*` structs as
+  before. The negotiated version is `min(broker max, cap)`, so **any broker that advertises the
+  newer versions now uses them**, not only Kafka 4.x: from Kafka 2.5 onward at least one of these
+  APIs moves up (e.g. Kafka 3.0 → Metadata v11, OffsetFetch v8, FindCoordinator v4; Kafka 3.7 →
+  Metadata v12, OffsetCommit v9, OffsetFetch v9). Kafka 2.4 and older are unaffected. To keep an
+  API on its previous version, pin it via `config :kafka_ex, :api_versions` (e.g.
+  `%{metadata: 9, offset_fetch: 6, find_coordinator: 3}`).
+* **Topic ids.** `KafkaEx.Cluster.Topic` has a new `topic_id` field (16-byte binary, `nil` when
+  unknown). `ClusterMetadata.topic_name_by_id/2` and `topic_ids_by_name/2` look ids up, and
+  `KafkaEx.API.metadata(client, nil, topic_ids: [id])` fetches metadata by id (Metadata v12+).
+* **`:member_epoch` option** for `commit_offset` (OffsetCommit v9+) and `fetch_committed_offset`
+  (OffsetFetch v9+, with `:member_id`), for groups using the consumer protocol. `:require_stable`
+  is accepted for OffsetFetch v7+.
+* **`mix test.kafka4`**: integration tests against an `apache/kafka:4.4.0` KRaft broker started
+  with Testcontainers (Docker required; tag `:kafka4`, excluded by default).
+
+### Changed
+
+* OffsetCommit/OffsetFetch v10 name topics by id. When the topic's id is not in the client's
+  metadata, KafkaEx sends v9 (by name) instead. If you pin `api_version: 10` explicitly, it
+  returns `{:error, :unknown_topic_id}` rather than downgrading.
+* GenConsumer treats `:group_id_not_found` (what OffsetCommit v9+ returns where older versions
+  returned `:illegal_generation`), `:stale_member_epoch` and `:fenced_member_epoch` as
+  rejoin-required commit errors. `:unknown_topic_id` triggers a metadata refresh and retry.
+
 ## 1.1.3 (2026-10-30)
 
 Upgrade KafkaEx to this release before upgrading Kayrock to 1.1.0. The Kayrock
