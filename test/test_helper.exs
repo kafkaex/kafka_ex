@@ -6,6 +6,7 @@ ExUnit.configure(
     consume: true,
     consumer_group: true,
     chaos: true,
+    kafka4: true,
     lifecycle: true,
     produce: true
   ]
@@ -20,16 +21,18 @@ Mimic.copy(KafkaEx.Client, type_check: true)
 
 ExUnit.start()
 
-# Check if we need Testcontainers (chaos tests requested)
-# Detects --only chaos, --include chaos, or ENABLE_TESTCONTAINERS env
+# Check if we need Testcontainers (chaos or kafka4 tests requested)
+# Detects --only/--include chaos|kafka4, or ENABLE_TESTCONTAINERS env
+testcontainers_tags = ["chaos", "kafka4"]
+
 needs_testcontainers? =
   System.get_env("ENABLE_TESTCONTAINERS") == "true" or
-    Enum.any?(System.argv(), &(&1 in ["--only", "--include"] or String.contains?(&1, "chaos"))) or
+    Enum.any?(System.argv(), &(&1 in ["--only", "--include"] or String.contains?(&1, testcontainers_tags))) or
     System.argv()
     |> Enum.chunk_every(2, 1, :discard)
     |> Enum.any?(fn
-      ["--only", tag] -> tag == "chaos"
-      ["--include", tag] -> tag == "chaos"
+      ["--only", tag] -> tag in testcontainers_tags
+      ["--include", tag] -> tag in testcontainers_tags
       _ -> false
     end)
 
