@@ -54,19 +54,25 @@ defmodule KafkaEx.Client.ResponseParser do
   end
 
   @doc """
-  Parses response for Offset Fetch API
+  Parses response for Offset Fetch API.
+
+  `opts` may carry `:topic_name_resolver` for v10+ responses, which name
+  topics by id (see `KafkaEx.Protocol.KayrockProtocol.parse_response/3`).
   """
-  @spec offset_fetch_response(term) :: {:ok, [Offset.t()]} | {:error, Error.t()}
-  def offset_fetch_response(response) do
-    @protocol.parse_response(:offset_fetch, response)
+  @spec offset_fetch_response(term, Keyword.t()) :: {:ok, [Offset.t()]} | {:error, Error.t()}
+  def offset_fetch_response(response, opts \\ []) do
+    @protocol.parse_response(:offset_fetch, response, opts)
   end
 
   @doc """
-  Parses response for Offset Commit API
+  Parses response for Offset Commit API.
+
+  `opts` may carry `:topic_name_resolver` for v10+ responses, which name
+  topics by id (see `KafkaEx.Protocol.KayrockProtocol.parse_response/3`).
   """
-  @spec offset_commit_response(term) :: {:ok, [Offset.t()]} | {:error, Error.t()}
-  def offset_commit_response(response) do
-    @protocol.parse_response(:offset_commit, response)
+  @spec offset_commit_response(term, Keyword.t()) :: {:ok, [Offset.t()]} | {:error, Error.t()}
+  def offset_commit_response(response, opts \\ []) do
+    @protocol.parse_response(:offset_commit, response, opts)
   end
 
   @doc """

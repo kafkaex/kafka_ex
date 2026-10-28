@@ -405,6 +405,13 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     %State{state | generation_id: nil}
   end
 
+  # OffsetCommit v9+ codes for the same "our generation is stale" condition
+  # (see Retry.commit_fatal_error?/1): keep member_id, drop the generation.
+  defp reset_generation(%State{} = state, reason)
+       when reason in [:group_id_not_found, :stale_member_epoch, :fenced_member_epoch] do
+    %State{state | generation_id: nil}
+  end
+
   defp reset_generation(%State{} = state, _reason), do: state
 
   # Drain casts identifiable as stale:

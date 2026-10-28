@@ -260,6 +260,10 @@ defmodule KafkaEx.Support.Retry do
   def leadership_error?(:not_leader_or_follower), do: true
   def leadership_error?(:fenced_leader_epoch), do: true
   def leadership_error?(:unknown_topic_or_partition), do: true
+  # Topic-id requests (OffsetCommit/OffsetFetch v10+, Metadata v12+): the id we
+  # sent is not known to the broker, e.g. the topic was recreated. Same remedy
+  # as :unknown_topic_or_partition — refresh metadata.
+  def leadership_error?(:unknown_topic_id), do: true
   def leadership_error?(_), do: false
 
   @doc """
@@ -325,9 +329,15 @@ defmodule KafkaEx.Support.Retry do
 
   `:unstable_offset_commit` (KIP-447) — the broker is waiting on an
   in-progress transaction; retry is the correct handling.
+
+  `:unknown_topic_id` (OffsetCommit/OffsetFetch v10+) — the topic id came from
+  stale metadata (e.g. the topic was recreated). The client refreshes metadata
+  on it (`leadership_error?/1`), and a retry that rebuilds the request picks up
+  the new id.
   """
   @spec commit_retryable?(error()) :: boolean()
   def commit_retryable?(:rebalance_in_progress), do: true
+  def commit_retryable?(:unknown_topic_id), do: true
   def commit_retryable?(:unstable_offset_commit), do: true
   def commit_retryable?(error), do: transient_error?(error)
 
@@ -424,6 +434,17 @@ defmodule KafkaEx.Support.Retry do
   Follows Java ConsumerCoordinator.OffsetCommitResponseHandler,
   brod stabilize/3, kafka-python _handle_offset_commit_response patterns.
 
+  OffsetCommit v9+ (KIP-848) adds codes with the same meaning, so they are
+  handled the same way:
+
+    * `:group_id_not_found` — a v9+ commit with a generation for a group the
+      coordinator no longer knows. v0-v8 brokers return `:illegal_generation`
+      for the same condition, so it must keep triggering a rejoin.
+    * `:stale_member_epoch` — the consumer-protocol analogue of
+      `:illegal_generation` (the epoch the commit carried is outdated).
+    * `:fenced_member_epoch` — the consumer-protocol member was fenced and
+      must rejoin with a fresh epoch.
+
   Note: `:rebalance_in_progress` is intentionally NOT in this set — it is
   retryable; see `commit_retryable?/1`. `:fenced_instance_id` and several
   authorization/size errors are classified as `commit_terminal_error?/1`.
@@ -431,6 +452,9 @@ defmodule KafkaEx.Support.Retry do
   @spec commit_fatal_error?(error()) :: boolean()
   def commit_fatal_error?(:illegal_generation), do: true
   def commit_fatal_error?(:unknown_member_id), do: true
+  def commit_fatal_error?(:group_id_not_found), do: true
+  def commit_fatal_error?(:stale_member_epoch), do: true
+  def commit_fatal_error?(:fenced_member_epoch), do: true
   def commit_fatal_error?(_), do: false
 
   @doc """
