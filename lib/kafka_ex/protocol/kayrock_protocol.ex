@@ -8,6 +8,8 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
   alias KafkaEx.Protocol.Kayrock, as: KayrockProtocol
 
   alias Kayrock.ApiVersions
+  alias Kayrock.ConsumerGroupDescribe
+  alias Kayrock.ConsumerGroupHeartbeat
   alias Kayrock.CreateTopics
   alias Kayrock.DeleteTopics
   alias Kayrock.DescribeGroups
@@ -133,6 +135,18 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
     |> KayrockProtocol.FindCoordinator.Request.build_request(opts)
   end
 
+  def build_request(:consumer_group_heartbeat, api_version, opts) do
+    api_version
+    |> ConsumerGroupHeartbeat.get_request_struct()
+    |> KayrockProtocol.ConsumerGroupHeartbeat.Request.build_request(opts)
+  end
+
+  def build_request(:consumer_group_describe, api_version, opts) do
+    api_version
+    |> ConsumerGroupDescribe.get_request_struct()
+    |> KayrockProtocol.ConsumerGroupDescribe.Request.build_request(opts)
+  end
+
   def build_request(:create_topics, api_version, opts) do
     api_version
     |> CreateTopics.get_request_struct()
@@ -164,16 +178,26 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
   def parse_response(:fetch, response), do: KayrockProtocol.Fetch.Response.parse_response(response)
   def parse_response(:find_coordinator, response), do: KayrockProtocol.FindCoordinator.Response.parse_response(response)
   def parse_response(:create_topics, response), do: KayrockProtocol.CreateTopics.Response.parse_response(response)
+
+  def parse_response(:consumer_group_heartbeat, response),
+    do: KayrockProtocol.ConsumerGroupHeartbeat.Response.parse_response(response)
+
+  def parse_response(:consumer_group_describe, response),
+    do: KayrockProtocol.ConsumerGroupDescribe.Response.parse_response(response)
+
   def parse_response(:delete_topics, response), do: KayrockProtocol.DeleteTopics.Response.parse_response(response)
 
   @doc """
   Parses a response that may need client context.
 
-  OffsetCommit / OffsetFetch v10+ responses name topics by id only. Pass
-  `topic_name_resolver: (topic_id -> {:ok, name} | {:error, _})` (typically
-  backed by `KafkaEx.Cluster.ClusterMetadata.topic_name_by_id/2`) so the
-  result is keyed by topic name, as for earlier versions. Responses of other
-  versions or APIs ignore the option.
+  OffsetCommit / OffsetFetch v10+ and ConsumerGroupHeartbeat responses name
+  topics by id only. Pass `topic_name_resolver: (topic_id -> {:ok, name} |
+  {:error, _})` (typically backed by
+  `KafkaEx.Cluster.ClusterMetadata.topic_name_by_id/2`) so the result carries
+  topic names: OffsetCommit / OffsetFetch results are keyed by name as for
+  earlier versions, and ConsumerGroupHeartbeat assignments get their
+  `topic_name` set where the id is known. Responses of other versions or APIs
+  ignore the option.
   """
   @spec parse_response(atom(), term(), Keyword.t()) :: {:ok, term()} | {:error, term()}
   def parse_response(:offset_commit, response, opts) do
@@ -186,6 +210,12 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
     response
     |> KayrockProtocol.OffsetFetch.ResponseHelpers.put_topic_names(topic_name_resolver(opts))
     |> KayrockProtocol.OffsetFetch.Response.parse_response()
+  end
+
+  def parse_response(:consumer_group_heartbeat, response, opts) do
+    response
+    |> KayrockProtocol.ConsumerGroupHeartbeat.Response.parse_response()
+    |> KayrockProtocol.ConsumerGroupHeartbeat.ResponseHelpers.put_topic_names(topic_name_resolver(opts))
   end
 
   def parse_response(operation, response, _opts), do: parse_response(operation, response)
@@ -212,6 +242,8 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
   # against. Raise an entry only together with the new version's impls.
   @implemented_max_versions %{
     api_versions: 3,
+    consumer_group_describe: 1,
+    consumer_group_heartbeat: 1,
     create_topics: 5,
     delete_topics: 4,
     describe_groups: 5,

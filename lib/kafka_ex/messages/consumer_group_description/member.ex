@@ -6,6 +6,21 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription.Member do
 
   Contains identifying information about a consumer group member and their
   current partition assignment.
+
+  ## Fields set by ConsumerGroupDescribe only
+
+  Members of a KIP-848 "consumer" protocol group (`KafkaEx.API.describe_consumer_group/3`) have no
+  `member_metadata` (it is `nil`); their `member_assignment` is the current assignment (its
+  `PartitionAssignment`s carry both `topic` and `topic_id`) and `group_instance_id` is the static
+  instance id. They also carry the following fields, which are `nil` in DescribeGroups results:
+
+    * `member_epoch` - the member's current epoch
+    * `rack_id` - the member's rack id, if any
+    * `subscribed_topic_names` - topic names the member subscribed to
+    * `subscribed_topic_regex` - the member's subscription regex, if any
+    * `target_assignment` - the assignment the member is converging to (`MemberAssignment`)
+    * `member_type` - `:consumer`, `:classic` (a classic-protocol member of an upgraded
+      group) or `:unknown`; ConsumerGroupDescribe v1+ only, `nil` on v0
   """
   alias KafkaEx.Messages.ConsumerGroupDescription.Member.MemberAssignment
   alias KafkaEx.Messages.ConsumerGroupDescription.Member.MemberAssignment.PartitionAssignment
@@ -16,7 +31,13 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription.Member do
           client_host: binary,
           member_metadata: term,
           member_assignment: MemberAssignment.t(),
-          group_instance_id: binary | nil
+          group_instance_id: binary | nil,
+          member_epoch: integer() | nil,
+          rack_id: binary | nil,
+          subscribed_topic_names: [binary] | nil,
+          subscribed_topic_regex: binary | nil,
+          target_assignment: MemberAssignment.t() | nil,
+          member_type: :consumer | :classic | :unknown | nil
         }
 
   defstruct [
@@ -25,6 +46,12 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription.Member do
     :client_host,
     :member_metadata,
     :group_instance_id,
+    :member_epoch,
+    :rack_id,
+    :subscribed_topic_names,
+    :subscribed_topic_regex,
+    :target_assignment,
+    :member_type,
     member_assignment: %MemberAssignment{}
   ]
 
@@ -50,6 +77,33 @@ defmodule KafkaEx.Messages.ConsumerGroupDescription.Member do
       group_instance_id: Map.get(response, :group_instance_id)
     }
   end
+
+  @doc """
+  Builds a Member from one member of a ConsumerGroupDescribe API response (KIP-848).
+  """
+  @spec from_consumer_group_describe_response(map) :: __MODULE__.t()
+  def from_consumer_group_describe_response(member) do
+    %__MODULE__{
+      member_id: member.member_id,
+      client_id: member.client_id,
+      client_host: member.client_host,
+      member_metadata: nil,
+      member_assignment: MemberAssignment.from_topic_partitions(member.assignment),
+      group_instance_id: member.instance_id,
+      member_epoch: member.member_epoch,
+      rack_id: member.rack_id,
+      subscribed_topic_names: member.subscribed_topic_names,
+      subscribed_topic_regex: member.subscribed_topic_regex,
+      target_assignment: MemberAssignment.from_topic_partitions(member.target_assignment),
+      member_type: member_type(Map.get(member, :member_type))
+    }
+  end
+
+  # ConsumerGroupDescribe v1+ (KIP-1099): -1 unknown, 0 classic, 1 consumer.
+  defp member_type(nil), do: nil
+  defp member_type(0), do: :classic
+  defp member_type(1), do: :consumer
+  defp member_type(_), do: :unknown
 
   @doc """
   Returns the member ID.
