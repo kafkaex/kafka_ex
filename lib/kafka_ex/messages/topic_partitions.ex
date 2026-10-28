@@ -15,7 +15,7 @@ defmodule KafkaEx.Messages.TopicPartitions do
   """
 
   @type t :: %__MODULE__{
-          topic_id: <<_::128>>,
+          topic_id: <<_::128>> | nil,
           topic_name: String.t() | nil,
           partitions: [non_neg_integer()]
         }

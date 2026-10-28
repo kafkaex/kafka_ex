@@ -201,6 +201,32 @@ defmodule KafkaEx.Client.ConsumerGroupProtocolTest do
                Client.handle_call({:consumer_group_heartbeat, "g", [member_epoch: 0]}, self(), state)
     end
 
+    test "malformed :topic_partitions is an error, not a crash in the client", %{state: state} do
+      reject(&NetworkClient.send_sync_request/3)
+
+      for bad <- [
+            [%{topic: "t", partitions: [0]}],
+            [%{topic_id: nil, partitions: [0]}],
+            [%{topic_id: <<1::64>>, partitions: [0]}],
+            [%{topic_id: @known_id, partitions: ["0"]}],
+            %{topic_id: @known_id, partitions: [0]}
+          ] do
+        assert {:reply, {:error, :invalid_topic_partitions}, ^state} =
+                 Client.handle_call(
+                   {:consumer_group_heartbeat, "g", [member_epoch: 0, topic_partitions: bad]},
+                   self(),
+                   state
+                 )
+      end
+    end
+
+    test "a non-integer :member_epoch is an error, not a crash in the client", %{state: state} do
+      reject(&NetworkClient.send_sync_request/3)
+
+      assert {:reply, {:error, :invalid_member_epoch}, ^state} =
+               Client.handle_call({:consumer_group_heartbeat, "g", [member_epoch: "0"]}, self(), state)
+    end
+
     test "rejects an invalid group", %{state: state} do
       assert {:reply, {:error, :invalid_consumer_group}, _} =
                Client.handle_call({:consumer_group_heartbeat, "", [member_epoch: 0]}, self(), state)
