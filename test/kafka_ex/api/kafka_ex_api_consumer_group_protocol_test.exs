@@ -170,4 +170,17 @@ defmodule KafkaEx.APIConsumerGroupProtocolTest do
       assert request.__struct__.api_vsn() == 1
     end
   end
+
+  describe "generate_member_id/0" do
+    test "returns a KIP-1082 style id: 22 URL-safe base64 chars of a v4 UUID" do
+      id = KafkaEx.API.generate_member_id()
+      assert byte_size(id) == 22
+      assert {:ok, <<_::48, 4::4, _::12, 2::2, _::62>>} = Base.url_decode64(id, padding: false)
+    end
+
+    test "is unique per call, so a caller must keep it across join retries" do
+      ids = for _ <- 1..1000, do: KafkaEx.API.generate_member_id()
+      assert length(Enum.uniq(ids)) == 1000
+    end
+  end
 end
