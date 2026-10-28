@@ -3,6 +3,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpers do
   Helper functions for parsing Metadata responses across different protocol versions.
   """
 
+  alias KafkaEx.Client.Error
   alias KafkaEx.Cluster.Broker
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Cluster.PartitionInfo
@@ -29,6 +30,30 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpers do
   rescue
     e -> {:error, {:parse_error, e}}
   end
+
+  @doc """
+  Converts a V13+ Metadata response, which carries a top-level `error_code`
+  (e.g. `REBOOTSTRAP_REQUIRED`), to ClusterMetadata.
+
+  A non-zero top-level error means the broker did not return usable metadata,
+  so it is surfaced as `{:error, %KafkaEx.Client.Error{}}` instead of an empty
+  cluster.
+  """
+  @spec to_cluster_metadata_with_top_level_error(map()) :: {:ok, ClusterMetadata.t()} | {:error, term}
+  def to_cluster_metadata_with_top_level_error(%{error_code: error_code}) when error_code not in [0, nil] do
+    {:error, Error.build(error_code, %{})}
+  end
+
+  def to_cluster_metadata_with_top_level_error(response), do: to_cluster_metadata(response)
+
+  @doc """
+  Normalizes a wire topic id: the all-zero UUID (Kafka's null id) and absent
+  ids become `nil`, any other 16-byte binary is returned as-is.
+  """
+  @spec normalize_topic_id(term()) :: Topic.topic_id() | nil
+  def normalize_topic_id(<<0::128>>), do: nil
+  def normalize_topic_id(<<_::128>> = topic_id), do: topic_id
+  def normalize_topic_id(_), do: nil
 
   @doc """
   Parses broker list from Kayrock response.
@@ -72,7 +97,8 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpers do
         name: topic_name,
         partition_leaders: partition_leaders,
         is_internal: is_internal,
-        partitions: partitions
+        partitions: partitions,
+        topic_id: normalize_topic_id(Map.get(topic_map, :topic_id))
       }
 
       {topic_name, topic}

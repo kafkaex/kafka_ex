@@ -45,6 +45,36 @@ defmodule KafkaEx.Cluster.ClusterMetadata do
   end
 
   @doc """
+  Look up a topic name by its topic id (`t:KafkaEx.Cluster.Topic.topic_id/0`).
+
+  Topic ids are only known for topics whose metadata was fetched with
+  Metadata v10+ (Kafka 2.8+). Returns `{:error, :no_such_topic}` when no
+  known topic carries that id.
+  """
+  @spec topic_name_by_id(t, Topic.topic_id()) :: {:ok, KafkaExAPI.topic_name()} | {:error, :no_such_topic}
+  def topic_name_by_id(%__MODULE__{topics: topics}, topic_id) when is_binary(topic_id) do
+    Enum.find_value(topics, {:error, :no_such_topic}, fn
+      {name, %Topic{topic_id: ^topic_id}} -> {:ok, name}
+      _ -> nil
+    end)
+  end
+
+  @doc """
+  Return the topic ids known for the given topic names, as `%{topic_name => topic_id}`.
+
+  Topics that are unknown, or whose id is not known, are left out.
+  """
+  @spec topic_ids_by_name(t, [KafkaExAPI.topic_name()]) :: %{KafkaExAPI.topic_name() => Topic.topic_id()}
+  def topic_ids_by_name(%__MODULE__{topics: topics}, wanted_topics) do
+    topics
+    |> Map.take(wanted_topics)
+    |> Enum.reduce(%{}, fn
+      {name, %Topic{topic_id: <<_::128>> = id}}, acc -> Map.put(acc, name, id)
+      _, acc -> acc
+    end)
+  end
+
+  @doc """
   Return a list of the known brokers
   """
   @spec brokers(t) :: [Broker.t()]

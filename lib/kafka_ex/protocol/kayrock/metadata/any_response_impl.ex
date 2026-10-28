@@ -2,7 +2,7 @@ defimpl KafkaEx.Protocol.Kayrock.Metadata.Response, for: Any do
   @moduledoc """
   Fallback implementation of Metadata Response protocol for unknown future versions.
 
-  All known Kayrock-supported versions (V0-V9) have explicit protocol
+  All known Kayrock-supported versions (V0-V13) have explicit protocol
   implementations. This `Any` fallback exists solely for forward compatibility
   with potential future Kayrock versions that don't yet have an explicit impl.
 

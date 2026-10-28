@@ -24,8 +24,16 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata do
   - **V8**: Adds include_cluster/topic_authorized_operations in request,
     cluster/topic_authorized_operations in response
   - **V9**: Flexible version (KIP-482) with compact encodings + tagged_fields
+  - **V10**: Adds `topic_id` to request and response topics (response ids are
+    stored on `KafkaEx.Cluster.Topic.topic_id`); requests still look topics up
+    by name only
+  - **V11**: Removes `include_cluster_authorized_operations` /
+    `cluster_authorized_operations` (KIP-700)
+  - **V12**: Topics can be looked up by id (`:topic_ids` option); response
+    topic name becomes nullable
+  - **V13**: Adds a top-level `error_code` in the response
 
-  All versions V0-V9 have explicit protocol implementations. The `Any`
+  All versions V0-V13 have explicit protocol implementations. The `Any`
   fallback is retained only for forward compatibility with unknown future
   versions.
 
@@ -50,7 +58,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata do
     @moduledoc """
     This protocol is used to build Metadata requests.
 
-    Each Kayrock.Metadata version (V0-V9) implements this protocol
+    Each Kayrock.Metadata version (V0-V13) implements this protocol
     to transform request options into the appropriate Kayrock request struct.
 
     The `Any` fallback is retained only for forward compatibility with
@@ -66,6 +74,8 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata do
 
     - `:topics` - List of topic names to fetch metadata for, or `nil`/`[]` for all topics
     - `:allow_auto_topic_creation` - Whether to auto-create topics (V4+)
+    - `:topic_ids` - List of 16-byte topic ids to look up by id (V12+;
+      ignored by older versions)
 
     ## Returns
 
@@ -79,7 +89,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata do
     @moduledoc """
     This protocol is used to parse Metadata responses.
 
-    Each Kayrock.Metadata version (V0-V9) implements this protocol
+    Each Kayrock.Metadata version (V0-V13) implements this protocol
     to transform the Kayrock response into a ClusterMetadata struct.
 
     The `Any` fallback is retained only for forward compatibility with
