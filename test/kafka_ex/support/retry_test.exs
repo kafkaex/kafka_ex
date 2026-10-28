@@ -564,4 +564,64 @@ defmodule KafkaEx.Support.RetryTest do
       assert Retry.backoff_delay_jittered(2000, 500, 5000) <= 5000
     end
   end
+
+  describe "consumer_group_heartbeat_retryable?/1" do
+    test "retries transient and coordinator errors" do
+      for error <- [:not_coordinator, :coordinator_not_available, :coordinator_load_in_progress, :closed, :no_broker] do
+        assert Retry.consumer_group_heartbeat_retryable?(error), inspect(error)
+      end
+    end
+
+    test "returns membership and fatal errors to the caller" do
+      for error <- [
+            :fenced_member_epoch,
+            :stale_member_epoch,
+            :unknown_member_id,
+            :unreleased_instance_id,
+            :fenced_instance_id,
+            :unsupported_assignor,
+            :group_authorization_failed,
+            :group_max_size_reached,
+            :invalid_request,
+            :group_id_not_found
+          ] do
+        refute Retry.consumer_group_heartbeat_retryable?(error), inspect(error)
+      end
+    end
+
+    test "the coordinator refresh path covers the codes that need re-discovery" do
+      assert Retry.coordinator_refresh_error?(:not_coordinator)
+      assert Retry.coordinator_refresh_error?(:coordinator_not_available)
+      refute Retry.coordinator_refresh_error?(:coordinator_load_in_progress)
+    end
+  end
+
+  describe "consumer_group_heartbeat_rejoin_error?/1" do
+    test "fenced epoch and unknown member mean rejoin" do
+      assert Retry.consumer_group_heartbeat_rejoin_error?(:fenced_member_epoch)
+      assert Retry.consumer_group_heartbeat_rejoin_error?(:unknown_member_id)
+      refute Retry.consumer_group_heartbeat_rejoin_error?(:unsupported_assignor)
+      refute Retry.consumer_group_heartbeat_rejoin_error?(:not_coordinator)
+    end
+  end
+
+  describe "consumer_group_heartbeat_terminal_error?/1" do
+    test "classifies the fatal codes" do
+      for error <- [
+            :group_authorization_failed,
+            :fenced_instance_id,
+            :unreleased_instance_id,
+            :unsupported_assignor,
+            :group_max_size_reached,
+            :invalid_regular_expression,
+            :invalid_request,
+            :unsupported_version
+          ] do
+        assert Retry.consumer_group_heartbeat_terminal_error?(error), inspect(error)
+      end
+
+      refute Retry.consumer_group_heartbeat_terminal_error?(:fenced_member_epoch)
+      refute Retry.consumer_group_heartbeat_terminal_error?(:not_coordinator)
+    end
+  end
 end

@@ -7,6 +7,7 @@ defmodule KafkaEx.Client.ResponseParser do
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Messages.ApiVersions
   alias KafkaEx.Messages.ConsumerGroupDescription
+  alias KafkaEx.Messages.ConsumerGroupHeartbeat
   alias KafkaEx.Messages.ConsumerGroupListing
   alias KafkaEx.Messages.CreateTopics
   alias KafkaEx.Messages.DeleteTopics
@@ -27,6 +28,26 @@ defmodule KafkaEx.Client.ResponseParser do
   @spec api_versions_response(term) :: {:ok, ApiVersions.t()} | {:error, Error.t()}
   def api_versions_response(response) do
     @protocol.parse_response(:api_versions, response)
+  end
+
+  @doc """
+  Parses response for ConsumerGroupHeartbeat API (KIP-848).
+
+  `opts` may carry `:topic_name_resolver` to fill in assignment topic names
+  (see `KafkaEx.Protocol.KayrockProtocol.parse_response/3`).
+  """
+  @spec consumer_group_heartbeat_response(term, Keyword.t()) :: {:ok, ConsumerGroupHeartbeat.t()} | {:error, Error.t()}
+  def consumer_group_heartbeat_response(response, opts \\ []) do
+    @protocol.parse_response(:consumer_group_heartbeat, response, opts)
+  end
+
+  @doc """
+  Parses response for ConsumerGroupDescribe API (KIP-848).
+  """
+  @spec consumer_group_describe_response(term) ::
+          {:ok, [ConsumerGroupDescription.t()]} | {:error, [{String.t(), atom()}]}
+  def consumer_group_describe_response(response) do
+    @protocol.parse_response(:consumer_group_describe, response)
   end
 
   @doc """
