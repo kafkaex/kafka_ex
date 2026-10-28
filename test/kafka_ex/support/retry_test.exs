@@ -316,6 +316,11 @@ defmodule KafkaEx.Support.RetryTest do
   end
 
   describe "commit_retryable?/1" do
+    test ":unknown_topic_id (stale topic id, v10+) is retryable and refreshes metadata" do
+      assert Retry.commit_retryable?(:unknown_topic_id)
+      assert Retry.leadership_error?(:unknown_topic_id)
+    end
+
     test "transient errors are commit retryable" do
       assert Retry.commit_retryable?(:timeout)
       assert Retry.commit_retryable?(:request_timed_out)
@@ -339,6 +344,15 @@ defmodule KafkaEx.Support.RetryTest do
 
     test "returns false for :rebalance_in_progress (retryable, flag-and-wait)" do
       refute Retry.commit_fatal_error?(:rebalance_in_progress)
+    end
+
+    test "returns true for the OffsetCommit v9+ (KIP-848) stale-membership codes" do
+      assert Retry.commit_fatal_error?(:group_id_not_found)
+      assert Retry.commit_fatal_error?(:stale_member_epoch)
+      assert Retry.commit_fatal_error?(:fenced_member_epoch)
+      refute Retry.commit_terminal_error?(:stale_member_epoch)
+      refute Retry.commit_retryable?(:stale_member_epoch)
+      refute Retry.commit_retryable?(:fenced_member_epoch)
     end
 
     test "returns false for :fenced_instance_id (terminal)" do

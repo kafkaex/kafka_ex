@@ -2,7 +2,7 @@ defimpl KafkaEx.Protocol.Kayrock.OffsetCommit.Response, for: Any do
   @moduledoc """
   Fallback implementation of OffsetCommit Response protocol for unknown future versions.
 
-  All known Kayrock-supported versions (V0-V8) have explicit protocol
+  All known Kayrock-supported versions (V0-V10) have explicit protocol
   implementations. This `Any` fallback exists solely for forward compatibility
   with potential future Kayrock versions that don't yet have an explicit impl.
 

@@ -60,6 +60,47 @@ defmodule KafkaEx.Protocol.Kayrock.ResponseHelpers do
     end
   end
 
+  @typedoc "Resolves a topic id to its name, e.g. via `KafkaEx.Cluster.ClusterMetadata.topic_name_by_id/2`."
+  @type topic_name_resolver :: (binary() -> {:ok, String.t()} | {:error, term()})
+
+  @doc """
+  Attaches topic names to topics identified only by `topic_id` (OffsetCommit
+  V10+, OffsetFetch V10+), using `resolver` (typically backed by the client's
+  cluster metadata).
+
+  Topics that already have a binary `name` are left unchanged, as are topics
+  whose id the resolver does not know, so the version-specific parser can
+  report `:unknown_topic_id`. The resolver is only called for id-only topics.
+  """
+  @spec put_topic_names([map()], topic_name_resolver()) :: [map()]
+  def put_topic_names(topics, resolver) when is_list(topics) and is_function(resolver, 1) do
+    Enum.map(topics, fn
+      %{name: name} = topic when is_binary(name) ->
+        topic
+
+      %{topic_id: topic_id} = topic ->
+        case resolver.(topic_id) do
+          {:ok, name} -> Map.put(topic, :name, name)
+          _ -> topic
+        end
+
+      topic ->
+        topic
+    end)
+  end
+
+  @doc """
+  Returns `{:error, %Error{error: :unknown_topic_id}}` for the first topic with
+  no resolved `name`, or `:ok` when every topic has one.
+  """
+  @spec check_topic_names([map()]) :: :ok | {:error, ErrorStruct.t()}
+  def check_topic_names(topics) do
+    case Enum.find(topics, &(not is_binary(Map.get(&1, :name)))) do
+      nil -> :ok
+      topic -> {:error, ErrorStruct.build(:unknown_topic_id, %{topic_id: Map.get(topic, :topic_id)})}
+    end
+  end
+
   @doc """
   Parses time values for list_offsets requests.
   """

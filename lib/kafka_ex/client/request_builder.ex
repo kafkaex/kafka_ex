@@ -9,6 +9,13 @@ defmodule KafkaEx.Client.RequestBuilder do
   require Logger
 
   alias KafkaEx.Client.State
+  alias KafkaEx.Cluster.ClusterMetadata
+
+  # First OffsetCommit / OffsetFetch versions that identify topics by id (KIP-848).
+  @offset_commit_topic_id_version 10
+  @offset_fetch_topic_id_version 10
+  # First Metadata version whose brokers honour topic-id lookups.
+  @metadata_topic_id_lookup_version 12
 
   @doc """
   Builds request for ApiVersions API.
@@ -91,15 +98,15 @@ defmodule KafkaEx.Client.RequestBuilder do
   @spec offset_fetch_request(Keyword.t(), State.t()) ::
           {:ok, term} | {:error, :api_version_no_supported | :api_not_supported_by_broker}
   def offset_fetch_request(request_opts, state) do
-    case get_api_version(state, :offset_fetch, request_opts) do
-      {:ok, api_version} ->
-        group_id = Keyword.fetch!(request_opts, :group_id)
-        topics = Keyword.fetch!(request_opts, :topics)
-        req = @protocol.build_request(:offset_fetch, api_version, group_id: group_id, topics: topics)
-        {:ok, req}
+    with {:ok, api_version} <- get_api_version(state, :offset_fetch, request_opts),
+         {:ok, api_version, topic_ids} <-
+           resolve_topic_ids(state, :offset_fetch, api_version, @offset_fetch_topic_id_version, request_opts) do
+      opts =
+        request_opts
+        |> Keyword.take([:group_id, :topics, :member_id, :member_epoch, :require_stable])
+        |> Keyword.put(:topic_ids, topic_ids)
 
-      {:error, error_code} ->
-        {:error, error_code}
+      {:ok, @protocol.build_request(:offset_fetch, api_version, opts)}
     end
   end
 
@@ -218,10 +225,19 @@ defmodule KafkaEx.Client.RequestBuilder do
       {:ok, api_version} ->
         topics = Keyword.get(request_opts, :topics)
         allow_auto_topic_creation = Keyword.get(request_opts, :allow_auto_topic_creation, false)
+        topic_ids = Keyword.get(request_opts, :topic_ids) || []
 
-        opts = [topics: topics, allow_auto_topic_creation: allow_auto_topic_creation]
-        req = @protocol.build_request(:metadata, api_version, opts)
-        {:ok, req}
+        if topic_ids != [] and api_version < @metadata_topic_id_lookup_version do
+          Logger.error(
+            "Metadata lookup by topic id needs Metadata v#{@metadata_topic_id_lookup_version}+, " <>
+              "but v#{api_version} was selected."
+          )
+
+          {:error, :api_version_no_supported}
+        else
+          opts = [topics: topics, allow_auto_topic_creation: allow_auto_topic_creation, topic_ids: topic_ids]
+          {:ok, @protocol.build_request(:metadata, api_version, opts)}
+        end
 
       {:error, error_code} ->
         {:error, error_code}
@@ -276,13 +292,11 @@ defmodule KafkaEx.Client.RequestBuilder do
   @spec offset_commit_request(Keyword.t(), State.t()) ::
           {:ok, term} | {:error, :api_version_no_supported | :api_not_supported_by_broker}
   def offset_commit_request(request_opts, state) do
-    case get_api_version(state, :offset_commit, request_opts) do
-      {:ok, api_version} ->
-        req = @protocol.build_request(:offset_commit, api_version, request_opts)
-        {:ok, req}
-
-      {:error, error_code} ->
-        {:error, error_code}
+    with {:ok, api_version} <- get_api_version(state, :offset_commit, request_opts),
+         {:ok, api_version, topic_ids} <-
+           resolve_topic_ids(state, :offset_commit, api_version, @offset_commit_topic_id_version, request_opts) do
+      opts = Keyword.put(request_opts, :topic_ids, topic_ids)
+      {:ok, @protocol.build_request(:offset_commit, api_version, opts)}
     end
   end
 
@@ -351,6 +365,41 @@ defmodule KafkaEx.Client.RequestBuilder do
       {:error, error_code} ->
         {:error, error_code}
     end
+  end
+
+  # -----------------------------------------------------------------------------
+  # OffsetCommit / OffsetFetch v10+ name topics by id. The ids come from cluster
+  # metadata (Metadata v10+). When an id is unknown we send the previous version
+  # (v9), which carries the same data by name and which every broker that
+  # supports v10 also supports, rather than doing network I/O here or adding a
+  # metadata round trip to the commit path. Consumer topics are tracked and
+  # refreshed, so in steady state the ids are known and v10 is used. A caller
+  # that explicitly asked for v10+ via `:api_version` gets
+  # `{:error, :unknown_topic_id}` instead of a silent downgrade.
+  defp resolve_topic_ids(state, request_type, api_version, topic_id_version, request_opts)
+       when api_version >= topic_id_version do
+    topic_names = request_opts |> Keyword.fetch!(:topics) |> Enum.map(fn {topic, _} -> topic end)
+    topic_ids = ClusterMetadata.topic_ids_by_name(state.cluster_metadata, topic_names)
+
+    cond do
+      Enum.all?(topic_names, &Map.has_key?(topic_ids, &1)) ->
+        {:ok, api_version, topic_ids}
+
+      Keyword.has_key?(request_opts, :api_version) ->
+        Logger.error("#{request_type} v#{api_version} needs topic ids, but none are known for #{inspect(topic_names)}.")
+        {:error, :unknown_topic_id}
+
+      true ->
+        Logger.debug(
+          "No topic ids known for #{inspect(topic_names)}; sending #{request_type} v#{topic_id_version - 1}."
+        )
+
+        {:ok, topic_id_version - 1, %{}}
+    end
+  end
+
+  defp resolve_topic_ids(_state, _request_type, api_version, _topic_id_version, _request_opts) do
+    {:ok, api_version, %{}}
   end
 
   # -----------------------------------------------------------------------------

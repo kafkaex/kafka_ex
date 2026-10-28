@@ -13,8 +13,15 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch do
   - V4: No changes vs V3 (pure version bump)
   - V5: Response adds `committed_leader_epoch` per partition
   - V6: Flexible version (KIP-482) -- compact encodings + tagged fields
+  - V7: Adds `require_stable` to the request (KIP-447)
+  - V8: Batched `groups` array in request and response (KIP-709); the
+    top-level error code becomes a per-group error code
+  - V9: Adds per-group `member_id` / `member_epoch` (KIP-848); can return
+    `STALE_MEMBER_EPOCH` / `UNKNOWN_MEMBER_ID`
+  - V10: Topics identified by `topic_id` instead of name (KIP-848); used only
+    when the ids of all requested topics are known, otherwise V9 is sent
 
-  All known versions (V0-V6) have explicit `defimpl` implementations.
+  All known versions (V0-V10) have explicit `defimpl` implementations.
   An `Any` fallback is retained for forward compatibility with unknown
   future Kayrock versions.
   """
@@ -27,7 +34,7 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch do
     - `group_id` - The consumer group ID
     - `topics` - List of topic/partition data
 
-    All known versions (V0-V6) have explicit implementations.
+    All known versions (V0-V10) have explicit implementations.
     The `Any` fallback handles unknown future versions.
     """
     @fallback_to_any true
@@ -45,7 +52,7 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch do
     - `{:ok, [Offset.t()]}` on success with offset data
     - `{:error, term}` on error with error details
 
-    All known versions (V0-V6) have explicit implementations.
+    All known versions (V0-V10) have explicit implementations.
     The `Any` fallback handles unknown future versions.
     """
     @fallback_to_any true

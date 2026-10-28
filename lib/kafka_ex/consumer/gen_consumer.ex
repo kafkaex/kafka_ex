@@ -199,7 +199,9 @@ defmodule KafkaEx.Consumer.GenConsumer do
     `restart: :transient` the supervisor does not respawn.
 
   * **Fatal (rejoin-required)** — `:illegal_generation`,
-    `:unknown_member_id`. The consumer casts `{:rejoin_required, reason,
+    `:unknown_member_id`, and their OffsetCommit v9+ counterparts
+    `:group_id_not_found`, `:stale_member_epoch`, `:fenced_member_epoch`
+    (see `KafkaEx.Support.Retry.commit_fatal_error?/1`). The consumer casts `{:rejoin_required, reason,
     stale_generation_id}` to the group manager and self-stops. The manager
     resets member_id/generation_id (matching Java `resetGeneration()`) and
     runs a rebalance. GenConsumers on the new generation are spawned
@@ -1207,7 +1209,8 @@ defmodule KafkaEx.Consumer.GenConsumer do
   #     rejoin. Another member has taken this group.instance.id; rejoining
   #     would split-brain. Matches Java/librdkafka/brod behaviour.
   #
-  #   * Fatal (:illegal_generation, :unknown_member_id) — cast to group manager
+  #   * Fatal (:illegal_generation, :unknown_member_id, and the v9+ codes in
+  #     Retry.commit_fatal_error?/1) — cast to group manager
   #     with the stale generation_id so it can discard duplicate casts queued
   #     by sibling partitions, then self-stop.
   #
