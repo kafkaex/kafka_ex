@@ -232,7 +232,10 @@ defmodule KafkaEx.TestSupport.ConsumerGroupHelpers do
   Collects `{:messages_received, count}` messages sent to the current process
   until `min_count` is reached or the timeout expires.
 
-  Returns the total count of messages received.
+  Returns the number of messages received **during this call** (not a running
+  total across calls). Re-deliveries count, so after a rejoin this can reach
+  `min_count` without any new record arriving; use `wait_for_values/2` to
+  assert that specific records were consumed.
 
   ## Options
     * `:timeout` - Maximum time to wait in milliseconds (default: #{@default_timeout})
@@ -260,6 +263,44 @@ defmodule KafkaEx.TestSupport.ConsumerGroupHelpers do
         after
           min(remaining, 1000) ->
             do_collect_messages(current_count, min_count, deadline)
+        end
+      end
+    end
+  end
+
+  @doc """
+  Wait until every value in `values` has been delivered to a
+  `KafkaEx.TestSupport.TestGenConsumer` started with this process as
+  `test_pid` (via `{:message_values_received, values}`).
+
+  Returns `{:ok, :all_received}` or `{:error, {:missing, missing_values}}`
+  when the timeout expires. Re-deliveries are harmless: a value counts once.
+
+  ## Options
+    * `:timeout` - Maximum time to wait in milliseconds (default: #{@default_timeout})
+  """
+  @spec wait_for_values([binary()], keyword()) :: {:ok, :all_received} | {:error, {:missing, [binary()]}}
+  def wait_for_values(values, opts \\ []) do
+    timeout = Keyword.get(opts, :timeout, @default_timeout)
+    deadline = System.monotonic_time(:millisecond) + timeout
+
+    do_wait_for_values(MapSet.new(values), deadline)
+  end
+
+  defp do_wait_for_values(missing, deadline) do
+    if MapSet.size(missing) == 0 do
+      {:ok, :all_received}
+    else
+      remaining = deadline - System.monotonic_time(:millisecond)
+
+      if remaining <= 0 do
+        {:error, {:missing, missing |> MapSet.to_list() |> Enum.sort()}}
+      else
+        receive do
+          {:message_values_received, received} ->
+            do_wait_for_values(MapSet.difference(missing, MapSet.new(received)), deadline)
+        after
+          min(remaining, 1000) -> do_wait_for_values(missing, deadline)
         end
       end
     end

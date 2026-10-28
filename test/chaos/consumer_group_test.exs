@@ -312,8 +312,12 @@ defmodule KafkaEx.Chaos.ConsumerGroupTest do
       {:ok, _} = KafkaEx.API.produce(client, @test_topic, 0, messages1)
       ChaosTestHelpers.stop_client()
 
-      new_count = ConsumerGroupHelpers.wait_for_message_count(initial_count + 5, timeout: 30_000)
-      assert new_count > initial_count, "Expected more messages after first recovery"
+      # The records just produced must arrive. (Counting deliveries is not
+      # enough: after a rejoin the member re-reads from the last successful
+      # commit, so re-deliveries alone can satisfy a count.)
+      assert {:ok, :all_received} =
+               ConsumerGroupHelpers.wait_for_values(Enum.map(21..30, &"value_#{&1}"), timeout: 30_000),
+             "Expected the records produced after the first recovery to be consumed"
 
       ChaosTestHelpers.with_reset_peer(ctx.toxiproxy_container, ctx.proxy_name, 50, fn ->
         Process.sleep(2_000)
@@ -327,8 +331,9 @@ defmodule KafkaEx.Chaos.ConsumerGroupTest do
       {:ok, _} = KafkaEx.API.produce(client2, @test_topic, 0, messages2)
       ChaosTestHelpers.stop_client()
 
-      final_count = ConsumerGroupHelpers.wait_for_message_count(new_count + 5, timeout: 30_000)
-      assert final_count > new_count, "Expected more messages after second recovery"
+      assert {:ok, :all_received} =
+               ConsumerGroupHelpers.wait_for_values(Enum.map(31..40, &"value_#{&1}"), timeout: 30_000),
+             "Expected the records produced after the second recovery to be consumed"
 
       assert Process.alive?(cg_pid)
       assert {:ok, :active} = ConsumerGroupHelpers.wait_for_active(cg_pid, timeout: 5_000)
@@ -418,8 +423,8 @@ defmodule KafkaEx.Chaos.ConsumerGroupTest do
 
       assert {:ok, :active} = ConsumerGroupHelpers.wait_for_active(cg_pid, timeout: 30_000)
 
-      # Get initial message count
-      initial_count = ConsumerGroupHelpers.wait_for_message_count(1, timeout: 30_000)
+      # Wait until the group is consuming
+      assert ConsumerGroupHelpers.wait_for_message_count(1, timeout: 30_000) >= 1
 
       # Produce messages and immediately cause network failure
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
@@ -436,10 +441,9 @@ defmodule KafkaEx.Chaos.ConsumerGroupTest do
       Process.sleep(3_000)
       assert {:ok, :active} = ConsumerGroupHelpers.wait_for_active(cg_pid, timeout: 30_000)
 
-      # Wait for the new messages to be consumed
-      final_count = ConsumerGroupHelpers.wait_for_message_count(initial_count + 10, timeout: 45_000)
-
-      assert final_count > initial_count,
+      # The records produced right before the failure must all be consumed
+      assert {:ok, :all_received} =
+               ConsumerGroupHelpers.wait_for_values(Enum.map(41..60, &"during_fail_#{&1}"), timeout: 45_000),
              "Expected messages produced during failure to be consumed after recovery"
     end
 
