@@ -22,6 +22,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerJoinRetryTest do
 
   alias KafkaEx.Consumer.ConsumerGroup.Manager
   alias KafkaEx.Consumer.GenConsumer
+  alias KafkaEx.Messages.JoinGroup
+  alias KafkaEx.Messages.LeaveGroup
+  alias KafkaEx.Messages.SyncGroup
   alias KafkaEx.Test.MockClient
   alias KafkaEx.TestSupport.TestGenConsumer
 
@@ -54,5 +57,47 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerJoinRetryTest do
     refute_receive {:EXIT, ^manager, _reason}, 2_000
 
     assert Process.alive?(manager)
+  end
+
+  @tag capture_log: true
+  test "joins successfully after more than 1025 recoverable failures" do
+    Process.flag(:trap_exit, true)
+
+    {:ok, sup} = Supervisor.start_link([], strategy: :one_for_one)
+    on_exit(fn -> stop_safely(sup) end)
+
+    {:ok, mock} =
+      MockClient.start_link(%{
+        join_group: {:error, :not_coordinator},
+        sync_group: {:ok, %SyncGroup{partition_assignments: []}},
+        leave_group: {:ok, %LeaveGroup{}}
+      })
+
+    opts = [
+      supervisor_pid: sup,
+      client: mock,
+      heartbeat_interval: 60_000,
+      session_timeout: 10_000,
+      join_retry_base_delay_ms: 0,
+      join_retry_max_delay_ms: 0
+    ]
+
+    {:ok, manager} =
+      Manager.start_link({{GenConsumer, TestGenConsumer}, "long-join-retry-group", ["t"], opts})
+
+    MockClient.wait_for_calls(mock, 1100)
+
+    :ok =
+      MockClient.put_response(
+        mock,
+        :join_group,
+        {:ok, %JoinGroup{member_id: "m1", leader_id: "m2", generation_id: 7, members: []}}
+      )
+
+    assert GenServer.call(manager, :generation_id) == 7
+    assert GenServer.call(manager, :member_id) == "m1"
+    assert {:sync_group, "long-join-retry-group", 7, "m1"} in MockClient.get_calls(mock)
+
+    stop_safely(manager)
   end
 end

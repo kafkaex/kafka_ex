@@ -695,7 +695,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
 
   defp handle_recoverable_join_error(state, group_name, reason, attempt_number) do
     sleep_time =
-      calculate_join_backoff(attempt_number, state.join_retry_base_delay_ms, state.join_retry_max_delay_ms)
+      Retry.backoff_delay(attempt_number - 1, state.join_retry_base_delay_ms, state.join_retry_max_delay_ms)
 
     Logger.warning(
       "Unable to join consumer group #{inspect(group_name)}: #{inspect(reason)}. " <>
@@ -704,11 +704,6 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
 
     :timer.sleep(sleep_time)
     join(state, attempt_number + 1)
-  end
-
-  defp calculate_join_backoff(attempt_number, base_delay_ms, max_delay_ms) do
-    delay = base_delay_ms * round(:math.pow(2, attempt_number - 1))
-    min(delay, max_delay_ms)
   end
 
   defp on_successful_join(%State{} = state, join_response) do
