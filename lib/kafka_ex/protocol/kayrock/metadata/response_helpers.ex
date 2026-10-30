@@ -44,7 +44,31 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpers do
     {:error, Error.build(error_code, %{})}
   end
 
-  def to_cluster_metadata_with_top_level_error(response), do: to_cluster_metadata(response)
+  def to_cluster_metadata_with_top_level_error(response), do: to_cluster_metadata_by_id(response)
+
+  @doc """
+  Converts a V12+ Metadata response, where a topic requested by id that the
+  broker does not know comes back with a null name and `UNKNOWN_TOPIC_ID`.
+
+  Such topics are not silently dropped: the result is
+  `{:error, %KafkaEx.Client.Error{error: :unknown_topic_id, metadata: %{topic_ids: ids}}}`,
+  so a by-id lookup can tell a miss from success. Only id lookups can produce
+  these entries (by-name requests always carry a name), so periodic and
+  error-triggered refreshes are unaffected.
+  """
+  @spec to_cluster_metadata_by_id(map()) :: {:ok, ClusterMetadata.t()} | {:error, term}
+  def to_cluster_metadata_by_id(response) do
+    case unknown_topic_ids(response.topics) do
+      [] -> to_cluster_metadata(response)
+      ids -> {:error, Error.build(:unknown_topic_id, %{topic_ids: ids})}
+    end
+  end
+
+  defp unknown_topic_ids(topics) do
+    for %{name: nil, error_code: code} = topic <- topics,
+        ErrorCode.code_to_atom(code) == :unknown_topic_id,
+        do: Map.get(topic, :topic_id)
+  end
 
   @doc """
   Normalizes a wire topic id: the all-zero UUID (Kafka's null id) and absent
