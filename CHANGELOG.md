@@ -25,11 +25,21 @@
 ### Changed
 
 * OffsetCommit/OffsetFetch v10 name topics by id. When the topic's id is not in the client's
-  metadata, KafkaEx sends v9 (by name) instead. If you pin `api_version: 10` explicitly, it
-  returns `{:error, :unknown_topic_id}` rather than downgrading.
-* GenConsumer treats `:group_id_not_found` (what OffsetCommit v9+ returns where older versions
-  returned `:illegal_generation`), `:stale_member_epoch` and `:fenced_member_epoch` as
-  rejoin-required commit errors. `:unknown_topic_id` triggers a metadata refresh and retry.
+  metadata, KafkaEx sends v9 (by name) instead, however v10 was chosen (negotiated, app config,
+  a GenConsumer `:api_versions` pin or a per-call `:api_version`).
+* **Direct `KafkaEx.API.commit_offset/5` callers: a commit with a generation for a group the
+  coordinator does not know now returns `{:error, :group_id_not_found}` on OffsetCommit v9+,
+  where v0-v8 returned `{:error, :illegal_generation}`.** A stale generation in a live classic
+  group still returns `:illegal_generation`, and a simple commit (generation `-1`) is unaffected.
+  If you match on `:illegal_generation` to detect a lost membership, match `:group_id_not_found`
+  too. GenConsumer already does: it treats `:group_id_not_found`, `:stale_member_epoch` and
+  `:fenced_member_epoch` as rejoin-required commit errors.
+* `:unknown_topic_id` (a stale topic id, e.g. after a topic was recreated) refreshes metadata
+  and is returned rather than resent with the same id; GenConsumer's commit retry then rebuilds
+  the request with the fresh id.
+* `KafkaEx.API.metadata/2` with `topic_ids:` returns
+  `{:error, %KafkaEx.Client.Error{error: :unknown_topic_id, metadata: %{topic_ids: ids}}}` when
+  any id is unknown, instead of `{:ok, ...}` without those topics.
 
 ## 1.1.3 (2026-10-30)
 
