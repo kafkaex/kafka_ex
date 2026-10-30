@@ -99,17 +99,16 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerTest do
       assert calculate_backoff(10, @base_delay, @max_delay) == 10_000
     end
 
-    test "total wait time for 6 retries is reasonable" do
-      # With 6 max retries, we sleep on attempts 1-5 (5 sleeps)
-      total_sleep =
-        Enum.reduce(1..5, 0, fn attempt, acc ->
-          acc + calculate_backoff(attempt, @base_delay, @max_delay)
-        end)
+    test "retries are unbounded in count, rate-limited by the cap" do
+      assert calculate_backoff(50, @base_delay, @max_delay) == @max_delay
+      assert calculate_backoff(500, @base_delay, @max_delay) == @max_delay
+    end
 
-      # 1000 + 2000 + 4000 + 8000 + 10000 = 25000ms = 25s
-      assert total_sleep == 25_000
-      # This is reasonable - gives cluster time to recover without being too long
-      assert total_sleep <= 30_000
+    test "base and cap are configurable per consumer group" do
+      assert calculate_backoff(1, 50, 400) == 50
+      assert calculate_backoff(2, 50, 400) == 100
+      assert calculate_backoff(4, 50, 400) == 400
+      assert calculate_backoff(9, 50, 400) == 400
     end
   end
 

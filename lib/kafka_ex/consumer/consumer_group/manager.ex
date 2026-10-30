@@ -109,6 +109,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
       :assignments,
       :heartbeat_timer,
       :sync_retry_backoff_ms,
+      :join_retry_base_delay_ms,
+      :join_retry_max_delay_ms,
       :crash_rejoin_max_jitter_ms,
       :crash_rejoin_max_restarts,
       :crash_rejoin_window_ms,
@@ -138,6 +140,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
             assignments: [{binary(), integer()}] | nil,
             heartbeat_timer: pid() | nil,
             sync_retry_backoff_ms: non_neg_integer() | nil,
+            join_retry_base_delay_ms: non_neg_integer() | nil,
+            join_retry_max_delay_ms: non_neg_integer() | nil,
             crash_rejoin_max_jitter_ms: non_neg_integer() | nil,
             crash_rejoin_max_restarts: non_neg_integer() | :infinity | nil,
             crash_rejoin_window_ms: non_neg_integer() | nil,
@@ -158,7 +162,11 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   # We use session_timeout * 3 as reasonable default
   @rebalance_timeout_multiplier 3
 
-  @max_join_retries 6
+  # Backoff between JoinGroup retries: 1s doubling, capped at 10s. A recoverable
+  # join error retries until it clears — a coordinator move is transient, and
+  # giving up costs a full group restart. Overridable per consumer group.
+  @join_retry_base_delay_ms 1_000
+  @join_retry_max_delay_ms 10_000
 
   # Default backoff before a SyncGroup-driven rejoin (see handle_sync_error/3);
   # overridable per consumer group via the `:sync_retry_backoff_ms` opt. Defined
@@ -166,8 +174,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
   @sync_retry_backoff_ms 1_000
 
   # Max consecutive recoverable SyncGroup failures before giving up (the counter
-  # resets on a successful sync). Bounds the rejoin loop the way @max_join_retries
-  # bounds join — a persistent failure escalates to the supervisor rebuild.
+  # resets on a successful sync). A sync retry is a full rejoin, unlike a join
+  # retry, so this loop stays bounded — a persistent failure escalates to the
+  # supervisor rebuild.
   @max_sync_retries 3
 
   # Max jitter (ms) before an abnormal-crash rejoin, to desync a fleet hitting a
@@ -221,6 +230,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     session_timeout_padding = get_with_default(opts, :session_timeout_padding, @session_timeout_padding)
     rebalance_timeout = get_with_default(opts, :rebalance_timeout, session_timeout * @rebalance_timeout_multiplier)
     sync_retry_backoff_ms = get_with_default(opts, :sync_retry_backoff_ms, @sync_retry_backoff_ms)
+    join_retry_base_delay_ms = get_with_default(opts, :join_retry_base_delay_ms, @join_retry_base_delay_ms)
+    join_retry_max_delay_ms = get_with_default(opts, :join_retry_max_delay_ms, @join_retry_max_delay_ms)
     crash_rejoin_max_jitter_ms = get_with_default(opts, :crash_rejoin_max_jitter_ms, @crash_rejoin_max_jitter_ms)
     crash_rejoin_max_restarts = get_with_default(opts, :crash_rejoin_max_restarts, @crash_rejoin_max_restarts)
     validate_crash_rejoin_max_restarts!(crash_rejoin_max_restarts)
@@ -246,6 +257,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
         :partition_assignment_callback,
         :client,
         :sync_retry_backoff_ms,
+        :join_retry_base_delay_ms,
+        :join_retry_max_delay_ms,
         :crash_rejoin_max_jitter_ms,
         :crash_rejoin_max_restarts,
         :crash_rejoin_window_ms,
@@ -290,6 +303,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
           topics: topics,
           member_id: nil,
           sync_retry_backoff_ms: sync_retry_backoff_ms,
+          join_retry_base_delay_ms: join_retry_base_delay_ms,
+          join_retry_max_delay_ms: join_retry_max_delay_ms,
           crash_rejoin_max_jitter_ms: crash_rejoin_max_jitter_ms,
           crash_rejoin_max_restarts: crash_rejoin_max_restarts,
           crash_rejoin_window_ms: crash_rejoin_window_ms,
@@ -678,33 +693,22 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     end
   end
 
-  defp handle_recoverable_join_error(state, _group_name, reason, attempt_number)
-       when attempt_number >= @max_join_retries do
-    raise KafkaEx.JoinGroupRetriesExhaustedError,
-      group_name: state.group_name,
-      last_error: reason,
-      attempts: @max_join_retries
-  end
-
   defp handle_recoverable_join_error(state, group_name, reason, attempt_number) do
-    sleep_time = calculate_join_backoff(attempt_number)
+    sleep_time =
+      calculate_join_backoff(attempt_number, state.join_retry_base_delay_ms, state.join_retry_max_delay_ms)
 
     Logger.warning(
       "Unable to join consumer group #{inspect(group_name)}: #{inspect(reason)}. " <>
-        "Will retry in #{div(sleep_time, 1000)}s (attempt #{attempt_number}/#{@max_join_retries})"
+        "Will retry in #{div(sleep_time, 1000)}s (attempt #{attempt_number})"
     )
 
     :timer.sleep(sleep_time)
     join(state, attempt_number + 1)
   end
 
-  # Exponential backoff for join retries: 1s, 2s, 4s... capped at 10s
-  @join_retry_base_delay_ms 1000
-  @join_retry_max_delay_ms 10_000
-
-  defp calculate_join_backoff(attempt_number) do
-    delay = @join_retry_base_delay_ms * round(:math.pow(2, attempt_number - 1))
-    min(delay, @join_retry_max_delay_ms)
+  defp calculate_join_backoff(attempt_number, base_delay_ms, max_delay_ms) do
+    delay = base_delay_ms * round(:math.pow(2, attempt_number - 1))
+    min(delay, max_delay_ms)
   end
 
   defp on_successful_join(%State{} = state, join_response) do
