@@ -33,17 +33,26 @@ defmodule KafkaEx.Client.RequestBuilderTopicIdTest do
       assert %Kayrock.OffsetCommit.V9.Request{topics: [%{name: "t"}]} = request
     end
 
-    test "explicit api_version: 10 without an id fails instead of downgrading" do
-      log =
-        capture_log(fn ->
-          assert {:error, :unknown_topic_id} =
-                   RequestBuilder.offset_commit_request(
-                     [group_id: "g", topics: @topics, api_version: 10],
-                     state(%{8 => {2, 10}}, %{})
-                   )
-        end)
+    test "a pinned api_version: 10 without an id also falls back to v9" do
+      # A per-call pin is how a GenConsumer `api_versions: %{offset_commit: 10}`
+      # reaches here, so it must behave like the app-config pin.
+      {:ok, request} =
+        RequestBuilder.offset_commit_request(
+          [group_id: "g", topics: @topics, api_version: 10],
+          state(%{8 => {2, 10}}, %{})
+        )
 
-      assert log =~ "needs topic ids"
+      assert %Kayrock.OffsetCommit.V9.Request{topics: [%{name: "t"}]} = request
+    end
+
+    test "an app-config pin of v10 without an id falls back to v9 the same way" do
+      Application.put_env(:kafka_ex, :api_versions, %{offset_commit: 10})
+      on_exit(fn -> Application.delete_env(:kafka_ex, :api_versions) end)
+
+      {:ok, request} =
+        RequestBuilder.offset_commit_request([group_id: "g", topics: @topics], state(%{8 => {2, 10}}, %{}))
+
+      assert %Kayrock.OffsetCommit.V9.Request{} = request
     end
 
     test "Kafka 3.x broker (max v8) is unaffected" do
@@ -63,6 +72,16 @@ defmodule KafkaEx.Client.RequestBuilderTopicIdTest do
     test "falls back to v9 when the id is unknown" do
       {:ok, request} =
         RequestBuilder.offset_fetch_request([group_id: "g", topics: @topics], state(%{9 => {1, 10}}, %{}))
+
+      assert %Kayrock.OffsetFetch.V9.Request{groups: [%{topics: [%{name: "t"}]}]} = request
+    end
+
+    test "a pinned api_version: 10 without an id also falls back to v9" do
+      {:ok, request} =
+        RequestBuilder.offset_fetch_request(
+          [group_id: "g", topics: @topics, api_version: 10],
+          state(%{9 => {1, 10}}, %{})
+        )
 
       assert %Kayrock.OffsetFetch.V9.Request{groups: [%{topics: [%{name: "t"}]}]} = request
     end
