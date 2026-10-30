@@ -1,5 +1,17 @@
 # KafkaEx Changelog
 
+## Unreleased
+
+### Fixed
+
+* **Never negotiate an API version KafkaEx doesn't implement.** The negotiated version was
+  `min(broker max, Kayrock max)`, so a Kayrock release that generates newer versions (Kayrock
+  master now goes up to Fetch v18, Metadata v13, OffsetCommit v10, …, several with renamed
+  fields) would silently move 15 of 16 APIs onto untested `Any`-fallback request builders
+  against a Kafka 4.x broker. `KafkaEx.Protocol.KayrockProtocol.max_supported_version/1` now
+  also caps at the highest version with explicit request/response impls, and a test keeps that
+  table in sync with the impl files.
+
 ## 1.1.2 (2026-09-09)
 
 ### Changed (Breaking)

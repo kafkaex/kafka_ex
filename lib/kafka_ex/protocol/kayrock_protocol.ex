@@ -177,14 +177,47 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
   @spec api_key(atom()) :: non_neg_integer()
   def api_key(api_name) when is_atom(api_name), do: KafkaSchemaMetadata.api_key(api_name)
 
+  # Highest version of each API with an explicit `vN_request_impl.ex` /
+  # `vN_response_impl.ex` under `lib/kafka_ex/protocol/kayrock/<api>/`. Kayrock
+  # may generate newer versions (its JSON-derived versions also rename
+  # fields), so never negotiate above what KafkaEx has been written and tested
+  # against. Raise an entry only together with the new version's impls.
+  @implemented_max_versions %{
+    api_versions: 3,
+    create_topics: 5,
+    delete_topics: 4,
+    describe_groups: 5,
+    fetch: 11,
+    find_coordinator: 3,
+    heartbeat: 4,
+    join_group: 6,
+    leave_group: 4,
+    list_groups: 3,
+    list_offsets: 5,
+    metadata: 9,
+    offset_commit: 8,
+    offset_fetch: 6,
+    produce: 8,
+    sync_group: 4
+  }
+
   @doc """
-  Returns the maximum protocol version that Kayrock supports for the given API.
+  Returns the maximum protocol version KafkaEx will use for the given API:
+  the lower of what Kayrock generates and what KafkaEx implements.
   """
   @spec max_supported_version(atom()) :: non_neg_integer()
   def max_supported_version(api_name) when is_atom(api_name) do
-    {_, max} = KafkaSchemaMetadata.version_range(api_name)
-    max
+    {_, kayrock_max} = KafkaSchemaMetadata.version_range(api_name)
+
+    case Map.fetch(@implemented_max_versions, api_name) do
+      {:ok, implemented_max} -> min(kayrock_max, implemented_max)
+      :error -> kayrock_max
+    end
   end
+
+  @doc false
+  @spec implemented_max_versions() :: %{atom() => non_neg_integer()}
+  def implemented_max_versions, do: @implemented_max_versions
 
   @doc """
   Converts an integer Kafka error code to its atom representation.
