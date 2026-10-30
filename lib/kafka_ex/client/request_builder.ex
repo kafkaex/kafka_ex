@@ -373,28 +373,23 @@ defmodule KafkaEx.Client.RequestBuilder do
   # (v9), which carries the same data by name and which every broker that
   # supports v10 also supports, rather than doing network I/O here or adding a
   # metadata round trip to the commit path. Consumer topics are tracked and
-  # refreshed, so in steady state the ids are known and v10 is used. A caller
-  # that explicitly asked for v10+ via `:api_version` gets
-  # `{:error, :unknown_topic_id}` instead of a silent downgrade.
+  # refreshed, so in steady state the ids are known and v10 is used.
+  #
+  # This applies however v10 was chosen (negotiated, app config, a GenConsumer
+  # `:api_versions` pin or a per-call `:api_version`): a caller cannot supply
+  # topic ids itself, so failing would only turn a pin into a permanent error
+  # until metadata happens to carry the id.
   defp resolve_topic_ids(state, request_type, api_version, topic_id_version, request_opts)
        when api_version >= topic_id_version do
     topic_names = request_opts |> Keyword.fetch!(:topics) |> Enum.map(fn {topic, _} -> topic end)
     topic_ids = ClusterMetadata.topic_ids_by_name(state.cluster_metadata, topic_names)
 
-    cond do
-      Enum.all?(topic_names, &Map.has_key?(topic_ids, &1)) ->
-        {:ok, api_version, topic_ids}
+    if Enum.all?(topic_names, &Map.has_key?(topic_ids, &1)) do
+      {:ok, api_version, topic_ids}
+    else
+      Logger.debug("No topic ids known for #{inspect(topic_names)}; sending #{request_type} v#{topic_id_version - 1}.")
 
-      Keyword.has_key?(request_opts, :api_version) ->
-        Logger.error("#{request_type} v#{api_version} needs topic ids, but none are known for #{inspect(topic_names)}.")
-        {:error, :unknown_topic_id}
-
-      true ->
-        Logger.debug(
-          "No topic ids known for #{inspect(topic_names)}; sending #{request_type} v#{topic_id_version - 1}."
-        )
-
-        {:ok, topic_id_version - 1, %{}}
+      {:ok, topic_id_version - 1, %{}}
     end
   end
 

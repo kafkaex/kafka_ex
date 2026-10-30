@@ -1024,6 +1024,13 @@ defmodule KafkaEx.Client do
         Logger.info("Coordinator request #{inspect(request_name)} timed out; not retrying at the client (send-once)")
         {{:error, error}, state}
 
+      # A stale topic id (OffsetCommit/OffsetFetch v10+, Metadata by id) is baked
+      # into the built request, so resending `ctx.request` cannot succeed.
+      # Refresh metadata and return: a caller that retries (e.g. GenConsumer's
+      # commit retry) rebuilds the request from the fresh ids.
+      error_atom == :unknown_topic_id ->
+        {{:error, error}, refresh_for_error(error_atom, ctx, state)}
+
       ctx.retryable?.(error_atom) ->
         updated_state = refresh_for_error(error_atom, ctx, state)
         handle_request_with_retry(ctx, updated_state, retry_count - 1, error)

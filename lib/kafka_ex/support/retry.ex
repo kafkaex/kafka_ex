@@ -331,9 +331,11 @@ defmodule KafkaEx.Support.Retry do
   in-progress transaction; retry is the correct handling.
 
   `:unknown_topic_id` (OffsetCommit/OffsetFetch v10+) — the topic id came from
-  stale metadata (e.g. the topic was recreated). The client refreshes metadata
-  on it (`leadership_error?/1`), and a retry that rebuilds the request picks up
-  the new id.
+  stale metadata (e.g. the topic was recreated). The client does not resend
+  the request (the stale id is part of it): it refreshes metadata
+  (`leadership_error?/1`) and returns the error. Retrying it here is correct
+  because each attempt calls `KafkaEx.API.commit_offset/5` again, which builds
+  a new request from the refreshed ids.
   """
   @spec commit_retryable?(error()) :: boolean()
   def commit_retryable?(:rebalance_in_progress), do: true
