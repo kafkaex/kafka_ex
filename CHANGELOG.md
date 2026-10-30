@@ -2,15 +2,28 @@
 
 ## Unreleased
 
+## 1.1.3 (2026-10-30)
+
+Upgrade KafkaEx to this release before upgrading Kayrock to 1.1.0. The Kayrock
+dependency requirement remains `~> 1.0`; this release keeps using the protocol
+versions KafkaEx already implements.
+
 ### Fixed
 
-* **Never negotiate an API version KafkaEx doesn't implement.** The negotiated version was
-  `min(broker max, Kayrock max)`, so a Kayrock release that generates newer versions (Kayrock
-  master now goes up to Fetch v18, Metadata v13, OffsetCommit v10, …, several with renamed
-  fields) would silently move 15 of 16 APIs onto untested `Any`-fallback request builders
-  against a Kafka 4.x broker. `KafkaEx.Protocol.KayrockProtocol.max_supported_version/1` now
-  also caps at the highest version with explicit request/response impls, and a test keeps that
-  table in sync with the impl files.
+* **Never automatically negotiate an API version KafkaEx doesn't implement.** Version
+  negotiation now uses `min(broker max, Kayrock max, KafkaEx implemented max)`. Upgrading
+  Kayrock can no longer select newer protocol versions with renamed fields or topic IDs
+  that KafkaEx's request builders and response parsers do not support (#602).
+* **Refresh stale coordinators on per-group DescribeGroups errors.** Errors returned as
+  `{group_id, error_atom}` now preserve the Kafka error instead of becoming `:unknown`,
+  allowing the client to refresh the coordinator and retry when appropriate (#599).
+* **Consumer groups survive longer recoverable JoinGroup failures.** Recoverable join
+  errors no longer stop the group after six attempts (about 25 seconds of backoff).
+  Retries use exponential backoff, starting at 1 second and capped at 10 seconds by
+  default. The per-group `:join_retry_base_delay_ms` and `:join_retry_max_delay_ms`
+  options configure these delays (#601). The backoff calculation also remains safe
+  after more than 1024 failed attempts, avoiding an `ArithmeticError` during a long
+  outage.
 
 ## 1.1.2 (2026-09-09)
 
