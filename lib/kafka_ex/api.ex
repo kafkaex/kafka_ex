@@ -465,10 +465,13 @@ defmodule KafkaEx.API do
 
     * `:api_version` - Metadata API version to use (default: negotiated)
     * `:topic_ids` - list of 16-byte topic ids to look up by id instead of
-      by name. Needs Metadata v12+ (Kafka 3.x+); with an older negotiated
-      version the call returns `{:error, :api_version_no_supported}`. Ids are
-      reported on `KafkaEx.Cluster.Topic.topic_id` (Metadata v10+) and can be
-      mapped back with `KafkaEx.Cluster.ClusterMetadata.topic_name_by_id/2`.
+      by name. Needs Metadata v12+ (Kafka 3.1+); with an older negotiated
+      version the call returns `{:error, :api_version_no_supported}`. If any
+      id is unknown to the broker the call returns
+      `{:error, %KafkaEx.Client.Error{error: :unknown_topic_id, metadata: %{topic_ids: unknown_ids}}}`
+      rather than metadata without those topics. Ids are reported on
+      `KafkaEx.Cluster.Topic.topic_id` (Metadata v10+) and can be mapped back
+      with `KafkaEx.Cluster.ClusterMetadata.topic_name_by_id/2`.
 
   ## Examples
 

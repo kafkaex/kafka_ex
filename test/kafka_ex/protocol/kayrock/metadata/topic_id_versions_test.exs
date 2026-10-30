@@ -146,13 +146,29 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.TopicIdVersionsTest do
       end
     end
 
-    test "V12 drops a topic looked up by unknown id (null name + UNKNOWN_TOPIC_ID)" do
+    test "V12 reports a topic looked up by unknown id (null name + UNKNOWN_TOPIC_ID) instead of dropping it" do
       response = %V12.Response{
         throttle_time_ms: 0,
         brokers: brokers(),
         cluster_id: "c",
         controller_id: 1,
         topics: [topic("a", @id_a), topic(nil, @id_b, 100)],
+        tagged_fields: []
+      }
+
+      # A miss must not look like success ({:ok, %{topics: %{}}}).
+      assert {:error, %Error{error: :unknown_topic_id, metadata: %{topic_ids: [@id_b]}}} =
+               MetadataResponse.parse_response(response)
+    end
+
+    test "V12 still drops an errored topic requested by name (unchanged behaviour)" do
+      response = %V12.Response{
+        throttle_time_ms: 0,
+        brokers: brokers(),
+        cluster_id: "c",
+        controller_id: 1,
+        # UNKNOWN_TOPIC_OR_PARTITION (3) for a by-name request carries the name
+        topics: [topic("a", @id_a), topic("gone", <<0::128>>, 3)],
         tagged_fields: []
       }
 
@@ -174,6 +190,21 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.TopicIdVersionsTest do
       }
 
       assert {:ok, %ClusterMetadata{topics: %{"a" => %Topic{topic_id: @id_a}}}} =
+               MetadataResponse.parse_response(response)
+    end
+
+    test "reports unknown topic ids like V12" do
+      response = %V13.Response{
+        throttle_time_ms: 0,
+        brokers: brokers(),
+        cluster_id: "c",
+        controller_id: 1,
+        topics: [topic(nil, @id_a, 100), topic(nil, @id_b, 100)],
+        error_code: 0,
+        tagged_fields: []
+      }
+
+      assert {:error, %Error{error: :unknown_topic_id, metadata: %{topic_ids: [@id_a, @id_b]}}} =
                MetadataResponse.parse_response(response)
     end
 

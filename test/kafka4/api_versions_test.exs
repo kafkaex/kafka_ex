@@ -146,11 +146,11 @@ defmodule KafkaEx.Kafka4.ApiVersionsTest do
       assert map_size(topics) == 1
     end
 
-    test "an unknown topic id is not returned", %{client: client} do
-      assert {:ok, %ClusterMetadata{topics: topics}} =
-               API.metadata(client, nil, topic_ids: [:crypto.strong_rand_bytes(16)])
+    test "an unknown topic id is reported, not returned as empty success", %{client: client} do
+      unknown = :crypto.strong_rand_bytes(16)
 
-      assert topics == %{}
+      assert {:error, %KafkaEx.Client.Error{error: :unknown_topic_id, metadata: %{topic_ids: [^unknown]}}} =
+               API.metadata(client, nil, topic_ids: [unknown])
     end
   end
 
