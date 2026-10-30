@@ -655,20 +655,22 @@ per-connection cap to the future async primitive that breaks the one-call-per-ca
 
 #### D7. The deadline travels with the request
 
-- **What:** `KafkaEx.API` already computes the caller's budget with `RequestBudget.call_budget/2`. It
-  passes the **remaining budget, as a duration**, in the request's existing `opts` at send time. The
-  front sets `deadline = monotonic_now + remaining_budget` on admission and checks it before every
-  dispatch; the `Connection` checks it once more immediately before the physical write (D15), so a
-  request that expired while parked or connecting is never put on the wire. At the deadline the front
-  replies `{:error, :timeout}`. A duration, not an absolute `sent_at`, because a `{:global, name}` call
-  can cross nodes whose monotonic clocks share no common origin. The public `{op, …}` tuples keep their
-  shape, with the budget in `opts`. The messages that today have no `opts` and reach the network —
-  `send_request/4`'s `{:network_request, …}`, the legacy `{:offset, …}`, and the three metadata calls
-  `:cluster_metadata`, `:update_metadata`, `{:topic_metadata, topics, allow_topic_creation}` — gain it.
-  `{:topic_metadata, …}` carries `allow_topic_creation` positionally, so that one moves its options
-  into an `opts` keyword rather than growing a fourth positional field. `:correlation_id` and
-  `:consumer_group` are local and need no deadline. A message that still arrives without one gets the
-  front's default budget.
+- **What:** the front learns each request's deadline and enforces it.
+  - `KafkaEx.API` already computes the caller's budget with `RequestBudget.call_budget/2`. At send
+    time it passes the **remaining budget, as a duration**, in the request's existing `opts`.
+  - On admission the front sets `deadline = monotonic_now + remaining_budget` and checks it before
+    every dispatch. The `Connection` checks it once more right before the physical write (D15), so a
+    request that expired while parked or connecting is never put on the wire. At the deadline the
+    front replies `{:error, :timeout}`.
+  - A duration, not an absolute `sent_at`, because a `{:global, name}` call can cross nodes whose
+    monotonic clocks share no common origin.
+  - The public `{op, …}` tuples keep their shape, with the budget in `opts`. Messages that reach the
+    network but have no `opts` today gain it: `send_request/4`'s `{:network_request, …}`, the legacy
+    `{:offset, …}`, and the metadata calls `:cluster_metadata`, `:update_metadata` and
+    `{:topic_metadata, topics, allow_topic_creation}`. That last one moves `allow_topic_creation` into
+    an `opts` keyword instead of growing a fourth positional field.
+  - `:correlation_id` and `:consumer_group` are local and need no deadline. A message that still
+    arrives without one gets the front's default budget.
 - **Why:** a `GenServer.call` timeout is caller-side only; a front that never sees the budget cannot
   honour "no caller parked past its own deadline". Computing the deadline from the moment of
   *admission* would make the guarantee only conditional: the front's clock would start at `T0 + δ`,
@@ -693,25 +695,29 @@ per-connection cap to the future async primitive that breaks the one-call-per-ca
 
 #### D8. Monitor the caller and clean up however a request ends
 
-- **What:** on admission the front monitors the caller (its pid arrives free in `from`). An entry ends
-  in exactly one of four ways: reply to the caller, retry-budget exhaustion, deadline
-  expiry, caller `:DOWN`. On each, the entry is dropped and the caller demonitored. **The caller's wait
-  and the physical dispatch are bookkept separately**, because a produce dispatch can outlive the entry
-  that started it. Ending the entry ends the caller's wait; the produce-gate slot (D9) is tied to the
-  *physical* dispatch, and is released, waking the next FIFO waiter, only when that dispatch has
-  definitively resolved: at once if the entry never dispatched, on `{:done, ref, result}` if the reply
-  came before the entry ended, or on a bare `{:dispatch_done, ref}` the `Connection` sends when a
-  produce whose caller already gave up finally resolves on the socket — the late reply arrived and was
-  dropped by `ref` (D12), or the socket closed. This is bounded by the connection's liveness rule
-  (D12), **not** by the per-attempt timeout, because after a produce attempt timeout D12 keeps the
-  socket open rather than closing it. Releasing the slot on the bare `{:done, …, :timeout}` alone would
-  break "at most N in flight per partition" (D9), since the broker may still process the bytes already
-  on the wire. A `Connection` `:DOWN` does **not** end the entry: the front classifies every entry in flight
-  on it as `{:error, :timeout}` (the crash may have come after a write, so the attempt is spent, the
-  coordinator send-once rule applies, and each request's own predicate decides whether it is
-  re-dispatched to a re-resolved target), releases any gate slots those dispatches held (the socket is
-  gone, so nothing is on the wire), and sends entries parked in `:awaiting_connection` for it back to
-  `:resolving` at no cost.
+- **What:** the front tracks two things separately, the caller's wait and the physical dispatch,
+  because a produce dispatch can outlive the entry that started it.
+  - **The caller's wait.** On admission the front monitors the caller (its pid arrives free in
+    `from`). An entry ends in exactly one of four ways: reply to the caller, retry budget exhausted,
+    deadline passed, caller `:DOWN`. In each case the entry is dropped, the caller's wait ends, and
+    the caller is demonitored.
+  - **The physical dispatch.** The produce-gate slot (D9) belongs to the dispatch, not the entry. It
+    is released, waking the next FIFO waiter, only once the dispatch has definitely finished:
+    - at once, if the entry never dispatched;
+    - on `{:done, ref, result}`, if the reply came before the entry ended;
+    - on a bare `{:dispatch_done, ref}` from the `Connection`, when a produce whose caller already
+      gave up finally resolves on the socket (the late reply arrived and was dropped by `ref`, D12,
+      or the socket closed).
+  - That last wait is bounded by the connection's liveness rule (D12), **not** by the per-attempt
+    timeout, because D12 keeps the socket open after a produce attempt times out. Releasing the slot
+    on the bare `{:done, …, :timeout}` alone would break "at most N in flight per partition" (D9),
+    since the broker may still process the bytes already on the wire.
+  - **A `Connection` crash** (`:DOWN`) does **not** end the entry. The front:
+    - treats every entry in flight on it as `{:error, :timeout}`: the crash may have come after a
+      write, so the attempt is spent, the coordinator send-once rule applies, and each request's own
+      predicate decides whether it is re-dispatched to a re-resolved target;
+    - releases any gate slots those dispatches held (the socket is gone, so nothing is on the wire);
+    - sends entries parked in `:awaiting_connection` for it back to `:resolving`, at no cost.
 - **Why:** this is the invariant the whole design leans on. An orphaned entry does not merely leak
   memory: at `N = 1` (D9) it holds a partition's only gate slot and stalls that partition silently and
   forever, which is exactly the failure class this RFC exists to remove. Holding the slot until the
@@ -868,19 +874,22 @@ socket the produce uses. That separation is D13's payoff.
 
 #### D12. One multiplexed connection per node and role, not a pool
 
-- **What:** every request to a given broker and role goes over one socket, with multiple requests in
-  flight matched by a `correlation_id → caller` map. There is no pool of interchangeable sockets per
-  broker; a fetch connection is one socket for one partition, not a pool either. A per-request
-  timeout fails only that request: the `Connection` keeps the socket open and keeps the abandoned
-  `correlation_id` registered so the late reply is read off the socket and dropped (framing stays in
-  sync; the front drops it by fresh `ref`, D6). For a produce, when that late reply is dropped or the
-  socket closes, the `Connection` also sends the front `{:dispatch_done, ref}`, so the gate slot the
-  front is still holding (D8) is released only once the bytes are truly resolved. The socket is closed
-  and reconnected on a transport error, a TCP / SSL close, or a liveness bound. State that bound on the
-  *request*, not the socket, or a long-poll breaks it: a fetch connection legitimately receives nothing
-  for the whole `max_wait_time`, so "nothing received while requests are outstanding" would misread a
-  healthy long-poll as a hung socket. The rule is: close only when a **non-long-poll** request has been
-  outstanding past its own per-attempt deadline plus slack.
+- **What:** one socket per broker and role, with several requests in flight on it.
+  - Every request to a given broker and role goes over one socket, and requests in flight are matched
+    to callers by a `correlation_id → caller` map. There is no pool of interchangeable sockets per
+    broker; a fetch connection is one socket for one partition, not a pool either.
+  - A per-request timeout fails only that request. The `Connection` keeps the socket open and keeps
+    the abandoned `correlation_id` registered, so the late reply is read off the socket and dropped
+    (framing stays in sync; the front drops it by fresh `ref`, D6). For a produce, when that late
+    reply is dropped or the socket closes, the `Connection` also sends the front
+    `{:dispatch_done, ref}`, so the gate slot the front still holds (D8) is released only once the
+    bytes are truly resolved.
+  - The socket is closed and reconnected on a transport error, a TCP / SSL close, or a liveness bound.
+  - The liveness bound is stated on the *request*, not the socket, or a long-poll would break it: a
+    fetch connection legitimately receives nothing for the whole `max_wait_time`, so "nothing received
+    while requests are outstanding" would misread a healthy long-poll as a hung socket. The rule:
+    close only when a **non-long-poll** request has been outstanding past its own per-attempt
+    deadline plus slack.
 - **Why:** Kafka multiplexes over one TCP connection via `correlation_id` and orders per connection.
   A pool multiplies file descriptors and broker-side connections for no throughput gain, and splitting
   one partition's produces across sockets would break ordering. The timeout rule follows from
@@ -905,15 +914,18 @@ socket the produce uses. That separation is D13's payoff.
 
 #### D13. Four connection kinds: data, fetch, coordinator, metadata
 
-- **What:** the group coordinator gets its own connection, separate from data traffic even to the
-  same physical broker. Metadata refresh and `FindCoordinator` go over a dedicated `:metadata`
-  connection owned by the store. Each consumed partition fetches over its own connection (D1).
-  Everything else, produce first of all, goes over the broker's `:data` connection. The `:metadata`
-  connection is **not pinned to one broker**: like today's metadata fetch, which uses
-  `NodeSelector.first_available()` and walks brokers via `first_broker_response/4`, the store
-  re-resolves it to another broker in its snapshot on a connect error or timeout, and at bootstrap it
-  walks the bootstrap list. One dead metadata broker must never stall leader and coordinator discovery
-  for the whole client (D19).
+- **What:** four kinds of connection, each carrying one class of traffic.
+  - **`:coordinator`:** the group coordinator gets its own connection, separate from data traffic
+    even to the same physical broker.
+  - **`:metadata`:** metadata refresh and `FindCoordinator` go over a dedicated connection owned by
+    the store.
+  - **`{:fetch, topic, partition}`:** each consumed partition fetches over its own connection (D1).
+  - **`:data`:** everything else, produce first of all, goes over the broker's `:data` connection.
+  - The `:metadata` connection is **not pinned to one broker**. Like today's metadata fetch, which
+    uses `NodeSelector.first_available()` and walks brokers via `first_broker_response/4`, the store
+    re-resolves it to another broker in its snapshot on a connect error or timeout, and at bootstrap
+    it walks the bootstrap list. One dead metadata broker must never stall leader and coordinator
+    discovery for the whole client (D19).
 - **Why:** the dedicated coordinator connection keeps `Heartbeat` from queueing behind produce and
   other `:data` traffic to the same broker, and, together with the per-partition fetch connection,
   removes the Heartbeat-vs-fetch coupling behind the black-holed-broker stall. The dedicated metadata
@@ -952,15 +964,18 @@ socket the produce uses. That separation is D13's payoff.
 
 #### D15. The error tells the front whether the request was written to the socket
 
-- **What:** while `:connecting` (a bounded window) a request is `postpone`d, and when the handshake
-  completes the `Connection` checks the request's deadline (D7) **once, immediately before the write**:
-  if it has already passed, the request is failed with `{:done, ref, {:error, :timeout}}` instead of
-  being put on the wire. That is what stops a `postpone`d produce or commit from being sent after the
-  front has already ended the entry — a real hazard, because `gen_statem` replays a postponed event when
-  the state changes. While `:reconnecting` the `Connection` answers at once. Never written →
-  `{:error, :not_connected}`: the front parks the entry until the connection reports `:connected` or the
-  deadline hits, and spends **no** retry attempt. Written but unanswered → `{:error, :timeout}`: a real
-  attempt, and the coordinator send-once rule applies.
+- **What:** the `Connection` answers differently depending on whether the request reached the socket.
+  - **While `:connecting`** (a bounded window), a request is `postpone`d. When the handshake
+    completes, the `Connection` checks the request's deadline (D7) **once, right before the write**.
+    If it has already passed, the request fails with `{:done, ref, {:error, :timeout}}` instead of
+    going on the wire. This stops a `postpone`d produce or commit from being sent after the front has
+    already ended the entry, a real hazard because `gen_statem` replays a postponed event when the
+    state changes.
+  - **While `:reconnecting`**, the `Connection` answers at once.
+  - **Never written** → `{:error, :not_connected}`. The front parks the entry until the connection
+    reports `:connected` or the deadline hits, and spends **no** retry attempt.
+  - **Written but unanswered** → `{:error, :timeout}`. This is a real attempt, and the coordinator
+    send-once rule applies.
 - **Why:** "the broker never saw this" and "the broker may already have executed this" are different
   facts, and only the `Connection` knows which. Collapsing them into one retryable atom would do two
   kinds of silent damage: coordinator requests that are send-once today would get retried during
@@ -982,22 +997,27 @@ socket the produce uses. That separation is D13's payoff.
 
 #### D16. Data connections are created lazily
 
-- **What:** at boot the store opens only its `:metadata` connection (needed for fail-fast), walking the
-  bootstrap list until one broker answers, and re-resolving it to another broker on a later error
-  (D13). A `{broker, :data}` or `:coordinator` connection is created on the first request routed to it,
-  through the `ConnectionSupervisor`, and registered in the `Registry`. A `{:fetch, topic, partition}`
-  connection is created on the first fetch for that partition and stops itself after an idle period
-  without one (the constant is left to code review; longer than the largest `max_wait_time`, and the
-  idle clock does not run while a request is outstanding), so a consumer that stops leaves no socket
-  behind. An idle stop that races a dispatch costs no attempt: the connection first unregisters from
-  the `Registry`, then answers anything already in its mailbox with `{:error, :not_connected}`
-  (D15), then exits `:normal`. A leader move is handled by routing, not by the connection: the
-  in-flight fetch comes back with a leadership or transport error and takes §4.2's refresh row, the
-  re-resolved fetch goes to a new `{new_leader, {:fetch, topic, partition}}` connection, and the old
-  one sits idle until its timeout closes it. A dead `Connection` is recreated the same way, on
-  demand. A `Connection` whose broker has disappeared from the metadata snapshot is
-  stopped by the store's snapshot swap, as `merge_brokers` closes those sockets today, so nothing
-  sits in `:reconnecting` for a broker that is gone.
+- **What:** connections open on first use, except the store's `:metadata` connection.
+  - **At boot** the store opens only its `:metadata` connection (needed for fail-fast), walking the
+    bootstrap list until one broker answers, and re-resolving it to another broker on a later error
+    (D13).
+  - **`{broker, :data}` and `:coordinator`** connections are created on the first request routed to
+    them, through the `ConnectionSupervisor`, and registered in the `Registry`.
+  - **`{:fetch, topic, partition}`** connections are created on the first fetch for that partition
+    and stop themselves after an idle period without one. The constant is left to code review; it is
+    longer than the largest `max_wait_time`, and the idle clock does not run while a request is
+    outstanding. So a consumer that stops leaves no socket behind.
+  - **An idle stop that races a dispatch** costs no attempt: the connection first unregisters from the
+    `Registry`, then answers anything already in its mailbox with `{:error, :not_connected}` (D15),
+    then exits `:normal`.
+  - **A leader move** is handled by routing, not by the connection. The in-flight fetch comes back
+    with a leadership or transport error and takes §4.2's refresh row, the re-resolved fetch goes to a
+    new `{new_leader, {:fetch, topic, partition}}` connection, and the old one sits idle until its
+    timeout closes it.
+  - **A dead `Connection`** is recreated the same way, on demand.
+  - **A `Connection` whose broker has left the metadata snapshot** is stopped by the store's snapshot
+    swap, as `merge_brokers` closes those sockets today, so nothing sits in `:reconnecting` for a
+    broker that is gone.
 - **Why:** today `init` opens a socket to every bootstrap broker and `update_metadata` to every broker
   in the metadata, including ones this client never talks to. Lazy connect stops that, and it means no
   reconnect storm after a crash.
@@ -1097,17 +1117,20 @@ stateDiagram-v2
 
 #### D20. Concurrent refreshes and coordinator lookups for the same key share one request
 
-- **What:** a per-key `in_flight` map holds one coalescing entry per topic refresh and per
-  `(coordinator_type, key)` discovery, each with its waiter set and an `epoch`. Concurrent triggers for
-  the same key join the in-flight entry **only when they are compatible** — same `allow_auto_topic_creation`
-  and same explicit `api_version` — because those change the result: a refresh in flight with
-  `allow_auto_topic_creation: false` must not absorb a trigger that asked to create the topic, and a
-  request pinned to a different `api_version` needs its own round. An incompatible trigger starts its
-  own refresh instead of joining. Different keys proceed in parallel over the one `:metadata`
-  connection. On completion the store swaps the ETS snapshot atomically, bumps the epoch, and wakes
-  the front. A parked front re-checks ETS after parking and the store always sends a wakeup, so a
-  wakeup cannot be lost while the store is alive; a store restart is covered by the front re-issuing
-  its parked triggers (D21).
+- **What:** at most one refresh or coordinator lookup per key is in flight, shared by everyone who
+  asks for it.
+  - A per-key `in_flight` map holds one entry per topic refresh and per `(coordinator_type, key)`
+    lookup, each with its set of waiters and an `epoch`.
+  - A new trigger for the same key joins the entry in flight **only when it is compatible**: same
+    `allow_auto_topic_creation` and same explicit `api_version`, because those change the result. A
+    refresh in flight with `allow_auto_topic_creation: false` must not absorb a trigger that asked to
+    create the topic, and a request pinned to a different `api_version` needs its own round. An
+    incompatible trigger starts its own refresh instead.
+  - Different keys proceed in parallel over the one `:metadata` connection.
+  - On completion the store swaps the ETS snapshot atomically, bumps the epoch, and wakes the front.
+  - A wakeup cannot be lost while the store is alive: a parked front re-checks ETS after parking, and
+    the store always sends a wakeup. A store restart is covered by the front re-issuing its parked
+    triggers (D21).
 - **Why:** this coalesces the concurrent-refresh case behind #445 (concurrent produces to a missing
   topic fold onto one refresh instead of each racing a separate one) and de-storms coordinator
   re-discovery when a coordinator moves and `Manager`, `Heartbeat` and a commit all ask at once.
@@ -1125,16 +1148,19 @@ stateDiagram-v2
 
 #### D21. The store owns its ETS table, no heir
 
-- **What:** a `:protected` table with the store as single writer and lock-free reads from the front.
-  No `heir`. A store crash destroys the table (a BEAM table dies with its owner); the restarted store
-  re-enters `:loading` and rebuilds. Meanwhile the front treats the table's absence as a miss and parks
-  callers in `:awaiting_metadata`. Checking `:ets.whereis/1` first is **not** enough: the owner can die
-  between the check and the `:ets.lookup/2`, and ETS documents that deleting a table invalidates a
-  handle already obtained, so the lookup would raise `ArgumentError`. The read must therefore guard the
-  lookup itself — catch the `ArgumentError` and treat it as a miss — not merely pre-check existence.
-  Once the restarted store reports `:ready`, the front re-issues its parked triggers, because the old
-  store's waiter sets died with it. A regression test kills the store owner *between* the resolve and
-  the read and asserts the front parks rather than crashes.
+- **What:** a `:protected` ETS table, written only by the store and read lock-free by the front, with
+  no `heir`.
+  - A store crash destroys the table (an ETS table dies with its owner). The restarted store
+    re-enters `:loading` and rebuilds it.
+  - Meanwhile the front treats a missing table as a miss and parks callers in `:awaiting_metadata`.
+  - The read must guard the lookup itself: catch the `ArgumentError` and treat it as a miss.
+    Checking `:ets.whereis/1` first is **not** enough, because the owner can die between the check
+    and the `:ets.lookup/2`, and ETS documents that deleting a table invalidates a handle already
+    obtained, so the lookup would raise `ArgumentError`.
+  - Once the restarted store reports `:ready`, the front re-issues its parked triggers, because the
+    old store's waiter sets died with it.
+  - A regression test kills the store owner *between* the resolve and the read and asserts that the
+    front parks rather than crashes.
 - **Why:** preserving the table across a crash needs another live process to hold it. That is
   machinery for a gap that is one metadata fetch, on one client.
 - **Others:** no analogue; BEAM-specific.
