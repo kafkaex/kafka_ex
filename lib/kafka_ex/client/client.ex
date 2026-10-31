@@ -960,13 +960,39 @@ defmodule KafkaEx.Client do
 
     case handle_request_with_retry(ctx, state) do
       {{:ok, cluster_metadata}, updated_state} ->
-        merged_state = %{updated_state | cluster_metadata: cluster_metadata}
-        {{:ok, cluster_metadata}, merged_state}
+        # Return the response as-is, but merge it into the cached metadata
+        # instead of replacing it: a targeted lookup (by name or by id) lists
+        # only the requested topics, so replacing would drop every other known
+        # topic, the cached group coordinators, and the open broker sockets
+        # (leaking them). Same broker merge as the periodic refresh.
+        {{:ok, cluster_metadata}, merge_cluster_metadata(updated_state, cluster_metadata, request)}
 
       error_result ->
         error_result
     end
   end
+
+  defp merge_cluster_metadata(state, %ClusterMetadata{} = new_metadata, request) do
+    {merged, brokers_to_close} = ClusterMetadata.merge_brokers(state.cluster_metadata, new_metadata)
+    :ok = Enum.each(brokers_to_close, &NetworkClient.close_socket(&1, &1.socket, :metadata_update))
+
+    # A full request (no topics filter) lists every topic, so it replaces the
+    # topic map (dropping deleted topics); a targeted one only adds or updates.
+    topics =
+      if all_topics_request?(request),
+        do: new_metadata.topics,
+        else: Map.merge(state.cluster_metadata.topics, new_metadata.topics)
+
+    state_with_meta = %{state | cluster_metadata: %{merged | topics: topics}}
+    State.update_brokers(state_with_meta, &maybe_connect_broker(&1, state))
+  end
+
+  # Matches the built request. "All topics" is a null topic list from V1 on
+  # (RequestHelpers.build_topics_list/1 sends both `nil` and `[]` as null), but
+  # an empty list in V0, whose topic array is not nullable.
+  defp all_topics_request?(%{topics: nil}), do: true
+  defp all_topics_request?(%Kayrock.Metadata.V0.Request{topics: []}), do: true
+  defp all_topics_request?(_request), do: false
 
   # ----------------------------------------------------------------------------------------------------
   # Request retry logic with optional retryable filter
