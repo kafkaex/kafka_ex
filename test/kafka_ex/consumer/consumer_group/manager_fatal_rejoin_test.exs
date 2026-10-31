@@ -112,6 +112,39 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerFatalRejoinTest do
     end
   end
 
+  describe "commit-fatal :rejoin_required casts (OffsetCommit v9+ codes)" do
+    test ":group_id_not_found rejoins with a fresh member_id (the group, and our id with it, is gone)" do
+      {:ok, client} = MockClient.start_link(%{join_group: {:error, :illegal_generation}})
+      on_exit(fn -> ProcessHelpers.stop_safely(client) end)
+
+      state = heartbeat_state(client, dead_pid())
+
+      assert_raise KafkaEx.JoinGroupError, fn ->
+        Manager.handle_cast({:rejoin_required, :group_id_not_found, 7}, state)
+      end
+
+      # A fresh join sends member_id "" (manager.ex: `member_id || ""`).
+      calls = MockClient.get_calls(client)
+      refute {:join_group, "g", "m"} in calls
+      assert {:join_group, "g", ""} in calls
+    end
+
+    for reason <- [:stale_member_epoch, :fenced_member_epoch] do
+      test "#{reason} rejoins keeping member_id (like :illegal_generation)" do
+        {:ok, client} = MockClient.start_link(%{join_group: {:error, :illegal_generation}})
+        on_exit(fn -> ProcessHelpers.stop_safely(client) end)
+
+        state = heartbeat_state(client, dead_pid())
+
+        assert_raise KafkaEx.JoinGroupError, fn ->
+          Manager.handle_cast({:rejoin_required, unquote(reason), 7}, state)
+        end
+
+        assert {:join_group, "g", "m"} in MockClient.get_calls(client)
+      end
+    end
+  end
+
   describe "stale heartbeat-timer EXIT routing (#555)" do
     # A {:shutdown, _} EXIT whose pid is NOT the current heartbeat_timer comes
     # from a timer we already swapped out during a rebalance, so it is obsolete

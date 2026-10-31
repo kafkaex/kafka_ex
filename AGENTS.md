@@ -68,7 +68,9 @@ Request flow, top to bottom:
 
 ### API version resolution
 
-Effective version per request = **per-request opts > application config (`:api_versions`) > broker-negotiated max**. Negotiation happens on connect via the ApiVersions request (with retry on parse errors, issue #433).
+Effective version per request = **per-request opts > application config (`:api_versions`) > broker-negotiated max**, where the negotiated max is `min(broker max, KayrockProtocol.max_supported_version/1)` (the highest version KafkaEx has explicit impls for). Negotiation happens on connect via the ApiVersions request (with retry on parse errors, issue #433).
+
+One exception: OffsetCommit/OffsetFetch v10 identify topics by id, so when the topic id is not in cluster metadata `RequestBuilder` sends v9 (same data, by name) instead, however v10 was chosen, including an explicit pin.
 
 ## Conventions & gotchas
 

@@ -2,6 +2,69 @@
 
 ## Unreleased
 
+### Added
+
+* **KIP-848-era versions of existing APIs.** Metadata v10-v13, OffsetCommit v9-v10, OffsetFetch
+  v7-v10 and FindCoordinator v4-v6 now have explicit implementations, and the negotiation cap is
+  raised to match. Results are the same `KafkaEx.Messages.*` / `KafkaEx.Cluster.*` structs as
+  before. The negotiated version is `min(broker max, cap)`, so **any broker that advertises the
+  newer versions now uses them**, not only Kafka 4.x: from Kafka 2.5 onward at least one of these
+  APIs moves up (e.g. Kafka 3.0 → Metadata v11, OffsetFetch v8, FindCoordinator v4; Kafka 3.7 →
+  Metadata v12, OffsetCommit v9, OffsetFetch v9). Kafka 2.4 and older are unaffected. To keep an
+  API on its previous version, pin it via `config :kafka_ex, :api_versions` (e.g.
+  `%{metadata: 9, offset_fetch: 6, find_coordinator: 3}`).
+* **Topic ids.** `KafkaEx.Cluster.Topic` has a new `topic_id` field (16-byte binary, `nil` when
+  unknown). `ClusterMetadata.topic_name_by_id/2` and `topic_ids_by_name/2` look ids up, and
+  `KafkaEx.API.metadata(client, nil, topic_ids: [id])` fetches metadata by id (Metadata v12+).
+* **`:member_epoch` option** for `commit_offset` (OffsetCommit v9+) and `fetch_committed_offset`
+  (OffsetFetch v9+, with `:member_id`), for groups using the consumer protocol. `:require_stable`
+  is accepted for OffsetFetch v7+.
+* **`mix test.kafka4`**: integration tests against an `apache/kafka:4.4.0` KRaft broker started
+  with Testcontainers (Docker required; tag `:kafka4`, excluded by default).
+
+### Changed
+
+* OffsetCommit/OffsetFetch v10 name topics by id. When the topic's id is not in the client's
+  metadata, KafkaEx sends v9 (by name) instead, however v10 was chosen (negotiated, app config,
+  a GenConsumer `:api_versions` pin or a per-call `:api_version`).
+* **Direct `KafkaEx.API.commit_offset/5` callers: a commit with a generation for a group the
+  coordinator does not know now returns `{:error, :group_id_not_found}` on OffsetCommit v9+,
+  where v0-v8 returned `{:error, :illegal_generation}`.** A stale generation in a live classic
+  group still returns `:illegal_generation`, and a simple commit (generation `-1`) is unaffected.
+  If you match on `:illegal_generation` to detect a lost membership, match `:group_id_not_found`
+  too. GenConsumer already does: it treats `:group_id_not_found`, `:stale_member_epoch` and
+  `:fenced_member_epoch` as rejoin-required commit errors.
+* `:unknown_topic_id` (a stale topic id, e.g. after a topic was recreated) refreshes metadata
+  and is returned rather than resent with the same id; GenConsumer's commit retry then rebuilds
+  the request with the fresh id.
+* `KafkaEx.API.metadata/2` with `topic_ids:` returns an error when any id can't be returned,
+  instead of `{:ok, ...}` without those topics: `:unknown_topic_id` for an id the broker doesn't
+  know, `:topic_authorization_failed` for one the caller may not describe. The error metadata
+  carries `topic_ids` and per-id `topic_errors`. Malformed ids return `{:error, :invalid_topic_ids}`,
+  and combining `topics` and `topic_ids` in one call returns `{:error, :mixed_topic_names_and_ids}`
+  (Kafka ignores the names when any id is set).
+* `KafkaEx.API.metadata/2,3` specs now include the `%KafkaEx.Client.Error{}` that broker and
+  network errors have always been returned as (only invalid options are bare atoms).
+* `KayrockProtocol.parse_response(:offset_commit | :offset_fetch, v10_response)` without a
+  `:topic_name_resolver` returns `{:error, :topic_name_resolver_required}` instead of an
+  `:unknown_topic_id` indistinguishable from a broker miss. `KafkaEx.Client` always passes one.
+* `metadata/2,3` no longer wipes the client's cached metadata. A targeted lookup returns only the
+  requested topics as before, but now merges them into the cache instead of replacing it, so
+  other known topics, the cached group coordinators and open broker connections are kept.
+* `commit_offset/5` and `fetch_committed_offset/5` return `{:error, :invalid_member_epoch}` /
+  `{:error, :invalid_generation_id}` / `{:error, :invalid_member_id}` for a non-integer (or
+  out-of-int32) `:member_epoch` / `:generation_id` or a non-binary `:member_id`, instead of
+  raising inside the client process.
+* ConsumerGroup resets its member id (as well as its generation) when a commit returns
+  `:group_id_not_found`, saving a JoinGroup round trip: the group, and the id with it, is gone.
+
+### Fixed
+
+* `commit_offset/5` with `member_id: nil` or `generation_id: nil` (OffsetCommit v1+) no longer
+  crashes the shared client process: `nil` is sent as "not given" (`""` / `-1`). A GenConsumer
+  started on its own (`GenConsumer.start_link(Mod, group, topic, partition)`, no consumer group)
+  commits exactly that, so its first commit took the client down.
+
 ## 1.1.3 (2026-10-30)
 
 Upgrade KafkaEx to this release before upgrading Kayrock to 1.1.0. The Kayrock

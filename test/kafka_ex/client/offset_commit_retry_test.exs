@@ -63,4 +63,41 @@ defmodule KafkaEx.Client.OffsetCommitRetryTest do
     assert_received :sent
     refute_received :sent
   end
+
+  test ":unknown_topic_id refreshes metadata and returns instead of resending the stale request",
+       %{state: state} do
+    # The stale topic id is part of the built request, so resending `ctx.request`
+    # can never succeed. The client must refresh metadata and return, so the
+    # caller's retry (GenConsumer commit_with_retry) rebuilds it with fresh ids.
+    test_pid = self()
+
+    stub(NetworkClient, :send_sync_request, fn _broker, wire, _timeout ->
+      # The request's api_key is the first int16 of the wire data.
+      <<api_key::16-signed, _::binary>> = IO.iodata_to_binary(wire)
+      send(test_pid, {:sent, api_key})
+
+      case api_key do
+        8 -> {:error, :unknown_topic_id}
+        _ -> {:error, :request_timed_out}
+      end
+    end)
+
+    # The metadata refresh needs a Metadata version too (api_key 3).
+    state = %{state | api_versions: Map.put(state.api_versions, 3, {0, 9})}
+
+    {:reply, reply, _state} =
+      Client.handle_call(
+        {:offset_commit, "g", [{"t", [%{partition_num: 0, offset: 5}]}], []},
+        self(),
+        state
+      )
+
+    assert {:error, _} = reply
+    # Exactly one OffsetCommit (api_key 8). Before the fix it was resent
+    # @retry_count (3) times with the same stale id.
+    assert_received {:sent, 8}
+    refute_received {:sent, 8}
+    # ...and metadata (api_key 3) was refreshed so the next attempt sees new ids.
+    assert_received {:sent, 3}
+  end
 end

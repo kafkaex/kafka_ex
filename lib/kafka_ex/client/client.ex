@@ -819,18 +819,32 @@ defmodule KafkaEx.Client do
   end
 
   defp handle_offset_fetch_request(request, node_selector, state) do
-    %RequestContext{request: request, parser_fn: &ResponseParser.offset_fetch_response/1, node_selector: node_selector}
+    parse_opts = topic_name_parse_opts(state)
+
+    %RequestContext{
+      request: request,
+      parser_fn: &ResponseParser.offset_fetch_response(&1, parse_opts),
+      node_selector: node_selector
+    }
     |> handle_request_with_retry(state)
   end
 
   defp handle_offset_commit_request(request, node_selector, state) do
+    parse_opts = topic_name_parse_opts(state)
+
     %RequestContext{
       request: request,
-      parser_fn: &ResponseParser.offset_commit_response/1,
+      parser_fn: &ResponseParser.offset_commit_response(&1, parse_opts),
       node_selector: node_selector,
       retryable?: &Retry.commit_retryable?/1
     }
     |> handle_request_with_retry(state)
+  end
+
+  # OffsetCommit/OffsetFetch v10+ responses name topics by id; resolve them
+  # against the metadata the request's topic ids were taken from.
+  defp topic_name_parse_opts(%State{cluster_metadata: cluster_metadata}) do
+    [topic_name_resolver: &ClusterMetadata.topic_name_by_id(cluster_metadata, &1)]
   end
 
   defp handle_heartbeat_request(request, node_selector, state, network_timeout) do
@@ -946,13 +960,39 @@ defmodule KafkaEx.Client do
 
     case handle_request_with_retry(ctx, state) do
       {{:ok, cluster_metadata}, updated_state} ->
-        merged_state = %{updated_state | cluster_metadata: cluster_metadata}
-        {{:ok, cluster_metadata}, merged_state}
+        # Return the response as-is, but merge it into the cached metadata
+        # instead of replacing it: a targeted lookup (by name or by id) lists
+        # only the requested topics, so replacing would drop every other known
+        # topic, the cached group coordinators, and the open broker sockets
+        # (leaking them). Same broker merge as the periodic refresh.
+        {{:ok, cluster_metadata}, merge_cluster_metadata(updated_state, cluster_metadata, request)}
 
       error_result ->
         error_result
     end
   end
+
+  defp merge_cluster_metadata(state, %ClusterMetadata{} = new_metadata, request) do
+    {merged, brokers_to_close} = ClusterMetadata.merge_brokers(state.cluster_metadata, new_metadata)
+    :ok = Enum.each(brokers_to_close, &NetworkClient.close_socket(&1, &1.socket, :metadata_update))
+
+    # A full request (no topics filter) lists every topic, so it replaces the
+    # topic map (dropping deleted topics); a targeted one only adds or updates.
+    topics =
+      if all_topics_request?(request),
+        do: new_metadata.topics,
+        else: Map.merge(state.cluster_metadata.topics, new_metadata.topics)
+
+    state_with_meta = %{state | cluster_metadata: %{merged | topics: topics}}
+    State.update_brokers(state_with_meta, &maybe_connect_broker(&1, state))
+  end
+
+  # Matches the built request. "All topics" is a null topic list from V1 on
+  # (RequestHelpers.build_topics_list/1 sends both `nil` and `[]` as null), but
+  # an empty list in V0, whose topic array is not nullable.
+  defp all_topics_request?(%{topics: nil}), do: true
+  defp all_topics_request?(%Kayrock.Metadata.V0.Request{topics: []}), do: true
+  defp all_topics_request?(_request), do: false
 
   # ----------------------------------------------------------------------------------------------------
   # Request retry logic with optional retryable filter
@@ -1009,6 +1049,13 @@ defmodule KafkaEx.Client do
       Retry.transport_timeout?(error_atom) and coordinator_request?(ctx.node_selector) ->
         Logger.info("Coordinator request #{inspect(request_name)} timed out; not retrying at the client (send-once)")
         {{:error, error}, state}
+
+      # A stale topic id (OffsetCommit/OffsetFetch v10+, Metadata by id) is baked
+      # into the built request, so resending `ctx.request` cannot succeed.
+      # Refresh metadata and return: a caller that retries (e.g. GenConsumer's
+      # commit retry) rebuilds the request from the fresh ids.
+      error_atom == :unknown_topic_id ->
+        {{:error, error}, refresh_for_error(error_atom, ctx, state)}
 
       ctx.retryable?.(error_atom) ->
         updated_state = refresh_for_error(error_atom, ctx, state)

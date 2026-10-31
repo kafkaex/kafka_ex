@@ -83,6 +83,8 @@ defmodule KafkaEx.API do
   @type offset_val :: KafkaEx.Support.Types.offset()
   @type timestamp_request :: KafkaEx.Support.Types.timestamp_request()
   @type error_atom :: atom
+  @typedoc "`metadata/2,3` errors: an atom for invalid options, a `KafkaEx.Client.Error` from the broker or network."
+  @type metadata_error :: error_atom | KafkaEx.Client.Error.t()
   @type client :: GenServer.server()
   @type correlation_id :: non_neg_integer
   @type opts :: Keyword.t()
@@ -461,13 +463,34 @@ defmodule KafkaEx.API do
   By default, fetches metadata for all topics in the cluster. To fetch metadata
   for specific topics only, use `metadata/3`.
 
+  ## Options
+
+    * `:api_version` - Metadata API version to use (default: negotiated)
+    * `:topic_ids` - list of 16-byte topic ids to look up by id instead of
+      by name. Needs Metadata v12+ (Kafka 3.1+); with an older negotiated
+      version the call returns `{:error, :api_version_no_supported}`. If any
+      id is unknown to the broker the call returns
+      `{:error, %KafkaEx.Client.Error{error: :unknown_topic_id, metadata: %{topic_ids: unknown_ids}}}`
+      rather than metadata without those topics. Ids are reported on
+      `KafkaEx.Cluster.Topic.topic_id` (Metadata v10+) and can be mapped back
+      with `KafkaEx.Cluster.ClusterMetadata.topic_name_by_id/2`.
+
+  ## Errors
+
+  Invalid options are returned as an atom (`:invalid_topic_ids`,
+  `:mixed_topic_names_and_ids`, `:api_version_no_supported`, ...). Broker and
+  transport errors are returned as a `%KafkaEx.Client.Error{}` whose `error`
+  is the error atom and whose `metadata` carries the details (for example
+  the unknown `topic_ids`).
+
   ## Examples
 
       {:ok, metadata} = KafkaEx.API.metadata(client)
       {:ok, metadata} = KafkaEx.API.metadata(client, api_version: 2)
+      {:ok, metadata} = KafkaEx.API.metadata(client, topic_ids: [topic_id])
   """
-  @spec metadata(client) :: {:ok, ClusterMetadata.t()} | {:error, error_atom}
-  @spec metadata(client, opts) :: {:ok, ClusterMetadata.t()} | {:error, error_atom}
+  @spec metadata(client) :: {:ok, ClusterMetadata.t()} | {:error, metadata_error}
+  @spec metadata(client, opts) :: {:ok, ClusterMetadata.t()} | {:error, metadata_error}
   def metadata(client, opts \\ []) do
     api_version = Keyword.get(opts, :api_version, 1)
 
@@ -482,13 +505,13 @@ defmodule KafkaEx.API do
 
   Makes a network request to fetch fresh metadata for the specified topics only.
   This is more efficient than fetching all topics if you only need information
-  about a subset of topics.
+  about a subset of topics. Errors are returned as for `metadata/2`.
 
   ## Examples
 
       {:ok, metadata} = KafkaEx.API.metadata(client, ["topic1", "topic2"], [])
   """
-  @spec metadata(client, [topic_name] | nil, opts) :: {:ok, ClusterMetadata.t()} | {:error, error_atom}
+  @spec metadata(client, [topic_name] | nil, opts) :: {:ok, ClusterMetadata.t()} | {:error, metadata_error}
   def metadata(client, topics, opts) when is_list(topics) or is_nil(topics) do
     api_version = Keyword.get(opts, :api_version, 1)
     request_opts = Keyword.put(opts, :topics, topics)
@@ -751,6 +774,19 @@ defmodule KafkaEx.API do
   for a consumer group. This is useful for tracking consumer group progress
   and implementing manual offset management.
 
+  ## Options
+
+    * `:api_version` - OffsetFetch API version to use (default: negotiated)
+    * `:require_stable` - OffsetFetch v7+ (KIP-447): when `true`, the broker
+      returns `:unstable_offset_commit` for partitions with pending
+      transactional offset commits instead of their latest committed offset
+      (default: `false`; ignored on older versions)
+    * `:member_id` / `:member_epoch` - member identity sent with OffsetFetch
+      v9+; only validated by the broker for KIP-848 consumer-protocol groups
+
+  OffsetFetch v10+ identifies topics by id. When the topic's id is not known
+  from cluster metadata, v9 is used instead.
+
   ## Examples
 
       partitions = [%{partition_num: 0}]
@@ -774,6 +810,17 @@ defmodule KafkaEx.API do
   Stores the committed offsets for the specified topic/partition(s) for a
   consumer group. This is used for manual offset management and consumer
   group coordination.
+
+  ## Options
+
+    * `:api_version` - OffsetCommit API version to use (default: negotiated)
+    * `:generation_id` / `:member_id` - classic group membership (v1+)
+    * `:member_epoch` - member epoch of a KIP-848 consumer-protocol group
+      (v9+); sent instead of `:generation_id` when both are given
+    * `:group_instance_id` - static membership id (v7+)
+
+  OffsetCommit v10+ identifies topics by id. When the topic's id is not known
+  from cluster metadata, v9 is used instead.
 
   ## Examples
 

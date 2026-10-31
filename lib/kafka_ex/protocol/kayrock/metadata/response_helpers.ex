@@ -3,6 +3,7 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpers do
   Helper functions for parsing Metadata responses across different protocol versions.
   """
 
+  alias KafkaEx.Client.Error
   alias KafkaEx.Cluster.Broker
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Cluster.PartitionInfo
@@ -29,6 +30,62 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpers do
   rescue
     e -> {:error, {:parse_error, e}}
   end
+
+  @doc """
+  Converts a V13+ Metadata response, which carries a top-level `error_code`
+  (e.g. `REBOOTSTRAP_REQUIRED`), to ClusterMetadata.
+
+  A non-zero top-level error means the broker did not return usable metadata,
+  so it is surfaced as `{:error, %KafkaEx.Client.Error{}}` instead of an empty
+  cluster.
+  """
+  @spec to_cluster_metadata_with_top_level_error(map()) :: {:ok, ClusterMetadata.t()} | {:error, term}
+  def to_cluster_metadata_with_top_level_error(%{error_code: error_code}) when error_code not in [0, nil] do
+    {:error, Error.build(error_code, %{})}
+  end
+
+  def to_cluster_metadata_with_top_level_error(response), do: to_cluster_metadata_by_id(response)
+
+  @doc """
+  Converts a V12+ Metadata response. A topic requested by id that the broker
+  could not return comes back with a null name and an error code: e.g.
+  `UNKNOWN_TOPIC_ID`, or `TOPIC_AUTHORIZATION_FAILED` for a topic the caller
+  may not describe.
+
+  Such topics are not silently dropped. The first failing error is returned,
+  with every failed id: `{:error, %KafkaEx.Client.Error{error: :unknown_topic_id,
+  metadata: %{topic_ids: ids, topic_errors: [{id, error}, ...]}}}`, so a by-id
+  lookup can tell a miss from success. Only id lookups can produce these
+  entries (by-name requests always carry a name), so periodic and
+  error-triggered refreshes are unaffected.
+  """
+  @spec to_cluster_metadata_by_id(map()) :: {:ok, ClusterMetadata.t()} | {:error, term}
+  def to_cluster_metadata_by_id(response) do
+    case failed_id_lookups(response.topics) do
+      [] ->
+        to_cluster_metadata(response)
+
+      [{_id, error} | _] = failed ->
+        {:error, Error.build(error, %{topic_ids: Enum.map(failed, &elem(&1, 0)), topic_errors: failed})}
+    end
+  end
+
+  # Null-name entries are by-id lookups; any error code on one is a failure.
+  defp failed_id_lookups(topics) do
+    for %{name: nil, error_code: code} = topic <- topics,
+        error = ErrorCode.code_to_atom(code),
+        error != :no_error,
+        do: {Map.get(topic, :topic_id), error}
+  end
+
+  @doc """
+  Normalizes a wire topic id: the all-zero UUID (Kafka's null id) and absent
+  ids become `nil`, any other 16-byte binary is returned as-is.
+  """
+  @spec normalize_topic_id(term()) :: Topic.topic_id() | nil
+  def normalize_topic_id(<<0::128>>), do: nil
+  def normalize_topic_id(<<_::128>> = topic_id), do: topic_id
+  def normalize_topic_id(_), do: nil
 
   @doc """
   Parses broker list from Kayrock response.
@@ -72,7 +129,8 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpers do
         name: topic_name,
         partition_leaders: partition_leaders,
         is_internal: is_internal,
-        partitions: partitions
+        partitions: partitions,
+        topic_id: normalize_topic_id(Map.get(topic_map, :topic_id))
       }
 
       {topic_name, topic}
