@@ -7,21 +7,15 @@ defmodule KafkaEx.Protocol.Kayrock.ConsumerGroupDescribe.ResponseHelpers do
   """
 
   alias KafkaEx.Messages.ConsumerGroupDescription
-  alias Kayrock.ErrorCode
+  alias KafkaEx.Protocol.Kayrock.DescribeGroups.ResponseHelpers, as: DescribeGroupsHelpers
 
   @doc """
   Returns `{:ok, [ConsumerGroupDescription.t()]}` when every group succeeded,
-  or `{:error, [{group_id, error_atom}]}` for the failed groups.
+  or `{:error, [{group_id, error_atom}]}` for the failed groups (the
+  DescribeGroups envelope, with the KIP-848 group builder).
   """
   @spec parse_response(map()) :: {:ok, [ConsumerGroupDescription.t()]} | {:error, [{String.t(), atom()}]}
-  def parse_response(%{groups: groups}) do
-    case Enum.filter(groups, &(&1.error_code != 0)) do
-      [] ->
-        {:ok, Enum.map(groups, &ConsumerGroupDescription.from_consumer_group_describe_response/1)}
-
-      errors ->
-        {:error,
-         Enum.map(errors, fn %{group_id: group_id, error_code: code} -> {group_id, ErrorCode.code_to_atom(code)} end)}
-    end
+  def parse_response(response) do
+    DescribeGroupsHelpers.parse_response(response, &ConsumerGroupDescription.from_consumer_group_describe_response/1)
   end
 end
