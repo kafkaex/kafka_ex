@@ -7,6 +7,7 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
 
   alias KafkaEx.Client.Error
   alias KafkaEx.Protocol.Kayrock, as: KayrockProtocol
+  alias KafkaEx.Protocol.Kayrock.ConsumerGroupHeartbeat.RequestHelpers, as: ConsumerGroupHeartbeatRequestHelpers
 
   alias Kayrock.ApiVersions
   alias Kayrock.ConsumerGroupDescribe
@@ -260,6 +261,13 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
   # Utility wrappers — allow code outside lib/kafka_ex/protocol/ to avoid
   # importing Kayrock modules directly.
   # -----------------------------------------------------------------------------
+
+  @doc """
+  Generates a client-side member id for a ConsumerGroupHeartbeat v1+ join
+  (KIP-1082): a random UUID, URL-safe base64 without padding.
+  """
+  @spec generate_member_id() :: String.t()
+  def generate_member_id, do: ConsumerGroupHeartbeatRequestHelpers.generate_member_id()
 
   @doc """
   Returns the integer API key for a given API name atom (e.g. `:metadata` → 3).
