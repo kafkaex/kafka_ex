@@ -189,6 +189,17 @@ defmodule KafkaEx.APIMetadataTest do
       assert {:error, :unknown_topic_or_partition} =
                KafkaExAPI.metadata(client, ["bad-topic"], [])
     end
+
+    test "a broker error keeps its %KafkaEx.Client.Error{} details (e.g. the unknown topic ids)" do
+      # The @spec allows Client.Error.t(); normalising to an atom would drop topic_ids.
+      error = %KafkaEx.Client.Error{error: :unknown_topic_id, metadata: %{topic_ids: [<<1::128>>]}}
+
+      {:ok, client} =
+        MockClient.start_link(%{cluster_metadata: build_empty_cluster_metadata(), metadata_response: {:error, error}})
+
+      assert {:error, ^error} = KafkaExAPI.metadata(client, topic_ids: [<<1::128>>])
+      assert {:error, ^error} = KafkaExAPI.metadata(client, nil, topic_ids: [<<1::128>>])
+    end
   end
 
   describe "KafkaExAPI.metadata/2 integration with ClusterMetadata" do
