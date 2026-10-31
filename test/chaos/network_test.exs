@@ -65,12 +65,19 @@ defmodule KafkaEx.Chaos.NetworkTest do
       {:ok, _metadata} = KafkaEx.API.metadata(client)
     end
 
-    test "client reconnects and serves cached metadata under high latency", ctx do
+    test "client serves cached metadata under high latency", ctx do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
       {:ok, _cached} = KafkaEx.API.metadata(client)
 
-      # Slow socket -> per-attempt recv times out -> the client reconnects and
-      # serves cached cluster metadata within the request budget (no caller timeout).
+      # Under high latency metadata() stays responsive and returns cluster
+      # metadata within the request budget rather than hanging or timing out.
+      #
+      # This used to also assert a "Reconnecting to broker" log line. That only
+      # appeared because the {:ok, _cached} call above dropped every broker's
+      # socket (metadata() replaced the cached ClusterMetadata, whose parsed
+      # brokers carry socket: nil), so the next request had to reconnect. The
+      # reconnect never shortened the wait: master and the fix both return after
+      # the same ~25s. metadata() now keeps the connection, so assert that.
       {result, log} =
         ExUnit.CaptureLog.with_log(fn ->
           ChaosTestHelpers.with_latency(ctx.toxiproxy_container, ctx.proxy_name, 25_000, fn ->
@@ -78,8 +85,9 @@ defmodule KafkaEx.Chaos.NetworkTest do
           end)
         end)
 
-      assert log =~ "Reconnecting to broker"
       assert match?({:ok, %KafkaEx.Cluster.ClusterMetadata{}}, result)
+      # The earlier metadata() call kept the broker connection open.
+      refute log =~ "Reconnecting to broker"
 
       ChaosTestHelpers.stop_client()
       Process.sleep(500)
