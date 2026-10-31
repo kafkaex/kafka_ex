@@ -2,15 +2,17 @@ defmodule KafkaEx.Messages.TopicPartitions do
   @moduledoc """
   A set of partitions of one topic, identified by topic id (KIP-516).
 
-  Used by the KIP-848 consumer group APIs (`KafkaEx.API.consumer_group_heartbeat/3`,
-  `KafkaEx.API.describe_consumer_group/3`), which name topics by id.
+  Used by `KafkaEx.API.consumer_group_heartbeat/3` (KIP-848): the result's
+  `assignment` is a list of these, and the `:topic_partitions` option accepts
+  them back. (`KafkaEx.API.describe_consumer_group/3` reports assignments as
+  `KafkaEx.Messages.ConsumerGroupDescription.Member.MemberAssignment` structs
+  instead.)
 
-    * `topic_id` - 16-byte topic id (see `KafkaEx.Cluster.Topic.topic_id/0`)
+    * `topic_id` - 16-byte topic id (see `t:KafkaEx.Cluster.Topic.topic_id/0`)
     * `topic_name` - the topic's name, or `nil` when it is not known.
       ConsumerGroupHeartbeat responses carry ids only; KafkaEx fills the name in
       from the client's cluster metadata when that topic is known there (see
-      `KafkaEx.Cluster.ClusterMetadata.topic_name_by_id/2`). ConsumerGroupDescribe
-      responses carry the name themselves.
+      `KafkaEx.Cluster.ClusterMetadata.topic_name_by_id/2`).
     * `partitions` - partition numbers
   """
 
