@@ -6,6 +6,8 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.RequestHelpers do
   protocol dispatch for each version-specific struct.
   """
 
+  alias KafkaEx.Protocol.Kayrock.OffsetCommit.RequestHelpers, as: OffsetCommitRequestHelpers
+
   @type partition_data :: %{partition_num: non_neg_integer()}
   @type topic_data :: {String.t(), [partition_data()]}
   @type partition_output :: %{partition: non_neg_integer()}
@@ -119,7 +121,7 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.RequestHelpers do
       |> Keyword.fetch!(:topics)
       |> Enum.map(fn {topic, partitions} ->
         %{
-          topic_id: fetch_topic_id!(topic_ids, topic),
+          topic_id: OffsetCommitRequestHelpers.fetch_topic_id!(topic_ids, topic),
           partition_indexes: build_partition_indexes(partitions)
         }
       end)
@@ -127,16 +129,6 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetFetch.RequestHelpers do
     request_template
     |> build_v9_request(opts)
     |> Map.update!(:groups, fn groups -> Enum.map(groups, &Map.put(&1, :topics, topics)) end)
-  end
-
-  defp fetch_topic_id!(topic_ids, topic) do
-    case Map.get(topic_ids, topic) do
-      <<_::128>> = topic_id ->
-        topic_id
-
-      _ ->
-        raise ArgumentError, "no topic id known for topic #{inspect(topic)}; OffsetFetch v10+ identifies topics by id"
-    end
   end
 
   defp require_stable?(opts), do: Keyword.get(opts, :require_stable, false)
