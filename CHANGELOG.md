@@ -37,9 +37,20 @@
 * `:unknown_topic_id` (a stale topic id, e.g. after a topic was recreated) refreshes metadata
   and is returned rather than resent with the same id; GenConsumer's commit retry then rebuilds
   the request with the fresh id.
-* `KafkaEx.API.metadata/2` with `topic_ids:` returns
-  `{:error, %KafkaEx.Client.Error{error: :unknown_topic_id, metadata: %{topic_ids: ids}}}` when
-  any id is unknown, instead of `{:ok, ...}` without those topics.
+* `KafkaEx.API.metadata/2` with `topic_ids:` returns an error when any id can't be returned,
+  instead of `{:ok, ...}` without those topics: `:unknown_topic_id` for an id the broker doesn't
+  know, `:topic_authorization_failed` for one the caller may not describe. The error metadata
+  carries `topic_ids` and per-id `topic_errors`. Malformed ids return `{:error, :invalid_topic_ids}`,
+  and combining `topics` and `topic_ids` in one call returns `{:error, :mixed_topic_names_and_ids}`
+  (Kafka ignores the names when any id is set).
+* `metadata/2,3` no longer wipes the client's cached metadata. A targeted lookup returns only the
+  requested topics as before, but now merges them into the cache instead of replacing it, so
+  other known topics, the cached group coordinators and open broker connections are kept.
+* `commit_offset/5` and `fetch_committed_offset/5` return `{:error, :invalid_member_epoch}` /
+  `{:error, :invalid_member_id}` for a non-integer (or out-of-int32) `:member_epoch` or a
+  non-binary `:member_id`, instead of raising inside the client process.
+* ConsumerGroup resets its member id (as well as its generation) when a commit returns
+  `:group_id_not_found`, saving a JoinGroup round trip: the group, and the id with it, is gone.
 
 ## 1.1.3 (2026-10-30)
 
