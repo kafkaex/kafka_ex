@@ -289,6 +289,45 @@ defmodule KafkaEx.Kafka4.ApiVersionsTest do
     end
   end
 
+  describe "standalone GenConsumer (no consumer group)" do
+    test "commits over OffsetCommit v10 without crashing its client", %{client: client} = ctx do
+      # GenConsumer.start_link(Mod, group, topic, partition) sets no member id
+      # or generation, so it commits with member_id: nil, which used to raise
+      # inside (and kill) the shared client.
+      Process.flag(:trap_exit, true)
+      topic = create_topic!(client)
+      group = "kafka4_standalone_" <> generate_random_string()
+      {:ok, _} = API.produce(client, topic, 0, [%{value: "msg-1"}, %{value: "msg-2"}])
+
+      {:ok, consumer_client} = Kafka4TestHelpers.start_client(ctx)
+      ref = Process.monitor(consumer_client)
+      on_exit(fn -> KafkaEx.TestSupport.ProcessHelpers.stop_safely(consumer_client) end)
+
+      {:ok, consumer} =
+        KafkaEx.Consumer.GenConsumer.start_link(RecordingConsumer, group, topic, 0,
+          client: consumer_client,
+          commit_threshold: 1,
+          auto_offset_reset: :earliest,
+          extra_consumer_args: %{test_pid: self(), tag: :standalone}
+        )
+
+      on_exit(fn -> KafkaEx.TestSupport.ProcessHelpers.stop_safely(consumer) end)
+
+      assert [{0, "msg-1"}, {1, "msg-2"}] = collect_records(:standalone, 2)
+      assert_receive {:request, :offset_commit, 10}, 10_000
+
+      wait_until(fn ->
+        match?(
+          {:ok, [%Offset{partition_offsets: [%PartitionOffset{offset: 2}]}]},
+          API.fetch_committed_offset(client, group, topic, [%{partition_num: 0}])
+        )
+      end)
+
+      refute_received {:DOWN, ^ref, :process, _, _}
+      assert Process.alive?(consumer_client)
+    end
+  end
+
   defp stop_and_await_down(pid) do
     ref = Process.monitor(pid)
     Process.unlink(pid)

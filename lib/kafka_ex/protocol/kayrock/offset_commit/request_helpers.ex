@@ -83,11 +83,17 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestHelpers do
   @doc """
   Extracts consumer group coordination fields (generation_id, member_id).
   Used in v1+ versions.
+
+  `nil` means "not given" (`-1` / `""`, a commit outside a group generation):
+  `member_id` is a non-nullable string on the wire, and a GenConsumer started
+  without a consumer group commits with both unset.
   """
   @spec extract_coordination_fields(Keyword.t()) :: %{generation_id: integer(), member_id: String.t()}
   def extract_coordination_fields(opts) do
-    %{generation_id: Keyword.get(opts, :generation_id, -1), member_id: Keyword.get(opts, :member_id, "")}
+    %{generation_id: Keyword.get(opts, :generation_id) || -1, member_id: extract_member_id(opts)}
   end
+
+  defp extract_member_id(opts), do: Keyword.get(opts, :member_id) || ""
 
   @doc """
   Extracts retention_time field for v2+ versions.
@@ -180,7 +186,7 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.RequestHelpers do
     request_template
     |> Map.put(:group_id, group_id)
     |> Map.put(:generation_id_or_member_epoch, extract_generation_id_or_member_epoch(opts))
-    |> Map.put(:member_id, Keyword.get(opts, :member_id, ""))
+    |> Map.put(:member_id, extract_member_id(opts))
     |> Map.put(:group_instance_id, extract_group_instance_id(opts))
     |> Map.put(:topics, build_topics_with_leader_epoch(opts))
   end
