@@ -43,6 +43,11 @@
   carries `topic_ids` and per-id `topic_errors`. Malformed ids return `{:error, :invalid_topic_ids}`,
   and combining `topics` and `topic_ids` in one call returns `{:error, :mixed_topic_names_and_ids}`
   (Kafka ignores the names when any id is set).
+* `KafkaEx.API.metadata/2,3` specs now include the `%KafkaEx.Client.Error{}` that broker and
+  network errors have always been returned as (only invalid options are bare atoms).
+* `KayrockProtocol.parse_response(:offset_commit | :offset_fetch, v10_response)` without a
+  `:topic_name_resolver` returns `{:error, :topic_name_resolver_required}` instead of an
+  `:unknown_topic_id` indistinguishable from a broker miss. `KafkaEx.Client` always passes one.
 * `metadata/2,3` no longer wipes the client's cached metadata. A targeted lookup returns only the
   requested topics as before, but now merges them into the cache instead of replacing it, so
   other known topics, the cached group coordinators and open broker connections are kept.
