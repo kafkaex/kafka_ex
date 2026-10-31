@@ -668,14 +668,19 @@ defmodule KafkaEx.Client do
   end
 
   defp consumer_group_heartbeat_request(consumer_group, opts, state) do
-    member_epoch = Keyword.fetch!(opts, :member_epoch)
+    # Validate before touching opts: a missing or malformed field must be an
+    # error, not an exception in this shared process (and not a telemetry
+    # event for a request that is never sent).
+    with :ok <- RequestBuilder.validate_consumer_group_heartbeat_opts(opts) do
+      member_epoch = Keyword.fetch!(opts, :member_epoch)
 
-    metadata =
-      Telemetry.consumer_group_heartbeat_metadata(consumer_group, Keyword.get(opts, :member_id) || "", member_epoch)
+      metadata =
+        Telemetry.consumer_group_heartbeat_metadata(consumer_group, Keyword.get(opts, :member_id) || "", member_epoch)
 
-    Telemetry.span([:kafka_ex, :consumer, :consumer_group_heartbeat], metadata, fn ->
-      do_consumer_group_heartbeat_request(consumer_group, opts, state, metadata)
-    end)
+      Telemetry.span([:kafka_ex, :consumer, :consumer_group_heartbeat], metadata, fn ->
+        do_consumer_group_heartbeat_request(consumer_group, opts, state, metadata)
+      end)
+    end
   end
 
   defp do_consumer_group_heartbeat_request(consumer_group, opts, state, metadata) do
