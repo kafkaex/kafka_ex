@@ -157,8 +157,33 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.TopicIdVersionsTest do
       }
 
       # A miss must not look like success ({:ok, %{topics: %{}}}).
-      assert {:error, %Error{error: :unknown_topic_id, metadata: %{topic_ids: [@id_b]}}} =
-               MetadataResponse.parse_response(response)
+      assert {:error,
+              %Error{
+                error: :unknown_topic_id,
+                metadata: %{topic_ids: [@id_b], topic_errors: [{@id_b, :unknown_topic_id}]}
+              }} = MetadataResponse.parse_response(response)
+    end
+
+    test "V12 reports a by-id lookup the caller may not describe (TOPIC_AUTHORIZATION_FAILED)" do
+      # Kafka answers an unauthorized by-id lookup with a null-name entry and
+      # error 29; it must not look like success either.
+      response = %V12.Response{
+        throttle_time_ms: 0,
+        brokers: brokers(),
+        cluster_id: "c",
+        controller_id: 1,
+        topics: [topic(nil, @id_a, 29), topic(nil, @id_b, 100)],
+        tagged_fields: []
+      }
+
+      assert {:error,
+              %Error{
+                error: :topic_authorization_failed,
+                metadata: %{
+                  topic_ids: [@id_a, @id_b],
+                  topic_errors: [{@id_a, :topic_authorization_failed}, {@id_b, :unknown_topic_id}]
+                }
+              }} = MetadataResponse.parse_response(response)
     end
 
     test "V12 still drops an errored topic requested by name (unchanged behaviour)" do
