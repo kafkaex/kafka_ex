@@ -35,11 +35,21 @@ defmodule KafkaEx.Protocol.Kayrock.DescribeGroups.ResponseHelpers do
   """
   @spec parse_response(map()) ::
           {:ok, [ConsumerGroupDescription.t()]} | {:error, [{String.t(), atom()}]}
-  def parse_response(%{groups: groups}) do
+  def parse_response(response) do
+    parse_response(response, &ConsumerGroupDescription.from_describe_group_response/1)
+  end
+
+  @doc """
+  Like `parse_response/1`, building each successful group with `builder`.
+  Shared with ConsumerGroupDescribe (KIP-848), whose `groups` array has the
+  same `group_id` / `error_code` envelope.
+  """
+  @spec parse_response(map(), (map() -> ConsumerGroupDescription.t())) ::
+          {:ok, [ConsumerGroupDescription.t()]} | {:error, [{String.t(), atom()}]}
+  def parse_response(%{groups: groups}, builder) when is_function(builder, 1) do
     case Enum.filter(groups, &(&1.error_code != 0)) do
       [] ->
-        groups = Enum.map(groups, &build_consumer_group/1)
-        {:ok, groups}
+        {:ok, Enum.map(groups, builder)}
 
       errors ->
         error_list =
@@ -49,9 +59,5 @@ defmodule KafkaEx.Protocol.Kayrock.DescribeGroups.ResponseHelpers do
 
         {:error, error_list}
     end
-  end
-
-  defp build_consumer_group(kayrock_group) do
-    ConsumerGroupDescription.from_describe_group_response(kayrock_group)
   end
 end
