@@ -220,6 +220,44 @@ defmodule KafkaEx.Client.ConsumerGroupProtocolTest do
       end
     end
 
+    test "every malformed heartbeat field is an error, not a crash in the client", %{state: state} do
+      # These used to reach Kayrock unchecked and raise InvalidRequestError
+      # (or KeyError for a missing epoch) inside the shared client process.
+      reject(&NetworkClient.send_sync_request/3)
+
+      cases = [
+        {[member_id: "m"], :invalid_member_epoch},
+        {[member_epoch: nil], :invalid_member_epoch},
+        {[member_epoch: 4_294_967_296], :invalid_member_epoch},
+        {[member_epoch: 0, member_id: 123], :invalid_member_id},
+        {[member_epoch: 0, instance_id: 5], :invalid_instance_id},
+        {[member_epoch: 0, rack_id: :rack1], :invalid_rack_id},
+        {[member_epoch: 0, rebalance_timeout_ms: "60000"], :invalid_rebalance_timeout_ms},
+        {[member_epoch: 0, subscribed_topic_names: "orders"], :invalid_subscribed_topic_names},
+        {[member_epoch: 0, subscribed_topic_names: [:orders]], :invalid_subscribed_topic_names},
+        {[member_epoch: 0, subscribed_topic_regex: ~r/x/], :invalid_subscribed_topic_regex},
+        {[member_epoch: 0, server_assignor: :uniform], :invalid_server_assignor}
+      ]
+
+      for {opts, expected} <- cases do
+        assert {:reply, {:error, ^expected}, ^state} =
+                 Client.handle_call({:consumer_group_heartbeat, "g", opts}, self(), state),
+               "expected #{inspect(opts)} -> #{inspect(expected)}"
+      end
+    end
+
+    test "nil optional fields are allowed (KIP-848 'unchanged')", %{state: state} do
+      stub(NetworkClient, :send_sync_request, fn _broker, _wire, _timeout -> {:error, :request_timed_out} end)
+
+      assert {:reply, {:error, _not_a_validation_error}, _} =
+               Client.handle_call(
+                 {:consumer_group_heartbeat, "g",
+                  [member_epoch: 3, member_id: "m", instance_id: nil, rack_id: nil, subscribed_topic_names: nil]},
+                 self(),
+                 state
+               )
+    end
+
     test "a non-integer :member_epoch is an error, not a crash in the client", %{state: state} do
       reject(&NetworkClient.send_sync_request/3)
 
