@@ -36,8 +36,12 @@ defmodule KafkaEx.Protocol.Kayrock.ConsumerGroupHeartbeat do
 
     ## Options (V0-V1)
     - `group_id` (required): The consumer group ID
-    - `member_id` (required): The member ID (`""` only for a V0 join, where
-      the coordinator assigns one)
+    - `member_id`: The member ID; defaults to `""`. On V0 a join sends `""`
+      and the coordinator assigns one. On V1+ (KIP-1082) a join
+      (`member_epoch: 0`) with no id (absent, `nil` or `""`) gets one from
+      `RequestHelpers.generate_member_id/0`; callers should generate it once
+      and pass it so a retried join reuses it. Every later heartbeat must send
+      the member's id.
     - `member_epoch` (required): `0` to join, the current epoch to heartbeat,
       `-1` to leave, `-2` for a static member leaving temporarily
     - `instance_id`: static membership instance ID
