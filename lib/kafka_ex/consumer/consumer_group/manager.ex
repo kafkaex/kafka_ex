@@ -405,14 +405,18 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     %State{state | generation_id: nil}
   end
 
-  # OffsetCommit v9+ codes for the same "our generation is stale" condition
-  # (see Retry.commit_fatal_error?/1): keep member_id, drop the generation.
-  defp reset_generation(%State{} = state, reason)
-       when reason in [:group_id_not_found, :stale_member_epoch, :fenced_member_epoch] do
-    %State{state | generation_id: nil}
+  # :group_id_not_found (OffsetCommit v9+): the coordinator no longer knows the
+  # group at all, so our member_id is gone too. Resetting it saves the JoinGroup
+  # round trip that would otherwise just come back :unknown_member_id.
+  defp reset_generation(%State{} = state, :group_id_not_found) do
+    %State{state | member_id: nil, generation_id: nil}
   end
 
-  defp reset_generation(%State{} = state, _reason), do: state
+  # Any other rejoin-required commit error (Retry.commit_fatal_error?/1, the
+  # single list of them): our generation is stale, keep the member_id.
+  defp reset_generation(%State{} = state, reason) do
+    if Retry.commit_fatal_error?(reason), do: %State{state | generation_id: nil}, else: state
+  end
 
   # Drain casts identifiable as stale:
   #   * Tagged with any generation <= pre_rebalance_gen (stale — from this
