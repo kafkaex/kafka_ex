@@ -25,6 +25,7 @@ defmodule KafkaEx.Client do
   alias KafkaEx.Client.State
   alias KafkaEx.Cluster.Broker
   alias KafkaEx.Cluster.ClusterMetadata
+  alias KafkaEx.Messages.ConsumerGroupHeartbeat
   alias KafkaEx.Messages.Fetch
   alias KafkaEx.Messages.FindCoordinator, as: FindCoordinatorMsg
   alias KafkaEx.Messages.RecordMetadata
@@ -326,6 +327,28 @@ defmodule KafkaEx.Client do
   def handle_call({:sync_group, consumer_group, generation_id, member_id, opts}, _from, state) do
     if KafkaEx.valid_consumer_group?(consumer_group) and is_binary(consumer_group) do
       case sync_group_request(consumer_group, generation_id, member_id, opts, state) do
+        {:error, error} -> {:reply, {:error, error}, state}
+        {result, updated_state} -> {:reply, result, updated_state}
+      end
+    else
+      {:reply, {:error, :invalid_consumer_group}, state}
+    end
+  end
+
+  def handle_call({:consumer_group_heartbeat, consumer_group, opts}, _from, state) do
+    if KafkaEx.valid_consumer_group?(consumer_group) and is_binary(consumer_group) do
+      case consumer_group_heartbeat_request(consumer_group, opts, state) do
+        {:error, error} -> {:reply, {:error, error}, state}
+        {result, updated_state} -> {:reply, result, updated_state}
+      end
+    else
+      {:reply, {:error, :invalid_consumer_group}, state}
+    end
+  end
+
+  def handle_call({:consumer_group_describe, [consumer_group], opts}, _from, state) do
+    if KafkaEx.valid_consumer_group?(consumer_group) and is_binary(consumer_group) do
+      case consumer_group_describe_request(consumer_group, opts, state) do
         {:error, error} -> {:reply, {:error, error}, state}
         {result, updated_state} -> {:reply, result, updated_state}
       end
@@ -644,6 +667,65 @@ defmodule KafkaEx.Client do
     end)
   end
 
+  defp consumer_group_heartbeat_request(consumer_group, opts, state) do
+    # Validate before touching opts: a missing or malformed field must be an
+    # error, not an exception in this shared process (and not a telemetry
+    # event for a request that is never sent).
+    with :ok <- RequestBuilder.validate_consumer_group_heartbeat_opts(opts) do
+      member_epoch = Keyword.fetch!(opts, :member_epoch)
+
+      metadata =
+        Telemetry.consumer_group_heartbeat_metadata(consumer_group, Keyword.get(opts, :member_id) || "", member_epoch)
+
+      Telemetry.span([:kafka_ex, :consumer, :consumer_group_heartbeat], metadata, fn ->
+        do_consumer_group_heartbeat_request(consumer_group, opts, state, metadata)
+      end)
+    end
+  end
+
+  defp do_consumer_group_heartbeat_request(consumer_group, opts, state, metadata) do
+    node_selector = NodeSelector.consumer_group(consumer_group)
+    {network_timeout, req_opts} = Keyword.pop(opts, :network_timeout)
+    req_data = [{:group_id, consumer_group} | req_opts]
+
+    case RequestBuilder.consumer_group_heartbeat_request(req_data, state) do
+      {:ok, request} ->
+        # A v1+ join without :member_id gets a generated id while the request is
+        # built (KIP-1082). Report the id actually sent, also on failure, so a
+        # caller whose join timed out can retry with the same id instead of
+        # registering a second member.
+        metadata = %{metadata | member_id: request.member_id}
+
+        case handle_consumer_group_heartbeat_request(request, node_selector, state, network_timeout) do
+          {{:ok, result}, updated_state} ->
+            stop_metadata =
+              Map.merge(metadata, %{
+                member_id: result.member_id,
+                new_member_epoch: result.member_epoch,
+                assigned_partitions: ConsumerGroupHeartbeat.assigned_partition_count(result)
+              })
+
+            {{{:ok, result}, updated_state}, stop_metadata}
+
+          error_result ->
+            {error_result, metadata}
+        end
+
+      {:error, error} ->
+        {{:error, error}, metadata}
+    end
+  end
+
+  defp consumer_group_describe_request(consumer_group, opts, state) do
+    node_selector = NodeSelector.consumer_group(consumer_group)
+    req_data = [{:group_ids, [consumer_group]} | opts]
+
+    case RequestBuilder.consumer_group_describe_request(req_data, state) do
+      {:ok, request} -> handle_consumer_group_describe_request(request, node_selector, state)
+      {:error, error} -> {:error, error}
+    end
+  end
+
   defp produce_request(topic, partition, messages, opts, state) do
     with {:ok, acks} <- resolve_acks(opts) do
       metadata = Telemetry.produce_metadata(topic, partition, Config.client_id(), acks)
@@ -854,6 +936,30 @@ defmodule KafkaEx.Client do
       node_selector: node_selector,
       retryable?: &Retry.heartbeat_retryable?/1,
       network_timeout: network_timeout
+    }
+    |> handle_request_with_retry(state)
+  end
+
+  defp handle_consumer_group_heartbeat_request(request, node_selector, state, network_timeout) do
+    # ConsumerGroupHeartbeat responses name assigned topics by id; resolve them
+    # against cluster metadata like OffsetCommit/OffsetFetch v10+.
+    parse_opts = topic_name_parse_opts(state)
+
+    %RequestContext{
+      request: request,
+      parser_fn: &ResponseParser.consumer_group_heartbeat_response(&1, parse_opts),
+      node_selector: node_selector,
+      retryable?: &Retry.consumer_group_heartbeat_retryable?/1,
+      network_timeout: network_timeout
+    }
+    |> handle_request_with_retry(state)
+  end
+
+  defp handle_consumer_group_describe_request(request, node_selector, state) do
+    %RequestContext{
+      request: request,
+      parser_fn: &ResponseParser.consumer_group_describe_response/1,
+      node_selector: node_selector
     }
     |> handle_request_with_retry(state)
   end

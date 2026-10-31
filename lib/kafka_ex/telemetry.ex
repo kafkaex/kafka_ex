@@ -170,6 +170,25 @@ defmodule KafkaEx.Telemetry do
     * Measurements: `%{duration: integer()}`
     * Metadata: Start metadata plus `%{kind: atom(), reason: term(), stacktrace: list()}`
 
+  * `[:kafka_ex, :consumer, :consumer_group_heartbeat, :start]` - Emitted when sending a
+    ConsumerGroupHeartbeat (KIP-848 consumer group protocol; join, heartbeat and leave)
+    * Measurements: `%{system_time: integer()}`
+    * Metadata: `%{group_id: binary(), member_id: binary(), member_epoch: integer()}` (the epoch sent;
+      `0` joins, `-1`/`-2` leaves)
+
+  * `[:kafka_ex, :consumer, :consumer_group_heartbeat, :stop]` - Emitted when the ConsumerGroupHeartbeat completes
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Same as start event plus `%{result: :ok | :error, error: term()}`, except that
+      `member_id` is the id actually sent: on a v1+ join without `:member_id` it is the one KafkaEx
+      generated (also when the call failed, so the join can be retried with the same id). On success
+      also `%{member_id: binary(), new_member_epoch: integer(), assigned_partitions: non_neg_integer() | nil}`
+      (`nil` when the assignment did not change)
+
+  * `[:kafka_ex, :consumer, :consumer_group_heartbeat, :exception]` - Emitted when the
+    ConsumerGroupHeartbeat fails with exception
+    * Measurements: `%{duration: integer()}`
+    * Metadata: Start metadata plus `%{kind: atom(), reason: term(), stacktrace: list()}`
+
   * `[:kafka_ex, :consumer, :leave, :start]` - Emitted when leaving a consumer group
     * Measurements: `%{system_time: integer()}`
     * Metadata: `%{group_id: binary(), member_id: binary()}`
@@ -303,6 +322,10 @@ defmodule KafkaEx.Telemetry do
   @consumer_heartbeat_stop [:kafka_ex, :consumer, :heartbeat, :stop]
   @consumer_heartbeat_exception [:kafka_ex, :consumer, :heartbeat, :exception]
 
+  @consumer_group_heartbeat_start [:kafka_ex, :consumer, :consumer_group_heartbeat, :start]
+  @consumer_group_heartbeat_stop [:kafka_ex, :consumer, :consumer_group_heartbeat, :stop]
+  @consumer_group_heartbeat_exception [:kafka_ex, :consumer, :consumer_group_heartbeat, :exception]
+
   @consumer_leave_start [:kafka_ex, :consumer, :leave, :start]
   @consumer_leave_stop [:kafka_ex, :consumer, :leave, :stop]
   @consumer_leave_exception [:kafka_ex, :consumer, :leave, :exception]
@@ -332,10 +355,16 @@ defmodule KafkaEx.Telemetry do
   @consumer_sync_events [@consumer_sync_start, @consumer_sync_stop, @consumer_sync_exception]
   @consumer_heartbeat_events [@consumer_heartbeat_start, @consumer_heartbeat_stop, @consumer_heartbeat_exception]
   @consumer_leave_events [@consumer_leave_start, @consumer_leave_stop, @consumer_leave_exception]
+  @consumer_group_heartbeat_events [
+    @consumer_group_heartbeat_start,
+    @consumer_group_heartbeat_stop,
+    @consumer_group_heartbeat_exception
+  ]
   @consumer_group_events @consumer_join_events ++
                            @consumer_sync_events ++
                            @consumer_heartbeat_events ++
                            @consumer_leave_events ++
+                           @consumer_group_heartbeat_events ++
                            [
                              @consumer_rebalance,
                              @consumer_commit_failed,
@@ -382,7 +411,7 @@ defmodule KafkaEx.Telemetry do
   @spec consumer_events() :: [list(atom())]
   def consumer_events, do: @consumer_events
 
-  @doc "Returns consumer group lifecycle events (join, sync, heartbeat, leave, rebalance)."
+  @doc "Returns consumer group lifecycle events (join, sync, heartbeat, leave, consumer_group_heartbeat, rebalance)."
   @spec consumer_group_events() :: [list(atom())]
   def consumer_group_events, do: @consumer_group_events
 
@@ -504,6 +533,16 @@ defmodule KafkaEx.Telemetry do
       group_id: group_id,
       member_id: member_id,
       generation_id: generation_id
+    }
+  end
+
+  @doc false
+  @spec consumer_group_heartbeat_metadata(binary(), binary(), integer()) :: map()
+  def consumer_group_heartbeat_metadata(group_id, member_id, member_epoch) do
+    %{
+      group_id: group_id,
+      member_id: member_id,
+      member_epoch: member_epoch
     }
   end
 
