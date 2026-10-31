@@ -115,5 +115,70 @@ defmodule KafkaEx.Client.RequestBuilderTopicIdTest do
       {:ok, request} = RequestBuilder.metadata_request([topics: ["t"]], state(%{3 => {0, 13}}))
       assert %Kayrock.Metadata.V13.Request{topics: [%{name: "t", topic_id: nil}]} = request
     end
+
+    test "malformed topic ids are an error, not a crash in the client" do
+      # Built inside the client GenServer: these used to raise FunctionClauseError there.
+      for bad <- [["6ba7b810-9dad-11d1-80b4-00c04fd430c8"], [nil], [<<1::64>>], "not-an-id", [:a]] do
+        assert {:error, :invalid_topic_ids} =
+                 RequestBuilder.metadata_request([topics: nil, topic_ids: bad], state(%{3 => {0, 13}})),
+               "expected #{inspect(bad)} to be rejected"
+      end
+    end
+
+    test "a bare 16-byte id is accepted (it is wrapped into a list)" do
+      {:ok, request} = RequestBuilder.metadata_request([topics: nil, topic_ids: @id], state(%{3 => {0, 13}}))
+      assert %Kayrock.Metadata.V13.Request{topics: [%{topic_id: @id, name: nil}]} = request
+    end
+
+    test "a mixed by-name and by-id lookup is rejected" do
+      # Kafka ignores the names in a request that carries any topic id, so the
+      # named topics would silently be missing from an {:ok, ...} result.
+      assert {:error, :mixed_topic_names_and_ids} =
+               RequestBuilder.metadata_request([topics: ["a"], topic_ids: [@id]], state(%{3 => {0, 13}}))
+    end
+  end
+
+  describe "member option validation (commit/fetch)" do
+    test "a non-integer or out-of-int32 member_epoch is an error, not a crash" do
+      for bad <- ["3", 1.5, 4_294_967_296, -2_147_483_649] do
+        assert {:error, :invalid_member_epoch} =
+                 RequestBuilder.offset_commit_request(
+                   [group_id: "g", topics: @topics, member_epoch: bad],
+                   state(%{8 => {2, 10}})
+                 ),
+               "commit: expected #{inspect(bad)} to be rejected"
+
+        assert {:error, :invalid_member_epoch} =
+                 RequestBuilder.offset_fetch_request(
+                   [group_id: "g", topics: @topics, member_epoch: bad],
+                   state(%{9 => {1, 10}})
+                 ),
+               "fetch: expected #{inspect(bad)} to be rejected"
+      end
+    end
+
+    test "a non-binary member_id is an error, not a crash" do
+      assert {:error, :invalid_member_id} =
+               RequestBuilder.offset_commit_request(
+                 [group_id: "g", topics: @topics, member_id: 7],
+                 state(%{8 => {2, 10}})
+               )
+
+      assert {:error, :invalid_member_id} =
+               RequestBuilder.offset_fetch_request(
+                 [group_id: "g", topics: @topics, member_id: 7, member_epoch: 1],
+                 state(%{9 => {1, 10}})
+               )
+    end
+
+    test "valid member options at the int32 bounds still build" do
+      for epoch <- [-2_147_483_648, 2_147_483_647, 0, -1] do
+        assert {:ok, %Kayrock.OffsetCommit.V10.Request{generation_id_or_member_epoch: ^epoch}} =
+                 RequestBuilder.offset_commit_request(
+                   [group_id: "g", topics: @topics, member_id: "m", member_epoch: epoch],
+                   state(%{8 => {2, 10}})
+                 )
+      end
+    end
   end
 end

@@ -96,9 +96,12 @@ defmodule KafkaEx.Client.RequestBuilder do
   Builds request for Offset Fetch API
   """
   @spec offset_fetch_request(Keyword.t(), State.t()) ::
-          {:ok, term} | {:error, :api_version_no_supported | :api_not_supported_by_broker}
+          {:ok, term}
+          | {:error,
+             :api_version_no_supported | :api_not_supported_by_broker | :invalid_member_epoch | :invalid_member_id}
   def offset_fetch_request(request_opts, state) do
-    with {:ok, api_version} <- get_api_version(state, :offset_fetch, request_opts),
+    with :ok <- check_member_opts(request_opts),
+         {:ok, api_version} <- get_api_version(state, :offset_fetch, request_opts),
          {:ok, api_version, topic_ids} <-
            resolve_topic_ids(state, :offset_fetch, api_version, @offset_fetch_topic_id_version, request_opts) do
       opts =
@@ -219,7 +222,9 @@ defmodule KafkaEx.Client.RequestBuilder do
   Builds request for Metadata API
   """
   @spec metadata_request(Keyword.t(), State.t()) ::
-          {:ok, term} | {:error, :api_version_no_supported | :api_not_supported_by_broker}
+          {:ok, term}
+          | {:error,
+             :api_version_no_supported | :api_not_supported_by_broker | :invalid_topic_ids | :mixed_topic_names_and_ids}
   def metadata_request(request_opts, state) do
     case get_api_version(state, :metadata, request_opts) do
       {:ok, api_version} ->
@@ -227,14 +232,7 @@ defmodule KafkaEx.Client.RequestBuilder do
         allow_auto_topic_creation = Keyword.get(request_opts, :allow_auto_topic_creation, false)
         topic_ids = Keyword.get(request_opts, :topic_ids) || []
 
-        if topic_ids != [] and api_version < @metadata_topic_id_lookup_version do
-          Logger.error(
-            "Metadata lookup by topic id needs Metadata v#{@metadata_topic_id_lookup_version}+, " <>
-              "but v#{api_version} was selected."
-          )
-
-          {:error, :api_version_no_supported}
-        else
+        with :ok <- check_topic_id_lookup(topics, topic_ids, api_version) do
           opts = [topics: topics, allow_auto_topic_creation: allow_auto_topic_creation, topic_ids: topic_ids]
           {:ok, @protocol.build_request(:metadata, api_version, opts)}
         end
@@ -290,9 +288,12 @@ defmodule KafkaEx.Client.RequestBuilder do
   This function simply passes all options through to the protocol.
   """
   @spec offset_commit_request(Keyword.t(), State.t()) ::
-          {:ok, term} | {:error, :api_version_no_supported | :api_not_supported_by_broker}
+          {:ok, term}
+          | {:error,
+             :api_version_no_supported | :api_not_supported_by_broker | :invalid_member_epoch | :invalid_member_id}
   def offset_commit_request(request_opts, state) do
-    with {:ok, api_version} <- get_api_version(state, :offset_commit, request_opts),
+    with :ok <- check_member_opts(request_opts),
+         {:ok, api_version} <- get_api_version(state, :offset_commit, request_opts),
          {:ok, api_version, topic_ids} <-
            resolve_topic_ids(state, :offset_commit, api_version, @offset_commit_topic_id_version, request_opts) do
       opts = Keyword.put(request_opts, :topic_ids, topic_ids)
@@ -366,6 +367,60 @@ defmodule KafkaEx.Client.RequestBuilder do
         {:error, error_code}
     end
   end
+
+  # -----------------------------------------------------------------------------
+  # Requests are built inside the client GenServer, so a malformed option must
+  # become an error here rather than an exception that takes the shared client
+  # down for every caller. member_epoch is an int32 on the wire (Kayrock encodes
+  # it as <<v::32-signed>>, so an out-of-range value would silently wrap).
+  @int32_range -2_147_483_648..2_147_483_647
+
+  defp check_member_opts(request_opts) do
+    cond do
+      not valid_optional?(Keyword.get(request_opts, :member_epoch), &(is_integer(&1) and &1 in @int32_range)) ->
+        {:error, :invalid_member_epoch}
+
+      not valid_optional?(Keyword.get(request_opts, :member_id), &is_binary/1) ->
+        {:error, :invalid_member_id}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp valid_optional?(nil, _check), do: true
+  defp valid_optional?(value, check), do: check.(value)
+
+  defp check_topic_id_lookup(topics, topic_ids, api_version) do
+    cond do
+      not valid_topic_ids?(topic_ids) ->
+        {:error, :invalid_topic_ids}
+
+      topic_ids == [] ->
+        :ok
+
+      # The broker ignores topic names in a request that carries any topic id,
+      # so a mixed lookup would silently drop the named topics.
+      topics not in [nil, []] ->
+        {:error, :mixed_topic_names_and_ids}
+
+      api_version < @metadata_topic_id_lookup_version ->
+        Logger.error(
+          "Metadata lookup by topic id needs Metadata v#{@metadata_topic_id_lookup_version}+, " <>
+            "but v#{api_version} was selected."
+        )
+
+        {:error, :api_version_no_supported}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp valid_topic_ids?(topic_ids) when is_list(topic_ids), do: Enum.all?(topic_ids, &match?(<<_::128>>, &1))
+  # A bare 16-byte id is accepted, as build_topic_id_list/1 List.wraps it.
+  defp valid_topic_ids?(<<_::128>>), do: true
+  defp valid_topic_ids?(_), do: false
 
   # -----------------------------------------------------------------------------
   # OffsetCommit / OffsetFetch v10+ name topics by id. The ids come from cluster
