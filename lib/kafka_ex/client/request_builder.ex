@@ -18,6 +18,10 @@ defmodule KafkaEx.Client.RequestBuilder do
   @metadata_topic_id_lookup_version 12
   # First ConsumerGroupHeartbeat version with subscribed_topic_regex.
   @consumer_group_heartbeat_regex_version 1
+  # int32 wire fields (Kayrock encodes them as <<v::32-signed>>, so an
+  # out-of-range value would silently wrap rather than fail).
+  @int32_range -2_147_483_648..2_147_483_647
+
   @consumer_group_heartbeat_fields [
     :group_id,
     :member_id,
@@ -176,7 +180,7 @@ defmodule KafkaEx.Client.RequestBuilder do
              | :invalid_member_epoch
              | :invalid_topic_partitions}
   def consumer_group_heartbeat_request(request_opts, state) do
-    with :ok <- check_consumer_group_heartbeat_opts(request_opts),
+    with :ok <- validate_consumer_group_heartbeat_opts(request_opts),
          {:ok, api_version} <- get_api_version(state, :consumer_group_heartbeat, request_opts),
          :ok <- check_subscribed_topic_regex(api_version, request_opts) do
       opts = Keyword.take(request_opts, @consumer_group_heartbeat_fields)
@@ -203,10 +207,36 @@ defmodule KafkaEx.Client.RequestBuilder do
   # The request is built inside the client GenServer, so malformed input must
   # become an error here rather than a FunctionClauseError that takes the
   # shared client down for every caller.
-  defp check_consumer_group_heartbeat_opts(request_opts) do
+  # Every field that reaches the wire, checked against its type in the
+  # ConsumerGroupHeartbeat v0/v1 schema. Optional fields may be nil ("unchanged"
+  # under KIP-848). group_id is validated by the client before this point.
+  @heartbeat_field_checks [
+    member_epoch: {:required, :int32},
+    member_id: {:optional, :string},
+    instance_id: {:optional, :string},
+    rack_id: {:optional, :string},
+    rebalance_timeout_ms: {:optional, :int32},
+    subscribed_topic_names: {:optional, :string_list},
+    subscribed_topic_regex: {:optional, :string},
+    server_assignor: {:optional, :string}
+  ]
+
+  @doc """
+  Validates ConsumerGroupHeartbeat options against their wire types, returning
+  `:ok` or `{:error, :invalid_<field>}`. Called by the client before it opens
+  the telemetry span, and again by `consumer_group_heartbeat_request/2`.
+  """
+  @spec validate_consumer_group_heartbeat_opts(Keyword.t()) :: :ok | {:error, atom()}
+  def validate_consumer_group_heartbeat_opts(request_opts) do
+    invalid =
+      Enum.find(@heartbeat_field_checks, fn {field, {presence, type}} ->
+        not valid_heartbeat_field?(Keyword.get(request_opts, field), presence, type)
+      end)
+
     cond do
-      not is_integer(Keyword.get(request_opts, :member_epoch)) ->
-        {:error, :invalid_member_epoch}
+      invalid != nil ->
+        {field, _} = invalid
+        {:error, :"invalid_#{field}"}
 
       not valid_owned_topic_partitions?(Keyword.get(request_opts, :topic_partitions)) ->
         {:error, :invalid_topic_partitions}
@@ -216,12 +246,21 @@ defmodule KafkaEx.Client.RequestBuilder do
     end
   end
 
+  defp valid_heartbeat_field?(nil, :optional, _type), do: true
+  defp valid_heartbeat_field?(nil, :required, _type), do: false
+  defp valid_heartbeat_field?(value, _presence, :int32), do: is_integer(value) and value in @int32_range
+  defp valid_heartbeat_field?(value, _presence, :string), do: is_binary(value)
+  defp valid_heartbeat_field?(value, _presence, :string_list), do: is_list(value) and Enum.all?(value, &is_binary/1)
+
   defp valid_owned_topic_partitions?(nil), do: true
 
   defp valid_owned_topic_partitions?(topic_partitions) when is_list(topic_partitions) do
     Enum.all?(topic_partitions, fn
-      %{topic_id: <<_::128>>, partitions: partitions} when is_list(partitions) -> Enum.all?(partitions, &is_integer/1)
-      _ -> false
+      %{topic_id: <<_::128>>, partitions: partitions} when is_list(partitions) ->
+        Enum.all?(partitions, &(is_integer(&1) and &1 in @int32_range))
+
+      _ ->
+        false
     end)
   end
 
@@ -476,7 +515,6 @@ defmodule KafkaEx.Client.RequestBuilder do
   # down for every caller. member_epoch / generation_id are int32 on the wire
   # (Kayrock encodes them as <<v::32-signed>>, so an out-of-range value would
   # silently wrap). nil means "not given" for all three.
-  @int32_range -2_147_483_648..2_147_483_647
 
   defp check_member_opts(request_opts) do
     cond do

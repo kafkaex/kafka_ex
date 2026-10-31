@@ -50,11 +50,13 @@ defmodule KafkaEx.APIConsumerGroupProtocolTest do
       assert {:error, :fenced_member_epoch} = KafkaEx.API.consumer_group_heartbeat(client, "g", member_epoch: 5)
     end
 
-    test "requires an integer :member_epoch" do
-      {:ok, client} = MockClient.start_link(%{})
+    # Option validation runs in the real client (see
+    # test/kafka_ex/client/consumer_group_protocol_test.exs); the API no
+    # longer raises, so it keeps the {:ok, _} | {:error, _} contract.
+    test "passes an invalid-option error from the client through as an atom" do
+      {:ok, client} = MockClient.start_link(%{consumer_group_heartbeat: {:error, :invalid_member_epoch}})
 
-      assert_raise ArgumentError, fn -> KafkaEx.API.consumer_group_heartbeat(client, "g", member_id: "m") end
-      assert_raise ArgumentError, fn -> KafkaEx.API.consumer_group_heartbeat(client, "g", member_epoch: nil) end
+      assert {:error, :invalid_member_epoch} = KafkaEx.API.consumer_group_heartbeat(client, "g", member_id: "m")
     end
   end
 

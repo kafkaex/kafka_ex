@@ -893,10 +893,6 @@ defmodule KafkaEx.API do
   @spec consumer_group_heartbeat(client, consumer_group_name, opts) ::
           {:ok, ConsumerGroupHeartbeat.t()} | {:error, error_atom}
   def consumer_group_heartbeat(client, consumer_group, opts) do
-    unless is_integer(Keyword.get(opts, :member_epoch)) do
-      raise ArgumentError, "consumer_group_heartbeat/3 requires an integer :member_epoch option"
-    end
-
     # Answered promptly (never broker-held), like the classic heartbeat.
     network_timeout = Keyword.get(opts, :network_timeout, Config.request_timeout())
     opts = Keyword.put(opts, :network_timeout, network_timeout)
