@@ -118,6 +118,34 @@ defmodule KafkaEx.Protocol.Kayrock.ConsumerGroupDescribe.ResponseTest do
     end
   end
 
+  test "matches the pre-refactor parser (DescribeGroups envelope + KIP-848 builder)" do
+    # The parser used to be a copy of DescribeGroups.ResponseHelpers.parse_response/1
+    # with a different builder; this is that copy, kept as the reference.
+    reference = fn %{groups: groups} ->
+      case Enum.filter(groups, &(&1.error_code != 0)) do
+        [] ->
+          {:ok, Enum.map(groups, &ConsumerGroupDescription.from_consumer_group_describe_response/1)}
+
+        errors ->
+          {:error,
+           Enum.map(errors, fn %{group_id: id, error_code: code} -> {id, Kayrock.ErrorCode.code_to_atom(code)} end)}
+      end
+    end
+
+    cases = [
+      [],
+      [group(%{})],
+      [group(%{group_id: "a", members: [member(%{})]}), group(%{group_id: "b"})],
+      [group(%{group_id: "a"}), group(%{group_id: "b", error_code: 69}), group(%{group_id: "c", error_code: 16})],
+      [group(%{group_id: "x", error_code: 15})]
+    ]
+
+    for groups <- cases, version <- [0, 1] do
+      response = response(version, groups)
+      assert ConsumerGroupDescribe.Response.parse_response(response) == reference.(response)
+    end
+  end
+
   test "Any fallback parses a plain map" do
     assert {:ok, [%ConsumerGroupDescription{group_id: "g"}]} =
              ConsumerGroupDescribe.Response.parse_response(%{groups: [group(%{})]})
