@@ -98,7 +98,11 @@ defmodule KafkaEx.Client.RequestBuilder do
   @spec offset_fetch_request(Keyword.t(), State.t()) ::
           {:ok, term}
           | {:error,
-             :api_version_no_supported | :api_not_supported_by_broker | :invalid_member_epoch | :invalid_member_id}
+             :api_version_no_supported
+             | :api_not_supported_by_broker
+             | :invalid_member_epoch
+             | :invalid_member_id
+             | :invalid_generation_id}
   def offset_fetch_request(request_opts, state) do
     with :ok <- check_member_opts(request_opts),
          {:ok, api_version} <- get_api_version(state, :offset_fetch, request_opts),
@@ -290,7 +294,11 @@ defmodule KafkaEx.Client.RequestBuilder do
   @spec offset_commit_request(Keyword.t(), State.t()) ::
           {:ok, term}
           | {:error,
-             :api_version_no_supported | :api_not_supported_by_broker | :invalid_member_epoch | :invalid_member_id}
+             :api_version_no_supported
+             | :api_not_supported_by_broker
+             | :invalid_member_epoch
+             | :invalid_member_id
+             | :invalid_generation_id}
   def offset_commit_request(request_opts, state) do
     with :ok <- check_member_opts(request_opts),
          {:ok, api_version} <- get_api_version(state, :offset_commit, request_opts),
@@ -371,8 +379,9 @@ defmodule KafkaEx.Client.RequestBuilder do
   # -----------------------------------------------------------------------------
   # Requests are built inside the client GenServer, so a malformed option must
   # become an error here rather than an exception that takes the shared client
-  # down for every caller. member_epoch is an int32 on the wire (Kayrock encodes
-  # it as <<v::32-signed>>, so an out-of-range value would silently wrap).
+  # down for every caller. member_epoch / generation_id are int32 on the wire
+  # (Kayrock encodes them as <<v::32-signed>>, so an out-of-range value would
+  # silently wrap). nil means "not given" for all three.
   @int32_range -2_147_483_648..2_147_483_647
 
   defp check_member_opts(request_opts) do
@@ -382,6 +391,9 @@ defmodule KafkaEx.Client.RequestBuilder do
 
       not valid_optional?(Keyword.get(request_opts, :member_id), &is_binary/1) ->
         {:error, :invalid_member_id}
+
+      not valid_optional?(Keyword.get(request_opts, :generation_id), &(is_integer(&1) and &1 in @int32_range)) ->
+        {:error, :invalid_generation_id}
 
       true ->
         :ok

@@ -171,6 +171,38 @@ defmodule KafkaEx.Client.RequestBuilderTopicIdTest do
                )
     end
 
+    test "nil member_id / generation_id commit as \"not given\" on every version" do
+      # A GenConsumer started without a consumer group (the documented
+      # GenConsumer.start_link(Mod, group, topic, 0)) commits with
+      # member_id: nil, generation_id: nil. OffsetCommit's member_id is a
+      # non-nullable string, so these used to raise inside the client.
+      for version <- 0..10, opts <- [[member_id: nil], [generation_id: nil], [member_id: nil, generation_id: nil]] do
+        assert {:ok, request} =
+                 RequestBuilder.offset_commit_request(
+                   [group_id: "g", topics: @topics, api_version: version] ++ opts,
+                   state(%{8 => {0, 10}})
+                 )
+
+        assert IO.iodata_to_binary(Kayrock.Request.serialize(%{request | correlation_id: 1, client_id: "c"})) != "",
+               "v#{version} #{inspect(opts)} must serialize"
+
+        if version >= 1 do
+          assert Map.get(request, :member_id) == ""
+          assert Map.get(request, :generation_id, Map.get(request, :generation_id_or_member_epoch)) == -1
+        end
+      end
+    end
+
+    test "a non-integer generation_id is an error, not a crash" do
+      for bad <- ["1", 1.0, 4_294_967_296] do
+        assert {:error, :invalid_generation_id} =
+                 RequestBuilder.offset_commit_request(
+                   [group_id: "g", topics: @topics, generation_id: bad],
+                   state(%{8 => {2, 10}})
+                 )
+      end
+    end
+
     test "valid member options at the int32 bounds still build" do
       for epoch <- [-2_147_483_648, 2_147_483_647, 0, -1] do
         assert {:ok, %Kayrock.OffsetCommit.V10.Request{generation_id_or_member_epoch: ^epoch}} =

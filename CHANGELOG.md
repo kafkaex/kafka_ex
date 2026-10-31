@@ -52,10 +52,18 @@
   requested topics as before, but now merges them into the cache instead of replacing it, so
   other known topics, the cached group coordinators and open broker connections are kept.
 * `commit_offset/5` and `fetch_committed_offset/5` return `{:error, :invalid_member_epoch}` /
-  `{:error, :invalid_member_id}` for a non-integer (or out-of-int32) `:member_epoch` or a
-  non-binary `:member_id`, instead of raising inside the client process.
+  `{:error, :invalid_generation_id}` / `{:error, :invalid_member_id}` for a non-integer (or
+  out-of-int32) `:member_epoch` / `:generation_id` or a non-binary `:member_id`, instead of
+  raising inside the client process.
 * ConsumerGroup resets its member id (as well as its generation) when a commit returns
   `:group_id_not_found`, saving a JoinGroup round trip: the group, and the id with it, is gone.
+
+### Fixed
+
+* `commit_offset/5` with `member_id: nil` or `generation_id: nil` (OffsetCommit v1+) no longer
+  crashes the shared client process: `nil` is sent as "not given" (`""` / `-1`). A GenConsumer
+  started on its own (`GenConsumer.start_link(Mod, group, topic, partition)`, no consumer group)
+  commits exactly that, so its first commit took the client down.
 
 ## 1.1.3 (2026-10-30)
 
