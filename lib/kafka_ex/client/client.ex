@@ -688,20 +688,31 @@ defmodule KafkaEx.Client do
     {network_timeout, req_opts} = Keyword.pop(opts, :network_timeout)
     req_data = [{:group_id, consumer_group} | req_opts]
 
-    with {:ok, request} <- RequestBuilder.consumer_group_heartbeat_request(req_data, state),
-         {{:ok, result}, updated_state} <-
-           handle_consumer_group_heartbeat_request(request, node_selector, state, network_timeout) do
-      stop_metadata =
-        Map.merge(metadata, %{
-          member_id: result.member_id,
-          new_member_epoch: result.member_epoch,
-          assigned_partitions: ConsumerGroupHeartbeat.assigned_partition_count(result)
-        })
+    case RequestBuilder.consumer_group_heartbeat_request(req_data, state) do
+      {:ok, request} ->
+        # A v1+ join without :member_id gets a generated id while the request is
+        # built (KIP-1082). Report the id actually sent, also on failure, so a
+        # caller whose join timed out can retry with the same id instead of
+        # registering a second member.
+        metadata = %{metadata | member_id: request.member_id}
 
-      {{{:ok, result}, updated_state}, stop_metadata}
-    else
-      {:error, error} -> {{:error, error}, metadata}
-      error_result -> {error_result, metadata}
+        case handle_consumer_group_heartbeat_request(request, node_selector, state, network_timeout) do
+          {{:ok, result}, updated_state} ->
+            stop_metadata =
+              Map.merge(metadata, %{
+                member_id: result.member_id,
+                new_member_epoch: result.member_epoch,
+                assigned_partitions: ConsumerGroupHeartbeat.assigned_partition_count(result)
+              })
+
+            {{{:ok, result}, updated_state}, stop_metadata}
+
+          error_result ->
+            {error_result, metadata}
+        end
+
+      {:error, error} ->
+        {{:error, error}, metadata}
     end
   end
 
