@@ -184,5 +184,20 @@ defmodule KafkaEx.APIConsumerGroupProtocolTest do
       ids = for _ <- 1..1000, do: KafkaEx.API.generate_member_id()
       assert length(Enum.uniq(ids)) == 1000
     end
+
+    test "goes through the KayrockProtocol hub, not a per-operation protocol module" do
+      # AGENTS.md: KafkaEx.Protocol.KayrockProtocol is the only module the rest
+      # of the client talks to the protocol layer through.
+      {:ok, {_, [imports: imports]}} = :beam_lib.chunks(:code.which(KafkaEx.API), [:imports])
+
+      protocol_modules =
+        for {module, _fun, _arity} <- imports,
+            String.starts_with?(Atom.to_string(module), "Elixir.KafkaEx.Protocol.Kayrock."),
+            uniq: true,
+            do: module
+
+      assert protocol_modules == []
+      assert {KafkaEx.Protocol.KayrockProtocol, :generate_member_id, 0} in imports
+    end
   end
 end

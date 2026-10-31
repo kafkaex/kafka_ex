@@ -55,6 +55,8 @@ defmodule KafkaEx.API do
       end
   """
 
+  @protocol Application.compile_env(:kafka_ex, :protocol, KafkaEx.Protocol.KayrockProtocol)
+
   alias KafkaEx.Client
   alias KafkaEx.Client.RequestBudget
   alias KafkaEx.Cluster.ClusterMetadata
@@ -784,7 +786,7 @@ defmodule KafkaEx.API do
   including retries of the join.
   """
   @spec generate_member_id() :: member_id
-  defdelegate generate_member_id(), to: KafkaEx.Protocol.Kayrock.ConsumerGroupHeartbeat.RequestHelpers
+  def generate_member_id, do: @protocol.generate_member_id()
 
   @doc """
   Send a ConsumerGroupHeartbeat (KIP-848) to the group coordinator.
