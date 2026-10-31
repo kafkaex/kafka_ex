@@ -5,6 +5,7 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
   and will become a separated package.
   """
 
+  alias KafkaEx.Client.Error
   alias KafkaEx.Protocol.Kayrock, as: KayrockProtocol
 
   alias Kayrock.ApiVersions
@@ -153,8 +154,13 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
   def parse_response(:describe_groups, response), do: KayrockProtocol.DescribeGroups.Response.parse_response(response)
   def parse_response(:list_groups, response), do: KayrockProtocol.ListGroups.Response.parse_response(response)
   def parse_response(:list_offsets, response), do: KayrockProtocol.ListOffsets.Response.parse_response(response)
-  def parse_response(:offset_fetch, response), do: KayrockProtocol.OffsetFetch.Response.parse_response(response)
-  def parse_response(:offset_commit, response), do: KayrockProtocol.OffsetCommit.Response.parse_response(response)
+  # OffsetFetch / OffsetCommit v10+ responses name topics by id only and need a
+  # topic-name resolver: these heads delegate to parse_response/3 without one,
+  # so a v10+ response with id-only topics returns
+  # `{:error, %Error{error: :topic_name_resolver_required}}` (never a fake
+  # `:unknown_topic_id`). Earlier versions are unaffected.
+  def parse_response(:offset_fetch, response), do: parse_response(:offset_fetch, response, [])
+  def parse_response(:offset_commit, response), do: parse_response(:offset_commit, response, [])
   def parse_response(:heartbeat, response), do: KayrockProtocol.Heartbeat.Response.parse_response(response)
   def parse_response(:join_group, response), do: KayrockProtocol.JoinGroup.Response.parse_response(response)
   def parse_response(:leave_group, response), do: KayrockProtocol.LeaveGroup.Response.parse_response(response)
@@ -174,18 +180,28 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
   backed by `KafkaEx.Cluster.ClusterMetadata.topic_name_by_id/2`) so the
   result is keyed by topic name, as for earlier versions. Responses of other
   versions or APIs ignore the option.
+
+  An id the resolver does not know returns
+  `{:error, %KafkaEx.Client.Error{error: :unknown_topic_id, metadata: %{topic_id: id}}}`.
+  Without a resolver, a response with id-only topics returns
+  `{:error, %KafkaEx.Client.Error{error: :topic_name_resolver_required}}`
+  instead, so a caller that forgot the option is not mistaken for a broker
+  that does not know the topic (`KafkaEx.Client` refreshes metadata on
+  `:unknown_topic_id`).
   """
   @spec parse_response(atom(), term(), Keyword.t()) :: {:ok, term()} | {:error, term()}
   def parse_response(:offset_commit, response, opts) do
     response
     |> KayrockProtocol.OffsetCommit.ResponseHelpers.put_topic_names(topic_name_resolver(opts))
     |> KayrockProtocol.OffsetCommit.Response.parse_response()
+    |> require_resolver_for_topic_ids(opts)
   end
 
   def parse_response(:offset_fetch, response, opts) do
     response
     |> KayrockProtocol.OffsetFetch.ResponseHelpers.put_topic_names(topic_name_resolver(opts))
     |> KayrockProtocol.OffsetFetch.Response.parse_response()
+    |> require_resolver_for_topic_ids(opts)
   end
 
   def parse_response(operation, response, _opts), do: parse_response(operation, response)
@@ -193,6 +209,22 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
   defp topic_name_resolver(opts) do
     Keyword.get(opts, :topic_name_resolver) || fn _topic_id -> {:error, :no_such_topic} end
   end
+
+  # With no resolver every id-only topic stays unnamed, and the unresolved-name
+  # check runs before any partition error is read, so an `:unknown_topic_id`
+  # carrying a `topic_id` here was caused by the missing resolver, not the broker.
+  defp require_resolver_for_topic_ids(
+         {:error, %Error{error: :unknown_topic_id, metadata: %{topic_id: _}} = error},
+         opts
+       ) do
+    if is_nil(Keyword.get(opts, :topic_name_resolver)) do
+      {:error, %{error | error: :topic_name_resolver_required}}
+    else
+      {:error, error}
+    end
+  end
+
+  defp require_resolver_for_topic_ids(result, _opts), do: result
 
   # -----------------------------------------------------------------------------
   # Utility wrappers — allow code outside lib/kafka_ex/protocol/ to avoid
