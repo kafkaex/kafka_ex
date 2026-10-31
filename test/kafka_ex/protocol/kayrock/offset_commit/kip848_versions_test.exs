@@ -152,10 +152,24 @@ defmodule KafkaEx.Protocol.Kayrock.OffsetCommit.Kip848VersionsTest do
     end
 
     test "unknown topic id -> :unknown_topic_id" do
+      unknown = fn _ -> {:error, :no_such_topic} end
+
       assert {:error, %Error{error: :unknown_topic_id, metadata: %{topic_id: @id}}} =
-               KayrockProtocol.parse_response(:offset_commit, v10_response(), [])
+               KayrockProtocol.parse_response(:offset_commit, v10_response(), topic_name_resolver: unknown)
 
       assert {:error, %Error{error: :unknown_topic_id}} = OffsetCommitResponse.parse_response(v10_response())
+    end
+
+    test "no resolver -> :topic_name_resolver_required, not a broker-style :unknown_topic_id" do
+      # The client refreshes metadata on :unknown_topic_id; a caller that
+      # forgot the resolver must not look like a stale topic id.
+      for result <- [
+            KayrockProtocol.parse_response(:offset_commit, v10_response()),
+            KayrockProtocol.parse_response(:offset_commit, v10_response(), []),
+            KayrockProtocol.parse_response(:offset_commit, v10_response(), topic_name_resolver: nil)
+          ] do
+        assert {:error, %Error{error: :topic_name_resolver_required, metadata: %{topic_id: @id}}} = result
+      end
     end
 
     test "partition errors still surface" do
