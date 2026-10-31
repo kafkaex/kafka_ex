@@ -304,6 +304,79 @@ defmodule KafkaEx.Client.ConsumerGroupProtocolTest do
     end
   end
 
+  describe "consumer_group_heartbeat member id (KIP-1082)" do
+    setup %{state: state} do
+      test_pid = self()
+      handler = "cgh-member-id-#{inspect(self())}"
+
+      :telemetry.attach(
+        handler,
+        [:kafka_ex, :consumer, :consumer_group_heartbeat, :stop],
+        fn _event, _measurements, metadata, _ -> send(test_pid, {:stop, metadata}) end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+      {:ok, state: state}
+    end
+
+    defp sent_member_id(wire) do
+      # request header v2: api key, version, correlation id, client id (int16 string), tagged
+      # fields; then group_id and member_id as compact strings
+      <<_::16, _::16, _::32, client_id_len::16, _::binary-size(client_id_len), 0, rest::binary>> =
+        IO.iodata_to_binary(wire)
+
+      <<group_len_plus_1, _::binary-size(group_len_plus_1 - 1), id_len_plus_1,
+        member_id::binary-size(id_len_plus_1 - 1), _::binary>> = rest
+
+      member_id
+    end
+
+    test "a failed v1 join without :member_id reports the generated id that was sent", %{state: state} do
+      test_pid = self()
+
+      stub(NetworkClient, :send_sync_request, fn _broker, wire, _timeout ->
+        send(test_pid, {:sent, sent_member_id(wire)})
+        {:error, :timeout}
+      end)
+
+      assert {:reply, {:error, _}, _} =
+               Client.handle_call(
+                 {:consumer_group_heartbeat, "g", [member_epoch: 0, topic_partitions: []]},
+                 self(),
+                 state
+               )
+
+      assert_received {:sent, sent_id}
+      assert byte_size(sent_id) == 22
+      assert_received {:stop, %{result: :error, member_id: ^sent_id, member_epoch: 0}}
+    end
+
+    test "a successful v1 join without :member_id reports the id echoed by the broker", %{state: state} do
+      stub(NetworkClient, :send_sync_request, fn _broker, wire, _timeout ->
+        heartbeat_response(correlation_id(wire), member_id: sent_member_id(wire), member_epoch: 1)
+      end)
+
+      assert {:reply, {:ok, %ConsumerGroupHeartbeat{member_id: id}}, _} =
+               Client.handle_call(
+                 {:consumer_group_heartbeat, "g", [member_epoch: 0, topic_partitions: []]},
+                 self(),
+                 state
+               )
+
+      assert byte_size(id) == 22
+      assert_received {:stop, %{result: :ok, member_id: ^id}}
+    end
+
+    test "a caller-supplied :member_id is sent and reported unchanged", %{state: state} do
+      stub(NetworkClient, :send_sync_request, fn _broker, _wire, _timeout -> {:error, :timeout} end)
+
+      Client.handle_call({:consumer_group_heartbeat, "g", [member_epoch: 0, member_id: "mine"]}, self(), state)
+
+      assert_received {:stop, %{result: :error, member_id: "mine"}}
+    end
+  end
+
   describe "consumer_group_describe" do
     test "an unknown group returns the group-level error", %{state: state} do
       stub(NetworkClient, :send_sync_request, fn _broker, wire, _timeout ->

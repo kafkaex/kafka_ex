@@ -23,8 +23,9 @@
   still use the classic protocol). `KafkaEx.API.consumer_group_heartbeat/3` sends
   ConsumerGroupHeartbeat v0-v1 (join with `member_epoch: 0`, heartbeat, leave with `-1`/`-2`;
   omitted fields are sent as "unchanged"; on v1 a member id is generated on join when none is
-  given, per KIP-1082; `KafkaEx.API.generate_member_id/0` creates one up front so retries of a
-  join reuse it) and returns `KafkaEx.Messages.ConsumerGroupHeartbeat`, whose assignment is a
+  given, per KIP-1082 - pass one from `KafkaEx.API.generate_member_id/0` instead, so a retried
+  join reuses it rather than registering a second member; the `:stop` telemetry event reports the
+  id that was sent, also on failure) and returns `KafkaEx.Messages.ConsumerGroupHeartbeat`, whose assignment is a
   list of `KafkaEx.Messages.TopicPartitions` (topic id, name resolved from cluster metadata when
   known) or `nil` when unchanged. `KafkaEx.API.describe_consumer_group/3` sends
   ConsumerGroupDescribe v0-v1 and returns a `ConsumerGroupDescription`. Both are routed to the

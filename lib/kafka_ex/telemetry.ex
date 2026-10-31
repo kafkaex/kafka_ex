@@ -178,8 +178,10 @@ defmodule KafkaEx.Telemetry do
 
   * `[:kafka_ex, :consumer, :consumer_group_heartbeat, :stop]` - Emitted when the ConsumerGroupHeartbeat completes
     * Measurements: `%{duration: integer()}`
-    * Metadata: Same as start event plus `%{result: :ok | :error, error: term()}`; on success also
-      `%{member_id: binary(), new_member_epoch: integer(), assigned_partitions: non_neg_integer() | nil}`
+    * Metadata: Same as start event plus `%{result: :ok | :error, error: term()}`, except that
+      `member_id` is the id actually sent: on a v1+ join without `:member_id` it is the one KafkaEx
+      generated (also when the call failed, so the join can be retried with the same id). On success
+      also `%{member_id: binary(), new_member_epoch: integer(), assigned_partitions: non_neg_integer() | nil}`
       (`nil` when the assignment did not change)
 
   * `[:kafka_ex, :consumer, :consumer_group_heartbeat, :exception]` - Emitted when the
