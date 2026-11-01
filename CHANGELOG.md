@@ -80,6 +80,11 @@
 
 ### Fixed
 
+* **A dropped broker connection no longer stops a consumer group.** When a broker closed an
+  idle connection, the next request on that socket failed with `:einval` instead of `:closed`.
+  `:einval` is not treated as transient, so a Heartbeat or JoinGroup took it as fatal and the
+  consumer group (supervised with `max_restarts: 0`) shut down instead of reconnecting. A
+  peer-closed socket is now reported as `:closed`, so the existing retry and rejoin logic applies.
 * `commit_offset/5` with `member_id: nil` or `generation_id: nil` (OffsetCommit v1+) no longer
   crashes the shared client process: `nil` is sent as "not given" (`""` / `-1`). A GenConsumer
   started on its own (`GenConsumer.start_link(Mod, group, topic, partition)`, no consumer group)
