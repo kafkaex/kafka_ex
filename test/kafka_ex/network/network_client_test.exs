@@ -60,6 +60,37 @@ defmodule KafkaEx.Network.NetworkClientTest do
     test "returns {:error, :no_broker} when broker is nil" do
       assert {:error, :no_broker} == KafkaEx.Network.NetworkClient.send_sync_request(nil, <<>>, 1000)
     end
+
+    # Idle sockets sit in {:active, true}; when the peer closes one, the port closes
+    # itself and the next :inet.setopts/2 returns :einval rather than :closed. That
+    # :einval must surface as the transient :closed, or the consumer-group retry
+    # classifiers treat a dropped connection as fatal and tear the group down.
+    test "a peer-closed active socket returns {:error, :closed}, not :einval" do
+      {:ok, listen} = :gen_tcp.listen(0, [:binary, {:active, false}, {:reuseaddr, true}])
+      {:ok, port} = :inet.port(listen)
+      test_pid = self()
+
+      spawn_link(fn ->
+        {:ok, peer} = :gen_tcp.accept(listen)
+        :ok = :gen_tcp.close(peer)
+        send(test_pid, :peer_closed)
+      end)
+
+      {:ok, tcp_socket} = :gen_tcp.connect(~c"localhost", port, [:binary, {:active, false}])
+      :ok = :inet.setopts(tcp_socket, [:binary, {:packet, 4}, {:active, true}])
+      assert_receive :peer_closed
+      assert_receive {:tcp_closed, ^tcp_socket}
+
+      broker = %{socket: %KafkaEx.Network.Socket{socket: tcp_socket, ssl: false}, host: "localhost", port: port}
+
+      try do
+        capture_log(fn ->
+          assert {:error, :closed} == NetworkClient.send_sync_request(broker, "data", 1000)
+        end)
+      after
+        :gen_tcp.close(listen)
+      end
+    end
   end
 
   describe "close_socket/3" do
