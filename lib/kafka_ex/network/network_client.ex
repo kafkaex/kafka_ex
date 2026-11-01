@@ -134,13 +134,22 @@ defmodule KafkaEx.Network.NetworkClient do
         broker_str = inspect_broker(broker.host, broker.port)
         Logger.error("Setting socket options for broker #{broker_str} failed with #{inspect(reason)}")
         close_socket(broker, socket, :send_error)
-        {:error, reason}
+        {:error, setopts_error(reason)}
     end
   end
 
   def send_sync_request(nil, _, _) do
     {:error, :no_broker}
   end
+
+  # Idle sockets are {:active, true}. If the peer closes one, the port closes itself
+  # (the owner gets {:tcp_closed, _}) and the next :inet.setopts/2 returns :einval.
+  # Report that as :closed: it is a dropped connection, and :closed is what every
+  # retry classifier (Retry.transient_error?/1) treats as transient. Left as :einval,
+  # a consumer-group Heartbeat/JoinGroup treats it as unrecoverable and the
+  # max_restarts: 0 ConsumerGroup supervisor shuts down.
+  defp setopts_error(:einval), do: :closed
+  defp setopts_error(reason), do: reason
 
   defp receive_response(socket, timeout, broker) do
     case Socket.recv(socket, 0, timeout) do
