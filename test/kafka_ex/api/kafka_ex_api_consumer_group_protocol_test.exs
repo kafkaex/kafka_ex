@@ -188,7 +188,11 @@ defmodule KafkaEx.APIConsumerGroupProtocolTest do
     test "goes through the KayrockProtocol hub, not a per-operation protocol module" do
       # AGENTS.md: KafkaEx.Protocol.KayrockProtocol is the only module the rest
       # of the client talks to the protocol layer through.
-      {:ok, {_, [imports: imports]}} = :beam_lib.chunks(:code.which(KafkaEx.API), [:imports])
+      # Read the original object code rather than the .beam path: under
+      # `mix coveralls` modules are cover-compiled and :code.which/1 returns
+      # :cover_compiled, so there is no file to read.
+      {KafkaEx.API, beam, _path} = :code.get_object_code(KafkaEx.API)
+      {:ok, {_, [imports: imports]}} = :beam_lib.chunks(beam, [:imports])
 
       protocol_modules =
         for {module, _fun, _arity} <- imports,
