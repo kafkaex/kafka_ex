@@ -104,6 +104,98 @@ defmodule KafkaEx.ChaosTestHelpers do
      }}
   end
 
+  @kafka4_image "apache/kafka:4.4.0"
+  @kafka4_broker_port 19092
+  @kafka4_controller_port 9093
+
+  @doc """
+  Like `start_infrastructure/1`, but with a single-node KRaft `apache/kafka:4.4.0`
+  broker (the KIP-848 consumer group protocol needs Kafka 4.0+; the default
+  cp-kafka 7.4.3 is Kafka 3.4). Client traffic goes through Toxiproxy as
+  usual; the returned context has the same keys, so every toxic helper works
+  on it. The image can be overridden with `KAFKA4_IMAGE`.
+  """
+  def start_kafka4_infrastructure(opts \\ []) do
+    case Testcontainers.start() do
+      {:ok, _} -> :ok
+      {:error, {:already_started, _}} -> :ok
+    end
+
+    network_name = Keyword.get(opts, :network, "kafka4-chaos-#{:rand.uniform(100_000)}")
+    {:ok, _} = Testcontainers.create_network(network_name)
+    host = Testcontainers.get_host()
+
+    toxiproxy_config =
+      Container.new(ToxiproxyContainer.default_image())
+      |> Container.with_exposed_ports([ToxiproxyContainer.control_port() | Enum.to_list(8666..8696)])
+      |> Container.with_waiting_strategy(
+        Testcontainers.PortWaitStrategy.new("127.0.0.1", ToxiproxyContainer.control_port(), 60_000)
+      )
+      |> Container.with_network(network_name)
+      |> Container.with_hostname("toxiproxy")
+
+    {:ok, toxiproxy_container} = Testcontainers.start_container(toxiproxy_config)
+
+    image = System.get_env("KAFKA4_IMAGE", @kafka4_image)
+    {:ok, kafka_container} = Testcontainers.start_container(build_kafka4_container(image, network_name))
+    kafka_ip = kafka_container.ip_address
+
+    proxy_name = "kafka_broker"
+    {:ok, proxy_port} = ToxiproxyContainer.create_proxy(toxiproxy_container, proxy_name, "#{kafka_ip}:#{@kafka_port}")
+
+    script = """
+    export KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://#{host}:#{proxy_port},BROKER://#{kafka_ip}:#{@kafka4_broker_port}
+    exec /etc/kafka/docker/run
+    """
+
+    {:ok, conn} = get_docker_connection()
+    Docker.Api.put_file(kafka_container.container_id, conn, "/", @start_script_path, script)
+
+    :ok = wait_for_kafka(host, proxy_port)
+    Logger.info("Kafka 4 (#{image}) ready via proxy at #{host}:#{proxy_port}")
+
+    {:ok,
+     %{
+       kafka_container: kafka_container,
+       toxiproxy_container: toxiproxy_container,
+       network_name: network_name,
+       proxy_name: proxy_name,
+       broker_via_proxy: {host, proxy_port},
+       proxy_port: proxy_port
+     }}
+  end
+
+  defp build_kafka4_container(image, network_name) do
+    Container.new(image)
+    |> Container.with_exposed_port(@kafka_port)
+    |> Container.with_network(network_name)
+    |> Container.with_hostname("kafka")
+    |> Container.with_environment("KAFKA_NODE_ID", "1")
+    |> Container.with_environment("KAFKA_PROCESS_ROLES", "broker,controller")
+    |> Container.with_environment(
+      "KAFKA_LISTENERS",
+      "PLAINTEXT://0.0.0.0:#{@kafka_port},BROKER://0.0.0.0:#{@kafka4_broker_port},CONTROLLER://0.0.0.0:#{@kafka4_controller_port}"
+    )
+    |> Container.with_environment(
+      "KAFKA_LISTENER_SECURITY_PROTOCOL_MAP",
+      "PLAINTEXT:PLAINTEXT,BROKER:PLAINTEXT,CONTROLLER:PLAINTEXT"
+    )
+    |> Container.with_environment("KAFKA_INTER_BROKER_LISTENER_NAME", "BROKER")
+    |> Container.with_environment("KAFKA_CONTROLLER_LISTENER_NAMES", "CONTROLLER")
+    |> Container.with_environment("KAFKA_CONTROLLER_QUORUM_VOTERS", "1@localhost:#{@kafka4_controller_port}")
+    |> Container.with_environment("KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR", "1")
+    |> Container.with_environment("KAFKA_OFFSETS_TOPIC_NUM_PARTITIONS", "1")
+    |> Container.with_environment("KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR", "1")
+    |> Container.with_environment("KAFKA_TRANSACTION_STATE_LOG_MIN_ISR", "1")
+    |> Container.with_environment("KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS", "0")
+    |> Container.with_environment("KAFKA_AUTO_CREATE_TOPICS_ENABLE", "true")
+    |> Container.with_cmd([
+      "sh",
+      "-c",
+      "while [ ! -f /#{@start_script_path} ]; do sleep 0.1; done; exec bash /#{@start_script_path}"
+    ])
+  end
+
   @doc """
   Stop infrastructure containers and remove network.
   """

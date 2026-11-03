@@ -242,6 +242,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
       owned: %{},
       resolve_failures: 0
     ]
+
+    @type t :: %__MODULE__{}
   end
 
   @default_rebalance_timeout_ms 300_000
@@ -279,6 +281,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   @default_max_wait_time 10_000
   @consumer_stop_margin 10_000
   @terminate_margin 5_000
+  @async_result {__MODULE__, :async_result}
 
   @type topic_id :: <<_::128>>
   @type key :: {topic_id, non_neg_integer}
@@ -511,22 +514,16 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
 
   def handle_info({:heartbeat, _stale}, state), do: {:noreply, state}
 
-  def handle_info({:DOWN, ref, :process, _pid, reason}, %State{inflight: %{ref: ref} = inflight} = state) do
-    result =
-      case reason do
-        {:heartbeat_result, result} -> result
-        other -> {:error, {:heartbeat_process_died, other}}
-      end
-
-    heartbeat_done(%State{state | inflight: nil}, inflight, result)
+  # An async worker's result (see run_async/1) completes it; its :DOWN is
+  # then flushed. A :DOWN first means the worker died without a result.
+  def handle_info({@async_result, ref, result}, %State{} = state) when is_reference(ref) do
+    async_finished(state, ref, {:op_result, result})
   end
 
-  def handle_info({:DOWN, ref, :process, _pid, reason}, %State{op: %{ref: ref}} = state) do
-    op_done(%State{state | op: nil}, state.op, reason)
-  end
-
-  def handle_info({:DOWN, ref, :process, _pid, reason}, %State{push: %{ref: ref}} = state) do
-    push_done(%State{state | push: nil}, state.push, reason)
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %State{} = state)
+      when (is_map(state.inflight) and state.inflight.ref == ref) or (is_map(state.op) and state.op.ref == ref) or
+             (is_map(state.push) and state.push.ref == ref) do
+    async_finished(state, ref, reason)
   end
 
   def handle_info({:DOWN, ref, :process, pid, reason}, %State{} = state) do
@@ -581,7 +578,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     group = state.group_name
     phase = state.phase
 
-    {pid, ref} = spawn_monitor(fn -> exit({:heartbeat_result, send_heartbeat(client, group, opts)}) end)
+    {pid, ref} = run_async(fn -> send_heartbeat(client, group, opts) end)
 
     inflight = %{pid: pid, ref: ref, partitions: partitions_sent, phase: phase, epoch: opts[:member_epoch]}
     {:noreply, %State{state | inflight: inflight, heartbeat_pending: false}}
@@ -1051,9 +1048,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     stop_opts = if kind == :lose, do: [lost: true], else: []
 
     {pid, ref} =
-      spawn_monitor(fn ->
-        exit({:op_result, GenConsumerSupervisor.stop_partitions(supervisor, topic_partitions, stop_opts)})
-      end)
+      run_async(fn -> GenConsumerSupervisor.stop_partitions(supervisor, topic_partitions, stop_opts) end)
 
     %State{state | op: %{kind: kind, pid: pid, ref: ref, keys: keys}}
   end
@@ -1081,17 +1076,14 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     membership = start_membership(state)
 
     {pid, ref} =
-      spawn_monitor(fn ->
-        results =
-          starts
-          |> Task.async_stream(
-            fn {key, tp} -> {key, GenConsumerSupervisor.start_partition(supervisor, tp, membership)} end,
-            max_concurrency: @start_concurrency,
-            timeout: :infinity
-          )
-          |> Map.new(fn {:ok, result} -> result end)
-
-        exit({:op_result, results})
+      run_async(fn ->
+        starts
+        |> Task.async_stream(
+          fn {key, tp} -> {key, GenConsumerSupervisor.start_partition(supervisor, tp, membership)} end,
+          max_concurrency: @start_concurrency,
+          timeout: :infinity
+        )
+        |> Map.new(fn {:ok, result} -> result end)
       end)
 
     names = Map.new(starts, fn {key, {topic, _}} -> {key, topic} end)
@@ -1150,17 +1142,14 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     targets = Enum.map(keys, &{&1, state.owned[&1].pid})
 
     {pid, ref} =
-      spawn_monitor(fn ->
-        results =
-          targets
-          |> Task.async_stream(
-            fn {key, pid} -> {key, GenConsumer.update_membership(pid, [member_epoch: epoch], timeout)} end,
-            max_concurrency: max(length(targets), 1),
-            timeout: :infinity
-          )
-          |> Map.new(fn {:ok, result} -> result end)
-
-        exit({:op_result, results})
+      run_async(fn ->
+        targets
+        |> Task.async_stream(
+          fn {key, pid} -> {key, GenConsumer.update_membership(pid, [member_epoch: epoch], timeout)} end,
+          max_concurrency: max(length(targets), 1),
+          timeout: :infinity
+        )
+        |> Map.new(fn {:ok, result} -> result end)
       end)
 
     %State{state | push: %{pid: pid, ref: ref, epoch: epoch, targets: Map.new(targets)}}
@@ -1368,7 +1357,12 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
 
   defp await_op(%State{op: %{ref: ref, pid: pid}} = state, timeout) do
     receive do
-      {:DOWN, ^ref, :process, _, _} -> %State{state | op: nil}
+      {@async_result, ^ref, _result} ->
+        Process.demonitor(ref, [:flush])
+        %State{state | op: nil}
+
+      {:DOWN, ^ref, :process, _, _} ->
+        %State{state | op: nil}
     after
       timeout ->
         Process.demonitor(ref, [:flush])
@@ -1429,6 +1423,49 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
 
   # ---------------------------------------------------------------------------
   # Helpers
+
+  # Runs `fun` in a monitored (not linked) process. Its result is sent before
+  # the process exits, so it is in the mailbox when its :DOWN arrives
+  # (signals between two processes are ordered); async_result/2 picks it up.
+  # Runs `fun` in a monitored (not linked) process that sends
+  # {@async_result, monitor_ref, result} back. A result for a worker that was
+  # aborted meanwhile (no slot holds its ref) is ignored.
+  defp run_async(fun) do
+    owner = self()
+
+    {pid, ref} =
+      spawn_monitor(fn ->
+        ref = receive(do: ({@async_result, :ref, ref} -> ref))
+        send(owner, {@async_result, ref, fun.()})
+      end)
+
+    send(pid, {@async_result, :ref, ref})
+    {pid, ref}
+  end
+
+  defp async_finished(%State{inflight: %{ref: ref} = inflight} = state, ref, outcome) do
+    Process.demonitor(ref, [:flush])
+
+    result =
+      case outcome do
+        {:op_result, result} -> result
+        other -> {:error, {:heartbeat_process_died, other}}
+      end
+
+    heartbeat_done(%State{state | inflight: nil}, inflight, result)
+  end
+
+  defp async_finished(%State{op: %{ref: ref} = op} = state, ref, outcome) do
+    Process.demonitor(ref, [:flush])
+    op_done(%State{state | op: nil}, op, outcome)
+  end
+
+  defp async_finished(%State{push: %{ref: ref} = push} = state, ref, outcome) do
+    Process.demonitor(ref, [:flush])
+    push_done(%State{state | push: nil}, push, outcome)
+  end
+
+  defp async_finished(state, _ref, _outcome), do: {:noreply, state}
 
   defp topic_partition(state, {_topic_id, partition} = key), do: {state.owned[key].topic, partition}
 
