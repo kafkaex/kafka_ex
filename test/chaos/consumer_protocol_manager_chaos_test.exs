@@ -215,6 +215,12 @@ defmodule KafkaEx.Chaos.ConsumerProtocolManagerTest do
   test "coordinator loss in steady state: heartbeats back off and the member keeps its partitions", ctx do
     m1 = start_member(ctx, :m1)
     wait_until(fn -> balanced?([m1]) end)
+
+    # Every consumer past its start-up (offset lookup) before the cut: a
+    # GenConsumer whose auto_offset_reset ListOffsets call fails crashes and
+    # is restarted (expected, but not what this test measures).
+    produce!(ctx, Enum.map(1..@partitions, &"w#{&1}"))
+    _ = collect(MapSet.new(), MapSet.new(1..@partitions, &"w#{&1}"), 60_000)
     pids = m1 |> ConsumerGroup.consumer_supervisor_pid() |> GenConsumerSupervisor.partition_pids()
 
     # Shorter than the broker's 45 s session timeout: the member is not
