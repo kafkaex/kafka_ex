@@ -17,8 +17,8 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
   Besides the static list given to `start_link/1` (the classic consumer
   group: start every assigned partition, stop the whole supervisor on a
   rebalance), single partitions can be started and stopped on a running
-  supervisor with `start_partition/3`, `stop_partition/2` and
-  `stop_partitions/2`, and looked up with `lookup_partition/2` and
+  supervisor with `start_partition/3`, `stop_partition/3` and
+  `stop_partitions/3`, and looked up with `lookup_partition/2` and
   `partition_pids/1`. This is what an incremental (KIP-848) assignment
   needs: only the partitions that changed are touched.
 
@@ -48,7 +48,7 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
       `{:shutdown, {:rejoin_required, reason}}`, a clean exit the supervisor
       does not log; see `KafkaEx.Consumer.GenConsumer`.
     * The owner serializes its own operations on a partition (one
-      `start_partition/3` / `stop_partition/2` at a time per partition).
+      `start_partition/3` / `stop_partition/3` at a time per partition).
 
   Partitions given to `start_link/1` keep the classic behaviour exactly
   (`restart: :transient`, the `:shutdown` option or 5 s): they are not
@@ -64,6 +64,9 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
   @stop_result {__MODULE__, :stop_result}
 
   @type topic_partition :: {topic :: binary, partition :: non_neg_integer}
+
+  @typedoc "Options of `stop_partition/3` and `stop_partitions/3`."
+  @type stop_options :: [{:lost, boolean}]
 
   # Partitions are int32 on the wire.
   @max_partition 2_147_483_647
@@ -181,7 +184,7 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
   supervisor. See "The caller owns the consumers it starts" in the moduledoc
   for what the caller is expected to do when it exits.
 
-  Its `:shutdown` (how long `stop_partition/2` and a supervisor shutdown wait
+  Its `:shutdown` (how long `stop_partition/3` and a supervisor shutdown wait
   for it before killing it) is `opts[:shutdown]`, else the supervisor's own
   `:shutdown` option, else the fetch `:max_wait_time` (from the merged
   `:fetch_options`, 10 s by default) + 10 s: a consumer stopped inside a fetch
@@ -280,7 +283,7 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
   restarted: the child is `:temporary`.
 
   The wait happens in the caller, not in the supervisor, so the supervisor
-  keeps serving other starts and stops meanwhile; use `stop_partitions/2` to
+  keeps serving other starts and stops meanwhile; use `stop_partitions/3` to
   stop several partitions concurrently.
 
   Returns `:ok` once the consumer is dead (also when it exited on its own
@@ -289,21 +292,42 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
   Returns `{:error, :not_found}` when the partition has no live consumer
   started by `start_partition/3`, and `{:error, :invalid_topic_partition}`
   for a malformed partition.
+
+  ## Options
+
+    * `:lost` - `true` when the partition is *lost* rather than revoked (the
+      member was fenced or hit a fatal error, Java's `onPartitionsLost`): the
+      consumer is stopped with the reason `{:shutdown, :partition_lost}`
+      instead of `:shutdown`, and a KafkaEx `GenConsumer` then skips its final
+      commit (the member's epoch is no longer valid, so the broker would
+      reject it). A custom `gen_consumer_module` sees the same reason in its
+      `terminate/2`. Default `false`.
   """
-  @spec stop_partition(Supervisor.supervisor(), topic_partition) ::
+  @spec stop_partition(Supervisor.supervisor(), topic_partition, stop_options) ::
           :ok | {:error, :not_found | :invalid_topic_partition}
-  def stop_partition(supervisor, {topic, partition} = topic_partition) when is_topic_partition(topic, partition) do
+  def stop_partition(supervisor, topic_partition, opts \\ [])
+
+  def stop_partition(supervisor, {topic, partition} = topic_partition, opts) when is_topic_partition(topic, partition) do
     case indexed_entry(supervisor, topic_partition) do
-      {pid, shutdown} -> if Process.alive?(pid), do: stop_child(pid, shutdown), else: {:error, :not_found}
+      {pid, shutdown} -> if Process.alive?(pid), do: stop_child(pid, shutdown, stop_reason(opts)), else: {:error, :not_found}
       nil -> {:error, :not_found}
     end
   end
 
-  def stop_partition(_supervisor, _topic_partition), do: {:error, :invalid_topic_partition}
+  def stop_partition(_supervisor, _topic_partition, _opts), do: {:error, :invalid_topic_partition}
+
+  # The reason the consumer's terminate/2 sees. `lost: true` is
+  # {:shutdown, :partition_lost}: a KafkaEx GenConsumer skips its final commit
+  # for it (see stop_partition/3).
+  defp stop_reason(opts) when is_list(opts) do
+    if Keyword.get(opts, :lost, false) == true, do: {:shutdown, :partition_lost}, else: :shutdown
+  end
+
+  defp stop_reason(_opts), do: :shutdown
 
   @doc """
   Stops the consumers of several partitions concurrently (see
-  `stop_partition/2`), so revoking N partitions whose consumers are idle in a
+  `stop_partition/3`), so revoking N partitions whose consumers are idle in a
   fetch long-poll takes about one long-poll, not N.
 
   Each stop runs in its own process, which is monitored, not linked: a caller
@@ -313,25 +337,28 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
   the stops already under way still finish.
 
   Returns a map of `{topic, partition} => :ok | {:error, reason}` with the
-  `stop_partition/2` results (a malformed entry maps to
+  `stop_partition/3` results (a malformed entry maps to
   `{:error, :invalid_topic_partition}`), or
   `{:error, :invalid_topic_partition}` when `topic_partitions` is not a list.
+  `opts` are those of `stop_partition/3` (e.g. `lost: true`).
   """
-  @spec stop_partitions(Supervisor.supervisor(), [topic_partition]) ::
+  @spec stop_partitions(Supervisor.supervisor(), [topic_partition], stop_options) ::
           %{topic_partition => :ok | {:error, :not_found | :invalid_topic_partition | {:stop_failed, term}}}
           | {:error, :invalid_topic_partition}
-  def stop_partitions(supervisor, topic_partitions) when is_list(topic_partitions) do
+  def stop_partitions(supervisor, topic_partitions, opts \\ [])
+
+  def stop_partitions(supervisor, topic_partitions, opts) when is_list(topic_partitions) do
     topic_partitions
     |> Enum.uniq()
     |> Enum.map(fn tp ->
       caller = self()
-      {_pid, ref} = spawn_monitor(fn -> send(caller, {@stop_result, self(), stop_partition(supervisor, tp)}) end)
+      {_pid, ref} = spawn_monitor(fn -> send(caller, {@stop_result, self(), stop_partition(supervisor, tp, opts)}) end)
       {tp, ref}
     end)
     |> Map.new(fn {tp, ref} -> {tp, await_stop(ref)} end)
   end
 
-  def stop_partitions(_supervisor, _topic_partitions), do: {:error, :invalid_topic_partition}
+  def stop_partitions(_supervisor, _topic_partitions, _opts), do: {:error, :invalid_topic_partition}
 
   # The result is sent before the stop process exits, so it is in the mailbox
   # by the time its :DOWN arrives (signals between two processes are ordered).
@@ -350,10 +377,10 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
   # a kill once :shutdown has passed), run in the caller. The consumer traps
   # exits, so an exit signal from the caller would reach it as a plain
   # message; a system terminate is what a GenServer handles as a stop.
-  defp stop_child(pid, :brutal_kill), do: kill_child(pid)
+  defp stop_child(pid, :brutal_kill, _reason), do: kill_child(pid)
 
-  defp stop_child(pid, shutdown) do
-    GenServer.stop(pid, :shutdown, shutdown)
+  defp stop_child(pid, shutdown, reason) do
+    GenServer.stop(pid, reason, shutdown)
   catch
     # Past :shutdown (still alive: kill it), gone already, exited some other
     # way while stopping, or any other failure of the stop request itself:

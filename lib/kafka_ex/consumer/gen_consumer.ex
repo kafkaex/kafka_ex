@@ -1047,19 +1047,25 @@ defmodule KafkaEx.Consumer.GenConsumer do
     end
   end
 
-  def terminate(_reason, %State{} = state) do
+  def terminate(reason, %State{} = state) do
     # Best-effort single-shot commit before shutdown. We deliberately do NOT
     # go through commit_with_retry: the retry ladder is 100+200+400ms of
     # Process.sleep which can exhaust the worker_shutdown budget when the
     # broker is unreachable. A brutal-kill mid-retry is worse than no commit
     # — the next consumer start will re-read from the last committed offset
     # and re-process at most one batch (at-least-once).
-    try do
-      terminal_commit(state)
-    rescue
-      _ -> :ok
-    catch
-      :exit, _ -> :ok
+    #
+    # A lost partition (GenConsumer.Supervisor.stop_partition/3 `lost: true`,
+    # Java onPartitionsLost) is not committed: the member was fenced, so its
+    # epoch is no longer valid for the partition.
+    if reason != {:shutdown, :partition_lost} do
+      try do
+        terminal_commit(state)
+      rescue
+        _ -> :ok
+      catch
+        :exit, _ -> :ok
+      end
     end
 
     if state.owns_client and Process.alive?(state.client) do

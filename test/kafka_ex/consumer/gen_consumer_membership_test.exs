@@ -217,6 +217,32 @@ defmodule KafkaEx.Consumer.GenConsumerMembershipTest do
       assert Process.alive?(pid)
     end
 
+    test "a {:shutdown, :partition_lost} stop skips the final commit" do
+      {client, pid} =
+        start_consumer(
+          [member_id: "m", member_epoch: 3, commit_threshold: 1_000_000, commit_interval: 600_000],
+          %{},
+          AsyncConsumer
+        )
+
+      wait_until(fn -> length(fetch_calls(client)) >= 3 end)
+      assert :ok = GenServer.stop(pid, {:shutdown, :partition_lost})
+      assert commit_opts(client) == []
+    end
+
+    test "a :shutdown stop still makes the final commit" do
+      {client, pid} =
+        start_consumer(
+          [member_id: "m", member_epoch: 3, commit_threshold: 1_000_000, commit_interval: 600_000],
+          %{},
+          AsyncConsumer
+        )
+
+      wait_until(fn -> length(fetch_calls(client)) >= 3 end)
+      assert :ok = GenServer.stop(pid, :shutdown)
+      assert [_] = commit_opts(client)
+    end
+
     test "update_membership/3 also updates the commit made on shutdown" do
       # :async_commit with a threshold/interval that never trigger, so the
       # only commit is the one terminate/2 makes.
