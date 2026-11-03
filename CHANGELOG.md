@@ -41,6 +41,40 @@
   `PartitionAssignment.topic_id`.
 * **`mix test.kafka4`**: integration tests against an `apache/kafka:4.4.0` KRaft broker started
   with Testcontainers (Docker required; tag `:kafka4`, excluded by default).
+* **Per-partition consumer control** (groundwork for the KIP-848 consumer group runtime; the
+  classic `ConsumerGroup` path is unchanged). `KafkaEx.Consumer.GenConsumer.Supervisor` gains
+  `start_partition/3`, `stop_partition/2`, `stop_partitions/2`, `lookup_partition/2` and
+  `partition_pids/1`. Consumers started with `start_partition/3` are `restart: :temporary`: the
+  supervisor never restarts them, so the caller (the group manager) is their single owner. It
+  passes the current membership on start, monitors the pid and decides what an exit means.
+  `start_partition/3` returns `{:error, {:already_started, pid}}` for a running partition and
+  `{:error, :static_partition}` for one given to `start_link/1`, and starts a custom
+  `gen_consumer_module` with exactly the merged options (`which_children/1` reports that module).
+  Children inherit the supervisor's `:shutdown`; without one they get `:max_wait_time` + 10 s, so a
+  consumer stopped mid fetch long-poll still commits in `terminate/2`. `stop_partition/2` stops a
+  consumer through `terminate/2` (which commits), kills it if it is still running after its
+  `:shutdown` (no restart), and returns `{:error, :not_found}` for an unknown partition.
+  `stop_partitions/2` stops several concurrently, so revoking N idle partitions takes about one
+  long-poll, not N. The lookups never block on the supervisor. Classic `start_link/1` children
+  keep `restart: :transient`, but are now keyed by `{topic, partition}` instead of all sharing
+  one id.
+* **`GenConsumer` `:member_epoch` option and `update_membership/3`.** With a member epoch (KIP-848)
+  the consumer loads offsets with OffsetFetch v9+ `member_id`/`member_epoch` and commits with
+  OffsetCommit v9+ `generation_id_or_member_epoch`; without one, requests are exactly as before.
+  `update_membership/3` (`:member_id`, `:member_epoch`) is a call that returns `:ok` once the
+  update is applied, or `{:error, :invalid_membership | :noproc | :timeout}`, and never exits the
+  caller. It queues behind an in-flight fetch long-poll; the default timeout is 60 s. A commit
+  already in flight keeps the epoch it was built with. A `:stale_member_epoch` commit error is
+  non-fatal when an epoch is set (offsets stay acked, the next commit uses the current epoch) and
+  stays fatal for classic groups. A `:stale_member_epoch` on the startup OffsetFetch makes the
+  consumer wait, with backoff, for `update_membership/3`. `:unknown_member_id` /
+  `:fenced_member_epoch` there no longer raise: the consumer casts
+  `{:rejoin_required, reason, member_epoch}` to `:group_manager_pid` and exits with
+  `{:shutdown, {:rejoin_required, reason}}`. An invalid `:member_epoch` (or one without
+  `:member_id`) makes `start_link/5` return `{:error, :invalid_membership}`.
+  `commit_offset` with `:member_epoch` on OffsetCommit below v9 (e.g. an `:api_versions` pin)
+  returns `{:error, :invalid_api_version}` instead of silently dropping the epoch; a GenConsumer
+  treats that as a terminal commit error.
 
 ### Changed
 

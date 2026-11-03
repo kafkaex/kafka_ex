@@ -25,6 +25,31 @@ defmodule KafkaEx.Kafka4.ConsumerGroupProtocolTest do
 
   @partitions 4
 
+  defmodule ForwardingConsumer do
+    @moduledoc false
+    # Sends {:consumed, pid, [offset]} to the test process.
+    use KafkaEx.Consumer.GenConsumer
+
+    def init(_topic, _partition, %{test_pid: test_pid}), do: {:ok, test_pid}
+
+    def handle_message_set(records, test_pid) do
+      send(test_pid, {:consumed, self(), Enum.map(records, & &1.offset)})
+      {:sync_commit, test_pid}
+    end
+  end
+
+  defmodule FakeManager do
+    @moduledoc false
+    use GenServer
+    def start_link(test_pid), do: GenServer.start_link(__MODULE__, test_pid)
+    def init(test_pid), do: {:ok, test_pid}
+
+    def handle_cast(msg, test_pid) do
+      send(test_pid, {:manager_received, msg})
+      {:noreply, test_pid}
+    end
+  end
+
   setup_all do
     {:ok, ctx} = Kafka4TestHelpers.start_kafka()
     on_exit(fn -> Kafka4TestHelpers.stop_kafka(ctx) end)
@@ -250,5 +275,154 @@ defmodule KafkaEx.Kafka4.ConsumerGroupProtocolTest do
     assert described.subscribed_topic_regex == Regex.escape(topic)
 
     {:ok, _} = API.consumer_group_heartbeat(client, group, member_id: member.id, member_epoch: -1)
+  end
+
+  describe "per-partition GenConsumers with a KIP-848 member epoch" do
+    alias KafkaEx.Consumer.GenConsumer
+    alias KafkaEx.Consumer.GenConsumer.Supervisor, as: GenConsumerSupervisor
+
+    defp start_consumer_sup(client, group) do
+      {:ok, sup} =
+        GenConsumerSupervisor.start_link(%{
+          gen_consumer_module: GenConsumer,
+          consumer_module: ForwardingConsumer,
+          group_name: group,
+          assignments: [],
+          opts: [
+            client: client,
+            extra_consumer_args: %{test_pid: self()},
+            auto_offset_reset: :earliest,
+            fetch_options: [max_wait_time: 500]
+          ]
+        })
+
+      Process.unlink(sup)
+      on_exit(fn -> KafkaEx.TestSupport.ProcessHelpers.stop_safely(sup) end)
+      sup
+    end
+
+    defp await_consumed(pid, offset) do
+      receive do
+        {:consumed, ^pid, offsets} -> if offset in offsets, do: :ok, else: await_consumed(pid, offset)
+      after
+        15_000 -> flunk("#{inspect(pid)} did not consume offset #{offset}")
+      end
+    end
+
+    defp committed(client, group, topic, member) do
+      {:ok, [%{partition_offsets: [%{offset: offset}]}]} =
+        API.fetch_committed_offset(client, group, topic, [%{partition_num: 0}],
+          member_id: member.id,
+          member_epoch: member.epoch
+        )
+
+      offset
+    end
+
+    test "consumes and commits with its epoch, follows an epoch bump, and is not restarted when killed",
+         %{client: client} do
+      topic = create_topic!(client, 1)
+      group = "kafka4_cg_" <> generate_random_string()
+      {:ok, _} = API.produce(client, topic, 0, [%{value: "a"}])
+
+      a = join!(client, group, topic)
+      [a] = converge(client, group, [a], fn [a] -> partitions_of(a) == [0] end)
+      start_epoch = a.epoch
+
+      sup = start_consumer_sup(client, group)
+      {:ok, pid} = GenConsumerSupervisor.start_partition(sup, {topic, 0}, member_id: a.id, member_epoch: start_epoch)
+      await_consumed(pid, 0)
+      wait_until(fn -> committed(client, group, topic, a) == 1 end)
+
+      # A second member joins: a keeps p0 and moves to the new epoch.
+      b = join!(client, group, topic)
+      [a, _b] = converge(client, group, [a, b], fn [a, b] -> a.epoch > start_epoch and a.epoch == b.epoch end)
+      assert partitions_of(a) == [0]
+      assert :ok = GenConsumer.update_membership(pid, member_epoch: a.epoch)
+
+      {:ok, _} = API.produce(client, topic, 0, [%{value: "b"}])
+      await_consumed(pid, 1)
+      wait_until(fn -> committed(client, group, topic, a) == 2 end)
+      assert %{member_epoch: epoch} = :sys.get_state(pid)
+      assert epoch == a.epoch
+
+      # :temporary: nothing restarts it behind the owner.
+      ref = Process.monitor(pid)
+      Process.exit(pid, :kill)
+      assert_receive {:DOWN, ^ref, :process, ^pid, :killed}
+      Process.sleep(200)
+      assert GenConsumerSupervisor.lookup_partition(sup, {topic, 0}) == :error
+      assert DynamicSupervisor.which_children(sup) == []
+
+      # The owner restarts it with the current epoch; it resumes after the
+      # committed offset.
+      {:ok, new_pid} = GenConsumerSupervisor.start_partition(sup, {topic, 0}, member_id: a.id, member_epoch: a.epoch)
+      {:ok, _} = API.produce(client, topic, 0, [%{value: "c"}])
+      await_consumed(new_pid, 2)
+      refute_received {:consumed, ^new_pid, [0 | _]}
+    end
+
+    test "a startup OffsetFetch from an unknown member tells the owner and stops cleanly", %{client: client} do
+      topic = create_topic!(client, 1)
+      group = "kafka4_cg_" <> generate_random_string()
+      a = join!(client, group, topic)
+      [a] = converge(client, group, [a], fn [a] -> partitions_of(a) == [0] end)
+      {:ok, manager} = FakeManager.start_link(self())
+
+      sup = start_consumer_sup(client, group)
+
+      {:ok, pid} =
+        GenConsumerSupervisor.start_partition(sup, {topic, 0},
+          member_id: "not-a-member",
+          member_epoch: a.epoch,
+          group_manager_pid: manager
+        )
+
+      ref = Process.monitor(pid)
+      assert_receive {:DOWN, ^ref, :process, ^pid, {:shutdown, {:rejoin_required, :unknown_member_id}}}, 15_000
+      assert_receive {:manager_received, {:rejoin_required, :unknown_member_id, epoch}}
+      assert epoch == a.epoch
+      assert Process.alive?(sup)
+    end
+
+    test "a startup OffsetFetch with a stale epoch waits for update_membership/3", %{client: client} do
+      topic = create_topic!(client, 1)
+      group = "kafka4_cg_" <> generate_random_string()
+      {:ok, _} = API.produce(client, topic, 0, [%{value: "a"}])
+      a = join!(client, group, topic)
+      [a] = converge(client, group, [a], fn [a] -> partitions_of(a) == [0] end)
+
+      sup = start_consumer_sup(client, group)
+
+      {:ok, pid} =
+        GenConsumerSupervisor.start_partition(sup, {topic, 0}, member_id: a.id, member_epoch: a.epoch + 1)
+
+      refute_receive {:consumed, ^pid, _}, 1_000
+      assert Process.alive?(pid)
+      assert :ok = GenConsumer.update_membership(pid, member_epoch: a.epoch)
+      await_consumed(pid, 0)
+    end
+
+    test "OffsetCommit pinned below v9 stops the consumer as terminal", %{client: client} do
+      Process.flag(:trap_exit, true)
+      topic = create_topic!(client, 1)
+      group = "kafka4_cg_" <> generate_random_string()
+      {:ok, _} = API.produce(client, topic, 0, [%{value: "a"}])
+      a = join!(client, group, topic)
+      [a] = converge(client, group, [a], fn [a] -> partitions_of(a) == [0] end)
+
+      {:ok, pid} =
+        GenConsumer.start_link(ForwardingConsumer, group, topic, 0,
+          client: client,
+          member_id: a.id,
+          member_epoch: a.epoch,
+          auto_offset_reset: :earliest,
+          api_versions: %{offset_commit: 8},
+          extra_consumer_args: %{test_pid: self()}
+        )
+
+      assert_receive {:EXIT, ^pid, {:shutdown, {:terminal_error, :invalid_api_version}}}, 15_000
+      assert Process.alive?(client)
+    end
   end
 end
