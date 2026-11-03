@@ -307,10 +307,14 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
           :ok | {:error, :not_found | :invalid_topic_partition}
   def stop_partition(supervisor, topic_partition, opts \\ [])
 
-  def stop_partition(supervisor, {topic, partition} = topic_partition, opts) when is_topic_partition(topic, partition) do
+  def stop_partition(supervisor, {topic, partition} = topic_partition, opts)
+      when is_topic_partition(topic, partition) do
     case indexed_entry(supervisor, topic_partition) do
-      {pid, shutdown} -> if Process.alive?(pid), do: stop_child(pid, shutdown, stop_reason(opts)), else: {:error, :not_found}
-      nil -> {:error, :not_found}
+      {pid, shutdown} ->
+        if Process.alive?(pid), do: stop_child(pid, shutdown, stop_reason(opts)), else: {:error, :not_found}
+
+      nil ->
+        {:error, :not_found}
     end
   end
 

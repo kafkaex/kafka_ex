@@ -1,0 +1,1438 @@
+defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
+  @moduledoc """
+  Membership in a consumer group that uses the KIP-848 "consumer" group
+  protocol (`group.protocol=consumer`, Kafka 4.0+): the member state machine
+  that drives `KafkaEx.API.consumer_group_heartbeat/3` and one
+  `KafkaEx.Consumer.GenConsumer` per assigned partition.
+
+  This is the KIP-848 counterpart of `KafkaEx.Consumer.ConsumerGroup.Manager`
+  (classic JoinGroup/SyncGroup). There is no group-wide stop-the-world
+  rebalance: the broker computes each member's target assignment, and a member
+  only stops the consumers of partitions it loses and only starts the
+  consumers of partitions it gains. Partitions it keeps are consumed without
+  interruption.
+
+  It is modelled on the Java 4.4 client's `ConsumerMembershipManager`,
+  `AbstractMembershipManager` and `ConsumerHeartbeatRequestManager`; where it
+  differs, the code says so.
+
+  ## Lifecycle
+
+    1. **Join.** The member id is generated once, at start, with
+       `KafkaEx.API.generate_member_id/0` (KIP-1082) and kept for the
+       member's lifetime, including every retry of the join and every rejoin
+       after fencing (Java: `AbstractMembershipManager.memberId` is final). The
+       join is a heartbeat with `member_epoch: 0`, the subscription, the
+       rebalance timeout and `topic_partitions: []`.
+    2. **Heartbeat** every `heartbeat_interval_ms` *as dictated by the broker
+       in each response* (there is no client setting). Only fields that
+       changed are sent (KIP-848 "nil = unchanged"); the join and the first
+       heartbeat after an error send them all. `topic_partitions` is the set
+       of partitions the member reports as owned, sent when it changed.
+    3. **Reconcile** a new target assignment (one at a time; a newer target
+       that arrives meanwhile is picked up when the current step ends):
+       * revoke first: stop the consumers of `owned - target` concurrently
+         (each commits in `terminate/2`), then report the reduced owned set
+         with an immediate heartbeat;
+       * assign: start a consumer for each partition of `target - owned`
+         with the current member epoch. Topics arrive as topic ids; names come
+         from the response, else from a Metadata request by id. A partition
+         whose topic name is unknown is never assigned: it stays pending and
+         the lookup is retried with a backoff;
+       * partitions in both sets keep running and are moved to the new
+         member epoch with `KafkaEx.Consumer.GenConsumer.update_membership/3`;
+       * then acknowledge: report the new owned set with an immediate
+         heartbeat.
+    4. **Leave** on shutdown: stop the consumers (they commit), then a
+       heartbeat with `member_epoch: -1` (or `-2` for a static member, which
+       keeps its assignment until its session expires).
+
+  ## Errors
+
+    * `:fenced_member_epoch` / `:unknown_member_id` on a heartbeat: the member
+      is fenced (Java `transitionToFenced`). Its partitions are *lost*: their
+      consumers are stopped **without** a final commit (the epoch is no longer
+      valid, the broker would reject it; Java `onPartitionsLost`), then the
+      member rejoins with epoch 0 and the **same** member id.
+    * Transient errors (connection, coordinator moved or loading; see
+      `KafkaEx.Support.Retry.consumer_group_heartbeat_retryable?/1`) are
+      retried by the client first (re-discovering the coordinator); if they
+      persist the heartbeat is retried with an exponential backoff
+      (`:heartbeat_retry_backoff_ms` up to `:heartbeat_retry_max_backoff_ms`,
+      Java `retry.backoff.ms` / `retry.backoff.max.ms`).
+    * Anything else (`:group_authorization_failed`, `:unsupported_assignor`,
+      `:unreleased_instance_id`, `:fenced_instance_id`,
+      `:group_max_size_reached`, `:invalid_regular_expression`,
+      `:unsupported_version`, `:api_not_supported_by_broker`, ...) is terminal,
+      as in Java (`handleFatalFailure` / `transitionToFatal`): the member stops
+      with `{:shutdown, {:terminal, reason}}`, its consumers are stopped
+      without a commit, no leave is sent, and
+      `[:kafka_ex, :consumer, :member_terminated]` is emitted. Under the
+      `one_for_all` / `max_restarts: 0` consumer group supervisor this stops
+      the whole group.
+
+  ## Consumer ownership
+
+  Consumers are started with
+  `KafkaEx.Consumer.GenConsumer.Supervisor.start_partition/3` (they are
+  `restart: :temporary`) and monitored. This process is their only owner:
+  every start, stop, membership update and restart is decided here, so an
+  update or a revoke can never race a background restart. When a consumer
+  exits on its own:
+
+    * abnormally (a crash): it is started again with the *current* member
+      epoch after a per-partition backoff (`:partition_restart_backoff_ms`
+      doubling up to `:partition_restart_max_backoff_ms`, reset after a
+      minute of uptime). The partition stays owned meanwhile.
+    * `{:shutdown, {:rejoin_required, reason}}` (its commit or offset fetch
+      was rejected as `:unknown_member_id` / `:fenced_member_epoch`): an
+      immediate heartbeat asks the broker for the member's real state (Java's
+      `CommitRequestManager` does not fence the member on a commit error
+      either: the heartbeat does), and the consumer is restarted with a
+      backoff. If the member really was fenced, the heartbeat fences it.
+    * `{:shutdown, {:terminal_error, reason}}` (e.g. a terminal commit
+      error): the member stops with `{:shutdown, {:terminal, reason}}`.
+      Unlike the classic group (where the partition silently stops being
+      consumed), the failure is loud.
+    * `:normal`, `:shutdown` or another `{:shutdown, _}` (the consumer chose
+      to stop, or the consumer supervisor is shutting down): it is not
+      restarted, as under the classic `restart: :transient`. The partition
+      stays owned until the broker revokes it.
+
+  ## Options
+
+  Besides the `KafkaEx.Consumer.GenConsumer` options (passed on to every
+  consumer) and the connection options (`:uris`, `:use_ssl`, `:ssl_options`,
+  `:auth`):
+
+    * `:server_assignor` - server-side assignor (`"uniform"` or `"range"` on
+      Apache Kafka); default `nil`, the broker's default
+    * `:rebalance_timeout_ms` - how long the broker waits for this member to
+      revoke partitions before fencing it; default `300_000` (Java
+      `max.poll.interval.ms`)
+    * `:subscribed_topic_regex` - subscribe by regular expression (RE2/J,
+      ConsumerGroupHeartbeat v1+) instead of, or besides, the topic names;
+      default `nil`
+    * `:group_instance_id` - static membership instance id; default `nil`
+    * `:rack_id` - **optional rack awareness**, off by default. With `nil`
+      (the default) no rack id is ever sent and the member behaves exactly
+      like one without rack awareness. When set, it is passed through on the
+      join so the broker's assignor can prefer partitions with a replica in
+      the same rack; there is no client-side rack logic.
+    * `:heartbeat_retry_backoff_ms` (100) / `:heartbeat_retry_max_backoff_ms`
+      (1_000) - backoff between heartbeats that failed with a transient error
+    * `:partition_restart_backoff_ms` (500) /
+      `:partition_restart_max_backoff_ms` (30_000) - backoff before a crashed
+      consumer is started again
+    * `:topic_resolution_backoff_ms` (500) /
+      `:topic_resolution_max_backoff_ms` (10_000) - backoff between Metadata
+      lookups of topic ids whose name is unknown
+    * `:leave_timeout_ms` - how long the leave heartbeat may take on
+      shutdown; default `5_000`
+    * `:membership_update_timeout_ms` - timeout of each
+      `GenConsumer.update_membership/3` (it queues behind a fetch
+      long-poll); default `60_000`. A consumer that misses it is retried after
+      `:partition_restart_backoff_ms` and does not hold back the
+      acknowledgement of the assignment.
+
+  ## Supervision
+
+  It is started like `KafkaEx.Consumer.ConsumerGroup.Manager`, as a child of
+  a `KafkaEx.Consumer.ConsumerGroup` supervisor (`:supervisor_pid`), under
+  which it adds its `KafkaEx.Consumer.GenConsumer.Supervisor` (child id
+  `:consumer`). `child_spec/1` sets a `:shutdown` that covers stopping the
+  consumers (their own `:shutdown`) plus the leave.
+
+  ## Telemetry
+
+    * `[:kafka_ex, :consumer, :member_joined]` - the member (re)joined;
+      measurements `%{count: 1}`, metadata `%{group_id, member_id,
+      member_epoch}`
+    * `[:kafka_ex, :consumer, :reconcile]` - an assignment change was
+      reconciled and acknowledged; measurements `%{revoked:, assigned:,
+      duration:}` (native time units), metadata `%{group_id, member_id,
+      member_epoch}`
+    * `[:kafka_ex, :consumer, :member_fenced]` - the member was fenced and
+      its partitions lost; measurements `%{count: 1, lost: n}`, metadata
+      `%{group_id, member_id, member_epoch, reason}`
+    * `[:kafka_ex, :consumer, :member_left]` - the leave heartbeat was sent
+      on shutdown; measurements `%{count: 1}`, metadata `%{group_id,
+      member_id, member_epoch, result}` (`member_epoch` is `-1` or `-2`,
+      `result` is `:ok` or `{:error, reason}`)
+    * `[:kafka_ex, :consumer, :member_terminated]` - see `KafkaEx.Telemetry`
+    * every heartbeat is also a `[:kafka_ex, :consumer,
+      :consumer_group_heartbeat, ...]` span, emitted by the client
+  """
+  use GenServer
+
+  alias KafkaEx.API, as: KafkaExAPI
+  alias KafkaEx.Client
+  alias KafkaEx.Cluster.ClusterMetadata
+  alias KafkaEx.Config
+  alias KafkaEx.Consumer.ConsumerGroup
+  alias KafkaEx.Consumer.ConsumerGroup.Manager
+  alias KafkaEx.Consumer.GenConsumer
+  alias KafkaEx.Consumer.GenConsumer.Supervisor, as: GenConsumerSupervisor
+  alias KafkaEx.Messages.ConsumerGroupHeartbeat
+  alias KafkaEx.Messages.TopicPartitions
+  alias KafkaEx.Support.Retry
+  alias KafkaEx.Telemetry
+
+  require Logger
+
+  defmodule State do
+    @moduledoc false
+
+    # owned: %{{topic_id, partition} => entry}, where entry is
+    #   %{topic: name, pid: pid | nil, ref: reference | nil,
+    #     epoch: the member epoch the consumer holds (nil when not running),
+    #     status: :running | :restarting | :stopped,
+    #     crashes: consecutive abnormal exits, started_at: monotonic ms,
+    #     token: restart timer token | nil, push_after: monotonic ms | nil}
+    defstruct [
+      :supervisor_pid,
+      :client,
+      :consumer_supervisor,
+      :gen_consumer_module,
+      :consumer_module,
+      :consumer_opts,
+      :group_name,
+      :topics,
+      :topic_regex,
+      :server_assignor,
+      :rebalance_timeout_ms,
+      :instance_id,
+      :rack_id,
+      :member_id,
+      :config,
+      :heartbeat_timer,
+      :heartbeat_interval_ms,
+      :target,
+      # The revoke / assign / lose in flight (one at a time).
+      :op,
+      # The epoch push in flight. Separate from :op: it queues behind fetch
+      # long-polls and must not hold back a revoke.
+      :push,
+      :reconcile,
+      :resolve_timer,
+      # The heartbeat in flight: %{pid, ref, partitions} (one at a time, like
+      # Java's HeartbeatRequestState). Sent from a monitored process so the
+      # manager keeps handling consumer exits, revokes and shutdown while a
+      # heartbeat waits on a slow or unreachable coordinator.
+      :inflight,
+      # A heartbeat was requested while one was in flight: send it right
+      # after the reply.
+      heartbeat_pending: false,
+      owns_client: false,
+      # A heartbeat failed with a terminal error (Java transitionToFatal):
+      # the partitions are lost and no leave is sent.
+      fatal: false,
+      member_epoch: 0,
+      # :joining (sending epoch 0) | :stable | :fenced (releasing its
+      # partitions before it rejoins)
+      phase: :joining,
+      heartbeat_failures: 0,
+      # KIP-848: every field is sent on the join and after an error.
+      send_full: true,
+      # The topic_partitions last sent (nil: unknown, send them).
+      sent_partitions: nil,
+      # The owned set reported to the broker.
+      reported: MapSet.new(),
+      topic_names: %{},
+      owned: %{},
+      resolve_failures: 0
+    ]
+  end
+
+  @default_rebalance_timeout_ms 300_000
+  @default_config %{
+    heartbeat_retry_backoff_ms: 100,
+    heartbeat_retry_max_backoff_ms: 1_000,
+    partition_restart_backoff_ms: 500,
+    partition_restart_max_backoff_ms: 30_000,
+    topic_resolution_backoff_ms: 500,
+    topic_resolution_max_backoff_ms: 10_000,
+    leave_timeout_ms: 5_000,
+    membership_update_timeout_ms: 60_000
+  }
+  @manager_keys [
+    :supervisor_pid,
+    :client,
+    :server_assignor,
+    :rebalance_timeout_ms,
+    :subscribed_topic_regex,
+    :group_instance_id,
+    :rack_id,
+    :heartbeat_interval,
+    :session_timeout,
+    :session_timeout_padding,
+    :rebalance_timeout,
+    :partition_assignment_callback
+    | Map.keys(@default_config)
+  ]
+  # A consumer that ran this long before crashing starts a fresh backoff.
+  @crash_reset_ms 60_000
+  @max_int32 2_147_483_647
+  @start_concurrency 16
+  # The fetch :max_wait_time default and the margin GenConsumer.Supervisor
+  # gives a consumer to stop (see GenConsumer.Supervisor.start_partition/3).
+  @default_max_wait_time 10_000
+  @consumer_stop_margin 10_000
+  @terminate_margin 5_000
+
+  @type topic_id :: <<_::128>>
+  @type key :: {topic_id, non_neg_integer}
+
+  # ---------------------------------------------------------------------------
+  # Client API
+
+  @doc false
+  @spec start_link({{module, module}, binary, [binary], Keyword.t()}) :: GenServer.on_start()
+  def start_link({{gen_consumer_module, consumer_module}, group_name, topics, opts}) do
+    gen_server_opts = Keyword.get(opts, :gen_server_opts, [])
+    args = {{gen_consumer_module, consumer_module}, group_name, topics, Keyword.delete(opts, :gen_server_opts)}
+    GenServer.start_link(__MODULE__, args, gen_server_opts)
+  end
+
+  @doc """
+  Child spec with a `:shutdown` long enough for `terminate/2` to stop the
+  consumers (their own `:shutdown`, by default the fetch `:max_wait_time` +
+  10 s) and send the leave heartbeat (`:leave_timeout_ms`).
+  """
+  @spec child_spec({{module, module}, binary, [binary], Keyword.t()}) :: Supervisor.child_spec()
+  def child_spec({_modules, _group_name, _topics, opts} = arg) do
+    %{id: __MODULE__, start: {__MODULE__, :start_link, [arg]}, shutdown: shutdown_budget(opts)}
+  end
+
+  @doc false
+  @spec shutdown_budget(Keyword.t()) :: pos_integer()
+  def shutdown_budget(opts) do
+    leave_timeout = config_value(opts, :leave_timeout_ms)
+    # An assign in flight (bounded by consumer init), then the consumer
+    # stops, then the leave.
+    2 * (consumer_shutdown(opts) + @terminate_margin) + leave_timeout + @terminate_margin
+  end
+
+  defp consumer_shutdown(opts) do
+    case Keyword.get(opts, :shutdown) do
+      shutdown when is_integer(shutdown) and shutdown >= 0 ->
+        shutdown
+
+      _ ->
+        fetch_options = Keyword.get(opts, :fetch_options, [])
+
+        max_wait =
+          case Keyword.keyword?(fetch_options) && Keyword.get(fetch_options, :max_wait_time) do
+            wait when is_integer(wait) and wait >= 0 -> wait
+            _ -> @default_max_wait_time
+          end
+
+        max_wait + @consumer_stop_margin
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Init
+
+  @impl true
+  def init({{gen_consumer_module, consumer_module}, group_name, topics, opts}) do
+    case validate(group_name, topics, opts) do
+      {:ok, validated} -> do_init({gen_consumer_module, consumer_module}, group_name, topics, opts, validated)
+      {:error, reason} -> {:stop, reason}
+    end
+  end
+
+  defp validate(group_name, topics, opts) do
+    regex = Keyword.get(opts, :subscribed_topic_regex)
+
+    with :ok <- check(is_binary(group_name) and group_name != "", :invalid_consumer_group),
+         :ok <- check(is_list(topics) and Enum.all?(topics, &(is_binary(&1) and &1 != "")), :invalid_topics),
+         :ok <- check(is_nil(regex) or (is_binary(regex) and regex != ""), :invalid_subscribed_topic_regex),
+         :ok <- check(topics != [] or is_binary(regex), :empty_subscription),
+         :ok <- check(optional_string?(Keyword.get(opts, :server_assignor)), :invalid_server_assignor),
+         :ok <- check(optional_string?(Keyword.get(opts, :rack_id)), :invalid_rack_id),
+         :ok <- check(valid_rebalance_timeout?(opts), :invalid_rebalance_timeout_ms),
+         :ok <- validate_config(opts),
+         {:ok, instance_id} <- resolve_instance_id(opts) do
+      {:ok, %{instance_id: instance_id, regex: regex}}
+    end
+  end
+
+  defp check(true, _error), do: :ok
+  defp check(false, error), do: {:error, {:invalid_option, error}}
+
+  defp optional_string?(nil), do: true
+  defp optional_string?(value), do: is_binary(value) and value != ""
+
+  defp valid_rebalance_timeout?(opts) do
+    case Keyword.get(opts, :rebalance_timeout_ms, @default_rebalance_timeout_ms) do
+      ms when is_integer(ms) and ms > 0 and ms <= @max_int32 -> true
+      _ -> false
+    end
+  end
+
+  defp validate_config(opts) do
+    Enum.reduce_while(Map.keys(@default_config), :ok, fn key, :ok ->
+      case raw_config_value(opts, key) do
+        value when is_integer(value) and value >= 0 -> {:cont, :ok}
+        _ -> {:halt, {:error, {:invalid_option, :"invalid_#{key}"}}}
+      end
+    end)
+  end
+
+  defp resolve_instance_id(opts) do
+    {:ok, opts |> Keyword.get(:group_instance_id) |> Config.resolve_group_instance_id()}
+  rescue
+    ArgumentError -> {:error, {:invalid_option, :invalid_group_instance_id}}
+  end
+
+  defp config_value(opts, key) do
+    case Keyword.get(opts, key, Map.fetch!(@default_config, key)) do
+      value when is_integer(value) and value >= 0 -> value
+      _ -> Map.fetch!(@default_config, key)
+    end
+  end
+
+  # Validation, unlike config_value/2, sees the raw option.
+  defp raw_config_value(opts, key), do: Keyword.get(opts, key, Map.fetch!(@default_config, key))
+
+  @dialyzer {:nowarn_function, do_init: 5}
+  defp do_init({gen_consumer_module, consumer_module}, group_name, topics, opts, validated) do
+    case start_client(opts, group_name, topics) do
+      {:ok, client, owns_client} ->
+        Process.flag(:trap_exit, true)
+
+        state = %State{
+          supervisor_pid: Keyword.fetch!(opts, :supervisor_pid),
+          client: client,
+          owns_client: owns_client,
+          gen_consumer_module: gen_consumer_module,
+          consumer_module: consumer_module,
+          consumer_opts: Keyword.drop(opts, @manager_keys),
+          group_name: group_name,
+          topics: topics,
+          topic_regex: validated.regex,
+          server_assignor: Keyword.get(opts, :server_assignor),
+          rebalance_timeout_ms: Keyword.get(opts, :rebalance_timeout_ms, @default_rebalance_timeout_ms),
+          instance_id: validated.instance_id,
+          rack_id: Keyword.get(opts, :rack_id),
+          # KIP-1082: generated once and kept for the member's lifetime,
+          # including join retries and rejoins (Java: memberId is final).
+          member_id: KafkaExAPI.generate_member_id(),
+          config: Map.new(@default_config, fn {key, default} -> {key, Keyword.get(opts, key, default)} end)
+        }
+
+        {:ok, state, {:continue, :start}}
+
+      {:error, reason} ->
+        {:stop, reason}
+    end
+  end
+
+  # A pre-supplied `:client` (tests) is used as is and never stopped.
+  defp start_client(opts, group_name, topics) do
+    case Keyword.get(opts, :client) do
+      nil ->
+        client_opts = Manager.group_client_opts(opts, group_name, topics)
+
+        case Client.start_link(client_opts, :no_name) do
+          {:ok, client} -> {:ok, client, true}
+          {:error, reason} -> {:error, reason}
+        end
+
+      client when is_pid(client) ->
+        {:ok, client, false}
+    end
+  end
+
+  @impl true
+  def handle_continue(:start, %State{} = state) do
+    # Not in init/1: the consumer group supervisor is still starting us and
+    # would not answer start_child until init/1 returns.
+    {:ok, consumer_supervisor} =
+      ConsumerGroup.start_consumer(
+        state.supervisor_pid,
+        {state.gen_consumer_module, state.consumer_module},
+        state.group_name,
+        [],
+        state.consumer_opts
+      )
+
+    {:noreply, schedule_heartbeat(%State{state | consumer_supervisor: consumer_supervisor}, 0)}
+  end
+
+  # ---------------------------------------------------------------------------
+  # Introspection (the calls KafkaEx.Consumer.ConsumerGroup makes)
+
+  @impl true
+  def handle_call(:member_id, _from, state), do: {:reply, state.member_id, state}
+  def handle_call(:member_epoch, _from, state), do: {:reply, state.member_epoch, state}
+  # There is no generation in the consumer protocol; the member epoch is the
+  # closest equivalent (it moves whenever the member's assignment does).
+  def handle_call(:generation_id, _from, state), do: {:reply, state.member_epoch, state}
+  def handle_call(:leader_id, _from, state), do: {:reply, nil, state}
+  def handle_call(:am_leader, _from, state), do: {:reply, false, state}
+  def handle_call(:group_name, _from, state), do: {:reply, state.group_name, state}
+  def handle_call(:consumer_supervisor_pid, _from, state), do: {:reply, state.consumer_supervisor, state}
+
+  def handle_call(:assignments, _from, state) do
+    assignments = state.owned |> Enum.map(fn {{_id, partition}, entry} -> {entry.topic, partition} end) |> Enum.sort()
+    {:reply, assignments, state}
+  end
+
+  # A consumer's commit or offset fetch was rejected as an unknown or fenced
+  # member. Only the heartbeat knows the member's real state (the consumer
+  # may hold an old epoch), so ask now; it fences the member if it was.
+  @impl true
+  def handle_cast({:rejoin_required, reason, epoch}, %State{} = state) do
+    Logger.info(
+      "Consumer of group #{state.group_name} reported #{inspect(reason)} (member_epoch=#{inspect(epoch)}); " <>
+        "checking the membership with a heartbeat"
+    )
+
+    {:noreply, request_heartbeat(state)}
+  end
+
+  def handle_cast(_msg, state), do: {:noreply, state}
+
+  # A heartbeat as soon as possible: now, or right after the one in flight.
+  # Nothing while fenced (the rejoin follows the release of the partitions).
+  defp request_heartbeat(%State{phase: :fenced} = state), do: state
+  defp request_heartbeat(%State{inflight: nil} = state), do: schedule_heartbeat(state, 0)
+  defp request_heartbeat(%State{} = state), do: %State{state | heartbeat_pending: true}
+
+  # ---------------------------------------------------------------------------
+  # Messages
+
+  @impl true
+  def handle_info({:heartbeat, ref}, %State{heartbeat_timer: {ref, _timer}} = state) do
+    heartbeat(%State{state | heartbeat_timer: nil})
+  end
+
+  def handle_info({:heartbeat, _stale}, state), do: {:noreply, state}
+
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %State{inflight: %{ref: ref} = inflight} = state) do
+    result =
+      case reason do
+        {:heartbeat_result, result} -> result
+        other -> {:error, {:heartbeat_process_died, other}}
+      end
+
+    heartbeat_done(%State{state | inflight: nil}, inflight, result)
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %State{op: %{ref: ref}} = state) do
+    op_done(%State{state | op: nil}, state.op, reason)
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %State{push: %{ref: ref}} = state) do
+    push_done(%State{state | push: nil}, state.push, reason)
+  end
+
+  def handle_info({:DOWN, ref, :process, pid, reason}, %State{} = state) do
+    case Enum.find(state.owned, fn {_key, entry} -> entry.ref == ref end) do
+      {key, entry} -> consumer_down(state, key, %{entry | pid: pid}, reason)
+      nil -> {:noreply, state}
+    end
+  end
+
+  def handle_info({:restart_partition, key, token}, %State{} = state) do
+    case state.owned do
+      # Only while the partition is still in the target: one that is being
+      # revoked is left to the revoke (it drops entries that are not running).
+      %{^key => %{status: :restarting, token: ^token} = entry} when state.phase == :stable ->
+        if in_target?(state, key),
+          do: {:noreply, start_one(state, key, %{entry | token: nil})},
+          else: {:noreply, state}
+
+      _ ->
+        {:noreply, state}
+    end
+  end
+
+  def handle_info({:resolve_topics, ref}, %State{resolve_timer: {ref, _}} = state) do
+    step(%State{state | resolve_timer: nil})
+  end
+
+  def handle_info({:resolve_topics, _stale}, state), do: {:noreply, state}
+
+  def handle_info(:step, state), do: step(state)
+
+  def handle_info({:EXIT, pid, reason}, %State{client: pid} = state) do
+    Logger.error("Consumer protocol manager's Kafka client died: #{inspect(reason)}")
+    {:stop, {:shutdown, {:client_died, reason}}, state}
+  end
+
+  def handle_info({:EXIT, _pid, _reason}, state), do: {:noreply, state}
+
+  def handle_info(_msg, state), do: {:noreply, state}
+
+  # ---------------------------------------------------------------------------
+  # Heartbeat
+
+  defp heartbeat(%State{phase: :fenced} = state), do: {:noreply, state}
+
+  defp heartbeat(%State{inflight: inflight} = state) when inflight != nil,
+    do: {:noreply, %State{state | heartbeat_pending: true}}
+
+  defp heartbeat(%State{} = state) do
+    {opts, partitions_sent} = heartbeat_opts(state)
+    client = state.client
+    group = state.group_name
+    phase = state.phase
+
+    {pid, ref} = spawn_monitor(fn -> exit({:heartbeat_result, send_heartbeat(client, group, opts)}) end)
+
+    inflight = %{pid: pid, ref: ref, partitions: partitions_sent, phase: phase, epoch: opts[:member_epoch]}
+    {:noreply, %State{state | inflight: inflight, heartbeat_pending: false}}
+  end
+
+  # A reply to a heartbeat sent before the member was fenced (or, for a
+  # join, while it was not joining) describes a membership that no longer
+  # exists: drop it. Java ignores responses received in FENCED/UNSUBSCRIBED.
+  defp heartbeat_done(%State{} = state, %{phase: sent_phase}, _result) when sent_phase != state.phase do
+    {:noreply, maybe_pending(state)}
+  end
+
+  defp heartbeat_done(%State{} = state, inflight, result) do
+    case result do
+      {:ok, %ConsumerGroupHeartbeat{} = response} -> heartbeat_ok(state, inflight.partitions, response)
+      {:error, {:heartbeat_process_died, _} = reason} -> heartbeat_error(state, reason)
+      {:error, reason} -> heartbeat_error(state, reason)
+    end
+  end
+
+  defp maybe_pending(%State{heartbeat_pending: true, phase: phase} = state) when phase != :fenced,
+    do: schedule_heartbeat(%State{state | heartbeat_pending: false}, 0)
+
+  defp maybe_pending(state), do: state
+
+  # The client call can exit (call budget exceeded, client gone): a transient
+  # failure here, not a crash of the member.
+  defp send_heartbeat(client, group, opts) do
+    KafkaExAPI.consumer_group_heartbeat(client, group, opts)
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    :exit, _ -> {:error, :not_connected}
+  end
+
+  @doc false
+  # The ConsumerGroupHeartbeat options for the next heartbeat, and the
+  # topic_partitions set they carry (nil when left out = unchanged). Mirrors
+  # Java ConsumerHeartbeatRequestManager.HeartbeatState.buildRequestData:
+  # instance id always; subscription, rebalance timeout, assignor and rack id
+  # only on a full request (join, after an error); owned partitions when they
+  # changed.
+  @spec heartbeat_opts(State.t()) :: {Keyword.t(), MapSet.t() | nil}
+  def heartbeat_opts(%State{} = state) do
+    joining = state.phase == :joining
+    full = joining or state.send_full
+    partitions = if joining, do: MapSet.new(), else: state.reported
+    send_partitions = full or partitions != state.sent_partitions
+
+    opts =
+      [member_id: state.member_id, member_epoch: if(joining, do: 0, else: state.member_epoch)]
+      |> put_present(:instance_id, state.instance_id)
+      |> put_when(full, :rebalance_timeout_ms, state.rebalance_timeout_ms)
+      |> put_when(full and (state.topics != [] or is_nil(state.topic_regex)), :subscribed_topic_names, state.topics)
+      |> put_when(full, :subscribed_topic_regex, state.topic_regex)
+      |> put_when(full, :server_assignor, state.server_assignor)
+      |> put_when(full, :rack_id, state.rack_id)
+      |> put_when(send_partitions, :topic_partitions, encode_partitions(partitions))
+
+    {opts, if(send_partitions, do: partitions)}
+  end
+
+  defp put_present(opts, _key, nil), do: opts
+  defp put_present(opts, key, value), do: opts ++ [{key, value}]
+
+  defp put_when(opts, true, key, value), do: put_present(opts, key, value)
+  defp put_when(opts, false, _key, _value), do: opts
+
+  defp encode_partitions(keys) do
+    keys
+    |> Enum.group_by(fn {topic_id, _} -> topic_id end, fn {_, partition} -> partition end)
+    |> Enum.sort()
+    |> Enum.map(fn {topic_id, partitions} -> %{topic_id: topic_id, partitions: Enum.sort(partitions)} end)
+  end
+
+  defp heartbeat_ok(%State{} = state, partitions_sent, %ConsumerGroupHeartbeat{} = result) do
+    joined = state.phase == :joining
+
+    state = %State{
+      state
+      | phase: :stable,
+        member_id: result.member_id || state.member_id,
+        member_epoch: result.member_epoch,
+        heartbeat_interval_ms: result.heartbeat_interval_ms,
+        heartbeat_failures: 0,
+        send_full: false,
+        sent_partitions: partitions_sent || state.sent_partitions
+    }
+
+    if joined do
+      Logger.info("Joined consumer group #{state.group_name} as #{state.member_id} (epoch #{state.member_epoch})")
+      Telemetry.emit_member_joined(state.group_name, state.member_id, state.member_epoch)
+    end
+
+    interval = max(result.heartbeat_interval_ms, 0)
+    # A heartbeat requested while this one was in flight goes out now.
+    delay = if state.heartbeat_pending, do: 0, else: interval
+
+    %State{state | heartbeat_pending: false}
+    |> new_target(result.assignment)
+    |> schedule_heartbeat(delay)
+    |> step()
+  end
+
+  defp new_target(state, nil), do: state
+
+  defp new_target(%State{} = state, assignment) do
+    names =
+      for %TopicPartitions{topic_id: <<_::128>> = id, topic_name: name} <- assignment,
+          is_binary(name),
+          into: %{},
+          do: {id, name}
+
+    target =
+      for %TopicPartitions{topic_id: <<_::128>> = id, partitions: partitions} <- assignment,
+          partition <- partitions,
+          into: MapSet.new(),
+          do: {id, partition}
+
+    %State{state | target: target, topic_names: Map.merge(state.topic_names, names), resolve_failures: 0}
+  end
+
+  defp heartbeat_error(%State{} = state, reason) do
+    cond do
+      Retry.consumer_group_heartbeat_rejoin_error?(reason) ->
+        fence(state, reason)
+
+      Retry.consumer_group_heartbeat_retryable?(reason) or match?({:heartbeat_process_died, _}, reason) ->
+        failures = state.heartbeat_failures + 1
+
+        delay =
+          Retry.backoff_delay(
+            failures - 1,
+            state.config.heartbeat_retry_backoff_ms,
+            state.config.heartbeat_retry_max_backoff_ms
+          )
+
+        Logger.warning(
+          "ConsumerGroupHeartbeat for #{state.group_name} failed with #{inspect(reason)}; " <>
+            "retrying in #{delay} ms (attempt #{failures})"
+        )
+
+        {:noreply, %State{state | heartbeat_pending: false} |> reset_sent(failures) |> schedule_heartbeat(delay)}
+
+      true ->
+        Logger.error("ConsumerGroupHeartbeat for #{state.group_name} failed with terminal #{inspect(reason)}")
+        {:stop, {:shutdown, {:terminal, reason}}, %State{state | fatal: true}}
+    end
+  end
+
+  # Java resets the sent fields on every failed heartbeat, so the next one is
+  # a full request.
+  defp reset_sent(state, failures),
+    do: %State{state | heartbeat_failures: failures, send_full: true, sent_partitions: nil}
+
+  # Keeps the earlier of the pending and the new deadline: a heartbeat asked
+  # for "now" (a report, a consumer's rejoin_required) must not be pushed
+  # back by the interval timer a reply that was already queued sets.
+  # Fencing and shutdown cancel the timer explicitly.
+  defp schedule_heartbeat(%State{} = state, delay) do
+    case state.heartbeat_timer do
+      {_ref, timer} ->
+        case Process.read_timer(timer) do
+          # Fired, its message not handled yet (handling it clears the
+          # timer): a heartbeat is about to go out.
+          false ->
+            state
+
+          remaining when remaining <= delay ->
+            state
+
+          _ ->
+            Process.cancel_timer(timer)
+            start_heartbeat_timer(state, delay)
+        end
+
+      nil ->
+        start_heartbeat_timer(state, delay)
+    end
+  end
+
+  defp start_heartbeat_timer(state, delay) do
+    ref = make_ref()
+    %State{state | heartbeat_timer: {ref, Process.send_after(self(), {:heartbeat, ref}, delay)}}
+  end
+
+  defp cancel_heartbeat(%State{heartbeat_timer: {_ref, timer}} = state) do
+    Process.cancel_timer(timer)
+    %State{state | heartbeat_timer: nil}
+  end
+
+  defp cancel_heartbeat(state), do: state
+
+  # ---------------------------------------------------------------------------
+  # Fencing (Java AbstractMembershipManager.transitionToFenced)
+
+  defp fence(%State{phase: :joining} = state, reason) do
+    # Not a member yet: nothing to release. Retry the join (same member id).
+    failures = state.heartbeat_failures + 1
+
+    delay =
+      Retry.backoff_delay(
+        failures - 1,
+        state.config.heartbeat_retry_backoff_ms,
+        state.config.heartbeat_retry_max_backoff_ms
+      )
+
+    Logger.warning("Join of #{state.group_name} rejected with #{inspect(reason)}; rejoining in #{delay} ms")
+    {:noreply, state |> reset_sent(failures) |> schedule_heartbeat(delay)}
+  end
+
+  defp fence(%State{} = state, reason) do
+    lost = map_size(state.owned)
+
+    Logger.warning(
+      "Member #{state.member_id} of #{state.group_name} fenced (#{inspect(reason)}, epoch #{state.member_epoch}); " <>
+        "releasing #{lost} partition(s) without committing and rejoining"
+    )
+
+    Telemetry.emit_member_fenced(state.group_name, state.member_id, state.member_epoch, reason, lost)
+    state = state |> cancel_heartbeat() |> cancel_resolve()
+    state = %State{state | phase: :fenced, reconcile: nil}
+    step(abort_push(state))
+  end
+
+  # An epoch push is useless once fenced, and may be stuck behind a fetch
+  # long-poll: drop it.
+  defp abort_push(%State{push: %{pid: pid, ref: ref}} = state) do
+    Process.demonitor(ref, [:flush])
+    Process.exit(pid, :kill)
+    %State{state | push: nil}
+  end
+
+  defp abort_push(state), do: state
+
+  defp abort_inflight(%State{inflight: %{pid: pid, ref: ref}} = state) do
+    Process.demonitor(ref, [:flush])
+    Process.exit(pid, :kill)
+    %State{state | inflight: nil}
+  end
+
+  defp abort_inflight(state), do: state
+
+  defp rejoin(%State{} = state) do
+    state = %State{
+      state
+      | phase: :joining,
+        member_epoch: 0,
+        owned: %{},
+        reported: MapSet.new(),
+        target: nil,
+        sent_partitions: nil,
+        send_full: true,
+        reconcile: nil
+    }
+
+    {:noreply, schedule_heartbeat(state, 0)}
+  end
+
+  # ---------------------------------------------------------------------------
+  # Reconciliation
+
+  # One step at a time: an async operation (revoke, assign, lose) ends with
+  # step/1 again, which then works on the newest target. Order: revoke, then
+  # assign, then push the current epoch to the partitions kept, then
+  # acknowledge. A push in flight does not hold back a revoke or an assign
+  # (it can wait behind a fetch long-poll); the acknowledgement waits for it.
+  defp step(%State{op: op} = state) when op != nil, do: {:noreply, state}
+
+  defp step(%State{phase: :fenced} = state) do
+    case running_keys(state) do
+      [] -> rejoin(state)
+      keys -> {:noreply, start_stop_op(state, :lose, keys)}
+    end
+  end
+
+  defp step(%State{phase: :stable, target: %MapSet{}} = state) do
+    state = resolve_topic_names(state)
+    revoked = state.owned |> Map.keys() |> Enum.reject(&MapSet.member?(state.target, &1))
+
+    if revoked == [] do
+      assign_or_push(state, pending_assign(state))
+    else
+      revoke(begin_reconcile(state), revoked)
+    end
+  end
+
+  defp step(state), do: {:noreply, state}
+
+  defp assign_or_push(%State{push: push} = state, []) when push != nil, do: {:noreply, state}
+
+  defp assign_or_push(state, []) do
+    case stale_epoch_keys(state) do
+      [] -> {:noreply, complete_reconciliation(state)}
+      stale -> {:noreply, start_push(state, stale)}
+    end
+  end
+
+  # Revoke first: partitions are only assigned once the broker has the
+  # reduced owned set (no report pending, none in flight carrying a larger
+  # set). heartbeat_done/3 runs step/1 again.
+  defp assign_or_push(state, added) do
+    if revocation_reported?(state),
+      do: {:noreply, start_assign(begin_reconcile(state), added)},
+      else: {:noreply, state}
+  end
+
+  defp revocation_reported?(%State{reported: reported, sent_partitions: sent, inflight: inflight}) do
+    in_flight_ok = is_nil(inflight) or is_nil(inflight.partitions) or MapSet.subset?(inflight.partitions, reported)
+    in_flight_ok and (is_nil(sent) or MapSet.subset?(sent, reported))
+  end
+
+  defp begin_reconcile(%State{reconcile: nil} = state),
+    do: %State{state | reconcile: %{started_at: System.monotonic_time(), revoked: 0, assigned: 0}}
+
+  defp begin_reconcile(state), do: state
+
+  defp running_keys(state), do: for({key, %{status: :running}} <- state.owned, do: key)
+
+  defp in_target?(%State{target: %MapSet{} = target}, key), do: MapSet.member?(target, key)
+  defp in_target?(_state, _key), do: false
+
+  # Target partitions without a consumer whose topic name is known.
+  defp pending_assign(state) do
+    state.target
+    |> Enum.reject(&Map.has_key?(state.owned, &1))
+    |> Enum.filter(fn {topic_id, _} -> Map.has_key?(state.topic_names, topic_id) end)
+    |> Enum.sort()
+  end
+
+  defp stale_epoch_keys(state) do
+    now = now_ms()
+
+    for {key, %{status: :running, epoch: epoch} = entry} <- state.owned,
+        epoch != state.member_epoch,
+        is_nil(entry.push_after) or entry.push_after <= now,
+        do: key
+  end
+
+  defp complete_reconciliation(%State{} = state) do
+    owned = state.owned |> Map.keys() |> MapSet.new()
+
+    if state.reconcile do
+      %{started_at: started_at, revoked: revoked, assigned: assigned} = state.reconcile
+      duration = System.monotonic_time() - started_at
+
+      Logger.info(
+        "Member #{state.member_id} of #{state.group_name} reconciled epoch #{state.member_epoch}: " <>
+          "#{revoked} revoked, #{assigned} assigned, #{MapSet.size(owned)} owned"
+      )
+
+      Telemetry.emit_reconcile(state.group_name, state.member_id, state.member_epoch, %{
+        revoked: revoked,
+        assigned: assigned,
+        duration: duration
+      })
+    end
+
+    state = %State{state | reconcile: nil, reported: owned}
+    state = maybe_schedule_resolve(state)
+    if owned != state.sent_partitions, do: schedule_heartbeat(state, 0), else: state
+  end
+
+  # -- topic names ------------------------------------------------------------
+
+  defp unresolved_topic_ids(state) do
+    state.target
+    |> Enum.map(fn {topic_id, _} -> topic_id end)
+    |> Enum.uniq()
+    |> Enum.reject(&Map.has_key?(state.topic_names, &1))
+  end
+
+  # Looks the unknown topic ids up by id (Metadata v12+), at most once per
+  # backoff period (resolve_timer set = waiting).
+  defp resolve_topic_names(%State{resolve_timer: nil} = state) do
+    case unresolved_topic_ids(state) do
+      [] -> state
+      ids -> %State{state | topic_names: Map.merge(state.topic_names, lookup_topic_names(state.client, ids))}
+    end
+  end
+
+  defp resolve_topic_names(state), do: state
+
+  defp lookup_topic_names(client, ids) do
+    case KafkaExAPI.metadata(client, topic_ids: ids) do
+      {:ok, %ClusterMetadata{} = metadata} ->
+        names_from(metadata, ids)
+
+      # Any unknown id fails the whole request: ask again for the others.
+      {:error, %{error: :unknown_topic_id, metadata: %{topic_ids: unknown}}} when is_list(unknown) ->
+        case ids -- unknown do
+          [] -> %{}
+          known when known != ids -> lookup_topic_names(client, known)
+          _ -> %{}
+        end
+
+      {:error, reason} ->
+        Logger.warning("Metadata lookup of #{length(ids)} topic id(s) failed: #{inspect(reason)}")
+        %{}
+    end
+  catch
+    :exit, reason ->
+      Logger.warning("Metadata lookup of #{length(ids)} topic id(s) failed: #{inspect(reason)}")
+      %{}
+  end
+
+  defp names_from(metadata, ids) do
+    for id <- ids, {:ok, name} <- [ClusterMetadata.topic_name_by_id(metadata, id)], into: %{}, do: {id, name}
+  end
+
+  defp maybe_schedule_resolve(%State{resolve_timer: nil} = state) do
+    case unresolved_topic_ids(state) do
+      [] ->
+        %State{state | resolve_failures: 0}
+
+      ids ->
+        failures = state.resolve_failures + 1
+
+        delay =
+          Retry.backoff_delay(
+            failures - 1,
+            state.config.topic_resolution_backoff_ms,
+            state.config.topic_resolution_max_backoff_ms
+          )
+
+        Logger.warning(
+          "#{length(ids)} assigned topic id(s) of #{state.group_name} have no known name yet; " <>
+            "not consuming them, retrying the lookup in #{delay} ms"
+        )
+
+        ref = make_ref()
+        timer = Process.send_after(self(), {:resolve_topics, ref}, delay)
+        %State{state | resolve_timer: {ref, timer}, resolve_failures: failures}
+    end
+  end
+
+  defp maybe_schedule_resolve(state), do: state
+
+  defp cancel_resolve(%State{resolve_timer: {_ref, timer}} = state) do
+    Process.cancel_timer(timer)
+    %State{state | resolve_timer: nil}
+  end
+
+  defp cancel_resolve(state), do: state
+
+  # -- revoke -----------------------------------------------------------------
+
+  defp revoke(%State{} = state, keys) do
+    {running, inactive} = Enum.split_with(keys, &(state.owned[&1].status == :running))
+    # Not running (restarting or stopped): nothing to stop. A pending restart
+    # timer for one of them finds no entry (or a newer token) and is ignored.
+    state = %State{state | owned: Map.drop(state.owned, inactive), reconcile: count(state.reconcile, :revoked, keys)}
+
+    case running do
+      [] -> revoked(state, inactive)
+      _ -> {:noreply, start_stop_op(state, :revoke, running)}
+    end
+  end
+
+  defp count(reconcile, key, keys), do: Map.update!(reconcile, key, &(&1 + length(keys)))
+
+  # Stops consumers concurrently (GenConsumer.Supervisor.stop_partitions/3) in
+  # a monitored process; its exit reason carries the result.
+  defp start_stop_op(%State{} = state, kind, keys) do
+    for key <- keys, %{ref: ref} when is_reference(ref) <- [state.owned[key]], do: Process.demonitor(ref, [:flush])
+    topic_partitions = Enum.map(keys, &topic_partition(state, &1))
+    supervisor = state.consumer_supervisor
+    stop_opts = if kind == :lose, do: [lost: true], else: []
+
+    {pid, ref} =
+      spawn_monitor(fn ->
+        exit({:op_result, GenConsumerSupervisor.stop_partitions(supervisor, topic_partitions, stop_opts)})
+      end)
+
+    %State{state | op: %{kind: kind, pid: pid, ref: ref, keys: keys}}
+  end
+
+  defp revoked(%State{} = state, keys) do
+    state = %State{state | reported: MapSet.difference(state.reported, MapSet.new(keys))}
+    # Report the reduced owned set now (revoke first, then assign), so the
+    # broker can hand the partitions to their new owners without waiting for
+    # this member's assignments. Java reports once, after revoking and
+    # assigning; reporting early is allowed (KIP-848) and shortens the time
+    # the revoked partitions are not consumed by anyone.
+    state =
+      if state.phase == :stable and state.reported != state.sent_partitions,
+        do: schedule_heartbeat(state, 0),
+        else: state
+
+    step(state)
+  end
+
+  # -- assign -----------------------------------------------------------------
+
+  defp start_assign(%State{} = state, keys) do
+    starts = Enum.map(keys, &{&1, topic_partition_for(state, &1)})
+    supervisor = state.consumer_supervisor
+    membership = start_membership(state)
+
+    {pid, ref} =
+      spawn_monitor(fn ->
+        results =
+          starts
+          |> Task.async_stream(
+            fn {key, tp} -> {key, GenConsumerSupervisor.start_partition(supervisor, tp, membership)} end,
+            max_concurrency: @start_concurrency,
+            timeout: :infinity
+          )
+          |> Map.new(fn {:ok, result} -> result end)
+
+        exit({:op_result, results})
+      end)
+
+    names = Map.new(starts, fn {key, {topic, _}} -> {key, topic} end)
+    %State{state | op: %{kind: :assign, pid: pid, ref: ref, keys: keys, epoch: state.member_epoch, names: names}}
+  end
+
+  defp start_membership(state),
+    do: [member_id: state.member_id, member_epoch: state.member_epoch, group_manager_pid: self()]
+
+  defp start_one(%State{} = state, key, entry) do
+    tp = {entry.topic, elem(key, 1)}
+
+    case GenConsumerSupervisor.start_partition(state.consumer_supervisor, tp, start_membership(state)) do
+      {:ok, pid} ->
+        %State{state | owned: Map.put(state.owned, key, running_entry(entry, pid, state.member_epoch))}
+
+      {:error, {:already_started, pid}} ->
+        %State{state | owned: Map.put(state.owned, key, running_entry(entry, pid, state.member_epoch))}
+
+      {:error, reason} ->
+        Logger.warning("Starting the consumer of #{inspect(tp)} failed: #{inspect(reason)}")
+        schedule_restart(state, key, entry)
+    end
+  end
+
+  defp running_entry(entry, pid, epoch) do
+    %{
+      entry
+      | pid: pid,
+        ref: Process.monitor(pid),
+        epoch: epoch,
+        status: :running,
+        started_at: now_ms(),
+        push_after: nil
+    }
+  end
+
+  defp new_entry(topic),
+    do: %{
+      topic: topic,
+      pid: nil,
+      ref: nil,
+      epoch: nil,
+      status: :restarting,
+      crashes: 0,
+      started_at: now_ms(),
+      token: nil,
+      push_after: nil
+    }
+
+  # -- epoch push -------------------------------------------------------------
+
+  defp start_push(%State{} = state, keys) do
+    epoch = state.member_epoch
+    timeout = state.config.membership_update_timeout_ms
+    targets = Enum.map(keys, &{&1, state.owned[&1].pid})
+
+    {pid, ref} =
+      spawn_monitor(fn ->
+        results =
+          targets
+          |> Task.async_stream(
+            fn {key, pid} -> {key, GenConsumer.update_membership(pid, [member_epoch: epoch], timeout)} end,
+            max_concurrency: max(length(targets), 1),
+            timeout: :infinity
+          )
+          |> Map.new(fn {:ok, result} -> result end)
+
+        exit({:op_result, results})
+      end)
+
+    %State{state | push: %{pid: pid, ref: ref, epoch: epoch, targets: Map.new(targets)}}
+  end
+
+  # -- operation results ------------------------------------------------------
+
+  defp op_done(state, %{kind: kind} = op, {:op_result, result}) when kind in [:revoke, :lose] do
+    log_stop_failures(state, result)
+
+    case kind do
+      :revoke ->
+        revoked(%State{state | owned: Map.drop(state.owned, op.keys)}, op.keys)
+
+      :lose ->
+        step(%State{state | owned: Map.drop(state.owned, op.keys)})
+    end
+  end
+
+  defp op_done(state, %{kind: :assign} = op, {:op_result, results}) do
+    state =
+      Enum.reduce(results, state, fn {key, result}, acc ->
+        entry = new_entry(op.names[key])
+
+        case result do
+          {:ok, pid} ->
+            %State{acc | owned: Map.put(acc.owned, key, running_entry(entry, pid, op.epoch))}
+
+          {:error, {:already_started, pid}} ->
+            %State{acc | owned: Map.put(acc.owned, key, running_entry(entry, pid, op.epoch))}
+
+          {:error, reason} ->
+            Logger.warning(
+              "Starting the consumer of #{inspect({entry.topic, elem(key, 1)})} failed: #{inspect(reason)}"
+            )
+
+            schedule_restart(acc, key, entry)
+        end
+      end)
+
+    step(%State{state | reconcile: state.reconcile && count(state.reconcile, :assigned, op.keys)})
+  end
+
+  # The operation process itself died (it should not). Re-read what is
+  # running from the consumer supervisor and carry on from there.
+  defp op_done(state, op, reason) do
+    Logger.error("Consumer #{op.kind} operation for #{state.group_name} died: #{inspect(reason)}")
+    step(readopt(state, op))
+  end
+
+  # A consumer that was restarted or stopped meanwhile (another pid) keeps
+  # its own epoch. One whose update failed (e.g. :timeout behind a long
+  # fetch) is retried after a backoff; it does not hold back the
+  # acknowledgement.
+  defp push_done(state, push, {:op_result, results}) do
+    retry_at = now_ms() + state.config.partition_restart_backoff_ms
+
+    owned =
+      Enum.reduce(results, state.owned, fn {key, result}, owned ->
+        case owned do
+          %{^key => %{pid: pid} = entry} when pid == :erlang.map_get(key, push.targets) ->
+            Map.put(owned, key, pushed(entry, result, push.epoch, retry_at))
+
+          _ ->
+            owned
+        end
+      end)
+
+    if Enum.any?(results, fn {_key, result} -> result != :ok end),
+      do: Process.send_after(self(), :step, state.config.partition_restart_backoff_ms)
+
+    step(%State{state | owned: owned})
+  end
+
+  defp push_done(state, push, reason) do
+    Logger.error("Member epoch update for #{state.group_name} died: #{inspect(reason)}")
+    retry_at = now_ms() + state.config.partition_restart_backoff_ms
+
+    owned =
+      Enum.reduce(push.targets, state.owned, fn {key, _pid}, owned ->
+        case owned do
+          %{^key => entry} -> Map.put(owned, key, %{entry | push_after: retry_at})
+          _ -> owned
+        end
+      end)
+
+    Process.send_after(self(), :step, state.config.partition_restart_backoff_ms)
+    step(%State{state | owned: owned})
+  end
+
+  defp pushed(entry, :ok, epoch, _retry_at), do: %{entry | epoch: epoch, push_after: nil}
+  defp pushed(entry, _error, _epoch, retry_at), do: %{entry | push_after: retry_at}
+
+  defp readopt(state, op) do
+    Enum.reduce(op.keys, state, fn key, acc ->
+      entry = acc.owned[key] || new_entry(op[:names][key])
+      tp = {entry.topic, elem(key, 1)}
+
+      case GenConsumerSupervisor.lookup_partition(acc.consumer_supervisor, tp) do
+        {:ok, pid} -> %State{acc | owned: Map.put(acc.owned, key, running_entry(entry, pid, entry.epoch || op[:epoch]))}
+        :error -> %State{acc | owned: Map.delete(acc.owned, key)}
+      end
+    end)
+  end
+
+  defp log_stop_failures(state, result) when is_map(result) do
+    for {tp, {:error, reason}} <- result, reason != :not_found do
+      Logger.warning("Stopping the consumer of #{inspect(tp)} in #{state.group_name} failed: #{inspect(reason)}")
+    end
+
+    :ok
+  end
+
+  defp log_stop_failures(_state, _result), do: :ok
+
+  # ---------------------------------------------------------------------------
+  # Consumer exits
+
+  defp consumer_down(state, key, entry, reason) do
+    tp = {entry.topic, elem(key, 1)}
+
+    case reason do
+      {:shutdown, {:terminal_error, error}} ->
+        Logger.error("Consumer of #{inspect(tp)} stopped with terminal error #{inspect(error)}; stopping the member")
+        {:stop, {:shutdown, {:terminal, error}}, %State{state | owned: Map.delete(state.owned, key)}}
+
+      {:shutdown, {:rejoin_required, error}} ->
+        Logger.warning("Consumer of #{inspect(tp)} was rejected as #{inspect(error)}; restarting it after a heartbeat")
+        {:noreply, state |> schedule_restart(key, entry) |> request_heartbeat()}
+
+      clean when clean in [:normal, :shutdown] or (is_tuple(clean) and elem(clean, 0) == :shutdown) ->
+        Logger.warning("Consumer of #{inspect(tp)} stopped (#{inspect(clean)}); not restarting it")
+        stopped = %{entry | pid: nil, ref: nil, epoch: nil, status: :stopped}
+        {:noreply, %State{state | owned: Map.put(state.owned, key, stopped)}}
+
+      crash ->
+        Logger.error("Consumer of #{inspect(tp)} exited abnormally: #{inspect(crash)}")
+        {:noreply, schedule_restart(state, key, entry)}
+    end
+  end
+
+  defp schedule_restart(%State{} = state, key, entry) do
+    crashes = if now_ms() - entry.started_at >= @crash_reset_ms, do: 1, else: entry.crashes + 1
+
+    delay =
+      Retry.backoff_delay(
+        crashes - 1,
+        state.config.partition_restart_backoff_ms,
+        state.config.partition_restart_max_backoff_ms
+      )
+
+    token = make_ref()
+    Process.send_after(self(), {:restart_partition, key, token}, delay)
+
+    entry = %{entry | pid: nil, ref: nil, epoch: nil, status: :restarting, crashes: crashes, token: token}
+    %State{state | owned: Map.put(state.owned, key, entry)}
+  end
+
+  # ---------------------------------------------------------------------------
+  # Shutdown
+
+  @impl true
+  def terminate(reason, %State{} = state) do
+    terminal = terminal_reason(reason)
+    if terminal, do: Telemetry.emit_member_terminated(state.group_name, state.member_id, terminal)
+
+    # Lost (stopped without a commit) when the member's epoch can no longer
+    # be valid: it was fenced, or a heartbeat failed with a terminal error
+    # (Java transitionToFatal invokes onPartitionsLost and sends no leave).
+    # A consumer's own terminal error (e.g. a commit error) leaves the
+    # member's epoch valid: the other consumers commit and the member leaves.
+    lost = state.fatal or state.phase == :fenced
+    state = state |> cancel_heartbeat() |> abort_push() |> abort_inflight()
+    timeout = consumer_shutdown(state.consumer_opts) + @terminate_margin
+
+    # An assign in flight finishes first (consumer inits are short) so its
+    # consumers are stopped too. The consumers a revoke or lose in flight is
+    # stopping are left to it and stopped concurrently with the rest, so the
+    # whole stop takes about one consumer :shutdown.
+    state = if match?(%{kind: :assign}, state.op), do: await_op(state, timeout), else: state
+    stop_all_consumers(state, lost, in_flight_stops(state))
+    await_op(state, timeout)
+
+    if not state.fatal and state.phase == :stable, do: leave(state)
+    stop_client(state)
+    :ok
+  end
+
+  defp in_flight_stops(%State{op: %{kind: kind, keys: keys}} = state) when kind in [:revoke, :lose],
+    do: Enum.map(keys, &topic_partition(state, &1))
+
+  defp in_flight_stops(_state), do: []
+
+  defp terminal_reason({:shutdown, {:terminal, reason}}), do: reason
+  defp terminal_reason({:shutdown, {:client_died, reason}}), do: {:client_died, reason}
+  defp terminal_reason({exception, stacktrace}) when is_list(stacktrace), do: {:crashed, crash_module(exception)}
+  defp terminal_reason(_), do: nil
+
+  defp crash_module(%{__struct__: module}), do: module
+  defp crash_module(_), do: :unknown
+
+  # A revoke or assign in flight: let it finish, so its consumers are dead
+  # (revoke) or known (assign) before the rest are stopped.
+  defp await_op(%State{op: nil} = state, _timeout), do: state
+
+  defp await_op(%State{op: %{ref: ref, pid: pid}} = state, timeout) do
+    receive do
+      {:DOWN, ^ref, :process, _, _} -> %State{state | op: nil}
+    after
+      timeout ->
+        Process.demonitor(ref, [:flush])
+        Process.exit(pid, :kill)
+        %State{state | op: nil}
+    end
+  end
+
+  # Every consumer this member started is under its consumer supervisor.
+  defp stop_all_consumers(%State{consumer_supervisor: nil}, _lost, _skip), do: :ok
+
+  defp stop_all_consumers(%State{consumer_supervisor: supervisor}, lost, skip) do
+    case (supervisor |> GenConsumerSupervisor.partition_pids() |> Map.keys()) -- skip do
+      [] -> :ok
+      tps -> GenConsumerSupervisor.stop_partitions(supervisor, tps, lost: lost)
+    end
+
+    :ok
+  end
+
+  defp leave(%State{client: client} = state) do
+    if Process.alive?(client), do: do_leave(state)
+  end
+
+  defp do_leave(%State{} = state) do
+    # -2: a static member leaves temporarily and keeps its assignment until
+    # its session expires; -1: a dynamic member leaves for good.
+    epoch = if state.instance_id, do: -2, else: -1
+    opts = put_present([member_id: state.member_id, member_epoch: epoch], :instance_id, state.instance_id)
+    timeout = state.config.leave_timeout_ms
+    task = Task.async(fn -> send_heartbeat(state.client, state.group_name, opts) end)
+
+    result =
+      case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
+        {:ok, {:ok, _}} -> :ok
+        {:ok, {:error, reason}} -> {:error, reason}
+        {:exit, reason} -> {:error, {:exit, reason}}
+        nil -> {:error, :timeout}
+      end
+
+    Logger.info("Member #{state.member_id} left #{state.group_name} (epoch #{epoch}): #{inspect(result)}")
+    Telemetry.emit_member_left(state.group_name, state.member_id, epoch, result)
+  end
+
+  defp stop_client(%State{owns_client: true, client: client}) do
+    if Process.alive?(client) do
+      Process.unlink(client)
+
+      try do
+        GenServer.stop(client, :normal, 5_000)
+      catch
+        :exit, _ -> :ok
+      end
+    end
+  end
+
+  defp stop_client(_state), do: :ok
+
+  # ---------------------------------------------------------------------------
+  # Helpers
+
+  defp topic_partition(state, {_topic_id, partition} = key), do: {state.owned[key].topic, partition}
+
+  defp topic_partition_for(state, {topic_id, partition}), do: {Map.fetch!(state.topic_names, topic_id), partition}
+
+  defp now_ms, do: System.monotonic_time(:millisecond)
+end

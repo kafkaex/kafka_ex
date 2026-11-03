@@ -93,6 +93,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
 
   use Supervisor
 
+  alias KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager
   alias KafkaEx.Consumer.ConsumerGroup.PartitionAssignment
   alias KafkaEx.Consumer.GenConsumer
 
@@ -332,6 +333,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
     |> Supervisor.which_children()
     |> Enum.find_value(fn
       {KafkaEx.Consumer.ConsumerGroup.Manager, pid, _, _} -> pid
+      {ConsumerProtocolManager, pid, _, _} -> pid
       _ -> nil
     end)
     |> case do
@@ -386,18 +388,24 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
 
   @doc false
   def init({{gen_consumer_module, consumer_module}, group_name, topics, opts}) do
+    # Internal (not yet a public option): run the KIP-848 member state
+    # machine instead of the classic Manager.
+    {protocol_manager?, opts} = Keyword.pop(opts, :__consumer_protocol_manager__, false)
     opts = Keyword.put(opts, :supervisor_pid, self())
+    args = {{gen_consumer_module, consumer_module}, group_name, topics, opts}
 
-    children = [
-      # Give the Manager more than the default 5s shutdown so terminate/2 can send
-      # LeaveGroup on a graceful stop (LeaveGroup's per-attempt recv is up to
-      # :request_timeout). A stop that lands mid-rebalance can still exceed this —
-      # the full fix (non-blocking join) is a tracked follow-up; see UPGRADING.
-      Supervisor.child_spec(
-        {KafkaEx.Consumer.ConsumerGroup.Manager, {{gen_consumer_module, consumer_module}, group_name, topics, opts}},
-        shutdown: 25_000
-      )
-    ]
+    children =
+      if protocol_manager? do
+        [ConsumerProtocolManager.child_spec(args)]
+      else
+        [
+          # Give the Manager more than the default 5s shutdown so terminate/2 can send
+          # LeaveGroup on a graceful stop (LeaveGroup's per-attempt recv is up to
+          # :request_timeout). A stop that lands mid-rebalance can still exceed this —
+          # the full fix (non-blocking join) is a tracked follow-up; see UPGRADING.
+          Supervisor.child_spec({KafkaEx.Consumer.ConsumerGroup.Manager, args}, shutdown: 25_000)
+        ]
+      end
 
     Supervisor.init(children,
       strategy: :one_for_all,
