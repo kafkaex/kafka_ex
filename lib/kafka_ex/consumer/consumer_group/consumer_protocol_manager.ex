@@ -223,6 +223,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
       # A heartbeat was requested while one was in flight: send it right
       # after the reply.
       heartbeat_pending: false,
+      # Revoked partitions without a running consumer, reported with the
+      # revoke in flight.
+      revoking: [],
       owns_client: false,
       # A heartbeat failed with a terminal error (Java transitionToFatal):
       # the partitions are lost and no leave is sent.
@@ -1033,7 +1036,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
 
     case running do
       [] -> revoked(state, inactive)
-      _ -> {:noreply, start_stop_op(state, :revoke, running)}
+      _ -> {:noreply, start_stop_op(%State{state | revoking: inactive}, :revoke, running)}
     end
   end
 
@@ -1162,7 +1165,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
 
     case kind do
       :revoke ->
-        revoked(%State{state | owned: Map.drop(state.owned, op.keys)}, op.keys)
+        # Also the revoked partitions that had no running consumer.
+        keys = op.keys ++ state.revoking
+        revoked(%State{state | owned: Map.drop(state.owned, op.keys), revoking: []}, keys)
 
       :lose ->
         step(%State{state | owned: Map.drop(state.owned, op.keys)})
@@ -1424,9 +1429,6 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   # ---------------------------------------------------------------------------
   # Helpers
 
-  # Runs `fun` in a monitored (not linked) process. Its result is sent before
-  # the process exits, so it is in the mailbox when its :DOWN arrives
-  # (signals between two processes are ordered); async_result/2 picks it up.
   # Runs `fun` in a monitored (not linked) process that sends
   # {@async_result, monitor_ref, result} back. A result for a worker that was
   # aborted meanwhile (no slot holds its ref) is ignored.

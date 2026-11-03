@@ -60,12 +60,15 @@ defmodule KafkaEx.Chaos.ConsumerProtocolManagerTest do
     topic = "chaos_cpm_" <> generate_random_string()
     {:ok, _} = API.create_topic(client, topic, num_partitions: @partitions, replication_factor: 1)
 
+    # Every partition known and led before anything is produced.
     wait_until(fn ->
-      match?(
-        {:ok, %ClusterMetadata{topics: %{^topic => %Topic{topic_id: <<_::128>>, partitions: ps}}}}
-        when length(ps) == @partitions,
-        API.metadata(client, [topic], [])
-      )
+      case API.metadata(client, [topic], []) do
+        {:ok, %ClusterMetadata{topics: %{^topic => %Topic{topic_id: <<_::128>>, partitions: ps}}}} ->
+          length(ps) == @partitions and Enum.all?(ps, &(&1.leader >= 0))
+
+        _ ->
+          false
+      end
     end)
 
     {:ok, Map.merge(ctx, %{client: client, topic: topic, group: "chaos_cpm_" <> generate_random_string()})}
@@ -146,7 +149,23 @@ defmodule KafkaEx.Chaos.ConsumerProtocolManagerTest do
     values
     |> Enum.with_index()
     |> Enum.group_by(fn {_v, i} -> rem(i, @partitions) end, fn {v, _} -> %{value: v} end)
-    |> Enum.each(fn {partition, messages} -> {:ok, _} = API.produce(ctx.client, ctx.topic, partition, messages) end)
+    |> Enum.each(fn {partition, messages} -> produce_partition!(ctx, partition, messages, 50) end)
+  end
+
+  # A freshly created topic can answer :not_leader_for_partition for a moment
+  # (leader not yet in the metadata the broker serves): retry.
+  defp produce_partition!(ctx, partition, messages, attempts) do
+    case API.produce(ctx.client, ctx.topic, partition, messages) do
+      {:ok, _} ->
+        :ok
+
+      {:error, _reason} when attempts > 0 ->
+        Process.sleep(200)
+        produce_partition!(ctx, partition, messages, attempts - 1)
+
+      {:error, reason} ->
+        flunk("produce to #{ctx.topic}/#{partition} failed: #{inspect(reason)}")
+    end
   end
 
   defp collect(acc, expected, timeout) do

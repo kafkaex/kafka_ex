@@ -611,6 +611,30 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
       reply_ok(from, hb, 1)
     end
 
+    test "a revoked partition without a running consumer is reported with the rest before assigning" do
+      quiet(fn ->
+        %{manager: manager} = start_group()
+        {_member_id, pids} = join_with([0, 1, 2])
+        # 0 stops cleanly (not restarted), 1 is revoked while running.
+        :ok = GenServer.call(pids[0], {:exit, :normal})
+        :ok = GenServer.call(pids[1], :block_stop)
+
+        {from, hb} = poke(manager)
+        reply_ok(from, hb, 2, assignment([{@id_a, "a", [2, 3]}]))
+        p1 = pids[1]
+        assert_receive {:stop_blocked, ^p1, _}
+        send(p1, :release_stop)
+
+        # The first report after the revoke owns only 2: neither 0 nor 1.
+        {from, report} = next_heartbeat()
+        assert owned_partitions(report) == [{@id_a, 2}]
+        refute_received {:started, _, {"a", 3}, _}
+        reply_ok(from, report, 2)
+        assert_receive {:started, _, {"a", 3}, _}
+        drain_until_owned([{@id_a, 2}, {@id_a, 3}])
+      end)
+    end
+
     test "concurrent revokes stop several consumers at once" do
       %{manager: manager} = start_group()
       {_member_id, pids} = join_with([0, 1, 2])

@@ -57,12 +57,15 @@ defmodule KafkaEx.Kafka4.ConsumerProtocolManagerTest do
     topic = "kafka4_cpm_" <> generate_random_string()
     {:ok, _} = API.create_topic(client, topic, num_partitions: @partitions, replication_factor: 1)
 
+    # Every partition known and led before anything is produced.
     wait_until(fn ->
-      match?(
-        {:ok, %ClusterMetadata{topics: %{^topic => %Topic{topic_id: <<_::128>>, partitions: ps}}}}
-        when length(ps) == @partitions,
-        API.metadata(client, [topic], [])
-      )
+      case API.metadata(client, [topic], []) do
+        {:ok, %ClusterMetadata{topics: %{^topic => %Topic{topic_id: <<_::128>>, partitions: ps}}}} ->
+          length(ps) == @partitions and Enum.all?(ps, &(&1.leader >= 0))
+
+        _ ->
+          false
+      end
     end)
 
     {:ok, Map.merge(ctx, %{client: client, topic: topic, group: "kafka4_cpm_" <> generate_random_string()})}
