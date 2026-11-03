@@ -80,6 +80,28 @@
   `commit_offset` with `:member_epoch` on OffsetCommit below v9 (e.g. an `:api_versions` pin)
   returns `{:error, :invalid_api_version}` instead of silently dropping the epoch; a GenConsumer
   treats that as a terminal commit error.
+* **`KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager`**: the KIP-848 ("consumer" group
+  protocol, Kafka 4.0+) member state machine, modelled on the Java 4.4
+  `ConsumerMembershipManager`. Not yet selectable from `ConsumerGroup.start_link/4` (a later
+  change adds the option); the classic `Manager` path is unchanged. It generates the member id
+  once (KIP-1082) and keeps it across join retries and rejoins; heartbeats on the broker's
+  `heartbeat_interval_ms`, one in flight, sending only changed fields (full request after the
+  join and after errors); reconciles a new target incrementally (revoke and report first, then
+  assign, then move kept partitions to the new epoch with `update_membership/3`, then
+  acknowledge), resolving topic ids by Metadata and never assigning a topic whose name is
+  unknown; on `:fenced_member_epoch` / `:unknown_member_id` releases its partitions without
+  committing and rejoins with epoch 0; stops on terminal errors; leaves with epoch `-1` (`-2`
+  for a static member) after stopping its consumers. Options: `:server_assignor`,
+  `:rebalance_timeout_ms`, `:subscribed_topic_regex`, `:group_instance_id`, and an optional
+  `:rack_id` (rack awareness is off by default: with `nil` no rack id is sent).
+* **Telemetry**: `[:kafka_ex, :consumer, :member_joined]`, `[:kafka_ex, :consumer, :reconcile]`
+  (revoked/assigned counts), `[:kafka_ex, :consumer, :member_fenced]` and
+  `[:kafka_ex, :consumer, :member_left]` for KIP-848 members.
+* **`GenConsumer.Supervisor.stop_partition/3` and `stop_partitions/3`** take `lost: true`: the
+  consumer is stopped with `{:shutdown, :partition_lost}` and a `GenConsumer` skips its final
+  commit (a fenced member's epoch is no longer valid).
+* **`KafkaEx.ChaosTestHelpers.start_kafka4_infrastructure/1`**: an `apache/kafka:4.4.0` broker
+  behind Toxiproxy, for chaos tests of the KIP-848 protocol.
 
 ### Changed
 
