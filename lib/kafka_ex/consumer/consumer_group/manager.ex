@@ -265,16 +265,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
         :group_instance_id
       ])
 
-    # Use Config defaults for connection options if not provided
-    client_opts =
-      [
-        uris: Keyword.get(opts, :uris) || Config.brokers(),
-        use_ssl: Keyword.get(opts, :use_ssl, Config.use_ssl()),
-        ssl_options: Keyword.get(opts, :ssl_options, Config.ssl_options()),
-        auth: Keyword.get(opts, :auth) || Config.auth_config(),
-        consumer_group: group_name,
-        initial_topics: topics
-      ]
+    client_opts = group_client_opts(opts, group_name, topics)
 
     # A pre-supplied `:client` (test-only dependency injection) bypasses starting
     # a real client; production callers never set it, so this is inert in prod.
@@ -946,6 +937,22 @@ defmodule KafkaEx.Consumer.ConsumerGroup.Manager do
     :ok = ConsumerGroup.stop_consumer(pid)
 
     {:ok, state}
+  end
+
+  @doc false
+  # The options of the Kafka client a group member starts: Config defaults for
+  # the connection options that are not given. Shared with
+  # ConsumerProtocolManager.
+  @spec group_client_opts(Keyword.t(), binary(), [binary()]) :: Keyword.t()
+  def group_client_opts(opts, group_name, topics) do
+    [
+      uris: Keyword.get(opts, :uris) || Config.brokers(),
+      use_ssl: Keyword.get(opts, :use_ssl, Config.use_ssl()),
+      ssl_options: Keyword.get(opts, :ssl_options, Config.ssl_options()),
+      auth: Keyword.get(opts, :auth) || Config.auth_config(),
+      consumer_group: group_name,
+      initial_topics: topics
+    ]
   end
 
   ### Error Classification
