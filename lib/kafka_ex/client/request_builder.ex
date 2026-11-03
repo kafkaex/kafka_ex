@@ -13,6 +13,9 @@ defmodule KafkaEx.Client.RequestBuilder do
 
   # First OffsetCommit / OffsetFetch versions that identify topics by id (KIP-848).
   @offset_commit_topic_id_version 10
+  # First OffsetCommit version that carries a member epoch
+  # (generation_id_or_member_epoch, KIP-848).
+  @offset_commit_member_epoch_version 9
   @offset_fetch_topic_id_version 10
   # First Metadata version whose brokers honour topic-id lookups.
   @metadata_topic_id_lookup_version 12
@@ -431,10 +434,12 @@ defmodule KafkaEx.Client.RequestBuilder do
              | :api_not_supported_by_broker
              | :invalid_member_epoch
              | :invalid_member_id
-             | :invalid_generation_id}
+             | :invalid_generation_id
+             | :invalid_api_version}
   def offset_commit_request(request_opts, state) do
     with :ok <- check_member_opts(request_opts),
          {:ok, api_version} <- get_api_version(state, :offset_commit, request_opts),
+         :ok <- check_member_epoch_version(request_opts, api_version),
          {:ok, api_version, topic_ids} <-
            resolve_topic_ids(state, :offset_commit, api_version, @offset_commit_topic_id_version, request_opts) do
       opts = Keyword.put(request_opts, :topic_ids, topic_ids)
@@ -529,6 +534,24 @@ defmodule KafkaEx.Client.RequestBuilder do
 
       true ->
         :ok
+    end
+  end
+
+  # v1-v8 have no member epoch field: the epoch would be dropped and the
+  # (classic) generation id sent instead, which a KIP-848 broker rejects with
+  # UNSUPPORTED_VERSION on every commit (Kafka 4.4 ConsumerGroup
+  # .validateOffsetCommit). Refuse the combination (e.g. an :api_versions pin
+  # below 9) up front rather than silently dropping the epoch.
+  defp check_member_epoch_version(request_opts, api_version) do
+    if is_integer(Keyword.get(request_opts, :member_epoch)) and api_version < @offset_commit_member_epoch_version do
+      Logger.error(
+        "OffsetCommit with :member_epoch needs v#{@offset_commit_member_epoch_version}+, " <>
+          "but v#{api_version} was selected."
+      )
+
+      {:error, :invalid_api_version}
+    else
+      :ok
     end
   end
 

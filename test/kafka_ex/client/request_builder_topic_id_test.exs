@@ -203,6 +203,58 @@ defmodule KafkaEx.Client.RequestBuilderTopicIdTest do
       end
     end
 
+    test "a member_epoch with OffsetCommit below v9 is {:error, :invalid_api_version}" do
+      # v1-v8 have no member epoch field: the epoch would be dropped and the
+      # generation id sent instead, which a KIP-848 broker rejects.
+      for version <- 0..8 do
+        capture_log(fn ->
+          assert {:error, :invalid_api_version} =
+                   RequestBuilder.offset_commit_request(
+                     [group_id: "g", topics: @topics, member_id: "m", member_epoch: 3, api_version: version],
+                     state(%{8 => {0, 10}})
+                   ),
+                 "v#{version}"
+        end)
+      end
+
+      for version <- 9..10 do
+        assert {:ok, %{generation_id_or_member_epoch: 3}} =
+                 RequestBuilder.offset_commit_request(
+                   [group_id: "g", topics: @topics, member_id: "m", member_epoch: 3, api_version: version],
+                   state(%{8 => {0, 10}})
+                 )
+      end
+
+      # Classic commits (no epoch) on old versions are unaffected.
+      assert {:ok, %Kayrock.OffsetCommit.V8.Request{generation_id: 7}} =
+               RequestBuilder.offset_commit_request(
+                 [group_id: "g", topics: @topics, member_id: "m", generation_id: 7, api_version: 8],
+                 state(%{8 => {0, 10}})
+               )
+    end
+
+    test "an app-config :api_versions pin below v9 with a member_epoch is refused too" do
+      original = Application.get_env(:kafka_ex, :api_versions)
+      Application.put_env(:kafka_ex, :api_versions, %{offset_commit: 8})
+
+      try do
+        log =
+          capture_log(fn ->
+            assert {:error, :invalid_api_version} =
+                     RequestBuilder.offset_commit_request(
+                       [group_id: "g", topics: @topics, member_id: "m", member_epoch: 3],
+                       state(%{8 => {0, 10}})
+                     )
+          end)
+
+        assert log =~ "needs v9+"
+      after
+        if is_nil(original),
+          do: Application.delete_env(:kafka_ex, :api_versions),
+          else: Application.put_env(:kafka_ex, :api_versions, original)
+      end
+    end
+
     test "valid member options at the int32 bounds still build" do
       for epoch <- [-2_147_483_648, 2_147_483_647, 0, -1] do
         assert {:ok, %Kayrock.OffsetCommit.V10.Request{generation_id_or_member_epoch: ^epoch}} =
