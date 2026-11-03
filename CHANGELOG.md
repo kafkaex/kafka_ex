@@ -88,9 +88,11 @@
   `heartbeat_interval_ms`, one in flight, sending only changed fields (full request after the
   join and after errors); reconciles a new target incrementally (revoke and report first, then
   assign, then move kept partitions to the new epoch with `update_membership/3`, then
-  acknowledge), resolving topic ids by Metadata and never assigning a topic whose name is
-  unknown; on `:fenced_member_epoch` / `:unknown_member_id` releases its partitions without
-  committing and rejoins with epoch 0; stops on terminal errors; leaves with epoch `-1` (`-2`
+  acknowledge), resolving topic ids by Metadata in the background (a slow lookup never blocks
+  heartbeats) and never assigning a topic whose name is unknown; on `:fenced_member_epoch` /
+  `:unknown_member_id` releases its partitions without committing and rejoins with epoch 0;
+  retries `:topic_authorization_failed` without leaving the group (as Java does); stops on
+  terminal errors; leaves with epoch `-1` (`-2`
   for a static member) after stopping its consumers. Options: `:server_assignor`,
   `:rebalance_timeout_ms`, `:subscribed_topic_regex`, `:group_instance_id`, and an optional
   `:rack_id` (rack awareness is off by default: with `nil` no rack id is sent).

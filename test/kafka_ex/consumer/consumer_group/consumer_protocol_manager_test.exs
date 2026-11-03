@@ -402,6 +402,28 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
       assert log =~ ":not_coordinator"
     end
 
+    test "topic_authorization_failed keeps the member in the group (Java: an error event, not fatal)" do
+      log =
+        capture_log(fn ->
+          %{manager: manager} = start_group()
+          {member_id, %{0 => pid}} = join_with([0])
+          {from, _} = poke(manager)
+          GenServer.reply(from, {:error, :topic_authorization_failed})
+
+          {from, retry} = next_heartbeat()
+          assert retry[:member_id] == member_id
+          assert retry[:member_epoch] == 1
+          assert retry[:subscribed_topic_names] == ["a"]
+          reply_ok(from, retry, 1)
+
+          assert GenServer.call(manager, :member_epoch) == 1
+          assert Process.alive?(pid)
+          refute_received {:terminated, ^pid, _, _}
+        end)
+
+      assert log =~ ":topic_authorization_failed"
+    end
+
     test "transient errors back off and never give up while the member keeps its partitions" do
       quiet(fn ->
         %{manager: manager} = start_group()
@@ -715,6 +737,61 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
       end)
     end
 
+    test "a lookup that hangs never blocks the manager: it keeps heartbeating and handling consumers" do
+      quiet(fn ->
+        %{manager: manager, sup: sup} = start_group()
+        {_member_id, %{0 => p0}} = join_with([0])
+
+        {from, hb} = poke(manager)
+        reply_ok(from, hb, 2, assignment([{@id_a, "a", [0]}, {@id_b, nil, [7]}]))
+
+        # The Metadata call is left unanswered (a slow or unreachable broker).
+        assert_receive {:metadata_call, mfrom, mopts}
+        assert mopts[:topic_ids] == [@id_b]
+
+        # The manager still answers calls...
+        assert GenServer.call(manager, :member_epoch, 500) == 2
+        assert ConsumerGroup.assignments(sup) == [{"a", 0}]
+
+        # ...heartbeats...
+        {from, hb} = poke(manager)
+        assert hb[:member_epoch] == 2
+        reply_ok(from, hb, 2)
+
+        # ...and restarts a crashed consumer.
+        :ok = GenServer.call(p0, {:exit, :boom})
+        assert_receive {:started, _, {"a", 0}, opts}, 1_000
+        assert opts[:member_epoch] == 2
+
+        # No second lookup while the first is in flight.
+        refute_receive {:metadata_call, _, _}, 100
+
+        # Once it answers, the partition is assigned.
+        GenServer.reply(mfrom, {:ok, %ClusterMetadata{topics: %{"b" => %Topic{name: "b", topic_id: @id_b}}}})
+        assert_receive {:started, _, {"b", 7}, _}
+        drain_until_owned([{@id_a, 0}, {@id_b, 7}])
+      end)
+    end
+
+    test "a lookup that hangs does not delay the shutdown" do
+      quiet(fn ->
+        %{manager: manager, sup: sup} = start_group()
+        {_member_id, %{0 => p0}} = join_with([0])
+        {from, hb} = poke(manager)
+        reply_ok(from, hb, 2, assignment([{@id_a, "a", [0]}, {@id_b, nil, [7]}]))
+        assert_receive {:metadata_call, _mfrom, _}
+
+        started = System.monotonic_time(:millisecond)
+        stop_async(sup)
+        assert_receive {:terminated, ^p0, {"a", 0}, :shutdown}, 1_000
+        {from, leave} = next_heartbeat()
+        assert leave[:member_epoch] == -1
+        reply_ok(from, leave, -1)
+        assert_receive {:sup_down, :shutdown}, 5_000
+        assert System.monotonic_time(:millisecond) - started < 2_000
+      end)
+    end
+
     test "a failed lookup (exit or error) never crashes the member" do
       quiet(fn ->
         %{manager: manager} = start_group()
@@ -808,6 +885,38 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
         assert rejoin[:member_id] == member_id
         assert rejoin[:topic_partitions] == []
       end)
+    end
+  end
+
+  describe "shutdown during a revoke" do
+    test "a consumer the revoke is stopping is stopped once, with the revoke's reason; the others too" do
+      %{manager: manager} = start_group()
+      {_member_id, pids} = join_with([0, 1])
+      p0 = pids[0]
+      p1 = pids[1]
+      :ok = GenServer.call(p0, :block_stop)
+
+      {from, hb} = poke(manager)
+      reply_ok(from, hb, 2, assignment([{@id_a, "a", [1]}]))
+      assert_receive {:stop_blocked, ^p0, _}
+
+      # The manager's own terminate/2 (stopping the whole group would stop
+      # the consumer supervisor, a later sibling, first).
+      ref = Process.monitor(manager)
+      spawn(fn -> GenServer.stop(manager, :shutdown, 10_000) end)
+
+      # The kept partition is stopped (and commits) while the revoke waits.
+      assert_receive {:terminated, ^p1, {"a", 1}, :shutdown}, 1_000
+      refute_received {:terminated, ^p0, _, _}
+
+      send(p0, :release_stop)
+      assert_receive {:terminated, ^p0, {"a", 0}, :shutdown}
+      {from, leave} = next_heartbeat()
+      assert leave[:member_epoch] == -1
+      reply_ok(from, leave, -1)
+      assert_receive {:DOWN, ^ref, :process, ^manager, :shutdown}, 5_000
+      refute_received {:terminated, ^p0, _, _}
+      refute_received {:started, _, _, _}
     end
   end
 
