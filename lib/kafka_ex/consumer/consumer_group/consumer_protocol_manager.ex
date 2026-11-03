@@ -60,6 +60,10 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
       persist the heartbeat is retried with an exponential backoff
       (`:heartbeat_retry_backoff_ms` up to `:heartbeat_retry_max_backoff_ms`,
       Java `retry.backoff.ms` / `retry.backoff.max.ms`).
+    * `:topic_authorization_failed` is logged as an error and retried like a
+      transient error; the member stays in the group (Java 4.4 raises an
+      error event to the application and does not fail the member, so one
+      unauthorized topic, e.g. matched by a regex, does not stop the group).
     * Anything else (`:group_authorization_failed`, `:unsupported_assignor`,
       `:unreleased_instance_id`, `:fenced_instance_id`,
       `:group_max_size_reached`, `:invalid_regular_expression`,
@@ -215,6 +219,11 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
       :push,
       :reconcile,
       :resolve_timer,
+      # The Metadata-by-id lookup of unnamed topic ids in flight:
+      # %{pid, ref, ids}. Async like the heartbeat: the lookup can take the
+      # client's whole call budget (longer than a session timeout), and the
+      # manager must keep heartbeating meanwhile.
+      :lookup,
       # The heartbeat in flight: %{pid, ref, partitions} (one at a time, like
       # Java's HeartbeatRequestState). Sent from a monitored process so the
       # manager keeps handling consumer exits, revokes and shutdown while a
@@ -502,8 +511,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   def handle_cast(_msg, state), do: {:noreply, state}
 
   # A heartbeat as soon as possible: now, or right after the one in flight.
-  # Nothing while fenced (the rejoin follows the release of the partitions).
-  defp request_heartbeat(%State{phase: :fenced} = state), do: state
+  # While fenced heartbeat/1 sends nothing (the rejoin follows the release of
+  # the partitions).
   defp request_heartbeat(%State{inflight: nil} = state), do: schedule_heartbeat(state, 0)
   defp request_heartbeat(%State{} = state), do: %State{state | heartbeat_pending: true}
 
@@ -525,7 +534,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, %State{} = state)
       when (is_map(state.inflight) and state.inflight.ref == ref) or (is_map(state.op) and state.op.ref == ref) or
-             (is_map(state.push) and state.push.ref == ref) do
+             (is_map(state.push) and state.push.ref == ref) or (is_map(state.lookup) and state.lookup.ref == ref) do
     async_finished(state, ref, reason)
   end
 
@@ -579,21 +588,16 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     {opts, partitions_sent} = heartbeat_opts(state)
     client = state.client
     group = state.group_name
-    phase = state.phase
 
     {pid, ref} = run_async(fn -> send_heartbeat(client, group, opts) end)
 
-    inflight = %{pid: pid, ref: ref, partitions: partitions_sent, phase: phase, epoch: opts[:member_epoch]}
+    inflight = %{pid: pid, ref: ref, partitions: partitions_sent, epoch: opts[:member_epoch]}
     {:noreply, %State{state | inflight: inflight, heartbeat_pending: false}}
   end
 
-  # A reply to a heartbeat sent before the member was fenced (or, for a
-  # join, while it was not joining) describes a membership that no longer
-  # exists: drop it. Java ignores responses received in FENCED/UNSUBSCRIBED.
-  defp heartbeat_done(%State{} = state, %{phase: sent_phase}, _result) when sent_phase != state.phase do
-    {:noreply, maybe_pending(state)}
-  end
-
+  # The phase cannot change while a heartbeat is in flight (only one is in
+  # flight, and only its reply moves the phase; none is sent while fenced),
+  # so a reply always describes the current membership.
   defp heartbeat_done(%State{} = state, inflight, result) do
     case result do
       {:ok, %ConsumerGroupHeartbeat{} = response} -> heartbeat_ok(state, inflight.partitions, response)
@@ -601,11 +605,6 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
       {:error, reason} -> heartbeat_error(state, reason)
     end
   end
-
-  defp maybe_pending(%State{heartbeat_pending: true, phase: phase} = state) when phase != :fenced,
-    do: schedule_heartbeat(%State{state | heartbeat_pending: false}, 0)
-
-  defp maybe_pending(state), do: state
 
   # The client call can exit (call budget exceeded, client gone): a transient
   # failure here, not a crash of the member.
@@ -708,27 +707,44 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
       Retry.consumer_group_heartbeat_rejoin_error?(reason) ->
         fence(state, reason)
 
-      Retry.consumer_group_heartbeat_retryable?(reason) or match?({:heartbeat_process_died, _}, reason) ->
-        failures = state.heartbeat_failures + 1
-
-        delay =
-          Retry.backoff_delay(
-            failures - 1,
-            state.config.heartbeat_retry_backoff_ms,
-            state.config.heartbeat_retry_max_backoff_ms
-          )
-
-        Logger.warning(
-          "ConsumerGroupHeartbeat for #{state.group_name} failed with #{inspect(reason)}; " <>
-            "retrying in #{delay} ms (attempt #{failures})"
+      # Java 4.4 AbstractHeartbeatRequestManager.onErrorResponse reports
+      # TOPIC_AUTHORIZATION_FAILED to the application (an ErrorEvent) and
+      # keeps the member: no handleFatalFailure. One unauthorized topic (e.g.
+      # matched by a regex subscription) must not stop the group. Logged as an
+      # error and retried like a transient failure.
+      reason == :topic_authorization_failed ->
+        Logger.error(
+          "ConsumerGroupHeartbeat for #{state.group_name} failed with :topic_authorization_failed; " <>
+            "the member stays in the group and retries"
         )
 
-        {:noreply, %State{state | heartbeat_pending: false} |> reset_sent(failures) |> schedule_heartbeat(delay)}
+        retry_heartbeat(state, reason)
+
+      Retry.consumer_group_heartbeat_retryable?(reason) or match?({:heartbeat_process_died, _}, reason) ->
+        retry_heartbeat(state, reason)
 
       true ->
         Logger.error("ConsumerGroupHeartbeat for #{state.group_name} failed with terminal #{inspect(reason)}")
         {:stop, {:shutdown, {:terminal, reason}}, %State{state | fatal: true}}
     end
+  end
+
+  defp retry_heartbeat(%State{} = state, reason) do
+    failures = state.heartbeat_failures + 1
+
+    delay =
+      Retry.backoff_delay(
+        failures - 1,
+        state.config.heartbeat_retry_backoff_ms,
+        state.config.heartbeat_retry_max_backoff_ms
+      )
+
+    Logger.warning(
+      "ConsumerGroupHeartbeat for #{state.group_name} failed with #{inspect(reason)}; " <>
+        "retrying in #{delay} ms (attempt #{failures})"
+    )
+
+    {:noreply, %State{state | heartbeat_pending: false} |> reset_sent(failures) |> schedule_heartbeat(delay)}
   end
 
   # Java resets the sent fields on every failed heartbeat, so the next one is
@@ -801,7 +817,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     )
 
     Telemetry.emit_member_fenced(state.group_name, state.member_id, state.member_epoch, reason, lost)
-    state = state |> cancel_heartbeat() |> cancel_resolve()
+    state = state |> cancel_heartbeat() |> cancel_resolve() |> abort_lookup()
     state = %State{state | phase: :fenced, reconcile: nil}
     step(abort_push(state))
   end
@@ -946,6 +962,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
 
   # -- topic names ------------------------------------------------------------
 
+  defp unresolved_topic_ids(%State{target: nil}), do: []
+
   defp unresolved_topic_ids(state) do
     state.target
     |> Enum.map(fn {topic_id, _} -> topic_id end)
@@ -953,16 +971,49 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     |> Enum.reject(&Map.has_key?(state.topic_names, &1))
   end
 
-  # Looks the unknown topic ids up by id (Metadata v12+), at most once per
-  # backoff period (resolve_timer set = waiting).
-  defp resolve_topic_names(%State{resolve_timer: nil} = state) do
+  # Starts a lookup of the unknown topic ids by id (Metadata v12+), at most
+  # one at a time and at most once per backoff period (resolve_timer set =
+  # waiting). It runs in a monitored process (see run_async/1): the client
+  # call can take its whole call budget, longer than the session timeout, and
+  # the manager keeps heartbeating, handling consumer exits and shutting down
+  # meanwhile. The step goes on with the names already known; lookup_done/2
+  # runs it again with the new ones.
+  defp resolve_topic_names(%State{resolve_timer: nil, lookup: nil} = state) do
     case unresolved_topic_ids(state) do
-      [] -> state
-      ids -> %State{state | topic_names: Map.merge(state.topic_names, lookup_topic_names(state.client, ids))}
+      [] ->
+        state
+
+      ids ->
+        client = state.client
+        {pid, ref} = run_async(fn -> lookup_topic_names(client, ids) end)
+        %State{state | lookup: %{pid: pid, ref: ref, ids: ids}}
     end
   end
 
   defp resolve_topic_names(state), do: state
+
+  # A worker that died without a result found no names. Ids still unnamed
+  # are looked up again after the backoff.
+  defp lookup_done(%State{} = state, outcome) do
+    names =
+      case outcome do
+        {:op_result, names} when is_map(names) -> names
+        _ -> %{}
+      end
+
+    state
+    |> Map.put(:topic_names, Map.merge(state.topic_names, names))
+    |> maybe_schedule_resolve()
+    |> step()
+  end
+
+  defp abort_lookup(%State{lookup: %{pid: pid, ref: ref}} = state) do
+    Process.demonitor(ref, [:flush])
+    Process.exit(pid, :kill)
+    %State{state | lookup: nil}
+  end
+
+  defp abort_lookup(state), do: state
 
   defp lookup_topic_names(client, ids) do
     case KafkaExAPI.metadata(client, topic_ids: ids) do
@@ -990,6 +1041,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   defp names_from(metadata, ids) do
     for id <- ids, {:ok, name} <- [ClusterMetadata.topic_name_by_id(metadata, id)], into: %{}, do: {id, name}
   end
+
+  # A lookup in flight decides when it ends (lookup_done/2).
+  defp maybe_schedule_resolve(%State{lookup: lookup} = state) when lookup != nil, do: state
 
   defp maybe_schedule_resolve(%State{resolve_timer: nil} = state) do
     case unresolved_topic_ids(state) do
@@ -1327,26 +1381,23 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     # A consumer's own terminal error (e.g. a commit error) leaves the
     # member's epoch valid: the other consumers commit and the member leaves.
     lost = state.fatal or state.phase == :fenced
-    state = state |> cancel_heartbeat() |> abort_push() |> abort_inflight()
+    state = state |> cancel_heartbeat() |> abort_push() |> abort_inflight() |> abort_lookup()
     timeout = consumer_shutdown(state.consumer_opts) + @terminate_margin
 
     # An assign in flight finishes first (consumer inits are short) so its
-    # consumers are stopped too. The consumers a revoke or lose in flight is
-    # stopping are left to it and stopped concurrently with the rest, so the
-    # whole stop takes about one consumer :shutdown.
+    # consumers are stopped too. Every live consumer is then stopped
+    # concurrently, those a revoke or lose in flight is stopping included: a
+    # consumer already terminating never handles the second stop request,
+    # which just waits for the same exit. The whole stop takes about one
+    # consumer :shutdown.
     state = if match?(%{kind: :assign}, state.op), do: await_op(state, timeout), else: state
-    stop_all_consumers(state, lost, in_flight_stops(state))
+    stop_all_consumers(state, lost)
     await_op(state, timeout)
 
     if not state.fatal and state.phase == :stable, do: leave(state)
     stop_client(state)
     :ok
   end
-
-  defp in_flight_stops(%State{op: %{kind: kind, keys: keys}} = state) when kind in [:revoke, :lose],
-    do: Enum.map(keys, &topic_partition(state, &1))
-
-  defp in_flight_stops(_state), do: []
 
   defp terminal_reason({:shutdown, {:terminal, reason}}), do: reason
   defp terminal_reason({:shutdown, {:client_died, reason}}), do: {:client_died, reason}
@@ -1377,10 +1428,10 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   end
 
   # Every consumer this member started is under its consumer supervisor.
-  defp stop_all_consumers(%State{consumer_supervisor: nil}, _lost, _skip), do: :ok
+  defp stop_all_consumers(%State{consumer_supervisor: nil}, _lost), do: :ok
 
-  defp stop_all_consumers(%State{consumer_supervisor: supervisor}, lost, skip) do
-    case (supervisor |> GenConsumerSupervisor.partition_pids() |> Map.keys()) -- skip do
+  defp stop_all_consumers(%State{consumer_supervisor: supervisor}, lost) do
+    case supervisor |> GenConsumerSupervisor.partition_pids() |> Map.keys() do
       [] -> :ok
       tps -> GenConsumerSupervisor.stop_partitions(supervisor, tps, lost: lost)
     end
@@ -1465,6 +1516,11 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   defp async_finished(%State{push: %{ref: ref} = push} = state, ref, outcome) do
     Process.demonitor(ref, [:flush])
     push_done(%State{state | push: nil}, push, outcome)
+  end
+
+  defp async_finished(%State{lookup: %{ref: ref}} = state, ref, outcome) do
+    Process.demonitor(ref, [:flush])
+    lookup_done(%State{state | lookup: nil}, outcome)
   end
 
   defp async_finished(state, _ref, _outcome), do: {:noreply, state}
