@@ -61,8 +61,14 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
   @default_worker_shutdown 5_000
   @config_key {__MODULE__, :config}
   @index_key {__MODULE__, :partition}
+  @stop_result {__MODULE__, :stop_result}
 
   @type topic_partition :: {topic :: binary, partition :: non_neg_integer}
+
+  # Partitions are int32 on the wire.
+  @max_partition 2_147_483_647
+  defguardp is_topic_partition(topic, partition)
+            when is_binary(topic) and is_integer(partition) and partition >= 0 and partition <= @max_partition
 
   if Version.match?(System.version(), ">= 1.7.0") do
     @doc since: "0.13.0"
@@ -193,13 +199,20 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
       `start_link/1` (the classic path owns it)
     * `{:error, :noproc}` when the supervisor is not running (or is on
       another node)
+    * `{:error, :invalid_topic_partition}` when the partition is not a
+      `{binary, non-negative int32}` tuple, `{:error, :invalid_options}` when
+      `opts` is not a list (nothing is started)
     * `{:error, reason}` when the consumer fails to start, e.g.
       `{:error, :invalid_membership}` for a malformed `:member_epoch`
   """
   @spec start_partition(Supervisor.supervisor(), topic_partition, KafkaEx.Consumer.GenConsumer.options()) ::
-          {:ok, pid} | {:error, {:already_started, pid} | :static_partition | :noproc | term}
-  def start_partition(supervisor, {topic, partition}, opts \\ [])
-      when is_binary(topic) and is_integer(partition) and partition >= 0 and is_list(opts) do
+          {:ok, pid}
+          | {:error,
+             {:already_started, pid} | :static_partition | :noproc | :invalid_topic_partition | :invalid_options | term}
+  def start_partition(supervisor, topic_partition, opts \\ [])
+
+  def start_partition(supervisor, {topic, partition}, opts)
+      when is_topic_partition(topic, partition) and is_list(opts) do
     case supervisor_config(supervisor) do
       {:ok, {gen_consumer_module, _consumer_module, _group_name, base_opts, _static}} ->
         shutdown = Keyword.get_lazy(opts, :shutdown, fn -> default_partition_shutdown(base_opts, opts) end)
@@ -220,6 +233,11 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
         {:error, :noproc}
     end
   end
+
+  def start_partition(_supervisor, {topic, partition}, _opts) when is_topic_partition(topic, partition),
+    do: {:error, :invalid_options}
+
+  def start_partition(_supervisor, _topic_partition, _opts), do: {:error, :invalid_topic_partition}
 
   defp do_start_partition(supervisor, child_spec) do
     case DynamicSupervisor.start_child(supervisor, child_spec) do
@@ -250,31 +268,66 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
   stop several partitions concurrently.
 
   Returns `:ok` once the consumer is dead (also when it exited on its own
-  during the stop), or `{:error, :not_found}` when the partition has no live
-  consumer started by `start_partition/3`.
+  during the stop): when it returns, `lookup_partition/2` no longer finds the
+  consumer and `start_partition/3` can start the partition again at once.
+  Returns `{:error, :not_found}` when the partition has no live consumer
+  started by `start_partition/3`, and `{:error, :invalid_topic_partition}`
+  for a malformed partition.
   """
-  @spec stop_partition(Supervisor.supervisor(), topic_partition) :: :ok | {:error, :not_found}
-  def stop_partition(supervisor, {_topic, _partition} = topic_partition) do
+  @spec stop_partition(Supervisor.supervisor(), topic_partition) ::
+          :ok | {:error, :not_found | :invalid_topic_partition}
+  def stop_partition(supervisor, {topic, partition} = topic_partition) when is_topic_partition(topic, partition) do
     case indexed_entry(supervisor, topic_partition) do
       {pid, shutdown} -> if Process.alive?(pid), do: stop_child(pid, shutdown), else: {:error, :not_found}
       nil -> {:error, :not_found}
     end
   end
 
+  def stop_partition(_supervisor, _topic_partition), do: {:error, :invalid_topic_partition}
+
   @doc """
   Stops the consumers of several partitions concurrently (see
   `stop_partition/2`), so revoking N partitions whose consumers are idle in a
   fetch long-poll takes about one long-poll, not N.
 
-  Returns a map of `{topic, partition} => :ok | {:error, :not_found}`.
+  Each stop runs in its own process, which is monitored, not linked: a caller
+  that traps exits gets no `{:EXIT, ...}` messages from it, and a stop that
+  crashes cannot take the caller down (it is reported as
+  `{:error, {:stop_failed, reason}}` for that partition). If the caller dies,
+  the stops already under way still finish.
+
+  Returns a map of `{topic, partition} => :ok | {:error, reason}` with the
+  `stop_partition/2` results (a malformed entry maps to
+  `{:error, :invalid_topic_partition}`), or
+  `{:error, :invalid_topic_partition}` when `topic_partitions` is not a list.
   """
   @spec stop_partitions(Supervisor.supervisor(), [topic_partition]) ::
-          %{topic_partition => :ok | {:error, :not_found}}
+          %{topic_partition => :ok | {:error, :not_found | :invalid_topic_partition | {:stop_failed, term}}}
+          | {:error, :invalid_topic_partition}
   def stop_partitions(supervisor, topic_partitions) when is_list(topic_partitions) do
     topic_partitions
     |> Enum.uniq()
-    |> Enum.map(fn tp -> {tp, Task.async(fn -> stop_partition(supervisor, tp) end)} end)
-    |> Map.new(fn {tp, task} -> {tp, Task.await(task, :infinity)} end)
+    |> Enum.map(fn tp ->
+      caller = self()
+      {_pid, ref} = spawn_monitor(fn -> send(caller, {@stop_result, self(), stop_partition(supervisor, tp)}) end)
+      {tp, ref}
+    end)
+    |> Map.new(fn {tp, ref} -> {tp, await_stop(ref)} end)
+  end
+
+  def stop_partitions(_supervisor, _topic_partitions), do: {:error, :invalid_topic_partition}
+
+  # The result is sent before the stop process exits, so it is in the mailbox
+  # by the time its :DOWN arrives (signals between two processes are ordered).
+  defp await_stop(ref) do
+    receive do
+      {:DOWN, ^ref, :process, pid, reason} ->
+        receive do
+          {@stop_result, ^pid, result} -> result
+        after
+          0 -> {:error, {:stop_failed, reason}}
+        end
+    end
   end
 
   # Same steps as DynamicSupervisor.terminate_child/2 (a shutdown request, then
@@ -286,13 +339,17 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
   defp stop_child(pid, shutdown) do
     GenServer.stop(pid, :shutdown, shutdown)
   catch
-    :exit, {:timeout, _} -> kill_child(pid)
-    # Gone already, or exited some other way while stopping: it is stopped.
-    :exit, _ -> :ok
+    # Past :shutdown (still alive: kill it), gone already, exited some other
+    # way while stopping, or any other failure of the stop request itself:
+    # kill_child/1 makes sure it is dead either way before we return (killing
+    # a dead pid is a no-op and its monitor reports :noproc at once).
+    :exit, _ -> kill_child(pid)
   end
 
   # A :temporary child is never restarted, so the supervisor only drops it
   # (and logs the :killed exit, as it would for a kill in terminate_child).
+  # Returns only once the pid is dead: callers rely on that to start the
+  # partition again right away.
   defp kill_child(pid) do
     ref = Process.monitor(pid)
     Process.exit(pid, :kill)
@@ -310,12 +367,15 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
   Non-blocking: neither the supervisor nor the consumer is called.
   """
   @spec lookup_partition(Supervisor.supervisor(), topic_partition) :: {:ok, pid} | :error
-  def lookup_partition(supervisor, {_topic, _partition} = topic_partition) do
+  def lookup_partition(supervisor, {topic, partition} = topic_partition) when is_topic_partition(topic, partition) do
     case indexed_entry(supervisor, topic_partition) do
       {pid, _shutdown} -> if Process.alive?(pid), do: {:ok, pid}, else: :error
       nil -> :error
     end
   end
+
+  # A malformed partition is never indexed.
+  def lookup_partition(_supervisor, _topic_partition), do: :error
 
   @doc """
   Returns a map of `{topic, partition} => pid` for every live consumer

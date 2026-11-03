@@ -86,6 +86,17 @@ defmodule KafkaEx.Consumer.GenConsumer.SupervisorPartitionTest do
     Map.fetch!(children, pid)
   end
 
+  # Overwrites the :shutdown the supervisor indexed for a partition.
+  defp put_shutdown(sup, tp, shutdown) do
+    key = {GenConsumerSupervisor, :partition}
+
+    :sys.replace_state(sup, fn state ->
+      {pid, _} = Process.get({key, tp})
+      Process.put({key, tp}, {pid, shutdown})
+      state
+    end)
+  end
+
   # Also consumes the pid's {:started} report, so a later refute_receive of
   # {:started, ...} can only match a restart.
   defp block(pid, release_after \\ :infinity) do
@@ -186,6 +197,19 @@ defmodule KafkaEx.Consumer.GenConsumer.SupervisorPartitionTest do
       assert GenConsumerSupervisor.start_partition(sup, {"t", 0}) == {:error, :boom}
       assert GenConsumerSupervisor.lookup_partition(sup, {"t", 0}) == :error
       assert GenConsumerSupervisor.child_pids(sup) == []
+    end
+
+    test "malformed input is an error tuple, not an exception" do
+      sup = start_sup()
+
+      for bad <- [{"t", -1}, {"t", 2_147_483_648}, {:t, 0}, {"t", 1.0}, "t", nil] do
+        assert GenConsumerSupervisor.start_partition(sup, bad) == {:error, :invalid_topic_partition}
+        assert GenConsumerSupervisor.lookup_partition(sup, bad) == :error
+      end
+
+      assert GenConsumerSupervisor.start_partition(sup, {"t", 0}, %{}) == {:error, :invalid_options}
+      assert DynamicSupervisor.which_children(sup) == []
+      refute_received {:started, _, _}
     end
 
     test "returns {:error, :noproc} for a supervisor that is not running" do
@@ -316,6 +340,73 @@ defmodule KafkaEx.Consumer.GenConsumer.SupervisorPartitionTest do
       assert Process.alive?(sup)
     end
 
+    test "returns only once a killed consumer is dead, so the partition can be started again at once" do
+      sup = start_sup([], shutdown: 50)
+
+      capture_log(fn ->
+        for _ <- 1..20 do
+          {:ok, pid} = GenConsumerSupervisor.start_partition(sup, {"t", 0})
+          block(pid)
+
+          assert :ok = GenConsumerSupervisor.stop_partition(sup, {"t", 0})
+          # No wait of any kind between the stop and these checks.
+          refute Process.alive?(pid)
+          assert GenConsumerSupervisor.lookup_partition(sup, {"t", 0}) == :error
+          assert GenConsumerSupervisor.partition_pids(sup) == %{}
+          assert {:ok, new_pid} = GenConsumerSupervisor.start_partition(sup, {"t", 0})
+          assert new_pid != pid
+          assert :ok = GenConsumerSupervisor.stop_partition(sup, {"t", 0})
+          refute Process.alive?(new_pid)
+        end
+      end)
+
+      # stop_partition/2 consumed the :DOWN of its own monitor before
+      # returning (the wait for the kill): nothing leaks into the caller's
+      # mailbox, where an owner monitoring its consumers would see it.
+      refute_receive {:DOWN, _, :process, _, _}, 200
+    end
+
+    test "with shutdown: :brutal_kill the consumer is killed, not restarted" do
+      sup = start_sup([], shutdown: :brutal_kill)
+      {:ok, pid} = GenConsumerSupervisor.start_partition(sup, {"t", 0})
+      assert_receive {:started, ^pid, _}
+      ref = Process.monitor(pid)
+
+      {result, _log} = with_log(fn -> GenConsumerSupervisor.stop_partition(sup, {"t", 0}) end)
+
+      assert result == :ok
+      refute Process.alive?(pid)
+      assert_receive {:DOWN, ^ref, :process, ^pid, :killed}
+      # Killed: terminate/2 never ran.
+      refute_received {:terminated, ^pid, _, _}
+      _ = DynamicSupervisor.count_children(sup)
+      refute_receive {:started, _, {_, _, "t", 0, _}}, 100
+      assert DynamicSupervisor.which_children(sup) == []
+    end
+
+    test "a stop request that fails for another reason still leaves the consumer dead" do
+      # A non-integer, non-:infinity :shutdown makes GenServer.stop/3 exit with
+      # something other than a timeout while the consumer is still running.
+      sup = start_sup()
+      {:ok, pid} = GenConsumerSupervisor.start_partition(sup, {"t", 0}, shutdown: 100)
+      assert_receive {:started, ^pid, _}
+      put_shutdown(sup, {"t", 0}, :bogus)
+
+      {result, _log} = with_log(fn -> GenConsumerSupervisor.stop_partition(sup, {"t", 0}) end)
+
+      assert result == :ok
+      refute Process.alive?(pid)
+      assert GenConsumerSupervisor.lookup_partition(sup, {"t", 0}) == :error
+    end
+
+    test "a malformed partition is {:error, :invalid_topic_partition}" do
+      sup = start_sup()
+
+      for bad <- [{"t", -1}, {"t", 2_147_483_648}, {:t, 0}, {"t", "0"}, "t", nil] do
+        assert GenConsumerSupervisor.stop_partition(sup, bad) == {:error, :invalid_topic_partition}
+      end
+    end
+
     test "a consumer that crashes while being stopped is not restarted" do
       sup = start_sup()
       {:ok, pid} = GenConsumerSupervisor.start_partition(sup, {"t", 0})
@@ -394,6 +485,28 @@ defmodule KafkaEx.Consumer.GenConsumer.SupervisorPartitionTest do
       refute_receive {:started, _, _}, 100
       assert :sys.get_state(sup).restarts == []
       assert DynamicSupervisor.which_children(sup) == []
+    end
+  end
+
+  describe "stop_partitions/2 and the caller" do
+    test "a caller that traps exits gets no :EXIT messages from the stops" do
+      sup = start_sup()
+      tps = for p <- 0..3, do: {"t", p}
+      for tp <- tps, do: {:ok, _} = GenConsumerSupervisor.start_partition(sup, tp)
+
+      Process.flag(:trap_exit, true)
+      assert GenConsumerSupervisor.stop_partitions(sup, tps) == Map.new(tps, &{&1, :ok})
+      refute_receive {:EXIT, _, _}, 100
+    end
+
+    test "malformed input is {:error, :invalid_topic_partition}, not an exception" do
+      sup = start_sup()
+      assert GenConsumerSupervisor.stop_partitions(sup, :all) == {:error, :invalid_topic_partition}
+
+      assert GenConsumerSupervisor.stop_partitions(sup, [{"t", -1}, {"t", 0}]) == %{
+               {"t", -1} => {:error, :invalid_topic_partition},
+               {"t", 0} => {:error, :not_found}
+             }
     end
   end
 

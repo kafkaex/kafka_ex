@@ -564,6 +564,31 @@ defmodule KafkaEx.Consumer.GenConsumerMembershipTest do
       assert Process.alive?(pid)
     end
 
+    test "a classic consumer (generation_id) is refused and stays classic" do
+      {client, pid} = start_consumer(member_id: "m", generation_id: 7)
+      wait_for_commits(client, 1)
+
+      assert GenConsumer.update_membership(pid, member_epoch: 5) == {:error, :invalid_membership}
+      assert GenConsumer.update_membership(pid, member_id: "m2", member_epoch: 5) == {:error, :invalid_membership}
+      assert GenConsumer.update_membership(pid, member_id: "m2") == {:error, :invalid_membership}
+
+      after_update = length(commit_opts(client))
+      new_commits = client |> wait_for_commits(after_update + 2) |> Enum.drop(after_update)
+      assert Enum.all?(new_commits, &(&1 == [member_id: "m", generation_id: 7]))
+    end
+
+    test "a consumer without membership never ends up with an epoch and no member id" do
+      {client, pid} = start_consumer([])
+      wait_for_commits(client, 1)
+
+      assert GenConsumer.update_membership(pid, member_epoch: 5) == {:error, :invalid_membership}
+
+      after_update = length(commit_opts(client))
+      new_commits = client |> wait_for_commits(after_update + 2) |> Enum.drop(after_update)
+      refute Enum.any?(new_commits, &Keyword.has_key?(&1, :member_epoch))
+      assert :sys.get_state(pid).member_epoch == nil
+    end
+
     test "an empty update is a no-op" do
       {_client, pid} = start_consumer(member_id: "m", member_epoch: 3)
       assert :ok = GenConsumer.update_membership(pid, [])

@@ -55,7 +55,9 @@
   consumer through `terminate/2` (which commits), kills it if it is still running after its
   `:shutdown` (no restart), and returns `{:error, :not_found}` for an unknown partition.
   `stop_partitions/2` stops several concurrently, so revoking N idle partitions takes about one
-  long-poll, not N. The lookups never block on the supervisor. Classic `start_link/1` children
+  long-poll, not N; its stop processes are monitored, not linked, so a caller that traps exits gets
+  no `:EXIT` messages. A stop returns only once the consumer is dead. A malformed partition is
+  `{:error, :invalid_topic_partition}`, not an exception. The lookups never block on the supervisor. Classic `start_link/1` children
   keep `restart: :transient`, but are now keyed by `{topic, partition}` instead of all sharing
   one id.
 * **`GenConsumer` `:member_epoch` option and `update_membership/3`.** With a member epoch (KIP-848)
@@ -63,7 +65,8 @@
   OffsetCommit v9+ `generation_id_or_member_epoch`; without one, requests are exactly as before.
   `update_membership/3` (`:member_id`, `:member_epoch`) is a call that returns `:ok` once the
   update is applied, or `{:error, :invalid_membership | :noproc | :timeout}`, and never exits the
-  caller. It queues behind an in-flight fetch long-poll; the default timeout is 60 s. A commit
+  caller. A consumer started without `:member_epoch` (classic) refuses it with
+  `{:error, :invalid_membership}`, so it can never be moved onto the KIP-848 path. It queues behind an in-flight fetch long-poll; the default timeout is 60 s. A commit
   already in flight keeps the epoch it was built with. A `:stale_member_epoch` commit error is
   non-fatal when an epoch is set (offsets stay acked, the next commit uses the current epoch) and
   stays fatal for classic groups. A `:stale_member_epoch` on the startup OffsetFetch makes the

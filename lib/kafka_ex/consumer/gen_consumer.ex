@@ -717,8 +717,11 @@ defmodule KafkaEx.Consumer.GenConsumer do
   # member's epoch.
   @max_member_epoch 2_147_483_647
   @membership_keys [:member_id, :member_epoch]
-  # Above the default fetch call budget (:max_wait_time 10 s + 5 s network
-  # buffer) plus a commit with its retries, which the call can queue behind.
+  # Above a default fetch long-poll (:max_wait_time 10 s + 5 s network buffer)
+  # plus a commit. It is not a worst case: a fetch or commit whose retries all
+  # run (RequestBudget.call_budget/2, ~50 s for a fetch) can exceed it, and
+  # then the call returns {:error, :timeout} while the update may still be
+  # applied once the consumer gets to it.
   @default_update_membership_timeout 60_000
 
   @doc """
@@ -747,8 +750,11 @@ defmodule KafkaEx.Consumer.GenConsumer do
   This is a `GenServer.call/3`, so it queues behind whatever the consumer is
   doing: a fetch long-poll (up to `:max_wait_time` in `:fetch_options`, 10 s
   by default, plus the network buffer) or a commit with its retries. The
-  default `timeout` (60 s) is above that budget; pass a larger one with a
-  larger `:max_wait_time`. Updating N consumers one after another can take N
+  default `timeout` (60 s) is above one default long-poll plus a commit; pass
+  a larger one with a larger `:max_wait_time`. It is not a worst case: a fetch
+  or commit that runs through all its retries can take longer, and the call
+  then returns `{:error, :timeout}` although the update is still applied once
+  the consumer gets to it. Updating N consumers one after another can take N
   long-polls: fan the calls out concurrently.
 
   ## Errors
@@ -756,7 +762,11 @@ defmodule KafkaEx.Consumer.GenConsumer do
   Never exits the caller:
 
     * `{:error, :invalid_membership}` - an unknown key, a value of the wrong
-      type, or an epoch out of range; nothing is sent to the consumer
+      type, or an epoch out of range (nothing is sent to the consumer); or
+      the consumer was started without a `:member_epoch` (a classic
+      consumer, which is never moved onto the KIP-848 path, so it never
+      holds an epoch without a member id). The consumer's membership is left
+      unchanged.
     * `{:error, :noproc}` - the consumer is not running, or exited before it
       applied the update
     * `{:error, :timeout}` - no reply within `timeout`; the update may still be
@@ -910,6 +920,16 @@ defmodule KafkaEx.Consumer.GenConsumer do
 
   def handle_call(:partition, _from, state) do
     {:reply, {state.topic, state.partition}, state, 0}
+  end
+
+  # Only a consumer started with a member epoch (KIP-848) can be updated: an
+  # update must never move a classic consumer (generation_id, fatal
+  # :stale_member_epoch) onto the KIP-848 path, nor give it an epoch without
+  # a member id. A KIP-848 consumer started with a binary member id (init
+  # requires one) and an update only sets binary ids and valid epochs
+  # (valid_membership_update?/1), so its membership stays well-formed.
+  def handle_call({:update_membership, _membership}, _from, %State{member_epoch: nil} = state) do
+    {:reply, {:error, :invalid_membership}, state, 0}
   end
 
   def handle_call({:update_membership, membership}, _from, %State{} = state) do
