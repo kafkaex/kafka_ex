@@ -212,6 +212,24 @@ defmodule KafkaEx.Consumer.GenConsumer.SupervisorPartitionTest do
       refute_received {:started, _, _}
     end
 
+    test "opts that are not a keyword list, or a malformed :fetch_options, are {:error, :invalid_options}" do
+      sup = start_sup()
+
+      for bad <- [[1, 2], [{"a", 1}], [:foo], [fetch_options: :bogus], [fetch_options: nil], [fetch_options: [1]]] do
+        assert GenConsumerSupervisor.start_partition(sup, {"t", 0}, bad) == {:error, :invalid_options}
+      end
+
+      assert DynamicSupervisor.which_children(sup) == []
+      refute_received {:started, _, _}
+      assert {:ok, _} = GenConsumerSupervisor.start_partition(sup, {"t", 0}, fetch_options: [max_wait_time: 1])
+    end
+
+    test "a malformed :fetch_options in the supervisor opts is {:error, :invalid_options}" do
+      sup = start_sup([], fetch_options: :bogus)
+      assert GenConsumerSupervisor.start_partition(sup, {"t", 0}) == {:error, :invalid_options}
+      assert DynamicSupervisor.which_children(sup) == []
+    end
+
     test "returns {:error, :noproc} for a supervisor that is not running" do
       sup = start_sup()
       stop_safely(sup)

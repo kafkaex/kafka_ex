@@ -111,6 +111,10 @@ defmodule KafkaEx.Consumer.GenConsumerMembershipTest do
     for {:offset_commit, "g", [{"t", _}], opts} <- MockClient.get_calls(client), do: opts
   end
 
+  defp fetch_calls(client) do
+    for {:fetch, "t", 0, _, _} = call <- MockClient.get_calls(client), do: call
+  end
+
   defp offset_fetch_opts(client) do
     for {:offset_fetch, "g", [{"t", _}], opts} <- MockClient.get_calls(client), do: opts
   end
@@ -329,8 +333,8 @@ defmodule KafkaEx.Consumer.GenConsumerMembershipTest do
     end
 
     test "retries back off exponentially and only the first rejection is a warning" do
-      Application.put_env(:kafka_ex, :load_offsets_retry_backoff_ms, 10)
-      assert Enum.map(1..4, &GenConsumer.stale_epoch_backoff_ms/1) == [10, 20, 40, 80]
+      Application.put_env(:kafka_ex, :load_offsets_retry_backoff_ms, 100)
+      assert Enum.map(1..4, &GenConsumer.stale_epoch_backoff_ms/1) == [100, 200, 400, 800]
       assert GenConsumer.stale_epoch_backoff_ms(100) == 30_000
 
       log =
@@ -342,6 +346,21 @@ defmodule KafkaEx.Consumer.GenConsumerMembershipTest do
         end)
 
       assert length(Regex.scan(~r/rejected with :stale_member_epoch/, log)) == 1
+    end
+
+    test "a :load_offsets_retry_backoff_ms of 0 still waits at least 100 ms between retries" do
+      Application.put_env(:kafka_ex, :load_offsets_retry_backoff_ms, 0)
+      assert Enum.map(1..3, &GenConsumer.stale_epoch_backoff_ms/1) == [100, 100, 100]
+
+      capture_log(fn ->
+        {client, pid} =
+          start_consumer([member_id: "m", member_epoch: 3], %{offset_fetch: {:error, :stale_member_epoch}})
+
+        Process.sleep(500)
+        # The first fetch plus at most one retry per 100 ms.
+        assert length(offset_fetch_opts(client)) in 2..6
+        assert Process.alive?(pid)
+      end)
     end
 
     for reason <- [:unknown_member_id, :fenced_member_epoch] do
@@ -402,7 +421,7 @@ defmodule KafkaEx.Consumer.GenConsumerMembershipTest do
               offset_commit: {:error, :stale_member_epoch}
             })
 
-          wait_for_commits(client, 2)
+          wait_for_commits(client, 1)
           ref = Process.monitor(pid)
           refute_receive {:DOWN, ^ref, :process, ^pid, _}, 100
 
@@ -417,6 +436,61 @@ defmodule KafkaEx.Consumer.GenConsumerMembershipTest do
 
       refute_receive {:manager_received, {:rejoin_required, _, _}}, 50
       assert log =~ "stale_member_epoch"
+    end
+
+    # Resending with the same epoch fails the same way: after a rejection no
+    # commit is sent for one commit interval, whatever triggers it (here a
+    # fetch that returns a record every few ms and asks for a commit each
+    # time), unless update_membership/3 arrives first.
+    for {name, consumer, extra} <- [
+          {":sync_commit", TestConsumer, []},
+          {"the commit threshold", AsyncConsumer, [commit_threshold: 1]},
+          {"the commit interval", AsyncConsumer, [commit_threshold: 1_000_000]}
+        ] do
+      test "after a :stale_member_epoch rejection, #{name} waits a commit interval before resending" do
+        capture_log(fn ->
+          {client, pid} =
+            start_consumer(
+              Keyword.merge(
+                [member_id: "m", member_epoch: 3, commit_interval: 400],
+                unquote(extra)
+              ),
+              %{offset_commit: {:error, :stale_member_epoch}},
+              unquote(consumer)
+            )
+
+          wait_for_commits(client, 1)
+          started = System.monotonic_time(:millisecond)
+          fetches_before = length(fetch_calls(client))
+          Process.sleep(250)
+
+          # Records kept flowing, but no commit was resent.
+          assert length(fetch_calls(client)) > fetches_before + 10
+          assert length(commit_opts(client)) == 1
+
+          # After the interval the acked offsets are committed again.
+          wait_for_commits(client, 2)
+          assert System.monotonic_time(:millisecond) - started >= 300
+          assert Process.alive?(pid)
+        end)
+      end
+    end
+
+    test "update_membership/3 ends the wait after a :stale_member_epoch rejection at once" do
+      capture_log(fn ->
+        {client, pid} =
+          start_consumer([member_id: "m", member_epoch: 3, commit_interval: 60_000], %{
+            offset_commit: {:error, :stale_member_epoch}
+          })
+
+        wait_for_commits(client, 1)
+        Process.sleep(50)
+        assert length(commit_opts(client)) == 1
+
+        :ok = MockClient.put_response(client, :offset_commit, {:ok, []})
+        :ok = GenConsumer.update_membership(pid, member_epoch: 4)
+        assert List.last(wait_for_commits(client, 2))[:member_epoch] == 4
+      end)
     end
 
     test ":stale_member_epoch without a member epoch (classic) stays fatal" do

@@ -57,7 +57,7 @@
   `stop_partitions/2` stops several concurrently, so revoking N idle partitions takes about one
   long-poll, not N; its stop processes are monitored, not linked, so a caller that traps exits gets
   no `:EXIT` messages. A stop returns only once the consumer is dead. A malformed partition is
-  `{:error, :invalid_topic_partition}`, not an exception. The lookups never block on the supervisor. Classic `start_link/1` children
+  `{:error, :invalid_topic_partition}`, not an exception; `start_partition/3` opts that are not a keyword list (or a non-keyword merged `:fetch_options`) return `{:error, :invalid_options}`. The lookups never block on the supervisor. Classic `start_link/1` children
   keep `restart: :transient`, but are now keyed by `{topic, partition}` instead of all sharing
   one id.
 * **`GenConsumer` `:member_epoch` option and `update_membership/3`.** With a member epoch (KIP-848)
@@ -69,8 +69,10 @@
   `{:error, :invalid_membership}`, so it can never be moved onto the KIP-848 path. It queues behind an in-flight fetch long-poll; the default timeout is 60 s. A commit
   already in flight keeps the epoch it was built with. A `:stale_member_epoch` commit error is
   non-fatal when an epoch is set (offsets stay acked, the next commit uses the current epoch) and
-  stays fatal for classic groups. A `:stale_member_epoch` on the startup OffsetFetch makes the
-  consumer wait, with backoff, for `update_membership/3`. `:unknown_member_id` /
+  stays fatal for classic groups; after one, no commit is sent for a `:commit_interval` unless
+  `update_membership/3` arrives first, instead of resending with the same epoch every fetch. A
+  `:stale_member_epoch` on the startup OffsetFetch makes the consumer wait, with backoff (at least
+  100 ms, even with `load_offsets_retry_backoff_ms: 0`), for `update_membership/3`. `:unknown_member_id` /
   `:fenced_member_epoch` there no longer raise: the consumer casts
   `{:rejoin_required, reason, member_epoch}` to `:group_manager_pid` and exits with
   `{:shutdown, {:rejoin_required, reason}}`. An invalid `:member_epoch` (or one without

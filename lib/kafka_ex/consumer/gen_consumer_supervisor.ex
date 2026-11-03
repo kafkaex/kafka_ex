@@ -201,7 +201,8 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
       another node)
     * `{:error, :invalid_topic_partition}` when the partition is not a
       `{binary, non-negative int32}` tuple, `{:error, :invalid_options}` when
-      `opts` is not a list (nothing is started)
+      `opts` is not a keyword list or the merged `:fetch_options` is not one
+      (nothing is started)
     * `{:error, reason}` when the consumer fails to start, e.g.
       `{:error, :invalid_membership}` for a malformed `:member_epoch`
   """
@@ -214,20 +215,10 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
   def start_partition(supervisor, {topic, partition}, opts)
       when is_topic_partition(topic, partition) and is_list(opts) do
     case supervisor_config(supervisor) do
-      {:ok, {gen_consumer_module, _consumer_module, _group_name, base_opts, _static}} ->
-        shutdown = Keyword.get_lazy(opts, :shutdown, fn -> default_partition_shutdown(base_opts, opts) end)
-
-        child_spec = %{
-          id: {topic, partition},
-          start: {__MODULE__, :start_partition_child, [topic, partition, opts, shutdown]},
-          shutdown: shutdown,
-          restart: :temporary,
-          # The process runs gen_consumer_module, not the start MFA's module
-          # (which_children/1, release upgrades).
-          modules: [gen_consumer_module]
-        }
-
-        do_start_partition(supervisor, child_spec)
+      {:ok, {_gen_consumer_module, _consumer_module, _group_name, base_opts, _static} = config} ->
+        if valid_partition_opts?(base_opts, opts),
+          do: start_valid_partition(supervisor, config, {topic, partition}, opts),
+          else: {:error, :invalid_options}
 
       :error ->
         {:error, :noproc}
@@ -238,6 +229,31 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
     do: {:error, :invalid_options}
 
   def start_partition(_supervisor, _topic_partition, _opts), do: {:error, :invalid_topic_partition}
+
+  defp start_valid_partition(supervisor, config, {topic, partition}, opts) do
+    {gen_consumer_module, _consumer_module, _group_name, base_opts, _static} = config
+    shutdown = Keyword.get_lazy(opts, :shutdown, fn -> default_partition_shutdown(base_opts, opts) end)
+
+    child_spec = %{
+      id: {topic, partition},
+      start: {__MODULE__, :start_partition_child, [topic, partition, opts, shutdown]},
+      shutdown: shutdown,
+      restart: :temporary,
+      # The process runs gen_consumer_module, not the start MFA's module
+      # (which_children/1, release upgrades).
+      modules: [gen_consumer_module]
+    }
+
+    do_start_partition(supervisor, child_spec)
+  end
+
+  # Checked in the caller before anything else uses the opts: the merge and
+  # the default shutdown below would otherwise raise in the caller (the group
+  # manager), not return an error.
+  defp valid_partition_opts?(base_opts, opts) do
+    Keyword.keyword?(opts) and Keyword.keyword?(base_opts) and
+      Keyword.keyword?(Keyword.get(Keyword.merge(base_opts, opts), :fetch_options, []))
+  end
 
   defp do_start_partition(supervisor, child_spec) do
     case DynamicSupervisor.start_child(supervisor, child_spec) do

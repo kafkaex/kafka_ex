@@ -160,7 +160,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
     * Startup OffsetFetch rejected with `:stale_member_epoch` (OffsetFetch
       needs the member's exact current epoch): the consumer stays up without
       an offset and retries with an exponential backoff from
-      `:load_offsets_retry_backoff_ms` (capped at 30 s, one warning), or at
+      `:load_offsets_retry_backoff_ms` (at least 100 ms, capped at 30 s, one warning), or at
       once when `update_membership/3` delivers the current epoch.
     * Startup OffsetFetch rejected with `:unknown_member_id` or
       `:fenced_member_epoch` (the group no longer knows or has fenced the
@@ -248,9 +248,11 @@ defmodule KafkaEx.Consumer.GenConsumer do
     partition, e.g. `update_membership/3` arrived while the commit was in
     flight, or the partition is being revoked. A commit already sent keeps
     the epoch it was built with. The error is logged and reported as
-    `:transient`; the consumer keeps running, the offsets stay acked and the
-    next commit (interval, threshold, `:sync_commit` or shutdown) sends them
-    with the current epoch. Revocation itself is the group manager's job.
+    `:transient`; the consumer keeps running and the offsets stay acked.
+    Resending with the same epoch would fail the same way, so no commit is
+    sent for one `:commit_interval` (threshold and `:sync_commit` included)
+    unless `update_membership/3` arrives first; the next commit (or the one
+    on shutdown) sends them with the current epoch. Revocation itself is the group manager's job.
 
   * **Retryable** — `:rebalance_in_progress` (broker-signalled; the next
     heartbeat will drive the rebalance), `:unstable_offset_commit`
@@ -527,6 +529,10 @@ defmodule KafkaEx.Consumer.GenConsumer do
       # :stale_member_epoch is retried (nil = not waiting); update_membership/3
       # clears it.
       :load_offsets_retry_at,
+      # KIP-848: monotonic ms before which no commit is sent after one was
+      # rejected with :stale_member_epoch (nil = no backoff);
+      # update_membership/3 clears it.
+      :commit_retry_at,
       load_offsets_stale_count: 0,
       # true only when we started the client — a caller-supplied (shared) :client must not be stopped.
       owns_client: false,
@@ -557,6 +563,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
             fetch_retry_at: integer() | nil,
             fetch_failing_since: integer() | nil,
             load_offsets_retry_at: integer() | nil,
+            commit_retry_at: integer() | nil,
             load_offsets_stale_count: non_neg_integer(),
             owns_client: boolean(),
             fetch_error_count: non_neg_integer(),
@@ -934,7 +941,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
 
   def handle_call({:update_membership, membership}, _from, %State{} = state) do
     new_state = struct!(state, Keyword.take(membership, @membership_keys))
-    {:reply, :ok, %State{new_state | load_offsets_retry_at: nil}, 0}
+    {:reply, :ok, %State{new_state | load_offsets_retry_at: nil, commit_retry_at: nil}, 0}
   end
 
   def handle_call(
@@ -1271,6 +1278,18 @@ defmodule KafkaEx.Consumer.GenConsumer do
   defp reset_offset(_client, topic, partition, :none),
     do: raise("Offset out of range while consuming topic #{topic}, partition #{partition}.")
 
+  # KIP-848: a commit rejected with :stale_member_epoch would fail the same
+  # way if resent with the same epoch. Like Java's CommitRequestManager (it
+  # retries a stale-epoch commit only once a newer epoch is known), wait a
+  # full commit interval, threshold and :sync_commit included, unless
+  # update_membership/3 clears the wait first. Offsets stay acked; the
+  # commit after the wait (or terminate/2) carries them.
+  defp handle_commit(sync_status, %State{commit_retry_at: retry_at} = state) when is_integer(retry_at) do
+    if :erlang.monotonic_time(:milli_seconds) < retry_at,
+      do: {:noreply, state},
+      else: handle_commit(sync_status, %State{state | commit_retry_at: nil})
+  end
+
   defp handle_commit(:sync_commit, %State{} = state), do: commit(state)
 
   defp handle_commit(
@@ -1432,7 +1451,8 @@ defmodule KafkaEx.Consumer.GenConsumer do
       # next commit carries the current epoch. The group manager drives
       # revocation and fencing through its heartbeat. Classic: stays fatal.
       error == :stale_member_epoch and is_integer(state.member_epoch) ->
-        handle_transient_commit_error(error, state)
+        retry_at = :erlang.monotonic_time(:milli_seconds) + state.commit_interval
+        handle_transient_commit_error(error, %State{state | commit_retry_at: retry_at})
 
       # A member epoch, but OffsetCommit pinned below v9 (see
       # RequestBuilder.offset_commit_request/2): every commit would fail the
@@ -1634,14 +1654,21 @@ defmodule KafkaEx.Consumer.GenConsumer do
   defp load_offsets_retry_remaining(%State{load_offsets_retry_at: retry_at}),
     do: max(retry_at - :erlang.monotonic_time(:milli_seconds), 0)
 
+  @stale_epoch_min_backoff_ms 100
   @stale_epoch_max_backoff_ms 30_000
 
   @doc false
   # Backoff before the n-th (1-based) stale-epoch OffsetFetch retry:
-  # base * 2^(n-1), capped at 30 s.
-  @spec stale_epoch_backoff_ms(pos_integer()) :: non_neg_integer()
-  def stale_epoch_backoff_ms(n) when is_integer(n) and n >= 1,
-    do: min(load_offsets_backoff_ms() * Integer.pow(2, min(n - 1, 16)), @stale_epoch_max_backoff_ms)
+  # base * 2^(n-1), at least 100 ms and at most 30 s. The floor matters:
+  # unlike the classic retry (capped at @load_offsets_max_attempts), this one
+  # has no attempt limit, so a :load_offsets_retry_backoff_ms of 0 must not
+  # turn it into back-to-back OffsetFetch requests.
+  @spec stale_epoch_backoff_ms(pos_integer()) :: pos_integer()
+  def stale_epoch_backoff_ms(n) when is_integer(n) and n >= 1 do
+    (load_offsets_backoff_ms() * Integer.pow(2, min(n - 1, 16)))
+    |> max(@stale_epoch_min_backoff_ms)
+    |> min(@stale_epoch_max_backoff_ms)
+  end
 
   defp load_offsets_backoff_ms,
     do: Application.get_env(:kafka_ex, :load_offsets_retry_backoff_ms, @default_load_offsets_retry_backoff_ms)
