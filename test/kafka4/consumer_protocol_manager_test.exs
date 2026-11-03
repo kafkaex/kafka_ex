@@ -204,6 +204,23 @@ defmodule KafkaEx.Kafka4.ConsumerProtocolManagerTest do
     end
   end
 
+  # A fresh topic's leader can report :not_leader_for_partition for a moment
+  # although metadata already names it (the client's own retries are
+  # back-to-back): retry for up to ~10 s.
+  defp produce!(ctx, partition, messages, attempts \\ 50) do
+    case API.produce(ctx.client, ctx.topic, partition, messages) do
+      {:ok, _} ->
+        :ok
+
+      {:error, _reason} when attempts > 0 ->
+        Process.sleep(200)
+        produce!(ctx, partition, messages, attempts - 1)
+
+      {:error, reason} ->
+        flunk("produce to #{ctx.topic}/#{partition} failed: #{inspect(reason)}")
+    end
+  end
+
   defp stop_producer(pid) do
     send(pid, :stop)
 
@@ -318,14 +335,14 @@ defmodule KafkaEx.Kafka4.ConsumerProtocolManagerTest do
   end
 
   test "committed offsets survive: a new member resumes after them", ctx do
-    {:ok, _} = API.produce(ctx.client, ctx.topic, 0, Enum.map(1..20, &%{value: "a#{&1}"}))
+    produce!(ctx, 0, Enum.map(1..20, &%{value: "a#{&1}"}))
     m1 = start_member(ctx, :m1)
     wait_until(fn -> balanced?([m1]) end)
     collect_until(new_acc(), &(MapSet.size(&1.values) >= 20), 30_000)
     wait_until(fn -> committed(ctx)[0] == 20 end)
     stop_member(m1)
 
-    {:ok, _} = API.produce(ctx.client, ctx.topic, 0, Enum.map(1..5, &%{value: "b#{&1}"}))
+    produce!(ctx, 0, Enum.map(1..5, &%{value: "b#{&1}"}))
     _ = drain(new_acc())
 
     m2 = start_member(ctx, :m2)
