@@ -831,6 +831,42 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
       end)
     end
 
+    # The by-id Metadata error carries only the first failure's code, with
+    # every failed id: an unauthorized topic listed first must not keep the
+    # other ids unnamed.
+    test "ids of a failed lookup are skipped whatever the error code; the others are looked up again" do
+      quiet(fn ->
+        id_c = <<3::128>>
+        %{manager: manager} = start_group()
+        {_member_id, _pids} = join_with([0])
+
+        {from, hb} = poke(manager)
+        reply_ok(from, hb, 2, assignment([{@id_a, "a", [0]}, {@id_b, nil, [7]}, {id_c, nil, [9]}]))
+
+        assert_receive {:metadata_call, mfrom, mopts}
+        assert Enum.sort(mopts[:topic_ids]) == [@id_b, id_c]
+
+        GenServer.reply(
+          mfrom,
+          {:error,
+           %KafkaEx.Client.Error{
+             error: :topic_authorization_failed,
+             metadata: %{topic_ids: [@id_b], topic_errors: [{@id_b, :topic_authorization_failed}]}
+           }}
+        )
+
+        # At once, not after the backoff, and only for the other id.
+        assert_receive {:metadata_call, mfrom, mopts}, 5
+        assert mopts[:topic_ids] == [id_c]
+        GenServer.reply(mfrom, {:ok, %ClusterMetadata{topics: %{"c" => %Topic{name: "c", topic_id: id_c}}}})
+
+        assert_receive {:started, _, {"c", 9}, opts}
+        assert opts[:member_epoch] == 2
+        refute_received {:started, _, {_, 7}, _}
+        drain_until_owned([{@id_a, 0}, {id_c, 9}])
+      end)
+    end
+
     test "a lookup that hangs never blocks the manager: it keeps heartbeating and handling consumers" do
       quiet(fn ->
         %{manager: manager, sup: sup} = start_group()
@@ -1131,6 +1167,85 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
         assert leave[:member_epoch] == -1
         reply_ok(from, leave, -1)
         assert_receive {:DOWN, ^ref, :process, ^sup, _}, 5_000
+      end)
+    end
+
+    # Java keeps heartbeating while it leaves (PREPARE_LEAVING is not a
+    # state shouldSkipHeartbeat skips): a slow consumer stop must not
+    # outlast the session timeout, or the broker hands the partition to
+    # another member while this consumer still consumes it.
+    for {name, how} <- [terminal_error: :terminal_error, stop: :stop] do
+      test "heartbeats go on while the consumers stop on shutdown (#{name}), then it leaves" do
+        Process.flag(:trap_exit, true)
+
+        quiet(fn ->
+          %{manager: manager} = start_group()
+          {from, join} = next_heartbeat()
+          reply_ok(from, join, 1, assignment([{@id_a, "a", [0, 1]}]), 100)
+          assert_receive {:started, p0, {"a", 0}, _}
+          assert_receive {:started, p1, {"a", 1}, _}
+          drain_until_owned([{@id_a, 0}, {@id_a, 1}])
+          {from, hb} = poke(manager)
+          reply_ok(from, hb, 1, nil, 100)
+
+          :ok = GenServer.call(p1, :block_stop)
+          ref = Process.monitor(manager)
+
+          case unquote(how) do
+            :terminal_error -> :ok = GenServer.call(p0, {:exit, {:shutdown, {:terminal_error, :boom}}})
+            :stop -> spawn(fn -> GenServer.stop(manager, :shutdown, 30_000) end)
+          end
+
+          assert_receive {:stop_blocked, ^p1, {"a", 1}}, 2_000
+
+          # p1 still owns its partition with a valid epoch: the member keeps
+          # heartbeating at the broker's interval.
+          beats =
+            for _ <- 1..3 do
+              {from, hb} = next_heartbeat(1_000)
+              reply_ok(from, hb, 1, nil, 100)
+              hb
+            end
+
+          for hb <- beats do
+            assert hb[:member_epoch] == 1
+            assert hb[:member_id] == join[:member_id]
+          end
+
+          send(p1, :release_stop)
+          assert_receive {:terminated, ^p1, {"a", 1}, :shutdown}
+
+          {from, leave} = next_heartbeat()
+          assert leave[:member_epoch] == -1
+          reply_ok(from, leave, -1)
+          assert_receive {:DOWN, ^ref, :process, ^manager, _}, 5_000
+          refute_receive {:heartbeat_call, _, _, _}, 300
+        end)
+      end
+    end
+
+    test "a fenced member sends no heartbeat while its consumers stop on shutdown" do
+      quiet(fn ->
+        %{manager: manager} = start_group()
+        {from, join} = next_heartbeat()
+        reply_ok(from, join, 1, assignment([{@id_a, "a", [0]}]), 100)
+        assert_receive {:started, p0, {"a", 0}, _}
+        drain_until_owned([{@id_a, 0}])
+
+        # A 100 ms interval: a keepalive would show up in the window below.
+        {from, hb} = poke(manager)
+        reply_ok(from, hb, 1, nil, 100)
+        :ok = GenServer.call(p0, :block_stop)
+        {from, _hb} = next_heartbeat(1_000)
+        GenServer.reply(from, {:error, :fenced_member_epoch})
+        assert_receive {:stop_blocked, ^p0, {"a", 0}}, 2_000
+
+        ref = Process.monitor(manager)
+        spawn(fn -> GenServer.stop(manager, :shutdown, 30_000) end)
+        refute_receive {:heartbeat_call, _, _, _}, 400
+        send(p0, :release_stop)
+        assert_receive {:DOWN, ^ref, :process, ^manager, _}, 5_000
+        refute_receive {:heartbeat_call, _, _, _}, 100
       end)
     end
 

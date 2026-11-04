@@ -36,16 +36,21 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
          with an immediate heartbeat;
        * assign: start a consumer for each partition of `target - owned`
          with the current member epoch. Topics arrive as topic ids; names come
-         from the response, else from a Metadata request by id. A partition
-         whose topic name is unknown is never assigned: it stays pending and
-         the lookup is retried with a backoff;
+         from the response, else from a Metadata request by id (ids it
+         fails for, with any error, are skipped and the rest asked again). A
+         partition whose topic name is unknown is never assigned: it stays
+         pending and the lookup is retried with a backoff;
        * partitions in both sets keep running and are moved to the new
          member epoch with `KafkaEx.Consumer.GenConsumer.update_membership/3`;
        * then acknowledge: report the new owned set with an immediate
          heartbeat.
     4. **Leave** on shutdown: stop the consumers (they commit), then a
        heartbeat with `member_epoch: -1` (or `-2` for a static member, which
-       keeps its assignment until its session expires). The leave is also
+       keeps its assignment until its session expires). A member in the
+       group keeps heartbeating (current epoch, nothing else) while its
+       consumers stop, as Java does in `PREPARE_LEAVING`, so a slow stop does
+       not outlast the session timeout and get its partitions handed to
+       another member while they are still consumed here. The leave is also
        sent while the member is still joining (or rejoining) once a join has
        been sent: the broker may already have registered the member under
        its member id and given it partitions, and without a leave they would
@@ -1088,11 +1093,17 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
       {:ok, %ClusterMetadata{} = metadata} ->
         names_from(metadata, ids)
 
-      # Any unknown id fails the whole request: ask again for the others.
-      {:error, %{error: :unknown_topic_id, metadata: %{topic_ids: unknown}}} when is_list(unknown) ->
-        case ids -- unknown do
+      # Any failed id (unknown, or e.g. :topic_authorization_failed) fails the
+      # whole request, and the top-level error is only the first failure's
+      # code: ask again for the others, whatever the code, so one
+      # unauthorized topic does not keep the rest unnamed (and unconsumed).
+      {:error, %{error: error, metadata: %{topic_ids: failed}}} when is_list(failed) ->
+        if error != :unknown_topic_id,
+          do: Logger.warning("Metadata lookup of #{length(failed)} topic id(s) failed with #{inspect(error)}")
+
+        case ids -- failed do
           [] -> %{}
-          known when known != ids -> lookup_topic_names(client, known)
+          rest when rest != ids -> lookup_topic_names(client, rest)
           _ -> %{}
         end
 
@@ -1482,6 +1493,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     # A consumer's own terminal error (e.g. a commit error) leaves the
     # member's epoch valid: the other consumers commit and the member leaves.
     lost = state.fatal or state.phase == :fenced
+    keepalive = start_keepalive(state)
     state = state |> cancel_heartbeat() |> abort_push() |> abort_inflight() |> abort_lookup()
     timeout = consumer_shutdown(state.consumer_opts) + @terminate_margin
 
@@ -1496,6 +1508,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     state = await_starts(state, deadline)
     stop_all_consumers(state, lost)
     await_op(state, timeout)
+    stop_keepalive(keepalive)
 
     if leave_on_shutdown?(state), do: leave(state)
     stop_client(state)
@@ -1514,6 +1527,70 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   defp leave_on_shutdown?(%State{phase: :stable}), do: true
   defp leave_on_shutdown?(%State{phase: :joining, join_sent: join_sent}), do: join_sent
   defp leave_on_shutdown?(_state), do: false
+
+  # Heartbeats go on while the consumers stop (Java keeps heartbeating in
+  # PREPARE_LEAVING: MemberState is not one shouldSkipHeartbeat skips), and
+  # stop only right before the leave. Stopping them first would let a slow
+  # shutdown (an assign in flight whose consumers are slow to start, then
+  # consumers stopped mid fetch long-poll) outlast the session timeout: the
+  # broker would expire the member and give its partitions to another member
+  # while these consumers still consume them, and their final commits would
+  # be rejected (duplicates). Only a member in the group with a valid epoch
+  # heartbeats; a fenced or failed one has nothing to keep alive. The
+  # keepalive sends the current epoch with every other field left out
+  # (unchanged), at the broker's interval, the first when the cancelled
+  # timer would have fired. Its replies are ignored: the leave follows.
+  defp start_keepalive(%State{phase: :stable, fatal: false, client: client} = state) when is_pid(client) do
+    if Process.alive?(client) do
+      opts =
+        put_present([member_id: state.member_id, member_epoch: state.member_epoch], :instance_id, state.instance_id)
+
+      interval = max(state.heartbeat_interval_ms || 0, 1)
+      group = state.group_name
+
+      first =
+        case state.heartbeat_timer do
+          {_ref, timer} -> Process.read_timer(timer) || 0
+          nil -> interval
+        end
+
+      spawn_monitor(fn -> keepalive_loop(client, group, opts, min(first, interval), interval) end)
+    end
+  end
+
+  defp start_keepalive(_state), do: nil
+
+  defp keepalive_loop(client, group, opts, delay, interval) do
+    Process.sleep(delay)
+
+    case send_heartbeat(client, group, opts) do
+      # A new epoch (a new target, not reconciled any more) is sent back, as
+      # the broker expects the member's current epoch.
+      {:ok, %ConsumerGroupHeartbeat{member_epoch: epoch, heartbeat_interval_ms: next}} ->
+        opts = if epoch > 0, do: Keyword.put(opts, :member_epoch, epoch), else: opts
+        next = if next > 0, do: next, else: interval
+        keepalive_loop(client, group, opts, next, next)
+
+      {:error, reason} ->
+        # Retried as heartbeat_error/2 retries; fenced or terminal: the
+        # member is gone, nothing to keep alive.
+        if reason == :topic_authorization_failed or Retry.consumer_group_heartbeat_retryable?(reason),
+          do: keepalive_loop(client, group, opts, interval, interval),
+          else: :ok
+    end
+  end
+
+  # A heartbeat the keepalive already handed to the client is answered before
+  # the leave, which goes through the same client.
+  defp stop_keepalive({pid, ref}) do
+    Process.exit(pid, :kill)
+
+    receive do
+      {:DOWN, ^ref, :process, ^pid, _} -> :ok
+    end
+  end
+
+  defp stop_keepalive(_none), do: :ok
 
   defp await_starts(%State{starts: starts} = state, _deadline) when map_size(starts) == 0, do: state
 

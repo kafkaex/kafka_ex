@@ -89,11 +89,13 @@
   join and after errors); reconciles a new target incrementally (revoke and report first, then
   assign, then move kept partitions to the new epoch with `update_membership/3`, then
   acknowledge), resolving topic ids by Metadata in the background (a slow lookup never blocks
-  heartbeats) and never assigning a topic whose name is unknown; on `:fenced_member_epoch` /
+  heartbeats; ids a lookup fails for, whatever the error, are skipped and the others looked up
+  again) and never assigning a topic whose name is unknown; on `:fenced_member_epoch` /
   `:unknown_member_id` releases its partitions without committing and rejoins with epoch 0;
   retries `:topic_authorization_failed` without leaving the group (as Java does); stops on
   terminal errors; leaves with epoch `-1` (`-2`
-  for a static member) after stopping its consumers, also when stopped while still joining or
+  for a static member) after stopping its consumers, heartbeating while they stop so a slow
+  shutdown does not outlast the session timeout (as Java does), also when stopped while still joining or
   rejoining (the broker may already have registered the member: as in Java, only a fenced or
   failed member skips the leave). Consumer starts, restarts included, run off the manager's
   process, so a slow start (the consumer's own client connecting) never delays heartbeats, and
