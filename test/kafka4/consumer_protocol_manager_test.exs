@@ -272,6 +272,40 @@ defmodule KafkaEx.Kafka4.ConsumerProtocolManagerTest do
     for %{partition_offsets: [po]} <- offsets, into: %{}, do: {po.partition, max(po.offset, 0)}
   end
 
+  # A client in front of a real one that forwards every call, except that it
+  # holds back the broker's answer to the first join (member_epoch 0): the
+  # broker has registered the member, the manager never learns it (a lost or
+  # timed-out join response). The test is told {:join_held, response}.
+  defmodule HoldJoinClient do
+    @moduledoc false
+    use GenServer
+
+    def start(client, test_pid), do: GenServer.start(__MODULE__, {client, test_pid})
+    def init({client, test_pid}), do: {:ok, %{client: client, test: test_pid, held: false}}
+
+    def handle_call({:consumer_group_heartbeat, _group, opts} = request, from, %{held: false} = state) do
+      if opts[:member_epoch] == 0 do
+        %{client: client, test: test} = state
+
+        spawn(fn ->
+          result = GenServer.call(client, request, 60_000)
+          send(test, {:join_held, from, result})
+        end)
+
+        {:noreply, %{state | held: true}}
+      else
+        forward(request, from, state)
+      end
+    end
+
+    def handle_call(request, from, state), do: forward(request, from, state)
+
+    defp forward(request, from, %{client: client} = state) do
+      spawn(fn -> GenServer.reply(from, GenServer.call(client, request, 60_000)) end)
+      {:noreply, state}
+    end
+  end
+
   # --- tests ------------------------------------------------------------------
 
   test "1 -> 2 -> 3 -> 2 -> 1 members under continuous production: no record lost, no stop-the-world", ctx do
@@ -375,6 +409,45 @@ defmodule KafkaEx.Kafka4.ConsumerProtocolManagerTest do
 
     assert graceful < killed, "graceful #{graceful} ms, killed #{killed} ms"
     assert graceful < 15_000
+    stop_member(m1)
+  end
+
+  test "a member stopped while its join answer is outstanding leaves: no ghost member holds partitions", ctx do
+    m1 = start_member(ctx, :m1)
+    wait_until(fn -> balanced?([m1]) end)
+
+    {:ok, real} = Kafka4TestHelpers.start_client(ctx)
+    {:ok, proxy} = HoldJoinClient.start(real, self())
+
+    on_exit(fn ->
+      Process.exit(proxy, :kill)
+      KafkaEx.TestSupport.ProcessHelpers.stop_safely(real)
+    end)
+
+    m2 = start_member(ctx, :m2, client: proxy)
+    assert_receive {:join_held, _from, {:ok, joined}}, 30_000
+    member_id = joined.member_id
+
+    # The broker knows m2 and is moving partitions to it.
+    wait_until(fn ->
+      {:ok, desc} = API.describe_consumer_group(ctx.client, ctx.group)
+      Enum.any?(desc.members, &(&1.member_id == member_id))
+    end)
+
+    t0 = System.monotonic_time(:millisecond)
+    stop_member(m2)
+
+    # Without a leave the broker keeps m2 until its session expires (45 s)
+    # and m1 never gets its partitions back meanwhile.
+    wait_until(
+      fn ->
+        {:ok, desc} = API.describe_consumer_group(ctx.client, ctx.group)
+        Enum.map(desc.members, & &1.member_id) == [ConsumerGroup.member_id(m1)] and balanced?([m1])
+      end,
+      15_000
+    )
+
+    assert System.monotonic_time(:millisecond) - t0 < 15_000
     stop_member(m1)
   end
 

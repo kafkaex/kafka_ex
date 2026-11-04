@@ -45,7 +45,13 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
          heartbeat.
     4. **Leave** on shutdown: stop the consumers (they commit), then a
        heartbeat with `member_epoch: -1` (or `-2` for a static member, which
-       keeps its assignment until its session expires).
+       keeps its assignment until its session expires). The leave is also
+       sent while the member is still joining (or rejoining) once a join has
+       been sent: the broker may already have registered the member under
+       its member id and given it partitions, and without a leave they would
+       not be consumed until the session expires. As in Java
+       (`AbstractMembershipManager.leaveGroup` skips only `FENCED` / `FATAL`
+       members), no leave is sent while fenced or after a terminal error.
 
   ## Errors
 
@@ -81,8 +87,13 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   `KafkaEx.Consumer.GenConsumer.Supervisor.start_partition/3` (they are
   `restart: :temporary`) and monitored. This process is their only owner:
   every start, stop, membership update and restart is decided here, so an
-  update or a revoke can never race a background restart. When a consumer
-  exits on its own:
+  update or a revoke can never race a background restart. Starts (assigns
+  and restarts alike) run in background processes, so a slow consumer start
+  (its own client connecting to the brokers) never stops this process from
+  heartbeating; each consumer is monitored as soon as its own start returns,
+  not once a whole batch has started. A revoke or a rejoin waits for the
+  restart in flight of a partition it releases. When a consumer exits on its
+  own:
 
     * abnormally (a crash): it is started again with the *current* member
       epoch after a per-partition backoff (`:partition_restart_backoff_ms`
@@ -190,7 +201,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     # owned: %{{topic_id, partition} => entry}, where entry is
     #   %{topic: name, pid: pid | nil, ref: reference | nil,
     #     epoch: the member epoch the consumer holds (nil when not running),
-    #     status: :running | :restarting | :stopped,
+    #     status: :running | :restarting | :starting | :stopped,
     #     crashes: consecutive abnormal exits, started_at: monotonic ms,
     #     token: restart timer token | nil, push_after: monotonic ms | nil}
     defstruct [
@@ -232,6 +243,11 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
       # A heartbeat was requested while one was in flight: send it right
       # after the reply.
       heartbeat_pending: false,
+      # Consumer restarts in flight: %{monitor_ref => %{pid, key, epoch}}.
+      # Async like the assign: a consumer start can take long (its own client
+      # connects to every bootstrap broker), and the manager must keep
+      # heartbeating meanwhile.
+      starts: %{},
       # Revoked partitions without a running consumer, reported with the
       # revoke in flight.
       revoking: [],
@@ -240,6 +256,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
       # the partitions are lost and no leave is sent.
       fatal: false,
       member_epoch: 0,
+      # A join (epoch 0) was sent: the broker may know the member id, so a
+      # shutdown sends a leave even while still joining.
+      join_sent: false,
       # :joining (sending epoch 0) | :stable | :fenced (releasing its
       # partitions before it rejoins)
       phase: :joining,
@@ -294,6 +313,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   @consumer_stop_margin 10_000
   @terminate_margin 5_000
   @async_result {__MODULE__, :async_result}
+  @async_started {__MODULE__, :async_started}
 
   @type topic_id :: <<_::128>>
   @type key :: {topic_id, non_neg_integer}
@@ -532,9 +552,19 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     async_finished(state, ref, {:op_result, result})
   end
 
+  # One consumer of the assign in flight has started: own and monitor it now,
+  # not once the whole batch has (an early exit would otherwise be seen as
+  # :noproc and lose its reason). The worker sends these before its result.
+  def handle_info({@async_started, ref, key, result}, %State{op: %{kind: :assign, ref: ref} = op} = state) do
+    {:noreply, apply_start(state, key, new_entry(op.names[key]), result, op.epoch)}
+  end
+
+  def handle_info({@async_started, _stale, _key, _result}, state), do: {:noreply, state}
+
   def handle_info({:DOWN, ref, :process, _pid, reason}, %State{} = state)
       when (is_map(state.inflight) and state.inflight.ref == ref) or (is_map(state.op) and state.op.ref == ref) or
-             (is_map(state.push) and state.push.ref == ref) or (is_map(state.lookup) and state.lookup.ref == ref) do
+             (is_map(state.push) and state.push.ref == ref) or (is_map(state.lookup) and state.lookup.ref == ref) or
+             is_map_key(state.starts, ref) do
     async_finished(state, ref, reason)
   end
 
@@ -551,7 +581,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
       # revoked is left to the revoke (it drops entries that are not running).
       %{^key => %{status: :restarting, token: ^token} = entry} when state.phase == :stable ->
         if in_target?(state, key),
-          do: {:noreply, start_one(state, key, %{entry | token: nil})},
+          do: {:noreply, start_restart(state, key, %{entry | token: nil})},
           else: {:noreply, state}
 
       _ ->
@@ -592,7 +622,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     {pid, ref} = run_async(fn -> send_heartbeat(client, group, opts) end)
 
     inflight = %{pid: pid, ref: ref, partitions: partitions_sent, epoch: opts[:member_epoch]}
-    {:noreply, %State{state | inflight: inflight, heartbeat_pending: false}}
+    join_sent = state.join_sent or opts[:member_epoch] == 0
+    {:noreply, %State{state | inflight: inflight, heartbeat_pending: false, join_sent: join_sent}}
   end
 
   # The phase cannot change while a heartbeat is in flight (only one is in
@@ -845,6 +876,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
       state
       | phase: :joining,
         member_epoch: 0,
+        # The broker removed the fenced member: until the rejoin is sent
+        # there is nothing to leave.
+        join_sent: false,
         owned: %{},
         reported: MapSet.new(),
         target: nil,
@@ -866,8 +900,11 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   # (it can wait behind a fetch long-poll); the acknowledgement waits for it.
   defp step(%State{op: op} = state) when op != nil, do: {:noreply, state}
 
+  # A restart in flight is waited for (restart_done/3 runs step/1 again):
+  # rejoining meanwhile would leave its consumer running at the old epoch.
   defp step(%State{phase: :fenced} = state) do
     case running_keys(state) do
+      [] when map_size(state.starts) > 0 -> {:noreply, state}
       [] -> rejoin(state)
       keys -> {:noreply, start_stop_op(state, :lose, keys)}
     end
@@ -877,10 +914,18 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     state = resolve_topic_names(state)
     revoked = state.owned |> Map.keys() |> Enum.reject(&MapSet.member?(state.target, &1))
 
-    if revoked == [] do
-      assign_or_push(state, pending_assign(state))
-    else
-      revoke(begin_reconcile(state), revoked)
+    cond do
+      revoked == [] ->
+        assign_or_push(state, pending_assign(state))
+
+      # A revoked partition whose consumer is being restarted: wait for the
+      # start (restart_done/3 runs step/1 again), then stop it. Reporting it
+      # revoked earlier could let its new owner consume it alongside.
+      Enum.any?(revoked, &(state.owned[&1].status == :starting)) ->
+        {:noreply, state}
+
+      true ->
+        revoke(begin_reconcile(state), revoked)
     end
   end
 
@@ -1131,16 +1176,20 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     starts = Enum.map(keys, &{&1, topic_partition_for(state, &1)})
     supervisor = state.consumer_supervisor
     membership = start_membership(state)
+    owner = self()
 
+    # Each result is sent as soon as its start returns (ordered: false), from
+    # this worker, so all of them arrive before its own result.
     {pid, ref} =
-      run_async(fn ->
+      run_async(fn ref ->
         starts
         |> Task.async_stream(
           fn {key, tp} -> {key, GenConsumerSupervisor.start_partition(supervisor, tp, membership)} end,
           max_concurrency: @start_concurrency,
-          timeout: :infinity
+          timeout: :infinity,
+          ordered: false
         )
-        |> Map.new(fn {:ok, result} -> result end)
+        |> Enum.each(fn {:ok, {key, result}} -> send(owner, {@async_started, ref, key, result}) end)
       end)
 
     names = Map.new(starts, fn {key, {topic, _}} -> {key, topic} end)
@@ -1150,18 +1199,59 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   defp start_membership(state),
     do: [member_id: state.member_id, member_epoch: state.member_epoch, group_manager_pid: self()]
 
-  defp start_one(%State{} = state, key, entry) do
+  # Restarts a crashed consumer in a monitored process: the start runs the
+  # consumer's whole init inside the consumer supervisor (its own client
+  # connecting to every bootstrap broker), possibly queued behind an assign,
+  # and the manager keeps heartbeating meanwhile. restart_done/3 owns the
+  # result.
+  defp start_restart(%State{} = state, key, entry) do
     tp = {entry.topic, elem(key, 1)}
+    supervisor = state.consumer_supervisor
+    membership = start_membership(state)
+    {pid, ref} = run_async(fn -> GenConsumerSupervisor.start_partition(supervisor, tp, membership) end)
+    start = %{pid: pid, key: key, epoch: state.member_epoch}
 
-    case GenConsumerSupervisor.start_partition(state.consumer_supervisor, tp, start_membership(state)) do
+    %State{
+      state
+      | owned: Map.put(state.owned, key, %{entry | status: :starting}),
+        starts: Map.put(state.starts, ref, start)
+    }
+  end
+
+  # A revoke or a fence waits for a restart in flight, so the entry is still
+  # :starting here.
+  defp restart_done(%State{} = state, %{key: key, epoch: epoch}, outcome) do
+    case state.owned do
+      %{^key => %{status: :starting} = entry} ->
+        result = restart_result(state, entry, key, outcome)
+        step(apply_start(state, key, entry, result, epoch))
+
+      _ ->
+        {:noreply, state}
+    end
+  end
+
+  # The start process itself died (it should not): whatever the supervisor
+  # started is adopted, else the restart is retried.
+  defp restart_result(_state, _entry, _key, {:op_result, result}), do: result
+
+  defp restart_result(state, entry, key, reason) do
+    case GenConsumerSupervisor.lookup_partition(state.consumer_supervisor, {entry.topic, elem(key, 1)}) do
+      {:ok, pid} -> {:ok, pid}
+      :error -> {:error, {:start_process_died, reason}}
+    end
+  end
+
+  defp apply_start(%State{} = state, key, entry, result, epoch) do
+    case result do
       {:ok, pid} ->
-        %State{state | owned: Map.put(state.owned, key, running_entry(entry, pid, state.member_epoch))}
+        %State{state | owned: Map.put(state.owned, key, running_entry(entry, pid, epoch))}
 
       {:error, {:already_started, pid}} ->
-        %State{state | owned: Map.put(state.owned, key, running_entry(entry, pid, state.member_epoch))}
+        %State{state | owned: Map.put(state.owned, key, running_entry(entry, pid, epoch))}
 
       {:error, reason} ->
-        Logger.warning("Starting the consumer of #{inspect(tp)} failed: #{inspect(reason)}")
+        Logger.warning("Starting the consumer of #{inspect({entry.topic, elem(key, 1)})} failed: #{inspect(reason)}")
         schedule_restart(state, key, entry)
     end
   end
@@ -1228,27 +1318,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     end
   end
 
-  defp op_done(state, %{kind: :assign} = op, {:op_result, results}) do
-    state =
-      Enum.reduce(results, state, fn {key, result}, acc ->
-        entry = new_entry(op.names[key])
-
-        case result do
-          {:ok, pid} ->
-            %State{acc | owned: Map.put(acc.owned, key, running_entry(entry, pid, op.epoch))}
-
-          {:error, {:already_started, pid}} ->
-            %State{acc | owned: Map.put(acc.owned, key, running_entry(entry, pid, op.epoch))}
-
-          {:error, reason} ->
-            Logger.warning(
-              "Starting the consumer of #{inspect({entry.topic, elem(key, 1)})} failed: #{inspect(reason)}"
-            )
-
-            schedule_restart(acc, key, entry)
-        end
-      end)
-
+  # Every start was already applied as it returned (the {@async_started, ...}
+  # messages arrive before the worker's result).
+  defp op_done(state, %{kind: :assign} = op, {:op_result, _}) do
     step(%State{state | reconcile: state.reconcile && count(state.reconcile, :assigned, op.keys)})
   end
 
@@ -1302,8 +1374,11 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   defp pushed(entry, :ok, epoch, _retry_at), do: %{entry | epoch: epoch, push_after: nil}
   defp pushed(entry, _error, _epoch, retry_at), do: %{entry | push_after: retry_at}
 
+  # An assign's consumers that already started are owned and monitored.
   defp readopt(state, op) do
-    Enum.reduce(op.keys, state, fn key, acc ->
+    keys = if op.kind == :assign, do: Enum.reject(op.keys, &Map.has_key?(state.owned, &1)), else: op.keys
+
+    Enum.reduce(keys, state, fn key, acc ->
       entry = acc.owned[key] || new_entry(op[:names][key])
       tp = {entry.topic, elem(key, 1)}
 
@@ -1384,19 +1459,55 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     state = state |> cancel_heartbeat() |> abort_push() |> abort_inflight() |> abort_lookup()
     timeout = consumer_shutdown(state.consumer_opts) + @terminate_margin
 
-    # An assign in flight finishes first (consumer inits are short) so its
-    # consumers are stopped too. Every live consumer is then stopped
-    # concurrently, those a revoke or lose in flight is stopping included: a
-    # consumer already terminating never handles the second stop request,
-    # which just waits for the same exit. The whole stop takes about one
-    # consumer :shutdown.
+    # An assign and restarts in flight finish first (bounded by consumer
+    # init, one shared deadline) so their consumers are stopped too. Every
+    # live consumer is then stopped concurrently, those a revoke or lose in
+    # flight is stopping included: a consumer already terminating never
+    # handles the second stop request, which just waits for the same exit.
+    # The whole stop takes about one consumer :shutdown.
+    deadline = now_ms() + timeout
     state = if match?(%{kind: :assign}, state.op), do: await_op(state, timeout), else: state
+    state = await_starts(state, deadline)
     stop_all_consumers(state, lost)
     await_op(state, timeout)
 
-    if not state.fatal and state.phase == :stable, do: leave(state)
+    if leave_on_shutdown?(state), do: leave(state)
     stop_client(state)
     :ok
+  end
+
+  # Java AbstractMembershipManager.leaveGroup skips the leave only when the
+  # member is not in the group (UNSUBSCRIBED, FENCED, FATAL, STALE): a
+  # joining member leaves too. Once a join was sent the broker may have
+  # registered this member id and assigned it partitions; without a leave
+  # nobody consumes them until the session expires (and a static member's
+  # restart is rejected with :unreleased_instance_id). A leave for a member
+  # the broker never registered just fails, bounded by :leave_timeout_ms. It
+  # goes through the same client as the aborted join, so it is sent after it.
+  defp leave_on_shutdown?(%State{fatal: true}), do: false
+  defp leave_on_shutdown?(%State{phase: :stable}), do: true
+  defp leave_on_shutdown?(%State{phase: :joining, join_sent: join_sent}), do: join_sent
+  defp leave_on_shutdown?(_state), do: false
+
+  defp await_starts(%State{starts: starts} = state, _deadline) when map_size(starts) == 0, do: state
+
+  defp await_starts(%State{starts: starts} = state, deadline) do
+    receive do
+      {@async_result, ref, _result} when is_map_key(starts, ref) ->
+        Process.demonitor(ref, [:flush])
+        await_starts(%State{state | starts: Map.delete(starts, ref)}, deadline)
+
+      {:DOWN, ref, :process, _, _} when is_map_key(starts, ref) ->
+        await_starts(%State{state | starts: Map.delete(starts, ref)}, deadline)
+    after
+      max(deadline - now_ms(), 0) ->
+        for {ref, %{pid: pid}} <- starts do
+          Process.demonitor(ref, [:flush])
+          Process.exit(pid, :kill)
+        end
+
+        %State{state | starts: %{}}
+    end
   end
 
   defp terminal_reason({:shutdown, {:terminal, reason}}), do: reason
@@ -1482,14 +1593,16 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
 
   # Runs `fun` in a monitored (not linked) process that sends
   # {@async_result, monitor_ref, result} back. A result for a worker that was
-  # aborted meanwhile (no slot holds its ref) is ignored.
+  # aborted meanwhile (no slot holds its ref) is ignored. A 1-arity `fun` is
+  # given the monitor ref (to tag messages it sends before its result).
   defp run_async(fun) do
     owner = self()
 
     {pid, ref} =
       spawn_monitor(fn ->
         ref = receive(do: ({@async_result, :ref, ref} -> ref))
-        send(owner, {@async_result, ref, fun.()})
+        result = if is_function(fun, 1), do: fun.(ref), else: fun.()
+        send(owner, {@async_result, ref, result})
       end)
 
     send(pid, {@async_result, :ref, ref})
@@ -1521,6 +1634,12 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   defp async_finished(%State{lookup: %{ref: ref}} = state, ref, outcome) do
     Process.demonitor(ref, [:flush])
     lookup_done(%State{state | lookup: nil}, outcome)
+  end
+
+  defp async_finished(%State{starts: starts} = state, ref, outcome) when is_map_key(starts, ref) do
+    Process.demonitor(ref, [:flush])
+    {start, starts} = Map.pop(starts, ref)
+    restart_done(%State{state | starts: starts}, start, outcome)
   end
 
   defp async_finished(state, _ref, _outcome), do: {:noreply, state}

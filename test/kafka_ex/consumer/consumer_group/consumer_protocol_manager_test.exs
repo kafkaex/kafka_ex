@@ -55,15 +55,37 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
     def start_link(_consumer_module, _group, topic, partition, opts),
       do: GenServer.start_link(__MODULE__, {topic, partition, opts})
 
+    # block_init/2 makes the next init of a partition wait for :release_init
+    # (a slow start: in production the consumer's own client connects to
+    # every bootstrap broker).
     def init({topic, partition, opts}) do
       Process.flag(:trap_exit, true)
       test_pid = Keyword.fetch!(opts, :test_pid)
-      send(test_pid, {:started, self(), {topic, partition}, opts})
-      {:ok, %{tp: {topic, partition}, test: test_pid, block_stop: false, block_update: false}}
+      tp = {topic, partition}
+
+      if :persistent_term.get({__MODULE__, :block_init, test_pid, tp}, false) do
+        :persistent_term.erase({__MODULE__, :block_init, test_pid, tp})
+        send(test_pid, {:init_blocked, self(), tp})
+
+        receive do
+          :release_init -> :ok
+        end
+      end
+
+      send(test_pid, {:started, self(), tp, opts})
+      {:ok, %{tp: tp, test: test_pid, block_stop: false, block_update: false, fail_update: 0}}
     end
+
+    def block_init(test_pid, tp), do: :persistent_term.put({__MODULE__, :block_init, test_pid, tp}, true)
 
     def handle_call(:block_stop, _from, state), do: {:reply, :ok, %{state | block_stop: true}}
     def handle_call(:block_update, _from, state), do: {:reply, :ok, %{state | block_update: true}}
+    def handle_call({:fail_update, n}, _from, state), do: {:reply, :ok, %{state | fail_update: n}}
+
+    def handle_call({:update_membership, _membership}, _from, %{fail_update: n} = state) when n > 0 do
+      send(state.test, {:update_failed, self(), state.tp})
+      {:reply, {:error, :boom}, %{state | fail_update: n - 1}}
+    end
 
     def handle_call({:update_membership, membership}, _from, state) do
       if state.block_update do
@@ -125,7 +147,12 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
     Process.unlink(sup)
     manager = ConsumerGroup.get_manager_pid(sup)
 
+    test_pid = self()
+
     on_exit(fn ->
+      for {{FakeConsumer, :block_init, ^test_pid, _} = key, _} <- :persistent_term.get(),
+          do: :persistent_term.erase(key)
+
       # Supervisor.stop/1: a supervisor ignores exit signals from processes
       # other than its parent.
       try do
@@ -675,6 +702,18 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
     end
   end
 
+  # Waits (bounded) until the manager owns `pid` as a running consumer, so an
+  # exit the test triggers next happens after the manager monitors it.
+  defp await_owned(manager, pid, attempts \\ 50) do
+    owned? = Enum.any?(:sys.get_state(manager).owned, fn {_key, entry} -> entry.pid == pid end)
+
+    cond do
+      owned? -> :ok
+      attempts == 0 -> :timeout
+      true -> Process.sleep(10) && await_owned(manager, pid, attempts - 1)
+    end
+  end
+
   # Answers heartbeats until one reports `owned`; returns it.
   defp drain_until_owned(owned, attempts \\ 10) do
     {from, hb} = next_heartbeat()
@@ -920,6 +959,35 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
     end
   end
 
+  describe "shutdown during an assign" do
+    test "consumers the assign in flight starts after the stop began are stopped too" do
+      quiet(fn ->
+        %{manager: manager} = start_group()
+        {_member_id, %{0 => p0}} = join_with([0])
+        FakeConsumer.block_init(self(), {"a", 1})
+
+        {from, hb} = poke(manager)
+        reply_ok(from, hb, 2, assignment([{@id_a, "a", [0, 1]}]))
+        assert_receive {:init_blocked, p1, {"a", 1}}
+
+        ref = Process.monitor(manager)
+        spawn(fn -> GenServer.stop(manager, :shutdown, 10_000) end)
+        Process.sleep(100)
+        send(p1, :release_init)
+        assert_receive {:started, ^p1, {"a", 1}, _}
+
+        # Both are stopped by the manager itself, before its leave (not by
+        # the group supervisor's teardown once the manager is gone).
+        {from, leave} = next_heartbeat()
+        assert leave[:member_epoch] == -1
+        assert_received {:terminated, ^p0, {"a", 0}, :shutdown}
+        assert_received {:terminated, ^p1, {"a", 1}, :shutdown}
+        reply_ok(from, leave, -1)
+        assert_receive {:DOWN, ^ref, :process, ^manager, :shutdown}, 5_000
+      end)
+    end
+  end
+
   # --- consumer exits -----------------------------------------------------------
 
   describe "consumer exits" do
@@ -982,6 +1050,108 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
         assert leave[:member_epoch] == -1
         reply_ok(from, leave, -1)
         assert_receive {:DOWN, ^ref, :process, ^sup, _}, 5_000
+      end)
+    end
+
+    test "restarting a crashed consumer never blocks the manager while the consumer starts" do
+      quiet(fn ->
+        %{manager: manager, sup: sup} = start_group()
+        {_member_id, %{0 => p0}} = join_with([0, 1])
+        FakeConsumer.block_init(self(), {"a", 0})
+        :ok = GenServer.call(p0, {:exit, :boom})
+        assert_receive {:init_blocked, new_p0, {"a", 0}}, 1_000
+
+        # The manager answers calls and heartbeats while the start hangs.
+        assert GenServer.call(manager, :member_epoch, 500) == 1
+        assert ConsumerGroup.assignments(sup) == [{"a", 0}, {"a", 1}]
+        {from, hb} = poke(manager)
+        assert hb[:member_epoch] == 1
+        reply_ok(from, hb, 1)
+
+        send(new_p0, :release_init)
+        assert_receive {:started, ^new_p0, {"a", 0}, opts}
+        assert opts[:member_epoch] == 1
+
+        # The restarted consumer is owned and monitored: a later crash is
+        # restarted again.
+        :ok = GenServer.call(new_p0, {:exit, :boom})
+        assert_receive {:started, third, {"a", 0}, _}, 1_000
+        assert third != new_p0
+      end)
+    end
+
+    test "a partition revoked while its consumer restarts is stopped once the start ends, then reported" do
+      quiet(fn ->
+        %{manager: manager} = start_group()
+        {_member_id, pids} = join_with([0, 1])
+        FakeConsumer.block_init(self(), {"a", 0})
+        :ok = GenServer.call(pids[0], {:exit, :boom})
+        assert_receive {:init_blocked, new_p0, {"a", 0}}, 1_000
+
+        {from, hb} = poke(manager)
+        reply_ok(from, hb, 2, assignment([{@id_a, "a", [1]}]))
+        # Not reported revoked while its consumer may still come up.
+        refute_receive {:heartbeat_call, _, _, _}, 200
+
+        send(new_p0, :release_init)
+        assert_receive {:terminated, ^new_p0, {"a", 0}, :shutdown}, 1_000
+        drain_until_owned([{@id_a, 1}])
+      end)
+    end
+
+    test "a consumer that exits with a terminal error while the assign still starts others stops the member" do
+      quiet(fn ->
+        %{sup: sup, manager: manager} = start_group()
+        ref = Process.monitor(manager)
+        FakeConsumer.block_init(self(), {"a", 1})
+        {from, join} = next_heartbeat()
+        reply_ok(from, join, 1, assignment([{@id_a, "a", [0, 1]}]))
+        assert_receive {:started, p0, {"a", 0}, _}
+        assert_receive {:init_blocked, p1, {"a", 1}}
+        await_owned(manager, p0)
+
+        :ok = GenServer.call(p0, {:exit, {:shutdown, {:terminal_error, :group_authorization_failed}}})
+        send(p1, :release_init)
+
+        assert_receive {:DOWN, ^ref, :process, ^manager, {:shutdown, {:terminal, :group_authorization_failed}}},
+                       5_000
+
+        refute_received {:started, _, {"a", 0}, _}
+        _ = sup
+      end)
+    end
+
+    test "a consumer that stops normally while the assign still starts others is not restarted" do
+      quiet(fn ->
+        %{manager: manager} = start_group()
+        FakeConsumer.block_init(self(), {"a", 1})
+        {from, join} = next_heartbeat()
+        reply_ok(from, join, 1, assignment([{@id_a, "a", [0, 1]}]))
+        assert_receive {:started, p0, {"a", 0}, _}
+        assert_receive {:init_blocked, p1, {"a", 1}}
+        await_owned(manager, p0)
+
+        :ok = GenServer.call(p0, {:exit, :normal})
+        send(p1, :release_init)
+        assert_receive {:started, ^p1, {"a", 1}, _}
+        refute_receive {:started, _, {"a", 0}, _}, 300
+        assert Process.alive?(manager)
+      end)
+    end
+
+    test "a failed epoch push is retried only after :partition_restart_backoff_ms" do
+      quiet(fn ->
+        %{manager: manager} = start_group(partition_restart_backoff_ms: 400, partition_restart_max_backoff_ms: 400)
+        {_member_id, %{0 => p0}} = join_with([0])
+        :ok = GenServer.call(p0, {:fail_update, 1})
+
+        {from, hb} = poke(manager)
+        reply_ok(from, hb, 2)
+        assert_receive {:update_failed, ^p0, {"a", 0}}
+        failed_at = System.monotonic_time(:millisecond)
+
+        assert_receive {:membership, ^p0, {"a", 0}, [member_epoch: 2]}, 2_000
+        assert System.monotonic_time(:millisecond) - failed_at >= 300
       end)
     end
 
@@ -1095,12 +1265,67 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
       end)
     end
 
-    test "a member that never joined sends no leave" do
+    # Java leaveGroup leaves unless FENCED / FATAL: the broker may have
+    # registered the member from a join whose answer never arrived.
+    test "a member stopped while its join is unanswered still leaves (epoch -1, same member id)" do
       %{sup: sup} = start_group()
-      {_from, _join} = next_heartbeat()
+      {_from, join} = next_heartbeat()
+      assert join[:member_epoch] == 0
+
       stop_async(sup)
+      {from, leave} = next_heartbeat()
+      assert leave[:member_epoch] == -1
+      assert leave[:member_id] == join[:member_id]
+      reply_ok(from, leave, -1)
       assert_receive {:sup_down, :shutdown}, 5_000
-      refute_received {:heartbeat_call, _, _, _}
+    end
+
+    test "a static member stopped while joining leaves with -2, so a restart is not rejected" do
+      %{sup: sup} = start_group(group_instance_id: "inst-1")
+      {_from, join} = next_heartbeat()
+      stop_async(sup)
+      {from, leave} = next_heartbeat()
+      assert leave[:member_epoch] == -2
+      assert leave[:member_id] == join[:member_id]
+      assert leave[:instance_id] == "inst-1"
+      reply_ok(from, leave, -2)
+      assert_receive {:sup_down, :shutdown}, 5_000
+    end
+
+    test "a member stopped while rejoining after a fence leaves too" do
+      quiet(fn ->
+        %{manager: manager, sup: sup} = start_group()
+        {member_id, %{0 => p0}} = join_with([0])
+        {from, _} = poke(manager)
+        GenServer.reply(from, {:error, :fenced_member_epoch})
+        assert_receive {:terminated, ^p0, _, {:shutdown, :partition_lost}}
+
+        {_from, rejoin} = next_heartbeat()
+        assert rejoin[:member_epoch] == 0
+        stop_async(sup)
+        {from, leave} = next_heartbeat()
+        assert leave[:member_epoch] == -1
+        assert leave[:member_id] == member_id
+        reply_ok(from, leave, -1)
+        assert_receive {:sup_down, :shutdown}, 5_000
+      end)
+    end
+
+    test "a member stopped while fenced (releasing its partitions) sends no leave, as in Java" do
+      quiet(fn ->
+        %{manager: manager} = start_group()
+        {_member_id, %{0 => p0}} = join_with([0])
+        :ok = GenServer.call(p0, :block_stop)
+        {from, _} = poke(manager)
+        GenServer.reply(from, {:error, :fenced_member_epoch})
+        assert_receive {:stop_blocked, ^p0, _}
+
+        ref = Process.monitor(manager)
+        spawn(fn -> GenServer.stop(manager, :shutdown, 10_000) end)
+        send(p0, :release_stop)
+        assert_receive {:DOWN, ^ref, :process, ^manager, :shutdown}, 5_000
+        refute_received {:heartbeat_call, _, _, _}
+      end)
     end
 
     test "the manager's shutdown covers the consumers' stop and the leave" do
