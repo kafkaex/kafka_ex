@@ -94,10 +94,16 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
       the whole group. `:unsupported_version` and
       `:api_not_supported_by_broker` are logged with a hint to use
       `group_protocol: :classic`: the cluster does not offer the protocol.
-    * A broker that does not advertise ConsumerGroupHeartbeat at all
-      (Kafka < 4.0) is detected before the join: `init/1` stops with
+    * A broker that does not advertise ConsumerGroupHeartbeat v1+
+      (Kafka < 4.0: 3.6 and older lack the API, 3.7-3.9 advertise only the
+      early-access v0) is detected before the join: `init/1` stops with
       `:consumer_group_protocol_not_supported`, so the consumer group fails
-      to start. There is no fallback to the classic protocol (as in Java).
+      to start. A Kafka 4.x broker with the protocol disabled
+      (`group.coordinator.rebalance.protocols` without `consumer`, or the
+      `group.version` feature still at 0, as after an in-place upgrade from
+      3.x) advertises the API, so it is only detected by the join's terminal
+      `:unsupported_version`. There is no fallback to the classic protocol
+      (as in Java).
 
   ## Consumer ownership
 
@@ -309,16 +315,25 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
 
   @protocol Application.compile_env(:kafka_ex, :protocol, KafkaEx.Protocol.KayrockProtocol)
   @heartbeat_api_key @protocol.api_key(:consumer_group_heartbeat)
+  # The first ConsumerGroupHeartbeat version of a GA (Kafka 4.0+) broker.
+  @min_heartbeat_version 1
   # Java AbstractHeartbeatRequestManager.CONSUMER_PROTOCOL_NOT_SUPPORTED_MSG,
   # in KafkaEx terms.
+  # The broker-side prerequisites, as in UPGRADING.md. The broker refuses
+  # ConsumerGroupHeartbeat with UNSUPPORTED_VERSION unless both hold
+  # (KafkaApis.isConsumerGroupProtocolEnabled); group.version stays at 0 on
+  # a cluster upgraded in place from 3.x until it is finalized.
+  @protocol_requirements "Kafka 4.0+ with \"consumer\" in group.coordinator.rebalance.protocols " <>
+                           "and the group.version feature finalized at 1 or higher " <>
+                           "(kafka-features.sh describe / upgrade --feature group.version=1)"
   @protocol_not_supported_msg "the cluster does not support the KIP-848 consumer group protocol " <>
-                                "(Kafka 4.0+ with \"consumer\" in group.coordinator.rebalance.protocols); " <>
+                                "(#{@protocol_requirements}); " <>
                                 "start the group with group_protocol: :classic until the cluster is upgraded"
 
   # The terminal-heartbeat variant: UNSUPPORTED_VERSION also covers a
   # cluster that has the protocol but not the version a feature needs.
   @protocol_maybe_not_supported_msg "the cluster may not support the KIP-848 consumer group protocol " <>
-                                      "(Kafka 4.0+ with \"consumer\" in group.coordinator.rebalance.protocols); " <>
+                                      "(#{@protocol_requirements}); " <>
                                       "if so, start the group with group_protocol: :classic until the cluster is upgraded"
 
   @default_rebalance_timeout_ms 300_000
@@ -517,13 +532,14 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   end
 
   # Fail fast, with no silent fall back to the classic protocol, when the
-  # broker does not advertise ConsumerGroupHeartbeat (Kafka < 4.0): the
+  # broker does not advertise ConsumerGroupHeartbeat v1+ (Kafka < 4.0: 3.6
+  # and older lack the API, 3.7-3.9 advertise only the early-access v0): the
   # group fails to start with :consumer_group_protocol_not_supported. A
   # Kafka 4.x broker with "consumer" missing from
-  # group.coordinator.rebalance.protocols still advertises the API (verified
-  # on 4.4.0) and answers the join with UNSUPPORTED_VERSION, which is
-  # terminal (heartbeat_error/2): the group stops at its first heartbeat, as
-  # Java's does. A probe that itself fails (an error reply, or an exit
+  # group.coordinator.rebalance.protocols, or with the group.version feature
+  # still at 0, still advertises the API (verified on 4.4.0) and answers the
+  # join with UNSUPPORTED_VERSION, which is terminal (heartbeat_error/2): the
+  # group stops at its first heartbeat, as Java's does. A probe that itself fails (an error reply, or an exit
   # because the client call timed out or the client died) decides nothing;
   # the join's own error then does. The probe goes to any broker (as
   # ApiVersions does), so during a rolling broker upgrade from 3.x it can
@@ -531,11 +547,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   # once every broker runs 4.x.
   defp check_broker_support(client, owns_client, group_name) do
     with {:ok, %ApiVersions{} = versions} <- KafkaExAPI.api_versions(client),
-         {:error, :unsupported_api} <- ApiVersions.max_version_for_api(versions, @heartbeat_api_key) do
-      Logger.error(
-        "Consumer group #{inspect(group_name)}: #{@protocol_not_supported_msg} " <>
-          "(the broker does not advertise ConsumerGroupHeartbeat)"
-      )
+         {:unsupported, detail} <- heartbeat_api_support(versions) do
+      Logger.error("Consumer group #{inspect(group_name)}: #{@protocol_not_supported_msg} (#{detail})")
 
       if owns_client, do: stop_client(%State{owns_client: true, client: client})
       {:error, :consumer_group_protocol_not_supported}
@@ -544,6 +557,26 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     end
   catch
     :exit, _ -> :ok
+  end
+
+  # ConsumerGroupHeartbeat v1 (KIP-1082) is the first version a Kafka 4.0+
+  # (GA) broker serves. Kafka 3.7-3.9 shipped the protocol as early access
+  # and advertise v0 only; they are refused here like a broker without the
+  # API, instead of starting and stopping at the first heartbeat (or joining
+  # a pre-GA implementation where it was enabled).
+  defp heartbeat_api_support(versions) do
+    case ApiVersions.max_version_for_api(versions, @heartbeat_api_key) do
+      {:error, :unsupported_api} ->
+        {:unsupported, "the broker does not advertise ConsumerGroupHeartbeat"}
+
+      {:ok, max} when max < @min_heartbeat_version ->
+        {:unsupported,
+         "the broker advertises ConsumerGroupHeartbeat up to v#{max}, the Kafka 3.7-3.9 early access; " <>
+           "v#{@min_heartbeat_version} (Kafka 4.0+) is required"}
+
+      {:ok, _} ->
+        :ok
+    end
   end
 
   # A pre-supplied `:client` (tests) is used as is and never stopped.

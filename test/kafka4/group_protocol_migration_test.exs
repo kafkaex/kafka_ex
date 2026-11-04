@@ -438,3 +438,147 @@ defmodule KafkaEx.Kafka4.GroupProtocolUnsupportedTest do
     GenServer.stop(client)
   end
 end
+
+defmodule KafkaEx.Kafka4.GroupProtocolGroupVersionZeroTest do
+  @moduledoc """
+  `group_protocol: :consumer` against a Kafka 4.4.0 broker that has
+  `consumer` in `group.coordinator.rebalance.protocols` (the default) but
+  the `group.version` feature at 0, the state a cluster upgraded in place
+  from 3.x keeps until the feature is finalized. The broker refuses the
+  protocol (`KafkaApis.isConsumerGroupProtocolEnabled`) with
+  UNSUPPORTED_VERSION while still advertising ConsumerGroupHeartbeat, so the
+  group starts and stops at its join; the logged hint must name
+  `group.version`, the one prerequisite this cluster misses.
+  """
+  use ExUnit.Case, async: false
+
+  @moduletag :kafka4
+  @moduletag timeout: 600_000
+
+  import ExUnit.CaptureLog
+  import KafkaEx.TestHelpers, only: [generate_random_string: 0]
+
+  alias KafkaEx.API
+  alias KafkaEx.Consumer.ConsumerGroup
+  alias KafkaEx.Kafka4TestHelpers
+
+  defmodule NoopConsumer do
+    @moduledoc false
+    use KafkaEx.Consumer.GenConsumer
+    def handle_message_set(_records, state), do: {:async_commit, state}
+  end
+
+  setup_all do
+    {:ok, ctx} = Kafka4TestHelpers.start_kafka()
+    on_exit(fn -> Kafka4TestHelpers.stop_kafka(ctx) end)
+
+    :ok =
+      Kafka4TestHelpers.exec(ctx, [
+        "/opt/kafka/bin/kafka-features.sh",
+        "--bootstrap-server",
+        Kafka4TestHelpers.internal_bootstrap(),
+        "downgrade",
+        "--feature",
+        "group.version=0"
+      ])
+
+    {:ok, ctx}
+  end
+
+  test "the join's terminal :unsupported_version names group.version in its hint", ctx do
+    {:ok, client} = Kafka4TestHelpers.start_client(ctx)
+    topic = "kafka4_gv0_" <> generate_random_string()
+    {:ok, _} = API.create_topic(client, topic, num_partitions: 1, replication_factor: 1)
+    group = "kafka4_gv0_" <> generate_random_string()
+
+    log =
+      capture_log(fn ->
+        # The start-up check passes: the API is still advertised.
+        {:ok, sup} =
+          ConsumerGroup.start_link(NoopConsumer, group, [topic],
+            uris: ctx.uris,
+            use_ssl: false,
+            ssl_options: [],
+            group_protocol: :consumer
+          )
+
+        Process.unlink(sup)
+        ref = Process.monitor(sup)
+        assert_receive {:DOWN, ^ref, :process, ^sup, _reason}, 30_000
+      end)
+
+    assert log =~ "failed with terminal :unsupported_version"
+    assert log =~ "group.version"
+    assert log =~ "group_protocol: :classic"
+    GenServer.stop(client)
+  end
+end
+
+defmodule KafkaEx.Kafka4.GroupProtocolEarlyAccessBrokerTest do
+  @moduledoc """
+  `group_protocol: :consumer` against Apache Kafka 3.9.0, where KIP-848 was
+  early access: the broker advertises ConsumerGroupHeartbeat v0 only. The
+  group must fail to start with `:consumer_group_protocol_not_supported`,
+  as documented for Kafka < 4.0, not start and stop at its first heartbeat.
+  Override the image with `KAFKA3_EARLY_ACCESS_IMAGE`.
+  """
+  use ExUnit.Case, async: false
+
+  @moduletag :kafka4
+  @moduletag timeout: 600_000
+
+  import ExUnit.CaptureLog
+  import KafkaEx.TestHelpers, only: [generate_random_string: 0]
+
+  alias KafkaEx.API
+  alias KafkaEx.Consumer.ConsumerGroup
+  alias KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager
+  alias KafkaEx.Kafka4TestHelpers
+  alias KafkaEx.Messages.ApiVersions
+
+  defmodule NoopConsumer do
+    @moduledoc false
+    use KafkaEx.Consumer.GenConsumer
+    def handle_message_set(_records, state), do: {:async_commit, state}
+  end
+
+  setup_all do
+    image = System.get_env("KAFKA3_EARLY_ACCESS_IMAGE", "apache/kafka:3.9.0")
+    # Kafka 3.9 also advertises the controller listener and refuses
+    # 0.0.0.0 there, so bind the controller to localhost.
+    listeners = "PLAINTEXT://0.0.0.0:9092,BROKER://0.0.0.0:19092,CONTROLLER://localhost:9093"
+    {:ok, ctx} = Kafka4TestHelpers.start_kafka(image: image, env: [{"KAFKA_LISTENERS", listeners}])
+    on_exit(fn -> Kafka4TestHelpers.stop_kafka(ctx) end)
+    {:ok, ctx}
+  end
+
+  test "start_link returns :consumer_group_protocol_not_supported, no join", ctx do
+    {:ok, client} = Kafka4TestHelpers.start_client(ctx)
+    topic = "kafka3_ea_" <> generate_random_string()
+    {:ok, _} = API.create_topic(client, topic, num_partitions: 1, replication_factor: 1)
+    group = "kafka3_ea_" <> generate_random_string()
+
+    # The broker advertises the early-access v0 only.
+    {:ok, versions} = API.api_versions(client)
+    assert {:ok, 0} = ApiVersions.max_version_for_api(versions, 68)
+
+    Process.flag(:trap_exit, true)
+
+    log =
+      capture_log(fn ->
+        assert {:error,
+                {:shutdown, {:failed_to_start_child, ConsumerProtocolManager, :consumer_group_protocol_not_supported}}} =
+                 ConsumerGroup.start_link(NoopConsumer, group, [topic],
+                   uris: ctx.uris,
+                   use_ssl: false,
+                   ssl_options: [],
+                   group_protocol: :consumer
+                 )
+      end)
+
+    assert log =~ "advertises ConsumerGroupHeartbeat up to v0"
+    assert log =~ "group_protocol: :classic"
+    refute log =~ "failed with terminal"
+    GenServer.stop(client)
+  end
+end

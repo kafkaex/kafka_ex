@@ -91,10 +91,14 @@
   a `:consumer` group's consumers. `:rack_id` is optional (default `nil`, no rack id sent). A
   `:consumer` group fails fast, never falling back to `:classic`, on a cluster without the
   protocol: it does not start (`:consumer_group_protocol_not_supported`) when the broker does not
-  advertise ConsumerGroupHeartbeat, and stops at its first heartbeat with a terminal
-  `:unsupported_version` when the broker advertises it but has the protocol disabled. Both log
-  that `group_protocol: :classic` should be used until the cluster is upgraded (Java's
-  `CONSUMER_PROTOCOL_NOT_SUPPORTED_MSG`). New `ConsumerGroup.group_protocol/1`. README section
+  advertise ConsumerGroupHeartbeat v1+ (Kafka < 4.0, including the 3.7-3.9 early access, which
+  advertises only v0), and stops at its first heartbeat with a terminal `:unsupported_version`
+  when a 4.x broker has the protocol disabled (`consumer` missing from
+  `group.coordinator.rebalance.protocols`, or the `group.version` feature not finalized at 1+, as
+  after an in-place upgrade from 3.x). Both log that `group_protocol: :classic` should be used
+  until the cluster is upgraded (Java's `CONSUMER_PROTOCOL_NOT_SUPPORTED_MSG`) and name the
+  broker-side prerequisites, `group.version` included. `t:ConsumerGroup.option/0` types every
+  documented `start_link/4` option. New `ConsumerGroup.group_protocol/1`. README section
   "Next-generation consumer groups (KIP-848)" and an UPGRADING guide to the in-place rolling
   migration from `:classic`. `mix test.kafka4` covers a classic and a `:consumer` member sharing
   a group on Kafka 4.4.0, then the classic one leaving, without lost records; the `:consumer`

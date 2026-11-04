@@ -189,8 +189,11 @@ KafkaEx.Consumer.ConsumerGroup.start_link(MyApp.Consumer, "g", ["t"],
 # WRONG - invalid value: returns {:error, {:invalid_option, :invalid_group_protocol}}
 KafkaEx.Consumer.ConsumerGroup.start_link(MyApp.Consumer, "g", ["t"], group_protocol: "consumer")
 
-# WRONG - expecting a fallback: on a cluster without the protocol (Kafka < 4.0) a
-# :consumer group fails fast; it never silently uses :classic
+# WRONG - expecting a fallback: on a cluster without the protocol a :consumer group
+# fails fast; it never silently uses :classic. Kafka < 4.0 (including the 3.7-3.9
+# early access) fails the start with :consumer_group_protocol_not_supported; Kafka
+# 4.x with the protocol disabled (or group.version at 0) stops at the first
+# heartbeat with a terminal :unsupported_version
 ```
 
 - `ConsumerGroup.generation_id/1` returns the member epoch for a `:consumer`
@@ -435,7 +438,7 @@ KafkaEx emits telemetry events for observability:
 
 - **Minimum Kafka:** 0.10.0+
 - **Recommended Kafka:** 0.11.0+ (for headers, timestamps, RecordBatch format)
-- **`group_protocol: :consumer` (KIP-848):** Kafka 4.0+
+- **`group_protocol: :consumer` (KIP-848):** Kafka 4.0+, with `consumer` in `group.coordinator.rebalance.protocols` and `group.version` finalized at 1+
 - **Elixir:** 1.14+
 - **Erlang OTP:** 24+
 

@@ -75,6 +75,46 @@ defmodule KafkaEx.Kafka4TestHelpers do
   def stop_kafka(_), do: :ok
 
   @doc """
+  Runs `command` (an argv list) in the broker container and waits for it.
+  Returns `:ok` on exit code 0, `{:error, {:exit_code, code}}` otherwise.
+  The broker's inter-broker listener is reachable from inside the container
+  at `internal_bootstrap/0`.
+  """
+  @spec exec(map(), [String.t()], non_neg_integer()) :: :ok | {:error, term()}
+  def exec(%{container: container}, command, timeout_ms \\ 60_000) do
+    {conn, _url, _host} = Testcontainers.Connection.get_connection([])
+
+    with {:ok, exec_id} <- Docker.Api.start_exec(container.container_id, command, conn) do
+      wait_exec(exec_id, conn, System.monotonic_time(:millisecond) + timeout_ms)
+    end
+  end
+
+  @doc "Bootstrap address of the broker from inside its own container."
+  @spec internal_bootstrap() :: String.t()
+  def internal_bootstrap, do: "kafka4:#{@internal_port}"
+
+  defp wait_exec(exec_id, conn, deadline) do
+    case Docker.Api.inspect_exec(exec_id, conn) do
+      {:ok, %{running: false, exit_code: 0}} ->
+        :ok
+
+      {:ok, %{running: false, exit_code: code}} ->
+        {:error, {:exit_code, code}}
+
+      {:ok, %{running: true}} ->
+        if System.monotonic_time(:millisecond) > deadline do
+          {:error, :timeout}
+        else
+          Process.sleep(200)
+          wait_exec(exec_id, conn, deadline)
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
   Starts an unnamed `KafkaEx.Client` connected to the Kafka 4 broker.
   """
   @spec start_client(map(), Keyword.t()) :: GenServer.on_start()
