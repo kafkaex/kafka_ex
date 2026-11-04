@@ -93,7 +93,11 @@
   `:unknown_member_id` releases its partitions without committing and rejoins with epoch 0;
   retries `:topic_authorization_failed` without leaving the group (as Java does); stops on
   terminal errors; leaves with epoch `-1` (`-2`
-  for a static member) after stopping its consumers. Options: `:server_assignor`,
+  for a static member) after stopping its consumers, also when stopped while still joining or
+  rejoining (the broker may already have registered the member: as in Java, only a fenced or
+  failed member skips the leave). Consumer starts, restarts included, run off the manager's
+  process, so a slow start (the consumer's own client connecting) never delays heartbeats, and
+  each consumer is monitored as soon as it starts, so an early exit keeps its reason. Options: `:server_assignor`,
   `:rebalance_timeout_ms`, `:subscribed_topic_regex`, `:group_instance_id`, and an optional
   `:rack_id` (rack awareness is off by default: with `nil` no rack id is sent).
 * **Telemetry**: `[:kafka_ex, :consumer, :member_joined]`, `[:kafka_ex, :consumer, :reconcile]`
