@@ -83,7 +83,7 @@ defmodule KafkaEx.Chaos.ConsumerProtocolManagerTest do
     opts =
       Keyword.merge(
         [
-          __consumer_protocol_manager__: true,
+          group_protocol: :consumer,
           uris: [{host, port}],
           use_ssl: false,
           ssl_options: [],

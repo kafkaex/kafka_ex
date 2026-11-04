@@ -88,6 +88,43 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
   connected (i.e., using distributed Erlang methods).  The coordination of
   group consumers is mediated by the broker.
 
+  ## Group protocols
+
+  The `:group_protocol` option selects how the group is coordinated:
+
+    * `:classic` (the default, unchanged) - the protocol described above:
+      JoinGroup/SyncGroup, a client-side assignor run by the leader, and a
+      stop-the-world rebalance whenever membership changes. Works with every
+      supported Kafka version.
+    * `:consumer` - the KIP-848 consumer group protocol (Kafka 4.0+). The
+      broker computes the assignment (`:server_assignor`) and each member
+      reconciles it incrementally: only the consumers of partitions that
+      move are stopped or started, the others keep consuming. The heartbeat
+      interval and session timeout are set by the broker
+      (`group.consumer.heartbeat.interval.ms`,
+      `group.consumer.session.timeout.ms`). See
+      `KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager`.
+
+  ```
+  KafkaEx.Consumer.ConsumerGroup.start_link(ExampleGenConsumer, "example_group", ["example_topic"],
+    group_protocol: :consumer,
+    server_assignor: "uniform"
+  )
+  ```
+
+  With `group_protocol: :consumer` against a cluster that does not offer the
+  protocol (Kafka < 4.0, or `group.coordinator.rebalance.protocols` without
+  `consumer`) the group fails to start with
+  `:consumer_group_protocol_not_supported`; there is no fallback to
+  `:classic`.
+
+  A group can be migrated in place from `:classic` to `:consumer` by a
+  rolling restart on Kafka 4.x: classic and consumer members coexist in the
+  same group during the roll. See the UPGRADING guide.
+
+  `generation_id/2` returns the member epoch, and `leader_id/2` / `leader?/2`
+  `nil` / `false`, for a `:consumer` group: it has no generation or leader.
+
   See `start_link/4` for configuration details.
   """
 
@@ -97,8 +134,64 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
   alias KafkaEx.Consumer.ConsumerGroup.PartitionAssignment
   alias KafkaEx.Consumer.GenConsumer
 
+  require Logger
+
+  @group_protocols [:classic, :consumer]
+  @default_group_protocol :classic
+
+  # Options only the classic Manager reads (JoinGroup/SyncGroup timing, the
+  # client-side assignor and its retry/crash-loop tuning).
+  @classic_only_options [
+    :heartbeat_interval,
+    :session_timeout,
+    :session_timeout_padding,
+    :rebalance_timeout,
+    :partition_assignment_callback,
+    :sync_retry_backoff_ms,
+    :join_retry_base_delay_ms,
+    :join_retry_max_delay_ms,
+    :crash_rejoin_max_jitter_ms,
+    :crash_rejoin_max_restarts,
+    :crash_rejoin_window_ms
+  ]
+
+  # Options only ConsumerProtocolManager reads.
+  @consumer_only_options [
+    :server_assignor,
+    :rack_id,
+    :subscribed_topic_regex,
+    :rebalance_timeout_ms,
+    :heartbeat_retry_backoff_ms,
+    :heartbeat_retry_max_backoff_ms,
+    :partition_restart_backoff_ms,
+    :partition_restart_max_backoff_ms,
+    :topic_resolution_backoff_ms,
+    :topic_resolution_max_backoff_ms,
+    :leave_timeout_ms,
+    :membership_update_timeout_ms
+  ]
+
+  @typedoc """
+  The group protocol a consumer group uses (`:group_protocol` option):
+
+    * `:classic` (the default) - JoinGroup/SyncGroup with a client-side
+      assignor, `KafkaEx.Consumer.ConsumerGroup.Manager`; works with every
+      supported Kafka version
+    * `:consumer` - the KIP-848 consumer group protocol (Kafka 4.0+), driven
+      by `KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager`
+  """
+  @type group_protocol :: :classic | :consumer
+
   @typedoc """
   Option values used when starting a consumer group
+
+  * `:group_protocol` - `:classic` (default) or `:consumer` (KIP-848, Kafka
+     4.0+). See "Group protocols" in the module documentation. Any other
+     value makes `start_link/4` return
+     `{:error, {:invalid_option, :invalid_group_protocol}}`.
+
+  Options of the classic protocol only (ignored, with a warning, under
+  `group_protocol: :consumer`, where the broker controls them):
 
   * `:heartbeat_interval` - How frequently, in milliseconds, to send heartbeats
      to the broker.  This impacts how quickly we will process partition
@@ -107,14 +200,40 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
      Default: 45000 (45 seconds).  See below.
   * `:session_timeout_padding` - Timeout padding for consumer group options.
      Default: 10000 (10 seconds).  See below.
+  * `:rebalance_timeout` - see `KafkaEx.Consumer.ConsumerGroup.Manager`
+  * `:partition_assignment_callback` - See
+     `t:KafkaEx.Consumer.ConsumerGroup.PartitionAssignment.callback/0`
+  * `:sync_retry_backoff_ms`, `:join_retry_base_delay_ms`,
+     `:join_retry_max_delay_ms`, `:crash_rejoin_max_jitter_ms`,
+     `:crash_rejoin_max_restarts`, `:crash_rejoin_window_ms` - see
+     `KafkaEx.Consumer.ConsumerGroup.Manager`
+
+  Options of the consumer protocol only (ignored, with a warning, under
+  `group_protocol: :classic`); see
+  `KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager` for all of them:
+
+  * `:server_assignor` - server-side assignor (`"uniform"` or `"range"`);
+     default `nil`, the broker's default
+  * `:rebalance_timeout_ms` - how long the broker waits for this member to
+     revoke partitions; default 300000 (5 minutes)
+  * `:subscribed_topic_regex` - subscribe by regular expression (RE2/J)
+  * `:rack_id` - **optional** rack id for rack-aware assignment; default
+     `nil` (no rack id is sent)
+  * `:heartbeat_retry_backoff_ms`, `:heartbeat_retry_max_backoff_ms`,
+     `:partition_restart_backoff_ms`, `:partition_restart_max_backoff_ms`,
+     `:topic_resolution_backoff_ms`, `:topic_resolution_max_backoff_ms`,
+     `:leave_timeout_ms`, `:membership_update_timeout_ms`
+
+  Options of both protocols:
+
+  * `:group_instance_id` - static membership instance id (KIP-345); default
+     `nil`
   * Any of `t:KafkaEx.GenConsumer.option/0`,
      which will be passed on to consumers
   * `:gen_server_opts` - `t:GenServer.options/0` passed on to the manager
      GenServer
   * `:name` - Name for the consumer group supervisor
   * `:max_restarts`, `:max_seconds` - Supervisor restart policy parameters
-  * `:partition_assignment_callback` - See
-     `t:KafkaEx.Consumer.ConsumerGroup.PartitionAssignment.callback/0`
   * `:uris` - List of Kafka broker URIs in `{"host", port}` format
 
   Note `:session_timeout` is registered with the broker and determines how long
@@ -138,6 +257,11 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
           | {:max_seconds, non_neg_integer}
           | {:uris, KafkaEx.uri()}
           | {:group_instance_id, binary | nil}
+          | {:group_protocol, group_protocol}
+          | {:server_assignor, binary | nil}
+          | {:rebalance_timeout_ms, pos_integer}
+          | {:subscribed_topic_regex, binary | nil}
+          | {:rack_id, binary | nil}
 
   @type options :: [option]
 
@@ -177,7 +301,13 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
 
   ### Return Values
 
-  This function has the same return values as `Supervisor.start_link/3`.
+  This function has the same return values as `Supervisor.start_link/3`, and
+  `{:error, {:invalid_option, :invalid_group_protocol}}` for a
+  `:group_protocol` other than `:classic` / `:consumer`. Options the selected
+  protocol does not use are logged in a single warning and ignored. With
+  `group_protocol: :consumer`, a cluster without the consumer group protocol
+  makes it return
+  `{:error, {:shutdown, {:failed_to_start_child, ConsumerProtocolManager, :consumer_group_protocol_not_supported}}}`.
   """
   @spec start_link(module | {module, module}, binary, [binary], options) ::
           Supervisor.on_start()
@@ -194,14 +324,32 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
         topics,
         opts
       ) do
-    {supervisor_opts, module_opts} =
-      Keyword.split(opts, [:name, :strategy, :max_restarts, :max_seconds])
+    case validate_group_protocol(opts) do
+      :ok ->
+        {supervisor_opts, module_opts} =
+          Keyword.split(opts, [:name, :strategy, :max_restarts, :max_seconds])
 
-    Supervisor.start_link(
-      __MODULE__,
-      {{gen_consumer_module, consumer_module}, group_name, topics, module_opts},
-      supervisor_opts
-    )
+        Supervisor.start_link(
+          __MODULE__,
+          {{gen_consumer_module, consumer_module}, group_name, topics, module_opts},
+          supervisor_opts
+        )
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  @doc """
+  Returns the group protocol of a consumer group started with `start_link/4`:
+  `:classic` or `:consumer`.
+  """
+  @spec group_protocol(Supervisor.supervisor()) :: group_protocol
+  def group_protocol(supervisor_pid) do
+    case get_manager_module(supervisor_pid) do
+      ConsumerProtocolManager -> :consumer
+      _ -> :classic
+    end
   end
 
   @doc """
@@ -330,12 +478,11 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
   @spec get_manager_pid(Supervisor.supervisor()) :: pid
   def get_manager_pid(supervisor_pid) do
     supervisor_pid
-    |> Supervisor.which_children()
-    |> Enum.find_value(fn
-      {KafkaEx.Consumer.ConsumerGroup.Manager, pid, _, _} -> pid
-      {ConsumerProtocolManager, pid, _, _} -> pid
-      _ -> nil
-    end)
+    |> find_manager_child()
+    |> case do
+      {_module, pid} -> pid
+      nil -> nil
+    end
     |> case do
       nil -> raise ArgumentError, "Manager process not found in supervisor #{inspect(supervisor_pid)}"
       :restarting -> raise ArgumentError, "Manager process is restarting"
@@ -388,23 +535,25 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
 
   @doc false
   def init({{gen_consumer_module, consumer_module}, group_name, topics, opts}) do
-    # Internal (not yet a public option): run the KIP-848 member state
-    # machine instead of the classic Manager.
-    {protocol_manager?, opts} = Keyword.pop(opts, :__consumer_protocol_manager__, false)
+    {group_protocol, opts} = Keyword.pop(opts, :group_protocol, @default_group_protocol)
+    warn_ignored_options(group_protocol, group_name, opts)
     opts = Keyword.put(opts, :supervisor_pid, self())
     args = {{gen_consumer_module, consumer_module}, group_name, topics, opts}
 
     children =
-      if protocol_manager? do
-        [ConsumerProtocolManager.child_spec(args)]
-      else
-        [
+      case group_protocol do
+        :consumer ->
+          # The ignored classic options are dropped so they do not reach the
+          # per-partition consumers' options either.
+          args = {{gen_consumer_module, consumer_module}, group_name, topics, Keyword.drop(opts, @classic_only_options)}
+          [ConsumerProtocolManager.child_spec(args)]
+
+        :classic ->
           # Give the Manager more than the default 5s shutdown so terminate/2 can send
           # LeaveGroup on a graceful stop (LeaveGroup's per-attempt recv is up to
           # :request_timeout). A stop that lands mid-rebalance can still exceed this —
           # the full fix (non-blocking join) is a tracked follow-up; see UPGRADING.
-          Supervisor.child_spec({KafkaEx.Consumer.ConsumerGroup.Manager, args}, shutdown: 25_000)
-        ]
+          [Supervisor.child_spec({KafkaEx.Consumer.ConsumerGroup.Manager, args}, shutdown: 25_000)]
       end
 
     Supervisor.init(children,
@@ -412,6 +561,65 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
       max_restarts: 0,
       max_seconds: 1
     )
+  end
+
+  defp validate_group_protocol(opts) do
+    case Keyword.get(opts, :group_protocol, @default_group_protocol) do
+      protocol when protocol in @group_protocols ->
+        :ok
+
+      other ->
+        Logger.error(
+          "Invalid :group_protocol #{inspect(other)} for a consumer group; expected one of " <>
+            inspect(@group_protocols)
+        )
+
+        {:error, {:invalid_option, :invalid_group_protocol}}
+    end
+  end
+
+  # One warning per group start, listing every given option the selected
+  # protocol does not use. Only per-group options are checked: application
+  # config is shared by every group, of either protocol.
+  defp warn_ignored_options(group_protocol, group_name, opts) do
+    {ignored, reason} =
+      case group_protocol do
+        :consumer ->
+          {@classic_only_options,
+           "they only apply to group_protocol: :classic (with :consumer the broker sets the heartbeat interval " <>
+             "and session timeout, and assigns partitions; use :rebalance_timeout_ms instead of :rebalance_timeout)"}
+
+        :classic ->
+          {@consumer_only_options, "they only apply to group_protocol: :consumer"}
+      end
+
+    case opts |> Keyword.keys() |> Enum.filter(&(&1 in ignored)) |> Enum.uniq() do
+      [] ->
+        :ok
+
+      keys ->
+        Logger.warning(
+          "Consumer group #{inspect(group_name)} (group_protocol: #{inspect(group_protocol)}) ignores the options " <>
+            "#{inspect(keys)}: #{reason}"
+        )
+    end
+  end
+
+  defp find_manager_child(supervisor_pid) do
+    supervisor_pid
+    |> Supervisor.which_children()
+    |> Enum.find_value(fn
+      {KafkaEx.Consumer.ConsumerGroup.Manager = module, pid, _, _} -> {module, pid}
+      {ConsumerProtocolManager = module, pid, _, _} -> {module, pid}
+      _ -> nil
+    end)
+  end
+
+  defp get_manager_module(supervisor_pid) do
+    case find_manager_child(supervisor_pid) do
+      {module, _pid} -> module
+      nil -> raise ArgumentError, "Manager process not found in supervisor #{inspect(supervisor_pid)}"
+    end
   end
 
   defp call_manager(supervisor_pid, call, timeout) do

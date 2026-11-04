@@ -8,6 +8,7 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
   alias KafkaEx.Client.Error
   alias KafkaEx.Protocol.Kayrock, as: KayrockProtocol
   alias KafkaEx.Protocol.Kayrock.ConsumerGroupHeartbeat.RequestHelpers, as: ConsumerGroupHeartbeatRequestHelpers
+  alias KafkaEx.Protocol.Kayrock.SyncGroup.ResponseDeserializer, as: SyncGroupResponseDeserializer
 
   alias Kayrock.ApiVersions
   alias Kayrock.ConsumerGroupDescribe
@@ -352,7 +353,7 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
              Kayrock.SyncGroup.V3.Request,
              Kayrock.SyncGroup.V4.Request
            ],
-      do: KayrockProtocol.SyncGroup.ResponseDeserializer.for_request(sync_group)
+      do: SyncGroupResponseDeserializer.for_request(sync_group)
 
   def response_deserializer(request), do: Request.response_deserializer(request)
 end
