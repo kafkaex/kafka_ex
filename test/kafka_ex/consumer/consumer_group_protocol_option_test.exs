@@ -58,6 +58,12 @@ defmodule KafkaEx.Consumer.ConsumerGroupProtocolOptionTest do
     {:ok, %ApiVersions{api_versions: Map.new(keys, &{&1, %{min_version: 0, max_version: 1}})}}
   end
 
+  # Kafka 3.7-3.9 (KIP-848 early access): ConsumerGroupHeartbeat v0 only.
+  defp with_early_access_heartbeat_api do
+    {:ok, %ApiVersions{api_versions: versions}} = with_heartbeat_api()
+    {:ok, %ApiVersions{api_versions: Map.put(versions, @heartbeat_api_key, %{min_version: 0, max_version: 0})}}
+  end
+
   defp with_heartbeat_api, do: api_versions([3, 8, 9, 10, @heartbeat_api_key])
   defp without_heartbeat_api, do: api_versions([3, 8, 9, 10, 11, 12, 13, 14])
 
@@ -299,6 +305,33 @@ defmodule KafkaEx.Consumer.ConsumerGroupProtocolOptionTest do
       assert Process.alive?(client)
     end
 
+    test "a Kafka 3.7-3.9 broker (early-access ConsumerGroupHeartbeat v0 only) fails the start" do
+      Process.flag(:trap_exit, true)
+      client = start_stub(with_early_access_heartbeat_api())
+
+      log =
+        capture_log(fn ->
+          assert {:error,
+                  {:shutdown, {:failed_to_start_child, ConsumerProtocolManager, :consumer_group_protocol_not_supported}}} =
+                   start_group(client: client, group_protocol: :consumer)
+        end)
+
+      assert log =~ "does not support the KIP-848 consumer group protocol"
+      assert log =~ "advertises ConsumerGroupHeartbeat up to v0"
+      assert log =~ "group_protocol: :classic"
+      refute_received {:heartbeat_call, _, _, _}
+    end
+
+    test "the not-supported hint names every broker-side prerequisite, group.version included" do
+      Process.flag(:trap_exit, true)
+      client = start_stub(without_heartbeat_api())
+
+      log = capture_log(fn -> {:error, _} = start_group(client: client, group_protocol: :consumer) end)
+
+      assert log =~ "group.coordinator.rebalance.protocols"
+      assert log =~ "group.version"
+    end
+
     test "an ApiVersions probe that fails decides nothing: the join's own error is terminal" do
       client = start_stub({:error, :timeout})
 
@@ -341,6 +374,72 @@ defmodule KafkaEx.Consumer.ConsumerGroupProtocolOptionTest do
 
       assert log =~ "may not support the KIP-848 consumer group protocol"
       assert log =~ "group_protocol: :classic"
+      # A 4.x cluster upgraded in place from 3.x keeps group.version at 0 and
+      # answers the join this way although the protocol is configured.
+      assert log =~ "group.version"
+      assert log =~ "kafka-features.sh"
     end
   end
+
+  describe "t:KafkaEx.Consumer.ConsumerGroup.option/0" do
+    # Every option documented for start_link/4 that only one protocol reads
+    # (ConsumerGroup's @classic_only_options / @consumer_only_options).
+    @protocol_only_options [
+      :heartbeat_interval,
+      :session_timeout,
+      :session_timeout_padding,
+      :rebalance_timeout,
+      :partition_assignment_callback,
+      :sync_retry_backoff_ms,
+      :join_retry_base_delay_ms,
+      :join_retry_max_delay_ms,
+      :crash_rejoin_max_jitter_ms,
+      :crash_rejoin_max_restarts,
+      :crash_rejoin_window_ms,
+      :server_assignor,
+      :rack_id,
+      :subscribed_topic_regex,
+      :rebalance_timeout_ms,
+      :heartbeat_retry_backoff_ms,
+      :heartbeat_retry_max_backoff_ms,
+      :partition_restart_backoff_ms,
+      :partition_restart_max_backoff_ms,
+      :topic_resolution_backoff_ms,
+      :topic_resolution_max_backoff_ms,
+      :leave_timeout_ms,
+      :membership_update_timeout_ms
+    ]
+
+    test "types every documented start_link/4 option" do
+      {:ok, types} = Code.Typespec.fetch_types(ConsumerGroup)
+      [option] = for {:type, {:option, _, []} = type} <- types, do: type
+      typed = option |> Code.Typespec.type_to_quoted() |> option_keys()
+
+      assert @protocol_only_options -- typed == []
+      assert :group_protocol in typed and :group_instance_id in typed
+    end
+
+    test "the option list above matches the ignored-option warnings" do
+      # Each of these options is warned about under exactly one protocol.
+      log =
+        capture_log(fn ->
+          for protocol <- [:classic, :consumer] do
+            opts = [{:group_protocol, protocol} | Enum.map(@protocol_only_options, &{&1, nil})]
+            ConsumerGroup.init({{KafkaEx.Consumer.GenConsumer, NoopConsumer}, @group, ["topic"], opts})
+          end
+        end)
+
+      warned =
+        ~r/ignores the options (\[[^\]]*\])/
+        |> Regex.scan(log)
+        |> Enum.flat_map(fn [_, list] -> list |> Code.eval_string() |> elem(0) end)
+
+      assert Enum.sort(warned) == Enum.sort(@protocol_only_options)
+    end
+  end
+
+  defp option_keys({:"::", _, [_name, body]}), do: option_keys(body)
+  defp option_keys({:|, _, [left, right]}), do: option_keys(left) ++ option_keys(right)
+  defp option_keys({:{}, _, [key, _value]}) when is_atom(key), do: [key]
+  defp option_keys(_other), do: []
 end

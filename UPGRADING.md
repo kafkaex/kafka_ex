@@ -14,6 +14,12 @@ section "Next-generation consumer groups (KIP-848)".
 - Every broker runs **Kafka 4.0 or later**, with `consumer` in
   `group.coordinator.rebalance.protocols` (the 4.x default is
   `classic,consumer`).
+- The `group.version` feature is finalized at **1 or higher**. A cluster
+  created on 4.x has it; one upgraded in place from 3.x keeps level 0 until
+  it is finalized, and the broker then refuses the protocol. Check with
+  `kafka-features.sh --bootstrap-server ... describe` and finalize with
+  `kafka-features.sh --bootstrap-server ... upgrade --feature group.version=1`
+  (or `upgrade --release-version 4.x`).
 - `group.consumer.migration.policy` allows the upgrade: `bidirectional`
   (the 4.x default) or `upgrade`. With `disabled` (or `downgrade`) a
   `:consumer` member cannot join a group that still has classic members.
@@ -25,9 +31,12 @@ section "Next-generation consumer groups (KIP-848)".
 
 A `:consumer` group against a cluster that does not offer the protocol
 fails fast, never silently using `:classic`. If the broker does not
-advertise ConsumerGroupHeartbeat (Kafka < 4.0), the group does not start
-(`:consumer_group_protocol_not_supported`). If it advertises the API but has
-the protocol disabled, the group stops at its first heartbeat with a
+advertise ConsumerGroupHeartbeat v1+ (Kafka < 4.0: 3.6 and older lack the
+API, 3.7-3.9 advertise only the early-access v0), the group does not start
+(`:consumer_group_protocol_not_supported`). If a 4.x broker has the
+protocol disabled (`consumer` missing from
+`group.coordinator.rebalance.protocols`, or `group.version` at 0), it still
+advertises the API: the group starts and stops at its first heartbeat with a
 terminal `:unsupported_version`. Both log a message that says to use
 `group_protocol: :classic` until the cluster is upgraded.
 The start-up check asks any one broker, so finish a rolling broker

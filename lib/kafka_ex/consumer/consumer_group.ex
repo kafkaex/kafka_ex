@@ -112,11 +112,14 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
   )
   ```
 
-  With `group_protocol: :consumer` against a cluster that does not offer the
-  protocol (Kafka < 4.0, or `group.coordinator.rebalance.protocols` without
-  `consumer`) the group fails to start with
-  `:consumer_group_protocol_not_supported`; there is no fallback to
-  `:classic`.
+  With `group_protocol: :consumer` there is no fallback to `:classic` on a
+  cluster that does not offer the protocol. Against Kafka < 4.0 (no
+  ConsumerGroupHeartbeat, or only the 3.7-3.9 early-access v0) the group
+  fails to start with `:consumer_group_protocol_not_supported`. Against
+  Kafka 4.x with the protocol disabled (`group.coordinator.rebalance.protocols`
+  without `consumer`, or the `group.version` feature not finalized at 1 or
+  higher, as after an in-place upgrade from 3.x) the group starts and stops
+  at its first heartbeat with a terminal `:unsupported_version`.
 
   A group can be migrated in place from `:classic` to `:consumer` by a
   rolling restart on Kafka 4.x: classic and consumer members coexist in the
@@ -262,6 +265,21 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
           | {:rebalance_timeout_ms, pos_integer}
           | {:subscribed_topic_regex, binary | nil}
           | {:rack_id, binary | nil}
+          | {:rebalance_timeout, pos_integer}
+          | {:sync_retry_backoff_ms, non_neg_integer}
+          | {:join_retry_base_delay_ms, non_neg_integer}
+          | {:join_retry_max_delay_ms, non_neg_integer}
+          | {:crash_rejoin_max_jitter_ms, non_neg_integer}
+          | {:crash_rejoin_max_restarts, non_neg_integer | :infinity}
+          | {:crash_rejoin_window_ms, non_neg_integer}
+          | {:heartbeat_retry_backoff_ms, non_neg_integer}
+          | {:heartbeat_retry_max_backoff_ms, non_neg_integer}
+          | {:partition_restart_backoff_ms, non_neg_integer}
+          | {:partition_restart_max_backoff_ms, non_neg_integer}
+          | {:topic_resolution_backoff_ms, non_neg_integer}
+          | {:topic_resolution_max_backoff_ms, non_neg_integer}
+          | {:leave_timeout_ms, non_neg_integer}
+          | {:membership_update_timeout_ms, non_neg_integer}
 
   @type options :: [option]
 
@@ -305,9 +323,13 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
   `{:error, {:invalid_option, :invalid_group_protocol}}` for a
   `:group_protocol` other than `:classic` / `:consumer`. Options the selected
   protocol does not use are logged in a single warning and ignored. With
-  `group_protocol: :consumer`, a cluster without the consumer group protocol
-  makes it return
+  `group_protocol: :consumer`, a broker on Kafka < 4.0 (one that does not
+  advertise ConsumerGroupHeartbeat v1+, including the 3.7-3.9 early-access
+  v0) makes it return
   `{:error, {:shutdown, {:failed_to_start_child, ConsumerProtocolManager, :consumer_group_protocol_not_supported}}}`.
+  A Kafka 4.x cluster with the protocol disabled is only detected at the
+  first heartbeat: `start_link/4` returns `{:ok, pid}` and the group then
+  stops with a terminal `:unsupported_version`.
   """
   @spec start_link(module | {module, module}, binary, [binary], options) ::
           Supervisor.on_start()

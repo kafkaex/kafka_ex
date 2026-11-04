@@ -428,12 +428,15 @@ Options that the selected protocol does not use are ignored, and listed in
 **a single warning** at start; the group still starts. More tuning options
 are documented in `KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager`.
 
-**Unsupported cluster.** Against a cluster without the protocol (Kafka
-< 4.0, or `group.coordinator.rebalance.protocols` without `consumer`) a
-`:consumer` group fails fast with a clear error: either at start
-(`:consumer_group_protocol_not_supported`, when the broker does not offer
-ConsumerGroupHeartbeat at all) or at its first heartbeat (a terminal
-`:unsupported_version`). There is no silent fallback to `:classic`; this
+**Unsupported cluster.** The protocol needs Kafka 4.0+ with `consumer` in
+`group.coordinator.rebalance.protocols` and the `group.version` feature
+finalized at 1 or higher (a cluster upgraded in place from 3.x keeps 0 until
+`kafka-features.sh upgrade --feature group.version=1`). Against a cluster
+without it a `:consumer` group fails fast with a clear error: at start
+(`:consumer_group_protocol_not_supported`) on Kafka < 4.0, whose brokers do
+not offer ConsumerGroupHeartbeat v1+ (3.7-3.9 advertise only the
+early-access v0), or at its first heartbeat (a terminal
+`:unsupported_version`) on Kafka 4.x with the protocol disabled. There is no silent fallback to `:classic`; this
 matches the Java client.
 
 **Migrating an existing group.** A classic group can be moved to
