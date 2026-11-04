@@ -121,7 +121,9 @@
   consumer is restarted with a backoff that doubles across crashes, including starts that fail
   (reset after a minute of uptime), and also when its partition briefly leaves the target and
   comes back while a revoke runs. Options: `:server_assignor`,
-  `:rebalance_timeout_ms`, `:subscribed_topic_regex`, `:group_instance_id`, and an optional
+  `:rebalance_timeout_ms`, `:subscribed_topic_regex`, `:group_instance_id` (falling back to the
+  `:group_instance_id` application config, as the classic `Manager` does, so switching
+  `group_protocol` keeps a static member static), and an optional
   `:rack_id` (rack awareness is off by default: with `nil` no rack id is sent).
 * **Telemetry**: `[:kafka_ex, :consumer, :member_joined]`, `[:kafka_ex, :consumer, :reconcile]`
   (revoked/assigned counts), `[:kafka_ex, :consumer, :member_fenced]`,

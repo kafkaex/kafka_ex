@@ -152,7 +152,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     * `:subscribed_topic_regex` - subscribe by regular expression (RE2/J,
       ConsumerGroupHeartbeat v1+) instead of, or besides, the topic names;
       default `nil`
-    * `:group_instance_id` - static membership instance id; default `nil`
+    * `:group_instance_id` - static membership instance id; default the
+      `:group_instance_id` application config, else `nil`
     * `:rack_id` - **optional rack awareness**, off by default. With `nil`
       (the default) no rack id is ever sent and the member behaves exactly
       like one without rack awareness. When set, it is passed through on the
@@ -463,8 +464,12 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     end)
   end
 
+  # Like the classic Manager, the per-group option wins over the application
+  # config (`config :kafka_ex, group_instance_id: ...`), so switching
+  # `group_protocol` keeps a static member static.
   defp resolve_instance_id(opts) do
-    {:ok, opts |> Keyword.get(:group_instance_id) |> Config.resolve_group_instance_id()}
+    instance_id = Keyword.get(opts, :group_instance_id, Application.get_env(:kafka_ex, :group_instance_id))
+    {:ok, Config.resolve_group_instance_id(instance_id)}
   rescue
     ArgumentError -> {:error, {:invalid_option, :invalid_group_instance_id}}
   end
