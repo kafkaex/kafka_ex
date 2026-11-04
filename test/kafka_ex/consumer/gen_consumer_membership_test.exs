@@ -230,6 +230,71 @@ defmodule KafkaEx.Consumer.GenConsumerMembershipTest do
       assert commit_opts(client) == []
     end
 
+    # A partition with no committed offset that moves to another member
+    # before a record is processed: the next owner must resume at this
+    # reset position, not reset again (to :latest, past what was written).
+    test "a reset position is committed on stop even if no record was processed" do
+      {:ok, client} =
+        MockClient.start_link(%{
+          offset_fetch: {:ok, [%{partition_offsets: [%{offset: -1, error_code: :no_error}]}]},
+          list_offsets: {:ok, [%{partition_offsets: [%{offset: 42}]}]},
+          fetch: {:ok, %Fetch{records: []}},
+          offset_commit: {:ok, []}
+        })
+
+      Process.unlink(client)
+
+      opts = [
+        client: client,
+        member_id: "m",
+        member_epoch: 3,
+        auto_offset_reset: :latest,
+        commit_threshold: 1_000_000,
+        commit_interval: 600_000
+      ]
+
+      {:ok, pid} = GenServer.start_link(GenConsumer, {AsyncConsumer, "g", "t", 0, opts})
+      Process.unlink(pid)
+      on_exit(fn -> stop_safely(client) end)
+
+      wait_until(fn -> length(fetch_calls(client)) >= 2 end)
+      assert :ok = GenServer.stop(pid, :shutdown)
+
+      assert [{:offset_commit, "g", [{"t", [%{partition_num: 0, offset: 42}]}], commit}] =
+               for({:offset_commit, _, _, _} = call <- MockClient.get_calls(client), do: call)
+
+      assert commit[:member_epoch] == 3
+    end
+
+    test "a classic consumer still commits nothing for a reset position alone" do
+      {:ok, client} =
+        MockClient.start_link(%{
+          offset_fetch: {:ok, [%{partition_offsets: [%{offset: -1, error_code: :no_error}]}]},
+          list_offsets: {:ok, [%{partition_offsets: [%{offset: 42}]}]},
+          fetch: {:ok, %Fetch{records: []}},
+          offset_commit: {:ok, []}
+        })
+
+      Process.unlink(client)
+
+      opts = [
+        client: client,
+        member_id: "m",
+        generation_id: 7,
+        auto_offset_reset: :latest,
+        commit_threshold: 1_000_000,
+        commit_interval: 600_000
+      ]
+
+      {:ok, pid} = GenServer.start_link(GenConsumer, {AsyncConsumer, "g", "t", 0, opts})
+      Process.unlink(pid)
+      on_exit(fn -> stop_safely(client) end)
+
+      wait_until(fn -> length(fetch_calls(client)) >= 2 end)
+      assert :ok = GenServer.stop(pid, :shutdown)
+      assert commit_opts(client) == []
+    end
+
     test "a :shutdown stop still makes the final commit" do
       {client, pid} =
         start_consumer(

@@ -229,6 +229,20 @@ defmodule KafkaEx.Support.Retry do
   def transport_timeout?(_), do: false
 
   @doc """
+  Check if an error means the connection to the broker failed (as opposed to
+  an error the broker answered with): a recv deadline expiry, a closed or
+  reset socket, no reachable broker. On a coordinator request the
+  coordinator may be gone, so it is worth re-discovering (Java
+  `CoordinatorRequestManager.handleCoordinatorDisconnect`).
+  """
+  @spec coordinator_connection_error?(error()) :: boolean()
+  def coordinator_connection_error?(error)
+      when error in [:timeout, :closed, :no_broker, :not_connected, :econnreset, :transport_error],
+      do: true
+
+  def coordinator_connection_error?(_), do: false
+
+  @doc """
   Retriability default for data-plane requests (metadata, offset, find_coordinator,
   admin). Retries only transient/leadership errors — fatal broker codes
   (`:topic_authorization_failed`, `:unsupported_version`, `:invalid_request`, …)

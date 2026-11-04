@@ -497,6 +497,18 @@ defmodule KafkaEx.Support.RetryTest do
     end
   end
 
+  describe "coordinator_connection_error?/1" do
+    test "true for connection-class failures" do
+      for e <- [:timeout, :closed, :no_broker, :not_connected, :econnreset, :transport_error],
+          do: assert(Retry.coordinator_connection_error?(e), inspect(e))
+    end
+
+    test "false for errors the broker answered with" do
+      for e <- [:request_timed_out, :not_coordinator, :coordinator_load_in_progress, :fenced_member_epoch, :unknown],
+          do: refute(Retry.coordinator_connection_error?(e), inspect(e))
+    end
+  end
+
   describe "coordinator_refresh_error?/1" do
     test "true only for the coordinator-moved errors" do
       assert Retry.coordinator_refresh_error?(:not_coordinator)

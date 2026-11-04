@@ -862,7 +862,9 @@ defmodule KafkaEx.API do
   Errors are returned as `{:error, atom}`. Transient coordinator errors
   (`:not_coordinator`, `:coordinator_not_available`,
   `:coordinator_load_in_progress`) are retried by the client, re-discovering
-  the coordinator first where needed. Of the rest:
+  the coordinator first where needed. A connection failure (`:timeout`,
+  `:closed`, `:no_broker`, ...) also makes the client forget the cached
+  coordinator, so the next attempt or call runs FindCoordinator first. Of the rest:
 
     * `:fenced_member_epoch` / `:unknown_member_id` - rejoin with
       `member_epoch: 0` (see `KafkaEx.Support.Retry.consumer_group_heartbeat_rejoin_error?/1`)

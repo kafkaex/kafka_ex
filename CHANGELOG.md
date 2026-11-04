@@ -97,7 +97,10 @@
   rejoining (the broker may already have registered the member: as in Java, only a fenced or
   failed member skips the leave). Consumer starts, restarts included, run off the manager's
   process, so a slow start (the consumer's own client connecting) never delays heartbeats, and
-  each consumer is monitored as soon as it starts, so an early exit keeps its reason. Options: `:server_assignor`,
+  each consumer is monitored as soon as it starts, so an early exit keeps its reason. A crashed
+  consumer is restarted with a backoff that doubles across crashes, including starts that fail
+  (reset after a minute of uptime), and also when its partition briefly leaves the target and
+  comes back while a revoke runs. Options: `:server_assignor`,
   `:rebalance_timeout_ms`, `:subscribed_topic_regex`, `:group_instance_id`, and an optional
   `:rack_id` (rack awareness is off by default: with `nil` no rack id is sent).
 * **Telemetry**: `[:kafka_ex, :consumer, :member_joined]`, `[:kafka_ex, :consumer, :reconcile]`
@@ -106,6 +109,18 @@
 * **`GenConsumer.Supervisor.stop_partition/3` and `stop_partitions/3`** take `lost: true`: the
   consumer is stopped with `{:shutdown, :partition_lost}` and a `GenConsumer` skips its final
   commit (a fenced member's epoch is no longer valid).
+* **KIP-848 coordinator re-discovery after a connection failure.** A ConsumerGroupHeartbeat
+  that fails at the connection (`:timeout`, `:closed`, `:no_broker`, ...) now drops the cached
+  group coordinator, so the next attempt runs FindCoordinator instead of retrying a dead broker
+  until the periodic metadata refresh (Java marks the coordinator unknown on a disconnect the
+  same way). New `KafkaEx.Support.Retry.coordinator_connection_error?/1`. Classic group requests
+  are unchanged.
+* **KIP-848 `GenConsumer`s commit an `auto_offset_reset` position.** A consumer with a
+  `:member_epoch` that starts from `auto_offset_reset` (no committed offset) commits that
+  position with its next commit, `terminate/2`'s included, even if no record was processed.
+  Before, a partition moved to another member before its first record (common with incremental
+  KIP-848 reassignment) was reset again by the new owner, and with `:latest` (the default) the
+  records written in between were never consumed. Classic consumers are unchanged.
 * **`KafkaEx.ChaosTestHelpers.start_kafka4_infrastructure/1`**: an `apache/kafka:4.4.0` broker
   behind Toxiproxy, for chaos tests of the KIP-848 protocol.
 

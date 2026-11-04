@@ -63,6 +63,13 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
       test_pid = Keyword.fetch!(opts, :test_pid)
       tp = {topic, partition}
 
+      # fail_init/2: every init of the partition fails (a consumer that
+      # cannot start, e.g. its client cannot reach the brokers).
+      if :persistent_term.get({__MODULE__, :fail_init, test_pid, tp}, false) do
+        send(test_pid, {:init_failed, tp})
+        exit(:boom)
+      end
+
       if :persistent_term.get({__MODULE__, :block_init, test_pid, tp}, false) do
         :persistent_term.erase({__MODULE__, :block_init, test_pid, tp})
         send(test_pid, {:init_blocked, self(), tp})
@@ -77,6 +84,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
     end
 
     def block_init(test_pid, tp), do: :persistent_term.put({__MODULE__, :block_init, test_pid, tp}, true)
+    def fail_init(test_pid, tp), do: :persistent_term.put({__MODULE__, :fail_init, test_pid, tp}, true)
 
     def handle_call(:block_stop, _from, state), do: {:reply, :ok, %{state | block_stop: true}}
     def handle_call(:block_update, _from, state), do: {:reply, :ok, %{state | block_update: true}}
@@ -150,7 +158,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
     test_pid = self()
 
     on_exit(fn ->
-      for {{FakeConsumer, :block_init, ^test_pid, _} = key, _} <- :persistent_term.get(),
+      for {{FakeConsumer, kind, ^test_pid, _} = key, _} <- :persistent_term.get(),
+          kind in [:block_init, :fail_init],
           do: :persistent_term.erase(key)
 
       # Supervisor.stop/1: a supervisor ignores exit signals from processes
@@ -639,6 +648,37 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
       end)
     end
 
+    test "a crashed partition dropped from the target and put back while a revoke runs is restarted" do
+      quiet(fn ->
+        %{manager: manager} = start_group(partition_restart_backoff_ms: 100, partition_restart_max_backoff_ms: 100)
+        {member_id, pids} = join_with([0, 1, 2])
+        :ok = GenServer.call(pids[1], :block_stop)
+
+        {from, hb} = poke(manager)
+        reply_ok(from, hb, 2, assignment([{@id_a, "a", [0, 2]}]))
+        p1 = pids[1]
+        assert_receive {:stop_blocked, ^p1, _}
+
+        # 0 crashes, then leaves the target while the revoke of 1 runs; its
+        # restart timer fires while it is out of the target.
+        :ok = GenServer.call(pids[0], {:exit, :boom})
+        {from, hb} = poke(manager)
+        reply_ok(from, hb, 3, assignment([{@id_a, "a", [2]}]))
+        refute_receive {:started, _, {"a", 0}, _}, 300
+
+        # Before the revoke ends, the broker gives 0 back.
+        {from, hb} = poke(manager)
+        reply_ok(from, hb, 4, assignment([{@id_a, "a", [0, 2]}]))
+        send(p1, :release_stop)
+
+        assert_receive {:started, new_p0, {"a", 0}, opts}, 2_000
+        assert opts[:member_epoch] == 4
+        assert opts[:member_id] == member_id
+        drain_until_owned([{@id_a, 0}, {@id_a, 2}])
+        assert %{status: :running, pid: ^new_p0} = :sys.get_state(manager).owned[{@id_a, 0}]
+      end)
+    end
+
     test "a heartbeat due now is not pushed back by a reply that arrives first" do
       %{manager: manager} = start_group()
       join_with([0])
@@ -711,6 +751,21 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
       owned? -> :ok
       attempts == 0 -> :timeout
       true -> Process.sleep(10) && await_owned(manager, pid, attempts - 1)
+    end
+  end
+
+  # Moves a partition entry's last start `ms` into the past.
+  defp age(manager, key, ms) do
+    :sys.replace_state(manager, fn state ->
+      %{state | owned: Map.update!(state.owned, key, &%{&1 | started_at: &1.started_at - ms})}
+    end)
+  end
+
+  defp count_messages(msg, n \\ 0) do
+    receive do
+      ^msg -> count_messages(msg, n + 1)
+    after
+      0 -> n
     end
   end
 
@@ -923,6 +978,32 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
         assert rejoin[:member_epoch] == 0
         assert rejoin[:member_id] == member_id
         assert rejoin[:topic_partitions] == []
+      end)
+    end
+
+    test "fenced while a crashed consumer restarts: the rejoin waits for the start, then loses it" do
+      quiet(fn ->
+        %{manager: manager} = start_group()
+        {member_id, %{0 => p0}} = join_with([0])
+        FakeConsumer.block_init(self(), {"a", 0})
+        :ok = GenServer.call(p0, {:exit, :boom})
+        assert_receive {:init_blocked, new_p0, {"a", 0}}, 1_000
+
+        {from, _} = poke(manager)
+        GenServer.reply(from, {:error, :fenced_member_epoch})
+
+        # Rejoining now would orphan the consumer being started (at the
+        # fenced epoch, owned by nobody).
+        refute_receive {:heartbeat_call, _, _, _}, 300
+        send(new_p0, :release_init)
+        assert_receive {:started, ^new_p0, {"a", 0}, _}
+        assert_receive {:terminated, ^new_p0, {"a", 0}, {:shutdown, :partition_lost}}, 1_000
+
+        {_from, rejoin} = next_heartbeat()
+        assert rejoin[:member_epoch] == 0
+        assert rejoin[:member_id] == member_id
+        assert rejoin[:topic_partitions] == []
+        refute Process.alive?(new_p0)
       end)
     end
   end
@@ -1152,6 +1233,70 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
 
         assert_receive {:membership, ^p0, {"a", 0}, [member_epoch: 2]}, 2_000
         assert System.monotonic_time(:millisecond) - failed_at >= 300
+      end)
+    end
+
+    test "the restart backoff doubles across consecutive crashes" do
+      quiet(fn ->
+        %{manager: manager} = start_group(partition_restart_backoff_ms: 100, partition_restart_max_backoff_ms: 10_000)
+        {_member_id, %{0 => pid}} = join_with([0])
+
+        # Crashes 1 and 2 restart after 100 and 200 ms; crash 3 after 400.
+        pid =
+          Enum.reduce(1..2, pid, fn _, pid ->
+            :ok = await_owned(manager, pid)
+            :ok = GenServer.call(pid, {:exit, :boom})
+            assert_receive {:started, new_pid, {"a", 0}, _}, 1_000
+            new_pid
+          end)
+
+        :ok = await_owned(manager, pid)
+        crashed_at = System.monotonic_time(:millisecond)
+        :ok = GenServer.call(pid, {:exit, :boom})
+        assert_receive {:started, _, {"a", 0}, _}, 2_000
+        assert System.monotonic_time(:millisecond) - crashed_at >= 350
+      end)
+    end
+
+    test "the restart backoff is reset once a consumer has run for a minute" do
+      quiet(fn ->
+        %{manager: manager} = start_group(partition_restart_backoff_ms: 200, partition_restart_max_backoff_ms: 10_000)
+        {_member_id, %{0 => pid}} = join_with([0])
+
+        pid =
+          Enum.reduce(1..2, pid, fn _, pid ->
+            :ok = await_owned(manager, pid)
+            :ok = GenServer.call(pid, {:exit, :boom})
+            assert_receive {:started, new_pid, {"a", 0}, _}, 2_000
+            new_pid
+          end)
+
+        # Two crashes so far; the third would wait 800 ms, but the consumer
+        # has now been up for over a minute: back to the base delay.
+        :ok = await_owned(manager, pid)
+        age(manager, {@id_a, 0}, 61_000)
+        crashed_at = System.monotonic_time(:millisecond)
+        :ok = GenServer.call(pid, {:exit, :boom})
+        assert_receive {:started, _, {"a", 0}, _}, 2_000
+        assert System.monotonic_time(:millisecond) - crashed_at < 600
+      end)
+    end
+
+    test "a consumer whose start keeps failing backs off exponentially, also a minute after its last start" do
+      quiet(fn ->
+        %{manager: manager} = start_group(partition_restart_backoff_ms: 50, partition_restart_max_backoff_ms: 5_000)
+        {_member_id, %{0 => pid}} = join_with([0])
+        :ok = await_owned(manager, pid)
+
+        # Its last good start is over a minute old; from now on every start fails.
+        age(manager, {@id_a, 0}, 61_000)
+        FakeConsumer.fail_init(self(), {"a", 0})
+        :ok = GenServer.call(pid, {:exit, :boom})
+
+        # Doubling from 50 ms: attempts at about 50, 150, 350, 750 and 1550 ms.
+        Process.sleep(1_500)
+        attempts = count_messages({:init_failed, {"a", 0}})
+        assert attempts in 2..6, "#{attempts} failed starts in 1.5 s"
       end)
     end
 

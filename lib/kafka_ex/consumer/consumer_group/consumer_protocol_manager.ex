@@ -62,7 +62,12 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
       member rejoins with epoch 0 and the **same** member id.
     * Transient errors (connection, coordinator moved or loading; see
       `KafkaEx.Support.Retry.consumer_group_heartbeat_retryable?/1`) are
-      retried by the client first (re-discovering the coordinator); if they
+      retried by the client first. It re-discovers the coordinator on
+      `:not_coordinator` / `:coordinator_not_available` and also after a
+      connection failure (`:timeout`, `:closed`, `:no_broker`, ...; a
+      `:timeout` is not resent, the next heartbeat re-discovers it), as Java
+      does, so a member whose coordinator broker died finds the new one
+      without waiting for a metadata refresh. If they
       persist the heartbeat is retried with an exponential backoff
       (`:heartbeat_retry_backoff_ms` up to `:heartbeat_retry_max_backoff_ms`,
       Java `retry.backoff.ms` / `retry.backoff.max.ms`).
@@ -98,7 +103,10 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     * abnormally (a crash): it is started again with the *current* member
       epoch after a per-partition backoff (`:partition_restart_backoff_ms`
       doubling up to `:partition_restart_max_backoff_ms`, reset after a
-      minute of uptime). The partition stays owned meanwhile.
+      minute of uptime; a start that fails is not uptime, so a consumer that
+      cannot start keeps backing off). The partition stays owned meanwhile;
+      if it leaves the target and comes back before its revoke runs, the
+      restart still happens.
     * `{:shutdown, {:rejoin_required, reason}}` (its commit or offset fetch
       was rejected as `:unknown_member_id` / `:fenced_member_epoch`): an
       immediate heartbeat asks the broker for the member's real state (Java's
@@ -203,7 +211,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     #     epoch: the member epoch the consumer holds (nil when not running),
     #     status: :running | :restarting | :starting | :stopped,
     #     crashes: consecutive abnormal exits, started_at: monotonic ms,
-    #     token: restart timer token | nil, push_after: monotonic ms | nil}
+    #     token: restart timer token | :due (timer fired while out of the
+    #       target, restart when back) | nil, push_after: monotonic ms | nil}
     defstruct [
       :supervisor_pid,
       :client,
@@ -579,10 +588,13 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     case state.owned do
       # Only while the partition is still in the target: one that is being
       # revoked is left to the revoke (it drops entries that are not running).
+      # A partition out of the target now may come back before that revoke
+      # runs (it waits for an op in flight): the restart is then kept due
+      # (token :due) and step/1 starts it once the partition is back.
       %{^key => %{status: :restarting, token: ^token} = entry} when state.phase == :stable ->
         if in_target?(state, key),
           do: {:noreply, start_restart(state, key, %{entry | token: nil})},
-          else: {:noreply, state}
+          else: {:noreply, %State{state | owned: Map.put(state.owned, key, %{entry | token: :due})}}
 
       _ ->
         {:noreply, state}
@@ -911,7 +923,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   end
 
   defp step(%State{phase: :stable, target: %MapSet{}} = state) do
-    state = resolve_topic_names(state)
+    state = state |> resolve_topic_names() |> start_due_restarts()
     revoked = state.owned |> Map.keys() |> Enum.reject(&MapSet.member?(state.target, &1))
 
     cond do
@@ -960,6 +972,17 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   defp begin_reconcile(state), do: state
 
   defp running_keys(state), do: for({key, %{status: :running}} <- state.owned, do: key)
+
+  # Restarts whose timer fired while their partition was out of the target
+  # (see handle_info({:restart_partition, ...})) and that are back in it.
+  # Without this such a partition would stay :restarting, with no consumer,
+  # yet be reported as owned.
+  defp start_due_restarts(%State{} = state) do
+    for {key, %{status: :restarting, token: :due} = entry} <- state.owned,
+        in_target?(state, key),
+        reduce: state,
+        do: (acc -> start_restart(acc, key, %{entry | token: nil}))
+  end
 
   defp in_target?(%State{target: %MapSet{} = target}, key), do: MapSet.member?(target, key)
   defp in_target?(_state, _key), do: false
@@ -1250,9 +1273,12 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
       {:error, {:already_started, pid}} ->
         %State{state | owned: Map.put(state.owned, key, running_entry(entry, pid, epoch))}
 
+      # A failed start is not uptime: started_at is moved to now, so the
+      # backoff keeps doubling while starts keep failing instead of falling
+      # back to the base delay once the last good start is a minute old.
       {:error, reason} ->
         Logger.warning("Starting the consumer of #{inspect({entry.topic, elem(key, 1)})} failed: #{inspect(reason)}")
-        schedule_restart(state, key, entry)
+        schedule_restart(state, key, %{entry | started_at: now_ms()})
     end
   end
 
