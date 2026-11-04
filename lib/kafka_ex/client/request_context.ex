@@ -33,6 +33,15 @@ defmodule KafkaEx.Client.RequestContext do
       other request so it falls back to the generic `:request_timeout`
       (`KafkaEx.Config.request_timeout/0`). It is per-attempt, NOT the total budget.
 
+    * `rediscover_coordinator?` (default `false`) - for a coordinator request,
+      a connection-class failure (`KafkaEx.Support.Retry.coordinator_connection_error?/1`)
+      also drops the cached group coordinator, so the next attempt (or the
+      next call, after a send-once `:timeout`) runs FindCoordinator instead
+      of retrying a broker that may be gone. Java's consumer marks the
+      coordinator unknown on any disconnect the same way. Only the KIP-848
+      ConsumerGroupHeartbeat sets it; the classic requests keep their
+      behaviour.
+
     * Backoff/jitter between attempts is intentionally absent — the client loop
       retries immediately (refreshing metadata on leadership errors). If added
       later, a retry-policy field on this struct is the seam.
@@ -47,7 +56,8 @@ defmodule KafkaEx.Client.RequestContext do
     :parser_fn,
     :node_selector,
     retryable?: &Retry.data_plane_retryable?/1,
-    network_timeout: nil
+    network_timeout: nil,
+    rediscover_coordinator?: false
   ]
 
   @typedoc "Projects a deserialized response into a domain result."
@@ -61,6 +71,7 @@ defmodule KafkaEx.Client.RequestContext do
           parser_fn: parser_fn(),
           node_selector: NodeSelector.t(),
           retryable?: retryable_fn(),
-          network_timeout: non_neg_integer() | nil
+          network_timeout: non_neg_integer() | nil,
+          rediscover_coordinator?: boolean()
         }
 end

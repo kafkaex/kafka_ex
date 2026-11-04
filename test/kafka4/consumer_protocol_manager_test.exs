@@ -387,6 +387,40 @@ defmodule KafkaEx.Kafka4.ConsumerProtocolManagerTest do
     stop_member(m2)
   end
 
+  # Default auto_offset_reset :latest. A partition with no committed offset
+  # that leaves a member before a record is processed (here every partition,
+  # on a graceful stop; a revoke stops a consumer the same way) must be
+  # committed at its reset position, or the next owner resets to :latest
+  # again, past every record written in between.
+  test "a reset position is handed over: records written before the next owner starts are consumed", ctx do
+    test_pid = self()
+    handler = "kafka4-cpm-reset-#{System.unique_integer()}"
+
+    :telemetry.attach(
+      handler,
+      [:kafka_ex, :consumer, :offset_reset],
+      fn _, _, meta, _ -> send(test_pid, {:offset_reset, meta.partition}) end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    m1 = start_member(ctx, :m1, auto_offset_reset: :latest)
+    for _ <- 1..@partitions, do: assert_receive({:offset_reset, _}, 60_000)
+    stop_member(m1)
+
+    for p <- 0..(@partitions - 1), do: produce!(ctx, p, Enum.map(1..5, &%{value: "r#{p}-#{&1}"}))
+    expected = MapSet.new(for p <- 0..(@partitions - 1), i <- 1..5, do: "r#{p}-#{i}")
+    _ = drain(new_acc())
+
+    m2 = start_member(ctx, :m2, auto_offset_reset: :latest)
+    acc = collect_until(new_acc(), &MapSet.subset?(expected, &1.values), 30_000)
+
+    missing = MapSet.difference(expected, acc.values)
+    assert MapSet.size(missing) == 0, "#{MapSet.size(missing)} of #{MapSet.size(expected)} records never consumed"
+    stop_member(m2)
+  end
+
   test "a graceful leave hands partitions over faster than a killed member", ctx do
     # Short session so the killed case finishes in reasonable time; the
     # broker's group.consumer.session.timeout.ms default is 45 s.

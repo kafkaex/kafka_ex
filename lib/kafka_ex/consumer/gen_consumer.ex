@@ -1269,7 +1269,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
          %State{
            state
            | current_offset: offset,
-             committed_offset: offset,
+             committed_offset: reset_committed_offset(state, offset),
              acked_offset: offset
          }}
 
@@ -1660,6 +1660,10 @@ defmodule KafkaEx.Consumer.GenConsumer do
   defp load_offsets_retry_remaining(%State{load_offsets_retry_at: retry_at}),
     do: max(retry_at - :erlang.monotonic_time(:milli_seconds), 0)
 
+  # committed_offset after a reset that is not committed yet: never equal to
+  # an acked offset (>= 0), so the next commit sends it.
+  @no_committed_offset -1
+
   @stale_epoch_min_backoff_ms 100
   @stale_epoch_max_backoff_ms 30_000
 
@@ -1705,8 +1709,24 @@ defmodule KafkaEx.Consumer.GenConsumer do
 
     report_offset_reset(state, reset, offset, :no_committed_offset)
 
-    %State{state | current_offset: offset, committed_offset: offset, acked_offset: offset}
+    %State{
+      state
+      | current_offset: offset,
+        committed_offset: reset_committed_offset(state, offset),
+        acked_offset: offset
+    }
   end
+
+  # A reset position is not committed yet. A KIP-848 member (an epoch is
+  # set) has it committed by the next commit, terminate/2's included: its
+  # partitions move between members incrementally, often before the first
+  # record is processed, and the next owner would otherwise reset again
+  # (to :latest, past every record written meanwhile). Java commits the
+  # reset position the same way (auto-commit of allConsumed() before a
+  # revocation). Classic groups keep their behaviour: nothing is committed
+  # until a record is processed.
+  defp reset_committed_offset(%State{member_epoch: epoch}, _offset) when is_integer(epoch), do: @no_committed_offset
+  defp reset_committed_offset(_state, offset), do: offset
 
   defp report_offset_reset(%State{group: group, topic: topic, partition: partition}, reset, offset, reason) do
     Telemetry.emit_offset_reset(group, topic, partition, offset, reset, reason)
