@@ -38,6 +38,9 @@ defmodule KafkaEx.Kafka4TestHelpers do
 
   Returns `{:ok, ctx}` with `:container`, `:host`, `:port` and `:uris`
   (`[{host, port}]`, suitable for `KafkaEx.API.start_client(brokers: ...)`).
+
+  Options: `:image`, and `:env` - extra broker environment, e.g.
+  `[{"KAFKA_GROUP_COORDINATOR_REBALANCE_PROTOCOLS", "classic"}]`.
   """
   @spec start_kafka(Keyword.t()) :: {:ok, map()}
   def start_kafka(opts \\ []) do
@@ -47,7 +50,8 @@ defmodule KafkaEx.Kafka4TestHelpers do
     end
 
     image = Keyword.get(opts, :image, System.get_env("KAFKA4_IMAGE", @default_image))
-    {:ok, container} = Testcontainers.start_container(build_container(image))
+    container = image |> build_container() |> with_extra_env(Keyword.get(opts, :env, []))
+    {:ok, container} = Testcontainers.start_container(container)
 
     host = Testcontainers.get_host()
     port = Container.mapped_port(container, @external_port)
@@ -130,6 +134,10 @@ defmodule KafkaEx.Kafka4TestHelpers do
       "-c",
       "while [ ! -f #{script_path()} ]; do sleep 0.1; done; exec bash #{script_path()}"
     ])
+  end
+
+  defp with_extra_env(container, env) do
+    Enum.reduce(env, container, fn {key, value}, acc -> Container.with_environment(acc, key, value) end)
   end
 
   defp upload_start_script(container, host, port) do

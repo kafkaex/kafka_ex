@@ -79,7 +79,7 @@ defmodule KafkaEx.Kafka4.ConsumerProtocolManagerTest do
         ctx,
         Keyword.merge(
           [
-            __consumer_protocol_manager__: true,
+            group_protocol: :consumer,
             server_assignor: "uniform",
             extra_consumer_args: %{test_pid: self(), member: name},
             commit_interval: 200,

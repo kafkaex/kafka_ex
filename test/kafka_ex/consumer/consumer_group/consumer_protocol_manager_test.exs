@@ -139,7 +139,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
         [
           client: client,
           test_pid: self(),
-          __consumer_protocol_manager__: true,
+          group_protocol: :consumer,
           heartbeat_retry_backoff_ms: 10,
           heartbeat_retry_max_backoff_ms: 20,
           partition_restart_backoff_ms: 10,
@@ -385,7 +385,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
       ]
 
       for {topics, bad, reason} <- cases do
-        opts = [client: client, test_pid: self(), __consumer_protocol_manager__: true] ++ bad
+        opts = [client: client, test_pid: self(), group_protocol: :consumer] ++ bad
 
         quiet(fn ->
           assert {:error, {:shutdown, {:failed_to_start_child, ConsumerProtocolManager, {:invalid_option, ^reason}}}} =
