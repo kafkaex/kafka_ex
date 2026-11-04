@@ -38,6 +38,18 @@ defmodule KafkaEx.Consumer.ConsumerGroupProtocolOptionTest do
     def handle_call(other, _from, state), do: {:reply, {:error, {:unexpected, other}}, state}
   end
 
+  # Dies while answering ApiVersions, so the caller's GenServer.call exits
+  # (as it would when the client crashes mid-call).
+  defmodule DyingClient do
+    @moduledoc false
+    use GenServer
+
+    def start_link(arg), do: GenServer.start_link(__MODULE__, arg)
+    def init(arg), do: {:ok, arg}
+
+    def handle_call({:api_versions, _opts}, _from, state), do: {:stop, :client_crashed, state}
+  end
+
   defmodule NoopConsumer do
     @moduledoc false
   end
@@ -100,6 +112,30 @@ defmodule KafkaEx.Consumer.ConsumerGroupProtocolOptionTest do
                ConsumerGroup.init({{KafkaEx.Consumer.GenConsumer, NoopConsumer}, @group, ["topic"], []})
 
       assert child.id == Manager
+    end
+
+    test ":classic builds the pre-option child spec: Manager id, start MFA, 25s shutdown, options as given" do
+      # Pinned to fixed values (the child spec before group_protocol existed),
+      # so a change to the classic branch of init/1 cannot pass unnoticed.
+      opts = [heartbeat_interval: 1_000, session_timeout: 30_000, uris: [{"localhost", 9092}], extra: :kept]
+
+      for input <- [opts, opts ++ [group_protocol: :classic]] do
+        assert {:ok, {flags, [child]}} =
+                 ConsumerGroup.init({{KafkaEx.Consumer.GenConsumer, NoopConsumer}, @group, ["topic"], input})
+
+        assert flags == %{strategy: :one_for_all, intensity: 0, period: 1, auto_shutdown: :never}
+
+        assert %{
+                 id: Manager,
+                 start:
+                   {Manager, :start_link, [{{KafkaEx.Consumer.GenConsumer, NoopConsumer}, @group, ["topic"], passed}]},
+                 shutdown: 25_000
+               } = child
+
+        assert child == %{id: Manager, start: child.start, shutdown: 25_000}
+        # Keyword.put, as before the option: supervisor_pid first, then the input.
+        assert passed == [supervisor_pid: self()] ++ opts
+      end
     end
 
     test "explicit group_protocol: :classic builds exactly the default child spec" do
@@ -275,6 +311,18 @@ defmodule KafkaEx.Consumer.ConsumerGroupProtocolOptionTest do
       end)
     end
 
+    test "an ApiVersions probe that exits decides nothing: the group still starts" do
+      {:ok, client} = DyingClient.start_link(nil)
+      Process.unlink(client)
+      ref = Process.monitor(client)
+
+      capture_log(fn ->
+        # Without the catch the exit escapes init and the start fails.
+        assert {:ok, _sup} = start_group(client: client, group_protocol: :consumer)
+        assert_receive {:DOWN, ^ref, :process, ^client, :client_crashed}, 2_000
+      end)
+    end
+
     test "a terminal :unsupported_version heartbeat names the protocol in its error log" do
       client = start_stub(with_heartbeat_api())
 
@@ -288,7 +336,8 @@ defmodule KafkaEx.Consumer.ConsumerGroupProtocolOptionTest do
           assert_receive {:DOWN, ^ref, :process, ^manager, {:shutdown, {:terminal, :unsupported_version}}}, 5_000
         end)
 
-      assert log =~ "does not support the KIP-848 consumer group protocol"
+      assert log =~ "may not support the KIP-848 consumer group protocol"
+      assert log =~ "group_protocol: :classic"
     end
   end
 end

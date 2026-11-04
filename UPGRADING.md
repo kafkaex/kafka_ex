@@ -30,6 +30,9 @@ advertise ConsumerGroupHeartbeat (Kafka < 4.0), the group does not start
 the protocol disabled, the group stops at its first heartbeat with a
 terminal `:unsupported_version`. Both log a message that says to use
 `group_protocol: :classic` until the cluster is upgraded.
+The start-up check asks any one broker, so finish a rolling broker
+upgrade to 4.x before starting `:consumer` groups: a check that reaches a
+broker still on 3.x refuses to start the group.
 
 ### In-place rolling migration
 
@@ -55,8 +58,10 @@ belong to the group id and are used by the new members as they are.
    group.
 
 Rolling back works the same way in reverse with the `bidirectional`
-policy: once the last `:consumer` member has left, the group can be joined
-by classic members again.
+policy: classic members can join while `:consumer` members are still in the
+group (the two coexist again), and the group converts back to a classic
+group when the last `:consumer` member leaves. No stop-the-world restart is
+needed. (Rollback is not covered by an integration test.)
 
 Before this release a KafkaEx classic member of a migrating group failed
 its SyncGroup with `:parse_error` (Kafka 4.x sends the member's assignment

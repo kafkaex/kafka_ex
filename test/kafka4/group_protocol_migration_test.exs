@@ -357,7 +357,7 @@ defmodule KafkaEx.Kafka4.GroupProtocolUnsupportedTest do
       end)
 
     assert log =~ "failed with terminal :unsupported_version"
-    assert log =~ "does not support the KIP-848 consumer group protocol"
+    assert log =~ "may not support the KIP-848 consumer group protocol"
     assert log =~ "group_protocol: :classic"
 
     # No classic fallback: the group was never joined.
