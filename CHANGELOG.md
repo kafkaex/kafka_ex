@@ -97,7 +97,9 @@
   `CONSUMER_PROTOCOL_NOT_SUPPORTED_MSG`). New `ConsumerGroup.group_protocol/1`. README section
   "Next-generation consumer groups (KIP-848)" and an UPGRADING guide to the in-place rolling
   migration from `:classic`. `mix test.kafka4` covers a classic and a `:consumer` member sharing
-  a group on Kafka 4.4.0, then the classic one leaving, without lost records.
+  a group on Kafka 4.4.0, then the classic one leaving, without lost records; the `:consumer`
+  member runs with `auto_offset_reset: :latest` and must resume on every partition from the
+  classic member's committed offsets, and its own commits must reach the end offsets.
 * **`KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager`**: the KIP-848 ("consumer" group
   protocol, Kafka 4.0+) member state machine, modelled on the Java 4.4
   `ConsumerMembershipManager`. Selected with `group_protocol: :consumer` (above); the classic

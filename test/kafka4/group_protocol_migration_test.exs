@@ -13,7 +13,16 @@ defmodule KafkaEx.Kafka4.GroupProtocolMigrationTest do
       partitions, at the same time
     * after the classic member leaves, the `:consumer` member owns every
       partition and the group has no classic member left
+    * the committed offsets are handed over: the `:consumer` member starts
+      with `auto_offset_reset: :latest` (the GenConsumer default), so it can
+      only see the records produced before it joined through the classic
+      member's commits. On every partition it resumes at or after the offset
+      the classic member had committed before the join (not from 0) and no
+      later than just after the last record the classic member consumed
+      there (no gap)
     * no record is lost across the whole roll
+    * the `:consumer` member commits: at the end the committed offset of
+      every partition is its end offset
   """
   use ExUnit.Case, async: false
 
@@ -40,7 +49,7 @@ defmodule KafkaEx.Kafka4.GroupProtocolMigrationTest do
     end
 
     def handle_message_set(records, state) do
-      send(state.test_pid, {:consumed, state.member, state.tp, Enum.map(records, & &1.value)})
+      send(state.test_pid, {:consumed, state.member, state.tp, Enum.map(records, &{&1.offset, &1.value})})
       {:async_commit, state}
     end
   end
@@ -92,13 +101,16 @@ defmodule KafkaEx.Kafka4.GroupProtocolMigrationTest do
 
   # Kafka4TestHelpers.consumer_group_opts/2 sets the classic timing options;
   # a :consumer member is started without them (they would only be ignored).
+  # auto_offset_reset is :latest (the GenConsumer default), not the helpers'
+  # :earliest: a member that misses the classic member's committed offsets
+  # then skips records instead of hiding the defect by re-reading from 0.
   defp start_consumer_member(ctx, name) do
     opts =
       [
         uris: ctx.uris,
         use_ssl: false,
         ssl_options: [],
-        auto_offset_reset: :earliest,
+        auto_offset_reset: :latest,
         group_protocol: :consumer,
         server_assignor: "uniform",
         extra_consumer_args: %{test_pid: self(), member: name},
@@ -189,11 +201,20 @@ defmodule KafkaEx.Kafka4.GroupProtocolMigrationTest do
 
   defp drain(acc) do
     receive do
-      {:consumed, member, _tp, values} ->
+      {:consumed, member, {_topic, partition}, records} ->
+        offsets = Enum.map(records, &elem(&1, 0))
+        key = {member, partition}
+
         drain(%{
           acc
-          | values: Enum.reduce(values, acc.values, &MapSet.put(&2, &1)),
-            by: Map.update(acc.by, member, length(values), &(&1 + length(values)))
+          | values: Enum.reduce(records, acc.values, fn {_, v}, set -> MapSet.put(set, v) end),
+            by: Map.update(acc.by, member, length(records), &(&1 + length(records))),
+            first: if(offsets == [], do: acc.first, else: Map.put_new(acc.first, key, Enum.min(offsets))),
+            last:
+              if(offsets == [],
+                do: acc.last,
+                else: Map.update(acc.last, key, Enum.max(offsets), &max(&1, Enum.max(offsets)))
+              )
         })
     after
       0 -> acc
@@ -215,6 +236,22 @@ defmodule KafkaEx.Kafka4.GroupProtocolMigrationTest do
     end)
   end
 
+  defp committed(ctx) do
+    partitions = Enum.map(0..(@partitions - 1), &%{partition_num: &1})
+
+    case API.fetch_committed_offset(ctx.client, ctx.group, ctx.topic, partitions) do
+      {:ok, offsets} -> for %{partition_offsets: [po]} <- offsets, into: %{}, do: {po.partition, po.offset}
+      {:error, _} -> %{}
+    end
+  end
+
+  defp end_offsets(ctx) do
+    for p <- 0..(@partitions - 1), into: %{} do
+      {:ok, offset} = API.latest_offset(ctx.client, ctx.topic, p)
+      {p, offset}
+    end
+  end
+
   defp member_types(ctx) do
     case API.describe_consumer_group(ctx.client, ctx.group) do
       {:ok, %ConsumerGroupDescription{members: members}} -> members |> Enum.map(& &1.member_type) |> Enum.sort()
@@ -232,8 +269,24 @@ defmodule KafkaEx.Kafka4.GroupProtocolMigrationTest do
     classic = start_member(ctx, :classic, group_protocol: :classic)
     assert ConsumerGroup.group_protocol(classic) == :classic
     wait_until(fn -> length(assignments(classic)) == @partitions end)
-    acc = collect_until(%{values: MapSet.new(), by: %{}}, &(Map.get(&1.by, :classic, 0) > 50), 60_000)
+
+    acc =
+      collect_until(
+        %{values: MapSet.new(), by: %{}, first: %{}, last: %{}},
+        &(Map.get(&1.by, :classic, 0) > 50),
+        60_000
+      )
+
     assert Map.get(acc.by, :classic, 0) > 0, "the classic member consumed nothing"
+
+    # The classic member has committed on every partition; this is the floor
+    # the :consumer member must resume from.
+    wait_until(fn ->
+      c = committed(ctx)
+      map_size(c) == @partitions and Enum.all?(c, fn {_, o} -> o > 0 end)
+    end)
+
+    classic_committed = committed(ctx)
 
     # A classic group is not described by ConsumerGroupDescribe.
     assert {:error, :group_id_not_found} = API.describe_consumer_group(ctx.client, ctx.group)
@@ -269,6 +322,26 @@ defmodule KafkaEx.Kafka4.GroupProtocolMigrationTest do
     assert MapSet.size(missing) == 0,
            "#{MapSet.size(missing)} of #{produced} records were never consumed, e.g. " <>
              inspect(missing |> Enum.take(10))
+
+    # 5. The committed offsets were handed over on every partition: the
+    # :consumer member resumed from the classic member's commits, not from 0
+    # and not past records the classic member never consumed.
+    for p <- 0..(@partitions - 1) do
+      first = Map.fetch!(acc.first, {:consumer, p})
+      classic_last = Map.fetch!(acc.last, {:classic, p})
+
+      assert first >= classic_committed[p],
+             "partition #{p}: the :consumer member started at offset #{first}, below the classic member's " <>
+               "committed offset #{classic_committed[p]} (it did not use the committed offset)"
+
+      assert first <= classic_last + 1,
+             "partition #{p}: the :consumer member started at offset #{first}, past the classic member's " <>
+               "last consumed offset #{classic_last} (records in between were skipped)"
+    end
+
+    # 6. The :consumer member commits what it consumed.
+    ends = end_offsets(ctx)
+    wait_until(fn -> committed(ctx) == ends end, 30_000)
 
     {:ok, %ConsumerGroupDescription{type: :consumer}} = API.describe_consumer_group(ctx.client, ctx.group)
   end
