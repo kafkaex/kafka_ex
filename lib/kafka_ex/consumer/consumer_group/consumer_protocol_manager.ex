@@ -314,6 +314,12 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
                                 "(Kafka 4.0+ with \"consumer\" in group.coordinator.rebalance.protocols); " <>
                                 "start the group with group_protocol: :classic until the cluster is upgraded"
 
+  # The terminal-heartbeat variant: UNSUPPORTED_VERSION also covers a
+  # cluster that has the protocol but not the version a feature needs.
+  @protocol_maybe_not_supported_msg "the cluster may not support the KIP-848 consumer group protocol " <>
+                                      "(Kafka 4.0+ with \"consumer\" in group.coordinator.rebalance.protocols); " <>
+                                      "if so, start the group with group_protocol: :classic until the cluster is upgraded"
+
   @default_rebalance_timeout_ms 300_000
   @default_config %{
     heartbeat_retry_backoff_ms: 100,
@@ -512,8 +518,12 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   # group.coordinator.rebalance.protocols still advertises the API (verified
   # on 4.4.0) and answers the join with UNSUPPORTED_VERSION, which is
   # terminal (heartbeat_error/2): the group stops at its first heartbeat, as
-  # Java's does. A probe that itself fails (e.g. the broker is unreachable)
-  # decides nothing; the join's own error then does.
+  # Java's does. A probe that itself fails (an error reply, or an exit
+  # because the client call timed out or the client died) decides nothing;
+  # the join's own error then does. The probe goes to any broker (as
+  # ApiVersions does), so during a rolling broker upgrade from 3.x it can
+  # reach a not-yet-upgraded broker and refuse to start; start the group
+  # once every broker runs 4.x.
   defp check_broker_support(client, owns_client, group_name) do
     with {:ok, %ApiVersions{} = versions} <- KafkaExAPI.api_versions(client),
          {:error, :unsupported_api} <- ApiVersions.max_version_for_api(versions, @heartbeat_api_key) do
@@ -527,6 +537,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     else
       _ -> :ok
     end
+  catch
+    :exit, _ -> :ok
   end
 
   # A pre-supplied `:client` (tests) is used as is and never stopped.
@@ -837,7 +849,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   # disabled on a broker that still advertises the API, or the start-up
   # check could not reach a broker.
   defp protocol_hint(reason) when reason in [:api_not_supported_by_broker, :unsupported_version],
-    do: ": " <> @protocol_not_supported_msg
+    do: ": " <> @protocol_maybe_not_supported_msg
 
   defp protocol_hint(_reason), do: ""
 
