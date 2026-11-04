@@ -227,7 +227,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
   Options of both protocols:
 
   * `:group_instance_id` - static membership instance id (KIP-345); default
-     `nil`
+     the `:group_instance_id` application config, else `nil`
   * Any of `t:KafkaEx.GenConsumer.option/0`,
      which will be passed on to consumers
   * `:gen_server_opts` - `t:GenServer.options/0` passed on to the manager

@@ -80,6 +80,17 @@ offsets) and then leaves the group (a LeaveGroup for `:classic`, a
 heartbeat with member epoch `-1` for `:consumer`), so its partitions move
 at once.
 
+A **static member** (`:group_instance_id` set, per group or in application
+config) is the exception: on purpose it does not give its partitions up.
+A classic static member sends no LeaveGroup and a `:consumer` static member
+leaves with member epoch `-2`, so the broker keeps its assignment until
+its session timeout, waiting for the same instance id to come back. In a
+rolling migration, start the replacement member with the **same**
+`:group_instance_id`: the broker then hands the old member's partitions
+straight to it (a `:consumer` member presenting the instance id of a
+classic static member replaces it). A replacement with a different (or
+no) instance id waits out the old member's session timeout instead.
+
 A graceful stop is a supervisor shutdown: `Application.stop/1`,
 `System.stop/0`, or `:init.stop/0`. On SIGTERM the BEAM (OTP 20+) runs
 `:init.stop/0`, which shuts the application supervision trees down in

@@ -416,7 +416,7 @@ Options (the `GenConsumer` options such as `:commit_interval`,
 | Option | Protocol | Default | Notes |
 |--------|----------|---------|-------|
 | `:group_protocol` | both | `:classic` | `:classic` or `:consumer`; anything else returns `{:error, {:invalid_option, :invalid_group_protocol}}` |
-| `:group_instance_id` | both | `nil` | static membership (KIP-345) |
+| `:group_instance_id` | both | `:group_instance_id` application config, else `nil` | static membership (KIP-345); the per-group option wins over the application config |
 | `:server_assignor` | `:consumer` | `nil` (broker default) | `"uniform"` or `"range"` on Apache Kafka |
 | `:rebalance_timeout_ms` | `:consumer` | `300_000` | how long the broker waits for this member to revoke partitions |
 | `:subscribed_topic_regex` | `:consumer` | `nil` | subscribe by RE2/J regular expression (ConsumerGroupHeartbeat v1+) |
