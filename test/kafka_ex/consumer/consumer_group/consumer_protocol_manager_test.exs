@@ -485,6 +485,26 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
       assert log =~ ":not_coordinator"
     end
 
+    test "a connection lost after the send (client send-once) is resent in full with the owned partitions" do
+      # The client no longer resends it unchanged (the broker may have bumped
+      # the epoch): the manager's retry must be a full request, which the
+      # broker accepts with the previous epoch.
+      quiet(fn ->
+        %{manager: manager} = start_group()
+        {member_id, _pids} = join_with([0])
+        {from, steady} = poke(manager)
+        assert owned_partitions(steady) == :unchanged
+        GenServer.reply(from, {:error, :closed})
+
+        {from, retry} = next_heartbeat()
+        assert retry[:member_id] == member_id
+        assert retry[:member_epoch] == 1
+        assert owned_partitions(retry) == [{@id_a, 0}]
+        reply_ok(from, retry, 2)
+        :ok = await_state(manager, &(&1.member_epoch == 2 and &1.heartbeat_failures == 0))
+      end)
+    end
+
     test "topic_authorization_failed keeps the member in the group (Java: an error event, not fatal)" do
       log =
         capture_log(fn ->
@@ -1198,6 +1218,61 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
   end
 
   describe "shutdown keepalive" do
+    test "a heartbeat in flight at shutdown is awaited; the keepalive sends its new epoch and the owned set" do
+      quiet(fn ->
+        %{manager: manager} = start_group()
+        {member_id, %{0 => p0}} = join_with([0])
+        :ok = await_state(manager, &(&1.inflight == nil))
+        :ok = GenServer.call(p0, :block_stop)
+
+        # A heartbeat is in flight when the shutdown starts.
+        {from, hb} = poke(manager)
+        assert hb[:member_epoch] == 1
+        ref = Process.monitor(manager)
+        spawn(fn -> GenServer.stop(manager, :shutdown, 30_000) end)
+        :ok = await_blocked_in_terminate(manager)
+
+        # Its reply moves the member to epoch 2, with a 100 ms interval.
+        reply_ok(from, hb, 2, nil, 100)
+        assert_receive {:stop_blocked, ^p0, {"a", 0}}, 2_000
+
+        {from, keepalive} = next_heartbeat(1_000)
+        # pre-fix: epoch 1 (the aborted reply was lost), no owned partitions: fenced
+        assert keepalive[:member_epoch] == 2
+        assert keepalive[:member_id] == member_id
+        assert owned_partitions(keepalive) == [{@id_a, 0}]
+        reply_ok(from, keepalive, 2, nil, 100)
+
+        send(p0, :release_stop)
+        assert_receive {:terminated, ^p0, {"a", 0}, :shutdown}
+        {from, leave} = drain_until_leave()
+        assert leave[:member_epoch] == -1
+        reply_ok(from, leave, -1)
+        assert_receive {:DOWN, ^ref, :process, ^manager, _}, 5_000
+      end)
+    end
+
+    test "a fencing reply to the heartbeat in flight at shutdown: consumers lost, no keepalive, no leave" do
+      quiet(fn ->
+        %{manager: manager} = start_group()
+        {_member_id, %{0 => p0}} = join_with([0])
+        :ok = await_state(manager, &(&1.inflight == nil))
+        :sys.replace_state(manager, &%{&1 | heartbeat_interval_ms: 100})
+
+        {from, _hb} = poke(manager)
+        ref = Process.monitor(manager)
+        spawn(fn -> GenServer.stop(manager, :shutdown, 30_000) end)
+        :ok = await_blocked_in_terminate(manager)
+        GenServer.reply(from, {:error, :fenced_member_epoch})
+
+        # Lost: stopped without a commit (GenConsumerSupervisor lost: true).
+        assert_receive {:terminated, ^p0, {"a", 0}, reason}, 2_000
+        assert reason != :shutdown
+        assert_receive {:DOWN, ^ref, :process, ^manager, _}, 5_000
+        refute_received {:heartbeat_call, _, _, _}
+      end)
+    end
+
     test "a new member epoch in a keepalive reply is sent on the next keepalive" do
       quiet(fn ->
         %{manager: manager} = start_group()
@@ -1231,6 +1306,25 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
         assert leave[:member_epoch] == -1
         reply_ok(from, leave, -1)
         assert_receive {:DOWN, ^ref, :process, ^manager, _}, 5_000
+      end)
+    end
+
+    test "a terminal reply to the heartbeat in flight at shutdown: consumers lost, no keepalive, no leave" do
+      quiet(fn ->
+        %{manager: manager} = start_group()
+        {_member_id, %{0 => p0}} = join_with([0])
+        :ok = await_state(manager, &(&1.inflight == nil))
+        :sys.replace_state(manager, &%{&1 | heartbeat_interval_ms: 100})
+
+        {from, _hb} = poke(manager)
+        ref = Process.monitor(manager)
+        spawn(fn -> GenServer.stop(manager, :shutdown, 30_000) end)
+        :ok = await_blocked_in_terminate(manager)
+        GenServer.reply(from, {:error, :group_authorization_failed})
+
+        assert_receive {:terminated, ^p0, {"a", 0}, {:shutdown, :partition_lost}}, 2_000
+        assert_receive {:DOWN, ^ref, :process, ^manager, _}, 5_000
+        refute_received {:heartbeat_call, _, _, _}
       end)
     end
   end
