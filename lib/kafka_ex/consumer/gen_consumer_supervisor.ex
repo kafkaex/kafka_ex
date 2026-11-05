@@ -358,8 +358,11 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
     # Past :shutdown (still alive: kill it), gone already, exited some other
     # way while stopping, or any other failure of the stop request itself:
     # kill_child/1 makes sure it is dead either way before we return (killing
-    # a dead pid is a no-op and its monitor reports :noproc at once).
+    # a dead pid is a no-op and its monitor reports :noproc at once). An
+    # invalid timeout exits on OTP 25 but raises FunctionClauseError in
+    # :gen.call/4 from OTP 26, so errors are caught too.
     :exit, _ -> kill_child(pid)
+    :error, _ -> kill_child(pid)
   end
 
   # A :temporary child is never restarted, so the supervisor only drops it
