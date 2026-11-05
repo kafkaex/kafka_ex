@@ -950,11 +950,20 @@ defmodule KafkaEx.Client do
       parser_fn: &ResponseParser.consumer_group_heartbeat_response(&1, parse_opts),
       node_selector: node_selector,
       retryable?: &Retry.consumer_group_heartbeat_retryable?/1,
+      send_once?: heartbeat_send_once(request),
       network_timeout: network_timeout,
       rediscover_coordinator?: true
     }
     |> handle_request_with_retry(state)
   end
+
+  # Only a member heartbeat (epoch > 0) is incremental and fenced when
+  # resent after the broker bumped the epoch. A join (0) and a leave (-1,
+  # -2) are accepted again, so the client keeps retrying them.
+  defp heartbeat_send_once(%{member_epoch: epoch}) when is_integer(epoch) and epoch > 0,
+    do: &Retry.consumer_group_heartbeat_send_once?/1
+
+  defp heartbeat_send_once(_request), do: &Retry.transport_timeout?/1
 
   defp handle_consumer_group_describe_request(request, node_selector, state) do
     %RequestContext{
@@ -1153,8 +1162,12 @@ defmodule KafkaEx.Client do
     cond do
       # Send-once only for coordinator requests (broker holds them for the rebalance/
       # session window; rejoin/commit re-issue higher up). Data-plane retries via ctx.retryable?.
-      Retry.transport_timeout?(error_atom) and coordinator_request?(ctx.node_selector) ->
-        Logger.info("Coordinator request #{inspect(request_name)} timed out; not retrying at the client (send-once)")
+      ctx.send_once?.(error_atom) and coordinator_request?(ctx.node_selector) ->
+        Logger.info(
+          "Coordinator request #{inspect(request_name)} failed with #{inspect(error_atom)}; " <>
+            "not retrying at the client (send-once)"
+        )
+
         {{:error, error}, maybe_drop_coordinator(error_atom, ctx, state)}
 
       # A stale topic id (OffsetCommit/OffsetFetch v10+, Metadata by id) is baked

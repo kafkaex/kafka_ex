@@ -115,8 +115,12 @@
   that fails at the connection (`:timeout`, `:closed`, `:no_broker`, ...) now drops the cached
   group coordinator, so the next attempt runs FindCoordinator instead of retrying a dead broker
   until the periodic metadata refresh (Java marks the coordinator unknown on a disconnect the
-  same way). New `KafkaEx.Support.Retry.coordinator_connection_error?/1`. Classic group requests
-  are unchanged.
+  same way). New `KafkaEx.Support.Retry.coordinator_connection_error?/1`. A member heartbeat
+  (epoch > 0) whose reply is lost (`:timeout`, `:closed`, `:econnreset`, `:transport_error`,
+  `:parse_error`) is not resent by the client: the broker may already have bumped the epoch, and
+  the incremental request resent unchanged would be fenced. The manager resends it in full, with
+  the owned partitions, as Java does (`Retry.consumer_group_heartbeat_send_once?/1`). Joins and
+  leaves are still retried by the client. Classic group requests are unchanged.
 * **KIP-848 `GenConsumer`s commit an `auto_offset_reset` position.** A consumer with a
   `:member_epoch` that starts from `auto_offset_reset` (no committed offset) commits that
   position with its next commit, `terminate/2`'s included, even if no record was processed.

@@ -35,7 +35,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
          (each commits in `terminate/2`), then report the reduced owned set
          with an immediate heartbeat;
        * assign: start a consumer for each partition of `target - owned`
-         with the current member epoch. Topics arrive as topic ids; names come
+         with the current member epoch (one at a time: each consumer's init
+         starts its client, as for a classic group; a newer target waits
+         until they are all started). Topics arrive as topic ids; names come
          from the response, else from a Metadata request by id (ids it
          fails for, with any error, are skipped and the rest asked again). A
          partition whose topic name is unknown is never assigned: it stays
@@ -320,6 +322,10 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   # A consumer that ran this long before crashing starts a fresh backoff.
   @crash_reset_ms 60_000
   @max_int32 2_147_483_647
+  # The starts are sent concurrently, but each runs the consumer's init
+  # (which starts its own client) inside GenConsumer.Supervisor, one after
+  # another, as for a classic ConsumerGroup. A newer target (e.g. a revoke)
+  # waits until the assign ends: about partitions x client connect time.
   @start_concurrency 16
   # The fetch :max_wait_time default and the margin GenConsumer.Supervisor
   # gives a consumer to stop (see GenConsumer.Supervisor.start_partition/3).
@@ -346,7 +352,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   @doc """
   Child spec with a `:shutdown` long enough for `terminate/2` to stop the
   consumers (their own `:shutdown`, by default the fetch `:max_wait_time` +
-  10 s) and send the leave heartbeat (`:leave_timeout_ms`).
+  10 s), after awaiting a heartbeat in flight, and send the leave heartbeat
+  (each bounded by `:leave_timeout_ms`).
   """
   @spec child_spec({{module, module}, binary, [binary], Keyword.t()}) :: Supervisor.child_spec()
   def child_spec({_modules, _group_name, _topics, opts} = arg) do
@@ -357,9 +364,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   @spec shutdown_budget(Keyword.t()) :: pos_integer()
   def shutdown_budget(opts) do
     leave_timeout = config_value(opts, :leave_timeout_ms)
-    # An assign in flight (bounded by consumer init), then the consumer
-    # stops, then the leave.
-    2 * (consumer_shutdown(opts) + @terminate_margin) + leave_timeout + @terminate_margin
+    # A heartbeat in flight, an assign in flight (bounded by consumer init),
+    # then the consumer stops, then the leave.
+    2 * (consumer_shutdown(opts) + @terminate_margin) + 2 * leave_timeout + @terminate_margin
   end
 
   defp consumer_shutdown(opts) do
@@ -1492,6 +1499,10 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     # (Java transitionToFatal invokes onPartitionsLost and sends no leave).
     # A consumer's own terminal error (e.g. a commit error) leaves the
     # member's epoch valid: the other consumers commit and the member leaves.
+    # The reply to a heartbeat in flight may move the member to a new epoch:
+    # it is awaited (bounded) before the keepalive starts, which must send
+    # that epoch. The keepalive reads the heartbeat timer, cancelled after.
+    state = await_inflight(state, state.config.leave_timeout_ms)
     lost = state.fatal or state.phase == :fenced
     keepalive = start_keepalive(state)
     state = state |> cancel_heartbeat() |> abort_push() |> abort_inflight() |> abort_lookup()
@@ -1537,13 +1548,19 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   # while these consumers still consume them, and their final commits would
   # be rejected (duplicates). Only a member in the group with a valid epoch
   # heartbeats; a fenced or failed one has nothing to keep alive. The
-  # keepalive sends the current epoch with every other field left out
-  # (unchanged), at the broker's interval, the first when the cancelled
-  # timer would have fired. Its replies are ignored: the leave follows.
+  # keepalive sends the current epoch and the owned partitions, every other
+  # field left out (unchanged), at the broker's interval, the first when the
+  # cancelled timer would have fired. Only a reply's epoch and interval are
+  # used: the leave follows.
   defp start_keepalive(%State{phase: :stable, fatal: false, client: client} = state) when is_pid(client) do
     if Process.alive?(client) do
+      # The owned partitions go on every keepalive: the broker accepts the
+      # previous epoch only with owned partitions that are a subset of the
+      # assignment, so a keepalive that raced an epoch bump is not fenced.
       opts =
-        put_present([member_id: state.member_id, member_epoch: state.member_epoch], :instance_id, state.instance_id)
+        [member_id: state.member_id, member_epoch: state.member_epoch]
+        |> put_present(:instance_id, state.instance_id)
+        |> Keyword.put(:topic_partitions, encode_partitions(state.reported))
 
       interval = max(state.heartbeat_interval_ms || 0, 1)
       group = state.group_name
@@ -1559,6 +1576,59 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   end
 
   defp start_keepalive(_state), do: nil
+
+  # Only the epoch and interval of the reply are kept (its assignment is not
+  # reconciled: the member is leaving). A fencing or terminal reply means
+  # the epoch is gone: the consumers stop without a commit and no leave is
+  # sent, as on a fence or a terminal heartbeat error. Past the timeout the keepalive still carries the owned
+  # partitions, which the broker accepts with the previous epoch.
+  defp await_inflight(%State{inflight: nil} = state, _timeout), do: state
+
+  defp await_inflight(%State{inflight: %{ref: ref}} = state, timeout) do
+    receive do
+      {@async_result, ^ref, result} ->
+        Process.demonitor(ref, [:flush])
+        inflight_reply(%State{state | inflight: nil}, result)
+
+      {:DOWN, ^ref, :process, _, _} ->
+        %State{state | inflight: nil}
+    after
+      timeout -> state
+    end
+  end
+
+  defp inflight_reply(%State{phase: :stable} = state, {:ok, %ConsumerGroupHeartbeat{} = reply}) do
+    interval = if reply.heartbeat_interval_ms > 0, do: reply.heartbeat_interval_ms, else: state.heartbeat_interval_ms
+    epoch = if reply.member_epoch > 0, do: reply.member_epoch, else: state.member_epoch
+    %State{state | member_epoch: epoch, heartbeat_interval_ms: interval}
+  end
+
+  defp inflight_reply(%State{} = state, {:error, reason}) do
+    cond do
+      Retry.consumer_group_heartbeat_rejoin_error?(reason) ->
+        Telemetry.emit_member_fenced(
+          state.group_name,
+          state.member_id,
+          state.member_epoch,
+          reason,
+          map_size(state.owned)
+        )
+
+        %State{state | phase: :fenced}
+
+      # As heartbeat_error/2: a transient failure keeps the epoch; anything
+      # else is terminal and leaves no valid epoch.
+      reason == :topic_authorization_failed or Retry.consumer_group_heartbeat_retryable?(reason) or
+          match?({:heartbeat_process_died, _}, reason) ->
+        state
+
+      true ->
+        Logger.error("ConsumerGroupHeartbeat for #{state.group_name} failed with terminal #{inspect(reason)}")
+        %State{state | fatal: true}
+    end
+  end
+
+  defp inflight_reply(state, _result), do: state
 
   defp keepalive_loop(client, group, opts, delay, interval) do
     Process.sleep(delay)

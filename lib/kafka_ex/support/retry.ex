@@ -460,6 +460,31 @@ defmodule KafkaEx.Support.Retry do
   def consumer_group_heartbeat_retryable?(error), do: transient_error?(error)
 
   @doc """
+  ConsumerGroupHeartbeat (KIP-848) errors after which the client must not
+  resend a member heartbeat (epoch > 0), because the broker may already have
+  processed it: the recv deadline (`:timeout`), a connection closed or reset,
+  and a reply that could not be parsed (`:parse_error`: the broker answered).
+
+  A steady-state heartbeat is incremental (owned partitions left out). If the
+  lost reply moved the member to a new epoch, resending it unchanged sends
+  the old epoch without the owned partitions, which the broker fences
+  (`GroupMetadataManager.throwIfConsumerGroupMemberEpochIsInvalid` accepts a
+  previous epoch only with owned partitions that are a subset of the
+  assignment). The error goes back to the manager, which resends a full
+  heartbeat, as Java does (`AbstractHeartbeatRequestManager.onFailure` resets
+  the heartbeat state). A `:closed` can also mean nothing was sent (a stale
+  socket); the manager's full resend then costs one backoff. `:no_broker`
+  and `:not_connected` mean nothing was sent, so the client still retries
+  them. Joins and leaves are not incremental and keep the client retry.
+  """
+  @spec consumer_group_heartbeat_send_once?(error()) :: boolean()
+  def consumer_group_heartbeat_send_once?(error)
+      when error in [:timeout, :closed, :econnreset, :transport_error, :parse_error],
+      do: true
+
+  def consumer_group_heartbeat_send_once?(_), do: false
+
+  @doc """
   ConsumerGroupHeartbeat (KIP-848) errors after which the member must rejoin:
   send a heartbeat with `member_epoch: 0` (and its existing member id), after
   releasing its partitions.
