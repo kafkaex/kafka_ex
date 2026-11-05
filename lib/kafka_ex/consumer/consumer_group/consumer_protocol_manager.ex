@@ -91,7 +91,19 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
       without a commit, no leave is sent, and
       `[:kafka_ex, :consumer, :member_terminated]` is emitted. Under the
       `one_for_all` / `max_restarts: 0` consumer group supervisor this stops
-      the whole group.
+      the whole group. `:unsupported_version` and
+      `:api_not_supported_by_broker` are logged with a hint to use
+      `group_protocol: :classic`: the cluster does not offer the protocol.
+    * A broker that does not advertise ConsumerGroupHeartbeat v1+
+      (Kafka < 4.0: 3.6 and older lack the API, 3.7-3.9 advertise only the
+      early-access v0) is detected before the join: `init/1` stops with
+      `:consumer_group_protocol_not_supported`, so the consumer group fails
+      to start. A Kafka 4.x broker with the protocol disabled
+      (`group.coordinator.rebalance.protocols` without `consumer`, or the
+      `group.version` feature still at 0, as after an in-place upgrade from
+      3.x) advertises the API, so it is only detected by the join's terminal
+      `:unsupported_version`. There is no fallback to the classic protocol
+      (as in Java).
 
   ## Consumer ownership
 
@@ -143,7 +155,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     * `:subscribed_topic_regex` - subscribe by regular expression (RE2/J,
       ConsumerGroupHeartbeat v1+) instead of, or besides, the topic names;
       default `nil`
-    * `:group_instance_id` - static membership instance id; default `nil`
+    * `:group_instance_id` - static membership instance id; default the
+      `:group_instance_id` application config, else `nil`
     * `:rack_id` - **optional rack awareness**, off by default. With `nil`
       (the default) no rack id is ever sent and the member behaves exactly
       like one without rack awareness. When set, it is passed through on the
@@ -203,6 +216,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   alias KafkaEx.Consumer.ConsumerGroup.Manager
   alias KafkaEx.Consumer.GenConsumer
   alias KafkaEx.Consumer.GenConsumer.Supervisor, as: GenConsumerSupervisor
+  alias KafkaEx.Messages.ApiVersions
   alias KafkaEx.Messages.ConsumerGroupHeartbeat
   alias KafkaEx.Messages.TopicPartitions
   alias KafkaEx.Support.Retry
@@ -292,6 +306,29 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
 
     @type t :: %__MODULE__{}
   end
+
+  @protocol Application.compile_env(:kafka_ex, :protocol, KafkaEx.Protocol.KayrockProtocol)
+  @heartbeat_api_key @protocol.api_key(:consumer_group_heartbeat)
+  # The first ConsumerGroupHeartbeat version of a GA (Kafka 4.0+) broker.
+  @min_heartbeat_version 1
+  # Java AbstractHeartbeatRequestManager.CONSUMER_PROTOCOL_NOT_SUPPORTED_MSG,
+  # in KafkaEx terms.
+  # The broker-side prerequisites, as in UPGRADING.md. The broker refuses
+  # ConsumerGroupHeartbeat with UNSUPPORTED_VERSION unless both hold
+  # (KafkaApis.isConsumerGroupProtocolEnabled); group.version stays at 0 on
+  # a cluster upgraded in place from 3.x until it is finalized.
+  @protocol_requirements "Kafka 4.0+ with \"consumer\" in group.coordinator.rebalance.protocols " <>
+                           "and the group.version feature finalized at 1 or higher " <>
+                           "(kafka-features.sh describe / upgrade --feature group.version=1)"
+  @protocol_not_supported_msg "the cluster does not support the KIP-848 consumer group protocol " <>
+                                "(#{@protocol_requirements}); " <>
+                                "start the group with group_protocol: :classic until the cluster is upgraded"
+
+  # The terminal-heartbeat variant: UNSUPPORTED_VERSION also covers a
+  # cluster that has the protocol but not the version a feature needs.
+  @protocol_maybe_not_supported_msg "the cluster may not support the KIP-848 consumer group protocol " <>
+                                      "(#{@protocol_requirements}); " <>
+                                      "if so, start the group with group_protocol: :classic until the cluster is upgraded"
 
   @default_rebalance_timeout_ms 300_000
   @default_config %{
@@ -436,8 +473,12 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     end)
   end
 
+  # Like the classic Manager, the per-group option wins over the application
+  # config (`config :kafka_ex, group_instance_id: ...`), so switching
+  # `group_protocol` keeps a static member static.
   defp resolve_instance_id(opts) do
-    {:ok, opts |> Keyword.get(:group_instance_id) |> Config.resolve_group_instance_id()}
+    instance_id = Keyword.get(opts, :group_instance_id, Application.get_env(:kafka_ex, :group_instance_id))
+    {:ok, Config.resolve_group_instance_id(instance_id)}
   rescue
     ArgumentError -> {:error, {:invalid_option, :invalid_group_instance_id}}
   end
@@ -454,34 +495,81 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
 
   @dialyzer {:nowarn_function, do_init: 5}
   defp do_init({gen_consumer_module, consumer_module}, group_name, topics, opts, validated) do
-    case start_client(opts, group_name, topics) do
-      {:ok, client, owns_client} ->
-        Process.flag(:trap_exit, true)
+    with {:ok, client, owns_client} <- start_client(opts, group_name, topics),
+         :ok <- check_broker_support(client, owns_client, group_name) do
+      Process.flag(:trap_exit, true)
 
-        state = %State{
-          supervisor_pid: Keyword.fetch!(opts, :supervisor_pid),
-          client: client,
-          owns_client: owns_client,
-          gen_consumer_module: gen_consumer_module,
-          consumer_module: consumer_module,
-          consumer_opts: Keyword.drop(opts, @manager_keys),
-          group_name: group_name,
-          topics: topics,
-          topic_regex: validated.regex,
-          server_assignor: Keyword.get(opts, :server_assignor),
-          rebalance_timeout_ms: Keyword.get(opts, :rebalance_timeout_ms, @default_rebalance_timeout_ms),
-          instance_id: validated.instance_id,
-          rack_id: Keyword.get(opts, :rack_id),
-          # KIP-1082: generated once and kept for the member's lifetime,
-          # including join retries and rejoins (Java: memberId is final).
-          member_id: KafkaExAPI.generate_member_id(),
-          config: Map.new(@default_config, fn {key, default} -> {key, Keyword.get(opts, key, default)} end)
-        }
+      state = %State{
+        supervisor_pid: Keyword.fetch!(opts, :supervisor_pid),
+        client: client,
+        owns_client: owns_client,
+        gen_consumer_module: gen_consumer_module,
+        consumer_module: consumer_module,
+        consumer_opts: Keyword.drop(opts, @manager_keys),
+        group_name: group_name,
+        topics: topics,
+        topic_regex: validated.regex,
+        server_assignor: Keyword.get(opts, :server_assignor),
+        rebalance_timeout_ms: Keyword.get(opts, :rebalance_timeout_ms, @default_rebalance_timeout_ms),
+        instance_id: validated.instance_id,
+        rack_id: Keyword.get(opts, :rack_id),
+        # KIP-1082: generated once and kept for the member's lifetime,
+        # including join retries and rejoins (Java: memberId is final).
+        member_id: KafkaExAPI.generate_member_id(),
+        config: Map.new(@default_config, fn {key, default} -> {key, Keyword.get(opts, key, default)} end)
+      }
 
-        {:ok, state, {:continue, :start}}
+      {:ok, state, {:continue, :start}}
+    else
+      {:error, reason} -> {:stop, reason}
+    end
+  end
 
-      {:error, reason} ->
-        {:stop, reason}
+  # Fail fast, with no silent fall back to the classic protocol, when the
+  # broker does not advertise ConsumerGroupHeartbeat v1+ (Kafka < 4.0: 3.6
+  # and older lack the API, 3.7-3.9 advertise only the early-access v0): the
+  # group fails to start with :consumer_group_protocol_not_supported. A
+  # Kafka 4.x broker with "consumer" missing from
+  # group.coordinator.rebalance.protocols, or with the group.version feature
+  # still at 0, still advertises the API (verified on 4.4.0) and answers the
+  # join with UNSUPPORTED_VERSION, which is terminal (heartbeat_error/2): the
+  # group stops at its first heartbeat, as Java's does. A probe that itself fails (an error reply, or an exit
+  # because the client call timed out or the client died) decides nothing;
+  # the join's own error then does. The probe goes to any broker (as
+  # ApiVersions does), so during a rolling broker upgrade from 3.x it can
+  # reach a not-yet-upgraded broker and refuse to start; start the group
+  # once every broker runs 4.x.
+  defp check_broker_support(client, owns_client, group_name) do
+    with {:ok, %ApiVersions{} = versions} <- KafkaExAPI.api_versions(client),
+         {:unsupported, detail} <- heartbeat_api_support(versions) do
+      Logger.error("Consumer group #{inspect(group_name)}: #{@protocol_not_supported_msg} (#{detail})")
+
+      if owns_client, do: stop_client(%State{owns_client: true, client: client})
+      {:error, :consumer_group_protocol_not_supported}
+    else
+      _ -> :ok
+    end
+  catch
+    :exit, _ -> :ok
+  end
+
+  # ConsumerGroupHeartbeat v1 (KIP-1082) is the first version a Kafka 4.0+
+  # (GA) broker serves. Kafka 3.7-3.9 shipped the protocol as early access
+  # and advertise v0 only; they are refused here like a broker without the
+  # API, instead of starting and stopping at the first heartbeat (or joining
+  # a pre-GA implementation where it was enabled).
+  defp heartbeat_api_support(versions) do
+    case ApiVersions.max_version_for_api(versions, @heartbeat_api_key) do
+      {:error, :unsupported_api} ->
+        {:unsupported, "the broker does not advertise ConsumerGroupHeartbeat"}
+
+      {:ok, max} when max < @min_heartbeat_version ->
+        {:unsupported,
+         "the broker advertises ConsumerGroupHeartbeat up to v#{max}, the Kafka 3.7-3.9 early access; " <>
+           "v#{@min_heartbeat_version} (Kafka 4.0+) is required"}
+
+      {:ok, _} ->
+        :ok
     end
   end
 
@@ -779,10 +867,23 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
         retry_heartbeat(state, reason)
 
       true ->
-        Logger.error("ConsumerGroupHeartbeat for #{state.group_name} failed with terminal #{inspect(reason)}")
+        Logger.error(
+          "ConsumerGroupHeartbeat for #{state.group_name} failed with terminal #{inspect(reason)}" <>
+            protocol_hint(reason)
+        )
+
         {:stop, {:shutdown, {:terminal, reason}}, %State{state | fatal: true}}
     end
   end
+
+  # Java (AbstractHeartbeatRequestManager) reports an UNSUPPORTED_VERSION
+  # heartbeat with CONSUMER_PROTOCOL_NOT_SUPPORTED_MSG: the protocol is
+  # disabled on a broker that still advertises the API, or the start-up
+  # check could not reach a broker.
+  defp protocol_hint(reason) when reason in [:api_not_supported_by_broker, :unsupported_version],
+    do: ": " <> @protocol_maybe_not_supported_msg
+
+  defp protocol_hint(_reason), do: ""
 
   defp retry_heartbeat(%State{} = state, reason) do
     failures = state.heartbeat_failures + 1

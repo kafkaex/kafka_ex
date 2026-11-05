@@ -80,10 +80,34 @@
   `commit_offset` with `:member_epoch` on OffsetCommit below v9 (e.g. an `:api_versions` pin)
   returns `{:error, :invalid_api_version}` instead of silently dropping the epoch; a GenConsumer
   treats that as a terminal commit error.
+* **`group_protocol: :classic | :consumer` option for `KafkaEx.Consumer.ConsumerGroup.start_link/4`.**
+  `:classic` is the default and unchanged; `:consumer` runs the group on the KIP-848 consumer group
+  protocol (Kafka 4.0+) with `ConsumerProtocolManager` (below). Any other value returns
+  `{:error, {:invalid_option, :invalid_group_protocol}}` before anything starts. Options the
+  selected protocol does not use (`:heartbeat_interval`, `:session_timeout`,
+  `:session_timeout_padding`, `:rebalance_timeout`, `:partition_assignment_callback`, ... under
+  `:consumer`; `:server_assignor`, `:rack_id`, `:subscribed_topic_regex`, ... under `:classic`)
+  are listed in a single warning at start and ignored; the classic-only ones are not passed on to
+  a `:consumer` group's consumers. `:rack_id` is optional (default `nil`, no rack id sent). A
+  `:consumer` group fails fast, never falling back to `:classic`, on a cluster without the
+  protocol: it does not start (`:consumer_group_protocol_not_supported`) when the broker does not
+  advertise ConsumerGroupHeartbeat v1+ (Kafka < 4.0, including the 3.7-3.9 early access, which
+  advertises only v0), and stops at its first heartbeat with a terminal `:unsupported_version`
+  when a 4.x broker has the protocol disabled (`consumer` missing from
+  `group.coordinator.rebalance.protocols`, or the `group.version` feature not finalized at 1+, as
+  after an in-place upgrade from 3.x). Both log that `group_protocol: :classic` should be used
+  until the cluster is upgraded (Java's `CONSUMER_PROTOCOL_NOT_SUPPORTED_MSG`) and name the
+  broker-side prerequisites, `group.version` included. `t:ConsumerGroup.option/0` types every
+  documented `start_link/4` option. New `ConsumerGroup.group_protocol/1`. README section
+  "Next-generation consumer groups (KIP-848)" and an UPGRADING guide to the in-place rolling
+  migration from `:classic`. `mix test.kafka4` covers a classic and a `:consumer` member sharing
+  a group on Kafka 4.4.0, then the classic one leaving, without lost records; the `:consumer`
+  member runs with `auto_offset_reset: :latest` and must resume on every partition from the
+  classic member's committed offsets, and its own commits must reach the end offsets.
 * **`KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager`**: the KIP-848 ("consumer" group
   protocol, Kafka 4.0+) member state machine, modelled on the Java 4.4
-  `ConsumerMembershipManager`. Not yet selectable from `ConsumerGroup.start_link/4` (a later
-  change adds the option); the classic `Manager` path is unchanged. It generates the member id
+  `ConsumerMembershipManager`. Selected with `group_protocol: :consumer` (above); the classic
+  `Manager` path is unchanged. It generates the member id
   once (KIP-1082) and keeps it across join retries and rejoins; heartbeats on the broker's
   `heartbeat_interval_ms`, one in flight, sending only changed fields (full request after the
   join and after errors); reconciles a new target incrementally (revoke and report first, then
@@ -103,7 +127,9 @@
   consumer is restarted with a backoff that doubles across crashes, including starts that fail
   (reset after a minute of uptime), and also when its partition briefly leaves the target and
   comes back while a revoke runs. Options: `:server_assignor`,
-  `:rebalance_timeout_ms`, `:subscribed_topic_regex`, `:group_instance_id`, and an optional
+  `:rebalance_timeout_ms`, `:subscribed_topic_regex`, `:group_instance_id` (falling back to the
+  `:group_instance_id` application config, as the classic `Manager` does, so switching
+  `group_protocol` keeps a static member static), and an optional
   `:rack_id` (rack awareness is off by default: with `nil` no rack id is sent).
 * **Telemetry**: `[:kafka_ex, :consumer, :member_joined]`, `[:kafka_ex, :consumer, :reconcile]`
   (revoked/assigned counts), `[:kafka_ex, :consumer, :member_fenced]` and
@@ -168,6 +194,13 @@
 
 ### Fixed
 
+* **Classic members of a group migrating to the KIP-848 protocol no longer fail SyncGroup.** On
+  Kafka 4.x, once a consumer-protocol member has joined a classic group, the coordinator sends
+  the classic members' assignment with a null `user_data` (nullable in Kafka's schema). Kayrock
+  decoded it as non-nullable bytes and raised, the client returned `:parse_error`, and the classic
+  member stopped after its SyncGroup retries. SyncGroup v0-v4 responses are now decoded by
+  `KafkaEx.Protocol.Kayrock.SyncGroup.ResponseDeserializer`, which accepts a null `user_data`
+  and otherwise returns exactly what Kayrock did.
 * **A dropped broker connection no longer stops a consumer group.** When a broker closed an
   idle connection, the next request on that socket failed with `:einval` instead of `:closed`.
   `:einval` is not treated as transient, so a Heartbeat or JoinGroup took it as fatal and the

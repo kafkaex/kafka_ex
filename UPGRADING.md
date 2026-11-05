@@ -1,3 +1,132 @@
+# Unreleased: KIP-848 consumer group protocol
+
+## Migrating a consumer group to the KIP-848 consumer protocol
+
+`KafkaEx.Consumer.ConsumerGroup.start_link/4` takes a new option,
+`group_protocol: :classic | :consumer`. **The default is `:classic` and
+nothing changes for groups that do not set it.** `:consumer` selects the
+KIP-848 consumer group protocol (Kafka 4.0+): broker-side assignment and
+incremental rebalances without a stop-the-world pause. See the README
+section "Next-generation consumer groups (KIP-848)".
+
+### Prerequisites
+
+- Every broker runs **Kafka 4.0 or later**, with `consumer` in
+  `group.coordinator.rebalance.protocols` (the 4.x default is
+  `classic,consumer`).
+- The `group.version` feature is finalized at **1 or higher**. A cluster
+  created on 4.x has it; one upgraded in place from 3.x keeps level 0 until
+  it is finalized, and the broker then refuses the protocol. Check with
+  `kafka-features.sh --bootstrap-server ... describe` and finalize with
+  `kafka-features.sh --bootstrap-server ... upgrade --feature group.version=1`
+  (or `upgrade --release-version 4.x`).
+- `group.consumer.migration.policy` allows the upgrade: `bidirectional`
+  (the 4.x default) or `upgrade`. With `disabled` (or `downgrade`) a
+  `:consumer` member cannot join a group that still has classic members.
+- The classic members use the built-in assignment (no
+  `:partition_assignment_callback` that relies on assignment `user_data`).
+  The broker refuses to convert a group whose classic assignor uses
+  `user_data`, since it would be lost. KafkaEx's default round-robin
+  assignor sends none.
+
+A `:consumer` group against a cluster that does not offer the protocol
+fails fast, never silently using `:classic`. If the broker does not
+advertise ConsumerGroupHeartbeat v1+ (Kafka < 4.0: 3.6 and older lack the
+API, 3.7-3.9 advertise only the early-access v0), the group does not start
+(`:consumer_group_protocol_not_supported`). If a 4.x broker has the
+protocol disabled (`consumer` missing from
+`group.coordinator.rebalance.protocols`, or `group.version` at 0), it still
+advertises the API: the group starts and stops at its first heartbeat with a
+terminal `:unsupported_version`. Both log a message that says to use
+`group_protocol: :classic` until the cluster is upgraded.
+The start-up check asks any one broker, so finish a rolling broker
+upgrade to 4.x before starting `:consumer` groups: a check that reaches a
+broker still on 3.x refuses to start the group.
+
+### In-place rolling migration
+
+No new group id and no offset reset are needed: the committed offsets
+belong to the group id and are used by the new members as they are.
+
+1. Change the consumer group's options to `group_protocol: :consumer` (add
+   `server_assignor:` if you want a specific assignor). Drop the
+   classic-only options (`:heartbeat_interval`, `:session_timeout`,
+   `:session_timeout_padding`, `:rebalance_timeout`,
+   `:partition_assignment_callback`, ...); if you leave them they are only
+   ignored, with one warning per start. The heartbeat interval and session
+   timeout now come from the broker (`group.consumer.heartbeat.interval.ms`,
+   default 5 s; `group.consumer.session.timeout.ms`, default 45 s).
+2. Roll the deployment **one instance at a time**. When the first
+   `:consumer` member joins, the coordinator converts the classic group into
+   a consumer group. The classic members that are still running stay in it:
+   classic and consumer members coexist in the same group during the roll,
+   and the coordinator keeps assigning partitions to both
+   (`KafkaEx.API.describe_consumer_group/2` lists them with
+   `member_type: :classic` / `:consumer`).
+3. When the last classic member has left, the group is a plain consumer
+   group.
+
+Rolling back works the same way in reverse with the `bidirectional`
+policy: classic members can join while `:consumer` members are still in the
+group (the two coexist again), and the group converts back to a classic
+group when the last `:consumer` member leaves. No stop-the-world restart is
+needed. (Rollback is not covered by an integration test.)
+
+Before this release a KafkaEx classic member of a migrating group failed
+its SyncGroup with `:parse_error` (Kafka 4.x sends the member's assignment
+with a null `user_data`, which the protocol decoder did not accept) and
+stopped after its retries. That is fixed, so the classic members of a
+KafkaEx deployment can take part in the roll.
+
+### Graceful shutdown matters
+
+A member that stops without leaving the group keeps its partitions until
+the coordinator notices it is gone, a full **session timeout** later
+(45 s by default for `:consumer`, your `:session_timeout` for
+`:classic`). During that time nobody consumes those partitions. On a
+graceful stop a KafkaEx member stops its consumers (each commits its
+offsets) and then leaves the group (a LeaveGroup for `:classic`, a
+heartbeat with member epoch `-1` for `:consumer`), so its partitions move
+at once.
+
+A **static member** (`:group_instance_id` set, per group or in application
+config) is the exception: on purpose it does not give its partitions up.
+A classic static member sends no LeaveGroup and a `:consumer` static member
+leaves with member epoch `-2`, so the broker keeps its assignment until
+its session timeout, waiting for the same instance id to come back. In a
+rolling migration, start the replacement member with the **same**
+`:group_instance_id`: the broker then hands the old member's partitions
+straight to it (a `:consumer` member presenting the instance id of a
+classic static member replaces it). A replacement with a different (or
+no) instance id waits out the old member's session timeout instead.
+
+A graceful stop is a supervisor shutdown: `Application.stop/1`,
+`System.stop/0`, or `:init.stop/0`. On SIGTERM the BEAM (OTP 20+) runs
+`:init.stop/0`, which shuts the application supervision trees down in
+order, so a KafkaEx consumer group under your application's supervisor
+leaves the group on SIGTERM as long as the shutdown has time to finish:
+
+- A `:consumer` group takes up to about two consumer `:shutdown`s (by
+  default the fetch `:max_wait_time` + 10 s, so 20 s), plus
+  `:leave_timeout_ms` (5 s), plus margins: about 60 s with the defaults
+  (`ConsumerProtocolManager.shutdown_budget/1`). Lower `:max_wait_time` in
+  `:fetch_options` to shorten it.
+- A classic group allows 25 s for the Manager's LeaveGroup.
+- On **Kubernetes**, set `terminationGracePeriodSeconds` above that (the
+  default 30 s is not enough for a `:consumer` group with the default fetch
+  wait). Otherwise the pod is SIGKILLed mid-shutdown, no leave is sent and
+  the partitions stay unconsumed for a session timeout. Do not exec the BEAM
+  through a shell that swallows SIGTERM (use `exec` in the entrypoint, or a
+  release's own start script).
+- In your own supervisor, start the consumer group as a supervisor child.
+  A map child spec (`%{id: ..., start: {KafkaEx.Consumer.ConsumerGroup,
+  :start_link, [...]}}`, as in the README) without `type:` / `shutdown:` is
+  a *worker* with a 5 s shutdown, so the group is killed before it can
+  leave. Add `type: :supervisor, shutdown: :infinity` to it.
+
+`kill -9`, an OOM kill or a node crash cannot be graceful: expect a
+session timeout of unconsumed partitions after one.
+
 # Upgrading to KafkaEx 1.1.0
 
 This section covers changes since the 1.0 release. For the 0.x → 1.0 migration,

@@ -22,7 +22,7 @@ KafkaEx v1.0 is the Kayrock-based release. Scope:
 - ✅ Automatic API version negotiation with per-request / per-app overrides
 - ✅ First-class telemetry (27+ events)
 - ❌ Idempotent / transactional producer (planned, post-1.0)
-- ❌ KIP-848 new rebalance protocol (planned, post-1.0)
+- ✅ KIP-848 consumer group protocol, opt-in with `group_protocol: :consumer` (Kafka 4.0+; see [Next-generation consumer groups](#next-generation-consumer-groups-kip-848))
 - ❌ KIP-368 proactive SASL re-authentication on token expiry (see [AUTH.md § Token expiry behaviour](./AUTH.md#token-expiry-behaviour) for the current reconnect-driven behaviour)
 - ⚠️ Kafka 4.0 compatibility tracked in [#497](https://github.com/kafkaex/kafka_ex/issues/497)
 
@@ -41,6 +41,7 @@ KafkaEx v1.0 is the Kayrock-based release. Scope:
 - [Usage](#usage)
   - [Basic Producer/Consumer](#basic-producerconsumer)
   - [Consumer Groups](#consumer-groups)
+  - [Next-generation consumer groups (KIP-848)](#next-generation-consumer-groups-kip-848)
   - [Metadata & Offsets](#metadata--offsets)
   - [Topic Management](#topic-management)
   - [Compression](#compression)
@@ -338,6 +339,10 @@ def start(_type, _args) do
     # Start the consumer group
     %{
       id: MyApp.MessageConsumer,
+      # A supervisor child: on shutdown the group stops its consumers (they
+      # commit) and leaves the group, which a worker's 5 s default would cut off.
+      type: :supervisor,
+      shutdown: :infinity,
       start: {
         KafkaEx.Consumer.ConsumerGroup,
         :start_link,
@@ -374,6 +379,70 @@ end
 ```
 
 See [KafkaEx.Consumer.GenConsumer](https://hexdocs.pm/kafka_ex/KafkaEx.Consumer.GenConsumer.html) for details.
+
+### Next-generation consumer groups (KIP-848)
+
+On Kafka 4.0+ a consumer group can use the KIP-848 **consumer group
+protocol** instead of the classic JoinGroup/SyncGroup protocol. It is
+opt-in with `group_protocol: :consumer`; the default stays `:classic`.
+
+```elixir
+KafkaEx.Consumer.ConsumerGroup.start_link(
+  MyApp.MessageConsumer,
+  "my-consumer-group",
+  ["topic1", "topic2"],
+  group_protocol: :consumer,
+  server_assignor: "uniform",
+  commit_interval: 5_000
+)
+```
+
+What changes with `:consumer`:
+
+- **No stop-the-world rebalance.** The broker computes the assignment and
+  each member reconciles it incrementally: only the consumers of partitions
+  that move to another member are stopped (after committing), only those of
+  new partitions are started. The rest keep consuming.
+- **The broker controls the timing.** The heartbeat interval and session
+  timeout come from the broker (`group.consumer.heartbeat.interval.ms`,
+  `group.consumer.session.timeout.ms`), and assignment happens on the broker
+  (`server_assignor`).
+- `ConsumerGroup.generation_id/1` returns the member epoch; there is no
+  group leader (`leader?/1` is `false`).
+
+Options (the `GenConsumer` options such as `:commit_interval`,
+`:auto_offset_reset` and `:fetch_options` work with both protocols):
+
+| Option | Protocol | Default | Notes |
+|--------|----------|---------|-------|
+| `:group_protocol` | both | `:classic` | `:classic` or `:consumer`; anything else returns `{:error, {:invalid_option, :invalid_group_protocol}}` |
+| `:group_instance_id` | both | `:group_instance_id` application config, else `nil` | static membership (KIP-345); the per-group option wins over the application config |
+| `:server_assignor` | `:consumer` | `nil` (broker default) | `"uniform"` or `"range"` on Apache Kafka |
+| `:rebalance_timeout_ms` | `:consumer` | `300_000` | how long the broker waits for this member to revoke partitions |
+| `:subscribed_topic_regex` | `:consumer` | `nil` | subscribe by RE2/J regular expression (ConsumerGroupHeartbeat v1+) |
+| `:rack_id` | `:consumer` | `nil` | **optional** rack awareness: with `nil` no rack id is sent; when set it is passed to the broker's assignor, there is no client-side rack logic |
+| `:leave_timeout_ms` | `:consumer` | `5_000` | how long the leave heartbeat may take on shutdown |
+| `:heartbeat_interval`, `:session_timeout`, `:session_timeout_padding`, `:rebalance_timeout`, `:partition_assignment_callback` | `:classic` | | |
+
+Options that the selected protocol does not use are ignored, and listed in
+**a single warning** at start; the group still starts. More tuning options
+are documented in `KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager`.
+
+**Unsupported cluster.** The protocol needs Kafka 4.0+ with `consumer` in
+`group.coordinator.rebalance.protocols` and the `group.version` feature
+finalized at 1 or higher (a cluster upgraded in place from 3.x keeps 0 until
+`kafka-features.sh upgrade --feature group.version=1`). Against a cluster
+without it a `:consumer` group fails fast with a clear error: at start
+(`:consumer_group_protocol_not_supported`) on Kafka < 4.0, whose brokers do
+not offer ConsumerGroupHeartbeat v1+ (3.7-3.9 advertise only the
+early-access v0), or at its first heartbeat (a terminal
+`:unsupported_version`) on Kafka 4.x with the protocol disabled. There is no silent fallback to `:classic`; this
+matches the Java client.
+
+**Migrating an existing group.** A classic group can be moved to
+`:consumer` with a rolling restart on Kafka 4.x, with classic and consumer
+members in the same group during the roll. See
+[UPGRADING.md](./UPGRADING.md#migrating-a-consumer-group-to-the-kip-848-consumer-protocol).
 
 ### Metadata & Offsets
 
@@ -783,7 +852,6 @@ v1.0 is the Kayrock-based release. Expect prioritisation rather than blanket cov
 **Explicitly out of scope for v1.x:**
 
 - Idempotent / transactional producer (planned post-1.0)
-- KIP-848 new rebalance protocol (planned post-1.0)
 - KIP-368 proactive SASL re-authentication (planned post-1.0 — see [AUTH.md § Token expiry behaviour](./AUTH.md#token-expiry-behaviour))
 - Back-porting fixes to 0.15.x beyond security patches
 - Supporting Kafka < 0.11 (use an earlier kafka_ex tag)
