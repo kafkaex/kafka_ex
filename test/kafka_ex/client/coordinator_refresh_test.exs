@@ -98,6 +98,145 @@ defmodule KafkaEx.Client.CoordinatorRefreshTest do
     assert_received :rediscovered
   end
 
+  describe "KIP-848 ConsumerGroupHeartbeat on a connection failure" do
+    # Two brokers; the cached coordinator for the group is broker 1, which is
+    # gone (every request to it fails at the transport).
+    setup %{state: state} do
+      [broker] = Map.values(state.cluster_metadata.brokers)
+
+      state = %State{
+        state
+        | api_versions: %{68 => {0, 1}, 10 => {0, 3}},
+          cluster_metadata: %ClusterMetadata{
+            brokers: %{1 => broker, 2 => %Broker{broker | node_id: 2}},
+            consumer_group_coordinators: %{"test-group" => 1}
+          }
+      }
+
+      {:ok, state: state}
+    end
+
+    # Nothing was sent: the client retries, on a re-discovered coordinator.
+    for reason <- [:no_broker, :not_connected] do
+      test "#{reason} re-discovers the coordinator before the next attempt", %{state: state} do
+        reason = unquote(reason)
+        test_pid = self()
+        stub(NetworkClient, :send_sync_request, fn _broker, _wire, _timeout -> {:error, reason} end)
+
+        stub(RequestBuilder, :find_coordinator_request, fn _opts, _state ->
+          send(test_pid, :rediscovered)
+          {:error, :api_version_no_supported}
+        end)
+
+        Client.handle_call({:consumer_group_heartbeat, "test-group", [member_id: "m", member_epoch: 5]}, self(), state)
+
+        # pre-fix the client retried the cached coordinator only
+        assert_received :rediscovered
+      end
+    end
+
+    # The broker may have processed it (and bumped the epoch): an incremental
+    # heartbeat resent unchanged would be fenced, so it goes back to the
+    # manager, which resends it in full.
+    for reason <- [:timeout, :closed, :econnreset, :transport_error, :parse_error] do
+      test "#{reason} is send-once: returned to the caller, not resent", %{state: state} do
+        reason = unquote(reason)
+        test_pid = self()
+
+        stub(NetworkClient, :send_sync_request, fn _broker, _wire, _timeout ->
+          send(test_pid, :sent)
+          {:error, reason}
+        end)
+
+        stub(RequestBuilder, :find_coordinator_request, fn _opts, _state -> flunk("resent") end)
+
+        assert {:reply, {:error, %KafkaEx.Client.Error{error: ^reason}}, _} =
+                 Client.handle_call(
+                   {:consumer_group_heartbeat, "test-group", [member_id: "m", member_epoch: 5]},
+                   self(),
+                   state
+                 )
+
+        assert_received :sent
+        refute_received :sent
+      end
+    end
+
+    # A join (0) and a leave (-1 dynamic, -2 static) are not incremental: the
+    # broker accepts them again, so the client keeps retrying a lost
+    # connection (the leave has no other retry).
+    for epoch <- [0, -1, -2] do
+      test "a heartbeat with epoch #{epoch} is still resent by the client after :closed", %{state: state} do
+        epoch = unquote(epoch)
+        test_pid = self()
+
+        stub(NetworkClient, :send_sync_request, fn _broker, _wire, _timeout ->
+          send(test_pid, :sent)
+          {:error, :closed}
+        end)
+
+        stub(RequestBuilder, :find_coordinator_request, fn _opts, _state ->
+          send(test_pid, :rediscovered)
+          {:error, :api_version_no_supported}
+        end)
+
+        opts = [member_id: "m", member_epoch: epoch] ++ if(epoch == -2, do: [instance_id: "i"], else: [])
+        Client.handle_call({:consumer_group_heartbeat, "test-group", opts}, self(), state)
+
+        assert_received :sent
+        assert_received :rediscovered
+      end
+    end
+
+    test "a send-once failure forgets the coordinator, so the next heartbeat re-discovers it", %{state: state} do
+      test_pid = self()
+      stub(NetworkClient, :send_sync_request, fn _broker, _wire, _timeout -> {:error, :closed} end)
+
+      stub(RequestBuilder, :find_coordinator_request, fn _opts, _state ->
+        send(test_pid, :rediscovered)
+        {:error, :api_version_no_supported}
+      end)
+
+      {:reply, {:error, _}, state_out} =
+        Client.handle_call({:consumer_group_heartbeat, "test-group", [member_id: "m", member_epoch: 5]}, self(), state)
+
+      refute_received :rediscovered
+      assert state_out.cluster_metadata.consumer_group_coordinators == %{}
+
+      Client.handle_call(
+        {:consumer_group_heartbeat, "test-group", [member_id: "m", member_epoch: 5]},
+        self(),
+        state_out
+      )
+
+      assert_received :rediscovered
+    end
+
+    test "a broker error answer (not a connection failure) keeps the cached coordinator", %{state: state} do
+      stub(NetworkClient, :send_sync_request, fn _broker, _wire, _timeout -> {:error, :request_timed_out} end)
+      stub(RequestBuilder, :find_coordinator_request, fn _opts, _state -> flunk("re-discovered") end)
+
+      {:reply, {:error, _}, state_out} =
+        Client.handle_call({:consumer_group_heartbeat, "test-group", [member_id: "m", member_epoch: 5]}, self(), state)
+
+      assert state_out.cluster_metadata.consumer_group_coordinators == %{"test-group" => 1}
+    end
+
+    test "a classic request keeps its behaviour: a :closed is retried on the cached coordinator", %{state: state} do
+      stub(NetworkClient, :send_sync_request, fn _broker, _wire, _timeout -> {:error, :closed} end)
+      stub(RequestBuilder, :find_coordinator_request, fn _opts, _state -> flunk("re-discovered") end)
+
+      {:reply, {:error, _}, state_out} =
+        Client.handle_call(
+          {:offset_fetch, "test-group", [{"t", [%{partition_num: 0}]}], [api_version: 3]},
+          self(),
+          %State{state | api_versions: %{9 => {0, 3}}}
+        )
+
+      assert state_out.cluster_metadata.consumer_group_coordinators == %{"test-group" => 1}
+    end
+  end
+
   # correlation_id, one group: error_code, group_id, empty state/protocol_type/protocol,
   # no members.
   defp describe_groups_v0_response(correlation_id, group_id, error_code) do

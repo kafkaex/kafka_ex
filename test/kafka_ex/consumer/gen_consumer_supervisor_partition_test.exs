@@ -329,6 +329,18 @@ defmodule KafkaEx.Consumer.GenConsumer.SupervisorPartitionTest do
       assert GenConsumerSupervisor.child_pids(sup) == [pid1]
     end
 
+    test "lost: true stops the consumer with {:shutdown, :partition_lost}" do
+      sup = start_sup()
+      {:ok, pid0} = GenConsumerSupervisor.start_partition(sup, {"t", 0})
+      {:ok, pid1} = GenConsumerSupervisor.start_partition(sup, {"t", 1})
+
+      assert :ok = GenConsumerSupervisor.stop_partition(sup, {"t", 0}, lost: true)
+      assert_receive {:terminated, ^pid0, {"t", 0}, {:shutdown, :partition_lost}}
+
+      assert %{{"t", 1} => :ok} = GenConsumerSupervisor.stop_partitions(sup, [{"t", 1}], lost: true)
+      assert_receive {:terminated, ^pid1, {"t", 1}, {:shutdown, :partition_lost}}
+    end
+
     test "an unknown or already stopped partition is {:error, :not_found}" do
       sup = start_sup([{"s", 0}])
       assert GenConsumerSupervisor.stop_partition(sup, {"t", 9}) == {:error, :not_found}

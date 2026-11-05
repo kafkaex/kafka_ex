@@ -229,6 +229,20 @@ defmodule KafkaEx.Support.Retry do
   def transport_timeout?(_), do: false
 
   @doc """
+  Check if an error means the connection to the broker failed (as opposed to
+  an error the broker answered with): a recv deadline expiry, a closed or
+  reset socket, no reachable broker. On a coordinator request the
+  coordinator may be gone, so it is worth re-discovering (Java
+  `CoordinatorRequestManager.handleCoordinatorDisconnect`).
+  """
+  @spec coordinator_connection_error?(error()) :: boolean()
+  def coordinator_connection_error?(error)
+      when error in [:timeout, :closed, :no_broker, :not_connected, :econnreset, :transport_error],
+      do: true
+
+  def coordinator_connection_error?(_), do: false
+
+  @doc """
   Retriability default for data-plane requests (metadata, offset, find_coordinator,
   admin). Retries only transient/leadership errors — fatal broker codes
   (`:topic_authorization_failed`, `:unsupported_version`, `:invalid_request`, …)
@@ -444,6 +458,31 @@ defmodule KafkaEx.Support.Retry do
   """
   @spec consumer_group_heartbeat_retryable?(error()) :: boolean()
   def consumer_group_heartbeat_retryable?(error), do: transient_error?(error)
+
+  @doc """
+  ConsumerGroupHeartbeat (KIP-848) errors after which the client must not
+  resend a member heartbeat (epoch > 0), because the broker may already have
+  processed it: the recv deadline (`:timeout`), a connection closed or reset,
+  and a reply that could not be parsed (`:parse_error`: the broker answered).
+
+  A steady-state heartbeat is incremental (owned partitions left out). If the
+  lost reply moved the member to a new epoch, resending it unchanged sends
+  the old epoch without the owned partitions, which the broker fences
+  (`GroupMetadataManager.throwIfConsumerGroupMemberEpochIsInvalid` accepts a
+  previous epoch only with owned partitions that are a subset of the
+  assignment). The error goes back to the manager, which resends a full
+  heartbeat, as Java does (`AbstractHeartbeatRequestManager.onFailure` resets
+  the heartbeat state). A `:closed` can also mean nothing was sent (a stale
+  socket); the manager's full resend then costs one backoff. `:no_broker`
+  and `:not_connected` mean nothing was sent, so the client still retries
+  them. Joins and leaves are not incremental and keep the client retry.
+  """
+  @spec consumer_group_heartbeat_send_once?(error()) :: boolean()
+  def consumer_group_heartbeat_send_once?(error)
+      when error in [:timeout, :closed, :econnreset, :transport_error, :parse_error],
+      do: true
+
+  def consumer_group_heartbeat_send_once?(_), do: false
 
   @doc """
   ConsumerGroupHeartbeat (KIP-848) errors after which the member must rejoin:

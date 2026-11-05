@@ -241,6 +241,31 @@ defmodule KafkaEx.Telemetry do
     * Measurements: `%{count: 1, crashes_in_window: non_neg_integer()}`
     * Metadata: `%{group_id: binary(), member_id: binary(), reason: term()}`
 
+  * `[:kafka_ex, :consumer, :member_joined]` - Emitted when a KIP-848 (consumer protocol)
+    member's join heartbeat (`member_epoch: 0`) is accepted, on the first join and on every
+    rejoin after fencing (see `KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager`)
+    * Measurements: `%{count: 1}`
+    * Metadata: `%{group_id: binary(), member_id: binary(), member_epoch: integer()}`
+
+  * `[:kafka_ex, :consumer, :reconcile]` - Emitted when a KIP-848 member has reconciled a new
+    target assignment: the consumers of revoked partitions are stopped (they commit), those of
+    added partitions are started, and the new owned set is about to be reported. Partitions it
+    kept are not counted (they keep running).
+    * Measurements: `%{revoked: non_neg_integer(), assigned: non_neg_integer(), duration: integer()}`
+      (`duration` in native time units, from the first revoke/assign of this reconciliation)
+    * Metadata: `%{group_id: binary(), member_id: binary(), member_epoch: integer()}`
+
+  * `[:kafka_ex, :consumer, :member_fenced]` - Emitted when a KIP-848 member is fenced
+    (`:fenced_member_epoch` / `:unknown_member_id` on a heartbeat). Its partitions are lost:
+    their consumers are stopped without committing, then it rejoins with the same member id.
+    * Measurements: `%{count: 1, lost: non_neg_integer()}`
+    * Metadata: `%{group_id: binary(), member_id: binary(), member_epoch: integer(), reason: atom()}`
+
+  * `[:kafka_ex, :consumer, :member_left]` - Emitted when a KIP-848 member sends its leave
+    heartbeat on shutdown (`member_epoch` `-1`, or `-2` for a static member)
+    * Measurements: `%{count: 1}`
+    * Metadata: `%{group_id: binary(), member_id: binary(), member_epoch: -1 | -2, result: :ok | {:error, term()}}`
+
   * `[:kafka_ex, :consumer, :partition_unavailable]` - Emitted once when a partition has been
     continuously unavailable to a consumer for longer than `:fetch_unavailable_warn_ms` (default
     30s). The consumer keeps retrying regardless; this only flags a partition that is not
@@ -336,6 +361,10 @@ defmodule KafkaEx.Telemetry do
   @consumer_member_terminated [:kafka_ex, :consumer, :member_terminated]
   @consumer_heartbeat_crash [:kafka_ex, :consumer, :heartbeat_crash]
   @consumer_partition_unavailable [:kafka_ex, :consumer, :partition_unavailable]
+  @consumer_member_joined [:kafka_ex, :consumer, :member_joined]
+  @consumer_reconcile [:kafka_ex, :consumer, :reconcile]
+  @consumer_member_fenced [:kafka_ex, :consumer, :member_fenced]
+  @consumer_member_left [:kafka_ex, :consumer, :member_left]
 
   @metadata_update_start [:kafka_ex, :metadata, :update, :start]
   @metadata_update_stop [:kafka_ex, :metadata, :update, :stop]
@@ -371,7 +400,11 @@ defmodule KafkaEx.Telemetry do
                              @consumer_offset_reset,
                              @consumer_member_terminated,
                              @consumer_heartbeat_crash,
-                             @consumer_partition_unavailable
+                             @consumer_partition_unavailable,
+                             @consumer_member_joined,
+                             @consumer_reconcile,
+                             @consumer_member_fenced,
+                             @consumer_member_left
                            ]
   @consumer_process_events [@consumer_process_start, @consumer_process_stop, @consumer_process_exception]
   @consumer_events @consumer_commit_events ++ @consumer_group_events ++ @consumer_process_events
@@ -683,6 +716,61 @@ defmodule KafkaEx.Telemetry do
         reason: reason
       }
     )
+  end
+
+  @doc """
+  Emits `[:kafka_ex, :consumer, :member_joined]`: a KIP-848 member's join was accepted.
+  """
+  @spec emit_member_joined(binary(), binary(), integer()) :: :ok
+  def emit_member_joined(group_id, member_id, member_epoch) do
+    :telemetry.execute(@consumer_member_joined, %{count: 1}, %{
+      group_id: group_id,
+      member_id: member_id,
+      member_epoch: member_epoch
+    })
+  end
+
+  @doc """
+  Emits `[:kafka_ex, :consumer, :reconcile]`: a KIP-848 member reconciled an assignment.
+  """
+  @spec emit_reconcile(binary(), binary(), integer(), %{
+          revoked: non_neg_integer(),
+          assigned: non_neg_integer(),
+          duration: integer()
+        }) :: :ok
+  def emit_reconcile(group_id, member_id, member_epoch, measurements) do
+    :telemetry.execute(@consumer_reconcile, measurements, %{
+      group_id: group_id,
+      member_id: member_id,
+      member_epoch: member_epoch
+    })
+  end
+
+  @doc """
+  Emits `[:kafka_ex, :consumer, :member_fenced]`: a KIP-848 member was fenced and lost
+  `lost` partitions.
+  """
+  @spec emit_member_fenced(binary(), binary(), integer(), atom(), non_neg_integer()) :: :ok
+  def emit_member_fenced(group_id, member_id, member_epoch, reason, lost) do
+    :telemetry.execute(@consumer_member_fenced, %{count: 1, lost: lost}, %{
+      group_id: group_id,
+      member_id: member_id,
+      member_epoch: member_epoch,
+      reason: reason
+    })
+  end
+
+  @doc """
+  Emits `[:kafka_ex, :consumer, :member_left]`: a KIP-848 member sent its leave heartbeat.
+  """
+  @spec emit_member_left(binary(), binary(), integer(), :ok | {:error, term()}) :: :ok
+  def emit_member_left(group_id, member_id, member_epoch, result) do
+    :telemetry.execute(@consumer_member_left, %{count: 1}, %{
+      group_id: group_id,
+      member_id: member_id,
+      member_epoch: member_epoch,
+      result: result
+    })
   end
 
   @doc """
