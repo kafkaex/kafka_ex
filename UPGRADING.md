@@ -1,3 +1,65 @@
+# Upgrading to KafkaEx 1.2.0
+
+This section covers changes since the 1.1 release. The 1.0 → 1.1 changes are
+documented in **Upgrading to KafkaEx 1.1.0** further below.
+
+## Kayrock 1.1.0 and newer protocol versions
+
+KafkaEx 1.2.0 requires `{:kayrock, "~> 1.1"}`. Kayrock 1.1.0 reports the Kafka
+4.4.0 maximum versions from `KafkaSchemaMetadata.version_range/1`. KafkaEx caps
+negotiation at the versions it implements
+(`KafkaEx.Protocol.KayrockProtocol.max_supported_version/1`), so it never selects
+a version it cannot build. **That cap exists since KafkaEx 1.1.3** — do not
+upgrade Kayrock to 1.1.0 while still on KafkaEx <= 1.1.2, because those releases
+would negotiate versions they do not implement.
+
+On a broker that advertises them, the newer versions are now used automatically:
+Metadata v10-v13, OffsetCommit v9-v10, OffsetFetch v7-v10 and FindCoordinator
+v4-v6. From Kafka 2.5 onward at least one of these moves up (Kafka 3.0 →
+Metadata v11, OffsetFetch v8, FindCoordinator v4; Kafka 3.7 → Metadata v12,
+OffsetCommit v9, OffsetFetch v9). Kafka 2.4 and older are unaffected. Results
+are still the same `KafkaEx.Messages.*` / `KafkaEx.Cluster.*` structs. To keep an
+API on its previous version, pin it:
+
+```elixir
+config :kafka_ex,
+  api_versions: %{metadata: 9, offset_fetch: 6, find_coordinator: 3}
+```
+
+## `acks` / `required_acks` is honoured again (since 1.1.2)
+
+KafkaEx 1.0-1.1.1 always produced with `acks: -1` regardless of the option.
+Since 1.1.2 the value reaches the broker: `required_acks: 1` means leader-only
+and `required_acks: 0` is fire-and-forget (records can be lost,
+`base_offset: nil`). Pass `acks: -1` to keep the old behaviour. `:acks` is the
+canonical option; `:required_acks` is a deprecated alias removed in 2.0.
+
+## OffsetCommit v9+ reports `:group_id_not_found`
+
+A commit with a generation for a group the coordinator does not know now returns
+`{:error, :group_id_not_found}` on OffsetCommit v9+ (v0-v8 returned
+`:illegal_generation`). A stale generation in a live classic group still returns
+`:illegal_generation`, and a simple commit (generation `-1`) is unaffected. If
+you match on `:illegal_generation` to detect a lost membership, match
+`:group_id_not_found` too. `GenConsumer` already treats `:group_id_not_found`,
+`:stale_member_epoch` and `:fenced_member_epoch` as rejoin-required.
+
+## `metadata/2` with `topic_ids:`
+
+A by-id lookup now returns an error when any id cannot be returned instead of
+`{:ok, ...}` without those topics: `{:error, :unknown_topic_id}` for an id the
+broker does not know and `{:error, :topic_authorization_failed}` for one the
+caller may not describe. The error metadata carries `topic_ids` and per-id
+`topic_errors`. Malformed ids return `{:error, :invalid_topic_ids}`, and mixing
+`topics` with `topic_ids` returns `{:error, :mixed_topic_names_and_ids}`.
+
+## KIP-848 consumer group APIs are additive
+
+`KafkaEx.API.consumer_group_heartbeat/3` and
+`KafkaEx.API.describe_consumer_group/3` add the KIP-848 protocol.
+`ConsumerGroup` and `GenConsumer` still use the classic protocol, so existing
+consumers need no changes.
+
 # Upgrading to KafkaEx 1.1.0
 
 This section covers changes since the 1.0 release. For the 0.x → 1.0 migration,
