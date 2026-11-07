@@ -3,7 +3,7 @@ defmodule KafkaEx.Mixfile do
   use Mix.Project
 
   @source_url "https://github.com/kafkaex/kafka_ex"
-  @version "1.1.3"
+  @version "1.2.0"
 
   def project do
     [
@@ -56,9 +56,9 @@ defmodule KafkaEx.Mixfile do
 
   defp deps do
     [
-      # Kayrock master (not yet on hex) generates the Kafka 4.4.0 protocol
-      # versions KafkaEx implements, including the KIP-848 consumer group APIs.
-      {:kayrock, github: "kafkaex/kayrock", branch: "master"},
+      # Kayrock 1.1.0 adds the Kafka 4.4.0 protocol versions KafkaEx implements,
+      # including the KIP-848 consumer group APIs.
+      {:kayrock, "~> 1.1"},
       {:telemetry, "~> 1.2"},
       {:credo, "~> 1.1", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: :dev, runtime: false},
