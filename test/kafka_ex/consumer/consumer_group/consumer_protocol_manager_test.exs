@@ -139,7 +139,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
         [
           client: client,
           test_pid: self(),
-          __consumer_protocol_manager__: true,
+          group_protocol: :consumer,
           heartbeat_retry_backoff_ms: 10,
           heartbeat_retry_max_backoff_ms: 20,
           partition_restart_backoff_ms: 10,
@@ -265,6 +265,23 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
 
   defp quiet(fun), do: capture_log(fun)
 
+  @doc false
+  def app_instance_id(id), do: id
+
+  defp with_app_instance_id(value, fun) do
+    previous = Application.fetch_env(:kafka_ex, :group_instance_id)
+    Application.put_env(:kafka_ex, :group_instance_id, value)
+
+    try do
+      fun.()
+    after
+      case previous do
+        {:ok, v} -> Application.put_env(:kafka_ex, :group_instance_id, v)
+        :error -> Application.delete_env(:kafka_ex, :group_instance_id)
+      end
+    end
+  end
+
   # Waits (bounded) until the manager is blocked in a receive inside its
   # terminate/2, i.e. its shutdown has got as far as it can without help.
   defp await_blocked_in_terminate(manager, attempts \\ 200) do
@@ -339,6 +356,45 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
       refute Keyword.has_key?(opts, :subscribed_topic_names)
     end
 
+    test "falls back to the application config group_instance_id, as the classic Manager does" do
+      with_app_instance_id({__MODULE__, :app_instance_id, ["app-inst"]}, fn ->
+        %{sup: sup} = start_group()
+        {from, opts} = next_heartbeat()
+        assert opts[:instance_id] == "app-inst"
+        reply_ok(from, opts, 1)
+
+        stop_async(sup)
+        {from, leave} = next_heartbeat()
+        assert leave[:member_epoch] == -2
+        assert leave[:instance_id] == "app-inst"
+        reply_ok(from, leave, -2)
+        assert_receive {:sup_down, :shutdown}, 5_000
+      end)
+    end
+
+    test "a per-group group_instance_id wins over the application config" do
+      with_app_instance_id("app-inst", fn ->
+        start_group(group_instance_id: "opt-inst")
+        {_from, opts} = next_heartbeat()
+        assert opts[:instance_id] == "opt-inst"
+      end)
+    end
+
+    test "an invalid application config group_instance_id fails the start" do
+      with_app_instance_id(" padded ", fn ->
+        Process.flag(:trap_exit, true)
+        {:ok, client} = ScriptedClient.start_link(self())
+        opts = [client: client, test_pid: self(), group_protocol: :consumer]
+
+        quiet(fn ->
+          assert {:error,
+                  {:shutdown,
+                   {:failed_to_start_child, ConsumerProtocolManager, {:invalid_option, :invalid_group_instance_id}}}} =
+                   ConsumerGroup.start_link({FakeConsumer, NoopConsumer}, @group, ["a"], opts)
+        end)
+      end)
+    end
+
     test "every retry of the join keeps the member id generated at start" do
       quiet(fn ->
         start_group()
@@ -385,7 +441,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
       ]
 
       for {topics, bad, reason} <- cases do
-        opts = [client: client, test_pid: self(), __consumer_protocol_manager__: true] ++ bad
+        opts = [client: client, test_pid: self(), group_protocol: :consumer] ++ bad
 
         quiet(fn ->
           assert {:error, {:shutdown, {:failed_to_start_child, ConsumerProtocolManager, {:invalid_option, ^reason}}}} =

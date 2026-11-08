@@ -153,6 +153,8 @@ end
 children = [
   %{
     id: MyApp.Consumer,
+    type: :supervisor,       # so a shutdown can leave the group (see below)
+    shutdown: :infinity,
     start: {
       KafkaEx.Consumer.ConsumerGroup,
       :start_link,
@@ -168,6 +170,38 @@ children = [
 ```
 
 **Note:** There is NO `{:no_commit, state}` return option. Only `{:async_commit, state}` and `{:sync_commit, state}` are valid.
+
+### KIP-848 consumer group protocol (`group_protocol: :consumer`)
+
+```elixir
+# CORRECT - opt in on Kafka 4.0+; :classic is the default
+KafkaEx.Consumer.ConsumerGroup.start_link(MyApp.Consumer, "my-consumer-group", ["topic1"],
+  group_protocol: :consumer,
+  server_assignor: "uniform"   # optional; nil = broker default
+  # rack_id: "use1-az1"        # optional rack awareness; default nil (off)
+)
+
+# WRONG - classic timing options do nothing under :consumer (the broker sets
+# the heartbeat interval and session timeout); they are only logged as ignored
+KafkaEx.Consumer.ConsumerGroup.start_link(MyApp.Consumer, "g", ["t"],
+  group_protocol: :consumer, heartbeat_interval: 1_000, session_timeout: 10_000)
+
+# WRONG - invalid value: returns {:error, {:invalid_option, :invalid_group_protocol}}
+KafkaEx.Consumer.ConsumerGroup.start_link(MyApp.Consumer, "g", ["t"], group_protocol: "consumer")
+
+# WRONG - expecting a fallback: on a cluster without the protocol a :consumer group
+# fails fast; it never silently uses :classic. Kafka < 4.0 (including the 3.7-3.9
+# early access) fails the start with :consumer_group_protocol_not_supported; Kafka
+# 4.x with the protocol disabled (or group.version at 0) stops at the first
+# heartbeat with a terminal :unsupported_version
+```
+
+- `ConsumerGroup.generation_id/1` returns the member epoch for a `:consumer`
+  group; `leader?/1` is always `false` (the broker assigns partitions).
+- Classic and `:consumer` members can share a group during a rolling
+  migration on Kafka 4.x (see UPGRADING.md). Start the group as a supervisor
+  child (`type: :supervisor, shutdown: :infinity` in a map child spec) so a
+  shutdown can leave the group instead of waiting out a session timeout.
 
 ## Authentication (SASL)
 
@@ -404,6 +438,7 @@ KafkaEx emits telemetry events for observability:
 
 - **Minimum Kafka:** 0.10.0+
 - **Recommended Kafka:** 0.11.0+ (for headers, timestamps, RecordBatch format)
+- **`group_protocol: :consumer` (KIP-848):** Kafka 4.0+, with `consumer` in `group.coordinator.rebalance.protocols` and `group.version` finalized at 1+
 - **Elixir:** 1.14+
 - **Erlang OTP:** 24+
 

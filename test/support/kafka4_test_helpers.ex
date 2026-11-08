@@ -38,6 +38,9 @@ defmodule KafkaEx.Kafka4TestHelpers do
 
   Returns `{:ok, ctx}` with `:container`, `:host`, `:port` and `:uris`
   (`[{host, port}]`, suitable for `KafkaEx.API.start_client(brokers: ...)`).
+
+  Options: `:image`, and `:env` - extra broker environment, e.g.
+  `[{"KAFKA_GROUP_COORDINATOR_REBALANCE_PROTOCOLS", "classic"}]`.
   """
   @spec start_kafka(Keyword.t()) :: {:ok, map()}
   def start_kafka(opts \\ []) do
@@ -47,7 +50,8 @@ defmodule KafkaEx.Kafka4TestHelpers do
     end
 
     image = Keyword.get(opts, :image, System.get_env("KAFKA4_IMAGE", @default_image))
-    {:ok, container} = Testcontainers.start_container(build_container(image))
+    container = image |> build_container() |> with_extra_env(Keyword.get(opts, :env, []))
+    {:ok, container} = Testcontainers.start_container(container)
 
     host = Testcontainers.get_host()
     port = Container.mapped_port(container, @external_port)
@@ -69,6 +73,46 @@ defmodule KafkaEx.Kafka4TestHelpers do
   end
 
   def stop_kafka(_), do: :ok
+
+  @doc """
+  Runs `command` (an argv list) in the broker container and waits for it.
+  Returns `:ok` on exit code 0, `{:error, {:exit_code, code}}` otherwise.
+  The broker's inter-broker listener is reachable from inside the container
+  at `internal_bootstrap/0`.
+  """
+  @spec exec(map(), [String.t()], non_neg_integer()) :: :ok | {:error, term()}
+  def exec(%{container: container}, command, timeout_ms \\ 60_000) do
+    {conn, _url, _host} = Testcontainers.Connection.get_connection([])
+
+    with {:ok, exec_id} <- Docker.Api.start_exec(container.container_id, command, conn) do
+      wait_exec(exec_id, conn, System.monotonic_time(:millisecond) + timeout_ms)
+    end
+  end
+
+  @doc "Bootstrap address of the broker from inside its own container."
+  @spec internal_bootstrap() :: String.t()
+  def internal_bootstrap, do: "kafka4:#{@internal_port}"
+
+  defp wait_exec(exec_id, conn, deadline) do
+    case Docker.Api.inspect_exec(exec_id, conn) do
+      {:ok, %{running: false, exit_code: 0}} ->
+        :ok
+
+      {:ok, %{running: false, exit_code: code}} ->
+        {:error, {:exit_code, code}}
+
+      {:ok, %{running: true}} ->
+        if System.monotonic_time(:millisecond) > deadline do
+          {:error, :timeout}
+        else
+          Process.sleep(200)
+          wait_exec(exec_id, conn, deadline)
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 
   @doc """
   Starts an unnamed `KafkaEx.Client` connected to the Kafka 4 broker.
@@ -130,6 +174,10 @@ defmodule KafkaEx.Kafka4TestHelpers do
       "-c",
       "while [ ! -f #{script_path()} ]; do sleep 0.1; done; exec bash #{script_path()}"
     ])
+  end
+
+  defp with_extra_env(container, env) do
+    Enum.reduce(env, container, fn {key, value}, acc -> Container.with_environment(acc, key, value) end)
   end
 
   defp upload_start_script(container, host, port) do

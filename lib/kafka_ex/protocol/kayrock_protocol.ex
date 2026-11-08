@@ -8,6 +8,7 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
   alias KafkaEx.Client.Error
   alias KafkaEx.Protocol.Kayrock, as: KayrockProtocol
   alias KafkaEx.Protocol.Kayrock.ConsumerGroupHeartbeat.RequestHelpers, as: ConsumerGroupHeartbeatRequestHelpers
+  alias KafkaEx.Protocol.Kayrock.SyncGroup.ResponseDeserializer, as: SyncGroupResponseDeserializer
 
   alias Kayrock.ApiVersions
   alias Kayrock.ConsumerGroupDescribe
@@ -341,5 +342,18 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
   Returns the response deserializer function for a given request struct.
   """
   @spec response_deserializer(struct()) :: (binary() -> {struct(), binary()})
+  # SyncGroup: Kayrock cannot decode a null assignment user_data, which a
+  # Kafka 4.x coordinator sends to classic members of a group migrating to
+  # the consumer protocol (see KayrockProtocol.SyncGroup.ResponseDeserializer).
+  def response_deserializer(%request{} = sync_group)
+      when request in [
+             Kayrock.SyncGroup.V0.Request,
+             Kayrock.SyncGroup.V1.Request,
+             Kayrock.SyncGroup.V2.Request,
+             Kayrock.SyncGroup.V3.Request,
+             Kayrock.SyncGroup.V4.Request
+           ],
+      do: SyncGroupResponseDeserializer.for_request(sync_group)
+
   def response_deserializer(request), do: Request.response_deserializer(request)
 end
