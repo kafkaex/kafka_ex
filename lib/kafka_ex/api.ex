@@ -1005,7 +1005,10 @@ defmodule KafkaEx.API do
     * `:api_version` - OffsetCommit API version to use (default: negotiated)
     * `:generation_id` / `:member_id` - classic group membership (v1+)
     * `:member_epoch` - member epoch of a KIP-848 consumer-protocol group
-      (v9+); sent instead of `:generation_id` when both are given
+      (v9+); sent instead of `:generation_id` when both are given. With an
+      OffsetCommit version below 9 (`:api_version` or an `:api_versions`
+      pin) the call returns `{:error, :invalid_api_version}` rather than
+      dropping the epoch
     * `:group_instance_id` - static membership id (v7+)
 
   OffsetCommit v10+ identifies topics by id. When the topic's id is not known

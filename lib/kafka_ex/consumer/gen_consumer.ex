@@ -144,6 +144,38 @@ defmodule KafkaEx.Consumer.GenConsumer do
   offset cannot be read, so a consumer that starts while its leader is moving
   still fails to start.
 
+  ## KIP-848 membership (`:member_epoch`)
+
+  A consumer started with `:member_epoch` (and `:member_id`) is a member of a
+  consumer-protocol group (KIP-848). It loads its starting offset with
+  OffsetFetch v9+ carrying `member_id`/`member_epoch` and commits with
+  OffsetCommit v9+ `generation_id_or_member_epoch = member_epoch` (no
+  generation id). Without `:member_epoch` (classic groups) both requests are
+  exactly as before. The owner (see `KafkaEx.Consumer.GenConsumer.Supervisor`)
+  moves a running consumer to a new epoch with `update_membership/3`.
+
+  The broker validates the membership on both requests (Kafka 4.4
+  `ConsumerGroup.validateOffsetFetch` / `validateOffsetCommit`):
+
+    * Startup OffsetFetch rejected with `:stale_member_epoch` (OffsetFetch
+      needs the member's exact current epoch): the consumer stays up without
+      an offset and retries with an exponential backoff from
+      `:load_offsets_retry_backoff_ms` (at least 100 ms, capped at 30 s, one warning), or at
+      once when `update_membership/3` delivers the current epoch.
+    * Startup OffsetFetch rejected with `:unknown_member_id` or
+      `:fenced_member_epoch` (the group no longer knows or has fenced the
+      member): the consumer casts `{:rejoin_required, reason, member_epoch}`
+      to its `:group_manager_pid` and exits cleanly with
+      `{:shutdown, {:rejoin_required, reason}}`, instead of raising into a
+      crash. The same exit follows a commit rejected with these errors (see
+      "Commit failure handling").
+    * Commits: see "Commit failure handling" for `:stale_member_epoch`.
+    * `:member_epoch` with OffsetCommit pinned below v9 (`:api_versions`):
+      every commit fails with `:invalid_api_version`, a terminal error.
+
+  A `:member_epoch` that is not an int32 `>= 0`, or one without a binary
+  `:member_id`, makes `start_link/5` return `{:error, :invalid_membership}`.
+
   ## Handler state and interaction
 
   Use the `c:init/2` to initialize consumer state and `c:handle_call/3`,
@@ -194,7 +226,9 @@ defmodule KafkaEx.Consumer.GenConsumer do
 
   * **Terminal** — `:fenced_instance_id` (KIP-345),
     `:group_authorization_failed`, `:topic_authorization_failed`,
-    `:offset_metadata_too_large`, `:invalid_commit_offset_size`.
+    `:offset_metadata_too_large`, `:invalid_commit_offset_size`, and
+    `:invalid_api_version` (a `:member_epoch` is set but OffsetCommit is
+    pinned below v9 via `:api_versions`, so no commit can ever succeed).
     The consumer stops immediately without rejoining. Under
     `restart: :transient` the supervisor does not respawn.
 
@@ -202,10 +236,23 @@ defmodule KafkaEx.Consumer.GenConsumer do
     `:unknown_member_id`, and their OffsetCommit v9+ counterparts
     `:group_id_not_found`, `:stale_member_epoch`, `:fenced_member_epoch`
     (see `KafkaEx.Support.Retry.commit_fatal_error?/1`). The consumer casts `{:rejoin_required, reason,
-    stale_generation_id}` to the group manager and self-stops. The manager
+    stale_generation_id}` to the group manager and self-stops (for a KIP-848
+    member the third element is the member epoch the commit was sent with,
+    and `:stale_member_epoch` is not fatal, see below). The manager
     resets member_id/generation_id (matching Java `resetGeneration()`) and
     runs a rebalance. GenConsumers on the new generation are spawned
     afresh.
+
+  * **KIP-848 `:stale_member_epoch`** (only when `:member_epoch` is set) —
+    the epoch the commit was built with is no longer accepted for the
+    partition, e.g. `update_membership/3` arrived while the commit was in
+    flight, or the partition is being revoked. A commit already sent keeps
+    the epoch it was built with. The error is logged and reported as
+    `:transient`; the consumer keeps running and the offsets stay acked.
+    Resending with the same epoch would fail the same way, so no commit is
+    sent for one `:commit_interval` (threshold and `:sync_commit` included)
+    unless `update_membership/3` arrives first; the next commit (or the one
+    on shutdown) sends them with the current epoch. Revocation itself is the group manager's job.
 
   * **Retryable** — `:rebalance_in_progress` (broker-signalled; the next
     heartbeat will drive the rebalance), `:unstable_offset_commit`
@@ -276,6 +323,10 @@ defmodule KafkaEx.Consumer.GenConsumer do
           | {:api_versions, map()}
           | {:shutdown, timeout()}
           | {:extra_consumer_args, map()}
+          | {:member_id, binary()}
+          | {:generation_id, integer()}
+          | {:member_epoch, non_neg_integer()}
+          | {:group_manager_pid, pid()}
 
   @typedoc """
   Options used when starting a `KafkaEx.Consumer.GenConsumer`.
@@ -462,6 +513,8 @@ defmodule KafkaEx.Consumer.GenConsumer do
       :partition,
       :member_id,
       :generation_id,
+      # KIP-848 consumer-protocol member epoch; nil for classic groups.
+      :member_epoch,
       :current_offset,
       :committed_offset,
       :acked_offset,
@@ -472,6 +525,15 @@ defmodule KafkaEx.Consumer.GenConsumer do
       :group_manager_pid,
       :fetch_retry_at,
       :fetch_failing_since,
+      # KIP-848: monotonic ms before which a startup OffsetFetch rejected with
+      # :stale_member_epoch is retried (nil = not waiting); update_membership/3
+      # clears it.
+      :load_offsets_retry_at,
+      # KIP-848: monotonic ms before which no commit is sent after one was
+      # rejected with :stale_member_epoch (nil = no backoff);
+      # update_membership/3 clears it.
+      :commit_retry_at,
+      load_offsets_stale_count: 0,
       # true only when we started the client — a caller-supplied (shared) :client must not be stopped.
       owns_client: false,
       fetch_error_count: 0,
@@ -489,6 +551,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
             partition: non_neg_integer(),
             member_id: binary() | nil,
             generation_id: integer() | nil,
+            member_epoch: non_neg_integer() | nil,
             current_offset: integer() | nil,
             committed_offset: integer() | nil,
             acked_offset: integer() | nil,
@@ -499,6 +562,9 @@ defmodule KafkaEx.Consumer.GenConsumer do
             group_manager_pid: pid() | nil,
             fetch_retry_at: integer() | nil,
             fetch_failing_since: integer() | nil,
+            load_offsets_retry_at: integer() | nil,
+            commit_retry_at: integer() | nil,
+            load_offsets_stale_count: non_neg_integer(),
             owns_client: boolean(),
             fetch_error_count: non_neg_integer(),
             fetch_unavailable_reported: boolean()
@@ -562,6 +628,15 @@ defmodule KafkaEx.Consumer.GenConsumer do
     `GenConsumer.init` call in the consumer module. Note that if `init/3` is not
     implemented, the default implementation calls to `init/2`, dropping the extra
     arguments.
+
+  * `:member_id` / `:generation_id` - classic group membership the consumer
+    commits with (set by `KafkaEx.Consumer.ConsumerGroup`).
+
+  * `:member_epoch` - KIP-848 member epoch (int32 `>= 0`; requires a binary
+    `:member_id`). See "KIP-848 membership" in the moduledoc.
+
+  * `:group_manager_pid` - the process told about errors only a rejoin can
+    fix (`{:rejoin_required, reason, generation_id_or_member_epoch}` cast).
 
   **NOTE** `:commit_interval`, `:auto_offset_reset` and `:commit_threshold` default to the
   application config (e.g., `Application.get_env/2`) if that value is present, or the stated
@@ -644,9 +719,114 @@ defmodule KafkaEx.Consumer.GenConsumer do
     GenServer.cast(gen_consumer, {:consumer_cast, message})
   end
 
+  # int32 on the wire (OffsetCommit generation_id_or_member_epoch). Negative
+  # epochs (-1 / -2) are ConsumerGroupHeartbeat leave markers, never a
+  # member's epoch.
+  @max_member_epoch 2_147_483_647
+  @membership_keys [:member_id, :member_epoch]
+  # Above a default fetch long-poll (:max_wait_time 10 s + 5 s network buffer)
+  # plus a commit. It is not a worst case: a fetch or commit whose retries all
+  # run (RequestBudget.call_budget/2, ~50 s for a fetch) can exceed it, and
+  # then the call returns {:error, :timeout} while the update may still be
+  # applied once the consumer gets to it.
+  @default_update_membership_timeout 60_000
+
+  @doc """
+  Updates the KIP-848 membership a running consumer commits with, without
+  restarting it.
+
+  `membership` is a keyword list with any of:
+
+    * `:member_id` - the member id (binary)
+    * `:member_epoch` - the member's current epoch (int32, `>= 0`)
+
+  Keys that are not given keep their current value. Returns `:ok` once the
+  new membership is in the consumer's state: every commit and OffsetFetch the
+  consumer *starts* after this returns uses it. A consumer waiting out a
+  `:stale_member_epoch` on its startup OffsetFetch retries it at once.
+
+  A commit that is already in flight when the update arrives (including its
+  retries) completes with the membership it was built with; the consumer
+  handles one message at a time, so the update is applied right after it. If
+  that commit is rejected with `:stale_member_epoch`, the offsets stay acked
+  and the next commit sends them with the new epoch (see "Commit failure
+  handling").
+
+  ## Latency
+
+  This is a `GenServer.call/3`, so it queues behind whatever the consumer is
+  doing: a fetch long-poll (up to `:max_wait_time` in `:fetch_options`, 10 s
+  by default, plus the network buffer) or a commit with its retries. The
+  default `timeout` (60 s) is above one default long-poll plus a commit; pass
+  a larger one with a larger `:max_wait_time`. It is not a worst case: a fetch
+  or commit that runs through all its retries can take longer, and the call
+  then returns `{:error, :timeout}` although the update is still applied once
+  the consumer gets to it. Updating N consumers one after another can take N
+  long-polls: fan the calls out concurrently.
+
+  ## Errors
+
+  Never exits the caller:
+
+    * `{:error, :invalid_membership}` - an unknown key, a value of the wrong
+      type, or an epoch out of range (nothing is sent to the consumer); or
+      the consumer was started without a `:member_epoch` (a classic
+      consumer, which is never moved onto the KIP-848 path, so it never
+      holds an epoch without a member id). The consumer's membership is left
+      unchanged.
+    * `{:error, :noproc}` - the consumer is not running, or exited before it
+      applied the update
+    * `{:error, :timeout}` - no reply within `timeout`; the update may still be
+      applied afterwards
+  """
+  @spec update_membership(GenServer.server(), Keyword.t(), timeout) ::
+          :ok | {:error, :invalid_membership | :noproc | :timeout}
+  def update_membership(gen_consumer, membership, timeout \\ @default_update_membership_timeout) do
+    if valid_membership_update?(membership) do
+      try do
+        GenServer.call(gen_consumer, {:update_membership, membership}, timeout)
+      catch
+        :exit, {:timeout, _} -> {:error, :timeout}
+        :exit, _ -> {:error, :noproc}
+      end
+    else
+      {:error, :invalid_membership}
+    end
+  end
+
+  defp valid_membership_update?(membership) when is_list(membership) do
+    Keyword.keyword?(membership) and
+      Enum.all?(membership, fn
+        {:member_id, id} -> is_binary(id)
+        {:member_epoch, epoch} -> valid_member_epoch?(epoch)
+        _ -> false
+      end)
+  end
+
+  defp valid_membership_update?(_membership), do: false
+
+  defp valid_member_epoch?(epoch), do: is_integer(epoch) and epoch >= 0 and epoch <= @max_member_epoch
+
   # GenServer callbacks
 
   def init({consumer_module, group_name, topic, partition, opts}) do
+    # Rejected here, not on the first commit: the request would be refused
+    # by the client on every commit and the consumer would never commit.
+    if valid_start_membership?(opts),
+      do: do_init(consumer_module, group_name, topic, partition, opts),
+      else: {:stop, :invalid_membership}
+  end
+
+  # Without :member_epoch (classic) nothing is checked, as before. With one,
+  # the member id is required too (KIP-848 commits and fetches carry both).
+  defp valid_start_membership?(opts) do
+    case Keyword.get(opts, :member_epoch) do
+      nil -> true
+      epoch -> valid_member_epoch?(epoch) and is_binary(Keyword.get(opts, :member_id))
+    end
+  end
+
+  defp do_init(consumer_module, group_name, topic, partition, opts) do
     commit_interval =
       Keyword.get(
         opts,
@@ -677,6 +857,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
 
     generation_id = Keyword.get(opts, :generation_id)
     member_id = Keyword.get(opts, :member_id)
+    member_epoch = Keyword.get(opts, :member_epoch)
     group_manager_pid = Keyword.get(opts, :group_manager_pid)
 
     api_versions = Keyword.get(opts, :api_versions, %{})
@@ -706,6 +887,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
           partition: partition,
           generation_id: generation_id,
           member_id: member_id,
+          member_epoch: member_epoch,
           fetch_options: fetch_options,
           api_versions: api_versions,
           group_manager_pid: group_manager_pid
@@ -745,6 +927,21 @@ defmodule KafkaEx.Consumer.GenConsumer do
 
   def handle_call(:partition, _from, state) do
     {:reply, {state.topic, state.partition}, state, 0}
+  end
+
+  # Only a consumer started with a member epoch (KIP-848) can be updated: an
+  # update must never move a classic consumer (generation_id, fatal
+  # :stale_member_epoch) onto the KIP-848 path, nor give it an epoch without
+  # a member id. A KIP-848 consumer started with a binary member id (init
+  # requires one) and an update only sets binary ids and valid epochs
+  # (valid_membership_update?/1), so its membership stays well-formed.
+  def handle_call({:update_membership, _membership}, _from, %State{member_epoch: nil} = state) do
+    {:reply, {:error, :invalid_membership}, state, 0}
+  end
+
+  def handle_call({:update_membership, membership}, _from, %State{} = state) do
+    %State{} = new_state = struct!(state, Keyword.take(membership, @membership_keys))
+    {:reply, :ok, %State{new_state | load_offsets_retry_at: nil, commit_retry_at: nil}, 0}
   end
 
   def handle_call(
@@ -808,12 +1005,12 @@ defmodule KafkaEx.Consumer.GenConsumer do
         :timeout,
         %State{current_offset: nil, last_commit: nil} = state
       ) do
-    new_state = %State{
-      load_offsets(state)
-      | last_commit: :erlang.monotonic_time(:milli_seconds)
-    }
-
-    {:noreply, new_state, 0}
+    # Any inbound message re-arms this at timeout 0; honour the stale-epoch
+    # retry deadline (update_membership/3 clears it).
+    case load_offsets_retry_remaining(state) do
+      0 -> load_offsets_cycle(state)
+      remaining -> {:noreply, state, remaining}
+    end
   end
 
   def handle_info(:timeout, %State{} = state) do
@@ -1081,6 +1278,18 @@ defmodule KafkaEx.Consumer.GenConsumer do
   defp reset_offset(_client, topic, partition, :none),
     do: raise("Offset out of range while consuming topic #{topic}, partition #{partition}.")
 
+  # KIP-848: a commit rejected with :stale_member_epoch would fail the same
+  # way if resent with the same epoch. Like Java's CommitRequestManager (it
+  # retries a stale-epoch commit only once a newer epoch is known), wait a
+  # full commit interval, threshold and :sync_commit included, unless
+  # update_membership/3 clears the wait first. Offsets stay acked; the
+  # commit after the wait (or terminate/2) carries them.
+  defp handle_commit(sync_status, %State{commit_retry_at: retry_at} = state) when is_integer(retry_at) do
+    if :erlang.monotonic_time(:milli_seconds) < retry_at,
+      do: {:noreply, state},
+      else: handle_commit(sync_status, %State{state | commit_retry_at: nil})
+  end
+
   defp handle_commit(:sync_commit, %State{} = state), do: commit(state)
 
   defp handle_commit(
@@ -1123,20 +1332,21 @@ defmodule KafkaEx.Consumer.GenConsumer do
   # value is discarded by terminate/2.
   defp terminal_commit(%State{acked_offset: offset, committed_offset: offset}), do: :ok
 
-  defp terminal_commit(%State{
-         client: client,
-         group: group,
-         topic: topic,
-         partition: partition,
-         member_id: member_id,
-         generation_id: generation_id,
-         acked_offset: offset,
-         api_versions: api_versions
-       }) do
+  defp terminal_commit(
+         %State{
+           client: client,
+           group: group,
+           topic: topic,
+           partition: partition,
+           acked_offset: offset,
+           api_versions: api_versions
+         } = state
+       ) do
     partitions = [%{partition_num: partition, offset: offset}]
 
     opts =
-      [member_id: member_id, generation_id: generation_id]
+      state
+      |> commit_membership_opts()
       |> VersionHelper.maybe_put_api_version(api_versions, :offset_commit)
 
     case KafkaExAPI.commit_offset(client, group, topic, partitions, opts) do
@@ -1159,15 +1369,14 @@ defmodule KafkaEx.Consumer.GenConsumer do
            group: group,
            topic: topic,
            partition: partition,
-           member_id: member_id,
-           generation_id: generation_id,
            acked_offset: offset
          } = state
        ) do
     partitions = [%{partition_num: partition, offset: offset}]
 
     opts =
-      [member_id: member_id, generation_id: generation_id]
+      state
+      |> commit_membership_opts()
       |> VersionHelper.maybe_put_api_version(state.api_versions, :offset_commit)
 
     commit_fn = fn ->
@@ -1203,6 +1412,22 @@ defmodule KafkaEx.Consumer.GenConsumer do
     end
   end
 
+  # The membership an OffsetCommit carries. A classic member sends exactly
+  # what it always did; a KIP-848 member sends its epoch (v9+
+  # generation_id_or_member_epoch) instead of a generation id.
+  defp commit_membership_opts(%State{member_epoch: nil, member_id: member_id, generation_id: generation_id}),
+    do: [member_id: member_id, generation_id: generation_id]
+
+  defp commit_membership_opts(%State{member_epoch: member_epoch, member_id: member_id}),
+    do: [member_id: member_id, member_epoch: member_epoch]
+
+  # OffsetFetch v9+ carries member_id/member_epoch; the broker validates them
+  # for consumer-protocol groups only. A classic member sends none, as before.
+  defp fetch_membership_opts(%State{member_epoch: nil}), do: []
+
+  defp fetch_membership_opts(%State{member_epoch: member_epoch, member_id: member_id}),
+    do: [member_id: member_id, member_epoch: member_epoch]
+
   # Handle a commit failure. Dispatches on error classification:
   #
   #   * Terminal (KIP-345 :fenced_instance_id) — stop the consumer, do NOT
@@ -1220,9 +1445,29 @@ defmodule KafkaEx.Consumer.GenConsumer do
   # so operators can observe commit failures without parsing logs.
   defp handle_commit_error(error, %State{} = state) do
     cond do
-      Retry.commit_terminal_error?(error) -> handle_terminal_commit_error(error, state)
-      Retry.commit_fatal_error?(error) -> handle_fatal_commit_error(error, state)
-      true -> handle_transient_commit_error(error, state)
+      # KIP-848: the epoch this commit was built with is no longer accepted
+      # for the partition (e.g. it moved on while the commit was in flight).
+      # Not a reason to give the partition up: the offsets stay acked and the
+      # next commit carries the current epoch. The group manager drives
+      # revocation and fencing through its heartbeat. Classic: stays fatal.
+      error == :stale_member_epoch and is_integer(state.member_epoch) ->
+        retry_at = :erlang.monotonic_time(:milli_seconds) + state.commit_interval
+        handle_transient_commit_error(error, %State{state | commit_retry_at: retry_at})
+
+      # A member epoch, but OffsetCommit pinned below v9 (see
+      # RequestBuilder.offset_commit_request/2): every commit would fail the
+      # same way, so stop instead of consuming without ever committing.
+      error == :invalid_api_version ->
+        handle_terminal_commit_error(error, state)
+
+      Retry.commit_terminal_error?(error) ->
+        handle_terminal_commit_error(error, state)
+
+      Retry.commit_fatal_error?(error) ->
+        handle_fatal_commit_error(error, state)
+
+      true ->
+        handle_transient_commit_error(error, state)
     end
   end
 
@@ -1231,16 +1476,26 @@ defmodule KafkaEx.Consumer.GenConsumer do
 
     Logger.error(
       "Commit terminal error #{inspect(error)} for #{topic}/#{partition}@#{offset} " <>
-        "(group=#{group}): another member owns this group.instance.id. Stopping without rejoin."
+        "(group=#{group}): #{terminal_error_cause(error)}. Stopping without rejoin."
     )
 
     emit_commit_failed(state, error, :terminal)
     {:stop, {:shutdown, {:terminal_error, error}}, state}
   end
 
+  defp terminal_error_cause(:fenced_instance_id), do: "another member owns this group.instance.id"
+
+  defp terminal_error_cause(:invalid_api_version),
+    do: "a member epoch needs OffsetCommit v9+, but a lower version is pinned (:api_versions)"
+
+  defp terminal_error_cause(_error), do: "not recoverable by retrying or rejoining"
+
   defp handle_fatal_commit_error(error, %State{group_manager_pid: manager_pid} = state)
        when is_pid(manager_pid) do
-    %State{topic: topic, partition: partition, acked_offset: offset, generation_id: gen} = state
+    %State{topic: topic, partition: partition, acked_offset: offset} = state
+    # What the failed commit was sent with: the member epoch for a KIP-848
+    # member, the generation id for a classic one.
+    gen = membership_generation(state)
 
     Logger.warning(
       "Commit fatal error #{inspect(error)} for #{topic}/#{partition}@#{offset}: " <>
@@ -1270,6 +1525,9 @@ defmodule KafkaEx.Consumer.GenConsumer do
     {:noreply, state}
   end
 
+  defp membership_generation(%State{member_epoch: nil, generation_id: generation_id}), do: generation_id
+  defp membership_generation(%State{member_epoch: member_epoch}), do: member_epoch
+
   defp emit_commit_failed(%State{} = state, error, kind) do
     Telemetry.emit_commit_failed(state.group, state.topic, state.partition, state.acked_offset, kind, error)
   end
@@ -1282,6 +1540,9 @@ defmodule KafkaEx.Consumer.GenConsumer do
   @spec commit_for_test(Retry.error(), State.t()) ::
           {:noreply, State.t()} | {:stop, term(), State.t()}
   def commit_for_test(error, state), do: handle_commit_error(error, state)
+
+  # OffsetFetch errors that reject the member itself (KIP-848 only).
+  @membership_rejections [:stale_member_epoch, :unknown_member_id, :fenced_member_epoch]
 
   @load_offsets_max_attempts 6
   @default_load_offsets_retry_backoff_ms 500
@@ -1297,7 +1558,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
          } = state
        ) do
     partitions = [%{partition_num: partition}]
-    opts = VersionHelper.maybe_put_api_version([], state.api_versions, :offset_fetch)
+    opts = state |> fetch_membership_opts() |> VersionHelper.maybe_put_api_version(state.api_versions, :offset_fetch)
 
     fetch = fn ->
       classify_committed_offset(KafkaExAPI.fetch_committed_offset(client, group, topic, partitions, opts))
@@ -1306,8 +1567,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
     result =
       Retry.with_retry(fetch,
         max_attempts: @load_offsets_max_attempts,
-        base_delay_ms:
-          Application.get_env(:kafka_ex, :load_offsets_retry_backoff_ms, @default_load_offsets_retry_backoff_ms),
+        base_delay_ms: load_offsets_backoff_ms(),
         max_delay_ms: @load_offsets_max_delay_ms,
         retryable?: &Retry.commit_retryable?/1,
         on_retry: fn reason, attempt, _delay ->
@@ -1322,6 +1582,14 @@ defmodule KafkaEx.Consumer.GenConsumer do
       {:ok, {:committed, offset}} ->
         %State{state | current_offset: offset, committed_offset: offset, acked_offset: offset}
 
+      # KIP-848 (an epoch is set): the broker rejected the membership itself
+      # (Kafka 4.4 ConsumerGroup.validateOffsetFetch: an epoch that is not the
+      # member's current one is :stale_member_epoch, a member it does not know
+      # is :unknown_member_id). Restarting with the same membership cannot
+      # fix either; see load_offsets_cycle/1.
+      {:error, reason} when reason in @membership_rejections and is_integer(state.member_epoch) ->
+        {:membership_rejected, reason, state}
+
       {:ok, :reset} ->
         start_from_auto_offset_reset(state, auto_offset_reset)
 
@@ -1329,6 +1597,81 @@ defmodule KafkaEx.Consumer.GenConsumer do
         raise "Unable to load committed offsets for #{topic}/#{partition}: #{inspect(reason)}"
     end
   end
+
+  defp load_offsets_cycle(%State{} = state) do
+    case load_offsets(state) do
+      %State{} = loaded ->
+        {:noreply,
+         %State{
+           loaded
+           | last_commit: :erlang.monotonic_time(:milli_seconds),
+             load_offsets_retry_at: nil,
+             load_offsets_stale_count: 0
+         }, 0}
+
+      {:membership_rejected, :stale_member_epoch, %State{} = state} ->
+        # The epoch this consumer was given is not the member's current one
+        # (OffsetFetch needs an exact match), e.g. it moved on between the
+        # owner starting the consumer and this fetch. The owner delivers the
+        # current one with update_membership/3, which retries at once; until
+        # then retry with an exponential backoff (capped).
+        count = state.load_offsets_stale_count + 1
+        delay = stale_epoch_backoff_ms(count)
+
+        Logger.log(
+          if(count == 1, do: :warning, else: :debug),
+          "Committed offset fetch for #{state.topic}/#{state.partition} rejected with :stale_member_epoch " <>
+            "(member_epoch=#{state.member_epoch}, attempt #{count}); waiting for a membership update, " <>
+            "retrying in #{delay} ms"
+        )
+
+        state = %State{
+          state
+          | load_offsets_stale_count: count,
+            load_offsets_retry_at: :erlang.monotonic_time(:milli_seconds) + delay
+        }
+
+        {:noreply, state, delay}
+
+      {:membership_rejected, reason, %State{} = state} ->
+        # The group no longer knows this member (session expired) or fenced
+        # it: only a rejoin helps. Tell the owner and stop cleanly instead of
+        # raising into a crash.
+        Logger.warning(
+          "Committed offset fetch for #{state.topic}/#{state.partition} rejected with #{inspect(reason)} " <>
+            "(member_epoch=#{state.member_epoch}): signalling group manager and stopping"
+        )
+
+        if is_pid(state.group_manager_pid),
+          do: GenServer.cast(state.group_manager_pid, {:rejoin_required, reason, state.member_epoch})
+
+        {:stop, {:shutdown, {:rejoin_required, reason}}, state}
+    end
+  end
+
+  defp load_offsets_retry_remaining(%State{load_offsets_retry_at: nil}), do: 0
+
+  defp load_offsets_retry_remaining(%State{load_offsets_retry_at: retry_at}),
+    do: max(retry_at - :erlang.monotonic_time(:milli_seconds), 0)
+
+  @stale_epoch_min_backoff_ms 100
+  @stale_epoch_max_backoff_ms 30_000
+
+  @doc false
+  # Backoff before the n-th (1-based) stale-epoch OffsetFetch retry:
+  # base * 2^(n-1), at least 100 ms and at most 30 s. The floor matters:
+  # unlike the classic retry (capped at @load_offsets_max_attempts), this one
+  # has no attempt limit, so a :load_offsets_retry_backoff_ms of 0 must not
+  # turn it into back-to-back OffsetFetch requests.
+  @spec stale_epoch_backoff_ms(pos_integer()) :: pos_integer()
+  def stale_epoch_backoff_ms(n) when is_integer(n) and n >= 1 do
+    (load_offsets_backoff_ms() * Integer.pow(2, min(n - 1, 16)))
+    |> max(@stale_epoch_min_backoff_ms)
+    |> min(@stale_epoch_max_backoff_ms)
+  end
+
+  defp load_offsets_backoff_ms,
+    do: Application.get_env(:kafka_ex, :load_offsets_retry_backoff_ms, @default_load_offsets_retry_backoff_ms)
 
   defp classify_committed_offset({:ok, [%{partition_offsets: [%{offset: offset, error_code: :no_error}]}]})
        when offset >= 0,
