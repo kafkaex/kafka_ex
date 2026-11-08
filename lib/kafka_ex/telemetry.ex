@@ -266,6 +266,13 @@ defmodule KafkaEx.Telemetry do
     * Measurements: `%{count: 1}`
     * Metadata: `%{group_id: binary(), member_id: binary(), member_epoch: -1 | -2, result: :ok | {:error, term()}}`
 
+  * `[:kafka_ex, :consumer, :partition_stopped]` - Emitted when a KIP-848 member's consumer stops on
+    its own (`:normal` or `{:shutdown, _}`) and is not restarted. The partition stays owned and is not
+    consumed until the broker assigns it elsewhere. Not emitted for a consumer supervisor shutdown.
+    * Measurements: `%{count: 1}`
+    * Metadata: `%{group_id: binary(), member_id: binary(), member_epoch: integer(), topic: binary(),
+      partition: non_neg_integer(), reason: term()}`
+
   * `[:kafka_ex, :consumer, :partition_unavailable]` - Emitted once when a partition has been
     continuously unavailable to a consumer for longer than `:fetch_unavailable_warn_ms` (default
     30s). The consumer keeps retrying regardless; this only flags a partition that is not
@@ -365,6 +372,7 @@ defmodule KafkaEx.Telemetry do
   @consumer_reconcile [:kafka_ex, :consumer, :reconcile]
   @consumer_member_fenced [:kafka_ex, :consumer, :member_fenced]
   @consumer_member_left [:kafka_ex, :consumer, :member_left]
+  @consumer_partition_stopped [:kafka_ex, :consumer, :partition_stopped]
 
   @metadata_update_start [:kafka_ex, :metadata, :update, :start]
   @metadata_update_stop [:kafka_ex, :metadata, :update, :stop]
@@ -404,7 +412,8 @@ defmodule KafkaEx.Telemetry do
                              @consumer_member_joined,
                              @consumer_reconcile,
                              @consumer_member_fenced,
-                             @consumer_member_left
+                             @consumer_member_left,
+                             @consumer_partition_stopped
                            ]
   @consumer_process_events [@consumer_process_start, @consumer_process_stop, @consumer_process_exception]
   @consumer_events @consumer_commit_events ++ @consumer_group_events ++ @consumer_process_events
@@ -770,6 +779,22 @@ defmodule KafkaEx.Telemetry do
       member_id: member_id,
       member_epoch: member_epoch,
       result: result
+    })
+  end
+
+  @doc """
+  Emits `[:kafka_ex, :consumer, :partition_stopped]`: a KIP-848 member's consumer stopped on its
+  own and the partition is not consumed until it is reassigned.
+  """
+  @spec emit_partition_stopped(binary(), binary(), integer(), binary(), non_neg_integer(), term()) :: :ok
+  def emit_partition_stopped(group_id, member_id, member_epoch, topic, partition, reason) do
+    :telemetry.execute(@consumer_partition_stopped, %{count: 1}, %{
+      group_id: group_id,
+      member_id: member_id,
+      member_epoch: member_epoch,
+      topic: topic,
+      partition: partition,
+      reason: reason
     })
   end
 

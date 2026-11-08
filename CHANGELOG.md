@@ -106,8 +106,10 @@
   `:rebalance_timeout_ms`, `:subscribed_topic_regex`, `:group_instance_id`, and an optional
   `:rack_id` (rack awareness is off by default: with `nil` no rack id is sent).
 * **Telemetry**: `[:kafka_ex, :consumer, :member_joined]`, `[:kafka_ex, :consumer, :reconcile]`
-  (revoked/assigned counts), `[:kafka_ex, :consumer, :member_fenced]` and
-  `[:kafka_ex, :consumer, :member_left]` for KIP-848 members.
+  (revoked/assigned counts), `[:kafka_ex, :consumer, :member_fenced]`,
+  `[:kafka_ex, :consumer, :member_left]` and `[:kafka_ex, :consumer, :partition_stopped]` (a
+  consumer stopped on its own and its partition is not consumed until reassigned) for KIP-848
+  members.
 * **`GenConsumer.Supervisor.stop_partition/3` and `stop_partitions/3`** take `lost: true`: the
   consumer is stopped with `{:shutdown, :partition_lost}` and a `GenConsumer` skips its final
   commit (a fenced member's epoch is no longer valid).

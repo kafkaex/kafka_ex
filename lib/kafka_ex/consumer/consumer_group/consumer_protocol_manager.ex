@@ -127,7 +127,10 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     * `:normal`, `:shutdown` or another `{:shutdown, _}` (the consumer chose
       to stop, or the consumer supervisor is shutting down): it is not
       restarted, as under the classic `restart: :transient`. The partition
-      stays owned until the broker revokes it.
+      stays owned until the broker revokes it, which in this protocol may not
+      happen for a long time. Every reason but exactly `:shutdown` (what the
+      consumer supervisor uses on a group stop) is logged as an error and
+      emits `[:kafka_ex, :consumer, :partition_stopped]`.
 
   ## Options
 
@@ -189,6 +192,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
       on shutdown; measurements `%{count: 1}`, metadata `%{group_id,
       member_id, member_epoch, result}` (`member_epoch` is `-1` or `-2`,
       `result` is `:ok` or `{:error, reason}`)
+    * `[:kafka_ex, :consumer, :partition_stopped]` - a consumer stopped on
+      its own and is not restarted; measurements `%{count: 1}`, metadata
+      `%{group_id, member_id, member_epoch, topic, partition, reason}`
     * `[:kafka_ex, :consumer, :member_terminated]` - see `KafkaEx.Telemetry`
     * every heartbeat is also a `[:kafka_ex, :consumer,
       :consumer_group_heartbeat, ...]` span, emitted by the client
@@ -1458,15 +1464,38 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
         Logger.warning("Consumer of #{inspect(tp)} was rejected as #{inspect(error)}; restarting it after a heartbeat")
         {:noreply, state |> schedule_restart(key, entry) |> request_heartbeat()}
 
-      clean when clean in [:normal, :shutdown] or (is_tuple(clean) and elem(clean, 0) == :shutdown) ->
-        Logger.warning("Consumer of #{inspect(tp)} stopped (#{inspect(clean)}); not restarting it")
-        stopped = %{entry | pid: nil, ref: nil, epoch: nil, status: :stopped}
-        {:noreply, %State{state | owned: Map.put(state.owned, key, stopped)}}
+      # The consumer supervisor stops its children with exactly :shutdown on a
+      # group stop, before this process learns of it.
+      :shutdown ->
+        Logger.info("Consumer of #{inspect(tp)} stopped (:shutdown); not restarting it")
+        {:noreply, mark_stopped(state, key, entry)}
+
+      clean when clean == :normal or (is_tuple(clean) and elem(clean, 0) == :shutdown) ->
+        Logger.error(
+          "Consumer of #{inspect(tp)} stopped on its own (#{inspect(clean)}); not restarting it, " <>
+            "the partition is not consumed until the broker assigns it elsewhere"
+        )
+
+        Telemetry.emit_partition_stopped(
+          state.group_name,
+          state.member_id,
+          state.member_epoch,
+          entry.topic,
+          elem(key, 1),
+          clean
+        )
+
+        {:noreply, mark_stopped(state, key, entry)}
 
       crash ->
         Logger.error("Consumer of #{inspect(tp)} exited abnormally: #{inspect(crash)}")
         {:noreply, schedule_restart(state, key, entry)}
     end
+  end
+
+  defp mark_stopped(%State{} = state, key, entry) do
+    stopped = %{entry | pid: nil, ref: nil, epoch: nil, status: :stopped}
+    %State{state | owned: Map.put(state.owned, key, stopped)}
   end
 
   defp schedule_restart(%State{} = state, key, entry) do

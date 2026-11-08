@@ -181,9 +181,9 @@ defmodule KafkaEx.TelemetryTest do
 
       # 3 commit + 15 group (join, sync, heartbeat, leave, consumer_group_heartbeat x 3)
       # + 1 rebalance + 1 commit_failed + 1 offset_reset + 1 member_terminated
-      # + 1 heartbeat_crash + 1 partition_unavailable + 4 KIP-848 member
-      # (member_joined, reconcile, member_fenced, member_left) + 3 process = 31
-      assert length(events) == 31
+      # + 1 heartbeat_crash + 1 partition_unavailable + 5 KIP-848 member
+      # (member_joined, reconcile, member_fenced, member_left, partition_stopped) + 3 process = 32
+      assert length(events) == 32
 
       # Commit events
       assert [:kafka_ex, :consumer, :commit, :start] in events
@@ -222,13 +222,14 @@ defmodule KafkaEx.TelemetryTest do
 
       # 15 group events (join, sync, heartbeat, leave, consumer_group_heartbeat x 3) + 1 rebalance
       # + 1 commit_failed + 1 offset_reset + 1 member_terminated + 1 heartbeat_crash
-      # + 1 partition_unavailable + 4 KIP-848 member events = 25
-      assert length(events) == 25
+      # + 1 partition_unavailable + 5 KIP-848 member events = 26
+      assert length(events) == 26
 
       assert [:kafka_ex, :consumer, :member_joined] in events
       assert [:kafka_ex, :consumer, :reconcile] in events
       assert [:kafka_ex, :consumer, :member_fenced] in events
       assert [:kafka_ex, :consumer, :member_left] in events
+      assert [:kafka_ex, :consumer, :partition_stopped] in events
 
       assert [:kafka_ex, :consumer, :consumer_group_heartbeat, :start] in events
       assert [:kafka_ex, :consumer, :consumer_group_heartbeat, :stop] in events

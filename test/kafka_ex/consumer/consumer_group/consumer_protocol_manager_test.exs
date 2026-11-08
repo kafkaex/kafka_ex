@@ -1361,6 +1361,38 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
       assert Process.alive?(manager)
     end
 
+    for reason <- [:normal, {:shutdown, :done}] do
+      test "a consumer that stops on its own (#{inspect(reason)}) is reported and not restarted" do
+        quiet(fn ->
+          attach_telemetry([[:kafka_ex, :consumer, :partition_stopped]])
+          %{manager: manager} = start_group()
+          {member_id, %{0 => pid}} = join_with([0])
+
+          :ok = GenServer.call(pid, {:exit, unquote(Macro.escape(reason))})
+
+          assert_receive {:telemetry, [:kafka_ex, :consumer, :partition_stopped], %{count: 1}, meta}
+          assert %{member_id: ^member_id, member_epoch: 1, topic: "a", partition: 0} = meta
+          assert meta.reason == unquote(Macro.escape(reason))
+          refute_receive {:started, _, {"a", 0}, _}, 300
+          assert Process.alive?(manager)
+        end)
+      end
+    end
+
+    test "a consumer stopped with exactly :shutdown (a supervisor stop) is not reported" do
+      quiet(fn ->
+        attach_telemetry([[:kafka_ex, :consumer, :partition_stopped]])
+        %{manager: manager} = start_group()
+        {_member_id, %{0 => pid}} = join_with([0])
+
+        :ok = GenServer.call(pid, {:exit, :shutdown})
+
+        refute_receive {:telemetry, [:kafka_ex, :consumer, :partition_stopped], _, _}, 300
+        refute_receive {:started, _, {"a", 0}, _}
+        assert Process.alive?(manager)
+      end)
+    end
+
     test "a consumer that exits with rejoin_required is restarted after a heartbeat" do
       quiet(fn ->
         %{manager: manager} = start_group()
