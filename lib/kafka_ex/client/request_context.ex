@@ -33,6 +33,26 @@ defmodule KafkaEx.Client.RequestContext do
       other request so it falls back to the generic `:request_timeout`
       (`KafkaEx.Config.request_timeout/0`). It is per-attempt, NOT the total budget.
 
+    * `rediscover_coordinator?` (default `false`) - for a coordinator request,
+      a connection-class failure (`KafkaEx.Support.Retry.coordinator_connection_error?/1`)
+      also drops the cached group coordinator, so the next attempt (or the
+      next call, after a send-once `:timeout`) runs FindCoordinator instead
+      of retrying a broker that may be gone. Java's consumer marks the
+      coordinator unknown on any disconnect the same way. Only the KIP-848
+      ConsumerGroupHeartbeat sets it; the classic requests keep their
+      behaviour.
+
+    * `send_once?` (default `&KafkaEx.Support.Retry.transport_timeout?/1`) - for
+      a coordinator request, the errors after which the request is NOT resent
+      by the client, because the broker may already have processed it: it is
+      returned to the caller, which re-issues it. The default is the recv
+      deadline (`:timeout`). A KIP-848 member heartbeat (epoch > 0) also
+      returns a lost connection or reply (`Retry.consumer_group_heartbeat_send_once?/1`):
+      an incremental heartbeat resent unchanged carries an epoch the broker
+      may already have bumped and is fenced, so the manager resends it as a
+      full request with the owned partitions (Java resets the heartbeat
+      state on any disconnect and never resends a request).
+
     * Backoff/jitter between attempts is intentionally absent — the client loop
       retries immediately (refreshing metadata on leadership errors). If added
       later, a retry-policy field on this struct is the seam.
@@ -47,7 +67,9 @@ defmodule KafkaEx.Client.RequestContext do
     :parser_fn,
     :node_selector,
     retryable?: &Retry.data_plane_retryable?/1,
-    network_timeout: nil
+    network_timeout: nil,
+    rediscover_coordinator?: false,
+    send_once?: &Retry.transport_timeout?/1
   ]
 
   @typedoc "Projects a deserialized response into a domain result."
@@ -61,6 +83,8 @@ defmodule KafkaEx.Client.RequestContext do
           parser_fn: parser_fn(),
           node_selector: NodeSelector.t(),
           retryable?: retryable_fn(),
-          network_timeout: non_neg_integer() | nil
+          network_timeout: non_neg_integer() | nil,
+          rediscover_coordinator?: boolean(),
+          send_once?: (atom() -> boolean())
         }
 end

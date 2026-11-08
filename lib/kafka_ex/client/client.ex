@@ -950,10 +950,20 @@ defmodule KafkaEx.Client do
       parser_fn: &ResponseParser.consumer_group_heartbeat_response(&1, parse_opts),
       node_selector: node_selector,
       retryable?: &Retry.consumer_group_heartbeat_retryable?/1,
-      network_timeout: network_timeout
+      send_once?: heartbeat_send_once(request),
+      network_timeout: network_timeout,
+      rediscover_coordinator?: true
     }
     |> handle_request_with_retry(state)
   end
+
+  # Only a member heartbeat (epoch > 0) is incremental and fenced when
+  # resent after the broker bumped the epoch. A join (0) and a leave (-1,
+  # -2) are accepted again, so the client keeps retrying them.
+  defp heartbeat_send_once(%{member_epoch: epoch}) when is_integer(epoch) and epoch > 0,
+    do: &Retry.consumer_group_heartbeat_send_once?/1
+
+  defp heartbeat_send_once(_request), do: &Retry.transport_timeout?/1
 
   defp handle_consumer_group_describe_request(request, node_selector, state) do
     %RequestContext{
@@ -1152,9 +1162,13 @@ defmodule KafkaEx.Client do
     cond do
       # Send-once only for coordinator requests (broker holds them for the rebalance/
       # session window; rejoin/commit re-issue higher up). Data-plane retries via ctx.retryable?.
-      Retry.transport_timeout?(error_atom) and coordinator_request?(ctx.node_selector) ->
-        Logger.info("Coordinator request #{inspect(request_name)} timed out; not retrying at the client (send-once)")
-        {{:error, error}, state}
+      ctx.send_once?.(error_atom) and coordinator_request?(ctx.node_selector) ->
+        Logger.info(
+          "Coordinator request #{inspect(request_name)} failed with #{inspect(error_atom)}; " <>
+            "not retrying at the client (send-once)"
+        )
+
+        {{:error, error}, maybe_drop_coordinator(error_atom, ctx, state)}
 
       # A stale topic id (OffsetCommit/OffsetFetch v10+, Metadata by id) is baked
       # into the built request, so resending `ctx.request` cannot succeed.
@@ -1164,7 +1178,9 @@ defmodule KafkaEx.Client do
         {{:error, error}, refresh_for_error(error_atom, ctx, state)}
 
       ctx.retryable?.(error_atom) ->
-        updated_state = refresh_for_error(error_atom, ctx, state)
+        updated_state =
+          error_atom |> refresh_for_error(ctx, state) |> then(&maybe_drop_coordinator(error_atom, ctx, &1))
+
         handle_request_with_retry(ctx, updated_state, retry_count - 1, error)
 
       true ->
@@ -1192,6 +1208,21 @@ defmodule KafkaEx.Client do
         state
     end
   end
+
+  # A connection failure on a request that asks for it (RequestContext
+  # :rediscover_coordinator?) forgets the cached coordinator: the next
+  # attempt's broker selection runs FindCoordinator, instead of retrying a
+  # coordinator whose broker may be gone until a metadata refresh drops it.
+  defp maybe_drop_coordinator(error_atom, %RequestContext{rediscover_coordinator?: true} = ctx, state) do
+    if coordinator_request?(ctx.node_selector) and Retry.coordinator_connection_error?(error_atom) do
+      Logger.info("Forgetting the coordinator of #{ctx.node_selector.consumer_group_name} after #{inspect(error_atom)}")
+      State.drop_consumer_group_coordinator(state, ctx.node_selector.consumer_group_name)
+    else
+      state
+    end
+  end
+
+  defp maybe_drop_coordinator(_error_atom, _ctx, state), do: state
 
   defp coordinator_request?(%NodeSelector{strategy: :consumer_group}), do: true
   defp coordinator_request?(_), do: false
