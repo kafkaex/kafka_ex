@@ -112,6 +112,16 @@ defmodule KafkaEx.Protocol.Kayrock.SyncGroup.ResponseDeserializerTest do
     end
   end
 
+  # Raising the SyncGroup cap without extending this decoder would bring back
+  # Kayrock's, which raises on a null user_data.
+  test "every SyncGroup version the client can send is decoded here" do
+    for version <- 0..KayrockProtocol.max_supported_version(:sync_group) do
+      request = struct(Module.concat([SyncGroup, "V#{version}", Request]))
+      deserializer = KayrockProtocol.response_deserializer(request)
+      assert Function.info(deserializer)[:module] == ResponseDeserializer, "SyncGroup v#{version}"
+    end
+  end
+
   test "other requests keep Kayrock's deserializer" do
     request = %Kayrock.Heartbeat.V0.Request{}
     wire = <<1::32, 0::16>>
