@@ -804,7 +804,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
 
   # Java resets the sent fields on every failed heartbeat, so the next one is
   # a full request.
-  defp reset_sent(state, failures),
+  defp reset_sent(%State{} = state, failures),
     do: %State{state | heartbeat_failures: failures, send_full: true, sent_partitions: nil}
 
   # Keeps the earlier of the pending and the new deadline: a heartbeat asked
@@ -833,7 +833,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     end
   end
 
-  defp start_heartbeat_timer(state, delay) do
+  defp start_heartbeat_timer(%State{} = state, delay) do
     ref = make_ref()
     %State{state | heartbeat_timer: {ref, Process.send_after(self(), {:heartbeat, ref}, delay)}}
   end
@@ -872,7 +872,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     )
 
     Telemetry.emit_member_fenced(state.group_name, state.member_id, state.member_epoch, reason, lost)
-    state = state |> cancel_heartbeat() |> cancel_resolve() |> abort_lookup()
+    %State{} = state = state |> cancel_heartbeat() |> cancel_resolve() |> abort_lookup()
     state = %State{state | phase: :fenced, reconcile: nil}
     step(abort_push(state))
   end
@@ -1348,7 +1348,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
 
   # -- operation results ------------------------------------------------------
 
-  defp op_done(state, %{kind: kind} = op, {:op_result, result}) when kind in [:revoke, :lose] do
+  defp op_done(%State{} = state, %{kind: kind} = op, {:op_result, result}) when kind in [:revoke, :lose] do
     log_stop_failures(state, result)
 
     case kind do
@@ -1364,7 +1364,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
 
   # Every start was already applied as it returned (the {@async_started, ...}
   # messages arrive before the worker's result).
-  defp op_done(state, %{kind: :assign} = op, {:op_result, _}) do
+  defp op_done(%State{} = state, %{kind: :assign} = op, {:op_result, _}) do
     step(%State{state | reconcile: state.reconcile && count(state.reconcile, :assigned, op.keys)})
   end
 
@@ -1379,7 +1379,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   # its own epoch. One whose update failed (e.g. :timeout behind a long
   # fetch) is retried after a backoff; it does not hold back the
   # acknowledgement.
-  defp push_done(state, push, {:op_result, results}) do
+  defp push_done(%State{} = state, push, {:op_result, results}) do
     retry_at = now_ms() + state.config.partition_restart_backoff_ms
 
     owned =
@@ -1399,7 +1399,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
     step(%State{state | owned: owned})
   end
 
-  defp push_done(state, push, reason) do
+  defp push_done(%State{} = state, push, reason) do
     Logger.error("Member epoch update for #{state.group_name} died: #{inspect(reason)}")
     retry_at = now_ms() + state.config.partition_restart_backoff_ms
 
@@ -1422,7 +1422,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   defp readopt(state, op) do
     keys = if op.kind == :assign, do: Enum.reject(op.keys, &Map.has_key?(state.owned, &1)), else: op.keys
 
-    Enum.reduce(keys, state, fn key, acc ->
+    Enum.reduce(keys, state, fn key, %State{} = acc ->
       entry = acc.owned[key] || new_entry(op[:names][key])
       tp = {entry.topic, elem(key, 1)}
 
@@ -1446,7 +1446,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManager do
   # ---------------------------------------------------------------------------
   # Consumer exits
 
-  defp consumer_down(state, key, entry, reason) do
+  defp consumer_down(%State{} = state, key, entry, reason) do
     tp = {entry.topic, elem(key, 1)}
 
     case reason do
