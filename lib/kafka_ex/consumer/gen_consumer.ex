@@ -940,7 +940,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
   end
 
   def handle_call({:update_membership, membership}, _from, %State{} = state) do
-    new_state = struct!(state, Keyword.take(membership, @membership_keys))
+    %State{} = new_state = struct!(state, Keyword.take(membership, @membership_keys))
     {:reply, :ok, %State{new_state | load_offsets_retry_at: nil, commit_retry_at: nil}, 0}
   end
 
