@@ -88,11 +88,10 @@ defmodule KafkaEx.Consumer.GenConsumer.SupervisorPartitionTest do
 
   # Overwrites the :shutdown the supervisor indexed for a partition.
   defp put_shutdown(sup, tp, shutdown) do
-    key = {GenConsumerSupervisor, :partition}
-
     :sys.replace_state(sup, fn state ->
-      {pid, _} = Process.get({key, tp})
-      Process.put({key, tp}, {pid, shutdown})
+      table = Process.get({GenConsumerSupervisor, :index})
+      [{^tp, pid, _}] = :ets.lookup(table, tp)
+      :ets.insert(table, {tp, pid, shutdown})
       state
     end)
   end
@@ -577,9 +576,9 @@ defmodule KafkaEx.Consumer.GenConsumer.SupervisorPartitionTest do
 
       {:ok, _} = GenConsumerSupervisor.start_partition(sup, {"u", 0})
       {:dictionary, dict} = Process.info(sup, :dictionary)
+      {_, table} = List.keyfind(dict, {GenConsumerSupervisor, :index}, 0)
 
-      assert [{"u", 0}] ==
-               for({{GenConsumerSupervisor, :partition}, tp} <- Enum.map(dict, &elem(&1, 0)), do: tp)
+      assert [{"u", 0}] == for({tp, _pid, _shutdown} <- :ets.tab2list(table), do: tp)
     end
   end
 

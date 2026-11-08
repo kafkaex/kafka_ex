@@ -60,7 +60,7 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
 
   @default_worker_shutdown 5_000
   @config_key {__MODULE__, :config}
-  @index_key {__MODULE__, :partition}
+  @index_key {__MODULE__, :index}
   @stop_result {__MODULE__, :stop_result}
 
   @type topic_partition :: {topic :: binary, partition :: non_neg_integer}
@@ -405,7 +405,7 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
   """
   @spec partition_pids(Supervisor.supervisor()) :: %{topic_partition => pid}
   def partition_pids(supervisor) do
-    for {{@index_key, topic_partition}, {pid, _shutdown}} <- supervisor_dictionary(supervisor),
+    for {topic_partition, pid, _shutdown} <- read_index(supervisor, &:ets.tab2list/1),
         Process.alive?(pid),
         into: %{} do
       {topic_partition, pid}
@@ -435,10 +435,21 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
   end
 
   defp indexed_entry(supervisor, topic_partition) do
-    case List.keyfind(supervisor_dictionary(supervisor), {@index_key, topic_partition}, 0) do
-      {_, entry} -> entry
-      nil -> nil
+    case read_index(supervisor, &:ets.lookup(&1, topic_partition)) do
+      [{_topic_partition, pid, shutdown}] -> {pid, shutdown}
+      [] -> nil
     end
+  end
+
+  # The table dies with the supervisor, possibly between finding it and
+  # reading it.
+  defp read_index(supervisor, read) do
+    case List.keyfind(supervisor_dictionary(supervisor), @index_key, 0) do
+      {@index_key, table} -> read.(table)
+      nil -> []
+    end
+  rescue
+    ArgumentError -> []
   end
 
   defp supervisor_config(supervisor) do
@@ -448,8 +459,8 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
     end
   end
 
-  # The supervisor's process dictionary (config + partition index), or [] when
-  # it is not a live local process. Reading it never blocks on the supervisor.
+  # The supervisor's process dictionary (config + index table), or [] when it
+  # is not a live local process. Reading it never blocks on the supervisor.
   defp supervisor_dictionary(supervisor) do
     with pid when is_pid(pid) and node(pid) == node() <- GenServer.whereis(supervisor),
          {:dictionary, dictionary} <- Process.info(pid, :dictionary) do
@@ -494,17 +505,18 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
   end
 
   defp live_pid(topic_partition) do
-    case Process.get({@index_key, topic_partition}) do
-      {pid, _shutdown} -> if Process.alive?(pid), do: pid
-      nil -> nil
+    case :ets.lookup(Process.get(@index_key), topic_partition) do
+      [{_topic_partition, pid, _shutdown}] -> if Process.alive?(pid), do: pid
+      [] -> nil
     end
   end
 
   # Drops the entries of dead consumers, so the index stays as large as the
   # set of live partitions.
   defp index(topic_partition, pid, shutdown) do
-    for {{@index_key, _} = key, {old_pid, _}} <- Process.get(), not Process.alive?(old_pid), do: Process.delete(key)
-    Process.put({@index_key, topic_partition}, {pid, shutdown})
+    table = Process.get(@index_key)
+    for {key, old_pid, _} <- :ets.tab2list(table), not Process.alive?(old_pid), do: :ets.delete(table, key)
+    :ets.insert(table, {topic_partition, pid, shutdown})
   end
 
   @impl true
@@ -513,6 +525,7 @@ defmodule KafkaEx.Consumer.GenConsumer.Supervisor do
       {{gen_consumer_module, consumer_module}, group_name, assignments, opts} ->
         static = MapSet.new(assignments)
         Process.put(@config_key, {gen_consumer_module, consumer_module, group_name, opts, static})
+        Process.put(@index_key, :ets.new(__MODULE__, [:set, :protected, read_concurrency: true]))
 
       _ ->
         :ok
