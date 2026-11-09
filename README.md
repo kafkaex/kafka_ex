@@ -354,6 +354,9 @@ def start(_type, _args) do
             # Optional configuration
             commit_interval: 5_000,
             commit_threshold: 100,
+            # Optional: at most this many records per handle_message_set/2
+            # call (Java max.poll.records); default nil = the whole fetch
+            # max_records: 100,
             auto_offset_reset: :earliest,
 
             # Static membership (KIP-345, Kafka >= 2.3): retains partition

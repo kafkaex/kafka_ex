@@ -1,5 +1,24 @@
 # KafkaEx Changelog
 
+## Unreleased
+
+### Added
+
+* **`:max_records` for `GenConsumer`** (Java's `max.poll.records`). With `max_records: n`, each
+  `handle_message_set/2` call receives at most `n` records. The rest of a larger fetch is buffered
+  in the consumer and handed out in later calls before the next fetch. Each call's
+  `:sync_commit` / `:async_commit` covers only its own chunk, so a crash or redeploy in the middle
+  of a large fetch replays at most the uncommitted chunks, not the whole fetch. No commit, the one
+  on shutdown included, ever covers a buffered record that has not been processed. Buffered
+  records are dropped on stop (they were never committed). Each chunk is its own pass of the
+  consumer loop, so `call/3`, `update_membership/3` (KIP-848 epoch changes) and stops/revocations
+  are handled between chunks. Accepted by `GenConsumer.start_link/5`,
+  `GenConsumer.Supervisor` and `ConsumerGroup.start_link/4` (both group protocols). The default
+  `nil` keeps today's behaviour (the whole fetch in one call). An invalid value makes
+  `GenConsumer.start_link/5` return `{:error, :invalid_max_records}` and
+  `ConsumerGroup.start_link/4` return `{:error, {:invalid_option, :invalid_max_records}}`. The
+  `[:kafka_ex, :consumer, :process]` span's `message_count` is the chunk size.
+
 ## 1.2.0 (2026-11-07)
 
 > Requires Kayrock 1.1.0 (`{:kayrock, "~> 1.1"}`). Upgrade KafkaEx in the same

@@ -231,8 +231,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
 
   * `:group_instance_id` - static membership instance id (KIP-345); default
      the `:group_instance_id` application config, else `nil`
-  * Any of `t:KafkaEx.GenConsumer.option/0`,
-     which will be passed on to consumers
+  * Any of `t:KafkaEx.Consumer.GenConsumer.option/0` (`:commit_interval`,
+     `:commit_threshold`, `:fetch_options`, `:max_records`, ...), which will
+     be passed on to consumers
   * `:gen_server_opts` - `t:GenServer.options/0` passed on to the manager
      GenServer
   * `:name` - Name for the consumer group supervisor
@@ -321,7 +322,9 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
 
   This function has the same return values as `Supervisor.start_link/3`, and
   `{:error, {:invalid_option, :invalid_group_protocol}}` for a
-  `:group_protocol` other than `:classic` / `:consumer`. Options the selected
+  `:group_protocol` other than `:classic` / `:consumer`, and
+  `{:error, {:invalid_option, :invalid_max_records}}` for a `:max_records`
+  that is neither `nil` nor a positive integer. Options the selected
   protocol does not use are logged in a single warning and ignored. With
   `group_protocol: :consumer`, a broker on Kafka < 4.0 (one that does not
   advertise ConsumerGroupHeartbeat v1+, including the 3.7-3.9 early-access
@@ -346,19 +349,16 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
         topics,
         opts
       ) do
-    case validate_group_protocol(opts) do
-      :ok ->
-        {supervisor_opts, module_opts} =
-          Keyword.split(opts, [:name, :strategy, :max_restarts, :max_seconds])
+    with :ok <- validate_group_protocol(opts),
+         :ok <- validate_max_records(opts) do
+      {supervisor_opts, module_opts} =
+        Keyword.split(opts, [:name, :strategy, :max_restarts, :max_seconds])
 
-        Supervisor.start_link(
-          __MODULE__,
-          {{gen_consumer_module, consumer_module}, group_name, topics, module_opts},
-          supervisor_opts
-        )
-
-      {:error, _} = error ->
-        error
+      Supervisor.start_link(
+        __MODULE__,
+        {{gen_consumer_module, consumer_module}, group_name, topics, module_opts},
+        supervisor_opts
+      )
     end
   end
 
@@ -597,6 +597,22 @@ defmodule KafkaEx.Consumer.ConsumerGroup do
         )
 
         {:error, {:invalid_option, :invalid_group_protocol}}
+    end
+  end
+
+  # Checked here, not only in GenConsumer.init/1: a consumer that refuses to
+  # start would otherwise take the group down at the first assignment.
+  defp validate_max_records(opts) do
+    max_records = Keyword.get(opts, :max_records)
+
+    if GenConsumer.valid_max_records?(max_records) do
+      :ok
+    else
+      Logger.error(
+        "Invalid :max_records #{inspect(max_records)} for a consumer group; expected a positive integer or nil"
+      )
+
+      {:error, {:invalid_option, :invalid_max_records}}
     end
   end
 
