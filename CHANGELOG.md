@@ -1,6 +1,11 @@
 # KafkaEx Changelog
 
-## Unreleased
+## 1.2.0 (2026-11-07)
+
+> Requires Kayrock 1.1.0 (`{:kayrock, "~> 1.1"}`). Upgrade KafkaEx in the same
+> step as Kayrock: 1.1.3 already caps negotiation at the versions it implements,
+> and this release adds the implementations for the newer versions. See
+> `UPGRADING.md`.
 
 ### Added
 
