@@ -355,6 +355,7 @@ end
 3. **SCRAM is preferred over PLAIN** when both available
 4. **Set reasonable timeouts** - Default `sync_timeout` is 3000ms (governs metadata, find_coordinator, etc.). Fetch requests derive their timeouts from `:max_wait_time` automatically — see `KafkaEx.API.fetch/5`.
 5. **Configure consumer commit settings** - `commit_interval` (5000ms) and `commit_threshold` (100 messages)
+6. **Bound per-call batch size with `max_records`** - to cap how many records one `handle_message_set/2` call gets (and so how many are replayed after a crash), pass `max_records: n` to `GenConsumer`/`ConsumerGroup`. Do NOT fork `GenConsumer` or split the message set yourself; each chunk is committed on its own.
 
 ## Testing Patterns
 

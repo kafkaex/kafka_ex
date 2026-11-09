@@ -117,6 +117,53 @@ defmodule KafkaEx.Consumer.GenConsumer do
   often a `KafkaEx.Consumer.GenConsumer` auto-commits. For high-volume topics,
   `:commit_threshold` is the dominant factor.
 
+  ## Bounding a callback's batch (`:max_records`)
+
+  By default `c:handle_message_set/2` receives every record of a fetch, so how
+  many records one call processes (and so how many are replayed when the
+  consumer crashes or is redeployed before committing them) depends on
+  `:fetch_options` (`max_bytes`) and on how far behind the consumer is.
+  `:max_records` (Java's `max.poll.records`) puts a fixed bound on it:
+
+  ```
+  KafkaEx.Consumer.GenConsumer.start_link(MyConsumer, "my_group", "topic", 0,
+                                          max_records: 100)
+  ```
+
+  * Each `c:handle_message_set/2` call receives at most `:max_records`
+    records. The rest of the fetch is kept in the consumer and handed out, in
+    order, in the next calls, before anything else is fetched. It bounds the
+    records per call, not the fetch: the fetch size is still set by
+    `:fetch_options`.
+  * Each call's return value applies to its own chunk: `{:sync_commit, state}`
+    commits up to the chunk's last record before the next chunk is handed out;
+    `{:async_commit, state}` acknowledges it, and `:commit_threshold` /
+    `:commit_interval` are checked after every chunk, as after every fetch
+    without `:max_records`. No commit, including the one on shutdown, ever
+    covers a record that has not been handed to the callback yet.
+  * Every chunk is a separate pass through the consumer's loop: a
+    `call/3`, `cast/2`, `update_membership/3` or stop that arrives while a
+    fetch is being handed out is handled before the next chunk. A chunk
+    commits with the membership current when it is committed, and a consumer
+    that is stopped (e.g. its partition is revoked) processes at most the
+    chunk it is in. Records still buffered are dropped on stop; they were never
+    committed, so whoever consumes the partition next fetches them again.
+  * With `{:sync_commit, state}`, a crash replays at most `:max_records`
+    records (the chunk being processed). With `{:async_commit, state}` it
+    replays what was acknowledged but not yet committed, plus that chunk.
+  * A `:stale_member_epoch` commit backoff (see "Commit failure handling")
+    does not hold buffered chunks back: they are handed out and acknowledged,
+    and committed once the backoff ends, as records fetched during the backoff
+    are. A fetch backoff cannot hold them either: the buffer only fills from a
+    successful fetch, and the next fetch happens only once it is empty.
+  * The `[:kafka_ex, :consumer, :process]` span's `message_count` is the size
+    of the chunk handed to the callback.
+
+  `nil` (the default) hands over the whole fetch, exactly as before. A value
+  that is neither `nil` nor a positive integer makes `start_link/5` return
+  `{:error, :invalid_max_records}` (and `KafkaEx.Consumer.ConsumerGroup.start_link/4`
+  `{:error, {:invalid_option, :invalid_max_records}}`).
+
   ## Fetch failure handling
 
   A fetch error that `KafkaEx.Support.Retry.fetch_retryable?/1` accepts — a leader
@@ -327,6 +374,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
           | {:generation_id, integer()}
           | {:member_epoch, non_neg_integer()}
           | {:group_manager_pid, pid()}
+          | {:max_records, pos_integer() | nil}
 
   @typedoc """
   Options used when starting a `KafkaEx.Consumer.GenConsumer`.
@@ -378,7 +426,8 @@ defmodule KafkaEx.Consumer.GenConsumer do
   @doc """
   Invoked for each message set consumed from a Kafka topic partition.
 
-  `message_set` is a message set fetched from a Kafka broker and `state` is the
+  `message_set` is a message set fetched from a Kafka broker (at most
+  `:max_records` records of it when that option is set) and `state` is the
   current state of the `KafkaEx.Consumer.GenConsumer`.
 
   Returning `{:async_commit, new_state}` acknowledges `message` and continues
@@ -533,6 +582,13 @@ defmodule KafkaEx.Consumer.GenConsumer do
       # rejected with :stale_member_epoch (nil = no backoff);
       # update_membership/3 clears it.
       :commit_retry_at,
+      # :max_records - most records handed to one handle_message_set/2 call
+      # (nil = the whole fetched set).
+      :max_records,
+      # Fetched records not handed to the callback yet (only with
+      # :max_records). current_offset is already past them; acked_offset
+      # is not, so no commit covers them.
+      pending_records: [],
       load_offsets_stale_count: 0,
       # true only when we started the client — a caller-supplied (shared) :client must not be stopped.
       owns_client: false,
@@ -564,6 +620,8 @@ defmodule KafkaEx.Consumer.GenConsumer do
             fetch_failing_since: integer() | nil,
             load_offsets_retry_at: integer() | nil,
             commit_retry_at: integer() | nil,
+            max_records: pos_integer() | nil,
+            pending_records: [Record.t()],
             load_offsets_stale_count: non_neg_integer(),
             owns_client: boolean(),
             fetch_error_count: non_neg_integer(),
@@ -619,6 +677,11 @@ defmodule KafkaEx.Consumer.GenConsumer do
 
   * `:fetch_options` - Optional keyword list that is passed along to the
     fetch operation.
+
+  * `:max_records` - The most records one `c:handle_message_set/2` call
+    receives (a positive integer); the rest of a larger fetch is handed out in
+    later calls before the next fetch. Default `nil` (the whole fetch). See
+    "Bounding a callback's batch" in the moduledoc.
 
   * `:shutdown` - Optional amount of time in milliseconds that the supervisor
     will wait for a `GenConsumer` to terminate after emitting a
@@ -810,12 +873,20 @@ defmodule KafkaEx.Consumer.GenConsumer do
   # GenServer callbacks
 
   def init({consumer_module, group_name, topic, partition, opts}) do
-    # Rejected here, not on the first commit: the request would be refused
-    # by the client on every commit and the consumer would never commit.
-    if valid_start_membership?(opts),
-      do: do_init(consumer_module, group_name, topic, partition, opts),
-      else: {:stop, :invalid_membership}
+    cond do
+      # Rejected here, not on the first commit: the request would be refused
+      # by the client on every commit and the consumer would never commit.
+      not valid_start_membership?(opts) -> {:stop, :invalid_membership}
+      not valid_max_records?(Keyword.get(opts, :max_records)) -> {:stop, :invalid_max_records}
+      true -> do_init(consumer_module, group_name, topic, partition, opts)
+    end
   end
+
+  @doc false
+  # nil (the default) is unlimited; otherwise a positive integer.
+  @spec valid_max_records?(term) :: boolean
+  def valid_max_records?(nil), do: true
+  def valid_max_records?(max_records), do: is_integer(max_records) and max_records > 0
 
   # Without :member_epoch (classic) nothing is checked, as before. With one,
   # the member id is required too (KIP-848 commits and fetches carry both).
@@ -888,6 +959,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
           generation_id: generation_id,
           member_id: member_id,
           member_epoch: member_epoch,
+          max_records: Keyword.get(opts, :max_records),
           fetch_options: fetch_options,
           api_versions: api_versions,
           group_manager_pid: group_manager_pid
@@ -1010,6 +1082,18 @@ defmodule KafkaEx.Consumer.GenConsumer do
     case load_offsets_retry_remaining(state) do
       0 -> load_offsets_cycle(state)
       remaining -> {:noreply, state, remaining}
+    end
+  end
+
+  # Records left over from the last fetch (:max_records) are handed out one
+  # chunk per pass of the loop, before the next fetch, so calls (e.g.
+  # update_membership/3) and stops are handled between chunks. A fetch
+  # backoff cannot be pending here: the fetch that filled the buffer
+  # succeeded and cleared it.
+  def handle_info(:timeout, %State{pending_records: [_ | _]} = state) do
+    case dispatch_pending(state) do
+      {:noreply, new_state} -> {:noreply, new_state, 0}
+      {:stop, _reason, _final_state} = stop -> stop
     end
   end
 
@@ -1214,8 +1298,24 @@ defmodule KafkaEx.Consumer.GenConsumer do
     handle_commit(:async_commit, state)
   end
 
+  # More records than :max_records: hand out the first chunk now and buffer
+  # the rest (see handle_info(:timeout, ...)). The next fetch starts after the
+  # last fetched record; acked_offset (what commits send) only moves as
+  # chunks are processed.
+  defp handle_new_fetch_response(%{records: records}, %State{max_records: max} = state)
+       when is_integer(max) and length(records) > max do
+    {chunk, rest} = Enum.split(records, max)
+    %Record{offset: last_offset} = List.last(rest)
+    handle_message_set(chunk, %State{state | pending_records: rest, current_offset: last_offset + 1})
+  end
+
   defp handle_new_fetch_response(fetch_result, state) do
     handle_message_set(fetch_result.records, state)
+  end
+
+  defp dispatch_pending(%State{pending_records: pending, max_records: max} = state) do
+    {chunk, rest} = Enum.split(pending, max)
+    handle_message_set(chunk, %State{state | pending_records: rest})
   end
 
   defp handle_message_set(
@@ -1241,11 +1341,15 @@ defmodule KafkaEx.Consumer.GenConsumer do
 
     %Record{offset: last_offset} = List.last(message_set)
 
+    # With records still buffered, current_offset is already past them (the
+    # next fetch starts there); only the ack moves to this chunk's end.
+    current_offset = if state.pending_records == [], do: last_offset + 1, else: state.current_offset
+
     state_out = %State{
       state
       | consumer_state: new_consumer_state,
         acked_offset: last_offset + 1,
-        current_offset: last_offset + 1
+        current_offset: current_offset
     }
 
     handle_commit(sync_status, state_out)
