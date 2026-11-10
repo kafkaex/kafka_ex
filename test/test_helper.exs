@@ -8,7 +8,8 @@ ExUnit.configure(
     chaos: true,
     kafka4: true,
     lifecycle: true,
-    produce: true
+    produce: true,
+    rack_awareness: true
   ]
 )
 
