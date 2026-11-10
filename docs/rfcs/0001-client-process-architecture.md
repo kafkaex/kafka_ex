@@ -392,6 +392,14 @@ internal and hangs off the front's own `Infra.Supervisor`.
   and `sync_group_retryable?/1`. `fetch_retryable?/1` lives in the consumer layer (`gen_consumer.ex`)
   and is identical to `data_plane_retryable?/1` today. And `build_transport_error/1` keeps tagging
   transport failures as it does today.
+- Every coordinator request also keeps its own send-once set (`RequestContext.send_once?`). The
+  default is `:timeout`. A KIP-848 member heartbeat (epoch > 0) adds `:parse_error` and the
+  connection errors: resent unchanged, it carries an epoch the broker may already have bumped, and
+  is fenced.
+- A request may also ask for coordinator re-discovery (`RequestContext.rediscover_coordinator?`;
+  only the KIP-848 heartbeat sets it). After a connection error on such a request the store forgets
+  the cached coordinator, so the next attempt runs `FindCoordinator` instead of waiting on a broker
+  that may be gone.
 - Error atoms are unchanged and none are added (D22). Callers see exactly today's: `:timeout` for a
   request that could not complete within its budget (a request parked to its deadline included),
   `:no_broker` when no target could be resolved, `:broker_failed` and `:no_connected_broker` on the
@@ -445,6 +453,15 @@ coordinator). Direct callers of `commit_offset/5` are warned in `usage-rules.md`
 warning is about intent more than risk: the global mailbox order makes an accidental cross-process
 double-commit practically impossible right now. After the cutover it becomes a real hazard, so the
 cutover PR strengthens that warning rather than just pointing at it.
+
+The KIP-848 manager's shutdown also relies on today's global order: it kills the process carrying an
+aborted join or a keepalive heartbeat, then sends the leave from another process, and a join that
+reached the broker after the leave would register the member again. After the cutover this stays
+safe through two rules, and the implementation must keep both: an entry whose caller is `:DOWN` is
+dropped before it is written (D8), and requests on the one coordinator connection are written in the
+order they reached it. To close the narrow gap where the leave arrives before the front has handled
+the `:DOWN`, the front checks that the caller is still alive before it dispatches an entry woken from
+parking. The cutover PR rewrites the two manager comments that cite the shared client.
 
 **Declared change 2: a *raising* refresh degrades instead of crashing.** Be precise about today's
 behaviour, because it is narrower than it looks. An ordinary network error during the periodic refresh
@@ -510,7 +527,10 @@ same rule D15 applies to `:not_connected`.
   client. Same as all three.
 - **Risk:** a consumer group keeps N stores, N refresh loops and N connection sets against the same
   brokers. The `Manager` always starts its own client and cannot share it; only `GenConsumer`s can,
-  via `resolve_client/3` (#581).
+  via `resolve_client/3` (#581). Each unshared `GenConsumer` starts its client in `init`, and the
+  consumers start one at a time, so a group's start time grows with its partition count, and each
+  start now does more (store, `:metadata` connection, ApiVersions). A shared `:client` for the group's
+  consumers removes this. D1 makes that safe, but it is a follow-up, not part of this RFC.
 - **Trade-off:** we pay the N-fold footprint to avoid enforcing a credential boundary on every socket
   and to keep failures isolated per client. Sharing can be added later without a breaking change.
 
@@ -582,8 +602,9 @@ resend cannot duplicate records), and the consumer-group operations keep their o
 | success | replies to the caller | – |
 | leadership error | asks the store to refresh that topic; parks in `:awaiting_metadata` if budget remains | −1 |
 | coordinator error | asks the store to re-discover; then replies (see note) | −1 |
-| transport timeout, coordinator request | replies the error at once (send-once) | – |
+| error in the request's send-once set, coordinator request | replies the error at once (send-once); with `rediscover_coordinator?`, the store forgets the coordinator first | – |
 | transport timeout, predicate allows a retry | re-dispatches | −1 |
+| `:not_connected`, request with `rediscover_coordinator?` | asks the store to forget the coordinator; parks in `:awaiting_coordinator` | untouched |
 | `:not_connected` | parks in `:awaiting_connection` | untouched |
 | not retryable for this request, or budget exhausted | replies the error | – |
 
@@ -593,7 +614,8 @@ data request has `@retry_count = 3` of budget, so after the refresh the entry re
 the budget is already spent, and the `−1` drops straight to "budget exhausted → replies the error". The
 store still re-discovers (the effect that matters, and what happens today via `refresh_for_error/3`
 with `retry_count = 0`), but the entry does not park. `:awaiting_coordinator` is therefore entered from
-an initial `:resolving` miss on an unknown coordinator, not from this row.
+an initial `:resolving` miss on an unknown coordinator, or from `:not_connected` on a request with
+`rediscover_coordinator?`, not from this row.
 
 The per-attempt timeout lives in the `Connection` (it holds the send timestamp) and reaches the front
 as `{:done, ref, {:error, :timeout}}`; the retry decision stays in the front. Any wait in the front is
@@ -1373,7 +1395,7 @@ have to undo, is concentrated in one place.
 | # | PR | What moves | Observable change |
 |---|---|---|---|
 | 1 | Pure `Broker` + `Transport` seam | The socket leaves `%Broker{}` into a `node_id ⇒ connection` map that `Client.State` keeps synchronously; `Broker.connected?/1` and `has_socket?/1` read that map, so the struct's shape *and* behaviour are unchanged and broker selection (`ensure_any_broker_connected/1`, `ensure_broker_connected/1`, `maybe_connect_broker/2`) keeps working; `Transport` behaviour + in-process fake (D18); benchmark baseline | None. Refresh stops transplanting live sockets: a latent-bug fix. (`Broker.socket` becomes always `nil` only at PR 3, once a real `Connection` owns the socket — B2) |
-| 2 | Selection + coordinator cache into `ClusterMetadata` | Leader / controller / coordinator selection and refresh-on-error move out of `Client` (`select_broker_with_update/3`, the `broker_for_*_with_update` helpers, `refresh_for_error/3`) behind a small interface | None; still in-process and synchronous |
+| 2 | Selection + coordinator cache into `ClusterMetadata` | Leader / controller / coordinator selection and refresh-on-error move out of `Client` (`select_broker_with_update/3`, the `broker_for_*_with_update` helpers, `refresh_for_error/3`, `maybe_drop_coordinator/3`) behind a small interface | None; still in-process and synchronous |
 | 3 | `Connection` as `:gen_statem` | One per `{host, port, role}` (fetch per partition, D1) under `ConnectionSupervisor` + `Registry`, both under `Infra.Supervisor`; sockets, SASL and ApiVersions negotiation move in. The client still calls it synchronously | `Broker.socket` becomes always `nil` and `connected?/1` / `has_socket?/1` return `false` (§4.1); otherwise none by contract. The largest step, and where the test migration falls due |
 | 4 | `MetadataStore` as `:gen_statem` | ETS, the store's own `:metadata` connection, per-key coalesced refresh and `FindCoordinator`; the client reads ETS instead of holding `cluster_metadata` | Single-writer store with atomic snapshot swaps, so a produce cannot see metadata mid-replacement. **Requires a reproduction of #445 on current code before we claim it closed** (Goal 2): the old race was in `server.ex`, and today's single `GenServer` already updates immutable state |
 | 5 | Telemetry split + deadline threading | Per-attempt and connection events move to the `Connection`; `KafkaEx.API` passes the budget it already computes into the request | Transport events change emitting pid. The deadline is unused until PR 6, which keeps this PR small |
