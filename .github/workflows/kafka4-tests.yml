@@ -12,16 +12,23 @@ concurrency:
 
 jobs:
   kafka4-tests:
-    # Integration tests against a single-node apache/kafka:4.4.0 KRaft broker
-    # (started by Testcontainers), covering the versions only Kafka 4.x
-    # negotiates: Metadata v13, FindCoordinator v6, OffsetCommit/OffsetFetch v10.
-    name: Kafka 4 Tests (apache/kafka 4.4.0)
+    # Integration tests against a single-node KRaft broker (started by
+    # Testcontainers), covering the versions only Kafka 4.x negotiates:
+    # Metadata v13, FindCoordinator v6, OffsetCommit/OffsetFetch v10.
+    # 4.2 predates KIP-1251, so it rejects a commit whose member epoch lags.
+    name: Kafka 4 Tests (apache/kafka ${{ matrix.kafka }})
     runs-on: ubuntu-22.04
     timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        kafka: ["4.4.0", "4.2.2"]
 
     env:
       MIX_ENV: test
       ENABLE_TESTCONTAINERS: "true"
+      KAFKA4_IMAGE: apache/kafka:${{ matrix.kafka }}
 
     steps:
       - name: Checkout
@@ -57,7 +64,7 @@ jobs:
         run: docker --version
 
       - name: Pull Docker images
-        run: docker pull apache/kafka:4.4.0
+        run: docker pull "$KAFKA4_IMAGE"
 
       # No automatic --failed retries (unlike the chaos job): this suite is
       # deterministic, so a flaky failure is a real signal worth seeing.
@@ -68,7 +75,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: kafka4-test-results
+          name: kafka4-test-results-${{ matrix.kafka }}
           path: |
             _build/test/logs/
           retention-days: 7
