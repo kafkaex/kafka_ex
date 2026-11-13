@@ -102,16 +102,21 @@ defmodule KafkaEx.Support.OptionalDeps do
   end
 
   defp validate_one_compression!(:zstd) do
-    ensure_modules!(
-      [:ezstd],
-      :zstd,
-      """
-      Zstd compression requires the optional `ezstd` dependency. Add to
-      your application's mix.exs:
+    if Code.ensure_loaded?(:zstd) do
+      :ok
+    else
+      ensure_modules!(
+        [:ezstd],
+        :zstd,
+        """
+        Zstd compression uses the stdlib `:zstd` module on OTP 28+ and needs
+        no extra dependency. On older OTP releases it requires the optional
+        `ezstd` dependency. Add to your application's mix.exs:
 
-          {:ezstd, "~> 1.0"}
-      """
-    )
+            {:ezstd, "~> 1.0"}
+        """
+      )
+    end
   end
 
   defp validate_one_compression!(other) do

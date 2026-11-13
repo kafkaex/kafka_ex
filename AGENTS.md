@@ -138,20 +138,20 @@ Compression support requires optional dependencies. Without them, you'll get run
 
 ### Available compression formats:
 
-| Format    | Attribute | Dependency              |
-|-----------|-----------|-------------------------|
-| None      | 0         | Built-in                |
-| Gzip      | 1         | Built-in                |
-| Snappy    | 2         | `{:snappyer, "~> 1.2"}` |
-| LZ4       | 3         | `{:lz4b, "~> 0.0.13"}`  |
-| Zstandard | 4         | `{:ezstd, "~> 1.0"}`    |
+| Format    | Attribute | Dependency                           |
+|-----------|-----------|--------------------------------------|
+| None      | 0         | Built-in                             |
+| Gzip      | 1         | Built-in                             |
+| Snappy    | 2         | `{:snappyer, "~> 1.2"}`              |
+| LZ4       | 3         | `{:lz4b, "~> 0.0.13"}`               |
+| Zstandard | 4         | `{:ezstd, "~> 1.0"}` (OTP < 28 only) |
 
 ### Add to mix.exs if using compression:
 
 ```elixir
 {:snappyer, "~> 1.2"},   # For Snappy
 {:lz4b, "~> 0.0.13"},    # For LZ4
-{:ezstd, "~> 1.0"},      # For Zstandard
+{:ezstd, "~> 1.0"},      # For Zstandard on OTP < 28
 ```
 
 ## Creating Record Batches

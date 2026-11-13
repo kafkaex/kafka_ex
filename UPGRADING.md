@@ -521,7 +521,7 @@ you configure a feature without the backing dep, you'll get an
 | Feature | Required dep |
 |---|---|
 | Snappy compression | `{:snappyer, "~> 1.2"}` |
-| Zstd compression | `{:ezstd, "~> 1.0"}` |
+| Zstd compression | `{:ezstd, "~> 1.0"}` (OTP < 28 only) |
 | LZ4 compression | `{:lz4b, "~> 0.0.13"}` |
 | MSK-IAM SASL | `{:jason, "~> 1.0"}`, `{:aws_signature, "~> 0.4"}`, `{:aws_credentials, "~> 1.0"}` |
 | OAuth JWT parsing | user's choice (e.g., `{:joken, "~> 2.6"}` — only if your token_provider needs to parse JWTs) |
