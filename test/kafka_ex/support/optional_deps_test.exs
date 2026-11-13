@@ -99,7 +99,7 @@ defmodule KafkaEx.Support.OptionalDepsTest do
     test ":zstd with missing dep raises with mix.exs snippet" do
       Application.put_env(:kafka_ex, :required_compression, [:zstd])
 
-      case Code.ensure_loaded?(:ezstd) do
+      case Code.ensure_loaded?(:zstd) or Code.ensure_loaded?(:ezstd) do
         true ->
           assert :ok = OptionalDeps.validate!(nil)
 
@@ -108,6 +108,24 @@ defmodule KafkaEx.Support.OptionalDepsTest do
           assert error.message =~ ":zstd"
           assert error.message =~ "{:ezstd"
       end
+    end
+
+    @tag skip: not Code.ensure_loaded?(:zstd) && "stdlib :zstd needs OTP 28+"
+    test ":zstd passes with the stdlib :zstd module and no :ezstd" do
+      Application.put_env(:kafka_ex, :required_compression, [:zstd])
+
+      ezstd_ebin = :code.which(:ezstd) |> Path.dirname() |> String.to_charlist()
+      :code.del_path(ezstd_ebin)
+      :code.purge(:ezstd)
+      :code.delete(:ezstd)
+
+      on_exit(fn ->
+        :code.add_patha(ezstd_ebin)
+        Code.ensure_loaded(:ezstd)
+      end)
+
+      refute Code.ensure_loaded?(:ezstd)
+      assert :ok = OptionalDeps.validate!(nil)
     end
 
     test "unknown compression atom raises a useful error" do
