@@ -94,9 +94,9 @@ defmodule KafkaEx.Mixfile do
   defp aliases do
     [
       "test.unit":
-        "test --exclude auth --exclude consume --exclude consumer_group --exclude chaos --exclude lifecycle --exclude produce",
+        "test --exclude auth --exclude consume --exclude consumer_group --exclude chaos --exclude lifecycle --exclude produce --exclude rack_awareness",
       "test.integration":
-        "test --include auth --include consume --include consumer_group --include lifecycle --include produce",
+        "test --include auth --include consume --include consumer_group --include lifecycle --include produce --include rack_awareness",
       "test.chaos": "test --only chaos",
       # Kafka 4.x (KRaft) protocol tests against a Testcontainers broker; needs Docker.
       "test.kafka4": "test --only kafka4"

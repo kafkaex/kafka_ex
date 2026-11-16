@@ -17,6 +17,7 @@ defmodule KafkaEx.Client.NodeSelector do
           | :first_available
           | :controller
           | :topic_partition
+          | :topic_partition_replica
           | :consumer_group
   @type t :: %__MODULE__{
           strategy: valid_strategy,
@@ -61,6 +62,24 @@ defmodule KafkaEx.Client.NodeSelector do
       when is_binary(topic) and is_integer(partition) do
     %__MODULE__{
       strategy: :topic_partition,
+      topic: topic,
+      partition: partition
+    }
+  end
+
+  @doc """
+  Select the node to read the given topic and partition from, including "preferred replicas" previously returned by the
+  broker. Falls back to partition leader if no preferred replica is known.
+
+  Use this only for reads (Fetch). Writes and offset lookups must use `topic_partition/2`, which always resolves to the
+  leader.
+  """
+  @spec topic_partition_replica(KafkaExAPI.topic_name(), KafkaExAPI.partition_id()) ::
+          __MODULE__.t()
+  def topic_partition_replica(topic, partition)
+      when is_binary(topic) and is_integer(partition) do
+    %__MODULE__{
+      strategy: :topic_partition_replica,
       topic: topic,
       partition: partition
     }

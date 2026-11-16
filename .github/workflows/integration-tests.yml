@@ -345,3 +345,70 @@ jobs:
           RETRY_1: ${{ steps.retry-1.outcome }}
           RETRY_2: ${{ steps.retry-2.outcome }}
         run: ./scripts/ci_retry_annotation.sh "Auth Tests" "$FIRST_RUN" "$RETRY_1" "$RETRY_2"
+
+  rack-awareness-tests:
+    name: Rack Awareness Tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+
+    env:
+      MIX_ENV: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Elixir & Erlang
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.18"
+          otp-version: "27.2"
+
+      - name: Restore dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-27.2-1.18-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-27.2-1.18-
+
+      - name: Install dependencies
+        run: |
+          mix local.rebar --force
+          mix local.hex --force
+          mix deps.get
+          mix deps.compile
+
+      - name: Check Docker availability
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Docker-compose up
+        run: ./scripts/docker_up.sh
+
+      - name: Run Rack Awareness Tests
+        id: test-run
+        continue-on-error: true
+        run: ./scripts/ci_mix_test.sh --only rack_awareness
+
+      - name: Retry failed tests (1st retry)
+        id: retry-1
+        if: steps.test-run.outcome == 'failure'
+        continue-on-error: true
+        run: ./scripts/ci_mix_test.sh --only rack_awareness --failed
+
+      - name: Retry failed tests (2nd retry)
+        id: retry-2
+        if: steps.retry-1.outcome == 'failure'
+        run: ./scripts/ci_mix_test.sh --only rack_awareness --failed
+
+      - name: Annotate retries
+        if: always()
+        env:
+          FIRST_RUN: ${{ steps.test-run.outcome }}
+          RETRY_1: ${{ steps.retry-1.outcome }}
+          RETRY_2: ${{ steps.retry-2.outcome }}
+        run: ./scripts/ci_retry_annotation.sh "Rack Awareness Tests" "$FIRST_RUN" "$RETRY_1" "$RETRY_2"

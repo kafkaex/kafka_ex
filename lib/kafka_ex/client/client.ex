@@ -778,22 +778,69 @@ defmodule KafkaEx.Client do
   end
 
   defp do_fetch_request(topic, partition, offset, opts, state, metadata) do
-    node_selector = NodeSelector.topic_partition(topic, partition)
+    node_selector = NodeSelector.topic_partition_replica(topic, partition)
     {network_timeout, req_opts} = Keyword.pop(opts, :network_timeout)
     req_data = [{:topic, topic}, {:partition, partition}, {:offset, offset} | req_opts]
 
     with {:ok, request} <- RequestBuilder.fetch_request(req_data, state),
          {{:ok, result}, updated_state} <-
-           handle_fetch_request(request, node_selector, state, network_timeout) do
+           fetch_with_leader_fallback(request, node_selector, state, network_timeout) do
       filtered_result = Fetch.filter_from_offset(result, offset)
       message_count = length(Map.get(filtered_result, :records, []))
       stop_metadata = Map.put(metadata, :message_count, message_count)
+      updated_state = cache_preferred_replica(updated_state, topic, partition, filtered_result)
       {{{:ok, filtered_result}, updated_state}, stop_metadata}
     else
       {:error, error} -> {{:error, error}, metadata}
       error_result -> {error_result, metadata}
     end
   end
+
+  # KIP-392: a replica's error is not authoritative (it may lag the leader), so the leader decides.
+  defp fetch_with_leader_fallback(request, selector, state, timeout) do
+    case handle_fetch_request(request, selector, state, timeout) do
+      {{:error, error}, state_out} = result ->
+        if reading_from_replica?(state_out.cluster_metadata, selector),
+          do: after_replica_error(request, selector, error, forget_preferred_replica(state_out, selector), timeout),
+          else: result
+
+      result ->
+        result
+    end
+  end
+
+  # A single attempt keeps the caller's call budget, which covers one retry cycle.
+  defp after_replica_error(request, selector, error, state, timeout) do
+    if Retry.data_plane_retryable?(extract_error_atom(error)),
+      do: {{:error, error}, state},
+      else: handle_fetch_request(request, selector, state, timeout, 1)
+  end
+
+  defp forget_preferred_replica(state, %NodeSelector{topic: topic, partition: partition}) do
+    %{state | cluster_metadata: ClusterMetadata.put_preferred_replica(state.cluster_metadata, topic, partition, nil)}
+  end
+
+  defp reading_from_replica?(cluster_metadata, %NodeSelector{topic: topic, partition: partition} = selector) do
+    ClusterMetadata.select_node(cluster_metadata, selector) !=
+      ClusterMetadata.select_node(cluster_metadata, NodeSelector.topic_partition(topic, partition))
+  end
+
+  # `-1` means "stay where you are" (Java client semantics). Clearing the
+  # cache here would ping-pong subsequent fetches back to the leader.
+  defp cache_preferred_replica(state, _topic, _partition, %Fetch{preferred_read_replica: node_id})
+       when node_id in [nil, -1] do
+    state
+  end
+
+  defp cache_preferred_replica(state, topic, partition, %Fetch{preferred_read_replica: node_id})
+       when is_integer(node_id) do
+    %{
+      state
+      | cluster_metadata: ClusterMetadata.put_preferred_replica(state.cluster_metadata, topic, partition, node_id)
+    }
+  end
+
+  defp cache_preferred_replica(state, _topic, _partition, _other), do: state
 
   defp find_coordinator_request(group_id, opts, state) do
     # FindCoordinator can be sent to any broker
@@ -1028,14 +1075,14 @@ defmodule KafkaEx.Client do
     |> handle_request_with_retry(state)
   end
 
-  defp handle_fetch_request(request, node_selector, state, network_timeout) do
+  defp handle_fetch_request(request, node_selector, state, network_timeout, attempts \\ @retry_count) do
     %RequestContext{
       request: request,
       parser_fn: &ResponseParser.fetch_response/1,
       node_selector: node_selector,
       network_timeout: network_timeout
     }
-    |> handle_request_with_retry(state)
+    |> handle_request_with_retry(state, attempts)
   end
 
   defp handle_find_coordinator_request(request, node_selector, state) do
@@ -1389,8 +1436,9 @@ defmodule KafkaEx.Client do
     end
   end
 
-  defp describe_selector(%NodeSelector{strategy: :topic_partition, topic: topic, partition: partition}),
-    do: "#{topic}/#{partition}"
+  defp describe_selector(%NodeSelector{strategy: topic_partition_strategy, topic: topic, partition: partition})
+       when topic_partition_strategy in [:topic_partition, :topic_partition_replica],
+       do: "#{topic}/#{partition}"
 
   defp describe_selector(%NodeSelector{strategy: :consumer_group, consumer_group_name: group}),
     do: "consumer group #{group}"
@@ -1445,9 +1493,8 @@ defmodule KafkaEx.Client do
     end
   end
 
-  defp broker_for_partition_with_update(state, topic, partition) do
-    node = NodeSelector.topic_partition(topic, partition)
-    select_broker_with_update(state, node, &update_metadata(&1, [topic]))
+  defp broker_for_partition_with_update(state, %NodeSelector{topic: topic} = selector) do
+    select_broker_with_update(state, selector, &update_metadata(&1, [topic]))
   end
 
   defp broker_for_consumer_group_with_update(state, consumer_group) do
@@ -1657,12 +1704,13 @@ defmodule KafkaEx.Client do
   end
 
   defp get_send_request_function(
-         %NodeSelector{strategy: :topic_partition, topic: topic, partition: partition},
+         %NodeSelector{strategy: strategy} = selector,
          state,
          network_timeout,
          synchronous
-       ) do
-    {broker, updated_state} = broker_for_partition_with_update(state, topic, partition)
+       )
+       when strategy in [:topic_partition, :topic_partition_replica] do
+    {broker, updated_state} = broker_for_partition_with_update(state, selector)
 
     if broker do
       if synchronous do
@@ -1722,7 +1770,10 @@ defmodule KafkaEx.Client do
   end
 
   defp broker_to_telemetry_info(nil), do: %{}
-  defp broker_to_telemetry_info(broker), do: %{node_id: broker.node_id, host: broker.host, port: broker.port}
+
+  defp broker_to_telemetry_info(%Broker{} = broker) do
+    %{node_id: broker.node_id, host: broker.host, port: broker.port, rack: broker.rack}
+  end
 
   defp deserialize(data, request) do
     {resp, _} = @protocol.response_deserializer(request).(data)
