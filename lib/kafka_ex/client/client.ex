@@ -784,7 +784,7 @@ defmodule KafkaEx.Client do
 
     with {:ok, request} <- RequestBuilder.fetch_request(req_data, state),
          {{:ok, result}, updated_state} <-
-           handle_fetch_request(request, node_selector, state, network_timeout) do
+           fetch_with_leader_fallback(request, node_selector, state, network_timeout) do
       filtered_result = Fetch.filter_from_offset(result, offset)
       message_count = length(Map.get(filtered_result, :records, []))
       stop_metadata = Map.put(metadata, :message_count, message_count)
@@ -794,6 +794,35 @@ defmodule KafkaEx.Client do
       {:error, error} -> {{:error, error}, metadata}
       error_result -> {error_result, metadata}
     end
+  end
+
+  # KIP-392: a replica's error is not authoritative (it may lag the leader), so the leader decides.
+  defp fetch_with_leader_fallback(request, selector, state, timeout) do
+    case handle_fetch_request(request, selector, state, timeout) do
+      {{:error, error}, state_out} = result ->
+        if reading_from_replica?(state_out.cluster_metadata, selector),
+          do: after_replica_error(request, selector, error, forget_preferred_replica(state_out, selector), timeout),
+          else: result
+
+      result ->
+        result
+    end
+  end
+
+  # A single attempt keeps the caller's call budget, which covers one retry cycle.
+  defp after_replica_error(request, selector, error, state, timeout) do
+    if Retry.data_plane_retryable?(extract_error_atom(error)),
+      do: {{:error, error}, state},
+      else: handle_fetch_request(request, selector, state, timeout, 1)
+  end
+
+  defp forget_preferred_replica(state, %NodeSelector{topic: topic, partition: partition}) do
+    %{state | cluster_metadata: ClusterMetadata.put_preferred_replica(state.cluster_metadata, topic, partition, nil)}
+  end
+
+  defp reading_from_replica?(cluster_metadata, %NodeSelector{topic: topic, partition: partition} = selector) do
+    ClusterMetadata.select_node(cluster_metadata, selector) !=
+      ClusterMetadata.select_node(cluster_metadata, NodeSelector.topic_partition(topic, partition))
   end
 
   # `-1` means "stay where you are" (Java client semantics). Clearing the
@@ -1046,14 +1075,14 @@ defmodule KafkaEx.Client do
     |> handle_request_with_retry(state)
   end
 
-  defp handle_fetch_request(request, node_selector, state, network_timeout) do
+  defp handle_fetch_request(request, node_selector, state, network_timeout, attempts \\ @retry_count) do
     %RequestContext{
       request: request,
       parser_fn: &ResponseParser.fetch_response/1,
       node_selector: node_selector,
       network_timeout: network_timeout
     }
-    |> handle_request_with_retry(state)
+    |> handle_request_with_retry(state, attempts)
   end
 
   defp handle_find_coordinator_request(request, node_selector, state) do
