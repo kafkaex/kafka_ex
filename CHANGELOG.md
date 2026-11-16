@@ -19,6 +19,12 @@
   `ConsumerGroup.start_link/4` return `{:error, {:invalid_option, :invalid_max_records}}`. The
   `[:kafka_ex, :consumer, :process]` span's `message_count` is the chunk size.
 
+### Fixed
+
+* **`required_compression: [:zstd]` no longer requires `ezstd` on OTP 28+.** The boot check
+  accepted only `ezstd`, so a client on OTP 28+ without it failed to start, although Kayrock
+  uses the stdlib `:zstd` module there. The check now passes when `:zstd` or `:ezstd` loads.
+
 ## 1.2.0 (2026-11-07)
 
 > Requires Kayrock 1.1.0 (`{:kayrock, "~> 1.1"}`). Upgrade KafkaEx in the same

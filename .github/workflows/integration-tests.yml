@@ -57,17 +57,26 @@ jobs:
       - name: Run Consumer Group Tests
         id: test-run
         continue-on-error: true
-        run: mix test --only consumer_group
+        run: ./scripts/ci_mix_test.sh --only consumer_group
 
       - name: Retry failed tests (1st retry)
         id: retry-1
         if: steps.test-run.outcome == 'failure'
         continue-on-error: true
-        run: mix test --only consumer_group --failed
+        run: ./scripts/ci_mix_test.sh --only consumer_group --failed
 
       - name: Retry failed tests (2nd retry)
+        id: retry-2
         if: steps.retry-1.outcome == 'failure'
-        run: mix test --only consumer_group --failed
+        run: ./scripts/ci_mix_test.sh --only consumer_group --failed
+
+      - name: Annotate retries
+        if: always()
+        env:
+          FIRST_RUN: ${{ steps.test-run.outcome }}
+          RETRY_1: ${{ steps.retry-1.outcome }}
+          RETRY_2: ${{ steps.retry-2.outcome }}
+        run: ./scripts/ci_retry_annotation.sh "Consumer Group Tests" "$FIRST_RUN" "$RETRY_1" "$RETRY_2"
 
   produce-tests:
     name: Produce Tests
@@ -115,17 +124,26 @@ jobs:
       - name: Run Produce Tests
         id: test-run
         continue-on-error: true
-        run: mix test --only produce
+        run: ./scripts/ci_mix_test.sh --only produce
 
       - name: Retry failed tests (1st retry)
         id: retry-1
         if: steps.test-run.outcome == 'failure'
         continue-on-error: true
-        run: mix test --only produce --failed
+        run: ./scripts/ci_mix_test.sh --only produce --failed
 
       - name: Retry failed tests (2nd retry)
+        id: retry-2
         if: steps.retry-1.outcome == 'failure'
-        run: mix test --only produce --failed
+        run: ./scripts/ci_mix_test.sh --only produce --failed
+
+      - name: Annotate retries
+        if: always()
+        env:
+          FIRST_RUN: ${{ steps.test-run.outcome }}
+          RETRY_1: ${{ steps.retry-1.outcome }}
+          RETRY_2: ${{ steps.retry-2.outcome }}
+        run: ./scripts/ci_retry_annotation.sh "Produce Tests" "$FIRST_RUN" "$RETRY_1" "$RETRY_2"
 
   consume-tests:
     name: Consume Tests
@@ -173,17 +191,26 @@ jobs:
       - name: Run Consume Tests
         id: test-run
         continue-on-error: true
-        run: mix test --only consume
+        run: ./scripts/ci_mix_test.sh --only consume
 
       - name: Retry failed tests (1st retry)
         id: retry-1
         if: steps.test-run.outcome == 'failure'
         continue-on-error: true
-        run: mix test --only consume --failed
+        run: ./scripts/ci_mix_test.sh --only consume --failed
 
       - name: Retry failed tests (2nd retry)
+        id: retry-2
         if: steps.retry-1.outcome == 'failure'
-        run: mix test --only consume --failed
+        run: ./scripts/ci_mix_test.sh --only consume --failed
+
+      - name: Annotate retries
+        if: always()
+        env:
+          FIRST_RUN: ${{ steps.test-run.outcome }}
+          RETRY_1: ${{ steps.retry-1.outcome }}
+          RETRY_2: ${{ steps.retry-2.outcome }}
+        run: ./scripts/ci_retry_annotation.sh "Consume Tests" "$FIRST_RUN" "$RETRY_1" "$RETRY_2"
 
   lifecycle-tests:
     name: Lifecycle Tests
@@ -231,17 +258,26 @@ jobs:
       - name: Run Lifecycle Tests
         id: test-run
         continue-on-error: true
-        run: mix test --only lifecycle
+        run: ./scripts/ci_mix_test.sh --only lifecycle
 
       - name: Retry failed tests (1st retry)
         id: retry-1
         if: steps.test-run.outcome == 'failure'
         continue-on-error: true
-        run: mix test --only lifecycle --failed
+        run: ./scripts/ci_mix_test.sh --only lifecycle --failed
 
       - name: Retry failed tests (2nd retry)
+        id: retry-2
         if: steps.retry-1.outcome == 'failure'
-        run: mix test --only lifecycle --failed
+        run: ./scripts/ci_mix_test.sh --only lifecycle --failed
+
+      - name: Annotate retries
+        if: always()
+        env:
+          FIRST_RUN: ${{ steps.test-run.outcome }}
+          RETRY_1: ${{ steps.retry-1.outcome }}
+          RETRY_2: ${{ steps.retry-2.outcome }}
+        run: ./scripts/ci_retry_annotation.sh "Lifecycle Tests" "$FIRST_RUN" "$RETRY_1" "$RETRY_2"
 
   auth-tests:
     name: Auth Tests
@@ -289,17 +325,26 @@ jobs:
       - name: Run Auth Tests
         id: test-run
         continue-on-error: true
-        run: mix test --only auth
+        run: ./scripts/ci_mix_test.sh --only auth
 
       - name: Retry failed tests (1st retry)
         id: retry-1
         if: steps.test-run.outcome == 'failure'
         continue-on-error: true
-        run: mix test --only auth --failed
+        run: ./scripts/ci_mix_test.sh --only auth --failed
 
       - name: Retry failed tests (2nd retry)
+        id: retry-2
         if: steps.retry-1.outcome == 'failure'
-        run: mix test --only auth --failed
+        run: ./scripts/ci_mix_test.sh --only auth --failed
+
+      - name: Annotate retries
+        if: always()
+        env:
+          FIRST_RUN: ${{ steps.test-run.outcome }}
+          RETRY_1: ${{ steps.retry-1.outcome }}
+          RETRY_2: ${{ steps.retry-2.outcome }}
+        run: ./scripts/ci_retry_annotation.sh "Auth Tests" "$FIRST_RUN" "$RETRY_1" "$RETRY_2"
 
   rack-awareness-tests:
     name: Rack Awareness Tests
@@ -347,14 +392,23 @@ jobs:
       - name: Run Rack Awareness Tests
         id: test-run
         continue-on-error: true
-        run: mix test --only rack_awareness
+        run: ./scripts/ci_mix_test.sh --only rack_awareness
 
       - name: Retry failed tests (1st retry)
         id: retry-1
         if: steps.test-run.outcome == 'failure'
         continue-on-error: true
-        run: mix test --only rack_awareness --failed
+        run: ./scripts/ci_mix_test.sh --only rack_awareness --failed
 
       - name: Retry failed tests (2nd retry)
+        id: retry-2
         if: steps.retry-1.outcome == 'failure'
-        run: mix test --only rack_awareness --failed
+        run: ./scripts/ci_mix_test.sh --only rack_awareness --failed
+
+      - name: Annotate retries
+        if: always()
+        env:
+          FIRST_RUN: ${{ steps.test-run.outcome }}
+          RETRY_1: ${{ steps.retry-1.outcome }}
+          RETRY_2: ${{ steps.retry-2.outcome }}
+        run: ./scripts/ci_retry_annotation.sh "Rack Awareness Tests" "$FIRST_RUN" "$RETRY_1" "$RETRY_2"

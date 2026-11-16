@@ -10,7 +10,7 @@ inlined under the managed marker block at the end of this file (refresh with
 
 ## Project
 
-KafkaEx is an Elixir client for Apache Kafka. v1.0+ is built on [Kayrock](https://github.com/dantswain/kayrock) for protocol (de)serialization and performs **automatic API version negotiation** — there is no `kafka_version` config. Requires Elixir 1.14+, OTP 24+, Kafka 0.11.0+.
+KafkaEx is an Elixir client for Apache Kafka. v1.0+ is built on [Kayrock](https://github.com/dantswain/kayrock) for protocol (de)serialization and performs **automatic API version negotiation** — there is no `kafka_version` config. Requires Elixir 1.14+, OTP 25+, Kafka 0.11.0+.
 
 `KafkaEx.API` is the primary, modern interface; the older top-level `KafkaEx.*` worker API is retained only for backward compatibility. See `usage-rules.md` for the canonical do/don't list of API call patterns — read it before writing or changing public API call sites.
 
@@ -138,20 +138,20 @@ Compression support requires optional dependencies. Without them, you'll get run
 
 ### Available compression formats:
 
-| Format    | Attribute | Dependency              |
-|-----------|-----------|-------------------------|
-| None      | 0         | Built-in                |
-| Gzip      | 1         | Built-in                |
-| Snappy    | 2         | `{:snappyer, "~> 1.2"}` |
-| LZ4       | 3         | `{:lz4b, "~> 0.0.13"}`  |
-| Zstandard | 4         | `{:ezstd, "~> 1.0"}`    |
+| Format    | Attribute | Dependency                           |
+|-----------|-----------|--------------------------------------|
+| None      | 0         | Built-in                             |
+| Gzip      | 1         | Built-in                             |
+| Snappy    | 2         | `{:snappyer, "~> 1.2"}`              |
+| LZ4       | 3         | `{:lz4b, "~> 0.0.13"}`               |
+| Zstandard | 4         | `{:ezstd, "~> 1.0"}` (OTP < 28 only) |
 
 ### Add to mix.exs if using compression:
 
 ```elixir
 {:snappyer, "~> 1.2"},   # For Snappy
 {:lz4b, "~> 0.0.13"},    # For LZ4
-{:ezstd, "~> 1.0"},      # For Zstandard
+{:ezstd, "~> 1.0"},      # For Zstandard on OTP < 28
 ```
 
 ## Creating Record Batches

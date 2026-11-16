@@ -10,7 +10,7 @@ KafkaEx
 [![License](https://img.shields.io/hexpm/l/kafka_ex.svg?style=flat-square)](https://hex.pm/packages/kafka_ex)
 [![API Docs](https://img.shields.io/badge/api-docs-yellow.svg?style=flat-square)](http://hexdocs.pm/kafka_ex/)
 
-KafkaEx is an Elixir client for [Apache Kafka](http://kafka.apache.org/). KafkaEx requires Elixir 1.14+ and Erlang OTP 24+. Supported Kafka versions: 0.11.0 and newer (see [Supported Kafka Versions](#supported-kafka-versions)).
+KafkaEx is an Elixir client for [Apache Kafka](http://kafka.apache.org/). KafkaEx requires Elixir 1.14+ and Erlang OTP 25+. Supported Kafka versions: 0.11.0 and newer (see [Supported Kafka Versions](#supported-kafka-versions)).
 
 ## Project Status
 
@@ -201,7 +201,8 @@ config :kafka_ex,
   # Declare the compression algorithms your app uses so Client.init
   # crashes loudly at boot if the backing optional dep isn't loaded.
   # Default: [] (no validation). Any of :gzip (needs no dep), :snappy
-  # (needs :snappyer), :lz4 (needs :lz4b), :zstd (needs :ezstd).
+  # (needs :snappyer), :lz4 (needs :lz4b), :zstd (needs :ezstd before
+  # OTP 28).
   required_compression: [],
 
   # Delay before a broker-reconnect retry (ms). Lower reconnects faster
@@ -567,7 +568,7 @@ KafkaEx supports multiple compression formats. Compression is applied per-reques
 | `:gzip` | 0.7.0+ | None (built-in) |
 | `:snappy` | 0.8.0+ | `{:snappyer, "~> 1.2"}` |
 | `:lz4` | 0.9.0+ | None (built-in) |
-| `:zstd` | 2.1.0+ | None (built-in) |
+| `:zstd` | 2.1.0+ | None on OTP 28+; `{:ezstd, "~> 1.0"}` before |
 
 Decompression is handled automatically when consuming messages.
 

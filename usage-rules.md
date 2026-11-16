@@ -284,7 +284,8 @@ Compression is per-request, not global config:
 ```
 
 **Dependencies:**
-- `:gzip`, `:lz4`, `:zstd` - Built-in, no dependencies
+- `:gzip`, `:lz4` - Built-in, no dependencies
+- `:zstd` - Built-in on OTP 28+; on older OTP requires `{:ezstd, "~> 1.0"}` in mix.exs
 - `:snappy` - Requires `{:snappyer, "~> 1.2"}` in mix.exs
 
 ## Common Mistakes to Avoid

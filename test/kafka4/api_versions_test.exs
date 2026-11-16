@@ -233,7 +233,7 @@ defmodule KafkaEx.Kafka4.ApiVersionsTest do
       topic = create_topic!(client)
       group = "kafka4_cg_" <> generate_random_string()
 
-      Enum.each(1..5, &API.produce(client, topic, 0, [%{value: "msg-#{&1}"}]))
+      Enum.each(1..5, &Kafka4TestHelpers.produce!(client, topic, 0, [%{value: "msg-#{&1}"}]))
 
       # commit_threshold: 1 -> every acked message set commits (async commits
       # otherwise wait for the next message set after commit_interval).
@@ -297,7 +297,7 @@ defmodule KafkaEx.Kafka4.ApiVersionsTest do
       Process.flag(:trap_exit, true)
       topic = create_topic!(client)
       group = "kafka4_standalone_" <> generate_random_string()
-      {:ok, _} = API.produce(client, topic, 0, [%{value: "msg-1"}, %{value: "msg-2"}])
+      Kafka4TestHelpers.produce!(client, topic, 0, [%{value: "msg-1"}, %{value: "msg-2"}])
 
       {:ok, consumer_client} = Kafka4TestHelpers.start_client(ctx)
       ref = Process.monitor(consumer_client)
