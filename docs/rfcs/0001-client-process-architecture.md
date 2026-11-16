@@ -254,6 +254,11 @@ flowchart TD
   `KafkaEx.API` does not wrap.
 - `produce` with `acks: 0` is already special-cased: `network_request/4` sets `synchronous = false`
   when `acks == 0`, and `handle_produce_request/3` has a dedicated clause that never retries it.
+- Follower fetching (KIP-392) is supported. A fetch may go to a preferred read replica named by an
+  earlier fetch response, kept in `ClusterMetadata.preferred_replicas` until the next metadata
+  refresh. A non-retryable replica error is retried once on the leader in the same call; after a
+  retryable one, the caller's next fetch goes to the leader (`fetch_with_leader_fallback/4`). D27
+  carries this onto the new topology.
 
 **Who calls the client.** Everyone goes through `KafkaEx.API` → `GenServer.call`:
 `ConsumerGroup.Manager` (join / sync / leave, offset fetch / commit), `ConsumerGroup.Heartbeat` (its
@@ -303,7 +308,7 @@ From a caller's perspective nothing changes. It still writes
 reads the target from ETS, hands the request to the right `Connection` asynchronously, parks the
 caller under a `ref`, and stays free to serve heartbeats, refreshes and requests to other brokers.
 
-**What approval commits to.** The numbered decision blocks D1–D26 below are normative. The prose and
+**What approval commits to.** The numbered decision blocks D1–D27 below are normative. The prose and
 diagrams around them explain the mechanism so the design can be checked for soundness; they are not
 commitments. Left to code review on purpose: the exact timer and backoff constants (connect window,
 reconnect backoff, the liveness bound, the fetch-connection idle timeout, the retry budget) and the
@@ -354,6 +359,7 @@ flowchart TD
 - [D16. Data connections are created lazily](#d16-data-connections-are-created-lazily)
 - [D17. No traffic before SASL succeeds, no credentials in process state](#d17-no-traffic-before-sasl-succeeds-no-credentials-in-process-state)
 - [D18. A Transport behaviour with an in-process fake](#d18-a-transport-behaviour-with-an-in-process-fake)
+- [D27. Follower fetching: the front keeps the preferred-replica hint](#d27-follower-fetching-the-front-keeps-the-preferred-replica-hint)
 - [D19. One MetadataStore per client with lifecycle states](#d19-one-metadatastore-per-client-with-lifecycle-states)
 - [D20. Concurrent refreshes and coordinator lookups for the same key share one request](#d20-concurrent-refreshes-and-coordinator-lookups-for-the-same-key-share-one-request)
 - [D21. The store owns its ETS table, no heir](#d21-the-store-owns-its-ets-table-no-heir)
@@ -433,6 +439,8 @@ internal and hangs off the front's own `Infra.Supervisor`.
 - The front stays the failure unit `ConsumerGroup` supervision monitors. `MetadataStore`,
   `Connection`, `Infra.Supervisor` and the `Registry` are never addressed by callers.
 - Application boot and `disable_default_worker` are unchanged (D25).
+- Follower fetching keeps working: the `rack_id` fetch option and `GenConsumer`'s `:client_rack`
+  behave as today, and a fetch still goes to the preferred replica the broker names (D27).
 
 **Declared change 1: ordering.** Today's single mailbox imposes a global total order on requests from
 every caller — undocumented, but real and relied on. The front preserves order only **per caller
@@ -486,8 +494,9 @@ same rule D15 applies to `:not_connected`.
 - **What:** the data plane is one `Connection` per `{host, port, role}`, where `role` is `:data`,
   `:coordinator`, `:metadata`, or `{:fetch, topic, partition}`. Every consumed partition fetches over
   its own connection to its leader, created on the first fetch and closed after an idle period
-  without one. Produce and the other short requests share the broker's `:data` connection. No
-  producer or consumer *process* per partition.
+  without one. A partition read from a preferred replica fetches from that replica instead (D27).
+  Produce and the other short requests share the broker's `:data` connection. No producer or
+  consumer *process* per partition.
 - **Why:** every failure in §2 is "one broker blocks everything", and the broker itself processes
   one request per connection at a time (it mutes the channel until the response has gone out).
   Isolating brokers and roles from each other removes the cross-broker failures. Giving each
@@ -576,7 +585,7 @@ Phases:
 
 - `:resolving` — pick the target from the store's ETS (lock-free): the partition leader for
   `:topic_partition` (a fetch goes to that partition's own connection, anything else to the leader's
-  `:data` one, D1), the coordinator for `:consumer_group`, the controller for `:controller`, the
+  `:data` one, D1; a fetch with a current preferred-replica hint goes to the replica, D27), the coordinator for `:consumer_group`, the controller for `:controller`, the
   named broker for `:node_id`, one broker for `:random`. `:first_available` is different and keeps its
   today's fan-out: the front takes the snapshot's broker list and tries candidates **in turn, within
   the one `pending` entry** (D5), so a dead broker on the list is skipped, not fatal; only when every
@@ -590,7 +599,9 @@ Phases:
 - `:awaiting_connection` — the target `Connection` refused a request it never wrote
   (`{:error, :not_connected}`). Wait for it to report `:connected`, bounded by the deadline. A
   metadata epoch bump also wakes it back into `:resolving`, so an entry never stays bound to a broker
-  that has stopped being the leader. This costs no retry attempt (D15).
+  that has stopped being the leader. This costs no retry attempt (D15). A fetch refused by a
+  preferred replica goes to the leader first, and parks here only if the leader names that same
+  replica again (D27).
 
 On `{:done, ref, result}` the front runs today's classification, keyed **per request** exactly as
 `RequestContext.retryable?` is today: data requests use `Retry.data_plane_retryable?/1`, produce
@@ -601,6 +612,7 @@ resend cannot duplicate records), and the consumer-group operations keep their o
 |---|---|---|
 | success | replies to the caller | – |
 | leadership error | asks the store to refresh that topic; parks in `:awaiting_metadata` if budget remains | −1 |
+| any other error from a preferred replica (fetch) | clears the hint and re-dispatches to the leader; a replica is never a request's last attempt, so budget always remains (D27) | −1; untouched for `:not_connected` |
 | coordinator error | asks the store to re-discover; then replies (see note) | −1 |
 | error in the request's send-once set, coordinator request | replies the error at once (send-once); with `rediscover_coordinator?`, the store forgets the coordinator first | – |
 | transport timeout, predicate allows a retry | re-dispatches | −1 |
@@ -995,7 +1007,8 @@ socket the produce uses. That separation is D13's payoff.
     state changes.
   - **While `:reconnecting`**, the `Connection` answers at once.
   - **Never written** → `{:error, :not_connected}`. The front parks the entry until the connection
-    reports `:connected` or the deadline hits, and spends **no** retry attempt.
+    reports `:connected` or the deadline hits, and spends **no** retry attempt. A fetch refused by
+    a preferred replica goes to the leader first (D27).
   - **Written but unanswered** → `{:error, :timeout}`. This is a real attempt, and the coordinator
     send-once rule applies.
 - **Why:** "the broker never saw this" and "the broker may already have executed this" are different
@@ -1035,7 +1048,7 @@ socket the produce uses. That separation is D13's payoff.
   - **A leader move** is handled by routing, not by the connection. The in-flight fetch comes back
     with a leadership or transport error and takes §4.2's refresh row, the re-resolved fetch goes to a
     new `{new_leader, {:fetch, topic, partition}}` connection, and the old one sits idle until its
-    timeout closes it.
+    timeout closes it. A switch between a preferred replica and the leader works the same way (D27).
   - **A dead `Connection`** is recreated the same way, on demand.
   - **A `Connection` whose broker has left the metadata snapshot** is stopped by the store's snapshot
     swap, as `merge_brokers` closes those sockets today, so nothing sits in `:reconnecting` for a
@@ -1085,6 +1098,99 @@ socket the produce uses. That separation is D13's payoff.
   fake.
 - **Trade-off:** a mechanical port of the existing stubs plus one new behaviour, for a suite that
   stays fast and parallel.
+
+#### D27. Follower fetching: the front keeps the preferred-replica hint
+
+- **What:** a fetch goes to the partition's preferred read replica when the front holds a current
+  hint for it, and to the leader otherwise. This carries today's follower fetching (KIP-392: the
+  `rack_id` fetch option, set by `GenConsumer`'s `:client_rack`) onto the new topology.
+  - **Where the hint lives.** In the front's own state, one per client, keyed `{topic, partition}`,
+    as `ClusterMetadata.preferred_replicas` is today. The front is the only process that reads it
+    (when it resolves a fetch) and the only one that sees fetch results.
+  - **How it is set.** A successful fetch whose response names a replica sets the hint. A response
+    with `-1` keeps the current one, as today (`cache_preferred_replica/4` in `client.ex`).
+  - **How long it lives.** Until the next successful metadata refresh, as today: every refresh drops
+    all hints, because `ClusterMetadata.merge_brokers/2` does not carry them over.
+    - The store keeps one snapshot-wide counter in ETS. Every metadata snapshot swap bumps it;
+      coordinator lookups do not (D20). The routing read returns it (D23).
+    - The front stamps a hint with the counter it read when it dispatched that fetch, and ignores a
+      hint whose stamp differs from the current counter. So any refresh, periodic or error-driven,
+      of any topic clears every hint, as today.
+    - When the store restarts (D21), the front drops all hints.
+  - **Resolution.** A current hint whose broker is in the snapshot sends the fetch to
+    `{replica, {:fetch, topic, partition}}`. A hint whose broker is gone falls back to the leader, as
+    today (`pick_preferred_or_leader/4` in `cluster_metadata.ex`). A request on its last attempt
+    ignores the hint and goes to the leader, so a fallback to the leader always fits the budget.
+  - **Any error from a replica sends the request to the leader.** The `pending` entry records the
+    node each attempt went to. On an error from a replica, the front clears the hint only if it still
+    names that node (so a late error does not erase a newer hint), and marks the entry leader-only
+    for the rest of its attempts:
+    - `:not_connected` re-resolves to the leader at once and spends no attempt, instead of parking
+      in `:awaiting_connection` (§4.2, D15);
+    - a leadership error also takes §4.2's refresh row;
+    - any other error, retryable or not, re-dispatches to the leader and spends one attempt. That
+      includes `:offset_out_of_range`: a replica may lag the leader, so its error is not final, and
+      `GenConsumer` resets its offset on that atom.
+  - **The leader insists on a replica we cannot reach.** If the leader's answer names the same
+    replica that just refused with `:not_connected`, that answer carries no records. Instead of
+    replying with it at once, the front parks the entry in `:awaiting_connection` on that replica's
+    connection, bounded by the deadline, and dispatches there when it connects. Without this, a
+    consumer would loop between an instant refusal and an instant empty answer from the leader.
+- **Why:** the hint is routing state, and routing already lives in the front (§4.2). Keeping it
+  there adds no write into the store's single-writer table (D21) on every fetch response. The
+  lifetime is unchanged on purpose. The error rule fixes two things today's client gets wrong
+  (`fetch_with_leader_fallback/4`):
+  - on a timeout or a closed connection, all attempts go to the same replica, the caller gets the
+    error, and only its next call reaches the leader;
+  - two replica timeouts followed by a non-retryable error make four attempts, one over the call
+    budget.
+  Now a dead replica costs one attempt, and the leader answers within the same call.
+- **Others:**
+  - **Java client 4.4.0** keeps the replica per partition with a lease of `metadata.max.age.ms`
+    (5 minutes by default) that survives refreshes
+    ([`FetchCollector.java`](https://github.com/apache/kafka/blob/4.4.0/clients/src/main/java/org/apache/kafka/clients/consumer/internals/FetchCollector.java#L308-L317)).
+    It clears the replica on leadership and metadata errors
+    ([`FetchCollector.java`](https://github.com/apache/kafka/blob/4.4.0/clients/src/main/java/org/apache/kafka/clients/consumer/internals/FetchCollector.java#L321-L340)),
+    on disconnect or timeout
+    ([`AbstractFetch.java`](https://github.com/apache/kafka/blob/4.4.0/clients/src/main/java/org/apache/kafka/clients/consumer/internals/AbstractFetch.java#L258-L267)),
+    and on `OFFSET_OUT_OF_RANGE`, which it then re-fetches from the leader without resetting the
+    offset ([`FetchCollector.java`](https://github.com/apache/kafka/blob/4.4.0/clients/src/main/java/org/apache/kafka/clients/consumer/internals/FetchCollector.java#L341-L367)).
+    While the replica's connection is in reconnect backoff, it skips that partition for the round
+    instead of going to the leader
+    ([`AbstractFetch.java`](https://github.com/apache/kafka/blob/4.4.0/clients/src/main/java/org/apache/kafka/clients/consumer/internals/AbstractFetch.java#L456-L461)).
+  - **librdkafka v2.16.0** uses a fixed 5-minute lease
+    ([`rdkafka_fetcher.c`](https://github.com/confluentinc/librdkafka/blob/v2.16.0/src/rdkafka_fetcher.c#L3678-L3693)).
+    It goes back to the leader on partition errors and on `OFFSET_OUT_OF_RANGE` from a replica
+    ([`rdkafka_fetcher.c`](https://github.com/confluentinc/librdkafka/blob/v2.16.0/src/rdkafka_fetcher.c#L190-L295)),
+    and when the replica's broker goes down
+    ([`rdkafka_broker.c`](https://github.com/confluentinc/librdkafka/blob/v2.16.0/src/rdkafka_broker.c#L802-L828)).
+    It backs off the next fetch when the replica changes more than once a minute
+    ([`rdkafka_fetcher.c`](https://github.com/confluentinc/librdkafka/blob/v2.16.0/src/rdkafka_fetcher.c#L108-L146)).
+  - **brod 4.7.0** does not support follower fetching: `brod_consumer` always fetches from the
+    leader ([`brod_consumer.erl`](https://github.com/kafka4beam/brod/blob/4.7.0/src/brod_consumer.erl#L950-L951)),
+    although kafka_protocol 4.3.8 can encode `rack_id`
+    ([`kpro_req_lib.erl`](https://github.com/kafka4beam/kafka_protocol/blob/4.3.8/src/kpro_req_lib.erl#L229-L230)).
+  - Like Java and librdkafka, we leave the replica on leadership errors, `OFFSET_OUT_OF_RANGE`,
+    disconnect and timeout. We go further: every other replica error also goes to the leader. Like
+    them, we do not spin on a replica we cannot reach. We differ on lifetime: they keep the hint for
+    five minutes across refreshes; we keep today's "until the next refresh".
+- **Risk:**
+  - After each refresh, the next fetch of every partition read from a replica goes to the leader.
+    Under D1 that is the leader's own `{:fetch, topic, partition}` connection, which may have closed
+    as idle (D16). That fetch then pays a full handshake (TCP, TLS, SASL, ApiVersions) and the
+    cross-zone traffic follower fetching is meant to avoid. With the default 30 s
+    `metadata_update_interval` this is one leader fetch per partition every 30 s. A fetch-connection
+    idle timeout longer than the refresh interval avoids the handshake; the constant stays with
+    code review (§4).
+  - A partition read from a replica can hold two fetch connections (replica and leader) until the
+    unused one closes as idle, so D1's socket count grows by at most one per such partition.
+  - The hint is per client, but `rack_id` is per request. Callers of one shared client that pass
+    different racks share one hint. Same as today.
+  - If the leader keeps naming a replica this client cannot reach, the partition gets no records
+    until the replica is reachable or the deadline passes. That is a property of KIP-392, the same
+    today and in the Java client; parking only stops it from becoming a busy loop.
+- **Trade-off:** we keep today's short hint lifetime and its periodic leader fetch, and gain a
+  fallback that never spends a whole call on a dead replica.
 
 ### 4.4 MetadataStore: metadata and coordinator discovery
 
@@ -1150,6 +1256,8 @@ stateDiagram-v2
     incompatible trigger starts its own refresh instead.
   - Different keys proceed in parallel over the one `:metadata` connection.
   - On completion the store swaps the ETS snapshot atomically, bumps the epoch, and wakes the front.
+    A metadata swap also bumps one snapshot-wide counter in ETS, which the preferred-replica hints
+    are checked against (D27); coordinator lookups do not bump it.
   - A wakeup cannot be lost while the store is alive: a parked front re-checks ETS after parking, and
     the store always sends a wakeup. A store restart is covered by the front re-issuing its parked
     triggers (D21).
@@ -1214,7 +1322,10 @@ stateDiagram-v2
 #### D23. Each request reads only its partition's routing data
 
 - **What:** the per-request lookup is keyed `{topic, partition}` and returns the minimal routing
-  tuple. Nothing on the request path reads a whole topic's partition structure.
+  tuple. Nothing on the request path reads a whole topic's partition structure. The
+  preferred-replica hint (D27) is front state, not an ETS read. The routing read also returns the
+  snapshot-wide counter the hints are checked against, and a fetch that uses a hint reads the
+  replica's broker entry by node id, one more narrow read.
 - **Why:** an ETS read copies the term out of the table. Today's lookup is a map read in the client's
   own state, with no copy. A narrow read keeps the new cost to a few words per request.
 - **Others:** no analogue; an ETS-specific cost.
@@ -1346,6 +1457,7 @@ last column says whether we do the same and, if not, why.
 | Produce in-flight per partition | `partition_onwire_limit` = 1 | mute at 1, or idempotent sequence gating ≤ 5 | clamped to 5 under idempotence | **Same:** `N = 1` gate in the front, `N ≤ 5` later with idempotence (D9) |
 | Stale-reply key vs attempt counter | `corr_id` vs `failures` | `correlationId` vs `ProducerBatch.attempts` | `rkbuf_corrid` vs `rkbuf_retries` | **Same** (D6) |
 | Connection per partition | yes by default (`share_leader_conn: false`) | no: one fetch per broker for all its partitions, 500 ms waits, separate producer and consumer instances | no: same approach as Java | **brod-style for fetch:** one connection per consumed partition; produce shares the broker's `:data` socket (D1) |
+| Follower fetching (KIP-392) | no: always the leader (kafka_protocol can encode `rack_id`, brod does not use it) | yes: hint kept per partition with a `metadata.max.age.ms` lease (5 min), cleared on leadership errors, `OFFSET_OUT_OF_RANGE`, disconnect and timeout | yes: fixed 5-minute lease, back to the leader on partition errors and when the replica's broker goes down | **Today's lifetime, a wider error rule:** the hint lasts until the next metadata refresh; every replica error sends the request to the leader within the same call (D27) |
 | Process per partition | yes (`brod_producer` / `brod_consumer`) | no | no | **Same as Java / librdkafka:** no; `GenConsumer` and `Stream` drive the fetch connections (D1) |
 | Sharing across client instances | only via an explicitly named client | per instance | per instance | **Same:** per client; sharing is a future opt-in (D2) |
 | Commit-ordering gate | no (serialised via the coordinator) | no (single-threaded consumer) | no (serialised via the coordinator) | **Same:** none; the consumer layer's blocking commit is the guarantee (§4.1) |
@@ -1395,11 +1507,11 @@ have to undo, is concentrated in one place.
 | # | PR | What moves | Observable change |
 |---|---|---|---|
 | 1 | Pure `Broker` + `Transport` seam | The socket leaves `%Broker{}` into a `node_id ⇒ connection` map that `Client.State` keeps synchronously; `Broker.connected?/1` and `has_socket?/1` read that map, so the struct's shape *and* behaviour are unchanged and broker selection (`ensure_any_broker_connected/1`, `ensure_broker_connected/1`, `maybe_connect_broker/2`) keeps working; `Transport` behaviour + in-process fake (D18); benchmark baseline | None. Refresh stops transplanting live sockets: a latent-bug fix. (`Broker.socket` becomes always `nil` only at PR 3, once a real `Connection` owns the socket — B2) |
-| 2 | Selection + coordinator cache into `ClusterMetadata` | Leader / controller / coordinator selection and refresh-on-error move out of `Client` (`select_broker_with_update/3`, the `broker_for_*_with_update` helpers, `refresh_for_error/3`, `maybe_drop_coordinator/3`) behind a small interface | None; still in-process and synchronous |
-| 3 | `Connection` as `:gen_statem` | One per `{host, port, role}` (fetch per partition, D1) under `ConnectionSupervisor` + `Registry`, both under `Infra.Supervisor`; sockets, SASL and ApiVersions negotiation move in. The client still calls it synchronously | `Broker.socket` becomes always `nil` and `connected?/1` / `has_socket?/1` return `false` (§4.1); otherwise none by contract. The largest step, and where the test migration falls due |
-| 4 | `MetadataStore` as `:gen_statem` | ETS, the store's own `:metadata` connection, per-key coalesced refresh and `FindCoordinator`; the client reads ETS instead of holding `cluster_metadata` | Single-writer store with atomic snapshot swaps, so a produce cannot see metadata mid-replacement. **Requires a reproduction of #445 on current code before we claim it closed** (Goal 2): the old race was in `server.ex`, and today's single `GenServer` already updates immutable state |
+| 2 | Selection + coordinator cache into `ClusterMetadata` | Leader / controller / coordinator selection and refresh-on-error move out of `Client` (`select_broker_with_update/3`, the `broker_for_*_with_update` helpers, `refresh_for_error/3`, `maybe_drop_coordinator/3`) behind a small interface; the preferred-replica choice is already there (D27) | None; still in-process and synchronous |
+| 3 | `Connection` as `:gen_statem` | One per `{host, port, role}` (fetch per partition, to the leader or the preferred replica, D1, D27) under `ConnectionSupervisor` + `Registry`, both under `Infra.Supervisor`; sockets, SASL and ApiVersions negotiation move in. The client still calls it synchronously | `Broker.socket` becomes always `nil` and `connected?/1` / `has_socket?/1` return `false` (§4.1); otherwise none by contract. The largest step, and where the test migration falls due |
+| 4 | `MetadataStore` as `:gen_statem` | ETS, the store's own `:metadata` connection, per-key coalesced refresh and `FindCoordinator`; the client reads ETS instead of holding `cluster_metadata`, and keeps the preferred-replica hints itself, checked against the store's snapshot-wide counter (D27) | Single-writer store with atomic snapshot swaps, so a produce cannot see metadata mid-replacement. **Requires a reproduction of #445 on current code before we claim it closed** (Goal 2): the old race was in `server.ex`, and today's single `GenServer` already updates immutable state |
 | 5 | Telemetry split + deadline threading | Per-attempt and connection events move to the `Connection`; `KafkaEx.API` passes the budget it already computes into the request | Transport events change emitting pid. The deadline is unused until PR 6, which keeps this PR small |
-| 6 | Cutover: the non-blocking front | `handle_call` returns `{:noreply, …}`; the `pending` map, deadlines, caller monitors, the produce gate, the retry state machine, `request_concurrency` | **The one semantic step.** Ordering becomes per-caller; #357 and the black-holed-broker stall end here |
+| 6 | Cutover: the non-blocking front | `handle_call` returns `{:noreply, …}`; the `pending` map, deadlines, caller monitors, the produce gate, the retry state machine, `request_concurrency` | **The one semantic step.** Ordering becomes per-caller; #357 and the black-holed-broker stall end here; a replica error sends the fetch to the leader within the same call (D27) |
 | 7 | Cleanup | Delete the recursive synchronous retry loop and the now-dead `send_sync_request` paths | None |
 
 The `Connection` (3) precedes the `MetadataStore` (4) even though the store addresses #445 and would
@@ -1478,3 +1590,6 @@ respect so the door stays open.
 - Issues #357, #445, #562, #581
 - brod / kafka_protocol, the Apache Kafka Java client, and librdkafka, read from their current
   `master` / `trunk` for §4.6
+- Follower fetching (D27): [KIP-392](https://cwiki.apache.org/confluence/display/KAFKA/KIP-392%3A+Allow+consumers+to+fetch+from+closest+replica),
+  #564, `lib/kafka_ex/cluster/cluster_metadata.ex`; compared against Java client 4.4.0,
+  librdkafka v2.16.0, brod 4.7.0 and kafka_protocol 4.3.8, with links pinned to those tags in D27
