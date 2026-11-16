@@ -63,17 +63,26 @@ jobs:
       - name: Run Chaos Tests
         id: test-run
         continue-on-error: true
-        run: mix test --only chaos
+        run: ./scripts/ci_mix_test.sh --only chaos
 
       - name: Retry failed tests (1st retry)
         id: retry-1
         if: steps.test-run.outcome == 'failure'
         continue-on-error: true
-        run: mix test --only chaos --failed
+        run: ./scripts/ci_mix_test.sh --only chaos --failed
 
       - name: Retry failed tests (2nd retry)
+        id: retry-2
         if: steps.retry-1.outcome == 'failure'
-        run: mix test --only chaos --failed
+        run: ./scripts/ci_mix_test.sh --only chaos --failed
+
+      - name: Annotate retries
+        if: always()
+        env:
+          FIRST_RUN: ${{ steps.test-run.outcome }}
+          RETRY_1: ${{ steps.retry-1.outcome }}
+          RETRY_2: ${{ steps.retry-2.outcome }}
+        run: ./scripts/ci_retry_annotation.sh "Chaos Tests" "$FIRST_RUN" "$RETRY_1" "$RETRY_2"
 
       - name: Upload test results
         if: always()

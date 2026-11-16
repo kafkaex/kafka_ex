@@ -23,6 +23,9 @@ defmodule KafkaEx.Kafka4TestHelpers do
 
   require Logger
 
+  import ExUnit.Assertions, only: [flunk: 1]
+
+  alias KafkaEx.Support.Retry
   alias Testcontainers.Container
   alias Testcontainers.Docker
 
@@ -122,6 +125,20 @@ defmodule KafkaEx.Kafka4TestHelpers do
     [uris: uris, consumer_group: :no_consumer_group, use_ssl: false, ssl_options: []]
     |> Keyword.merge(opts)
     |> KafkaEx.Client.start_link(:no_name)
+  end
+
+  @doc "Produces to a fresh topic; its leader can briefly reject writes and the client's own retries are back-to-back."
+  @spec produce!(pid(), String.t(), non_neg_integer(), [map()], non_neg_integer()) :: :ok
+  def produce!(client, topic, partition, messages, attempts \\ 50) do
+    case KafkaEx.API.produce(client, topic, partition, messages) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        if attempts == 0 or not Retry.produce_retryable?(reason), do: flunk("produce failed: #{inspect(reason)}")
+        Process.sleep(200)
+        produce!(client, topic, partition, messages, attempts - 1)
+    end
   end
 
   @doc """

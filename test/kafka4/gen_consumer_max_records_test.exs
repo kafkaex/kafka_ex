@@ -55,7 +55,7 @@ defmodule KafkaEx.Kafka4.GenConsumerMaxRecordsTest do
       wait_until(fn -> leader_known?(ctx.client, topic) end)
 
       values = for i <- 0..(@records - 1), do: "r#{i}"
-      {:ok, _} = API.produce(ctx.client, topic, 0, Enum.map(values, &%{value: &1}))
+      Kafka4TestHelpers.produce!(ctx.client, topic, 0, Enum.map(values, &%{value: &1}))
 
       protocol_opts =
         case protocol do

@@ -323,7 +323,7 @@ defmodule KafkaEx.Kafka4.ConsumerGroupProtocolTest do
          %{client: client} do
       topic = create_topic!(client, 1)
       group = "kafka4_cg_" <> generate_random_string()
-      {:ok, _} = API.produce(client, topic, 0, [%{value: "a"}])
+      Kafka4TestHelpers.produce!(client, topic, 0, [%{value: "a"}])
 
       a = join!(client, group, topic)
       [a] = converge(client, group, [a], fn [a] -> partitions_of(a) == [0] end)
@@ -388,7 +388,7 @@ defmodule KafkaEx.Kafka4.ConsumerGroupProtocolTest do
     test "a startup OffsetFetch with a stale epoch waits for update_membership/3", %{client: client} do
       topic = create_topic!(client, 1)
       group = "kafka4_cg_" <> generate_random_string()
-      {:ok, _} = API.produce(client, topic, 0, [%{value: "a"}])
+      Kafka4TestHelpers.produce!(client, topic, 0, [%{value: "a"}])
       a = join!(client, group, topic)
       [a] = converge(client, group, [a], fn [a] -> partitions_of(a) == [0] end)
 
@@ -407,7 +407,7 @@ defmodule KafkaEx.Kafka4.ConsumerGroupProtocolTest do
       Process.flag(:trap_exit, true)
       topic = create_topic!(client, 1)
       group = "kafka4_cg_" <> generate_random_string()
-      {:ok, _} = API.produce(client, topic, 0, [%{value: "a"}])
+      Kafka4TestHelpers.produce!(client, topic, 0, [%{value: "a"}])
       a = join!(client, group, topic)
       [a] = converge(client, group, [a], fn [a] -> partitions_of(a) == [0] end)
 
