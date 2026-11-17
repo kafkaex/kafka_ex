@@ -152,11 +152,20 @@ defmodule KafkaEx.Pins.ContractSurfacePinTest do
         consumer_group: "pin-group",
         use_ssl: false,
         ssl_options: PinGate.ssl_options(PinGate.new(), fake),
-        server_impl: PinServer
+        server_impl: PinServer,
+        metadata_update_interval: 3_600_000
       ]
 
       assert {:ok, worker} = KafkaEx.start_link_worker(name, opts)
-      on_exit(fn -> if Process.alive?(worker), do: GenServer.stop(worker) end)
+
+      on_exit(fn ->
+        try do
+          GenServer.stop(worker)
+        catch
+          :exit, _reason -> :ok
+        end
+      end)
+
       assert Process.whereis(name) == worker
       assert KafkaEx.consumer_group(name) == "pin-group"
     end
@@ -174,11 +183,18 @@ defmodule KafkaEx.Pins.ContractSurfacePinTest do
     test = self()
     handler = "pin-telemetry-#{host}"
 
+    own? = fn
+      [:kafka_ex, :connection | _], %{host: event_host} -> event_host == host
+      [:kafka_ex, :request, :stop], metadata -> match?(%{broker: %{host: ^host}}, metadata)
+      # The rest, connection.stop included, carry no host to filter on.
+      _event, _metadata -> true
+    end
+
     :telemetry.attach_many(
       handler,
       Telemetry.events(),
-      fn event, measurements, _metadata, _config ->
-        send(test, {:pin_event, event, measurements |> Map.keys() |> Enum.sort()})
+      fn event, measurements, metadata, _config ->
+        if own?.(event, metadata), do: send(test, {:pin_event, event, measurements |> Map.keys() |> Enum.sort()})
       end,
       nil
     )

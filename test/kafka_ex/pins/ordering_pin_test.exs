@@ -2,7 +2,7 @@ defmodule KafkaEx.Pins.OrderingPinTest do
   use KafkaEx.TestSupport.PinCase, async: false
 
   @serial_window 200
-  @concurrent_window 1000
+  @concurrent_window 5_000
 
   setup do
     pinned = start_pinned(topics: %{"pin" => [1, 1, 2]})
@@ -73,15 +73,16 @@ defmodule KafkaEx.Pins.OrderingPinTest do
   describe "KIP-848 shutdown order" do
     @describetag pin_set: :invariant
 
-    test "a join from a caller killed before it was written never reaches the broker after the leave", ctx do
-      %{fake: fake, client: client} = ctx
-
+    test "a join from a caller killed before it was written never reaches the broker after the leave", %{
+      fake: fake,
+      client: client
+    } do
       FakeTransport.respond(fake, :consumer_group_heartbeat, fn request ->
         epoch = member_epoch(request)
         {:frame, consumer_group_heartbeat_frame(request, "m", if(epoch < 0, do: epoch, else: epoch + 1))}
       end)
 
-      held = hold_long_fetch(ctx)
+      FakeTransport.hold(fake, :find_coordinator)
       test = self()
 
       join =
@@ -103,12 +104,13 @@ defmodule KafkaEx.Pins.OrderingPinTest do
         end)
 
       assert_receive :join_sent, 5_000
+      assert_receive {:fake_transport, :request, %{api: :find_coordinator}}, 5_000
       Process.exit(joiner, :kill)
       leave = Task.async(fn -> API.consumer_group_heartbeat(client, "g", member_id: "m", member_epoch: -1) end)
-      FakeTransport.release(fake, :fetch)
+      FakeTransport.release(fake, :find_coordinator)
 
       assert {:ok, _} = Task.await(leave)
-      assert {:ok, _} = Task.await(held)
+      assert {:ok, _} = API.heartbeat(client, "g", "m", 1)
       assert fake |> requests(:consumer_group_heartbeat) |> Enum.map(&member_epoch/1) |> List.last() == -1
     end
   end

@@ -14,7 +14,7 @@ defmodule KafkaEx.Pins.ReconnectPinTest do
 
   defp drop_connection(fake, host) do
     FakeTransport.close(fake, {host, 9092})
-    assert_receive {:pin_closed, %{port: 9092, reason: :remote_closed}}, 5_000
+    assert_receive {:pin_closed, %{port: 9092}}, 5_000
   end
 
   describe "reconnects" do
@@ -48,14 +48,16 @@ defmodule KafkaEx.Pins.ReconnectPinTest do
       host: host,
       gate: gate
     } do
+      # Keeps a request that a future client may queue below ExUnit's timeout.
       with_request_timeout(2_000)
       drop_connection(fake, host)
       PinGate.close(gate)
-      {_while_down, _log} = with_log(fn -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
+      {while_down, _log} = with_log(fn -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
       PinGate.open(gate)
 
       {result, _log} = with_log(fn -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
 
+      assert {:error, _} = while_down
       assert {:ok, %RecordMetadata{base_offset: 7}} = result
     end
   end

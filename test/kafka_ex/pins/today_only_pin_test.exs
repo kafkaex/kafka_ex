@@ -62,7 +62,7 @@ defmodule KafkaEx.Pins.TodayOnlyPinTest do
   end
 
   @tag retired_by: 1493
-  test "the [:kafka_ex, :request] start metadata carries the wire correlation id" do
+  test "the [:kafka_ex, :request] start metadata carries the client-wide correlation id" do
     %{fake: fake, client: client, host: host} = start_pinned()
     FakeTransport.respond(fake, :produce, produce_reply())
     test = self()
@@ -77,10 +77,10 @@ defmodule KafkaEx.Pins.TodayOnlyPinTest do
 
     on_exit(fn -> :telemetry.detach(handler) end)
 
+    {:ok, expected} = API.correlation_id(client)
     {:ok, _} = API.produce(client, @topic, 0, [%{value: "v"}])
 
-    assert_received {:pin_request, correlation_id}
-    assert [%{correlation_id: ^correlation_id}] = requests(fake, :produce)
+    assert_received {:pin_request, ^expected}
   end
 
   @tag retired_by: 1497
@@ -102,10 +102,12 @@ defmodule KafkaEx.Pins.TodayOnlyPinTest do
     FakeTransport.close(fake, {host, 9092})
     assert_receive {:pin_closed, %{port: 9092}}, 5_000
     PinGate.close(gate)
+    refreshes = count(fake, :metadata)
 
     {result, _log} = with_log(fn -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
 
     assert result == {:error, :no_broker}
+    assert count(fake, :metadata) == refreshes
   end
 
   @tag retired_by: 1497

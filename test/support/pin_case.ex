@@ -1,7 +1,10 @@
 defmodule KafkaEx.TestSupport.PinCase do
   @moduledoc """
   Shared setup for the behaviour pins: a client started on the fake transport, plus helpers that
-  read the fake's request log by API and node, with the handshake (ApiVersions, SASL) left out.
+  read the fake's request log by API and node.
+
+  `non_handshake/1` leaves out the handshake (ApiVersions, SASL) because callers never ask for it;
+  `requests/2` does not filter it.
   """
 
   use ExUnit.CaseTemplate
@@ -48,7 +51,10 @@ defmodule KafkaEx.TestSupport.PinCase do
 
     fake =
       start_supervised!(
-        {FakeTransport, brokers: [{1, host, 9092}, {2, host, 9093}], topics: topics, api_versions: versions}
+        Supervisor.child_spec(
+          {FakeTransport, brokers: [{1, host, 9092}, {2, host, 9093}], topics: topics, api_versions: versions},
+          id: make_ref()
+        )
       )
 
     :ok = FakeTransport.respond(fake, :find_coordinator, %{node_id: 2, host: host, port: 9093, error_message: nil})
@@ -80,7 +86,8 @@ defmodule KafkaEx.TestSupport.PinCase do
   def count(fake, api, node_id), do: fake |> requests(api) |> Enum.count(&(&1.node_id == node_id))
   def nodes(fake, api), do: fake |> requests(api) |> Enum.map(& &1.node_id)
 
-  def non_handshake(fake), do: fake |> FakeTransport.requests() |> Enum.reject(&(&1.api in @handshake))
+  def non_handshake(fake), do: fake |> FakeTransport.requests() |> Enum.reject(&handshake?/1)
+  def handshake?(%{api: api}), do: api in @handshake
 
   def produce_reply(base_offset \\ 7) do
     %{
@@ -122,7 +129,7 @@ defmodule KafkaEx.TestSupport.PinCase do
   end
 
   # The fake's encoder cannot write the nullable assignment struct.
-  def consumer_group_heartbeat_frame(%{correlation_id: corr}, member_id, epoch) do
+  def consumer_group_heartbeat_frame(%{correlation_id: corr}, member_id, epoch) when byte_size(member_id) < 127 do
     <<corr::32-signed, 0, 0::32-signed, 0::16-signed, 0, byte_size(member_id) + 1, member_id::binary, epoch::32-signed,
       1000::32-signed, 255, 0>>
   end

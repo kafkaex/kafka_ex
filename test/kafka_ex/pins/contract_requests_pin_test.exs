@@ -35,6 +35,7 @@ defmodule KafkaEx.Pins.ContractRequestsPinTest do
         with_log(fn -> Client.send_request(client, produce_request(), NodeSelector.topic_partition(@topic, 0)) end)
 
       assert count(fake, :produce) == 1
+      assert Enum.uniq(nodes(fake, :produce)) == [1]
       assert result == {:error, :closed}
     end
 
@@ -43,6 +44,7 @@ defmodule KafkaEx.Pins.ContractRequestsPinTest do
       client: client
     } do
       booted = nodes(fake, :metadata)
+      connected = for %{open?: true, node_id: node_id} <- FakeTransport.connections(fake), uniq: true, do: node_id
       FakeTransport.respond(fake, :metadata, :close)
 
       {result, _log} =
@@ -53,6 +55,7 @@ defmodule KafkaEx.Pins.ContractRequestsPinTest do
       tried = fake |> nodes(:metadata) |> Enum.drop(length(booted))
       assert result == {:error, :broker_failed}
       assert tried != []
+      assert Enum.sort(tried) == Enum.sort(connected)
       assert tried == Enum.uniq(tried)
     end
   end
@@ -69,6 +72,7 @@ defmodule KafkaEx.Pins.ContractRequestsPinTest do
 
       assert result == {:error, :closed}
       assert count(fake, :join_group) == 1
+      assert Enum.uniq(nodes(fake, :join_group)) == [2]
     end
 
     test "SyncGroup is written once when the peer closes", %{fake: fake, client: client} do
@@ -78,6 +82,7 @@ defmodule KafkaEx.Pins.ContractRequestsPinTest do
 
       assert result == {:error, :closed}
       assert count(fake, :sync_group) == 1
+      assert Enum.uniq(nodes(fake, :sync_group)) == [2]
     end
 
     test "the KIP-394 member_id_required re-issue is part of the join, not a second attempt", %{
@@ -98,6 +103,7 @@ defmodule KafkaEx.Pins.ContractRequestsPinTest do
 
       assert {:ok, %JoinGroup{member_id: "assigned", generation_id: 1}} = result
       assert count(fake, :join_group) == 2
+      assert Enum.uniq(nodes(fake, :join_group)) == [2]
     end
   end
 
@@ -116,6 +122,7 @@ defmodule KafkaEx.Pins.ContractRequestsPinTest do
 
       assert result == {:error, :not_leader_for_partition}
       assert count(fake, :produce) == 3
+      assert Enum.uniq(nodes(fake, :produce)) == [1]
     end
 
     test "a request with no answer within its budget returns :timeout", %{fake: fake, client: client} do
@@ -128,6 +135,7 @@ defmodule KafkaEx.Pins.ContractRequestsPinTest do
     end
 
     test "a request whose target cannot be resolved returns :no_broker", %{client: client} do
+      # Keeps a request that a future client may queue below ExUnit's timeout.
       with_request_timeout(2_000)
       {result, _log} = with_log(fn -> API.produce(client, "no-such-topic", 0, [%{value: "v"}]) end)
 
@@ -155,8 +163,9 @@ defmodule KafkaEx.Pins.ContractRequestsPinTest do
       FakeTransport.respond(fake, :produce, :no_reply)
 
       assert {:ok, %RecordMetadata{base_offset: nil}} = API.produce(client, @topic, 0, [%{value: "v"}], acks: 0)
-      assert_receive {:fake_transport, :request, %{api: :produce}}
+      assert_receive {:fake_transport, :request, %{api: :produce}}, 5_000
       assert count(fake, :produce) == 1
+      assert Enum.uniq(nodes(fake, :produce)) == [1]
     end
   end
 end
