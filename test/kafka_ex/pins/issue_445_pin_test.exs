@@ -33,6 +33,21 @@ defmodule KafkaEx.Pins.Issue445PinTest do
     assert {{:ok, []}, {:ok, [%{name: "b"}]}} = results
   end
 
+  @tag skip: "the client does not compare a reply's correlation id with its request's"
+  test "a reply carrying the previous request's correlation id is not taken as the answer", %{
+    fake: fake,
+    client: client
+  } do
+    FakeTransport.respond(fake, :metadata, fn request ->
+      {:frame,
+       IO.iodata_to_binary(Wire.response(3, request.api_version, request.correlation_id - 1, answer(request, ["b"])))}
+    end)
+
+    {result, _log} = with_log(fn -> API.metadata(client, ["a"], []) end)
+
+    refute match?({:ok, %{topics: %{"b" => _}}}, result)
+  end
+
   defp answer(request), do: answer(request, asked(request))
   defp answer(%{host: host}, topics), do: Wire.metadata_fields([{1, host, 9092}], Map.new(topics, &{&1, [1]}))
 
