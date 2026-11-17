@@ -23,6 +23,16 @@ defmodule KafkaEx.Pins.Issue445PinTest do
     assert Map.keys(topics) == ["a"]
   end
 
+  test "a failed refresh answers each topic from its own entry only", %{fake: fake, client: client} do
+    assert {:ok, [%{name: "b"}]} = API.topics_metadata(client, ["b"])
+    FakeTransport.respond(fake, :metadata, :close)
+
+    {results, _log} =
+      with_log(fn -> {API.topics_metadata(client, ["a"]), API.topics_metadata(client, ["b"])} end)
+
+    assert {{:ok, []}, {:ok, [%{name: "b"}]}} = results
+  end
+
   defp answer(request), do: answer(request, asked(request))
   defp answer(%{host: host}, topics), do: Wire.metadata_fields([{1, host, 9092}], Map.new(topics, &{&1, [1]}))
 
