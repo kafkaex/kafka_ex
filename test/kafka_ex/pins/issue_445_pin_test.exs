@@ -38,6 +38,8 @@ defmodule KafkaEx.Pins.Issue445PinTest do
     fake: fake,
     client: client
   } do
+    with_request_timeout(200)
+
     FakeTransport.respond(fake, :metadata, fn request ->
       {:frame,
        IO.iodata_to_binary(Wire.response(3, request.api_version, request.correlation_id - 1, answer(request, ["b"])))}
@@ -45,16 +47,18 @@ defmodule KafkaEx.Pins.Issue445PinTest do
 
     {result, _log} = with_log(fn -> API.metadata(client, ["a"], []) end)
 
-    refute match?({:ok, %{topics: %{"b" => _}}}, result)
+    assert {:error, _} = result
   end
 
   defp answer(request), do: answer(request, asked(request))
   defp answer(%{host: host}, topics), do: Wire.metadata_fields([{1, host, 9092}], Map.new(topics, &{&1, [1]}))
 
+  defp asked(%{frame: <<_::64, size::16, _::binary-size(size), 0::32>>}), do: []
+
   defp asked(%{
-         frame: <<_::64, size::16, _::binary-size(size), 1::32, length::16, topic::binary-size(length), _::binary>>
+         frame: <<_::64, size::16, _::binary-size(size), 1::32, length::16, topic::binary-size(length)>>
        }),
        do: [topic]
 
-  defp asked(_all_topics), do: ["b"]
+  defp asked(%{frame: frame}), do: flunk("unrecognised metadata frame: #{inspect(frame)}")
 end
