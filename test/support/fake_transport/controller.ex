@@ -25,6 +25,9 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
        rules: %{},
        holds: MapSet.new(),
        held: [],
+       hangs: MapSet.new(),
+       hung: [],
+       send_failures: %{},
        log: [],
        connects: [],
        connections: %{},
@@ -68,11 +71,36 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
 
   def handle_call({:hold, api_key}, _from, state), do: {:reply, :ok, %{state | holds: MapSet.put(state.holds, api_key)}}
 
+  def handle_call({:hang_send, api_key}, _from, state),
+    do: {:reply, :ok, %{state | hangs: MapSet.put(state.hangs, api_key)}}
+
+  def handle_call({:fail_send, api_key, bytes_sent, reason}, _from, state),
+    do: {:reply, :ok, %{state | send_failures: Map.put(state.send_failures, api_key, {bytes_sent, reason})}}
+
   def handle_call({:release, api_key}, _from, state) do
     {released, held} = Enum.split_with(state.held, fn {request, _peer} -> request.api_key == api_key end)
-    state = %{state | holds: MapSet.delete(state.holds, api_key), held: held}
+    {unhung, hung} = Enum.split_with(state.hung, fn {key, _from} -> key == api_key end)
+
+    state = %{
+      state
+      | holds: MapSet.delete(state.holds, api_key),
+        hangs: MapSet.delete(state.hangs, api_key),
+        send_failures: Map.delete(state.send_failures, api_key),
+        held: held,
+        hung: hung
+    }
+
     Enum.each(Enum.reverse(released), fn {request, peer} -> send(peer, {:action, reply_for(request, state)}) end)
+    Enum.each(Enum.reverse(unhung), fn {_key, from} -> GenServer.reply(from, :none) end)
     {:reply, :ok, state}
+  end
+
+  def handle_call({:send_fault, _id, api_key}, from, state) do
+    cond do
+      MapSet.member?(state.hangs, api_key) -> {:noreply, %{state | hung: [{api_key, from} | state.hung]}}
+      Map.has_key?(state.send_failures, api_key) -> {:reply, {:fail, state.send_failures[api_key]}, state}
+      true -> {:reply, :none, state}
+    end
   end
 
   def handle_call({:close_address, {host, port}}, _from, state) do

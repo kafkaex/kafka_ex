@@ -20,17 +20,19 @@ defmodule KafkaEx.TestSupport.FakeTransport do
       is written verbatim.
     * ApiVersions, SaslHandshake, SaslAuthenticate and Metadata are answered automatically on
       every connection unless scripted. Any other unscripted API closes its connection.
-    * Scripted SASL success and failure; the handshake uses passive `recv` before the socket
-      turns active.
     * `hold/2` keeps requests of an API until `release/2`; `respond/3` with `:no_reply` never
       answers; `respond/3` with `:close` and `close/2` close from the broker side.
-    * Sends on a missing or closed socket behave as in `KafkaEx.Network.NetworkClient`.
     * `requests/1` is the request log and `subscribe/1` streams it; `connects/1` records the
       options of every connect attempt.
+    * Several brokers (`:brokers`); any other address is refused like an unreachable broker.
+    * Scripted SASL success and failure; the handshake uses passive `recv` before the socket
+      turns active.
     * tcp and ssl message families from real sockets; `use_ssl` needs the `:tls` server options.
     * Messages are tagged with the socket they came from; `inject/2` replays one for a stale socket.
     * At most one message per `active: :once` re-arm.
-    * Several brokers (`:brokers`); any other address is refused like an unreachable broker.
+    * `hang_send/2` blocks the sender until `release/2`; `fail_send/4` writes part of a frame and
+      fails like `KafkaEx.Network.NetworkClient`.
+    * Sends on a missing or closed socket behave as in `KafkaEx.Network.NetworkClient`.
     * No global state: scripts and the log live in the fake process. Reply functions run inside
       it and must not call it.
 
@@ -59,6 +61,11 @@ defmodule KafkaEx.TestSupport.FakeTransport do
 
   def respond(fake, api, reply), do: GenServer.call(fake, {:respond, Wire.api_key(api), reply})
   def hold(fake, api), do: GenServer.call(fake, {:hold, Wire.api_key(api)})
+  def hang_send(fake, api), do: GenServer.call(fake, {:hang_send, Wire.api_key(api)})
+
+  def fail_send(fake, api, bytes_sent, reason),
+    do: GenServer.call(fake, {:fail_send, Wire.api_key(api), bytes_sent, reason})
+
   def release(fake, api), do: GenServer.call(fake, {:release, Wire.api_key(api)})
   def close(fake, {host, port}), do: GenServer.call(fake, {:close_address, {host, port}})
 
@@ -110,10 +117,20 @@ defmodule KafkaEx.TestSupport.FakeTransport do
   end
 
   @impl true
-  def send_async_request(broker, data), do: NetworkClient.send_async_request(broker, data)
+  def send_async_request(broker, data) do
+    case send_fault(broker, data) do
+      :none -> NetworkClient.send_async_request(broker, data)
+      {:fail, {bytes_sent, reason}} -> fail(broker, data, bytes_sent, reason, "Asynchronously sending data to")
+    end
+  end
 
   @impl true
-  def send_sync_request(broker, data, timeout), do: NetworkClient.send_sync_request(broker, data, timeout)
+  def send_sync_request(broker, data, timeout) do
+    case send_fault(broker, data) do
+      :none -> NetworkClient.send_sync_request(broker, data, timeout)
+      {:fail, {bytes_sent, reason}} -> fail(broker, data, bytes_sent, reason, "Sending data to")
+    end
+  end
 
   @impl true
   def format_host(host), do: String.to_charlist(host)
@@ -218,6 +235,28 @@ defmodule KafkaEx.TestSupport.FakeTransport do
 
   defp enrich(%AuthConfig{mechanism_opts: opts} = auth, host, port),
     do: %{auth | mechanism_opts: Map.merge(opts || %{}, %{broker_host: host, broker_port: port})}
+
+  defp send_fault(%{socket: %Socket{socket: raw}}, data) do
+    case Process.get({__MODULE__, raw}) do
+      %{fake: fake, id: id} ->
+        <<api_key::16-signed, _::binary>> = IO.iodata_to_binary(data)
+        GenServer.call(fake, {:send_fault, id, api_key}, :infinity)
+
+      nil ->
+        :none
+    end
+  end
+
+  defp send_fault(_broker, _data), do: :none
+
+  defp fail(%{host: host, port: port, socket: socket} = broker, data, bytes_sent, reason, verb) do
+    frame = IO.iodata_to_binary(data)
+    :ok = Socket.setopts(socket, packet: :raw)
+    _ = Socket.send(socket, [<<byte_size(frame)::32>>, binary_part(frame, 0, min(bytes_sent, byte_size(frame)))])
+    Logger.error("#{verb} #{inspect_broker(host, port)} failed with #{inspect(reason)}")
+    close_socket(broker, socket, :send_error)
+    {:error, reason}
+  end
 
   defp wrap(%Socket{} = socket), do: socket
   defp wrap(raw) when is_port(raw), do: %Socket{socket: raw, ssl: false}

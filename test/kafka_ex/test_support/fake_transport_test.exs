@@ -457,4 +457,57 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       assert Socket.open?(new)
     end
   end
+
+  describe "send faults" do
+    test "a hung send blocks the sender until release" do
+      fake = start_fake()
+      FakeTransport.subscribe(fake)
+      FakeTransport.hang_send(fake, :metadata)
+
+      task =
+        Task.async(fn ->
+          socket = connect(fake, "a", 1)
+          FakeTransport.send_sync_request(%{host: "a", port: 1, socket: socket}, metadata_v0(1), 1_000)
+        end)
+
+      refute Task.yield(task, 100)
+      refute_received {:fake_transport, :request, _}
+      FakeTransport.release(fake, :metadata)
+      assert <<1::32-signed, _::binary>> = Task.await(task)
+    end
+
+    test "a partial send fails like NetworkClient and leaves no complete request" do
+      host = unique_host()
+      attach([:kafka_ex, :connection, :close], host)
+      fake = start_fake()
+      FakeTransport.subscribe(fake)
+      FakeTransport.fail_send(fake, :metadata, 3, :closed)
+      socket = connect(fake, host, 1)
+
+      log =
+        capture_log(fn ->
+          assert FakeTransport.send_sync_request(%{host: host, port: 1, socket: socket}, metadata_v0(1), 1_000) ==
+                   {:error, :closed}
+        end)
+
+      assert log =~ ~s(Sending data to broker "#{host}":1 failed with :closed)
+      assert_receive {:telemetry, _, %{reason: :send_error}}
+      refute Socket.open?(socket)
+      refute_receive {:fake_transport, :request, _}, 100
+    end
+
+    test "a partial async send fails like NetworkClient" do
+      fake = start_fake()
+      FakeTransport.fail_send(fake, :metadata, 3, :econnreset)
+      socket = connect(fake, "a", 1)
+
+      log =
+        capture_log(fn ->
+          assert FakeTransport.send_async_request(%{host: "a", port: 1, socket: socket}, metadata_v0(1)) ==
+                   {:error, :econnreset}
+        end)
+
+      assert log =~ ~s(Asynchronously sending data to broker "a":1 failed with :econnreset)
+    end
+  end
 end
