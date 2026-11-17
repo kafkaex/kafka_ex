@@ -49,14 +49,15 @@ defmodule KafkaEx.Pins.TodayOnlyPinTest do
   @tag retired_by: 1492
   test "a raising periodic refresh crashes the client with MetadataUpdateError" do
     Process.flag(:trap_exit, true)
-    %{fake: fake, client: client, host: host, gate: gate} = start_pinned(client: [metadata_update_interval: 100])
+
+    %{fake: fake, client: client} =
+      start_pinned(api_versions: %{metadata: 12..12}, client: [metadata_update_interval: 100])
+
     Process.link(client)
-    watch_close(host)
-    PinGate.raise_on_connect(gate)
+    # Parsing a v12 reply whose topics array is null raises inside the refresh itself.
+    FakeTransport.respond(fake, :metadata, &{:frame, null_topics_metadata_frame(&1)})
 
     capture_log(fn ->
-      FakeTransport.close(fake, {host, 9093})
-      assert_receive {:pin_closed, %{port: 9093}}, 5_000
       assert_receive {:EXIT, ^client, {%KafkaEx.MetadataUpdateError{}, _stacktrace}}, 5_000
     end)
   end
@@ -65,6 +66,8 @@ defmodule KafkaEx.Pins.TodayOnlyPinTest do
   test "the [:kafka_ex, :request] start metadata carries the client-wide correlation id" do
     %{fake: fake, client: client, host: host} = start_pinned()
     FakeTransport.respond(fake, :produce, produce_reply())
+    # Moves the client-wide id past any id a fresh node-1 connection would start from.
+    for _ <- 1..5, do: {:ok, _} = API.produce(client, @topic, 1, [%{value: "v"}])
     test = self()
     handler = "pin-request-#{host}"
 
@@ -103,10 +106,12 @@ defmodule KafkaEx.Pins.TodayOnlyPinTest do
     assert_receive {:pin_closed, %{port: 9092}}, 5_000
     PinGate.close(gate)
     refreshes = count(fake, :metadata)
+    started = System.monotonic_time(:millisecond)
 
     {result, _log} = with_log(fn -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
 
     assert result == {:error, :no_broker}
+    assert System.monotonic_time(:millisecond) - started < 5_000
     assert count(fake, :metadata) == refreshes
   end
 

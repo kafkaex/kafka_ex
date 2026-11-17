@@ -223,15 +223,9 @@ defmodule KafkaEx.Pins.ContractSurfacePinTest do
       [:kafka_ex, :connection, :close] => [:count]
     }
 
-    seen = collect_events(%{})
-    assert Map.take(seen, Map.keys(expected)) == expected
-  end
-
-  defp collect_events(seen) do
-    receive do
-      {:pin_event, event, keys} -> collect_events(Map.put(seen, event, keys))
-    after
-      0 -> seen
+    for {event, keys} <- expected do
+      assert_receive {:pin_event, ^event, seen}, 5_000
+      assert {event, seen} == {event, keys}
     end
   end
 end

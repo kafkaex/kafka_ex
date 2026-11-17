@@ -105,7 +105,9 @@ defmodule KafkaEx.Pins.OrderingPinTest do
 
       assert_receive :join_sent, 5_000
       assert_receive {:fake_transport, :request, %{api: :find_coordinator}}, 5_000
+      joiner_ref = Process.monitor(joiner)
       Process.exit(joiner, :kill)
+      assert_receive {:DOWN, ^joiner_ref, :process, ^joiner, :killed}, 5_000
       leave = Task.async(fn -> API.consumer_group_heartbeat(client, "g", member_id: "m", member_epoch: -1) end)
       FakeTransport.release(fake, :find_coordinator)
 

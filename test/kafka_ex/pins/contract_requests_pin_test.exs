@@ -43,8 +43,8 @@ defmodule KafkaEx.Pins.ContractRequestsPinTest do
       fake: fake,
       client: client
     } do
+      {:ok, %{brokers: brokers}} = API.cluster_metadata(client)
       booted = nodes(fake, :metadata)
-      connected = for %{open?: true, node_id: node_id} <- FakeTransport.connections(fake), uniq: true, do: node_id
       FakeTransport.respond(fake, :metadata, :close)
 
       {result, _log} =
@@ -55,7 +55,7 @@ defmodule KafkaEx.Pins.ContractRequestsPinTest do
       tried = fake |> nodes(:metadata) |> Enum.drop(length(booted))
       assert result == {:error, :broker_failed}
       assert tried != []
-      assert Enum.sort(tried) == Enum.sort(connected)
+      assert Enum.sort(tried) == brokers |> Map.keys() |> Enum.sort()
       assert tried == Enum.uniq(tried)
     end
   end
@@ -146,6 +146,8 @@ defmodule KafkaEx.Pins.ContractRequestsPinTest do
       fake: fake,
       client: client
     } do
+      # Keeps a request that a future client may queue below ExUnit's timeout.
+      with_request_timeout(2_000)
       FakeTransport.fail_send(fake, :produce, 3, {:tls_alert, :bad_record_mac})
       {tagged, _log} = with_log(fn -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
       FakeTransport.release(fake, :produce)

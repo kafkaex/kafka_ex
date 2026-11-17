@@ -128,6 +128,10 @@ defmodule KafkaEx.TestSupport.PinCase do
       0::32-signed, preferred::32-signed, 0::32-signed>>
   end
 
+  # The fake's encoder writes a nil array as an empty one.
+  def null_topics_metadata_frame(%{api_version: 12, correlation_id: corr}),
+    do: <<corr::32-signed, 0, 0::32-signed, 1, 0, -1::32-signed, 0, 0>>
+
   # The fake's encoder cannot write the nullable assignment struct.
   def consumer_group_heartbeat_frame(%{correlation_id: corr}, member_id, epoch) when byte_size(member_id) < 127 do
     <<corr::32-signed, 0, 0::32-signed, 0::16-signed, 0, byte_size(member_id) + 1, member_id::binary, epoch::32-signed,
