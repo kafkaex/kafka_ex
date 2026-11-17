@@ -5,7 +5,8 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
   alias KafkaEx.TestSupport.FakeTransport.Peer
   alias KafkaEx.TestSupport.FakeTransport.Wire
 
-  @default_versions %{18 => 0..0, 3 => 0..0}
+  @default_versions %{18 => 0..0, 3 => 0..0, 17 => 0..1, 36 => 0..1}
+  @mechanisms ["PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512", "OAUTHBEARER", "AWS_MSK_IAM"]
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, {self(), opts})
   def start(opts), do: GenServer.start(__MODULE__, {self(), opts})
@@ -146,6 +147,9 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
 
   defp default_rule(%{api_key: 3} = request, state),
     do: Wire.metadata_fields(state.brokers || [{1, request.host, request.port}], state.topics)
+
+  defp default_rule(%{api_key: 17}, _state), do: %{error_code: 0, mechanisms: @mechanisms}
+  defp default_rule(%{api_key: 36}, _state), do: %{error_code: 0, error_message: nil, auth_bytes: ""}
 
   defp default_rule(_request, _state), do: nil
 

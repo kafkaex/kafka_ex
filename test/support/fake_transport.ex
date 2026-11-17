@@ -18,8 +18,10 @@ defmodule KafkaEx.TestSupport.FakeTransport do
     * Responses are scripted by API with `respond/3`, never by order or count. A fields map is
       encoded for the request's API version and carries its correlation id; `{:frame, binary}`
       is written verbatim.
-    * ApiVersions and Metadata are answered automatically on every connection unless scripted.
-      Any other unscripted API closes its connection.
+    * ApiVersions, SaslHandshake, SaslAuthenticate and Metadata are answered automatically on
+      every connection unless scripted. Any other unscripted API closes its connection.
+    * Scripted SASL success and failure; the handshake uses passive `recv` before the socket
+      turns active.
     * `hold/2` keeps requests of an API until `release/2`; `respond/3` with `:no_reply` never
       answers; `respond/3` with `:close` and `close/2` close from the broker side.
     * Sends on a missing or closed socket behave as in `KafkaEx.Network.NetworkClient`.
@@ -39,6 +41,8 @@ defmodule KafkaEx.TestSupport.FakeTransport do
 
   require Logger
 
+  alias KafkaEx.Auth.Config, as: AuthConfig
+  alias KafkaEx.Auth.SASL
   alias KafkaEx.Auth.SASL.VersionSupport
   alias KafkaEx.Network.NetworkClient
   alias KafkaEx.Network.Socket
@@ -76,9 +80,11 @@ defmodule KafkaEx.TestSupport.FakeTransport do
   @impl true
   def create_socket(host, port, ssl_options \\ [], use_ssl \\ false, auth \\ nil) do
     {fake, ssl_options} = controller(ssl_options)
-    record = %{host: host, port: port, ssl_options: ssl_options, use_ssl: use_ssl, auth: auth, owner: self()}
-    {socket, _metadata} = connect(fake, record)
-    socket
+    metadata = Telemetry.connection_metadata(host, port, use_ssl)
+
+    Telemetry.span([:kafka_ex, :connection], metadata, fn ->
+      connect(fake, %{host: host, port: port, ssl_options: ssl_options, use_ssl: use_ssl, auth: auth, owner: self()})
+    end)
   end
 
   @impl true
@@ -145,7 +151,7 @@ defmodule KafkaEx.TestSupport.FakeTransport do
       {:ok, socket} ->
         :ok = GenServer.call(fake, {:attach, id, socket})
         Process.put({__MODULE__, socket.socket}, %{fake: fake, id: id})
-        finish(socket, record.auth, host, port)
+        finish(socket, enrich(record.auth, host, port), host, port)
 
       {:error, reason} ->
         refuse(host, port, reason)
@@ -179,7 +185,7 @@ defmodule KafkaEx.TestSupport.FakeTransport do
   end
 
   defp finish(socket, auth, host, port) do
-    case authenticate(socket, auth) do
+    case authenticate(socket, auth, host, port) do
       :ok ->
         :ok = Socket.setopts(socket, [:binary, {:packet, 4}, {:active, true}])
         {socket, %{success: true}}
@@ -191,8 +197,27 @@ defmodule KafkaEx.TestSupport.FakeTransport do
     end
   end
 
-  defp authenticate(_socket, nil), do: :ok
-  defp authenticate(socket, auth), do: VersionSupport.validate_config(auth, socket)
+  defp authenticate(_socket, nil, _host, _port), do: :ok
+
+  defp authenticate(socket, %AuthConfig{} = auth, host, port) do
+    metadata = Telemetry.auth_metadata(host, port, mechanism_name(auth))
+
+    Telemetry.span([:kafka_ex, :auth], metadata, fn ->
+      result = with :ok <- VersionSupport.validate_config(auth, socket), do: SASL.authenticate(socket, auth)
+      {result, %{}}
+    end)
+  end
+
+  defp mechanism_name(%AuthConfig{mechanism: :plain}), do: "PLAIN"
+  defp mechanism_name(%AuthConfig{mechanism: :scram, mechanism_opts: %{algo: :sha512}}), do: "SCRAM-SHA-512"
+  defp mechanism_name(%AuthConfig{mechanism: :scram}), do: "SCRAM-SHA-256"
+  defp mechanism_name(%AuthConfig{mechanism: :oauthbearer}), do: "OAUTHBEARER"
+  defp mechanism_name(%AuthConfig{mechanism: mechanism}), do: to_string(mechanism)
+
+  defp enrich(nil, _host, _port), do: nil
+
+  defp enrich(%AuthConfig{mechanism_opts: opts} = auth, host, port),
+    do: %{auth | mechanism_opts: Map.merge(opts || %{}, %{broker_host: host, broker_port: port})}
 
   defp wrap(%Socket{} = socket), do: socket
   defp wrap(raw) when is_port(raw), do: %Socket{socket: raw, ssl: false}

@@ -4,6 +4,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
   import ExUnit.CaptureLog
 
   alias KafkaEx.API
+  alias KafkaEx.Auth.Config, as: AuthConfig
   alias KafkaEx.Client
   alias KafkaEx.Cluster.Broker
   alias KafkaEx.Network.Socket
@@ -20,6 +21,9 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
   defp metadata_v0(correlation_id), do: <<3::16, 0::16, correlation_id::32, 4::16, "test", 0::32>>
 
   defp decode(module, iodata), do: module.deserialize(IO.iodata_to_binary(iodata))
+
+  defp oauth,
+    do: AuthConfig.new(%{mechanism: :oauthbearer, mechanism_opts: %{token_provider: fn -> {:ok, "jwt"} end}})
 
   defp unique_host, do: "fake-#{System.unique_integer([:positive])}"
 
@@ -95,6 +99,88 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       task = Task.async(fn -> catch_error(FakeTransport.close_socket(%{host: "a", port: 1}, socket, :shutdown)) end)
 
       assert %ArgumentError{message: "FakeTransport socket closed from a non-owner process"} = Task.await(task)
+    end
+  end
+
+  describe "sasl" do
+    test "the handshake is answered on every connection and uses passive recv" do
+      fake = start_fake()
+      %Socket{socket: first} = connect(fake, "a", 1, auth: oauth())
+      %Socket{socket: _second} = connect(fake, "a", 1, auth: oauth())
+
+      assert :inet.getopts(first, [:active]) == {:ok, [active: true]}
+
+      assert [
+               {1, :api_versions},
+               {1, :sasl_handshake},
+               {1, :sasl_authenticate},
+               {2, :api_versions},
+               {2, :sasl_handshake},
+               {2, :sasl_authenticate}
+             ] = Enum.map(FakeTransport.requests(fake), &{&1.conn, &1.api})
+    end
+
+    test "PLAIN authenticates over TLS", %{tls: tls} do
+      fake = start_fake(tls: tls.server)
+      auth = AuthConfig.new(%{mechanism: :plain, username: "u", password: "p"})
+
+      assert %Socket{ssl: true} = connect(fake, "a", 1, use_ssl: true, ssl_options: tls.client_ok, auth: auth)
+    end
+
+    test "a scripted SaslAuthenticate error fails the connection" do
+      host = unique_host()
+      attach([:kafka_ex, :connection, :close], host)
+      fake = start_fake()
+      FakeTransport.respond(fake, :sasl_authenticate, %{error_code: 58, error_message: "denied", auth_bytes: ""})
+
+      log = capture_log(fn -> assert connect(fake, host, 1, auth: oauth()) == nil end)
+
+      assert log =~
+               ~s(SASL authentication failed for broker "#{host}":1}: {:auth_failed, :sasl_authentication_failed})
+
+      assert_receive {:telemetry, _, %{reason: :auth_error}}
+    end
+
+    test "a scripted SaslHandshake error fails the connection" do
+      fake = start_fake()
+      FakeTransport.respond(fake, :sasl_handshake, %{error_code: 33, mechanisms: []})
+
+      log = capture_log(fn -> assert connect(fake, "a", 1, auth: oauth()) == nil end)
+
+      assert log =~ ~s(SASL authentication failed for broker "a":1}: {:handshake_failed, :unsupported_sasl_mechanism})
+    end
+
+    test "connect and auth emit the NetworkClient spans" do
+      host = unique_host()
+      attach([:kafka_ex, :connection, :start], host)
+      attach([:kafka_ex, :auth, :start], host)
+      fake = start_fake()
+
+      connect(fake, host, 1, auth: oauth())
+
+      assert_receive {:telemetry, [:kafka_ex, :connection, :start], %{port: 1, ssl: false}}
+      assert_receive {:telemetry, [:kafka_ex, :auth, :start], %{mechanism: "OAUTHBEARER"}}
+    end
+
+    test "a client boots over TLS with PLAIN", %{tls: tls} do
+      fake = start_fake(tls: tls.server, brokers: [{1, "a", 9092}])
+      auth = AuthConfig.new(%{mechanism: :plain, username: "u", password: "p"})
+
+      {:ok, client} =
+        Client.start_link(
+          [
+            uris: [{"a", 9092}],
+            consumer_group: :no_consumer_group,
+            transport: FakeTransport,
+            use_ssl: true,
+            ssl_options: FakeTransport.ssl_options(fake, tls.client_ok),
+            auth: auth
+          ],
+          :no_name
+        )
+
+      assert {:ok, %{brokers: %{1 => broker}}} = API.cluster_metadata(client)
+      assert Broker.connected?(broker)
     end
   end
 
