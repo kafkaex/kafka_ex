@@ -3,13 +3,25 @@ defmodule KafkaEx.TestSupport.FakeTransport do
   Loopback fake broker behind `KafkaEx.Network.Behaviour`, selected with the internal `:transport` client option.
 
   Every connection is a real socket pair: the connecting process owns the client side, a peer
-  process owns the server side and answers like a broker. The connecting process starts its own
-  fake, which answers ApiVersions and a Metadata listing the connected address as node 1.
+  process owns the server side and answers like a broker. Start a fake per test and hand it to
+  the client inside `ssl_options`, the one option the client forwards to `create_socket/5`:
+
+      fake = start_supervised!({FakeTransport, brokers: [{1, "a", 9092}]})
+      opts = [uris: [{"a", 9092}], transport: FakeTransport, ssl_options: FakeTransport.ssl_options(fake)]
+      {:ok, client} = KafkaEx.Client.start_link(opts, :no_name)
+
+  Without a fake in `ssl_options` the connecting process starts its own, which answers
+  ApiVersions and a Metadata listing the connected address as node 1.
 
   Contract:
 
     * Encoded responses carry the request's correlation id. Any other API closes its connection.
     * Sends on a missing or closed socket behave as in `KafkaEx.Network.NetworkClient`.
+    * `requests/1` is the request log and `subscribe/1` streams it; `connects/1` records the
+      options of every connect attempt.
+    * Several brokers (`:brokers`); any other address is refused like an unreachable broker.
+    * No global state: scripts and the log live in the fake process. Reply functions run inside
+      it and must not call it.
 
   `send_sync_request/3` and `send_async_request/2` follow today's seam, which carries the socket
   inside the broker map; that part of the contract is not final.
@@ -26,11 +38,22 @@ defmodule KafkaEx.TestSupport.FakeTransport do
 
   @connect_timeout 5_000
 
+  def child_spec(opts), do: %{id: __MODULE__, start: {__MODULE__, :start_link, [opts]}, restart: :temporary}
+  def start_link(opts \\ []), do: Controller.start_link(opts)
+
+  def ssl_options(fake, extra \\ []), do: [{:fake_transport, fake} | extra]
+
+  def requests(fake), do: GenServer.call(fake, :requests)
+  def subscribe(fake), do: GenServer.call(fake, {:subscribe, self()})
+  def connects(fake), do: GenServer.call(fake, :connects)
+  def connections(fake), do: GenServer.call(fake, :connections)
+
   @impl true
   def create_socket(host, port, ssl_options \\ [], use_ssl \\ false, auth \\ nil) do
     if use_ssl, do: raise(ArgumentError, "FakeTransport supports plain TCP only")
+    {fake, ssl_options} = controller(ssl_options)
     record = %{host: host, port: port, ssl_options: ssl_options, use_ssl: use_ssl, auth: auth, owner: self()}
-    {socket, _metadata} = connect(own_controller(), record)
+    {socket, _metadata} = connect(fake, record)
     socket
   end
 
@@ -65,6 +88,13 @@ defmodule KafkaEx.TestSupport.FakeTransport do
   @impl true
   def format_host(host), do: String.to_charlist(host)
 
+  defp controller(ssl_options) do
+    case List.keytake(ssl_options, :fake_transport, 0) do
+      {{:fake_transport, fake}, rest} -> {fake, rest}
+      nil -> {own_controller(), ssl_options}
+    end
+  end
+
   defp own_controller do
     case Process.get({__MODULE__, :controller}) do
       pid when is_pid(pid) -> if Process.alive?(pid), do: pid, else: start_own_controller()
@@ -78,9 +108,11 @@ defmodule KafkaEx.TestSupport.FakeTransport do
     pid
   end
 
-  defp connect(fake, record) do
-    {:ok, id, listen_port} = GenServer.call(fake, {:connect, record})
-    open(fake, id, listen_port, record)
+  defp connect(fake, %{host: host, port: port} = record) do
+    case GenServer.call(fake, {:connect, record}) do
+      {:ok, id, listen_port} -> open(fake, id, listen_port, record)
+      {:error, reason} -> refuse(host, port, reason)
+    end
   end
 
   defp open(fake, id, listen_port, %{host: host, port: port} = record) do
