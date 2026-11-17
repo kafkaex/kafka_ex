@@ -21,6 +21,14 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
   defp metadata_v0(correlation_id), do: <<3::16, 0::16, correlation_id::32, 4::16, "test", 0::32>>
   defp api_versions_v0(correlation_id), do: <<18::16, 0::16, correlation_id::32, 4::16, "test">>
 
+  defp produce(version, acks, correlation_id) do
+    [Kayrock.Produce, :"V#{version}", Request]
+    |> Module.concat()
+    |> struct(acks: acks, timeout: 1_000, timeout_ms: 1_000, transactional_id: "tx", topic_data: [])
+    |> struct(correlation_id: correlation_id, client_id: "test")
+    |> Kayrock.Request.serialize()
+  end
+
   defp decode(module, iodata), do: module.deserialize(IO.iodata_to_binary(iodata))
 
   defp oauth,
@@ -764,6 +772,40 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       assert_receive {:fake_transport, :request, %{correlation_id: 1, action: :no_reply}}, 1_000
       refute_receive {:fake_transport, :request, %{correlation_id: 2}}, 100
       assert Socket.recv(socket, 0, 50) == {:error, :timeout}
+    end
+
+    for version <- [0, 3, 9], script <- [:none, :no_reply, :close] do
+      test "v#{version} #{script}: an acks=0 produce gets no reply and its connection keeps answering" do
+        fake = start_fake()
+        if unquote(script) != :none, do: FakeTransport.respond(fake, :produce, unquote(script))
+        socket = connect(fake, "a", 1)
+        :ok = Socket.setopts(socket, active: false)
+
+        :ok = Socket.send(socket, produce(unquote(version), 0, 1))
+        :ok = Socket.send(socket, metadata_v0(2))
+
+        assert {:ok, <<2::32-signed, _::binary>>} = Socket.recv(socket, 0, 1_000)
+
+        assert [%{correlation_id: 1, api: :produce, action: :acks0}, %{correlation_id: 2, action: :reply}] =
+                 FakeTransport.requests(fake)
+      end
+    end
+
+    for {version, acks} <- [{3, 1}, {9, -1}] do
+      test "v#{version}: an unanswered produce with acks=#{acks} still mutes its connection" do
+        fake = start_fake()
+        FakeTransport.subscribe(fake)
+        FakeTransport.respond(fake, :produce, :no_reply)
+        socket = connect(fake, "a", 1)
+        :ok = Socket.setopts(socket, active: false)
+
+        :ok = Socket.send(socket, produce(unquote(version), unquote(acks), 1))
+        :ok = Socket.send(socket, metadata_v0(2))
+
+        assert_receive {:fake_transport, :request, %{correlation_id: 1, action: :no_reply}}, 1_000
+        refute_receive {:fake_transport, :request, %{correlation_id: 2}}, 100
+        assert Socket.recv(socket, 0, 50) == {:error, :timeout}
+      end
     end
 
     test "a client leaving a connection with an unanswered request closes it" do

@@ -1,9 +1,11 @@
 defmodule KafkaEx.TestSupport.FakeTransport.Wire do
   @moduledoc false
 
+  alias Kayrock.Deserialize
   alias Kayrock.KafkaSchemaMetadata
   alias Kayrock.Serialize
 
+  @produce 0
   @api_versions 18
 
   def api_key(api) when is_integer(api), do: api
@@ -29,7 +31,7 @@ defmodule KafkaEx.TestSupport.FakeTransport.Wire do
   defp client_id(_), do: nil
 
   def response(api_key, api_version, correlation_id, fields) do
-    schema = response_module(api_key, api_version).schema()
+    schema = kayrock_module(api_key, api_version, Response).schema()
     [header(api_key, schema, correlation_id), encode_struct(schema, fields)]
   end
 
@@ -57,14 +59,33 @@ defmodule KafkaEx.TestSupport.FakeTransport.Wire do
     end)
   end
 
-  defp response_module(api_key, version) do
-    name = api_key |> api_name() |> Atom.to_string() |> Macro.camelize()
-    Module.concat([Kayrock, name, :"V#{version}", Response])
+  def acks0?(<<@produce::16-signed, version::16-signed, _correlation_id::32-signed, rest::binary>>) do
+    schema = kayrock_module(@produce, version, Request).schema()
+    {_client_id, body} = Deserialize.deserialize(:nullable_string, rest)
+    body = if flexible?(schema), do: elem(Deserialize.deserialize_tagged_fields(body), 1), else: body
+
+    <<acks::16-signed, _::binary>> =
+      schema
+      |> Enum.take_while(fn {field, _type} -> field != :acks end)
+      |> Enum.reduce(body, fn {_field, type}, data -> elem(Deserialize.deserialize(type, data), 1) end)
+
+    acks == 0
+  rescue
+    _malformed -> false
   end
+
+  def acks0?(_frame), do: false
+
+  defp kayrock_module(api_key, version, kind) do
+    name = api_key |> api_name() |> Atom.to_string() |> Macro.camelize()
+    Module.concat([Kayrock, name, :"V#{version}", kind])
+  end
+
+  defp flexible?(schema), do: Keyword.has_key?(schema, :tagged_fields)
 
   # ApiVersions keeps the v0 response header even in its flexible versions.
   defp header(api_key, schema, correlation_id) do
-    if Keyword.has_key?(schema, :tagged_fields) and api_key != @api_versions,
+    if flexible?(schema) and api_key != @api_versions,
       do: [<<correlation_id::32-signed>>, 0],
       else: <<correlation_id::32-signed>>
   end

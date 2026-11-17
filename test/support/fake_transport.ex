@@ -28,6 +28,7 @@ defmodule KafkaEx.TestSupport.FakeTransport do
       more, and its later requests reach neither the log nor the scripts, until the release
       answers it under the scripts in force then.
     * `respond/3` with `:no_reply` never answers that request nor any later one on its connection.
+    * A Produce with `acks = 0` gets no reply, whatever its script or hold, and its connection reads on (`:acks0`).
     * A client closing a connection that waits on a held or unanswered request turns it
       `open?: false` in `connections/1` and sends `{:fake_transport, :closed, id}` to subscribers;
       from then on `release/2` runs no reply function for it. A `release/2` issued before that

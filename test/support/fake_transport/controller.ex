@@ -188,7 +188,11 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
   end
 
   defp decide(request, state) do
-    if MapSet.member?(state.holds, request.api_key), do: :hold, else: reply_for(request, state)
+    cond do
+      Wire.acks0?(request.frame) -> :acks0
+      MapSet.member?(state.holds, request.api_key) -> :hold
+      true -> reply_for(request, state)
+    end
   end
 
   defp reply_for(request, state) do
