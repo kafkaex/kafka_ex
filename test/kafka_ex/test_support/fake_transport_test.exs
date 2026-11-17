@@ -329,4 +329,46 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       assert [%{api: :heartbeat, action: :unscripted}] = FakeTransport.requests(fake)
     end
   end
+
+  describe "messages" do
+    for {family, use_ssl} <- [tcp: false, ssl: true] do
+      test "#{family}: at most one message per active-once re-arm", %{tls: tls} do
+        fake = start_fake(tls: tls.server)
+        FakeTransport.subscribe(fake)
+        FakeTransport.hold(fake, :metadata)
+        socket = connect(fake, "a", 1, use_ssl: unquote(use_ssl), ssl_options: tls.client_ok)
+        %Socket{socket: raw} = socket
+        :ok = Socket.setopts(socket, active: false)
+        :ok = Socket.send(socket, metadata_v0(1))
+        :ok = Socket.send(socket, metadata_v0(2))
+        assert_receive {:fake_transport, :request, %{correlation_id: 1}}
+        assert_receive {:fake_transport, :request, %{correlation_id: 2}}
+
+        FakeTransport.release(fake, :metadata)
+        :ok = Socket.setopts(socket, active: :once)
+
+        assert_receive {unquote(family), ^raw, <<1::32-signed, _::binary>>}
+        refute_receive {unquote(family), _, _}, 100
+        :ok = Socket.setopts(socket, active: :once)
+        assert_receive {unquote(family), ^raw, <<2::32-signed, _::binary>>}
+      end
+    end
+
+    test "a stale socket's message can be injected after a reconnect" do
+      fake = start_fake()
+      old = connect(fake, "a", 1)
+      FakeTransport.close_socket(%{host: "a", port: 1}, old, :reconnecting)
+      new = connect(fake, "a", 1)
+
+      assert [%{socket: ^old} = stale, %{socket: ^new}] = FakeTransport.connections(fake)
+
+      FakeTransport.inject(stale, :closed)
+      FakeTransport.inject(stale, {:data, "late"})
+
+      raw = old.socket
+      assert_receive {:tcp_closed, ^raw}
+      assert_receive {:tcp, ^raw, "late"}
+      assert Socket.open?(new)
+    end
+  end
 end

@@ -26,6 +26,8 @@ defmodule KafkaEx.TestSupport.FakeTransport do
     * `requests/1` is the request log and `subscribe/1` streams it; `connects/1` records the
       options of every connect attempt.
     * tcp and ssl message families from real sockets; `use_ssl` needs the `:tls` server options.
+    * Messages are tagged with the socket they came from; `inject/2` replays one for a stale socket.
+    * At most one message per `active: :once` re-arm.
     * Several brokers (`:brokers`); any other address is refused like an unreachable broker.
     * No global state: scripts and the log live in the fake process. Reply functions run inside
       it and must not call it.
@@ -60,6 +62,16 @@ defmodule KafkaEx.TestSupport.FakeTransport do
   def subscribe(fake), do: GenServer.call(fake, {:subscribe, self()})
   def connects(fake), do: GenServer.call(fake, :connects)
   def connections(fake), do: GenServer.call(fake, :connections)
+
+  def inject(%{socket: %Socket{ssl: ssl, socket: raw}, owner: owner}, event) do
+    send(owner, message(ssl, raw, event))
+    :ok
+  end
+
+  defp message(false, raw, :closed), do: {:tcp_closed, raw}
+  defp message(true, raw, :closed), do: {:ssl_closed, raw}
+  defp message(false, raw, {:data, data}), do: {:tcp, raw, data}
+  defp message(true, raw, {:data, data}), do: {:ssl, raw, data}
 
   @impl true
   def create_socket(host, port, ssl_options \\ [], use_ssl \\ false, auth \\ nil) do
