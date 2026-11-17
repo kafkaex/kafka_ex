@@ -13,6 +13,7 @@ defmodule KafkaEx.TestSupport.PinCase do
   alias KafkaEx.TestSupport.PinGate
 
   @topic "pin"
+  @handshake [:api_versions, :sasl_handshake, :sasl_authenticate]
   @versions %{
     produce: 3..3,
     fetch: 0..0,
@@ -76,7 +77,10 @@ defmodule KafkaEx.TestSupport.PinCase do
 
   def requests(fake, api), do: fake |> FakeTransport.requests() |> Enum.filter(&(&1.api == api))
   def count(fake, api), do: fake |> requests(api) |> length()
+  def count(fake, api, node_id), do: fake |> requests(api) |> Enum.count(&(&1.node_id == node_id))
   def nodes(fake, api), do: fake |> requests(api) |> Enum.map(& &1.node_id)
+
+  def non_handshake(fake), do: fake |> FakeTransport.requests() |> Enum.reject(&(&1.api in @handshake))
 
   def produce_reply(base_offset \\ 7) do
     %{
