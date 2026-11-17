@@ -49,15 +49,16 @@ defmodule KafkaEx.Client.TransportErrorTest do
       socket: %Socket{socket: sock, ssl: false}
     }
 
-    state = %State{
-      consumer_group_for_auto_commit: "test-group",
-      api_versions: %{9 => {0, 3}},
-      correlation_id: 1,
-      cluster_metadata: %ClusterMetadata{
-        brokers: %{1 => broker},
-        consumer_group_coordinators: %{"test-group" => 1}
-      }
-    }
+    state =
+      KafkaEx.TestHelpers.client_state(%State{
+        consumer_group_for_auto_commit: "test-group",
+        api_versions: %{9 => {0, 3}},
+        correlation_id: 1,
+        cluster_metadata: %ClusterMetadata{
+          brokers: %{1 => broker},
+          consumer_group_coordinators: %{"test-group" => 1}
+        }
+      })
 
     {:ok, state: state}
   end

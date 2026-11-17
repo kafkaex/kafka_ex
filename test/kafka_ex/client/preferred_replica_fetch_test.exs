@@ -30,7 +30,13 @@ defmodule KafkaEx.Client.PreferredReplicaFetchTest do
       topics: %{@topic => %Topic{name: @topic, partition_leaders: %{0 => @leader}}}
     }
 
-    {:ok, state: %State{api_versions: %{1 => {0, 11}}, correlation_id: 1, cluster_metadata: cluster_metadata}}
+    {:ok,
+     state:
+       KafkaEx.TestHelpers.client_state(%State{
+         api_versions: %{1 => {0, 11}},
+         correlation_id: 1,
+         cluster_metadata: cluster_metadata
+       })}
   end
 
   test "an error from the preferred replica is retried once at the leader", %{state: state} do

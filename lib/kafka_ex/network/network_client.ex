@@ -79,6 +79,7 @@ defmodule KafkaEx.Network.NetworkClient do
     - `socket` - The socket to close (nil is a no-op)
     - `reason` - Why the socket is being closed (e.g., :shutdown, :timeout, :send_error)
   """
+  @impl true
   @spec close_socket(map(), any(), atom()) :: :ok
   def close_socket(_broker, nil, _reason), do: :ok
 

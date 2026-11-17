@@ -34,16 +34,17 @@ defmodule KafkaEx.Client.MetadataLookupMergeTest do
     socket = %Socket{socket: sock, ssl: false}
     broker = %Broker{node_id: 1, host: "localhost", port: lport, socket: socket}
 
-    state = %State{
-      cluster_metadata: %ClusterMetadata{
-        brokers: %{1 => broker},
-        topics: %{"a" => %Topic{name: "a", partition_leaders: %{0 => 1}}},
-        consumer_group_coordinators: %{"g" => 1}
-      },
-      # api_key 3 = metadata; {0, 0} negotiates the V0 wire format.
-      api_versions: %{3 => {0, 0}},
-      correlation_id: 1
-    }
+    state =
+      KafkaEx.TestHelpers.client_state(%State{
+        cluster_metadata: %ClusterMetadata{
+          brokers: %{1 => broker},
+          topics: %{"a" => %Topic{name: "a", partition_leaders: %{0 => 1}}},
+          consumer_group_coordinators: %{"g" => 1}
+        },
+        # api_key 3 = metadata; {0, 0} negotiates the V0 wire format.
+        api_versions: %{3 => {0, 0}},
+        correlation_id: 1
+      })
 
     stub(NetworkClient, :send_sync_request, fn _broker, _wire, _timeout -> v0_metadata_response(["b"], lport) end)
 

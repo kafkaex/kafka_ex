@@ -31,12 +31,13 @@ defmodule KafkaEx.Client.MetadataNarrowingTest do
 
     broker = %Broker{node_id: 1, host: "localhost", port: lport, socket: %Socket{socket: sock, ssl: false}}
 
-    base_state = %State{
-      cluster_metadata: %ClusterMetadata{brokers: %{1 => broker}},
-      api_versions: %{3 => {0, 0}},
-      correlation_id: 1,
-      tracked_topics: MapSet.new(["t1", "t2", "t3"])
-    }
+    base_state =
+      KafkaEx.TestHelpers.client_state(%State{
+        cluster_metadata: %ClusterMetadata{brokers: %{1 => broker}},
+        api_versions: %{3 => {0, 0}},
+        correlation_id: 1,
+        tracked_topics: MapSet.new(["t1", "t2", "t3"])
+      })
 
     stub_metadata_response(["t1", "t2", "t3"], lport)
 

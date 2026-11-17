@@ -39,16 +39,17 @@ defmodule KafkaEx.Client.ConsumerGroupProtocolTest do
 
     broker = %Broker{node_id: 1, host: "localhost", port: lport, socket: %Socket{socket: sock, ssl: false}}
 
-    state = %State{
-      consumer_group_for_auto_commit: "g",
-      api_versions: %{@heartbeat_api_key => {0, 1}, @describe_api_key => {0, 1}},
-      correlation_id: 1,
-      cluster_metadata: %ClusterMetadata{
-        brokers: %{1 => broker},
-        consumer_group_coordinators: %{"g" => 1},
-        topics: %{"orders" => %Topic{name: "orders", topic_id: @known_id}}
-      }
-    }
+    state =
+      KafkaEx.TestHelpers.client_state(%State{
+        consumer_group_for_auto_commit: "g",
+        api_versions: %{@heartbeat_api_key => {0, 1}, @describe_api_key => {0, 1}},
+        correlation_id: 1,
+        cluster_metadata: %ClusterMetadata{
+          brokers: %{1 => broker},
+          consumer_group_coordinators: %{"g" => 1},
+          topics: %{"orders" => %Topic{name: "orders", topic_id: @known_id}}
+        }
+      })
 
     {:ok, state: state}
   end
