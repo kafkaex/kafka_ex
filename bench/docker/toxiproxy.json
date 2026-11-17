@@ -1,0 +1,8 @@
+[
+  {"name": "kafka1_ssl", "listen": "0.0.0.0:9492", "upstream": "kafka-1:19092", "enabled": true},
+  {"name": "kafka2_ssl", "listen": "0.0.0.0:9493", "upstream": "kafka-2:19092", "enabled": true},
+  {"name": "kafka3_ssl", "listen": "0.0.0.0:9494", "upstream": "kafka-3:19092", "enabled": true},
+  {"name": "kafka1_scram", "listen": "0.0.0.0:9592", "upstream": "kafka-1:19292", "enabled": true},
+  {"name": "kafka2_scram", "listen": "0.0.0.0:9593", "upstream": "kafka-2:19292", "enabled": true},
+  {"name": "kafka3_scram", "listen": "0.0.0.0:9594", "upstream": "kafka-3:19292", "enabled": true}
+]
