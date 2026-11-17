@@ -26,6 +26,7 @@ defmodule KafkaEx.Pins.Issue445PinTest do
   test "a failed refresh answers each topic from its own entry only", %{fake: fake, client: client} do
     assert {:ok, [%{name: "b"}]} = API.topics_metadata(client, ["b"])
     FakeTransport.respond(fake, :metadata, :close)
+    with_request_timeout(200)
 
     {results, _log} =
       with_log(fn -> {API.topics_metadata(client, ["a"]), API.topics_metadata(client, ["b"])} end)
@@ -41,12 +42,14 @@ defmodule KafkaEx.Pins.Issue445PinTest do
     with_request_timeout(200)
 
     FakeTransport.respond(fake, :metadata, fn request ->
-      {:frame,
-       IO.iodata_to_binary(Wire.response(3, request.api_version, request.correlation_id - 1, answer(request, ["b"])))}
+      {:frame, Wire.response(request.api_key, request.api_version, request.correlation_id - 1, answer(request, ["b"]))}
     end)
 
     {result, _log} = with_log(fn -> API.metadata(client, ["a"], []) end)
 
+    sent = List.last(requests(fake, :metadata))
+    assert %{action: :reply} = sent
+    assert asked(sent) == ["a"]
     assert {:error, _} = result
   end
 
@@ -60,5 +63,5 @@ defmodule KafkaEx.Pins.Issue445PinTest do
        }),
        do: [topic]
 
-  defp asked(%{frame: frame}), do: flunk("unrecognised metadata frame: #{inspect(frame)}")
+  defp asked(%{frame: frame}), do: raise(ArgumentError, "unrecognised metadata frame: #{inspect(frame)}")
 end
