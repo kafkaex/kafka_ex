@@ -447,6 +447,12 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       assert log =~ ~s(Could not connect to broker "a":1 because of error :econnrefused)
     end
 
+    test "a fake that crashes during a connect exits the caller" do
+      fake = spawn(fn -> receive do: ({:"$gen_call", _from, _request} -> exit(:boom)) end)
+
+      assert {:boom, _call} = catch_exit(connect(fake, "a", 1))
+    end
+
     test "two fakes share no state" do
       first = start_fake()
       second = start_fake()
@@ -718,6 +724,31 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       FakeTransport.release(fake, :metadata)
 
       refute_received {:answered, _}
+    end
+
+    for {family, use_ssl} <- [tcp: false, ssl: true] do
+      test "#{family}: subscribers learn of a client leaving a held connection before any release", %{tls: tls} do
+        test_pid = self()
+        fake = start_fake(tls: tls.server)
+        FakeTransport.subscribe(fake)
+        FakeTransport.hold(fake, :metadata)
+        socket = connect(fake, "a", 1, use_ssl: unquote(use_ssl), ssl_options: tls.client_ok)
+        :ok = Socket.send(socket, metadata_v0(1))
+        assert_receive {:fake_transport, :request, %{correlation_id: 1, action: :hold}}, 1_000
+
+        FakeTransport.close_socket(%{host: "a", port: 1}, socket, :timeout)
+        assert_receive {:fake_transport, :closed, 1}, 1_000
+
+        FakeTransport.respond(fake, :metadata, fn request ->
+          send(test_pid, {:answered, request.conn})
+          %{brokers: [], topics: []}
+        end)
+
+        FakeTransport.release(fake, :metadata)
+
+        refute_received {:answered, _}
+        assert [%{id: 1, open?: false}] = FakeTransport.connections(fake)
+      end
     end
 
     test "an unanswered request leaves every later request on its connection unanswered" do

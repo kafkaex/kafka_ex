@@ -29,12 +29,14 @@ defmodule KafkaEx.TestSupport.FakeTransport do
       answers it under the scripts in force then.
     * `respond/3` with `:no_reply` never answers that request nor any later one on its connection.
     * A client closing a connection that waits on a held or unanswered request turns it
-      `open?: false` in `connections/1`; from then on `release/2` runs no reply function for it.
+      `open?: false` in `connections/1` and sends `{:fake_transport, :closed, id}` to subscribers;
+      from then on `release/2` runs no reply function for it. A `release/2` issued before that
+      notice may still run it, so wait for the notice first.
     * `respond/3` with `:close` and `close/2` close from the broker side. `close/2` returns once
       the peers have closed and every active tcp client socket has its `tcp_closed` in the
       owner's mailbox.
-    * `requests/1` is the request log and `subscribe/1` streams it; `connects/1` records the
-      options of every connect attempt.
+    * `requests/1` is the request log and `subscribe/1` streams it with every closed connection;
+      `connects/1` records the options of every connect attempt.
     * Several brokers (`:brokers`); any other address is refused like an unreachable broker.
     * Scripted SASL success and failure. SCRAM supports failure only: the default
       SaslAuthenticate reply cannot complete its exchange. The handshake uses passive `recv`
@@ -122,22 +124,15 @@ defmodule KafkaEx.TestSupport.FakeTransport do
   @impl true
   def close_socket(nil), do: :ok
 
-  def close_socket(socket) do
-    socket = wrap(socket)
-    ensure_owner!(socket)
-    forget(socket)
-    Socket.close(socket)
-  end
+  def close_socket(socket), do: socket |> owned!() |> close_owned()
 
   @impl true
   def close_socket(_broker, nil, _reason), do: :ok
 
   def close_socket(%{host: host, port: port}, socket, reason) do
-    socket = wrap(socket)
-    ensure_owner!(socket)
+    socket = owned!(socket)
     Telemetry.emit_connection_close(host, port, reason)
-    forget(socket)
-    Socket.close(socket)
+    close_owned(socket)
     :ok
   end
 
@@ -168,10 +163,8 @@ defmodule KafkaEx.TestSupport.FakeTransport do
   end
 
   defp own_controller do
-    case Process.get({__MODULE__, :controller}) do
-      pid when is_pid(pid) -> if Process.alive?(pid), do: pid, else: start_own_controller()
-      nil -> start_own_controller()
-    end
+    pid = Process.get({__MODULE__, :controller})
+    if pid && Process.alive?(pid), do: pid, else: start_own_controller()
   end
 
   defp start_own_controller do
@@ -183,17 +176,16 @@ defmodule KafkaEx.TestSupport.FakeTransport do
   defp request_connect(fake, record) do
     GenServer.call(fake, {:connect, record})
   catch
-    :exit, _reason -> {:error, :econnrefused}
+    :exit, {reason, _call} when reason in [:noproc, :normal, :shutdown] -> {:error, :econnrefused}
   end
 
-  defp connect(fake, {:ok, id, listen_port}, record), do: open(fake, id, listen_port, record)
   defp connect(_fake, {:error, reason}, %{host: host, port: port}), do: refuse(host, port, reason)
 
-  defp open(fake, id, listen_port, %{host: host, port: port} = record) do
+  defp connect(fake, {:ok, id, listen_port}, %{host: host, port: port} = record) do
     case dial(listen_port, record.ssl_options, record.use_ssl) do
       {:ok, socket} ->
         :ok = GenServer.call(fake, {:attach, id, socket})
-        Process.put({__MODULE__, socket.socket}, %{fake: fake, id: id})
+        Process.put({__MODULE__, socket.socket}, fake)
         finish(socket, enrich(record.auth, host, port), host, port)
 
       {:error, reason} ->
@@ -264,21 +256,19 @@ defmodule KafkaEx.TestSupport.FakeTransport do
 
   defp send_fault(%{socket: %Socket{socket: raw}}, data) do
     case Process.get({__MODULE__, raw}) do
-      %{fake: fake, id: id} ->
-        <<api_key::16-signed, _::binary>> = IO.iodata_to_binary(data)
-
-        try do
-          GenServer.call(fake, {:send_fault, id, api_key}, :infinity)
-        catch
-          :exit, _reason -> :none
-        end
-
-      nil ->
-        :none
+      nil -> :none
+      fake -> ask_send_fault(fake, data)
     end
   end
 
   defp send_fault(_broker, _data), do: :none
+
+  defp ask_send_fault(fake, data) do
+    <<api_key::16-signed, _::binary>> = IO.iodata_to_binary(data)
+    GenServer.call(fake, {:send_fault, api_key}, :infinity)
+  catch
+    :exit, _reason -> :none
+  end
 
   defp fail(%{host: host, port: port, socket: socket} = broker, data, bytes_sent, reason, verb) do
     frame = IO.iodata_to_binary(data)
@@ -296,11 +286,13 @@ defmodule KafkaEx.TestSupport.FakeTransport do
   defp wrap(raw) when is_port(raw), do: %Socket{socket: raw, ssl: false}
   defp wrap(raw), do: %Socket{socket: raw, ssl: true}
 
-  defp ensure_owner!(%Socket{socket: raw} = socket) do
+  defp owned!(socket) do
+    %Socket{socket: raw} = socket = wrap(socket)
+
     cond do
-      Process.get({__MODULE__, raw}) -> :ok
-      not Socket.open?(socket) -> :ok
-      owner(socket) == self() -> :ok
+      Process.get({__MODULE__, raw}) -> socket
+      not Socket.open?(socket) -> socket
+      owner(socket) == self() -> socket
       true -> raise ArgumentError, "FakeTransport socket closed from a non-owner process"
     end
   end
@@ -315,7 +307,10 @@ defmodule KafkaEx.TestSupport.FakeTransport do
   # The ssl socket's port belongs to the TLS connection process, not to the caller.
   defp owner(%Socket{ssl: true}), do: nil
 
-  defp forget(%Socket{socket: raw}), do: Process.delete({__MODULE__, raw})
+  defp close_owned(%Socket{socket: raw} = socket) do
+    Process.delete({__MODULE__, raw})
+    Socket.close(socket)
+  end
 
   defp watch_client(%Socket{ssl: false, socket: raw}) do
     case :inet.getopts(raw, [:active]) do

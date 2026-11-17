@@ -7,7 +7,7 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
   alias KafkaEx.TestSupport.FakeTransport.Peer
   alias KafkaEx.TestSupport.FakeTransport.Wire
 
-  @default_versions %{18 => 0..0, 3 => 0..0, 17 => 0..1, 36 => 0..1}
+  @default_versions %{api_versions: 0..0, metadata: 0..0, sasl_handshake: 0..1, sasl_authenticate: 0..1}
   @mechanisms ["PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512", "OAUTHBEARER", "AWS_MSK_IAM"]
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, {self(), opts})
@@ -16,13 +16,13 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
   @impl true
   def init({owner, opts}) do
     Process.monitor(owner)
-    versions = Map.new(Keyword.get(opts, :api_versions, %{}), fn {api, range} -> {Wire.api_key(api), range} end)
+    versions = Map.merge(by_api_key(@default_versions), by_api_key(Keyword.get(opts, :api_versions, %{})))
 
     {:ok,
      %{
        brokers: Keyword.get(opts, :brokers),
        topics: Keyword.get(opts, :topics, %{}),
-       versions: Map.merge(@default_versions, versions),
+       versions: versions,
        tls: Keyword.get(opts, :tls),
        rules: %{},
        holds: MapSet.new(),
@@ -41,11 +41,12 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
   @impl true
   def handle_call({:connect, record}, _from, state) do
     state = %{state | connects: [record | state.connects]}
+    node_id = node_id(state, record)
 
     cond do
       record.use_ssl and is_nil(state.tls) -> {:reply, {:error, :tls_not_configured}, state}
-      is_nil(node_id(state, record)) -> {:reply, {:error, :econnrefused}, state}
-      true -> listen(record, state)
+      is_nil(node_id) -> {:reply, {:error, :econnrefused}, state}
+      true -> listen(record, node_id, state)
     end
   end
 
@@ -67,7 +68,7 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
 
     action = decide(request, state)
     entry = Map.put(request, :action, action_name(action))
-    Enum.each(state.subscribers, &send(&1, {:fake_transport, :request, entry}))
+    notify(state, {:fake_transport, :request, entry})
     state = %{state | log: [entry | state.log]}
     state = if action == :hold, do: %{state | held: [{request, connection.peer} | state.held]}, else: state
     {:reply, action, state}
@@ -102,7 +103,7 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
     {:reply, :ok, state}
   end
 
-  def handle_call({:send_fault, _id, api_key}, from, state) do
+  def handle_call({:send_fault, api_key}, from, state) do
     cond do
       MapSet.member?(state.hangs, api_key) -> {:noreply, %{state | hung: [{api_key, from} | state.hung]}}
       Map.has_key?(state.send_failures, api_key) -> {:reply, {:fail, state.send_failures[api_key]}, state}
@@ -129,8 +130,10 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
   def handle_call({:subscribe, pid}, _from, state), do: {:reply, :ok, %{state | subscribers: [pid | state.subscribers]}}
 
   @impl true
-  def handle_info({:peer_closed, id}, state),
-    do: {:noreply, state |> put_in([:connections, id, :open?], false) |> forget_held([id])}
+  def handle_info({:peer_closed, id}, state) do
+    notify(state, {:fake_transport, :closed, id})
+    {:noreply, state |> put_in([:connections, id, :open?], false) |> forget_held([id])}
+  end
 
   def handle_info({:DOWN, _ref, :process, _owner, _reason}, state), do: {:stop, :normal, state}
   def handle_info(_stray, state), do: {:noreply, state}
@@ -144,7 +147,7 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
     end)
   end
 
-  defp listen(record, state) do
+  defp listen(record, node_id, state) do
     {:ok, listener} = :gen_tcp.listen(0, [:binary, packet: 4, active: false, ip: {127, 0, 0, 1}])
     {:ok, listen_port} = :inet.port(listener)
     id = state.next_id
@@ -157,7 +160,7 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
       id: id,
       host: record.host,
       port: record.port,
-      node_id: node_id(state, record),
+      node_id: node_id,
       owner: record.owner,
       socket: nil,
       peer: peer,
@@ -167,6 +170,10 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
     {:reply, {:ok, id, listen_port},
      %{state | next_id: id + 1, connections: Map.put(state.connections, id, connection)}}
   end
+
+  defp by_api_key(versions), do: Map.new(versions, fn {api, range} -> {Wire.api_key(api), range} end)
+
+  defp notify(state, message), do: Enum.each(state.subscribers, &send(&1, message))
 
   defp forget_held(state, ids),
     do: %{state | held: Enum.reject(state.held, fn {request, _peer} -> request.conn in ids end)}
@@ -199,13 +206,13 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
       :close
   end
 
-  defp default_rule(%{api_key: 18}, state), do: Wire.api_versions_fields(state.versions)
+  defp default_rule(%{api: :api_versions}, state), do: Wire.api_versions_fields(state.versions)
 
-  defp default_rule(%{api_key: 3} = request, state),
+  defp default_rule(%{api: :metadata} = request, state),
     do: Wire.metadata_fields(state.brokers || [{1, request.host, request.port}], state.topics)
 
-  defp default_rule(%{api_key: 17}, _state), do: %{error_code: 0, mechanisms: @mechanisms}
-  defp default_rule(%{api_key: 36}, _state), do: %{error_code: 0, error_message: nil, auth_bytes: ""}
+  defp default_rule(%{api: :sasl_handshake}, _state), do: %{error_code: 0, mechanisms: @mechanisms}
+  defp default_rule(%{api: :sasl_authenticate}, _state), do: %{error_code: 0, error_message: nil, auth_bytes: ""}
 
   defp default_rule(_request, _state), do: nil
 

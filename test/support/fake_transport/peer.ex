@@ -30,10 +30,7 @@ defmodule KafkaEx.TestSupport.FakeTransport.Peer do
     with {:noreply, state} <- perform(action, state), do: drain(state)
   end
 
-  def handle_info(:close, state) do
-    close(state)
-    stop(state)
-  end
+  def handle_info(:close, state), do: perform(:close, state)
 
   def handle_info({tag, socket}, %{socket: socket} = state) when tag in [:tcp_closed, :ssl_closed], do: stop(state)
 

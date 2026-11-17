@@ -72,10 +72,11 @@ defmodule KafkaEx.TestSupport.FakeTransport.Wire do
   defp encode_struct(schema, fields), do: Enum.map(schema, fn {name, type} -> encode(type, Map.get(fields, name)) end)
 
   defp encode(:tagged_fields, _value), do: <<0>>
-  defp encode({:array, type}, values), do: [<<length(values || [])::32-signed>>, encode_items(type, values || [])]
+  defp encode({array, type}, nil) when array in [:array, :compact_array], do: encode({array, type}, [])
+  defp encode({:array, type}, values), do: [<<length(values)::32-signed>>, encode_items(type, values)]
 
   defp encode({:compact_array, type}, values),
-    do: [Serialize.serialize(:unsigned_varint, length(values || []) + 1), encode_items(type, values || [])]
+    do: [Serialize.serialize(:unsigned_varint, length(values) + 1), encode_items(type, values)]
 
   defp encode(type, nil) when type in [:int8, :int16, :int32, :int64], do: Serialize.serialize(type, 0)
   defp encode(:boolean, nil), do: Serialize.serialize(:boolean, false)
