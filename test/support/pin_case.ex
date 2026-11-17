@@ -111,6 +111,27 @@ defmodule KafkaEx.TestSupport.PinCase do
       0::16-signed, 10::64-signed, 0::32-signed>>
   end
 
+  # The fake's encoder cannot write the nullable assignment struct.
+  def consumer_group_heartbeat_frame(%{correlation_id: corr}, member_id, epoch) do
+    <<corr::32-signed, 0, 0::32-signed, 0::16-signed, 0, byte_size(member_id) + 1, member_id::binary, epoch::32-signed,
+      1000::32-signed, 255, 0>>
+  end
+
+  def member_epoch(%{frame: frame}) do
+    <<_api::16, _version::16, _corr::32, client_id_size::16-signed, _client_id::binary-size(client_id_size), 0,
+      rest::binary>> = frame
+
+    {_group, rest} = compact_string(rest)
+    {_member, <<epoch::32-signed, _::binary>>} = compact_string(rest)
+    epoch
+  end
+
+  defp compact_string(<<length_plus_one, rest::binary>>) when length_plus_one < 128 do
+    size = length_plus_one - 1
+    <<value::binary-size(size), rest::binary>> = rest
+    {value, rest}
+  end
+
   def watch_close(host) do
     test = self()
     handler = "pin-close-#{host}"
