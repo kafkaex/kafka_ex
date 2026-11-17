@@ -20,6 +20,7 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
        brokers: Keyword.get(opts, :brokers),
        topics: Keyword.get(opts, :topics, %{}),
        versions: Map.merge(@default_versions, versions),
+       tls: Keyword.get(opts, :tls),
        rules: %{},
        holds: MapSet.new(),
        held: [],
@@ -35,9 +36,11 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
   def handle_call({:connect, record}, _from, state) do
     state = %{state | connects: [record | state.connects]}
 
-    if is_nil(node_id(state, record)),
-      do: {:reply, {:error, :econnrefused}, state},
-      else: listen(record, state)
+    cond do
+      record.use_ssl and is_nil(state.tls) -> {:reply, {:error, :tls_not_configured}, state}
+      is_nil(node_id(state, record)) -> {:reply, {:error, :econnrefused}, state}
+      true -> listen(record, state)
+    end
   end
 
   def handle_call({:attach, id, socket}, _from, state),
@@ -99,7 +102,8 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
     {:ok, listener} = :gen_tcp.listen(0, [:binary, packet: 4, active: false, ip: {127, 0, 0, 1}])
     {:ok, listen_port} = :inet.port(listener)
     id = state.next_id
-    {:ok, peer} = Peer.start_link(%{listener: listener, conn_id: id, controller: self(), tls: nil})
+    tls = if record.use_ssl, do: state.tls
+    {:ok, peer} = Peer.start_link(%{listener: listener, conn_id: id, controller: self(), tls: tls})
     :ok = :gen_tcp.controlling_process(listener, peer)
     send(peer, :accept)
 

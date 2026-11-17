@@ -5,11 +5,17 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
 
   alias KafkaEx.API
   alias KafkaEx.Client
+  alias KafkaEx.Cluster.Broker
   alias KafkaEx.Network.Socket
   alias KafkaEx.TestSupport.FakeTransport
   alias KafkaEx.TestSupport.FakeTransport.Wire
+  alias KafkaEx.TestSupport.TLSFixtures
 
   @heartbeat 12
+
+  setup_all do
+    {:ok, tls: TLSFixtures.chain()}
+  end
 
   defp metadata_v0(correlation_id), do: <<3::16, 0::16, correlation_id::32, 4::16, "test", 0::32>>
 
@@ -44,6 +50,52 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
     )
 
     on_exit(fn -> :telemetry.detach(handler) end)
+  end
+
+  describe "tls" do
+    test "use_ssl connects over a real TLS loopback the client counts as connected", %{tls: tls} do
+      fake = start_fake(tls: tls.server)
+      socket = connect(fake, "a", 1, use_ssl: true, ssl_options: tls.client_ok)
+
+      assert %Socket{ssl: true} = socket
+      assert Broker.connected?(%Broker{host: "a", port: 1, socket: socket})
+
+      assert <<1::32-signed, _::binary>> =
+               FakeTransport.send_sync_request(%{host: "a", port: 1, socket: socket}, metadata_v0(1), 1_000)
+    end
+
+    test "the client's TLS options are applied", %{tls: tls} do
+      fake = start_fake(tls: tls.server)
+
+      log =
+        capture_log(fn -> assert connect(fake, "a", 1, use_ssl: true, ssl_options: tls.client_wrong_ca) == nil end)
+
+      assert log =~ "Could not connect to broker"
+    end
+
+    test "a broker-side close arrives as ssl_closed", %{tls: tls} do
+      fake = start_fake(tls: tls.server)
+      %Socket{socket: raw} = connect(fake, "a", 1, use_ssl: true, ssl_options: tls.client_ok)
+
+      FakeTransport.close(fake, {"a", 1})
+
+      assert_receive {:ssl_closed, ^raw}
+    end
+
+    test "use_ssl without :tls server options fails loudly" do
+      fake = start_fake()
+
+      assert_raise ArgumentError, ~r/:tls/, fn -> connect(fake, "a", 1, use_ssl: true) end
+    end
+
+    test "a TLS socket closed from a non-owner process raises", %{tls: tls} do
+      fake = start_fake(tls: tls.server)
+      socket = connect(fake, "a", 1, use_ssl: true, ssl_options: tls.client_ok)
+
+      task = Task.async(fn -> catch_error(FakeTransport.close_socket(%{host: "a", port: 1}, socket, :shutdown)) end)
+
+      assert %ArgumentError{message: "FakeTransport socket closed from a non-owner process"} = Task.await(task)
+    end
   end
 
   describe "wire" do

@@ -25,6 +25,7 @@ defmodule KafkaEx.TestSupport.FakeTransport do
     * Sends on a missing or closed socket behave as in `KafkaEx.Network.NetworkClient`.
     * `requests/1` is the request log and `subscribe/1` streams it; `connects/1` records the
       options of every connect attempt.
+    * tcp and ssl message families from real sockets; `use_ssl` needs the `:tls` server options.
     * Several brokers (`:brokers`); any other address is refused like an unreachable broker.
     * No global state: scripts and the log live in the fake process. Reply functions run inside
       it and must not call it.
@@ -62,7 +63,6 @@ defmodule KafkaEx.TestSupport.FakeTransport do
 
   @impl true
   def create_socket(host, port, ssl_options \\ [], use_ssl \\ false, auth \\ nil) do
-    if use_ssl, do: raise(ArgumentError, "FakeTransport supports plain TCP only")
     {fake, ssl_options} = controller(ssl_options)
     record = %{host: host, port: port, ssl_options: ssl_options, use_ssl: use_ssl, auth: auth, owner: self()}
     {socket, _metadata} = connect(fake, record)
@@ -123,6 +123,7 @@ defmodule KafkaEx.TestSupport.FakeTransport do
   defp connect(fake, %{host: host, port: port} = record) do
     case GenServer.call(fake, {:connect, record}) do
       {:ok, id, listen_port} -> open(fake, id, listen_port, record)
+      {:error, :tls_not_configured} -> raise ArgumentError, "FakeTransport needs the :tls server options for use_ssl"
       {:error, reason} -> refuse(host, port, reason)
     end
   end
@@ -149,6 +150,17 @@ defmodule KafkaEx.TestSupport.FakeTransport do
 
   defp upgrade(tcp, _opts, false), do: {:ok, %Socket{socket: tcp, ssl: false}}
 
+  defp upgrade(tcp, opts, true) do
+    case :ssl.connect(tcp, opts, @connect_timeout) do
+      {:ok, ssl} ->
+        {:ok, %Socket{socket: ssl, ssl: true}}
+
+      {:error, _reason} = error ->
+        :gen_tcp.close(tcp)
+        error
+    end
+  end
+
   defp refuse(host, port, reason) do
     Logger.error("Could not connect to #{inspect_broker(host, port)} because of error #{inspect(reason)}")
     {nil, %{success: false, error: reason}}
@@ -171,7 +183,8 @@ defmodule KafkaEx.TestSupport.FakeTransport do
   defp authenticate(socket, auth), do: VersionSupport.validate_config(auth, socket)
 
   defp wrap(%Socket{} = socket), do: socket
-  defp wrap(raw), do: %Socket{socket: raw, ssl: false}
+  defp wrap(raw) when is_port(raw), do: %Socket{socket: raw, ssl: false}
+  defp wrap(raw), do: %Socket{socket: raw, ssl: true}
 
   defp ensure_owner!(%Socket{socket: raw} = socket) do
     cond do
@@ -182,12 +195,14 @@ defmodule KafkaEx.TestSupport.FakeTransport do
     end
   end
 
-  defp owner(%Socket{socket: raw}) do
+  defp owner(%Socket{ssl: false, socket: raw}) do
     case :erlang.port_info(raw, :connected) do
       {:connected, pid} -> pid
       _ -> nil
     end
   end
+
+  defp owner(%Socket{ssl: true}), do: nil
 
   defp forget(%Socket{socket: raw}), do: Process.delete({__MODULE__, raw})
 
