@@ -1,0 +1,35 @@
+x-proxy-env: &proxy-env
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:PLAINTEXT,NOAUTH:SSL,PLAIN:SASL_SSL,SCRAM:SASL_SSL,OAUTH:SASL_SSL,PNOAUTH:SSL,PSCRAM:SASL_SSL"
+  KAFKA_LISTENER_NAME_pscram_SASL_ENABLED_MECHANISMS: "SCRAM-SHA-256,SCRAM-SHA-512"
+  KAFKA_LISTENER_NAME_pscram_SCRAM-SHA-256_SASL_JAAS_CONFIG: "org.apache.kafka.common.security.scram.ScramLoginModule required;"
+  KAFKA_LISTENER_NAME_pscram_SCRAM-SHA-512_SASL_JAAS_CONFIG: "org.apache.kafka.common.security.scram.ScramLoginModule required;"
+
+services:
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    command: ["-host=0.0.0.0", "-config=/config/toxiproxy.json"]
+    volumes:
+      - ./bench/docker/toxiproxy.json:/config/toxiproxy.json:ro
+    ports:
+      - "8474:8474"
+      - "9492-9494:9492-9494"
+      - "9592-9594:9592-9594"
+    depends_on: [kafka-1, kafka-2, kafka-3]
+
+  kafka-1:
+    environment:
+      <<: *proxy-env
+      KAFKA_LISTENERS: "INTERNAL://:29092,NOAUTH://:9092,PLAIN://:9192,SCRAM://:9292,OAUTH://:9392,PNOAUTH://:19092,PSCRAM://:19292"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka-1:29092,NOAUTH://localhost:9092,PLAIN://localhost:9192,SCRAM://localhost:9292,OAUTH://localhost:9392,PNOAUTH://localhost:9492,PSCRAM://localhost:9592"
+
+  kafka-2:
+    environment:
+      <<: *proxy-env
+      KAFKA_LISTENERS: "INTERNAL://:29093,NOAUTH://:9093,PLAIN://:9193,SCRAM://:9293,OAUTH://:9393,PNOAUTH://:19092,PSCRAM://:19292"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka-2:29093,NOAUTH://localhost:9093,PLAIN://localhost:9193,SCRAM://localhost:9293,OAUTH://localhost:9393,PNOAUTH://localhost:9493,PSCRAM://localhost:9593"
+
+  kafka-3:
+    environment:
+      <<: *proxy-env
+      KAFKA_LISTENERS: "INTERNAL://:29094,NOAUTH://:9094,PLAIN://:9194,SCRAM://:9294,OAUTH://:9394,PNOAUTH://:19092,PSCRAM://:19292"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka-3:29094,NOAUTH://localhost:9094,PLAIN://localhost:9194,SCRAM://localhost:9294,OAUTH://localhost:9394,PNOAUTH://localhost:9494,PSCRAM://localhost:9594"
