@@ -7,7 +7,7 @@ defmodule KafkaEx.TestSupport.FakeTransport.Peer do
   def start_link(args), do: GenServer.start_link(__MODULE__, args)
 
   @impl true
-  def init(args), do: {:ok, Map.put(args, :socket, nil)}
+  def init(args), do: {:ok, Map.merge(args, %{socket: nil, muted?: false, queue: []})}
 
   @impl true
   def handle_info(:accept, %{listener: listener} = state) do
@@ -16,32 +16,18 @@ defmodule KafkaEx.TestSupport.FakeTransport.Peer do
 
     with {:ok, tcp} <- accepted,
          {:ok, socket} <- upgrade(tcp, state.tls) do
-      state = %{state | socket: socket}
-      rearm(state)
-      {:noreply, state}
+      read_next(%{state | socket: socket})
     else
       {:error, _reason} -> stop(state)
     end
   end
 
   def handle_info({tag, socket, frame}, %{socket: socket} = state) when tag in [:tcp, :ssl] do
-    action = GenServer.call(state.controller, {:request, state.conn_id, frame})
-
-    case perform(action, state) do
-      :closed ->
-        stop(state)
-
-      :open ->
-        rearm(state)
-        {:noreply, state}
-    end
+    with {:noreply, state} <- drain(%{state | queue: state.queue ++ [frame]}), do: read_next(state)
   end
 
   def handle_info({:action, action}, state) do
-    case perform(action, state) do
-      :closed -> stop(state)
-      :open -> {:noreply, state}
-    end
+    with {:noreply, state} <- perform(action, state), do: drain(state)
   end
 
   def handle_info(:close, state) do
@@ -54,17 +40,33 @@ defmodule KafkaEx.TestSupport.FakeTransport.Peer do
   def handle_info({tag, socket, _reason}, %{socket: socket} = state) when tag in [:tcp_error, :ssl_error],
     do: stop(state)
 
+  def handle_info(_stray, state), do: {:noreply, state}
+
+  defp drain(%{muted?: false, queue: [frame | queue]} = state) do
+    action = GenServer.call(state.controller, {:request, state.conn_id, frame})
+    with {:noreply, state} <- perform(action, %{state | queue: queue}), do: drain(state)
+  end
+
+  defp drain(state), do: {:noreply, state}
+
   defp perform({:reply, iodata}, state) do
     _ = write(state, iodata)
-    :open
+    {:noreply, %{state | muted?: false}}
   end
+
+  defp perform(action, state) when action in [:hold, :no_reply], do: {:noreply, %{state | muted?: true}}
 
   defp perform(action, state) when action in [:close, :unscripted] do
     close(state)
-    :closed
+    stop(state)
   end
 
-  defp perform(_no_reply_or_hold, _state), do: :open
+  defp read_next(state) do
+    case rearm(state) do
+      :ok -> {:noreply, state}
+      {:error, _reason} -> stop(state)
+    end
+  end
 
   defp stop(state) do
     send(state.controller, {:peer_closed, state.conn_id})

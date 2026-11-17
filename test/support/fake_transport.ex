@@ -16,22 +16,36 @@ defmodule KafkaEx.TestSupport.FakeTransport do
   Contract:
 
     * Responses are scripted by API with `respond/3`, never by order or count. A fields map is
-      encoded for the request's API version and carries its correlation id; `{:frame, binary}`
+      encoded for the request's API version and carries its correlation id; `{:frame, iodata}`
       is written verbatim.
     * ApiVersions, SaslHandshake, SaslAuthenticate and Metadata are answered automatically on
-      every connection unless scripted. Any other unscripted API closes its connection.
-    * `hold/2` keeps requests of an API until `release/2`; `respond/3` with `:no_reply` never
-      answers; `respond/3` with `:close` and `close/2` close from the broker side.
+      every connection unless scripted. A request of any API with neither a script nor one of
+      these defaults closes its connection.
+    * A reply function that raises, returns an unsupported value or yields fields the encoder
+      cannot encode is logged and closes its connection; the fake and other connections stay up.
+    * Like Kafka, a connection answers its requests one at a time in arrival order. `hold/2` keeps
+      requests of an API until `release/2`; a connection with a held request answers nothing
+      more, and its later requests reach neither the log nor the scripts, until the release
+      answers it under the scripts in force then.
+    * `respond/3` with `:no_reply` never answers that request nor any later one on its connection.
+    * A client closing a connection that waits on a held or unanswered request turns it
+      `open?: false` in `connections/1`; from then on `release/2` runs no reply function for it.
+    * `respond/3` with `:close` and `close/2` close from the broker side. `close/2` returns once
+      the peers have closed and every active tcp client socket has its `tcp_closed` in the
+      owner's mailbox.
     * `requests/1` is the request log and `subscribe/1` streams it; `connects/1` records the
       options of every connect attempt.
     * Several brokers (`:brokers`); any other address is refused like an unreachable broker.
-    * Scripted SASL success and failure; the handshake uses passive `recv` before the socket
-      turns active.
+    * Scripted SASL success and failure. SCRAM supports failure only: the default
+      SaslAuthenticate reply cannot complete its exchange. The handshake uses passive `recv`
+      before the socket turns active.
     * tcp and ssl message families from real sockets; `use_ssl` needs the `:tls` server options.
     * Messages are tagged with the socket they came from; `inject/2` replays one for a stale socket.
     * At most one message per `active: :once` re-arm.
-    * `hang_send/2` blocks the sender until `release/2`; `fail_send/4` writes part of a frame and
-      fails like `KafkaEx.Network.NetworkClient`.
+    * `hang_send/2` blocks the sender until `release/2`, ignoring the send's timeout;
+      `fail_send/4` writes less than a whole frame and fails like `KafkaEx.Network.NetworkClient`.
+      `release/2` disarms both. Both apply only to sends from the process that created the
+      socket; a send from any other process is never faulted.
     * Sends on a missing or closed socket behave as in `KafkaEx.Network.NetworkClient`.
     * No global state: scripts and the log live in the fake process. Reply functions run inside
       it and must not call it.
@@ -63,11 +77,17 @@ defmodule KafkaEx.TestSupport.FakeTransport do
   def hold(fake, api), do: GenServer.call(fake, {:hold, Wire.api_key(api)})
   def hang_send(fake, api), do: GenServer.call(fake, {:hang_send, Wire.api_key(api)})
 
-  def fail_send(fake, api, bytes_sent, reason),
+  def fail_send(fake, api, bytes_sent, reason) when is_integer(bytes_sent) and bytes_sent >= 0,
     do: GenServer.call(fake, {:fail_send, Wire.api_key(api), bytes_sent, reason})
 
   def release(fake, api), do: GenServer.call(fake, {:release, Wire.api_key(api)})
-  def close(fake, {host, port}), do: GenServer.call(fake, {:close_address, {host, port}})
+
+  def close(fake, {host, port}) do
+    fake
+    |> GenServer.call({:close_address, {host, port}})
+    |> Enum.flat_map(fn %{peer: peer, socket: socket} -> [Process.monitor(peer) | watch_client(socket)] end)
+    |> Enum.each(&await_down/1)
+  end
 
   def requests(fake), do: GenServer.call(fake, :requests)
   def subscribe(fake), do: GenServer.call(fake, {:subscribe, self()})
@@ -87,11 +107,16 @@ defmodule KafkaEx.TestSupport.FakeTransport do
   @impl true
   def create_socket(host, port, ssl_options \\ [], use_ssl \\ false, auth \\ nil) do
     {fake, ssl_options} = controller(ssl_options)
-    metadata = Telemetry.connection_metadata(host, port, use_ssl)
+    record = %{host: host, port: port, ssl_options: ssl_options, use_ssl: use_ssl, auth: auth, owner: self()}
 
-    Telemetry.span([:kafka_ex, :connection], metadata, fn ->
-      connect(fake, %{host: host, port: port, ssl_options: ssl_options, use_ssl: use_ssl, auth: auth, owner: self()})
-    end)
+    case request_connect(fake, record) do
+      {:error, :tls_not_configured} ->
+        raise ArgumentError, "FakeTransport needs the :tls server options for use_ssl"
+
+      attempt ->
+        metadata = Telemetry.connection_metadata(host, port, use_ssl)
+        Telemetry.span([:kafka_ex, :connection], metadata, fn -> connect(fake, attempt, record) end)
+    end
   end
 
   @impl true
@@ -155,13 +180,14 @@ defmodule KafkaEx.TestSupport.FakeTransport do
     pid
   end
 
-  defp connect(fake, %{host: host, port: port} = record) do
-    case GenServer.call(fake, {:connect, record}) do
-      {:ok, id, listen_port} -> open(fake, id, listen_port, record)
-      {:error, :tls_not_configured} -> raise ArgumentError, "FakeTransport needs the :tls server options for use_ssl"
-      {:error, reason} -> refuse(host, port, reason)
-    end
+  defp request_connect(fake, record) do
+    GenServer.call(fake, {:connect, record})
+  catch
+    :exit, _reason -> {:error, :econnrefused}
   end
+
+  defp connect(fake, {:ok, id, listen_port}, record), do: open(fake, id, listen_port, record)
+  defp connect(_fake, {:error, reason}, %{host: host, port: port}), do: refuse(host, port, reason)
 
   defp open(fake, id, listen_port, %{host: host, port: port} = record) do
     case dial(listen_port, record.ssl_options, record.use_ssl) do
@@ -240,7 +266,12 @@ defmodule KafkaEx.TestSupport.FakeTransport do
     case Process.get({__MODULE__, raw}) do
       %{fake: fake, id: id} ->
         <<api_key::16-signed, _::binary>> = IO.iodata_to_binary(data)
-        GenServer.call(fake, {:send_fault, id, api_key}, :infinity)
+
+        try do
+          GenServer.call(fake, {:send_fault, id, api_key}, :infinity)
+        catch
+          :exit, _reason -> :none
+        end
 
       nil ->
         :none
@@ -251,8 +282,11 @@ defmodule KafkaEx.TestSupport.FakeTransport do
 
   defp fail(%{host: host, port: port, socket: socket} = broker, data, bytes_sent, reason, verb) do
     frame = IO.iodata_to_binary(data)
-    :ok = Socket.setopts(socket, packet: :raw)
-    _ = Socket.send(socket, [<<byte_size(frame)::32>>, binary_part(frame, 0, min(bytes_sent, byte_size(frame)))])
+
+    with :ok <- Socket.setopts(socket, packet: :raw) do
+      Socket.send(socket, [<<byte_size(frame)::32>>, binary_part(frame, 0, min(bytes_sent, byte_size(frame) - 1))])
+    end
+
     Logger.error("#{verb} #{inspect_broker(host, port)} failed with #{inspect(reason)}")
     close_socket(broker, socket, :send_error)
     {:error, reason}
@@ -278,9 +312,28 @@ defmodule KafkaEx.TestSupport.FakeTransport do
     end
   end
 
+  # The ssl socket's port belongs to the TLS connection process, not to the caller.
   defp owner(%Socket{ssl: true}), do: nil
 
   defp forget(%Socket{socket: raw}), do: Process.delete({__MODULE__, raw})
+
+  defp watch_client(%Socket{ssl: false, socket: raw}) do
+    case :inet.getopts(raw, [:active]) do
+      {:ok, [active: false]} -> []
+      {:ok, _armed} -> [:erlang.monitor(:port, raw)]
+      {:error, _closed} -> []
+    end
+  end
+
+  defp watch_client(_socket), do: []
+
+  defp await_down(ref) do
+    receive do
+      {:DOWN, ^ref, _kind, _object, _reason} -> :ok
+    after
+      @connect_timeout -> raise "FakeTransport.close/2 timed out waiting for a connection to close"
+    end
+  end
 
   defp inspect_broker(host, port), do: "broker #{inspect(host)}:#{inspect(port)}"
 end
