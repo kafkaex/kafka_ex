@@ -115,6 +115,12 @@ defmodule KafkaEx.TestSupport.PinCase do
       0::16-signed, 10::64-signed, 0::32-signed>>
   end
 
+  def fetch_frame(%{api_version: 11, correlation_id: corr}, preferred) do
+    <<corr::32-signed, 0::32-signed, 0::16-signed, 0::32-signed, 1::32-signed, byte_size(@topic)::16-signed,
+      @topic::binary, 1::32-signed, 0::32-signed, 0::16-signed, 10::64-signed, 10::64-signed, 0::64-signed,
+      0::32-signed, preferred::32-signed, 0::32-signed>>
+  end
+
   # The fake's encoder cannot write the nullable assignment struct.
   def consumer_group_heartbeat_frame(%{correlation_id: corr}, member_id, epoch) do
     <<corr::32-signed, 0, 0::32-signed, 0::16-signed, 0, byte_size(member_id) + 1, member_id::binary, epoch::32-signed,
