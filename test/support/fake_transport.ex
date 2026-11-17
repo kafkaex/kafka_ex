@@ -15,7 +15,13 @@ defmodule KafkaEx.TestSupport.FakeTransport do
 
   Contract:
 
-    * Encoded responses carry the request's correlation id. Any other API closes its connection.
+    * Responses are scripted by API with `respond/3`, never by order or count. A fields map is
+      encoded for the request's API version and carries its correlation id; `{:frame, binary}`
+      is written verbatim.
+    * ApiVersions and Metadata are answered automatically on every connection unless scripted.
+      Any other unscripted API closes its connection.
+    * `hold/2` keeps requests of an API until `release/2`; `respond/3` with `:no_reply` never
+      answers; `respond/3` with `:close` and `close/2` close from the broker side.
     * Sends on a missing or closed socket behave as in `KafkaEx.Network.NetworkClient`.
     * `requests/1` is the request log and `subscribe/1` streams it; `connects/1` records the
       options of every connect attempt.
@@ -35,6 +41,7 @@ defmodule KafkaEx.TestSupport.FakeTransport do
   alias KafkaEx.Network.Socket
   alias KafkaEx.Telemetry
   alias KafkaEx.TestSupport.FakeTransport.Controller
+  alias KafkaEx.TestSupport.FakeTransport.Wire
 
   @connect_timeout 5_000
 
@@ -42,6 +49,11 @@ defmodule KafkaEx.TestSupport.FakeTransport do
   def start_link(opts \\ []), do: Controller.start_link(opts)
 
   def ssl_options(fake, extra \\ []), do: [{:fake_transport, fake} | extra]
+
+  def respond(fake, api, reply), do: GenServer.call(fake, {:respond, Wire.api_key(api), reply})
+  def hold(fake, api), do: GenServer.call(fake, {:hold, Wire.api_key(api)})
+  def release(fake, api), do: GenServer.call(fake, {:release, Wire.api_key(api)})
+  def close(fake, {host, port}), do: GenServer.call(fake, {:close_address, {host, port}})
 
   def requests(fake), do: GenServer.call(fake, :requests)
   def subscribe(fake), do: GenServer.call(fake, {:subscribe, self()})

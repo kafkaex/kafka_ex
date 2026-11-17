@@ -20,6 +20,9 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
        brokers: Keyword.get(opts, :brokers),
        topics: Keyword.get(opts, :topics, %{}),
        versions: Map.merge(@default_versions, versions),
+       rules: %{},
+       holds: MapSet.new(),
+       held: [],
        log: [],
        connects: [],
        connections: %{},
@@ -48,10 +51,29 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
       |> Wire.parse_header()
       |> Map.merge(%{conn: id, host: connection.host, port: connection.port, node_id: connection.node_id, frame: frame})
 
-    action = reply_for(request, state)
+    action = decide(request, state)
     entry = Map.put(request, :action, action_name(action))
     Enum.each(state.subscribers, &send(&1, {:fake_transport, :request, entry}))
-    {:reply, action, %{state | log: [entry | state.log]}}
+    state = %{state | log: [entry | state.log]}
+    state = if action == :hold, do: %{state | held: [{request, connection.peer} | state.held]}, else: state
+    {:reply, action, state}
+  end
+
+  def handle_call({:respond, api_key, reply}, _from, state),
+    do: {:reply, :ok, %{state | rules: Map.put(state.rules, api_key, reply)}}
+
+  def handle_call({:hold, api_key}, _from, state), do: {:reply, :ok, %{state | holds: MapSet.put(state.holds, api_key)}}
+
+  def handle_call({:release, api_key}, _from, state) do
+    {released, held} = Enum.split_with(state.held, fn {request, _peer} -> request.api_key == api_key end)
+    state = %{state | holds: MapSet.delete(state.holds, api_key), held: held}
+    Enum.each(Enum.reverse(released), fn {request, peer} -> send(peer, {:action, reply_for(request, state)}) end)
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:close_address, {host, port}}, _from, state) do
+    for {_id, %{host: ^host, port: ^port, open?: true, peer: peer}} <- state.connections, do: send(peer, :close)
+    {:reply, :ok, state}
   end
 
   def handle_call(:requests, _from, state), do: {:reply, Enum.reverse(state.log), state}
@@ -105,8 +127,12 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
     end)
   end
 
+  defp decide(request, state) do
+    if MapSet.member?(state.holds, request.api_key), do: :hold, else: reply_for(request, state)
+  end
+
   defp reply_for(request, state) do
-    case default_rule(request, state) do
+    case Map.get(state.rules, request.api_key) || default_rule(request, state) do
       nil -> :unscripted
       rule -> normalize(rule, request)
     end
@@ -118,6 +144,10 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
     do: Wire.metadata_fields(state.brokers || [{1, request.host, request.port}], state.topics)
 
   defp default_rule(_request, _state), do: nil
+
+  defp normalize(fun, request) when is_function(fun, 1), do: normalize(fun.(request), request)
+  defp normalize(action, _request) when action in [:no_reply, :close], do: action
+  defp normalize({:frame, frame}, _request), do: {:reply, frame}
 
   defp normalize(%{} = fields, request),
     do: {:reply, Wire.response(request.api_key, request.api_version, request.correlation_id, fields)}

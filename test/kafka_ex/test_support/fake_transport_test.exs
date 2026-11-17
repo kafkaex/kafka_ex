@@ -9,6 +9,8 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
   alias KafkaEx.TestSupport.FakeTransport
   alias KafkaEx.TestSupport.FakeTransport.Wire
 
+  @heartbeat 12
+
   defp metadata_v0(correlation_id), do: <<3::16, 0::16, correlation_id::32, 4::16, "test", 0::32>>
 
   defp decode(module, iodata), do: module.deserialize(IO.iodata_to_binary(iodata))
@@ -175,6 +177,104 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
 
       assert_receive {:telemetry, _, %{reason: :send_error}}
       assert log =~ "Setting socket options for broker"
+    end
+  end
+
+  describe "scripting" do
+    test "a fields map is encoded for the request's version and correlation id" do
+      fake = start_fake()
+      FakeTransport.respond(fake, :metadata, %{brokers: [%{node_id: 7, host: "x", port: 1}], topics: []})
+      socket = connect(fake, "a", 1)
+
+      assert <<5::32-signed, 1::32-signed, 7::32-signed, _::binary>> =
+               FakeTransport.send_sync_request(%{host: "a", port: 1, socket: socket}, metadata_v0(5), 1_000)
+    end
+
+    test "a reply function sees the request and may return a raw frame" do
+      fake = start_fake()
+
+      FakeTransport.respond(fake, :metadata, fn request ->
+        {:frame, <<request.correlation_id + 1::32, 0::32, 0::32>>}
+      end)
+
+      socket = connect(fake, "a", 1)
+
+      assert FakeTransport.send_sync_request(%{host: "a", port: 1, socket: socket}, metadata_v0(5), 1_000) ==
+               <<6::32, 0::32, 0::32>>
+    end
+
+    test "one script answers every request of its API" do
+      fake = start_fake()
+      FakeTransport.respond(fake, :metadata, %{brokers: [], topics: []})
+      socket = connect(fake, "a", 1)
+      broker = %{host: "a", port: 1, socket: socket}
+
+      for id <- 1..3 do
+        assert FakeTransport.send_sync_request(broker, metadata_v0(id), 1_000) == <<id::32, 0::32, 0::32>>
+      end
+    end
+
+    test "a held request is answered on release" do
+      fake = start_fake()
+      FakeTransport.subscribe(fake)
+      FakeTransport.hold(fake, :metadata)
+      socket = connect(fake, "a", 1)
+      :ok = Socket.setopts(socket, active: false)
+
+      :ok = Socket.send(socket, metadata_v0(1))
+
+      assert_receive {:fake_transport, :request, %{correlation_id: 1, action: :hold}}
+      assert Socket.recv(socket, 0, 50) == {:error, :timeout}
+      FakeTransport.release(fake, :metadata)
+      assert {:ok, <<1::32-signed, _::binary>>} = Socket.recv(socket, 0, 1_000)
+    end
+
+    test "a request that never gets a reply times out like a silent broker" do
+      host = unique_host()
+      attach([:kafka_ex, :connection, :close], host)
+      fake = start_fake()
+      FakeTransport.respond(fake, :metadata, :no_reply)
+      socket = connect(fake, host, 1)
+
+      capture_log(fn ->
+        assert FakeTransport.send_sync_request(%{host: host, port: 1, socket: socket}, metadata_v0(1), 50) ==
+                 {:error, :timeout}
+      end)
+
+      assert_receive {:telemetry, _, %{reason: :timeout}}
+    end
+
+    test "a scripted close drops the connection on that request" do
+      fake = start_fake()
+      FakeTransport.respond(fake, :metadata, :close)
+      socket = connect(fake, "a", 1)
+
+      capture_log(fn ->
+        assert FakeTransport.send_sync_request(%{host: "a", port: 1, socket: socket}, metadata_v0(1), 1_000) ==
+                 {:error, :closed}
+      end)
+    end
+
+    test "close/2 closes a broker's connections from the broker side" do
+      fake = start_fake()
+      %Socket{socket: raw} = connect(fake, "a", 1)
+
+      FakeTransport.close(fake, {"a", 1})
+
+      assert_receive {:tcp_closed, ^raw}
+    end
+
+    test "an unscripted API closes its connection and is logged" do
+      fake = start_fake()
+      socket = connect(fake, "a", 1)
+      heartbeat = <<@heartbeat::16, 0::16, 3::32, 4::16, "test">>
+
+      capture_log(fn ->
+        assert FakeTransport.send_sync_request(%{host: "a", port: 1, socket: socket}, heartbeat, 1_000) ==
+                 {:error, :closed}
+      end)
+
+      assert [%{api: :heartbeat, action: :unscripted}] = FakeTransport.requests(fake)
     end
   end
 end
