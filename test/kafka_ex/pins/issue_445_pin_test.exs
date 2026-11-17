@@ -1,0 +1,35 @@
+defmodule KafkaEx.Pins.Issue445PinTest do
+  use KafkaEx.TestSupport.PinCase, async: false
+
+  alias KafkaEx.Client.Error
+  alias KafkaEx.TestSupport.FakeTransport.Wire
+
+  @moduletag pin_set: :invariant
+
+  setup do
+    start_pinned(before_boot: &FakeTransport.respond(&1, :metadata, fn request -> answer(request) end))
+  end
+
+  test "a reply that arrives after its request timed out never answers a later request", %{fake: fake, client: client} do
+    with_request_timeout(200)
+    FakeTransport.hold(fake, :metadata)
+
+    {timed_out, _log} = with_log(fn -> API.metadata(client, ["b"], []) end)
+    assert {:error, %Error{error: :timeout}} = timed_out
+
+    FakeTransport.release(fake, :metadata)
+
+    assert {:ok, %{topics: topics}} = API.metadata(client, ["a"], [])
+    assert Map.keys(topics) == ["a"]
+  end
+
+  defp answer(request), do: answer(request, asked(request))
+  defp answer(%{host: host}, topics), do: Wire.metadata_fields([{1, host, 9092}], Map.new(topics, &{&1, [1]}))
+
+  defp asked(%{
+         frame: <<_::64, size::16, _::binary-size(size), 1::32, length::16, topic::binary-size(length), _::binary>>
+       }),
+       do: [topic]
+
+  defp asked(_all_topics), do: ["b"]
+end
