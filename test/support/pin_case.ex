@@ -89,6 +89,44 @@ defmodule KafkaEx.TestSupport.PinCase do
     }
   end
 
+  def metadata_reply(host, topics) do
+    %{
+      brokers: [%{node_id: 1, host: host, port: 9092}, %{node_id: 2, host: host, port: 9093}],
+      topics:
+        Enum.map(topics, fn {name, leaders} ->
+          partitions =
+            leaders
+            |> Enum.with_index()
+            |> Enum.map(fn {leader, index} ->
+              %{partition_index: index, leader_id: leader, replica_nodes: [leader], isr_nodes: [leader]}
+            end)
+
+          %{name: name, partitions: partitions}
+        end)
+    }
+  end
+
+  def fetch_frame(%{api_version: 0, correlation_id: corr}, _preferred) do
+    <<corr::32-signed, 1::32-signed, byte_size(@topic)::16-signed, @topic::binary, 1::32-signed, 0::32-signed,
+      0::16-signed, 10::64-signed, 0::32-signed>>
+  end
+
+  def watch_close(host) do
+    test = self()
+    handler = "pin-close-#{host}"
+
+    :telemetry.attach(
+      handler,
+      [:kafka_ex, :connection, :close],
+      fn _event, _measurements, metadata, _config ->
+        if metadata.host == host, do: send(test, {:pin_closed, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+  end
+
   def with_request_timeout(ms) do
     previous = Application.get_env(:kafka_ex, :request_timeout)
     Application.put_env(:kafka_ex, :request_timeout, ms)
