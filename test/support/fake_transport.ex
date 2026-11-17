@@ -1,119 +1,151 @@
 defmodule KafkaEx.TestSupport.FakeTransport do
   @moduledoc """
-  Loopback TCP transport selected through the internal `:transport` option; answers ApiVersions v0 and Metadata v0 by API key.
+  Loopback fake broker behind `KafkaEx.Network.Behaviour`, selected with the internal `:transport` client option.
+
+  Every connection is a real socket pair: the connecting process owns the client side, a peer
+  process owns the server side and answers like a broker. The connecting process starts its own
+  fake, which answers ApiVersions and a Metadata listing the connected address as node 1.
+
+  Contract:
+
+    * Encoded responses carry the request's correlation id. Any other API closes its connection.
+    * Sends on a missing or closed socket behave as in `KafkaEx.Network.NetworkClient`.
+
+  `send_sync_request/3` and `send_async_request/2` follow today's seam, which carries the socket
+  inside the broker map; that part of the contract is not final.
   """
   @behaviour KafkaEx.Network.Behaviour
 
   require Logger
 
   alias KafkaEx.Auth.SASL.VersionSupport
+  alias KafkaEx.Network.NetworkClient
   alias KafkaEx.Network.Socket
   alias KafkaEx.Telemetry
+  alias KafkaEx.TestSupport.FakeTransport.Controller
 
-  @api_versions 18
-  @metadata 3
+  @connect_timeout 5_000
 
   @impl true
-  def create_socket(host, port, ssl_options \\ [], use_ssl \\ false, auth \\ nil)
-
-  def create_socket(host, port, _ssl_options, use_ssl, auth) do
-    pair = open_loopback_pair()
-    socket = %Socket{socket: pair.client, ssl: false}
-
-    case validate_auth(auth, %Socket{socket: pair.client, ssl: use_ssl}) do
-      :ok ->
-        if use_ssl, do: raise_ssl_unsupported(pair)
-        remember(pair)
-        socket
-
-      {:error, reason} ->
-        close_pair(pair)
-        Logger.error("SASL authentication failed for #{host}:#{port}: #{inspect(reason)}")
-        nil
-    end
+  def create_socket(host, port, ssl_options \\ [], use_ssl \\ false, auth \\ nil) do
+    if use_ssl, do: raise(ArgumentError, "FakeTransport supports plain TCP only")
+    record = %{host: host, port: port, ssl_options: ssl_options, use_ssl: use_ssl, auth: auth, owner: self()}
+    {socket, _metadata} = connect(own_controller(), record)
+    socket
   end
 
   @impl true
-  def close_socket(_socket), do: :ok
+  def close_socket(nil), do: :ok
+
+  def close_socket(socket) do
+    socket = wrap(socket)
+    ensure_owner!(socket)
+    forget(socket)
+    Socket.close(socket)
+  end
 
   @impl true
   def close_socket(_broker, nil, _reason), do: :ok
 
   def close_socket(%{host: host, port: port}, socket, reason) do
+    socket = wrap(socket)
+    ensure_owner!(socket)
     Telemetry.emit_connection_close(host, port, reason)
-    close_port(raw_socket(socket))
+    forget(socket)
+    Socket.close(socket)
+    :ok
   end
 
   @impl true
-  def send_async_request(_broker, _data), do: :ok
+  def send_async_request(broker, data), do: NetworkClient.send_async_request(broker, data)
 
   @impl true
-  def send_sync_request(%{host: host, port: port}, data, _timeout) do
-    <<api_key::16-signed, _version::16-signed, correlation_id::32-signed, _::binary>> = IO.iodata_to_binary(data)
-    respond(api_key, correlation_id, host, port)
-  end
+  def send_sync_request(broker, data, timeout), do: NetworkClient.send_sync_request(broker, data, timeout)
 
   @impl true
   def format_host(host), do: String.to_charlist(host)
 
-  defp respond(@api_versions, correlation_id, _host, _port),
-    do: <<correlation_id::32-signed, 0::16-signed, 2::32-signed, 18::16, 0::16, 0::16, 3::16, 0::16, 0::16>>
-
-  defp respond(@metadata, correlation_id, host, port) do
-    IO.iodata_to_binary([
-      <<correlation_id::32-signed, 1::32-signed, 1::32-signed>>,
-      string(host),
-      <<port::32-signed, 0::32-signed>>
-    ])
-  end
-
-  defp respond(_api_key, _correlation_id, _host, _port), do: {:error, :unsupported_by_fake}
-
-  defp string(value), do: <<byte_size(value)::16-signed, value::binary>>
-
-  defp validate_auth(nil, _socket), do: :ok
-  defp validate_auth(auth, socket), do: VersionSupport.validate_config(auth, socket)
-
-  defp raise_ssl_unsupported(pair) do
-    close_pair(pair)
-    raise ArgumentError, "FakeTransport supports plain TCP only"
-  end
-
-  defp open_loopback_pair do
-    {:ok, listener} = :gen_tcp.listen(0, [:binary, active: false, ip: {127, 0, 0, 1}])
-    {:ok, listen_port} = :inet.port(listener)
-    {:ok, client} = :gen_tcp.connect({127, 0, 0, 1}, listen_port, [:binary, active: false])
-    {:ok, accepted} = :gen_tcp.accept(listener)
-    :ok = :gen_tcp.close(listener)
-    %{client: client, accepted: accepted}
-  end
-
-  # Ports close with their owner; the pair is found only from the creating process, so a foreign close must fail loudly.
-  defp remember(%{client: client} = pair), do: Process.put({__MODULE__, client}, pair)
-
-  defp raw_socket(%Socket{socket: raw}), do: raw
-  defp raw_socket(raw), do: raw
-
-  defp close_port(client) do
-    case Process.delete({__MODULE__, client}) do
-      nil -> close_unowned(client)
-      pair -> close_pair(pair)
-    end
-
-    :ok
-  end
-
-  defp close_unowned(client) do
-    case :erlang.port_info(client, :connected) do
-      {:connected, owner} when owner != self() ->
-        raise ArgumentError, "FakeTransport socket closed from a non-owner process"
-
-      _ ->
-        :gen_tcp.close(client)
+  defp own_controller do
+    case Process.get({__MODULE__, :controller}) do
+      pid when is_pid(pid) -> if Process.alive?(pid), do: pid, else: start_own_controller()
+      nil -> start_own_controller()
     end
   end
 
-  defp close_pair(%{client: client, accepted: accepted}) do
-    Enum.each([client, accepted], &:gen_tcp.close/1)
+  defp start_own_controller do
+    {:ok, pid} = Controller.start([])
+    Process.put({__MODULE__, :controller}, pid)
+    pid
   end
+
+  defp connect(fake, record) do
+    {:ok, id, listen_port} = GenServer.call(fake, {:connect, record})
+    open(fake, id, listen_port, record)
+  end
+
+  defp open(fake, id, listen_port, %{host: host, port: port} = record) do
+    case dial(listen_port, record.ssl_options, record.use_ssl) do
+      {:ok, socket} ->
+        :ok = GenServer.call(fake, {:attach, id, socket})
+        Process.put({__MODULE__, socket.socket}, %{fake: fake, id: id})
+        finish(socket, record.auth, host, port)
+
+      {:error, reason} ->
+        refuse(host, port, reason)
+    end
+  end
+
+  defp dial(listen_port, ssl_options, use_ssl) do
+    opts = [:binary, packet: 4, active: false]
+
+    with {:ok, tcp} <- :gen_tcp.connect({127, 0, 0, 1}, listen_port, opts, @connect_timeout) do
+      upgrade(tcp, opts ++ ssl_options, use_ssl)
+    end
+  end
+
+  defp upgrade(tcp, _opts, false), do: {:ok, %Socket{socket: tcp, ssl: false}}
+
+  defp refuse(host, port, reason) do
+    Logger.error("Could not connect to #{inspect_broker(host, port)} because of error #{inspect(reason)}")
+    {nil, %{success: false, error: reason}}
+  end
+
+  defp finish(socket, auth, host, port) do
+    case authenticate(socket, auth) do
+      :ok ->
+        :ok = Socket.setopts(socket, [:binary, {:packet, 4}, {:active, true}])
+        {socket, %{success: true}}
+
+      {:error, reason} ->
+        close_socket(%{host: host, port: port}, socket, :auth_error)
+        Logger.error("SASL authentication failed for #{inspect_broker(host, port)}}: #{inspect(reason)}")
+        {nil, %{success: false, error: reason}}
+    end
+  end
+
+  defp authenticate(_socket, nil), do: :ok
+  defp authenticate(socket, auth), do: VersionSupport.validate_config(auth, socket)
+
+  defp wrap(%Socket{} = socket), do: socket
+  defp wrap(raw), do: %Socket{socket: raw, ssl: false}
+
+  defp ensure_owner!(%Socket{socket: raw} = socket) do
+    cond do
+      Process.get({__MODULE__, raw}) -> :ok
+      not Socket.open?(socket) -> :ok
+      owner(socket) == self() -> :ok
+      true -> raise ArgumentError, "FakeTransport socket closed from a non-owner process"
+    end
+  end
+
+  defp owner(%Socket{socket: raw}) do
+    case :erlang.port_info(raw, :connected) do
+      {:connected, pid} -> pid
+      _ -> nil
+    end
+  end
+
+  defp forget(%Socket{socket: raw}), do: Process.delete({__MODULE__, raw})
+
+  defp inspect_broker(host, port), do: "broker #{inspect(host)}:#{inspect(port)}"
 end
