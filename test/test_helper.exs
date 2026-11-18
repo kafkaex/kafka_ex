@@ -9,7 +9,8 @@ ExUnit.configure(
     kafka4: true,
     lifecycle: true,
     produce: true,
-    rack_awareness: true
+    rack_awareness: true,
+    pin_set: :target_state
   ]
 )
 
