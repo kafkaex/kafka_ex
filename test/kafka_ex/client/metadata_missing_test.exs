@@ -2,136 +2,91 @@ defmodule KafkaEx.Client.MetadataMissingTest do
   @moduledoc """
   Metadata give-up path: a tracked topic still missing after retries must not
   discard the whole refresh (liveness), and its warning must be edge-triggered.
-  Driven through the real Client GenServer with NetworkClient stubbed.
+  Driven through a started client on the fake transport.
   """
-  use ExUnit.Case, async: false
-  use Mimic
+  use KafkaEx.TestSupport.PinCase, async: false
 
-  import ExUnit.CaptureLog
-
-  alias KafkaEx.Client
-  alias KafkaEx.Client.State
-  alias KafkaEx.Cluster.Broker
   alias KafkaEx.Cluster.ClusterMetadata
-  alias KafkaEx.Network.NetworkClient
-  alias KafkaEx.Network.Socket
 
-  setup :set_mimic_private
+  @moduletag pin_set: :invariant
 
   setup do
-    {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false])
-    {:ok, lport} = :inet.port(listen)
-    {:ok, sock} = :gen_tcp.connect(~c"localhost", lport, [:binary, active: false])
-
-    on_exit(fn ->
-      :gen_tcp.close(sock)
-      :gen_tcp.close(listen)
-    end)
-
-    broker = %Broker{node_id: 1, host: "localhost", port: lport, socket: %Socket{socket: sock, ssl: false}}
-
-    state =
-      KafkaEx.TestHelpers.client_state(%State{
-        cluster_metadata: %ClusterMetadata{brokers: %{1 => broker}},
-        # api_key 3 = metadata; {min, max} = {0, 0} negotiates the simplest (V0) wire format.
-        api_versions: %{3 => {0, 0}},
-        correlation_id: 1,
-        tracked_topics: MapSet.new(["present-topic", "missing-topic"])
-      })
-
-    {:ok, state: state, broker: broker, port: lport}
+    {:ok,
+     start_pinned(
+       topics: %{"present-topic" => [1], "missing-topic" => [1]},
+       client: [initial_topics: ["present-topic", "missing-topic"]]
+     )}
   end
 
-  defp stub_metadata_response(topic_names, port) do
-    stub(NetworkClient, :send_sync_request, fn _broker, _wire, _timeout ->
-      build_v0_metadata_response(topic_names, port)
-    end)
+  defp answer_with(%{fake: fake, host: host}, topic_names),
+    do: FakeTransport.respond(fake, :metadata, metadata_reply(host, Map.new(topic_names, &{&1, [1]})))
+
+  defp refresh(client), do: with_log(fn -> GenServer.call(client, :update_metadata) end)
+
+  # A repeat refresh that is one request and logs no warning means the known-missing set is unchanged.
+  defp assert_known_missing(fake, client) do
+    before = count(fake, :metadata)
+    sent_before = length(non_handshake(fake))
+    {_, log} = refresh(client)
+    assert count(fake, :metadata) - before == 1
+    assert length(non_handshake(fake)) - sent_before == 1
+    refute log =~ "[warning]"
   end
 
-  # Hand-rolled V0 wire bytes: Kayrock ships no response serializer.
-  defp build_v0_metadata_response(topic_names, port) do
-    partition = [
-      <<0::16-signed, 0::32-signed, 1::32-signed>>,
-      int32_array([1]),
-      int32_array([1])
-    ]
+  test "give-up merges: missing topic doesn't discard metadata for topics that ARE present",
+       %{
+         fake: fake,
+         client: client
+       } = pinned do
+    answer_with(pinned, ["present-topic"])
 
-    topics =
-      Enum.map(topic_names, fn name ->
-        [<<0::16-signed>>, string(name), int32_array_len(1), partition]
-      end)
-
-    [
-      <<1::32-signed>>,
-      int32_array_len(1),
-      [<<1::32-signed>>, string("localhost"), <<port::32-signed>>],
-      int32_array_len(length(topic_names)),
-      topics
-    ]
-    |> IO.iodata_to_binary()
-  end
-
-  defp string(s), do: <<byte_size(s)::16, s::binary>>
-  defp int32_array_len(n), do: <<n::32-signed>>
-  defp int32_array(values), do: [<<length(values)::32-signed>>, Enum.map(values, &<<&1::32-signed>>)]
-
-  test "give-up merges: missing topic doesn't discard metadata for topics that ARE present", %{state: state, port: port} do
-    stub_metadata_response(["present-topic"], port)
-
-    {{:reply, {:ok, cluster_metadata}, updated_state}, _log} =
-      capture_log_and_result(fn -> Client.handle_call(:update_metadata, self(), state) end)
+    {{:ok, cluster_metadata}, _log} = refresh(client)
 
     assert %ClusterMetadata{} = cluster_metadata
     assert cluster_metadata.topics["present-topic"]
     refute cluster_metadata.topics["missing-topic"]
 
     # Old give-up returned {state, nil}, discarding present-topic's fresh metadata.
-    assert updated_state.cluster_metadata.topics["present-topic"]
-    assert updated_state.metadata_missing == MapSet.new(["missing-topic"])
+    {:ok, cached} = API.cluster_metadata(client)
+    assert cached.topics["present-topic"]
+    assert_known_missing(fake, client)
   end
 
-  test "warning logged once when a tracked topic first goes missing", %{state: state, port: port} do
-    stub_metadata_response(["present-topic"], port)
+  test "warning logged once when a tracked topic first goes missing", %{client: client} = pinned do
+    answer_with(pinned, ["present-topic"])
 
-    log =
-      capture_log(fn ->
-        Client.handle_call(:update_metadata, self(), state)
-      end)
+    {_, log} = refresh(client)
 
     assert log =~ "[warning]"
     assert log =~ "missing-topic"
     assert log =~ "unavailable"
   end
 
-  test "edge-triggered: repeating the same missing set within the heartbeat window logs no second warning", %{
-    state: state,
-    port: port
-  } do
-    stub_metadata_response(["present-topic"], port)
+  test "edge-triggered: repeating the same missing set within the heartbeat window logs no second warning",
+       %{
+         fake: fake,
+         client: client
+       } = pinned do
+    answer_with(pinned, ["present-topic"])
 
-    {{:reply, _, state_after_first}, first_log} =
-      capture_log_and_result(fn -> Client.handle_call(:update_metadata, self(), state) end)
+    {_, first_log} = refresh(client)
 
     assert first_log =~ "[warning]"
 
-    {{:reply, _, state_after_second}, second_log} =
-      capture_log_and_result(fn -> Client.handle_call(:update_metadata, self(), state_after_first) end)
+    {_, second_log} = refresh(client)
 
     refute second_log =~ "[warning]"
-    assert state_after_second.metadata_missing == MapSet.new(["missing-topic"])
-    assert state_after_second.metadata_missing_logged_at == state_after_first.metadata_missing_logged_at
+    assert_known_missing(fake, client)
   end
 
-  test "recovery: topic reappearing logs exactly one info line and no warnings", %{state: state, port: port} do
-    stub_metadata_response(["present-topic"], port)
+  test "recovery: topic reappearing logs exactly one info line and no warnings",
+       %{fake: fake, client: client} = pinned do
+    answer_with(pinned, ["present-topic"])
+    refresh(client)
 
-    {{:reply, _, state_after_missing}, _first_log} =
-      capture_log_and_result(fn -> Client.handle_call(:update_metadata, self(), state) end)
+    answer_with(pinned, ["present-topic", "missing-topic"])
 
-    stub_metadata_response(["present-topic", "missing-topic"], port)
-
-    {{:reply, {:ok, cluster_metadata}, recovered_state}, recovery_log} =
-      capture_log_and_result(fn -> Client.handle_call(:update_metadata, self(), state_after_missing) end)
+    {{:ok, cluster_metadata}, recovery_log} = refresh(client)
 
     assert cluster_metadata.topics["present-topic"]
     assert cluster_metadata.topics["missing-topic"]
@@ -139,60 +94,58 @@ defmodule KafkaEx.Client.MetadataMissingTest do
     refute recovery_log =~ "[warning]"
     assert recovery_log =~ "[info]"
     assert recovery_log =~ "recovered"
-    assert recovered_state.metadata_missing == MapSet.new()
-    assert recovered_state.metadata_missing_logged_at == nil
+
+    # The known-missing set was cleared: the topic going missing again warns afresh.
+    answer_with(pinned, ["present-topic"])
+    before_again = count(fake, :metadata)
+    {_, again_log} = refresh(client)
+    assert again_log =~ "[warning]"
+    assert count(fake, :metadata) - before_again > 1
   end
 
-  test "a changed missing set logs a fresh warning even within the heartbeat window", %{state: state, port: port} do
-    stub_metadata_response(["present-topic"], port)
+  test "a changed missing set logs a fresh warning even within the heartbeat window",
+       %{
+         fake: fake,
+         client: client
+       } = pinned do
+    answer_with(pinned, ["present-topic"])
 
-    {{:reply, _, state_after_first}, first_log} =
-      capture_log_and_result(fn -> Client.handle_call(:update_metadata, self(), state) end)
+    {_, first_log} = refresh(client)
 
     assert first_log =~ "[warning]"
-    assert state_after_first.metadata_missing == MapSet.new(["missing-topic"])
+    assert_known_missing(fake, client)
 
     # Both tracked topics now missing: the set changed, so a new warning must fire
     # despite still being inside the heartbeat window.
-    stub_metadata_response([], port)
+    answer_with(pinned, [])
 
-    {{:reply, _, state_after_second}, second_log} =
-      capture_log_and_result(fn -> Client.handle_call(:update_metadata, self(), state_after_first) end)
+    {_, second_log} = refresh(client)
 
     assert second_log =~ "[warning]"
     assert second_log =~ "present-topic"
-    assert state_after_second.metadata_missing == MapSet.new(["present-topic", "missing-topic"])
+    assert_known_missing(fake, client)
   end
 
-  test "a known-missing topic is not sleep-retried on later refreshes (no recurring 600ms stall)", %{
-    state: state,
-    port: port
-  } do
-    calls = :counters.new(1, [])
+  test "a known-missing topic is not sleep-retried on later refreshes (no recurring 600ms stall)",
+       %{
+         fake: fake,
+         client: client
+       } = pinned do
+    answer_with(pinned, ["present-topic"])
+    before_first = count(fake, :metadata)
 
-    stub(NetworkClient, :send_sync_request, fn _broker, _wire, _timeout ->
-      :counters.add(calls, 1, 1)
-      build_v0_metadata_response(["present-topic"], port)
-    end)
-
-    {{:reply, _, state_after_first}, _first_log} =
-      capture_log_and_result(fn -> Client.handle_call(:update_metadata, self(), state) end)
+    refresh(client)
 
     # First time a topic goes missing we still retry, to tolerate a transient gap.
-    assert :counters.get(calls, 1) > 1
+    assert count(fake, :metadata) - before_first > 1
 
-    before_second = :counters.get(calls, 1)
+    before_second = count(fake, :metadata)
+    sent_before_second = length(non_handshake(fake))
 
-    {{:reply, _, _}, _second_log} =
-      capture_log_and_result(fn -> Client.handle_call(:update_metadata, self(), state_after_first) end)
+    refresh(client)
 
     # Already known-missing: a single metadata request, no retry ladder, no sleep.
-    assert :counters.get(calls, 1) - before_second == 1
-  end
-
-  defp capture_log_and_result(fun) do
-    log = capture_log(fn -> send(self(), {:capture_log_and_result, fun.()}) end)
-    assert_received {:capture_log_and_result, result}
-    {result, log}
+    assert count(fake, :metadata) - before_second == 1
+    assert length(non_handshake(fake)) - sent_before_second == 1
   end
 end

@@ -1,19 +1,22 @@
 defmodule KafkaEx.ClientTest do
   use ExUnit.Case, async: false
-  use Mimic
 
   import ExUnit.CaptureLog
+
+  import KafkaEx.TestSupport.PinCase,
+    only: [start_pinned: 1, count: 2, non_handshake: 1, produce_reply: 1, failed_async_sends: 3]
+
   import KafkaEx.TestSupport.ProcessHelpers
 
+  alias KafkaEx.API
   alias KafkaEx.Client
   alias KafkaEx.Client.Error
   alias KafkaEx.Client.State
   alias KafkaEx.Cluster.Broker
   alias KafkaEx.Cluster.ClusterMetadata
-  alias KafkaEx.Cluster.Topic
   alias KafkaEx.Messages.RecordMetadata
-  alias KafkaEx.Network.NetworkClient
   alias KafkaEx.Network.Socket
+  alias KafkaEx.TestSupport.FakeTransport
 
   # Tiny GenServer that delegates :tcp_closed/:ssl_closed to
   # `KafkaEx.Client.handle_info/2`. Used to exercise the callback under
@@ -33,191 +36,161 @@ defmodule KafkaEx.ClientTest do
   end
 
   describe "handle_call/3 - offset_fetch" do
-    test "returns error for invalid consumer group" do
-      state = %State{consumer_group_for_auto_commit: :no_consumer_group}
+    @describetag pin_set: :invariant
 
-      assert {:reply, {:error, :invalid_consumer_group}, ^state} =
-               Client.handle_call(
-                 {:offset_fetch, :no_consumer_group, [{"test-topic", [%{partition_num: 0}]}], []},
-                 self(),
-                 state
-               )
+    setup do
+      {:ok, start_pinned(api_versions: %{offset_fetch: 0..3})}
     end
 
-    test "handles valid consumer group" do
-      # Mock state with valid consumer group and API versions
-      state = %State{
-        consumer_group_for_auto_commit: "test-group",
-        api_versions: %{9 => {0, 3}},
-        correlation_id: 1,
-        cluster_metadata: %ClusterMetadata{
-          brokers: %{},
-          consumer_group_coordinators: %{"test-group" => 1}
-        }
-      }
+    test "returns error for invalid consumer group", %{fake: fake, client: client} do
+      sent_before = non_handshake(fake)
 
-      # Note: This would require mocking the network layer for a full test
-      # Here we just verify the handle_call accepts the valid format
-      result =
-        Client.handle_call(
-          {:offset_fetch, "test-group", [{"test-topic", [%{partition_num: 0}]}], []},
-          self(),
-          state
-        )
+      assert {:error, :invalid_consumer_group} =
+               GenServer.call(client, {:offset_fetch, :no_consumer_group, [{"test-topic", [%{partition_num: 0}]}], []})
 
-      assert match?({:reply, _, _}, result)
+      assert non_handshake(fake) == sent_before
+    end
+
+    test "handles valid consumer group", %{client: client} do
+      {result, _log} =
+        with_log(fn ->
+          GenServer.call(client, {:offset_fetch, "test-group", [{"test-topic", [%{partition_num: 0}]}], []})
+        end)
+
+      assert {_ok_or_error, _} = result
+      assert Process.alive?(client)
     end
   end
 
   describe "handle_call/3 - offset_commit" do
-    test "returns error for invalid consumer group" do
-      state = %State{consumer_group_for_auto_commit: :no_consumer_group}
+    @describetag pin_set: :invariant
 
-      assert {:reply, {:error, :invalid_consumer_group}, ^state} =
-               Client.handle_call(
-                 {:offset_commit, :no_consumer_group, [{"test-topic", [%{partition_num: 0, offset: 100}]}], []},
-                 self(),
-                 state
-               )
+    setup do
+      {:ok, start_pinned(api_versions: %{offset_commit: 0..3})}
     end
 
-    test "handles valid consumer group" do
-      # Mock state with valid consumer group and API versions
-      state = %State{
-        consumer_group_for_auto_commit: "test-group",
-        api_versions: %{8 => {0, 3}},
-        correlation_id: 1,
-        cluster_metadata: %ClusterMetadata{
-          brokers: %{},
-          consumer_group_coordinators: %{"test-group" => 1}
-        }
-      }
+    test "returns error for invalid consumer group", %{fake: fake, client: client} do
+      sent_before = non_handshake(fake)
 
-      # Note: This would require mocking the network layer for a full test
-      # Here we just verify the handle_call accepts the valid format
-      result =
-        Client.handle_call(
-          {:offset_commit, "test-group", [{"test-topic", [%{partition_num: 0, offset: 100}]}], []},
-          self(),
-          state
-        )
+      assert {:error, :invalid_consumer_group} =
+               GenServer.call(
+                 client,
+                 {:offset_commit, :no_consumer_group, [{"test-topic", [%{partition_num: 0, offset: 100}]}], []}
+               )
 
-      assert match?({:reply, _, _}, result)
+      assert non_handshake(fake) == sent_before
+    end
+
+    test "handles valid consumer group", %{client: client} do
+      {result, _log} =
+        with_log(fn ->
+          GenServer.call(
+            client,
+            {:offset_commit, "test-group", [{"test-topic", [%{partition_num: 0, offset: 100}]}], []}
+          )
+        end)
+
+      assert {_ok_or_error, _} = result
+      assert Process.alive?(client)
     end
   end
 
   # Regression: `:required_acks` never reached the wire (the request builder reads `:acks`), so
   # `acks: 0` was unreachable — and once reachable it crashed on `byte_size(:ok)` and was retried.
   describe "handle_call/3 - produce acks" do
-    setup :set_mimic_private
+    @describetag pin_set: :invariant
 
     setup do
-      {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false])
-      {:ok, lport} = :inet.port(listen)
-      {:ok, sock} = :gen_tcp.connect(~c"localhost", lport, [:binary, active: false])
-
-      on_exit(fn ->
-        :gen_tcp.close(sock)
-        :gen_tcp.close(listen)
-      end)
-
-      broker = %Broker{node_id: 1, host: "localhost", port: lport, socket: %Socket{socket: sock, ssl: false}}
-
-      state =
-        KafkaEx.TestHelpers.client_state(%State{
-          api_versions: %{0 => {0, 8}},
-          correlation_id: 1,
-          cluster_metadata: %ClusterMetadata{
-            brokers: %{1 => broker},
-            topics: %{"t" => %Topic{name: "t", partition_leaders: %{0 => 1}}}
-          }
-        })
-
-      {:ok, state: state}
+      pinned = start_pinned(topics: %{"t" => [1]}, api_versions: %{produce: 0..8})
+      FakeTransport.subscribe(pinned.fake)
+      {:ok, pinned}
     end
 
-    test "acks: 0 is sent fire-and-forget, exactly once, and returns no offset", %{state: state} do
-      stub_sends(:ok)
+    @tag pin_set: :today_only, retired_by: 1497
+    test "acks: 0 is sent fire-and-forget, exactly once, and returns no offset", %{fake: fake, client: client} do
+      FakeTransport.respond(fake, :produce, produce_reply("t"))
+      {:ok, correlation_id} = API.correlation_id(client)
 
-      {:reply, reply, state_out} = produce(state, acks: 0)
+      reply = produce(client, acks: 0)
 
       assert {:ok, %RecordMetadata{topic: "t", partition: 0, base_offset: nil}} = reply
-      assert state_out.correlation_id == state.correlation_id + 1
-      assert_received :async_sent
-      refute_received :async_sent
-      refute_received :sync_sent
+      assert API.correlation_id(client) == {:ok, correlation_id + 1}
+      assert_receive {:fake_transport, :request, %{api: :produce}}, 5_000
+      # Same connection, answered in order: once this returns, every earlier send is in the log.
+      assert {:ok, %RecordMetadata{base_offset: 7}} = produce(client, acks: 1)
+      assert count(fake, :produce) == 2
     end
 
-    test "a failed fire-and-forget send is reported as an error, not a crash, and is sent once", %{state: state} do
-      stub_sends({:error, :closed})
+    @tag pin_set: :today_only, retired_by: 1497
+    test "a failed fire-and-forget send is reported as an error, not a crash, and is sent once", %{
+      fake: fake,
+      client: client,
+      host: host
+    } do
+      FakeTransport.fail_send(fake, :produce, 0, :closed)
+      {:ok, correlation_id} = API.correlation_id(client)
 
-      {:reply, reply, state_out} = produce(state, acks: 0)
+      {reply, log} = with_log(fn -> produce(client, acks: 0) end)
 
       assert {:error, %Error{error: :closed}} = reply
-      assert state_out.correlation_id == state.correlation_id + 1
-      assert_received :async_sent
-      refute_received :async_sent
+      assert API.correlation_id(client) == {:ok, correlation_id + 1}
+      assert failed_async_sends(log, host, :closed) == 1
     end
 
-    test "an acks value the wire cannot carry is rejected without touching the socket", %{state: state} do
-      stub_sends(:ok)
+    test "an acks value the wire cannot carry is rejected without touching the socket", %{fake: fake, client: client} do
+      sent_before = non_handshake(fake)
 
       for opts <- [[acks: :bogus], [required_acks: 65_536], [acks: nil], [required_acks: 2]] do
-        assert {:reply, {:error, :invalid_acks}, ^state} = produce(state, opts)
+        assert {:error, :invalid_acks} = produce(client, opts)
       end
 
-      refute_received :async_sent
-      refute_received :sync_sent
+      assert non_handshake(fake) == sent_before
     end
 
-    test "the Java/librdkafka :all / :any spelling reaches the wire as -1", %{state: state} do
-      stub_sends()
+    test "the Java/librdkafka :all / :any spelling reaches the wire as -1", %{fake: fake, client: client} do
+      FakeTransport.respond(fake, :produce, produce_reply("t"))
       attach_produce_start_handler()
 
-      produce(state, acks: :all)
-      assert_received {:produce_start, %{required_acks: -1}}
+      assert {:ok, %RecordMetadata{base_offset: 7}} = produce(client, acks: :all)
+      assert_receive {:produce_start, %{required_acks: -1}}, 5_000
 
-      produce(state, acks: :any)
-      assert_received {:produce_start, %{required_acks: -1}}
-
-      assert_received :sync_sent
+      assert {:ok, %RecordMetadata{base_offset: 7}} = produce(client, acks: :any)
+      assert_receive {:produce_start, %{required_acks: -1}}, 5_000
     end
 
-    test "the deprecated :required_acks is honoured when :acks is absent", %{state: state} do
-      stub_sends(:ok)
+    test "the deprecated :required_acks is honoured when :acks is absent", %{fake: fake, client: client} do
+      FakeTransport.respond(fake, :produce, :no_reply)
 
-      {:reply, reply, _state} = produce(state, required_acks: 0)
+      reply = produce(client, required_acks: 0)
 
       assert {:ok, %RecordMetadata{base_offset: nil}} = reply
-      assert_received :async_sent
+      assert_receive {:fake_transport, :request, %{api: :produce}}, 5_000
     end
 
-    test "the deprecated :required_acks loses to an explicit :acks", %{state: state} do
-      stub_sends()
+    test "the deprecated :required_acks loses to an explicit :acks", %{fake: fake, client: client} do
+      FakeTransport.respond(fake, :produce, produce_reply("t"))
 
-      produce(state, required_acks: 0, acks: 1)
-
-      assert_received :sync_sent
-      refute_received :sync_sent
-      refute_received :async_sent
+      # Only the synchronous path reads the broker's offset.
+      assert {:ok, %RecordMetadata{base_offset: 7}} = produce(client, required_acks: 0, acks: 1)
+      assert count(fake, :produce) == 1
     end
 
-    test "telemetry reports the acks value that reaches the wire", %{state: state} do
-      stub_sends()
+    test "telemetry reports the acks value that reaches the wire", %{fake: fake, client: client} do
+      FakeTransport.respond(fake, :produce, produce_reply("t"))
       attach_produce_start_handler()
 
-      produce(state, acks: 1, required_acks: -1)
+      produce(client, acks: 1, required_acks: -1)
 
-      assert_received {:produce_start, %{required_acks: 1}}
+      assert_receive {:produce_start, %{required_acks: 1}}, 5_000
     end
 
-    test "acks defaults to -1 when neither option is given", %{state: state} do
-      stub_sends()
+    test "acks defaults to -1 when neither option is given", %{fake: fake, client: client} do
+      FakeTransport.respond(fake, :produce, produce_reply("t"))
       attach_produce_start_handler()
 
-      produce(state, [])
+      produce(client, [])
 
-      assert_received {:produce_start, %{required_acks: -1}}
+      assert_receive {:produce_start, %{required_acks: -1}}, 5_000
     end
   end
 
@@ -718,23 +691,7 @@ defmodule KafkaEx.ClientTest do
     end
   end
 
-  defp produce(state, opts) do
-    Client.handle_call({:produce, "t", 0, [%{value: "v"}], opts}, self(), state)
-  end
-
-  defp stub_sends(async_result \\ :ok) do
-    test_pid = self()
-
-    stub(NetworkClient, :send_async_request, fn _broker, _wire ->
-      send(test_pid, :async_sent)
-      async_result
-    end)
-
-    stub(NetworkClient, :send_sync_request, fn _broker, _wire, _timeout ->
-      send(test_pid, :sync_sent)
-      {:error, :stubbed}
-    end)
-  end
+  defp produce(client, opts), do: GenServer.call(client, {:produce, "t", 0, [%{value: "v"}], opts})
 
   defp attach_produce_start_handler do
     handler_id = "produce-acks-#{System.unique_integer([:positive])}"

@@ -1,138 +1,106 @@
 defmodule KafkaEx.Client.PreferredReplicaFetchTest do
   @moduledoc false
-  use ExUnit.Case, async: false
-  use Mimic
+  use KafkaEx.TestSupport.PinCase, async: false
 
-  import ExUnit.CaptureLog
-
-  alias KafkaEx.Client
-  alias KafkaEx.Client.State
-  alias KafkaEx.Cluster.Broker
-  alias KafkaEx.Cluster.ClusterMetadata
-  alias KafkaEx.Cluster.Topic
   alias KafkaEx.Messages.Fetch
-  alias KafkaEx.Network.NetworkClient
-  alias KafkaEx.Network.Socket
 
-  @topic "t"
   @leader 1
   @replica 2
   @offset_out_of_range 1
 
-  # handle_call/3 runs in the test process, so private stubs apply.
-  setup :set_mimic_private
-
   setup do
-    brokers = Map.new([@leader, @replica], &{&1, open_broker(&1)})
-
-    cluster_metadata = %ClusterMetadata{
-      brokers: brokers,
-      topics: %{@topic => %Topic{name: @topic, partition_leaders: %{0 => @leader}}}
-    }
-
-    {:ok,
-     state:
-       KafkaEx.TestHelpers.client_state(%State{
-         api_versions: %{1 => {0, 11}},
-         correlation_id: 1,
-         cluster_metadata: cluster_metadata
-       })}
+    {:ok, start_pinned(topics: %{@topic => [@leader]}, api_versions: %{fetch: 0..11})}
   end
 
-  test "an error from the preferred replica is retried once at the leader", %{state: state} do
-    state = with_preferred_replica(state, @replica)
-    stub_fetch_errors(%{@replica => @offset_out_of_range, @leader => 0})
+  @tag pin_set: :invariant
+  test "an error from the preferred replica is retried once at the leader", %{fake: fake, client: client} do
+    mark = with_preferred_replica(fake, client, @replica)
+    reply_by_node(fake, %{@replica => @offset_out_of_range, @leader => 0})
 
-    {{:reply, result, new_state}, _log} = with_log(fn -> fetch(state) end)
+    {result, _log} = with_log(fn -> fetch(client) end)
 
     assert {:ok, %Fetch{}} = result
-    assert_received {:fetched_from, @replica}
-    assert_received {:fetched_from, @leader}
-    refute_received {:fetched_from, _}
-    assert ClusterMetadata.preferred_replica(new_state.cluster_metadata, @topic, 0) == nil
+    assert fetched_from(fake, mark) == [@replica, @leader]
+    assert_preferred_replica_forgotten(fake, client)
   end
 
-  test "the leader's own error is returned after the fallback", %{state: state} do
-    state = with_preferred_replica(state, @replica)
-    stub_fetch_errors(%{@replica => @offset_out_of_range, @leader => @offset_out_of_range})
+  @tag pin_set: :invariant
+  test "the leader's own error is returned after the fallback", %{fake: fake, client: client} do
+    mark = with_preferred_replica(fake, client, @replica)
+    reply_by_node(fake, %{@replica => @offset_out_of_range, @leader => @offset_out_of_range})
 
-    {{:reply, result, _state}, _log} = with_log(fn -> fetch(state) end)
+    {result, _log} = with_log(fn -> fetch(client) end)
 
     assert {:error, %{error: :offset_out_of_range}} = result
-    assert_received {:fetched_from, @replica}
-    assert_received {:fetched_from, @leader}
-    refute_received {:fetched_from, _}
+    assert fetched_from(fake, mark) == [@replica, @leader]
   end
 
-  test "the leader gets a single attempt after the replica's error", %{state: state} do
-    state = with_preferred_replica(state, @replica)
-    stub_fetch_errors(%{@replica => @offset_out_of_range, @leader => {:error, :closed}})
+  @tag pin_set: :today_only, retired_by: 1497
+  test "the leader gets a single attempt after the replica's error", %{fake: fake, client: client} do
+    mark = with_preferred_replica(fake, client, @replica)
+    reply_by_node(fake, %{@replica => @offset_out_of_range, @leader => :close})
 
-    {{:reply, result, _state}, _log} = with_log(fn -> fetch(state) end)
+    {result, _log} = with_log(fn -> fetch(client) end)
 
     assert {:error, %{error: :closed}} = result
-    assert_received {:fetched_from, @replica}
-    assert_received {:fetched_from, @leader}
-    refute_received {:fetched_from, _}
+    assert fetched_from(fake, mark) == [@replica, @leader]
   end
 
+  @tag pin_set: :today_only, retired_by: 1497
   test "a retryable error from the replica forgets it without asking the leader in the same call",
-       %{state: state} do
-    state = with_preferred_replica(state, @replica)
-    stub_fetch_errors(%{@replica => {:error, :closed}, @leader => 0})
+       %{fake: fake, client: client} do
+    mark = with_preferred_replica(fake, client, @replica)
+    reply_by_node(fake, %{@replica => :close, @leader => 0})
 
-    {{:reply, result, new_state}, _log} = with_log(fn -> fetch(state) end)
+    {result, _log} = with_log(fn -> fetch(client) end)
 
     assert {:error, %{error: :closed}} = result
-    refute_received {:fetched_from, @leader}
-    assert ClusterMetadata.preferred_replica(new_state.cluster_metadata, @topic, 0) == nil
+    refute @leader in fetched_from(fake, mark)
+    assert_preferred_replica_forgotten(fake, client)
   end
 
-  test "a leader error without a preferred replica is not sent twice", %{state: state} do
-    stub_fetch_errors(%{@leader => @offset_out_of_range})
+  @tag pin_set: :invariant
+  test "a leader error without a preferred replica is not sent twice", %{fake: fake, client: client} do
+    reply_by_node(fake, %{@leader => @offset_out_of_range})
 
-    {{:reply, result, _state}, _log} = with_log(fn -> fetch(state) end)
+    {result, _log} = with_log(fn -> fetch(client) end)
 
     assert {:error, %{error: :offset_out_of_range}} = result
-    assert_received {:fetched_from, @leader}
-    refute_received {:fetched_from, _}
+    assert fetched_from(fake, 0) == [@leader]
   end
 
-  defp fetch(state), do: Client.handle_call({:fetch, @topic, 0, 5, [api_version: 0]}, self(), state)
+  defp fetch(client), do: GenServer.call(client, {:fetch, @topic, 0, 5, [api_version: 0]})
 
-  defp with_preferred_replica(state, node_id) do
-    %{state | cluster_metadata: ClusterMetadata.put_preferred_replica(state.cluster_metadata, @topic, 0, node_id)}
+  # The leader names the replica in a v11 answer; the client caches it for the next fetch.
+  defp with_preferred_replica(fake, client, node_id) do
+    FakeTransport.respond(fake, :fetch, &{:frame, fetch_frame(&1, node_id)})
+    {:ok, _} = GenServer.call(client, {:fetch, @topic, 0, 5, [api_version: 11]})
+    count(fake, :fetch)
   end
 
-  defp stub_fetch_errors(error_by_node) do
-    test_pid = self()
-
-    stub(NetworkClient, :send_sync_request, fn %Broker{node_id: node_id}, _wire, _timeout ->
-      send(test_pid, {:fetched_from, node_id})
-
-      case Map.fetch!(error_by_node, node_id) do
-        {:error, _} = transport_error -> transport_error
-        error_code -> fetch_v0_response(error_code)
+  defp reply_by_node(fake, reply_by_node) do
+    FakeTransport.respond(fake, :fetch, fn %{node_id: node_id, correlation_id: correlation_id} ->
+      case Map.fetch!(reply_by_node, node_id) do
+        :close -> :close
+        error_code -> {:frame, fetch_v0_response(correlation_id, error_code)}
       end
     end)
   end
 
-  defp fetch_v0_response(error_code) do
-    <<1::32-signed, 1::32-signed, byte_size(@topic)::16-signed>> <>
-      @topic <> <<1::32-signed, 0::32-signed, error_code::16-signed, 10::64-signed, 0::32-signed>>
+  defp fetched_from(fake, mark), do: fake |> nodes(:fetch) |> Enum.drop(mark)
+
+  defp assert_preferred_replica_forgotten(fake, client) do
+    reply_by_node(fake, %{@leader => 0})
+    mark = count(fake, :fetch)
+
+    {result, _log} = with_log(fn -> fetch(client) end)
+
+    assert {:ok, %Fetch{}} = result
+    assert [@leader | _] = fetched_from(fake, mark)
   end
 
-  # An open loopback socket makes Broker.connected?/1 true; no I/O goes through it.
-  defp open_broker(node_id) do
-    {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false])
-    {:ok, port} = :inet.port(listen)
-    {:ok, sock} = :gen_tcp.connect(~c"localhost", port, [:binary, active: false])
-
-    on_exit(fn ->
-      :gen_tcp.close(sock)
-      :gen_tcp.close(listen)
-    end)
-
-    %Broker{node_id: node_id, host: "localhost", port: port, socket: %Socket{socket: sock, ssl: false}}
+  defp fetch_v0_response(correlation_id, error_code) do
+    <<correlation_id::32-signed, 1::32-signed, byte_size(@topic)::16-signed>> <>
+      @topic <> <<1::32-signed, 0::32-signed, error_code::16-signed, 10::64-signed, 0::32-signed>>
   end
 end

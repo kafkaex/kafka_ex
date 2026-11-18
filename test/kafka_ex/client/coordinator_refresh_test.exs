@@ -7,133 +7,83 @@ defmodule KafkaEx.Client.CoordinatorRefreshTest do
   Pre-fix, the metadata-refresh classifier only knew leadership errors, so
   `:not_coordinator` retried the same cached coordinator and FindCoordinator was
   never re-issued (the rolling-deploy hang). Coordinator-refresh classification now
-  lives in `Retry.coordinator_refresh_error?/1`. Driven through the real
-  `handle_call` path; no private function is exposed.
-
-  The observable in both tests is that a FindCoordinator request gets *built* —
-  which only happens when the client re-discovers the coordinator.
+  lives in `Retry.coordinator_refresh_error?/1`.
 
   The two tests cover the two ways `:not_coordinator` reaches the retry loop. The
   first injects it at the network seam, where it becomes an `%Error{}`. The second
   is the DescribeGroups API which reports per-group failures as
   `{:error, [{group_id, error_atom}]}`.
+
+  Each test first caches the coordinator with one successful request; a
+  FindCoordinator in the fake's request log after that is a re-discovery.
+  A failed send never reaches the fake, so it is counted by its log line.
   """
-  use ExUnit.Case, async: false
-  use Mimic
+  use KafkaEx.TestSupport.PinCase, async: false
 
-  alias KafkaEx.Client
-  alias KafkaEx.Client.RequestBuilder
-  alias KafkaEx.Client.State
-  alias KafkaEx.Cluster.Broker
-  alias KafkaEx.Cluster.ClusterMetadata
-  alias KafkaEx.Network.NetworkClient
-  alias KafkaEx.Network.Socket
+  @moduletag pin_set: :invariant
 
-  # Kafka error code 16, NOT_COORDINATOR.
   @not_coordinator 16
-
-  setup :set_mimic_private
+  @group "test-group"
+  @offset_fetch_ok %{
+    error_code: 0,
+    topics: [%{name: "t", partitions: [%{partition_index: 0, committed_offset: 0, metadata: nil, error_code: 0}]}]
+  }
 
   setup do
-    {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false])
-    {:ok, lport} = :inet.port(listen)
-    {:ok, sock} = :gen_tcp.connect(~c"localhost", lport, [:binary, active: false])
+    pinned =
+      start_pinned(
+        api_versions: %{offset_fetch: 0..3, describe_groups: 0..0, consumer_group_heartbeat: 0..1},
+        client: [consumer_group: @group]
+      )
 
-    on_exit(fn ->
-      :gen_tcp.close(sock)
-      :gen_tcp.close(listen)
-    end)
-
-    broker = %Broker{node_id: 1, host: "localhost", port: lport, socket: %Socket{socket: sock, ssl: false}}
-
-    state =
-      KafkaEx.TestHelpers.client_state(%State{
-        consumer_group_for_auto_commit: "test-group",
-        api_versions: %{9 => {0, 3}},
-        correlation_id: 1,
-        cluster_metadata: %ClusterMetadata{
-          brokers: %{1 => broker},
-          consumer_group_coordinators: %{"test-group" => 1}
-        }
-      })
-
-    {:ok, state: state}
+    {:ok, pinned}
   end
 
-  test ":not_coordinator on a consumer-group request triggers coordinator re-discovery", %{state: state} do
-    test_pid = self()
+  test ":not_coordinator on a consumer-group request triggers coordinator re-discovery", %{fake: fake, client: client} do
+    FakeTransport.respond(fake, :offset_fetch, @offset_fetch_ok)
+    mark = cache_coordinator(fake, fn -> offset_fetch(client, []) end)
+    FakeTransport.fail_send(fake, :offset_fetch, 0, :not_coordinator)
 
-    stub(NetworkClient, :send_sync_request, fn _broker, _wire, _timeout -> {:error, :not_coordinator} end)
-
-    # FindCoordinator is only built when the client decides to re-discover.
-    stub(RequestBuilder, :find_coordinator_request, fn _opts, _state ->
-      send(test_pid, :rediscovered)
-      {:error, :api_version_no_supported}
-    end)
-
-    Client.handle_call(
-      {:offset_fetch, "test-group", [{"t", [%{partition_num: 0}]}], []},
-      self(),
-      state
-    )
+    with_log(fn -> offset_fetch(client, []) end)
 
     # pre-fix this never fires: :not_coordinator retried the stale cached coordinator
-    assert_received :rediscovered
+    assert :find_coordinator in apis_after(fake, mark)
   end
 
-  test "a group-level :not_coordinator in a DescribeGroups response triggers re-discovery", %{state: state} do
-    test_pid = self()
+  test "a group-level :not_coordinator in a DescribeGroups response triggers re-discovery", %{
+    fake: fake,
+    client: client
+  } do
+    FakeTransport.respond(fake, :describe_groups, &{:frame, describe_groups_v0_response(&1.correlation_id, @group, 0)})
+    mark = cache_coordinator(fake, fn -> describe(client) end)
 
-    stub(NetworkClient, :send_sync_request, fn _broker, _wire, _timeout ->
-      describe_groups_v0_response(state.correlation_id, "test-group", @not_coordinator)
-    end)
+    FakeTransport.respond(
+      fake,
+      :describe_groups,
+      &{:frame, describe_groups_v0_response(&1.correlation_id, @group, @not_coordinator)}
+    )
 
-    stub(RequestBuilder, :find_coordinator_request, fn _opts, _state ->
-      send(test_pid, :rediscovered)
-      {:error, :api_version_no_supported}
-    end)
-
-    Client.handle_call({:describe_groups, ["test-group"], [api_version: 0]}, self(), state)
+    with_log(fn -> describe(client) end)
 
     # pre-fix this never fires: the group-level atom arrived as :unknown
-    assert_received :rediscovered
+    assert :find_coordinator in apis_after(fake, mark)
   end
 
   describe "KIP-848 ConsumerGroupHeartbeat on a connection failure" do
-    # Two brokers; the cached coordinator for the group is broker 1, which is
-    # gone (every request to it fails at the transport).
-    setup %{state: state} do
-      [broker] = Map.values(state.cluster_metadata.brokers)
-
-      state =
-        KafkaEx.TestHelpers.client_state(%State{
-          state
-          | api_versions: %{68 => {0, 1}, 10 => {0, 3}},
-            cluster_metadata: %ClusterMetadata{
-              brokers: %{1 => broker, 2 => %Broker{broker | node_id: 2}},
-              consumer_group_coordinators: %{"test-group" => 1}
-            }
-        })
-
-      {:ok, state: state}
+    setup %{fake: fake, client: client} do
+      FakeTransport.respond(fake, :consumer_group_heartbeat, &{:frame, consumer_group_heartbeat_frame(&1, "m", 5)})
+      {:ok, mark: cache_coordinator(fake, fn -> heartbeat(client, member_id: "m", member_epoch: 5) end)}
     end
 
     # Nothing was sent: the client retries, on a re-discovered coordinator.
     for reason <- [:no_broker, :not_connected] do
-      test "#{reason} re-discovers the coordinator before the next attempt", %{state: state} do
-        reason = unquote(reason)
-        test_pid = self()
-        stub(NetworkClient, :send_sync_request, fn _broker, _wire, _timeout -> {:error, reason} end)
+      test "#{reason} re-discovers the coordinator before the next attempt", %{fake: fake, client: client, mark: mark} do
+        FakeTransport.fail_send(fake, :consumer_group_heartbeat, 0, unquote(reason))
 
-        stub(RequestBuilder, :find_coordinator_request, fn _opts, _state ->
-          send(test_pid, :rediscovered)
-          {:error, :api_version_no_supported}
-        end)
-
-        Client.handle_call({:consumer_group_heartbeat, "test-group", [member_id: "m", member_epoch: 5]}, self(), state)
+        with_log(fn -> heartbeat(client, member_id: "m", member_epoch: 5) end)
 
         # pre-fix the client retried the cached coordinator only
-        assert_received :rediscovered
+        assert :find_coordinator in apis_after(fake, mark)
       end
     end
 
@@ -141,26 +91,21 @@ defmodule KafkaEx.Client.CoordinatorRefreshTest do
     # heartbeat resent unchanged would be fenced, so it goes back to the
     # manager, which resends it in full.
     for reason <- [:timeout, :closed, :econnreset, :transport_error, :parse_error] do
-      test "#{reason} is send-once: returned to the caller, not resent", %{state: state} do
+      test "#{reason} is send-once: returned to the caller, not resent", %{
+        fake: fake,
+        client: client,
+        host: host,
+        mark: mark
+      } do
         reason = unquote(reason)
-        test_pid = self()
+        FakeTransport.fail_send(fake, :consumer_group_heartbeat, 0, reason)
 
-        stub(NetworkClient, :send_sync_request, fn _broker, _wire, _timeout ->
-          send(test_pid, :sent)
-          {:error, reason}
-        end)
+        {result, log} = with_log(fn -> heartbeat(client, member_id: "m", member_epoch: 5) end)
 
-        stub(RequestBuilder, :find_coordinator_request, fn _opts, _state -> flunk("resent") end)
-
-        assert {:reply, {:error, %KafkaEx.Client.Error{error: ^reason}}, _} =
-                 Client.handle_call(
-                   {:consumer_group_heartbeat, "test-group", [member_id: "m", member_epoch: 5]},
-                   self(),
-                   state
-                 )
-
-        assert_received :sent
-        refute_received :sent
+        assert {:error, %KafkaEx.Client.Error{error: ^reason}} = result
+        assert failed_sends(log, host, reason) == 1
+        refute :find_coordinator in apis_after(fake, mark)
+        refute :consumer_group_heartbeat in apis_after(fake, mark)
       end
     end
 
@@ -168,76 +113,85 @@ defmodule KafkaEx.Client.CoordinatorRefreshTest do
     # broker accepts them again, so the client keeps retrying a lost
     # connection (the leave has no other retry).
     for epoch <- [0, -1, -2] do
-      test "a heartbeat with epoch #{epoch} is still resent by the client after :closed", %{state: state} do
+      test "a heartbeat with epoch #{epoch} is still resent by the client after :closed", %{
+        fake: fake,
+        client: client,
+        host: host,
+        mark: mark
+      } do
         epoch = unquote(epoch)
-        test_pid = self()
-
-        stub(NetworkClient, :send_sync_request, fn _broker, _wire, _timeout ->
-          send(test_pid, :sent)
-          {:error, :closed}
-        end)
-
-        stub(RequestBuilder, :find_coordinator_request, fn _opts, _state ->
-          send(test_pid, :rediscovered)
-          {:error, :api_version_no_supported}
-        end)
+        FakeTransport.fail_send(fake, :consumer_group_heartbeat, 0, :closed)
 
         opts = [member_id: "m", member_epoch: epoch] ++ if(epoch == -2, do: [instance_id: "i"], else: [])
-        Client.handle_call({:consumer_group_heartbeat, "test-group", opts}, self(), state)
+        {_result, log} = with_log(fn -> heartbeat(client, opts) end)
 
-        assert_received :sent
-        assert_received :rediscovered
+        assert failed_sends(log, host, :closed) >= 2
+        assert :find_coordinator in apis_after(fake, mark)
       end
     end
 
-    test "a send-once failure forgets the coordinator, so the next heartbeat re-discovers it", %{state: state} do
-      test_pid = self()
-      stub(NetworkClient, :send_sync_request, fn _broker, _wire, _timeout -> {:error, :closed} end)
+    test "a send-once failure forgets the coordinator, so the next heartbeat re-discovers it", %{
+      fake: fake,
+      client: client,
+      mark: mark
+    } do
+      FakeTransport.fail_send(fake, :consumer_group_heartbeat, 0, :closed)
 
-      stub(RequestBuilder, :find_coordinator_request, fn _opts, _state ->
-        send(test_pid, :rediscovered)
-        {:error, :api_version_no_supported}
-      end)
+      {result, _log} = with_log(fn -> heartbeat(client, member_id: "m", member_epoch: 5) end)
 
-      {:reply, {:error, _}, state_out} =
-        Client.handle_call({:consumer_group_heartbeat, "test-group", [member_id: "m", member_epoch: 5]}, self(), state)
+      assert {:error, _} = result
+      refute :find_coordinator in apis_after(fake, mark)
 
-      refute_received :rediscovered
-      assert state_out.cluster_metadata.consumer_group_coordinators == %{}
+      FakeTransport.release(fake, :consumer_group_heartbeat)
+      heartbeat(client, member_id: "m", member_epoch: 5)
 
-      Client.handle_call(
-        {:consumer_group_heartbeat, "test-group", [member_id: "m", member_epoch: 5]},
-        self(),
-        state_out
-      )
-
-      assert_received :rediscovered
+      assert :find_coordinator in apis_after(fake, mark)
     end
 
-    test "a broker error answer (not a connection failure) keeps the cached coordinator", %{state: state} do
-      stub(NetworkClient, :send_sync_request, fn _broker, _wire, _timeout -> {:error, :request_timed_out} end)
-      stub(RequestBuilder, :find_coordinator_request, fn _opts, _state -> flunk("re-discovered") end)
+    test "a broker error answer (not a connection failure) keeps the cached coordinator", %{
+      fake: fake,
+      client: client,
+      mark: mark
+    } do
+      FakeTransport.fail_send(fake, :consumer_group_heartbeat, 0, :request_timed_out)
 
-      {:reply, {:error, _}, state_out} =
-        Client.handle_call({:consumer_group_heartbeat, "test-group", [member_id: "m", member_epoch: 5]}, self(), state)
+      {result, _log} = with_log(fn -> heartbeat(client, member_id: "m", member_epoch: 5) end)
 
-      assert state_out.cluster_metadata.consumer_group_coordinators == %{"test-group" => 1}
+      assert {:error, _} = result
+      FakeTransport.release(fake, :consumer_group_heartbeat)
+      assert {:ok, _} = heartbeat(client, member_id: "m", member_epoch: 5)
+
+      refute :find_coordinator in apis_after(fake, mark)
     end
 
-    test "a classic request keeps its behaviour: a :closed is retried on the cached coordinator", %{state: state} do
-      stub(NetworkClient, :send_sync_request, fn _broker, _wire, _timeout -> {:error, :closed} end)
-      stub(RequestBuilder, :find_coordinator_request, fn _opts, _state -> flunk("re-discovered") end)
+    test "a classic request keeps its behaviour: a :closed is retried on the cached coordinator", %{
+      fake: fake,
+      client: client
+    } do
+      FakeTransport.respond(fake, :offset_fetch, @offset_fetch_ok)
+      mark = cache_coordinator(fake, fn -> offset_fetch(client, api_version: 3) end)
+      FakeTransport.fail_send(fake, :offset_fetch, 0, :closed)
 
-      {:reply, {:error, _}, state_out} =
-        Client.handle_call(
-          {:offset_fetch, "test-group", [{"t", [%{partition_num: 0}]}], [api_version: 3]},
-          self(),
-          %State{state | api_versions: %{9 => {0, 3}}}
-        )
+      {result, _log} = with_log(fn -> offset_fetch(client, api_version: 3) end)
 
-      assert state_out.cluster_metadata.consumer_group_coordinators == %{"test-group" => 1}
+      assert {:error, _} = result
+      FakeTransport.release(fake, :offset_fetch)
+      assert {:ok, _} = offset_fetch(client, api_version: 3)
+
+      refute :find_coordinator in apis_after(fake, mark)
     end
   end
+
+  defp cache_coordinator(fake, call) do
+    assert {:ok, _} = call.()
+    length(FakeTransport.requests(fake))
+  end
+
+  defp offset_fetch(client, opts),
+    do: GenServer.call(client, {:offset_fetch, @group, [{"t", [%{partition_num: 0}]}], opts})
+
+  defp describe(client), do: GenServer.call(client, {:describe_groups, [@group], [api_version: 0]})
+  defp heartbeat(client, opts), do: GenServer.call(client, {:consumer_group_heartbeat, @group, opts})
 
   # correlation_id, one group: error_code, group_id, empty state/protocol_type/protocol,
   # no members.

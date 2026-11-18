@@ -1,57 +1,35 @@
 defmodule KafkaEx.Client.ConsumerGroupProtocolTest do
   @moduledoc """
-  ConsumerGroupHeartbeat / ConsumerGroupDescribe (KIP-848) through the real
-  `KafkaEx.Client.handle_call/3` path, with the network seam stubbed: version
-  negotiation, coordinator routing and re-discovery, retry classification,
-  assignment topic-name resolution and telemetry.
+  ConsumerGroupHeartbeat / ConsumerGroupDescribe (KIP-848) through a started
+  client on the fake transport: version negotiation, coordinator routing and
+  re-discovery, retry classification, assignment topic-name resolution and
+  telemetry.
   """
-  use ExUnit.Case, async: false
-  use Mimic
+  use KafkaEx.TestSupport.PinCase, async: false
 
-  alias KafkaEx.Client
-  alias KafkaEx.Client.RequestBuilder
-  alias KafkaEx.Client.State
-  alias KafkaEx.Cluster.Broker
-  alias KafkaEx.Cluster.ClusterMetadata
-  alias KafkaEx.Cluster.Topic
   alias KafkaEx.Messages.ConsumerGroupDescription
   alias KafkaEx.Messages.ConsumerGroupHeartbeat
   alias KafkaEx.Messages.TopicPartitions
-  alias KafkaEx.Network.NetworkClient
-  alias KafkaEx.Network.Socket
 
-  @heartbeat_api_key 68
-  @describe_api_key 69
+  @moduletag pin_set: :invariant
+
   @known_id <<1::128>>
   @unknown_id <<2::128>>
 
-  setup :set_mimic_private
+  setup context do
+    versions =
+      Map.merge(
+        %{consumer_group_heartbeat: 0..1, consumer_group_describe: 0..1, metadata: 10..10},
+        Map.get(context, :api_versions, %{})
+      )
 
-  setup do
-    {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false])
-    {:ok, lport} = :inet.port(listen)
-    {:ok, sock} = :gen_tcp.connect(~c"localhost", lport, [:binary, active: false])
-
-    on_exit(fn ->
-      :gen_tcp.close(sock)
-      :gen_tcp.close(listen)
-    end)
-
-    broker = %Broker{node_id: 1, host: "localhost", port: lport, socket: %Socket{socket: sock, ssl: false}}
-
-    state =
-      KafkaEx.TestHelpers.client_state(%State{
-        consumer_group_for_auto_commit: "g",
-        api_versions: %{@heartbeat_api_key => {0, 1}, @describe_api_key => {0, 1}},
-        correlation_id: 1,
-        cluster_metadata: %ClusterMetadata{
-          brokers: %{1 => broker},
-          consumer_group_coordinators: %{"g" => 1},
-          topics: %{"orders" => %Topic{name: "orders", topic_id: @known_id}}
-        }
-      })
-
-    {:ok, state: state}
+    {:ok,
+     start_pinned(
+       api_versions: versions,
+       topics: %{},
+       client: [consumer_group: "g"],
+       before_boot: &FakeTransport.respond(&1, :metadata, fn request -> orders_metadata(request.host) end)
+     )}
   end
 
   # --- wire fixtures (response header v1: correlation id + empty tagged fields) ---
@@ -86,31 +64,38 @@ defmodule KafkaEx.Client.ConsumerGroupProtocolTest do
       group_id <> <<1, 0::32, 0::32, 1, 1, 0::32, 0, 0>>
   end
 
-  defp correlation_id(wire) do
-    <<_api_key::16, _version::16, correlation_id::32, _::binary>> = IO.iodata_to_binary(wire)
-    correlation_id
+  defp orders_metadata(host) do
+    %{
+      brokers: [%{node_id: 1, host: host, port: 9092}, %{node_id: 2, host: host, port: 9093}],
+      topics: [
+        %{
+          name: "orders",
+          topic_id: @known_id,
+          partitions: [%{partition_index: 0, leader_id: 1, replica_nodes: [1], isr_nodes: [1]}]
+        }
+      ]
+    }
   end
 
-  defp api_version(wire) do
-    <<_api_key::16, version::16, _::binary>> = IO.iodata_to_binary(wire)
-    version
+  defp respond_heartbeat(fake, opts),
+    do: FakeTransport.respond(fake, :consumer_group_heartbeat, &{:frame, heartbeat_response(&1.correlation_id, opts)})
+
+  defp heartbeat(client, group \\ "g", opts), do: GenServer.call(client, {:consumer_group_heartbeat, group, opts})
+
+  # The first request of the API needs a FindCoordinator first; one after it is a re-discovery.
+  defp apis_after_first(fake, api) do
+    fake |> FakeTransport.requests() |> Enum.map(& &1.api) |> Enum.drop_while(&(&1 != api)) |> Enum.drop(1)
   end
 
   describe "consumer_group_heartbeat" do
-    test "negotiates v1 and resolves assignment topic names from cluster metadata", %{state: state} do
-      test_pid = self()
-
-      stub(NetworkClient, :send_sync_request, fn _broker, wire, _timeout ->
-        send(test_pid, {:version, api_version(wire)})
-        heartbeat_response(correlation_id(wire), assignment: [{@known_id, [0, 1]}, {@unknown_id, [2]}])
-      end)
+    test "negotiates v1 and resolves assignment topic names from cluster metadata", %{fake: fake, client: client} do
+      respond_heartbeat(fake, assignment: [{@known_id, [0, 1]}, {@unknown_id, [2]}])
 
       opts = [member_id: "m-1", member_epoch: 0, subscribed_topic_names: ["orders"], topic_partitions: []]
 
-      assert {:reply, {:ok, %ConsumerGroupHeartbeat{} = result}, _state} =
-               Client.handle_call({:consumer_group_heartbeat, "g", opts}, self(), state)
+      assert {:ok, %ConsumerGroupHeartbeat{} = result} = heartbeat(client, opts)
 
-      assert_received {:version, 1}
+      assert [%{api_version: 1}] = requests(fake, :consumer_group_heartbeat)
       assert result.member_id == "m-1"
       assert result.member_epoch == 1
       assert result.heartbeat_interval_ms == 5_000
@@ -121,89 +106,56 @@ defmodule KafkaEx.Client.ConsumerGroupProtocolTest do
              ]
     end
 
-    test "an unchanged assignment stays nil", %{state: state} do
-      stub(NetworkClient, :send_sync_request, fn _broker, wire, _timeout ->
-        heartbeat_response(correlation_id(wire), member_epoch: 4)
-      end)
+    test "an unchanged assignment stays nil", %{fake: fake, client: client} do
+      respond_heartbeat(fake, member_epoch: 4)
 
-      assert {:reply, {:ok, %ConsumerGroupHeartbeat{assignment: nil, member_epoch: 4}}, _} =
-               Client.handle_call({:consumer_group_heartbeat, "g", [member_id: "m-1", member_epoch: 4]}, self(), state)
+      assert {:ok, %ConsumerGroupHeartbeat{assignment: nil, member_epoch: 4}} =
+               heartbeat(client, member_id: "m-1", member_epoch: 4)
     end
 
-    test ":fenced_member_epoch is returned after a single attempt", %{state: state} do
-      test_pid = self()
+    test ":fenced_member_epoch is returned after a single attempt", %{fake: fake, client: client} do
+      respond_heartbeat(fake, error_code: 110, member_epoch: -1)
 
-      stub(NetworkClient, :send_sync_request, fn _broker, wire, _timeout ->
-        send(test_pid, :sent)
-        heartbeat_response(correlation_id(wire), error_code: 110, member_epoch: -1)
-      end)
+      assert {:error, %{error: :fenced_member_epoch}} = heartbeat(client, member_id: "m-1", member_epoch: 3)
 
-      assert {:reply, {:error, %{error: :fenced_member_epoch}}, _} =
-               Client.handle_call({:consumer_group_heartbeat, "g", [member_id: "m-1", member_epoch: 3]}, self(), state)
-
-      assert_received :sent
-      refute_received :sent
+      assert count(fake, :consumer_group_heartbeat) == 1
     end
 
-    test ":not_coordinator re-discovers the coordinator before retrying", %{state: state} do
-      test_pid = self()
+    test ":not_coordinator re-discovers the coordinator before retrying", %{fake: fake, client: client} do
+      respond_heartbeat(fake, error_code: 16)
 
-      stub(NetworkClient, :send_sync_request, fn _broker, wire, _timeout ->
-        heartbeat_response(correlation_id(wire), error_code: 16)
-      end)
+      with_log(fn -> heartbeat(client, member_id: "m-1", member_epoch: 3) end)
 
-      stub(RequestBuilder, :find_coordinator_request, fn _opts, _state ->
-        send(test_pid, :rediscovered)
-        {:error, :api_version_no_supported}
-      end)
-
-      Client.handle_call({:consumer_group_heartbeat, "g", [member_id: "m-1", member_epoch: 3]}, self(), state)
-
-      assert_received :rediscovered
+      assert :find_coordinator in apis_after_first(fake, :consumer_group_heartbeat)
     end
 
-    test ":coordinator_load_in_progress is retried without re-discovery", %{state: state} do
-      test_pid = self()
+    test ":coordinator_load_in_progress is retried without re-discovery", %{fake: fake, client: client} do
+      respond_heartbeat(fake, error_code: 14)
 
-      stub(NetworkClient, :send_sync_request, fn _broker, wire, _timeout ->
-        send(test_pid, :sent)
-        heartbeat_response(correlation_id(wire), error_code: 14)
-      end)
+      {result, _log} = with_log(fn -> heartbeat(client, member_id: "m-1", member_epoch: 3) end)
 
-      stub(RequestBuilder, :find_coordinator_request, fn _opts, _state ->
-        send(test_pid, :rediscovered)
-        {:error, :api_version_no_supported}
-      end)
-
-      assert {:reply, {:error, %{error: :coordinator_load_in_progress}}, _} =
-               Client.handle_call({:consumer_group_heartbeat, "g", [member_id: "m-1", member_epoch: 3]}, self(), state)
-
-      assert_received :sent
-      assert_received :sent
-      refute_received :rediscovered
+      assert {:error, %{error: :coordinator_load_in_progress}} = result
+      assert count(fake, :consumer_group_heartbeat) >= 2
+      refute :find_coordinator in apis_after_first(fake, :consumer_group_heartbeat)
     end
 
-    test "subscribed_topic_regex with only v0 negotiated is rejected before sending", %{state: state} do
-      state = %{state | api_versions: %{@heartbeat_api_key => {0, 0}}}
-      reject(&NetworkClient.send_sync_request/3)
+    @tag api_versions: %{consumer_group_heartbeat: 0..0}
+    test "subscribed_topic_regex with only v0 negotiated is rejected before sending", %{fake: fake, client: client} do
+      sent_before = non_handshake(fake)
 
-      assert {:reply, {:error, :api_version_no_supported}, _} =
-               Client.handle_call(
-                 {:consumer_group_heartbeat, "g", [member_epoch: 0, subscribed_topic_regex: "o.*"]},
-                 self(),
-                 state
-               )
+      assert {:error, :api_version_no_supported} =
+               heartbeat(client, member_epoch: 0, subscribed_topic_regex: "o.*")
+
+      assert non_handshake(fake) == sent_before
     end
 
-    test "a broker without the API returns :api_not_supported_by_broker", %{state: state} do
-      state = %{state | api_versions: %{}}
-
-      assert {:reply, {:error, :api_not_supported_by_broker}, _} =
-               Client.handle_call({:consumer_group_heartbeat, "g", [member_epoch: 0]}, self(), state)
+    @tag api_versions: %{consumer_group_heartbeat: nil}
+    test "a broker without the API returns :api_not_supported_by_broker", %{client: client} do
+      assert {:error, :api_not_supported_by_broker} = heartbeat(client, member_epoch: 0)
     end
 
-    test "malformed :topic_partitions is an error, not a crash in the client", %{state: state} do
-      reject(&NetworkClient.send_sync_request/3)
+    test "malformed :topic_partitions is an error, not a crash in the client", %{fake: fake, client: client} do
+      sent_before = non_handshake(fake)
 
       for bad <- [
             [%{topic: "t", partitions: [0]}],
@@ -212,20 +164,15 @@ defmodule KafkaEx.Client.ConsumerGroupProtocolTest do
             [%{topic_id: @known_id, partitions: ["0"]}],
             %{topic_id: @known_id, partitions: [0]}
           ] do
-        assert {:reply, {:error, :invalid_topic_partitions}, ^state} =
-                 Client.handle_call(
-                   {:consumer_group_heartbeat, "g", [member_epoch: 0, topic_partitions: bad]},
-                   self(),
-                   state
-                 )
+        assert {:error, :invalid_topic_partitions} = heartbeat(client, member_epoch: 0, topic_partitions: bad)
       end
+
+      assert non_handshake(fake) == sent_before
     end
 
-    test "every malformed heartbeat field is an error, not a crash in the client", %{state: state} do
+    test "every malformed heartbeat field is an error, not a crash in the client", %{fake: fake, client: client} do
       # These used to reach Kayrock unchecked and raise InvalidRequestError
       # (or KeyError for a missing epoch) inside the shared client process.
-      reject(&NetworkClient.send_sync_request/3)
-
       cases = [
         {[member_id: "m"], :invalid_member_epoch},
         {[member_epoch: nil], :invalid_member_epoch},
@@ -240,38 +187,44 @@ defmodule KafkaEx.Client.ConsumerGroupProtocolTest do
         {[member_epoch: 0, server_assignor: :uniform], :invalid_server_assignor}
       ]
 
+      sent_before = non_handshake(fake)
+
       for {opts, expected} <- cases do
-        assert {:reply, {:error, ^expected}, ^state} =
-                 Client.handle_call({:consumer_group_heartbeat, "g", opts}, self(), state),
-               "expected #{inspect(opts)} -> #{inspect(expected)}"
+        assert {:error, ^expected} = heartbeat(client, opts), "expected #{inspect(opts)} -> #{inspect(expected)}"
       end
+
+      assert non_handshake(fake) == sent_before
     end
 
-    test "nil optional fields are allowed (KIP-848 'unchanged')", %{state: state} do
-      stub(NetworkClient, :send_sync_request, fn _broker, _wire, _timeout -> {:error, :request_timed_out} end)
+    test "nil optional fields are allowed (KIP-848 'unchanged')", %{fake: fake, client: client, host: host} do
+      FakeTransport.fail_send(fake, :consumer_group_heartbeat, 0, :request_timed_out)
 
-      assert {:reply, {:error, _not_a_validation_error}, _} =
-               Client.handle_call(
-                 {:consumer_group_heartbeat, "g",
-                  [member_epoch: 3, member_id: "m", instance_id: nil, rack_id: nil, subscribed_topic_names: nil]},
-                 self(),
-                 state
-               )
+      {result, log} =
+        with_log(fn ->
+          heartbeat(client,
+            member_epoch: 3,
+            member_id: "m",
+            instance_id: nil,
+            rack_id: nil,
+            subscribed_topic_names: nil
+          )
+        end)
+
+      assert {:error, _not_a_validation_error} = result
+      assert failed_sends(log, host, :request_timed_out) >= 1
     end
 
-    test "a non-integer :member_epoch is an error, not a crash in the client", %{state: state} do
-      reject(&NetworkClient.send_sync_request/3)
-
-      assert {:reply, {:error, :invalid_member_epoch}, ^state} =
-               Client.handle_call({:consumer_group_heartbeat, "g", [member_epoch: "0"]}, self(), state)
+    test "a non-integer :member_epoch is an error, not a crash in the client", %{fake: fake, client: client} do
+      sent_before = non_handshake(fake)
+      assert {:error, :invalid_member_epoch} = heartbeat(client, member_epoch: "0")
+      assert non_handshake(fake) == sent_before
     end
 
-    test "rejects an invalid group", %{state: state} do
-      assert {:reply, {:error, :invalid_consumer_group}, _} =
-               Client.handle_call({:consumer_group_heartbeat, "", [member_epoch: 0]}, self(), state)
+    test "rejects an invalid group", %{client: client} do
+      assert {:error, :invalid_consumer_group} = heartbeat(client, "", member_epoch: 0)
     end
 
-    test "emits the consumer_group_heartbeat telemetry span", %{state: state} do
+    test "emits the consumer_group_heartbeat telemetry span", %{fake: fake, client: client} do
       test_pid = self()
       handler = "cgh-telemetry-#{inspect(self())}"
 
@@ -287,26 +240,20 @@ defmodule KafkaEx.Client.ConsumerGroupProtocolTest do
 
       on_exit(fn -> :telemetry.detach(handler) end)
 
-      stub(NetworkClient, :send_sync_request, fn _broker, wire, _timeout ->
-        heartbeat_response(correlation_id(wire),
-          member_id: "gen-id",
-          member_epoch: 2,
-          assignment: [{@known_id, [0, 1]}]
-        )
-      end)
+      respond_heartbeat(fake, member_id: "gen-id", member_epoch: 2, assignment: [{@known_id, [0, 1]}])
 
-      Client.handle_call({:consumer_group_heartbeat, "g", [member_epoch: 0, member_id: "gen-id"]}, self(), state)
+      heartbeat(client, member_epoch: 0, member_id: "gen-id")
 
-      assert_received {[:kafka_ex, :consumer, :consumer_group_heartbeat, :start], start}
+      assert_receive {[:kafka_ex, :consumer, :consumer_group_heartbeat, :start], start}, 5_000
       assert %{group_id: "g", member_id: "gen-id", member_epoch: 0} = start
 
-      assert_received {[:kafka_ex, :consumer, :consumer_group_heartbeat, :stop], stop}
+      assert_receive {[:kafka_ex, :consumer, :consumer_group_heartbeat, :stop], stop}, 5_000
       assert %{result: :ok, member_epoch: 0, new_member_epoch: 2, assigned_partitions: 2} = stop
     end
   end
 
   describe "consumer_group_heartbeat member id (KIP-1082)" do
-    setup %{state: state} do
+    setup do
       test_pid = self()
       handler = "cgh-member-id-#{inspect(self())}"
 
@@ -318,14 +265,13 @@ defmodule KafkaEx.Client.ConsumerGroupProtocolTest do
       )
 
       on_exit(fn -> :telemetry.detach(handler) end)
-      {:ok, state: state}
+      :ok
     end
 
-    defp sent_member_id(wire) do
+    defp sent_member_id(frame) do
       # request header v2: api key, version, correlation id, client id (int16 string), tagged
       # fields; then group_id and member_id as compact strings
-      <<_::16, _::16, _::32, client_id_len::16, _::binary-size(client_id_len), 0, rest::binary>> =
-        IO.iodata_to_binary(wire)
+      <<_::16, _::16, _::32, client_id_len::16, _::binary-size(client_id_len), 0, rest::binary>> = frame
 
       <<group_len_plus_1, _::binary-size(group_len_plus_1 - 1), id_len_plus_1,
         member_id::binary-size(id_len_plus_1 - 1), _::binary>> = rest
@@ -333,86 +279,65 @@ defmodule KafkaEx.Client.ConsumerGroupProtocolTest do
       member_id
     end
 
-    test "a failed v1 join without :member_id reports the generated id that was sent", %{state: state} do
-      test_pid = self()
+    test "a failed v1 join without :member_id reports the generated id that was sent", %{fake: fake, client: client} do
+      # The short timeout must cover only the muted heartbeat, not the coordinator lookup.
+      FakeTransport.respond(fake, :consumer_group_describe, &{:frame, describe_response(&1.correlation_id, "g", 0)})
+      assert {:ok, _} = GenServer.call(client, {:consumer_group_describe, ["g"], []})
+      with_request_timeout(200)
+      FakeTransport.respond(fake, :consumer_group_heartbeat, :no_reply)
 
-      stub(NetworkClient, :send_sync_request, fn _broker, wire, _timeout ->
-        send(test_pid, {:sent, sent_member_id(wire)})
-        {:error, :timeout}
-      end)
+      {result, _log} = with_log(fn -> heartbeat(client, member_epoch: 0, topic_partitions: []) end)
 
-      assert {:reply, {:error, _}, _} =
-               Client.handle_call(
-                 {:consumer_group_heartbeat, "g", [member_epoch: 0, topic_partitions: []]},
-                 self(),
-                 state
-               )
-
-      assert_received {:sent, sent_id}
+      assert {:error, _} = result
+      assert [%{frame: frame}] = requests(fake, :consumer_group_heartbeat)
+      sent_id = sent_member_id(frame)
       assert byte_size(sent_id) == 22
-      assert_received {:stop, %{result: :error, member_id: ^sent_id, member_epoch: 0}}
+      assert_receive {:stop, %{result: :error, member_id: ^sent_id, member_epoch: 0}}, 5_000
     end
 
-    test "a successful v1 join without :member_id reports the id echoed by the broker", %{state: state} do
-      stub(NetworkClient, :send_sync_request, fn _broker, wire, _timeout ->
-        heartbeat_response(correlation_id(wire), member_id: sent_member_id(wire), member_epoch: 1)
-      end)
+    test "a successful v1 join without :member_id reports the id echoed by the broker", %{fake: fake, client: client} do
+      FakeTransport.respond(
+        fake,
+        :consumer_group_heartbeat,
+        &{:frame, heartbeat_response(&1.correlation_id, member_id: sent_member_id(&1.frame), member_epoch: 1)}
+      )
 
-      assert {:reply, {:ok, %ConsumerGroupHeartbeat{member_id: id}}, _} =
-               Client.handle_call(
-                 {:consumer_group_heartbeat, "g", [member_epoch: 0, topic_partitions: []]},
-                 self(),
-                 state
-               )
+      assert {:ok, %ConsumerGroupHeartbeat{member_id: id}} = heartbeat(client, member_epoch: 0, topic_partitions: [])
 
       assert byte_size(id) == 22
-      assert_received {:stop, %{result: :ok, member_id: ^id}}
+      assert_receive {:stop, %{result: :ok, member_id: ^id}}, 5_000
     end
 
-    test "a caller-supplied :member_id is sent and reported unchanged", %{state: state} do
-      stub(NetworkClient, :send_sync_request, fn _broker, _wire, _timeout -> {:error, :timeout} end)
+    test "a caller-supplied :member_id is sent and reported unchanged", %{fake: fake, client: client} do
+      FakeTransport.fail_send(fake, :consumer_group_heartbeat, 0, :timeout)
 
-      Client.handle_call({:consumer_group_heartbeat, "g", [member_epoch: 0, member_id: "mine"]}, self(), state)
+      with_log(fn -> heartbeat(client, member_epoch: 0, member_id: "mine") end)
 
-      assert_received {:stop, %{result: :error, member_id: "mine"}}
+      assert_receive {:stop, %{result: :error, member_id: "mine"}}, 5_000
     end
   end
 
   describe "consumer_group_describe" do
-    test "an unknown group returns the group-level error", %{state: state} do
-      stub(NetworkClient, :send_sync_request, fn _broker, wire, _timeout ->
-        describe_response(correlation_id(wire), "g", 69)
-      end)
+    test "an unknown group returns the group-level error", %{fake: fake, client: client} do
+      FakeTransport.respond(fake, :consumer_group_describe, &{:frame, describe_response(&1.correlation_id, "g", 69)})
 
       # same shape as DescribeGroups: {group_id, error}; KafkaEx.API unwraps it
-      assert {:reply, {:error, {"g", :group_id_not_found}}, _} =
-               Client.handle_call({:consumer_group_describe, ["g"], []}, self(), state)
+      assert {:error, {"g", :group_id_not_found}} = GenServer.call(client, {:consumer_group_describe, ["g"], []})
     end
 
-    test "parses a described group", %{state: state} do
-      stub(NetworkClient, :send_sync_request, fn _broker, wire, _timeout ->
-        describe_response(correlation_id(wire), "g", 0)
-      end)
+    test "parses a described group", %{fake: fake, client: client} do
+      FakeTransport.respond(fake, :consumer_group_describe, &{:frame, describe_response(&1.correlation_id, "g", 0)})
 
-      assert {:reply, {:ok, [%ConsumerGroupDescription{group_id: "g", type: :consumer, members: []}]}, _} =
-               Client.handle_call({:consumer_group_describe, ["g"], []}, self(), state)
+      assert {:ok, [%ConsumerGroupDescription{group_id: "g", type: :consumer, members: []}]} =
+               GenServer.call(client, {:consumer_group_describe, ["g"], []})
     end
 
-    test "a group-level :not_coordinator re-discovers the coordinator", %{state: state} do
-      test_pid = self()
+    test "a group-level :not_coordinator re-discovers the coordinator", %{fake: fake, client: client} do
+      FakeTransport.respond(fake, :consumer_group_describe, &{:frame, describe_response(&1.correlation_id, "g", 16)})
 
-      stub(NetworkClient, :send_sync_request, fn _broker, wire, _timeout ->
-        describe_response(correlation_id(wire), "g", 16)
-      end)
+      with_log(fn -> GenServer.call(client, {:consumer_group_describe, ["g"], []}) end)
 
-      stub(RequestBuilder, :find_coordinator_request, fn _opts, _state ->
-        send(test_pid, :rediscovered)
-        {:error, :api_version_no_supported}
-      end)
-
-      Client.handle_call({:consumer_group_describe, ["g"], []}, self(), state)
-
-      assert_received :rediscovered
+      assert :find_coordinator in apis_after_first(fake, :consumer_group_describe)
     end
   end
 end

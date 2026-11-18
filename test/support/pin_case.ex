@@ -46,7 +46,7 @@ defmodule KafkaEx.TestSupport.PinCase do
   end
 
   def start_pinned(opts \\ []) do
-    versions = Map.merge(@versions, Keyword.get(opts, :api_versions, %{}))
+    versions = @versions |> Map.merge(Keyword.get(opts, :api_versions, %{})) |> Map.reject(&is_nil(elem(&1, 1)))
     topics = Keyword.get(opts, :topics, %{@topic => [1, 2]})
     %{fake: fake, host: host} = start_fake([{1, 9092}, {2, 9093}], topics: topics, api_versions: versions)
 
@@ -89,11 +89,25 @@ defmodule KafkaEx.TestSupport.PinCase do
   def non_handshake(fake), do: fake |> FakeTransport.requests() |> Enum.reject(&handshake?/1)
   def handshake?(%{api: api}), do: api in @handshake
 
-  def produce_reply do
+  def apis_after(fake, mark), do: fake |> FakeTransport.requests() |> Enum.drop(mark) |> Enum.map(& &1.api)
+
+  # A failed send never reaches the fake; its transport log line is the only trace of the attempt.
+  def failed_sends(log, host, reason), do: count_failures(log, "Sending data to", host, reason)
+  def failed_async_sends(log, host, reason), do: count_failures(log, "Asynchronously sending data to", host, reason)
+
+  # A real send failure after an injected one is logged by NetworkClient, which repeats "broker".
+  defp count_failures(log, verb, host, reason) do
+    line =
+      ~r/#{verb} broker (broker )?#{Regex.escape(inspect(host))}:\d+ failed with #{Regex.escape(inspect(reason))}\n/
+
+    length(Regex.scan(line, log))
+  end
+
+  def produce_reply(topic \\ @topic) do
     %{
       responses: [
         %{
-          topic: @topic,
+          topic: topic,
           partition_responses: [%{partition: 0, error_code: 0, base_offset: 7, log_append_time: -1}]
         }
       ]
