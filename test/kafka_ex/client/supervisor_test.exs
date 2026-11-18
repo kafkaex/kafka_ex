@@ -6,9 +6,9 @@ defmodule KafkaEx.Client.SupervisorTest do
   alias KafkaEx.Messages.RecordMetadata
 
   test "the client supervisor restarts rest-for-one, at most 3 times in 5 seconds, with the connection supervisor first" do
-    assert {:ok, {flags, children}} = ClientSupervisor.init([])
+    assert {:ok, {flags, children}} = ClientSupervisor.init(%{store: %{}})
     assert %{strategy: :rest_for_one, intensity: 3, period: 5} = flags
-    assert [%{id: :connections, type: :supervisor}] = children
+    assert [%{id: :connections, type: :supervisor}, %{id: :metadata_store}] = children
   end
 
   test "a stop that runs out of time leaves the process linked to the client supervisor alive" do

@@ -190,10 +190,10 @@ defmodule KafkaEx.Client.RebuildTest do
       assert {:ok, [%{name: @topic}]} = result
       assert log =~ "Network call to broker 1 (#{host}:9092) failed: :closed\n"
       assert fake |> writes(:metadata) |> Enum.drop(mark) == [{1, 1}, {2, 0}]
-      assert_receive {:span, :start, %{operation: :metadata, api_version: 1, correlation_id: ^before}}, 1_000
+      assert_receive {:span, :start, %{operation: :metadata, api_version: 1, correlation_id: nil}}, 1_000
       assert_receive {:span, :stop, %{operation: :metadata, api_version: 0, broker: %{port: 9093}}}, 1_000
       refute_receive {:span, _, _}, 100
-      assert API.correlation_id(client) == {:ok, before + 1}
+      assert API.correlation_id(client) == {:ok, before}
     end
 
     test "a coordinator lookup that walks on to a broker with a lower max is rebuilt at that broker's version" do

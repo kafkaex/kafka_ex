@@ -36,7 +36,7 @@ defmodule KafkaEx.Integration.Lifecycle.MetadataRefreshTest do
       _ = create_topic(client, topic_b)
       {:ok, _} = API.delete_topic(client, topic_b)
 
-      tracked = :sys.get_state(client).tracked_topics
+      tracked = tracked_topics(client)
       assert MapSet.member?(tracked, topic_a)
       refute MapSet.member?(tracked, topic_b)
 
@@ -80,33 +80,38 @@ defmodule KafkaEx.Integration.Lifecycle.MetadataRefreshTest do
       assert Map.has_key?(all_metadata.topics, topic3)
 
       # API.metadata/1 overwrites cluster_metadata wholesale; it never touches tracked_topics.
-      tracked_after_metadata = :sys.get_state(client).tracked_topics
+      tracked_after_metadata = tracked_topics(client)
       refute MapSet.member?(tracked_after_metadata, topic1)
       refute MapSet.member?(tracked_after_metadata, topic2)
       refute MapSet.member?(tracked_after_metadata, topic3)
 
       {:ok, _} = API.topics_metadata(client, [topic1])
 
-      state_after_t1 = :sys.get_state(client)
-      assert Map.has_key?(state_after_t1.cluster_metadata.topics, topic1)
-      refute Map.has_key?(state_after_t1.cluster_metadata.topics, topic2)
-      refute Map.has_key?(state_after_t1.cluster_metadata.topics, topic3)
-      assert state_after_t1.tracked_topics == MapSet.new([topic1])
+      {:ok, metadata_after_t1} = API.cluster_metadata(client)
+      assert Map.has_key?(metadata_after_t1.topics, topic1)
+      refute Map.has_key?(metadata_after_t1.topics, topic2)
+      refute Map.has_key?(metadata_after_t1.topics, topic3)
+      assert tracked_topics(client) == MapSet.new([topic1])
 
       {:ok, _} = API.topics_metadata(client, [topic2])
 
-      state_after_t2 = :sys.get_state(client)
-      assert Map.has_key?(state_after_t2.cluster_metadata.topics, topic1)
-      assert Map.has_key?(state_after_t2.cluster_metadata.topics, topic2)
-      assert state_after_t2.tracked_topics == MapSet.new([topic1, topic2])
+      {:ok, metadata_after_t2} = API.cluster_metadata(client)
+      assert Map.has_key?(metadata_after_t2.topics, topic1)
+      assert Map.has_key?(metadata_after_t2.topics, topic2)
+      assert tracked_topics(client) == MapSet.new([topic1, topic2])
 
       {:ok, _} = API.metadata(client)
       {:ok, _} = GenServer.call(client, :update_metadata, 15_000)
 
       # Monotonic tracked_topics: topic1/topic2 survive the tracked-only refresh, no thrashing.
-      final_state = :sys.get_state(client)
-      assert Map.has_key?(final_state.cluster_metadata.topics, topic1)
-      assert Map.has_key?(final_state.cluster_metadata.topics, topic2)
+      {:ok, final_metadata} = API.cluster_metadata(client)
+      assert Map.has_key?(final_metadata.topics, topic1)
+      assert Map.has_key?(final_metadata.topics, topic2)
     end
+  end
+
+  defp tracked_topics(client) do
+    store = :sys.get_state(client).store.pid
+    :sys.get_state(store) |> elem(1) |> Map.fetch!(:tracked)
   end
 end

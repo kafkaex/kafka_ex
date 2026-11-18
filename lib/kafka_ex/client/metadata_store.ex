@@ -10,11 +10,11 @@ defmodule KafkaEx.Client.MetadataStore do
   alias KafkaEx.Client.MetadataStore.Backoff
   alias KafkaEx.Client.MetadataStore.Round
   alias KafkaEx.Client.MetadataStore.Snapshot
-  alias KafkaEx.Client.Supervisor, as: ClientSupervisor
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Cluster.Topic
   alias KafkaEx.Config
   alias KafkaEx.Messages.FindCoordinator
+  alias KafkaEx.Telemetry
 
   @defaults [
     min_interval: 100,
@@ -22,7 +22,9 @@ defmodule KafkaEx.Client.MetadataStore do
     backoff_cap: 1_000,
     coordinator_base: 500,
     coordinator_cap: 1_000,
-    ladder_delay: 300
+    ladder_delay: 300,
+    connect_slack: 1_500,
+    request_slack: 1_000
   ]
   @call_timeout 5_000
 
@@ -63,11 +65,14 @@ defmodule KafkaEx.Client.MetadataStore do
   @spec forget_coordinator(pid(), binary(), timeout()) :: :ok
   def forget_coordinator(store, group, timeout), do: :gen_statem.call(store, {:forget_coordinator, group}, timeout)
 
-  @spec connection(pid(), address(), timeout()) :: {:ok, pid()}
+  @spec connection(pid(), address(), timeout()) :: {:ok, pid() | nil}
   def connection(store, address, timeout), do: :gen_statem.call(store, {:connection, address}, timeout)
 
   @spec candidates(pid(), timeout()) :: [address()]
   def candidates(store, timeout), do: :gen_statem.call(store, :candidates, timeout)
+
+  @spec snapshot(pid(), timeout()) :: {:ok, ClusterMetadata.t(), non_neg_integer()}
+  def snapshot(store, timeout), do: :gen_statem.call(store, :snapshot, timeout)
 
   @spec next_seq(pid(), timeout()) :: pos_integer()
   def next_seq(store, timeout), do: :gen_statem.call(store, :next_seq, timeout)
@@ -80,8 +85,14 @@ defmodule KafkaEx.Client.MetadataStore do
   @spec stop(pid(), term()) :: :ok
   def stop(store, reason), do: :gen_statem.stop(store, reason, @call_timeout)
 
-  @spec call_timeout(pos_integer()) :: pos_integer()
-  def call_timeout(brokers), do: brokers * (Config.connect_timeout() + 1_500 + Config.request_timeout() + 1_000) + 2_600
+  # A trigger can wait for the in-flight round of its key, then its own, plus the longest pacing delay (cap x 1.2).
+  @spec call_timeout(non_neg_integer(), Keyword.t(), Keyword.t(), Round.kind()) :: pos_integer()
+  def call_timeout(brokers, connection_opts, store_opts, kind \\ :metadata) do
+    opts = Map.new(Keyword.merge(@defaults, store_opts))
+    budget = budget(kind, List.duplicate(nil, max(brokers, 1)), opts, connection_opts)
+
+    2 * Round.bound(budget) + div(max(opts.backoff_cap, opts.coordinator_cap) * 6, 5)
+  end
 
   @doc false
   @spec prune(Snapshot.freshness(), pos_integer()) :: Snapshot.freshness()
@@ -100,7 +111,6 @@ defmodule KafkaEx.Client.MetadataStore do
       allow_default: args.allow_auto_topic_creation,
       connection: args.connection,
       opts: Map.new(Keyword.merge(@defaults, args.opts)),
-      conn_sup: nil,
       table: Snapshot.new(),
       freshness: %{topics: %{}, brokers: 0},
       seq: 0,
@@ -126,9 +136,7 @@ defmodule KafkaEx.Client.MetadataStore do
   @impl :gen_statem
   def handle_event(:enter, _old, _state, _data), do: :keep_state_and_data
 
-  def handle_event(:internal, :start, :loading, data) do
-    start_load(%{data | conn_sup: ClientSupervisor.connection_supervisor(data.supervisor)}, [])
-  end
+  def handle_event(:internal, :start, :loading, data), do: start_load(data, [])
 
   def handle_event({:call, from}, :await_ready, :loading, data) do
     {:keep_state, %{data | boot_waiters: data.boot_waiters ++ [from]}}
@@ -139,6 +147,12 @@ defmodule KafkaEx.Client.MetadataStore do
   end
 
   def handle_event({:call, from}, :table, _state, data), do: {:keep_state_and_data, [{:reply, from, {:ok, data.table}}]}
+
+  # The store is the only writer, so no swap can interleave with this read.
+  def handle_event({:call, from}, :snapshot, _state, data) do
+    {:ok, counter} = Snapshot.counter(data.table)
+    {:keep_state_and_data, [{:reply, from, {:ok, Snapshot.to_cluster_metadata(data.table), counter}}]}
+  end
 
   def handle_event({:call, from}, {trigger, _} = msg, :loading, data) when trigger in [:refresh, :coordinator] do
     data = track(data, msg)
@@ -431,14 +445,7 @@ defmodule KafkaEx.Client.MetadataStore do
   end
 
   defp round_spec(data, kind, request_opts, candidates) do
-    budget = %{
-      kind: kind,
-      candidates: candidates,
-      ladder_delay: data.opts.ladder_delay,
-      connect_timeout: Keyword.get_lazy(data.connection.opts, :connect_timeout, &Config.connect_timeout/0),
-      request_timeout: Config.request_timeout()
-    }
-
+    budget = budget(kind, candidates, data.opts, data.connection.opts)
     bound = Round.bound(budget)
 
     spec =
@@ -450,6 +457,18 @@ defmodule KafkaEx.Client.MetadataStore do
       })
 
     {spec, bound}
+  end
+
+  defp budget(kind, candidates, opts, connection_opts) do
+    %{
+      kind: kind,
+      candidates: candidates,
+      ladder_delay: opts.ladder_delay,
+      connect_slack: opts.connect_slack,
+      request_slack: opts.request_slack,
+      connect_timeout: connect_timeout(connection_opts),
+      request_timeout: Config.request_timeout()
+    }
   end
 
   defp round_request(data, :load) do
@@ -467,8 +486,10 @@ defmodule KafkaEx.Client.MetadataStore do
   end
 
   defp add_candidate(address, {data, candidates}) do
-    {data, pid} = ensure_connection(data, address)
-    {data, [{address, pid} | candidates]}
+    case ensure_connection(data, address) do
+      {data, nil} -> {data, candidates}
+      {data, pid} -> {data, [{address, pid} | candidates]}
+    end
   end
 
   defp take_round(data, match) do
@@ -496,7 +517,7 @@ defmodule KafkaEx.Client.MetadataStore do
 
   defp handle_result(:load, _round, failure, :loading, data) do
     reason = reason(failure)
-    boot = for from <- data.boot_waiters, do: {:reply, from, {:error, {:boot, reason}}}
+    boot = for from <- data.boot_waiters, do: {:reply, from, {:error, {:boot, boot_reason(failure)}}}
     loading = for {from, _msg} <- data.load_waiters, do: {:reply, from, {:error, {:loading, reason}}}
     data = %{data | boot_waiters: [], load_waiters: [], failures: data.failures + 1}
     {:loading, data, boot ++ loading ++ [{:state_timeout, backoff(data), :retry}]}
@@ -521,28 +542,40 @@ defmodule KafkaEx.Client.MetadataStore do
   defp handle_result(_kind, round, failure, state, data) do
     reason = reason(failure)
     replies = for from <- round.waiters, do: {:reply, from, {:error, reason}}
-    degraded(state, reason, %{data | failures: data.failures + 1}, replies)
+    degraded(state, failure, %{data | failures: data.failures + 1}, replies)
   end
 
-  defp reason({:raised, module}), do: {:raised, module}
+  # Only the boot waiter gets the exception itself, so the client can re-raise it; telemetry carries the module.
+  defp reason({:raised, {_kind, exception, _stacktrace}}), do: {:raised, exception.__struct__}
   defp reason({:error, reason}), do: reason
+
+  defp boot_reason({:raised, _raised} = raised), do: raised
+  defp boot_reason(failure), do: reason(failure)
 
   # Only a :metadata success leaves :degraded: a coordinator answer does not prove metadata works.
   defp recovered(:degraded, data, replies) do
+    Logger.info("Periodic metadata update recovered")
     duration = System.monotonic_time() - data.degraded_at
-    :telemetry.execute([:kafka_ex, :metadata_store, :recovered], %{duration: duration}, %{})
+    Telemetry.emit_metadata_store_recovered(duration)
     {:ready, %{data | degraded_at: nil}, replies}
   end
 
   defp recovered(state, data, replies), do: {state, data, replies}
 
-  defp degraded(:ready, reason, data, replies) do
-    :telemetry.execute([:kafka_ex, :metadata_store, :degraded], %{system_time: System.system_time()}, %{reason: reason})
+  defp degraded(:ready, failure, data, replies) do
+    Logger.warning("Periodic metadata update failed: #{failure_text(failure)}")
+    Telemetry.emit_metadata_store_degraded(reason(failure))
     data = %{data | degraded_at: System.monotonic_time()}
     {:degraded, data, replies ++ [{:state_timeout, backoff(data), :retry}]}
   end
 
-  defp degraded(state, _reason, data, replies), do: {state, data, replies ++ [{:state_timeout, backoff(data), :retry}]}
+  defp degraded(state, _failure, data, replies), do: {state, data, replies ++ [{:state_timeout, backoff(data), :retry}]}
+
+  defp failure_text({:raised, {_kind, exception, _stacktrace}}) do
+    "#{inspect(exception.__struct__)}: #{Exception.message(exception)}"
+  end
+
+  defp failure_text({:error, reason}), do: inspect(reason)
 
   defp backoff(data), do: Backoff.delay(data.failures, data.opts.backoff_base, data.opts.backoff_cap)
 
@@ -584,8 +617,15 @@ defmodule KafkaEx.Client.MetadataStore do
   end
 
   defp ticket_ttl(data) do
-    connect_timeout = Keyword.get_lazy(data.connection.opts, :connect_timeout, &Config.connect_timeout/0)
-    Client.retry_count() * (connect_timeout + 1_500 + Config.request_timeout() + 1_000) + @call_timeout
+    per_attempt =
+      connect_timeout(data.connection.opts) + data.opts.connect_slack + Config.request_timeout() +
+        data.opts.request_slack
+
+    Client.retry_count() * per_attempt + @call_timeout
+  end
+
+  defp connect_timeout(connection_opts) do
+    Keyword.get_lazy(connection_opts, :connect_timeout, &Config.connect_timeout/0)
   end
 
   defp note_missing(data, []) do
@@ -629,10 +669,10 @@ defmodule KafkaEx.Client.MetadataStore do
         {data, pid}
 
       _ ->
-        {:ok, pid} =
-          DynamicSupervisor.start_child(data.conn_sup, {ConnectionStateMachine, connection_args(data, address)})
-
-        {%{data | conns: Map.put(data.conns, address, %{pid: pid, ref: Process.monitor(pid)})}, pid}
+        case Client.start_connection(data.supervisor, connection_args(data, address)) do
+          {:ok, pid} -> {%{data | conns: Map.put(data.conns, address, %{pid: pid, ref: Process.monitor(pid)})}, pid}
+          :restarting -> {data, nil}
+        end
     end
   end
 
