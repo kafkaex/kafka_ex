@@ -24,6 +24,9 @@
 * **`required_compression: [:zstd]` no longer requires `ezstd` on OTP 28+.** The boot check
   accepted only `ezstd`, so a client on OTP 28+ without it failed to start, although Kayrock
   uses the stdlib `:zstd` module there. The check now passes when `:zstd` or `:ezstd` loads.
+* **`KafkaEx.stop_worker/1` accepts a worker name, as documented.** Passing a registered name
+  raised `FunctionClauseError`; it now stops the worker. An unknown name returns
+  `{:error, :not_found}`. The impossible `{:error, :simple_one_for_one}` is gone from the spec.
 
 ## 1.2.0 (2026-11-07)
 
