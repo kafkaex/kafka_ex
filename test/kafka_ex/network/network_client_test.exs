@@ -138,8 +138,9 @@ defmodule KafkaEx.Network.NetworkClientTest do
     end
 
     test "a failed send returns the reason, closes the socket and emits a :send_error close event" do
-      port = get_free_port(3070)
-      pid = KafkaEx.TestSupport.Server.start(port)
+      # Port 0: probing a fixed port and binding it later races other test VMs on the machine.
+      {:ok, listen} = :gen_tcp.listen(0, [:binary, {:active, false}])
+      {:ok, port} = :inet.port(listen)
 
       {:ok, tcp_socket} = :gen_tcp.connect(~c"localhost", port, [:binary, {:active, false}, {:packet, 0}])
 
@@ -167,7 +168,7 @@ defmodule KafkaEx.Network.NetworkClientTest do
         assert_receive {:telemetry, _measurements, %{reason: :send_error, host: "localhost", port: ^port}}
       after
         :telemetry.detach(handler_id)
-        Process.exit(pid, :normal)
+        :gen_tcp.close(listen)
       end
     end
   end
