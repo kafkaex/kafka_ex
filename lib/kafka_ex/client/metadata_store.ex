@@ -7,13 +7,14 @@ defmodule KafkaEx.Client.MetadataStore do
   alias KafkaEx.Client
   alias KafkaEx.Client.ConnectionStateMachine
   alias KafkaEx.Client.MetadataLog
+  alias KafkaEx.Client.MetadataStore.Backoff
   alias KafkaEx.Client.MetadataStore.Round
   alias KafkaEx.Client.MetadataStore.Snapshot
   alias KafkaEx.Client.Supervisor, as: ClientSupervisor
   alias KafkaEx.Cluster.ClusterMetadata
+  alias KafkaEx.Cluster.Topic
   alias KafkaEx.Config
   alias KafkaEx.Messages.FindCoordinator
-  alias KafkaEx.Support.Retry
 
   @defaults [
     min_interval: 100,
@@ -111,7 +112,8 @@ defmodule KafkaEx.Client.MetadataStore do
       known_missing: MapSet.new(),
       missing_logged_at: nil,
       in_flight: %{},
-      queued: %{},
+      scheduled: %{},
+      backoffs: %{},
       boot_waiters: [],
       load_waiters: [],
       failures: 0,
@@ -145,11 +147,11 @@ defmodule KafkaEx.Client.MetadataStore do
 
   def handle_event({:call, from}, {:refresh, refresh} = msg, _state, data) do
     key = {:tracked, refresh.allow_auto_topic_creation}
-    data |> track(msg) |> trigger(key, refresh.topics, from)
+    data |> track(msg) |> trigger(key, refresh.topics, from, pacing_keys(refresh.topics))
   end
 
   def handle_event({:call, from}, {:coordinator, group}, _state, data) do
-    trigger(data, {:coordinator, group}, [], from)
+    trigger(data, {:coordinator, group}, [], from, [{:coordinator, group}])
   end
 
   def handle_event({:call, from}, {:forget_coordinator, group}, _state, data) do
@@ -169,15 +171,19 @@ defmodule KafkaEx.Client.MetadataStore do
   def handle_event({:call, from}, :next_seq, _state, data) do
     seq = data.seq + 1
     expires_at = now() + ticket_ttl(data)
-    tickets = Map.put(data.tickets, seq, expires_at)
-    {:keep_state, %{data | seq: seq, tickets: tickets}, [{:reply, from, seq}, sweep(tickets)]}
+    data = %{data | seq: seq, tickets: Map.put(data.tickets, seq, expires_at)}
+    {:keep_state, data, [{:reply, from, seq} | sweep(data)]}
   end
 
   def handle_event({:call, from}, {:merge, seq, metadata, scope}, _state, data) do
     data =
       case Map.pop(data.tickets, seq) do
-        {nil, _tickets} -> data
-        {_expires_at, tickets} -> apply_snapshot(%{data | tickets: tickets}, seq, metadata, scope)
+        {nil, _tickets} ->
+          data
+
+        {_expires_at, tickets} ->
+          {_outcome, data} = apply_snapshot(%{data | tickets: tickets}, seq, metadata, scope)
+          data
       end
 
     {:keep_state, data, [{:reply, from, :ok}]}
@@ -214,19 +220,42 @@ defmodule KafkaEx.Client.MetadataStore do
   end
 
   def handle_event({:timeout, :periodic}, nil, state, data) when state in [:ready, :degraded] do
-    {:keep_state, data, actions} = trigger(data, {:tracked, data.allow_default}, [], nil)
+    {:keep_state, data, actions} = trigger(data, {:tracked, data.allow_default}, [], nil, [])
     {:keep_state, data, [periodic(data) | actions]}
   end
 
+  def handle_event({:timeout, {:paced, key}}, nil, _state, data) do
+    now = now()
+
+    case data do
+      # Unreachable while launch/4 cancels this timer; a second round under one key would orphan the first.
+      %{in_flight: %{^key => _round}} ->
+        :keep_state_and_data
+
+      %{scheduled: %{^key => entry}} ->
+        at = due_at(data, entry, now)
+
+        if at > now do
+          {:keep_state_and_data, [paced(key, at)]}
+        else
+          {data, actions} = launch(data, key, [], [])
+          {:keep_state, data, actions}
+        end
+
+      _none ->
+        :keep_state_and_data
+    end
+  end
+
   def handle_event({:timeout, :sweep}, nil, _state, data) do
-    data = prune_freshness(data)
-    {:keep_state, data, if(data.tickets == %{}, do: [], else: [sweep(data.tickets)])}
+    data = data |> prune_freshness() |> prune_backoffs()
+    {:keep_state, data, sweep(data)}
   end
 
   def handle_event(:state_timeout, :retry, :loading, data), do: start_load(data, [])
 
   def handle_event(:state_timeout, :retry, :degraded, data) do
-    trigger(data, {:tracked, data.allow_default}, [], nil)
+    trigger(data, {:tracked, data.allow_default}, [], nil, [])
   end
 
   def handle_event(type, content, _state, _data) do
@@ -243,35 +272,139 @@ defmodule KafkaEx.Client.MetadataStore do
   defp track(data, {:refresh, %{topics: topics}}), do: %{data | tracked: MapSet.union(data.tracked, MapSet.new(topics))}
   defp track(data, _msg), do: data
 
-  defp trigger(data, key, topics, from) do
+  defp pacing_keys([]), do: [:tracked]
+  defp pacing_keys(topics), do: topics
+
+  defp trigger(data, key, topics, from, pacing_keys) do
     waiters = if from, do: [from], else: []
+    reasons = MapSet.new(pacing_keys)
+    now = now()
 
     case data.in_flight do
       %{^key => round} ->
         if covers?(round, topics) do
-          {:keep_state, put_in(data.in_flight[key].waiters, round.waiters ++ waiters), []}
+          {:keep_state, join(data, key, waiters, reasons), []}
         else
-          {:keep_state, %{data | queued: Map.update(data.queued, key, waiters, &(&1 ++ waiters))}, []}
+          schedule(data, key, waiters, reasons)
         end
 
-      _ ->
-        {data, actions} = start_round(data, key, waiters)
-        {:keep_state, data, actions}
+      _idle ->
+        if ready_at(data, reasons, now) > now do
+          schedule(data, key, waiters, reasons)
+        else
+          {data, actions} = launch(data, key, waiters, pacing_keys)
+          {:keep_state, data, actions}
+        end
     end
   end
 
-  defp covers?(%{topics: round_topics}, topics) do
-    MapSet.size(round_topics) == 0 or Enum.all?(topics, &MapSet.member?(round_topics, &1))
+  # A round fetches every tracked topic anyway, so the key's scheduled waiters ride along at no extra request.
+  defp launch(data, key, waiters, pacing_keys) do
+    case Map.pop(data.scheduled, key) do
+      {nil, _scheduled} ->
+        start_round(data, key, waiters, MapSet.new(pacing_keys))
+
+      {entry, scheduled} ->
+        {waiters, reasons} =
+          Enum.reduce(entry.triggers, {waiters, MapSet.new(pacing_keys)}, fn trigger, {waiters, reasons} ->
+            {trigger.waiters ++ waiters, MapSet.union(trigger.reasons, reasons)}
+          end)
+
+        {data, actions} = start_round(%{data | scheduled: scheduled}, key, waiters, reasons)
+        {data, [{{:timeout, {:paced, key}}, :cancel} | actions]}
+    end
   end
+
+  defp covers?(%{topics: round_topics}, topics), do: Enum.all?(topics, &MapSet.member?(round_topics, &1))
+
+  defp join(data, key, waiters, reasons) do
+    update_in(data.in_flight[key], fn round ->
+      %{round | waiters: round.waiters ++ waiters, reasons: MapSet.union(round.reasons, reasons)}
+    end)
+  end
+
+  defp schedule(data, key, waiters, reasons) do
+    entry = Map.get(data.scheduled, key, %{triggers: []})
+    data = put_in(data.scheduled[key], %{entry | triggers: [%{waiters: waiters, reasons: reasons} | entry.triggers]})
+    {:keep_state, data, if(Map.has_key?(data.in_flight, key), do: [], else: rearm(data, key))}
+  end
+
+  defp rearm(data, key) do
+    case data.scheduled do
+      %{^key => entry} -> [paced(key, due_at(data, entry, now()))]
+      _none -> []
+    end
+  end
+
+  defp paced(key, at), do: {{:timeout, {:paced, key}}, at, nil, [abs: true]}
+
+  defp due_at(data, entry, now), do: entry.triggers |> Enum.map(&ready_at(data, &1.reasons, now)) |> Enum.min()
+
+  defp ready_at(data, reasons, now) do
+    Enum.reduce(reasons, now, fn reason, at ->
+      case data.backoffs do
+        %{^reason => %{next_at: next_at}} -> max(at, next_at)
+        _first -> at
+      end
+    end)
+  end
+
+  defp pace(data, round, result) do
+    now = now()
+
+    backoffs =
+      Enum.reduce(round.reasons, data.backoffs, fn reason, backoffs ->
+        entry = Backoff.next_at(backoffs[reason], outcome(reason, result, data), now, pacing(data.opts, reason))
+        Map.put(backoffs, reason, entry)
+      end)
+
+    %{data | backoffs: backoffs}
+  end
+
+  defp pacing(opts, {:coordinator, _group}) do
+    %{min_interval: opts.min_interval, base: opts.coordinator_base, cap: opts.coordinator_cap}
+  end
+
+  defp pacing(opts, _reason), do: %{min_interval: opts.min_interval, base: opts.backoff_base, cap: opts.backoff_cap}
+
+  defp outcome({:coordinator, _group}, {:ok, %{coordinator: %FindCoordinator{} = coordinator}}, data) do
+    node_id = FindCoordinator.coordinator_node_id(coordinator)
+    if Enum.any?(Snapshot.brokers(data.table), &(&1.node_id == node_id)), do: :ok, else: :bad
+  end
+
+  defp outcome({:coordinator, _group}, _result, _data), do: :bad
+
+  defp outcome(topic, {:ok, %{metadata: metadata, unknown: unknown}}, _data) when is_binary(topic) do
+    case Map.fetch(metadata.topics, topic) do
+      {:ok, %Topic{partition_leaders: leaders}} ->
+        if topic in unknown or Enum.any?(Map.values(leaders), &(&1 < 0)), do: :bad, else: :ok
+
+      :error ->
+        :bad
+    end
+  end
+
+  defp outcome(:tracked, {:ok, _result}, _data), do: :ok
+
+  # A failed metadata round is the degraded retry's to back off, not the trigger's.
+  defp outcome(_reason, _failure, _data), do: :failed
+
+  defp prune_backoffs(data) do
+    now = now()
+    %{data | backoffs: Map.reject(data.backoffs, fn {reason, entry} -> prunable_at(data, reason, entry) <= now end)}
+  end
+
+  defp prunable_at(_data, _reason, %{failures: 0, next_at: next_at}), do: next_at
+  defp prunable_at(data, reason, %{next_at: next_at}), do: next_at + pacing(data.opts, reason).cap
 
   defp start_load(%{in_flight: %{load: _}} = data, actions), do: {:keep_state, data, actions}
 
   defp start_load(data, actions) do
-    {data, round_actions} = start_round(data, :load, [])
+    {data, round_actions} = start_round(data, :load, [], MapSet.new())
     {:keep_state, data, actions ++ round_actions}
   end
 
-  defp start_round(data, key, waiters) do
+  defp start_round(data, key, waiters, reasons) do
     {kind, request_opts, addresses} = round_request(data, key)
     {data, candidates} = Enum.reduce(addresses, {data, []}, &add_candidate/2)
     seq = data.seq + 1
@@ -280,7 +413,19 @@ defmodule KafkaEx.Client.MetadataStore do
     store = self()
     {pid, mref} = spawn_monitor(fn -> send(store, {:round, ref, Round.run(spec)}) end)
     topics = MapSet.new(Keyword.get(request_opts, :topics, []))
-    round = %{key: key, kind: kind, ref: ref, pid: pid, mref: mref, seq: seq, topics: topics, waiters: waiters}
+
+    round = %{
+      key: key,
+      kind: kind,
+      ref: ref,
+      pid: pid,
+      mref: mref,
+      seq: seq,
+      topics: topics,
+      waiters: waiters,
+      reasons: reasons
+    }
+
     data = %{data | seq: seq, in_flight: Map.put(data.in_flight, key, round)}
     {data, [{{:timeout, {:round, ref}}, bound, nil}]}
   end
@@ -334,18 +479,15 @@ defmodule KafkaEx.Client.MetadataStore do
   end
 
   defp finish(round, result, state, data) do
-    {queued, rest} = Map.pop(data.queued, round.key)
-    {next_state, data, actions} = handle_result(round.kind, round, result, state, %{data | queued: rest})
-    {data, requeued} = requeue(data, round.key, queued)
-    {:next_state, next_state, data, [{{:timeout, {:round, round.ref}}, :cancel} | actions ++ requeued]}
+    data = pace(data, round, result)
+    {next_state, data, actions} = handle_result(round.kind, round, result, state, data)
+
+    {:next_state, next_state, data,
+     [{{:timeout, {:round, round.ref}}, :cancel} | actions ++ rearm(data, round.key) ++ sweep(data)]}
   end
 
-  defp requeue(data, _key, nil), do: {data, []}
-  defp requeue(data, key, waiters), do: start_round(data, key, waiters)
-
   defp handle_result(:load, round, {:ok, result}, _state, data) do
-    data = data |> apply_snapshot(round.seq, result.metadata, :tracked) |> note_missing(result.missing)
-    data = %{data | current: result.address, versions: result.versions, failures: 0}
+    data = %{refreshed(data, round.seq, result) | current: result.address, versions: result.versions, failures: 0}
     ready = {:ok, %{table: data.table, api_versions: data.versions}}
     replies = for from <- data.boot_waiters, do: {:reply, from, ready}
     triggers = for {from, msg} <- data.load_waiters, do: {:next_event, {:call, from}, msg}
@@ -361,7 +503,7 @@ defmodule KafkaEx.Client.MetadataStore do
   end
 
   defp handle_result(:metadata, round, {:ok, result}, state, data) do
-    data = data |> apply_snapshot(round.seq, result.metadata, :tracked) |> note_missing(result.missing)
+    data = refreshed(data, round.seq, result)
     replies = for from <- round.waiters, do: {:reply, from, {:ok, %{unknown: result.unknown}}}
     recovered(state, %{data | current: result.address, failures: 0}, replies)
   end
@@ -402,24 +544,37 @@ defmodule KafkaEx.Client.MetadataStore do
 
   defp degraded(state, _reason, data, replies), do: {state, data, replies ++ [{:state_timeout, backoff(data), :retry}]}
 
-  defp backoff(data), do: Retry.backoff_delay(max(data.failures - 1, 0), data.opts.backoff_base, data.opts.backoff_cap)
+  defp backoff(data), do: Backoff.delay(data.failures, data.opts.backoff_base, data.opts.backoff_cap)
 
   defp periodic(data), do: {{:timeout, :periodic}, data.interval, nil}
+
+  # A response the snapshot ignores says nothing about which topics are missing.
+  defp refreshed(data, seq, result) do
+    case apply_snapshot(data, seq, result.metadata, :tracked) do
+      {:applied, data} -> note_missing(data, result.missing)
+      {:ignored, data} -> data
+    end
+  end
 
   defp apply_snapshot(data, seq, metadata, scope) do
     case Snapshot.apply(data.table, metadata, %{seq: seq, scope: scope}, data.freshness) do
       {:applied, freshness} ->
         send(data.client, {:kafka_ex_metadata_store, :swapped})
-        prune_freshness(stop_departed(%{data | freshness: freshness}))
+        {:applied, prune_freshness(stop_departed(%{data | freshness: freshness}))}
 
       :ignored ->
-        data
+        {:ignored, data}
     end
   end
 
-  # No response older than the oldest live seq can still arrive, so older freshness entries decide nothing.
-  defp sweep(tickets), do: {{:timeout, :sweep}, Enum.min(Map.values(tickets)), nil, [abs: true]}
+  defp sweep(data) do
+    expiries =
+      Map.values(data.tickets) ++ Enum.map(data.backoffs, fn {reason, entry} -> prunable_at(data, reason, entry) end)
 
+    if expiries == [], do: [], else: [{{:timeout, :sweep}, Enum.min(expiries), nil, [abs: true]}]
+  end
+
+  # No response older than the oldest live seq can still arrive, so older freshness entries decide nothing.
   defp prune_freshness(data) do
     now = now()
     tickets = Map.filter(data.tickets, fn {_seq, expires_at} -> expires_at > now end)

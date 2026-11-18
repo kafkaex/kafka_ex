@@ -1962,7 +1962,7 @@ defmodule KafkaEx.Client do
     case call_connection(&ConnectionStateMachine.write/3, pid, dispatch, left) do
       :gone -> {:written, {:error, :closed}, @no_bytes, forget_connection(state, key, pid)}
       {:ok, :no_response, meta} -> {:written, {:ok, :no_response}, meta, state}
-      {:ok, frame, meta} -> {:written, deserialize(frame, dispatch.request), meta, state}
+      {:ok, frame, meta} -> {:written, ResponseParser.deserialize(frame, dispatch.request), meta, state}
       {:error, {:exception, kind, reason, stacktrace}, _meta} -> {:raised, {kind, reason, stacktrace}, state}
       # A reconnect between the await and the write can land on a broker with other versions.
       {:error, {:unsupported_version, _}, meta} -> {:written, {:error, :api_version_no_supported}, meta, state}
@@ -2039,21 +2039,6 @@ defmodule KafkaEx.Client do
 
   defp broker_to_telemetry_info(%Broker{} = broker) do
     %{node_id: broker.node_id, host: broker.host, port: broker.port, rack: broker.rack}
-  end
-
-  defp deserialize(data, request) do
-    {resp, _} = @protocol.response_deserializer(request).(data)
-    {:ok, resp}
-  rescue
-    error ->
-      Logger.error(
-        "Failed to parse a response from the server: " <>
-          inspect(data, limit: :infinity) <>
-          " for request #{inspect(request, limit: :infinity)} " <>
-          "error: #{inspect(error)}"
-      )
-
-      {:error, :parse_error}
   end
 
   defp fetch_topics_metadata(state, topics, allow_topic_creation) do
