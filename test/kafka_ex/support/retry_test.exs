@@ -72,6 +72,13 @@ defmodule KafkaEx.Support.RetryTest do
     end
   end
 
+  describe "backoff_delay_jittered/4" do
+    test "the given draw picks the delay within ±20%, still capped" do
+      assert Enum.map([0.0, 0.5, 0.999_999], &Retry.backoff_delay_jittered(1, 100, 1_000, &1)) == [160, 200, 240]
+      assert Retry.backoff_delay_jittered(4, 100, 1_000, 0.999_999) == 1_000
+    end
+  end
+
   describe "with_retry/2" do
     test "returns success immediately on first try" do
       result = Retry.with_retry(fn -> {:ok, :success} end)

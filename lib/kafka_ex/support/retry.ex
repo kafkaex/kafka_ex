@@ -91,28 +91,21 @@ defmodule KafkaEx.Support.Retry do
   """
   @spec backoff_delay_jittered(non_neg_integer(), non_neg_integer(), non_neg_integer() | :infinity) ::
           non_neg_integer()
-  def backoff_delay_jittered(attempt, base_ms, max_ms \\ @default_max_delay_ms) do
-    jittered =
-      attempt
-      |> backoff_delay(base_ms, max_ms)
-      |> apply_jitter()
+  def backoff_delay_jittered(attempt, base_ms, max_ms \\ @default_max_delay_ms),
+    do: backoff_delay_jittered(attempt, base_ms, max_ms, :rand.uniform())
+
+  @doc false
+  @spec backoff_delay_jittered(non_neg_integer(), non_neg_integer(), non_neg_integer() | :infinity, float()) ::
+          non_neg_integer()
+  def backoff_delay_jittered(attempt, base_ms, max_ms, u) when is_float(u) and u >= 0.0 and u < 1.0 do
+    delay = backoff_delay(attempt, base_ms, max_ms)
+    spread = trunc(delay * @jitter_fraction)
+    jittered = delay - spread + trunc(u * (2 * spread + 1))
 
     # Jitter is applied after the cap, so clamp to keep the delay within max_ms.
     case max_ms do
       :infinity -> jittered
       cap when is_integer(cap) -> min(jittered, cap)
-    end
-  end
-
-  defp apply_jitter(0), do: 0
-
-  defp apply_jitter(delay) do
-    spread = trunc(delay * @jitter_fraction)
-
-    if spread <= 0 do
-      delay
-    else
-      delay - spread + (:rand.uniform(2 * spread + 1) - 1)
     end
   end
 
