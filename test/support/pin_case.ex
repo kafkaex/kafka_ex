@@ -132,6 +132,14 @@ defmodule KafkaEx.TestSupport.PinCase do
     }
   end
 
+  def unknown_topic_reply(host, name) do
+    %{metadata_reply(host, %{}) | topics: [%{error_code: 3, name: name, is_internal: false, partitions: []}]}
+  end
+
+  def leaderless_reply(host, name) do
+    %{metadata_reply(host, %{}) | topics: [%{error_code: 5, name: name, is_internal: false, partitions: []}]}
+  end
+
   def fetch_frame(%{api_version: 0, correlation_id: corr}, _preferred) do
     <<corr::32-signed, 1::32-signed, byte_size(@topic)::16-signed, @topic::binary, 1::32-signed, 0::32-signed,
       0::16-signed, 10::64-signed, 0::32-signed>>
