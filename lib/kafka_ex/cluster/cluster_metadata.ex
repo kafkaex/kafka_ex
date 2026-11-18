@@ -281,9 +281,9 @@ defmodule KafkaEx.Cluster.ClusterMetadata do
   @doc false
   @spec error_actions(atom(), NodeSelector.t(), Keyword.t()) :: [action()]
   def error_actions(error, %NodeSelector{} = selector, opts),
-    do: refresh_actions(error, selector, opts) ++ drop_actions(error, selector, opts)
+    do: stale_cache_actions(error, selector, opts) ++ drop_actions(error, selector, opts)
 
-  defp refresh_actions(error, %NodeSelector{strategy: strategy, consumer_group_name: group}, opts) do
+  defp stale_cache_actions(error, %NodeSelector{strategy: strategy, consumer_group_name: group}, opts) do
     cond do
       Retry.leadership_error?(error) ->
         [refresh_action([], opts)]
