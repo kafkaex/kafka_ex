@@ -7,6 +7,7 @@ defmodule KafkaEx.Cluster.ClusterMetadataActionsTest do
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Support.Retry
 
+  # Mirrors the atoms in Retry's guards, plus :unknown from the client's error extraction.
   @transport_errors [
     :timeout,
     :closed,
@@ -28,7 +29,14 @@ defmodule KafkaEx.Cluster.ClusterMetadataActionsTest do
   @opts [rediscover_coordinator?: false, allow_auto_topic_creation: true]
 
   defp all_errors do
-    {broker_errors, _log} = with_log(fn -> Enum.map(-1..130, &Kayrock.ErrorCode.code_to_atom/1) end)
+    {broker_errors, _log} =
+      with_log(fn ->
+        -1
+        |> Stream.iterate(&(&1 + 1))
+        |> Stream.map(&Kayrock.ErrorCode.code_to_atom/1)
+        |> Enum.take_while(&(&1 != :unknown))
+      end)
+
     Enum.uniq(broker_errors ++ @transport_errors)
   end
 
@@ -70,13 +78,31 @@ defmodule KafkaEx.Cluster.ClusterMetadataActionsTest do
     end
 
     test "any other lookup does nothing" do
-      for selector <- [NodeSelector.node_id(1), NodeSelector.controller(), NodeSelector.random()] do
+      for selector <- [
+            NodeSelector.node_id(1),
+            NodeSelector.controller(),
+            NodeSelector.random(),
+            NodeSelector.first_available()
+          ] do
         assert ClusterMetadata.selection_miss_actions(selector, @opts) == []
       end
     end
   end
 
   describe "error_actions/3" do
+    test "the error universe holds every Kafka error decided on" do
+      errors = all_errors()
+
+      for error <- [:no_error, :not_coordinator, :coordinator_not_available | @leadership_errors],
+          Kayrock.ErrorCode.atom_to_code(error) do
+        assert error in errors
+      end
+    end
+
+    test "no error is both a leadership and a coordinator-refresh error, so the branch order is irrelevant" do
+      assert Enum.filter(all_errors(), &(Retry.leadership_error?(&1) and Retry.coordinator_refresh_error?(&1))) == []
+    end
+
     test "a leadership error refreshes the tracked topics only, for any request" do
       for error <- @leadership_errors, selector <- [group() | other_selectors()] do
         assert ClusterMetadata.error_actions(error, selector, @opts) == [refresh([])]

@@ -116,7 +116,9 @@ defmodule KafkaEx.Pins.SelectionPinTest do
       {result, _log} = with_log(fn -> produce(client, 0) end)
 
       assert result == {:error, :not_leader_for_partition}
-      assert fake |> new_metadata_requests(before) |> Enum.map(&metadata_topics/1) == [[], [], []]
+
+      assert fake |> new_metadata_requests(before) |> Enum.map(&metadata_topics/1) ==
+               List.duplicate([], Client.retry_count())
     end
 
     test "logs the refresh at info level", %{client: client} do
