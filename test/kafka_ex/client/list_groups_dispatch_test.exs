@@ -25,7 +25,6 @@ defmodule KafkaEx.Client.ListGroupsDispatchTest do
 
   test "a non-zero top-level error_code from the broker returns %Error{} without crashing" do
     %{fake: fake, client: client} = start_pinned(api_versions: %{list_groups: 0..0})
-    # error_code = 15 (coordinator_not_available), empty groups array.
     FakeTransport.respond(fake, :list_groups, &{:frame, <<&1.correlation_id::32-signed, 15::16-signed, 0::32-signed>>})
 
     # Pre-fix the bare atom crashed the client with a CaseClauseError, exiting this call.

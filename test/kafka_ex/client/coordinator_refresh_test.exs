@@ -22,7 +22,6 @@ defmodule KafkaEx.Client.CoordinatorRefreshTest do
 
   @moduletag pin_set: :invariant
 
-  # Kafka error code 16, NOT_COORDINATOR.
   @not_coordinator 16
   @group "test-group"
   @offset_fetch_ok %{
