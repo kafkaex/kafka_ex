@@ -152,6 +152,10 @@ defmodule KafkaEx.API do
         unquote(api_module).metadata(client(), opts)
       end
 
+      def metadata(topics, opts) do
+        unquote(api_module).metadata(client(), topics, opts)
+      end
+
       def cluster_metadata do
         unquote(api_module).cluster_metadata(client())
       end
@@ -472,8 +476,9 @@ defmodule KafkaEx.API do
   Makes a network request to fetch fresh metadata from Kafka. This updates
   the client's internal cluster metadata state and returns the updated metadata.
 
-  By default, fetches metadata for all topics in the cluster. To fetch metadata
-  for specific topics only, use `metadata/3`.
+  By default, fetches metadata for all topics in the cluster. Passing a
+  non-empty list of topic names as the second argument fetches those topics
+  only, exactly like `metadata/3` with no options.
 
   ## Options
 
@@ -499,11 +504,16 @@ defmodule KafkaEx.API do
 
       {:ok, metadata} = KafkaEx.API.metadata(client)
       {:ok, metadata} = KafkaEx.API.metadata(client, api_version: 2)
+      {:ok, metadata} = KafkaEx.API.metadata(client, ["orders"])
       {:ok, metadata} = KafkaEx.API.metadata(client, topic_ids: [topic_id])
   """
   @spec metadata(client) :: {:ok, ClusterMetadata.t()} | {:error, metadata_error}
-  @spec metadata(client, opts) :: {:ok, ClusterMetadata.t()} | {:error, metadata_error}
-  def metadata(client, opts \\ []) do
+  @spec metadata(client, [topic_name] | opts) :: {:ok, ClusterMetadata.t()} | {:error, metadata_error}
+  def metadata(client, topics_or_opts \\ [])
+
+  def metadata(client, [topic | _] = topics) when is_binary(topic), do: metadata(client, topics, [])
+
+  def metadata(client, opts) do
     api_version = Keyword.get(opts, :api_version, 1)
 
     case GenServer.call(client, {:metadata, nil, opts, api_version}, generic_call_budget()) do
