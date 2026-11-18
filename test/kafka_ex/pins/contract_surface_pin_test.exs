@@ -34,13 +34,17 @@ defmodule KafkaEx.Pins.ContractSurfacePinTest do
 
     test "fails fast when the cluster cannot be bootstrapped" do
       Process.flag(:trap_exit, true)
-      host = "pin-#{System.unique_integer([:positive])}"
-      fake = start_supervised!({FakeTransport, brokers: [{1, host, 9092}]})
+      %{fake: fake, host: host} = start_fake([{1, 9092}])
       FakeTransport.respond(fake, :api_versions, :close)
-      opts = [uris: [{host, 9092}], consumer_group: :no_consumer_group, transport: FakeTransport]
 
-      {result, _log} =
-        with_log(fn -> Client.start_link([{:ssl_options, FakeTransport.ssl_options(fake)} | opts], :no_name) end)
+      opts = [
+        uris: [{host, 9092}],
+        consumer_group: :no_consumer_group,
+        transport: FakeTransport,
+        ssl_options: FakeTransport.ssl_options(fake)
+      ]
+
+      {result, _log} = with_log(fn -> Client.start_link(opts, :no_name) end)
 
       assert {:error, _reason} = result
     end
@@ -143,8 +147,7 @@ defmodule KafkaEx.Pins.ContractSurfacePinTest do
     end
 
     test "start_link_worker/2 starts a named worker with the given consumer group" do
-      host = "pin-#{System.unique_integer([:positive])}"
-      fake = start_supervised!({FakeTransport, brokers: [{1, host, 9092}]})
+      %{fake: fake, host: host} = start_fake([{1, 9092}])
       name = :"pin_worker_#{System.unique_integer([:positive])}"
 
       opts = [
@@ -205,8 +208,7 @@ defmodule KafkaEx.Pins.ContractSurfacePinTest do
     {:ok, _} = API.produce(client, @topic, 0, [%{value: "v"}])
     {:ok, _} = API.fetch(client, @topic, 0, 0, max_wait_time: 10)
     {:ok, _} = API.metadata(client)
-    FakeTransport.close(fake, {host, 9092})
-    assert_receive {:pin_closed, %{port: 9092}}, 5_000
+    drop_connection(fake, host)
     {:ok, _} = API.produce(client, @topic, 0, [%{value: "v"}])
 
     expected = %{

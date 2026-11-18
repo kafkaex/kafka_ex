@@ -102,8 +102,7 @@ defmodule KafkaEx.Pins.TodayOnlyPinTest do
     with_request_timeout(10_000)
     %{fake: fake, client: client, host: host, gate: gate} = start_pinned()
     watch_close(host)
-    FakeTransport.close(fake, {host, 9092})
-    assert_receive {:pin_closed, %{port: 9092}}, 5_000
+    drop_connection(fake, host)
     PinGate.close(gate)
     refreshes = count(fake, :metadata)
     started = System.monotonic_time(:millisecond)

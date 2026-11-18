@@ -9,6 +9,7 @@ defmodule KafkaEx.TestSupport.PinCase do
 
   use ExUnit.CaseTemplate
 
+  import ExUnit.Assertions
   import ExUnit.Callbacks, only: [start_supervised!: 1, on_exit: 1]
 
   alias KafkaEx.Client
@@ -45,17 +46,9 @@ defmodule KafkaEx.TestSupport.PinCase do
   end
 
   def start_pinned(opts \\ []) do
-    host = "pin-#{System.unique_integer([:positive])}"
     versions = Map.merge(@versions, Keyword.get(opts, :api_versions, %{}))
     topics = Keyword.get(opts, :topics, %{@topic => [1, 2]})
-
-    fake =
-      start_supervised!(
-        Supervisor.child_spec(
-          {FakeTransport, brokers: [{1, host, 9092}, {2, host, 9093}], topics: topics, api_versions: versions},
-          id: make_ref()
-        )
-      )
+    %{fake: fake, host: host} = start_fake([{1, 9092}, {2, 9093}], topics: topics, api_versions: versions)
 
     :ok = FakeTransport.respond(fake, :find_coordinator, %{node_id: 2, host: host, port: 9093, error_message: nil})
     Keyword.get(opts, :before_boot, fn _fake -> :ok end).(fake)
@@ -81,6 +74,13 @@ defmodule KafkaEx.TestSupport.PinCase do
     %{fake: fake, client: client, host: host, gate: gate}
   end
 
+  def start_fake(brokers, opts \\ []) do
+    host = "pin-#{System.unique_integer([:positive])}"
+    brokers = Enum.map(brokers, fn {node_id, port} -> {node_id, host, port} end)
+    fake = start_supervised!(Supervisor.child_spec({FakeTransport, [brokers: brokers] ++ opts}, id: make_ref()))
+    %{fake: fake, host: host}
+  end
+
   def requests(fake, api), do: fake |> FakeTransport.requests() |> Enum.filter(&(&1.api == api))
   def count(fake, api), do: fake |> requests(api) |> length()
   def count(fake, api, node_id), do: fake |> requests(api) |> Enum.count(&(&1.node_id == node_id))
@@ -89,12 +89,12 @@ defmodule KafkaEx.TestSupport.PinCase do
   def non_handshake(fake), do: fake |> FakeTransport.requests() |> Enum.reject(&handshake?/1)
   def handshake?(%{api: api}), do: api in @handshake
 
-  def produce_reply(base_offset \\ 7) do
+  def produce_reply do
     %{
       responses: [
         %{
           topic: @topic,
-          partition_responses: [%{partition: 0, error_code: 0, base_offset: base_offset, log_append_time: -1}]
+          partition_responses: [%{partition: 0, error_code: 0, base_offset: 7, log_append_time: -1}]
         }
       ]
     }
@@ -167,6 +167,11 @@ defmodule KafkaEx.TestSupport.PinCase do
     )
 
     on_exit(fn -> :telemetry.detach(handler) end)
+  end
+
+  def drop_connection(fake, host) do
+    FakeTransport.close(fake, {host, 9092})
+    assert_receive {:pin_closed, %{port: 9092}}, 5_000
   end
 
   def with_request_timeout(ms) do

@@ -12,11 +12,6 @@ defmodule KafkaEx.Pins.ReconnectPinTest do
     pinned
   end
 
-  defp drop_connection(fake, host) do
-    FakeTransport.close(fake, {host, 9092})
-    assert_receive {:pin_closed, %{port: 9092}}, 5_000
-  end
-
   describe "reconnects" do
     test "after the peer closes the socket, the next request succeeds", %{fake: fake, client: client, host: host} do
       {:ok, _} = API.produce(client, @topic, 0, [%{value: "v"}])

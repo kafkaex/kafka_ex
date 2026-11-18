@@ -5,7 +5,7 @@ defmodule KafkaEx.Pins.OrderingPinTest do
   @concurrent_window 5_000
 
   setup do
-    pinned = start_pinned(topics: %{"pin" => [1, 1, 2]})
+    pinned = start_pinned(topics: %{@topic => [1, 1, 2]})
     FakeTransport.respond(pinned.fake, :produce, produce_reply())
     FakeTransport.respond(pinned.fake, :heartbeat, %{error_code: 0})
     FakeTransport.respond(pinned.fake, :fetch, &{:frame, fetch_frame(&1, -1)})

@@ -51,8 +51,7 @@ defmodule KafkaEx.Pins.SecurityPinTest do
 
   test "PLAIN without TLS is refused before any request" do
     Process.flag(:trap_exit, true)
-    host = "pin-#{System.unique_integer([:positive])}"
-    fake = start_supervised!(Supervisor.child_spec({FakeTransport, brokers: [{1, host, 9092}]}, id: make_ref()))
+    %{fake: fake, host: host} = start_fake([{1, 9092}])
     auth = AuthConfig.new(%{mechanism: :plain, username: "u", password: "p"})
 
     opts = [

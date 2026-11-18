@@ -9,16 +9,17 @@ defmodule KafkaEx.Pins.FollowerFetchPinTest do
     start_pinned(api_versions: %{fetch: 11..11})
   end
 
-  defp leader_names_replica(fake, replica_reply) do
-    FakeTransport.respond(fake, :fetch, fn request ->
-      if request.node_id == 1, do: {:frame, fetch_frame(request, 2)}, else: replica_reply.(request)
+  defp leader_names_replica(fake) do
+    FakeTransport.respond(fake, :fetch, fn
+      %{node_id: 1} = request -> {:frame, fetch_frame(request, 2)}
+      replica -> {:frame, fetch_frame(replica, -1)}
     end)
   end
 
   defp fetch(client), do: API.fetch(client, @topic, 0, 0, max_wait_time: 10, rack_id: @rack)
 
   test "a fetch goes to the replica the leader names, carrying the rack id", %{fake: fake, client: client} do
-    leader_names_replica(fake, &{:frame, fetch_frame(&1, -1)})
+    leader_names_replica(fake)
 
     {:ok, _} = fetch(client)
     {:ok, _} = fetch(client)
@@ -28,7 +29,7 @@ defmodule KafkaEx.Pins.FollowerFetchPinTest do
   end
 
   test "a replica's answer of -1 keeps the hint", %{fake: fake, client: client} do
-    leader_names_replica(fake, &{:frame, fetch_frame(&1, -1)})
+    leader_names_replica(fake)
 
     for _ <- 1..3, do: {:ok, _} = fetch(client)
 
@@ -36,7 +37,7 @@ defmodule KafkaEx.Pins.FollowerFetchPinTest do
   end
 
   test "an explicit metadata refresh drops the hint", %{fake: fake, client: client} do
-    leader_names_replica(fake, &{:frame, fetch_frame(&1, -1)})
+    leader_names_replica(fake)
     {:ok, _} = fetch(client)
     {:ok, _} = fetch(client)
 
@@ -47,7 +48,7 @@ defmodule KafkaEx.Pins.FollowerFetchPinTest do
   end
 
   test "the :update_metadata call drops the hint", %{fake: fake, client: client} do
-    leader_names_replica(fake, &{:frame, fetch_frame(&1, -1)})
+    leader_names_replica(fake)
     {:ok, _} = fetch(client)
     {:ok, _} = fetch(client)
 
@@ -62,12 +63,12 @@ defmodule KafkaEx.Pins.FollowerFetchPinTest do
     fake: fake,
     client: client
   } do
-    named = :counters.new(1, [])
+    leader_fetches = :counters.new(1, [])
 
     FakeTransport.respond(fake, :fetch, fn
       %{node_id: 1} = request ->
-        :counters.add(named, 1, 1)
-        {:frame, fetch_frame(request, if(:counters.get(named, 1) == 1, do: 2, else: -1))}
+        :counters.add(leader_fetches, 1, 1)
+        {:frame, fetch_frame(request, if(:counters.get(leader_fetches, 1) == 1, do: 2, else: -1))}
 
       _replica ->
         :close
