@@ -819,7 +819,8 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
 
       FakeTransport.close_socket(%{host: "a", port: 1}, socket, :timeout)
 
-      assert_receive {:DOWN, ^ref, :process, _, :normal}, 1_000
+      assert_receive {:DOWN, ^ref, :process, _, reason}, 5_000
+      assert reason == :normal, "peer stopped early: #{inspect(FakeTransport.connections(fake))}"
       assert [%{id: 1, open?: false}] = FakeTransport.connections(fake)
     end
 
@@ -836,6 +837,31 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       end)
 
       assert_receive {:telemetry, _, %{reason: :timeout}}
+    end
+
+    test "a client closing the socket records why the peer stopped" do
+      fake = start_fake()
+      FakeTransport.subscribe(fake)
+      socket = connect(fake, "a", 1)
+
+      FakeTransport.close_socket(%{host: "a", port: 1}, socket, :timeout)
+
+      assert_receive {:fake_transport, :closed, 1}, 5_000
+      assert [%{close_reason: {:socket_closed, :tcp_closed}}] = FakeTransport.connections(fake)
+    end
+
+    test "a scripted close records why the peer stopped" do
+      fake = start_fake()
+      FakeTransport.subscribe(fake)
+      FakeTransport.respond(fake, :metadata, :close)
+      socket = connect(fake, "a", 1)
+
+      capture_log(fn ->
+        FakeTransport.send_sync_request(%{host: "a", port: 1, socket: socket}, metadata_v0(1), 1_000)
+      end)
+
+      assert_receive {:fake_transport, :closed, 1}, 5_000
+      assert [%{close_reason: :scripted_close}] = FakeTransport.connections(fake)
     end
 
     test "a scripted close drops the connection on that request" do

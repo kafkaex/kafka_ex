@@ -18,7 +18,7 @@ defmodule KafkaEx.TestSupport.FakeTransport.Peer do
          {:ok, socket} <- upgrade(tcp, state.tls) do
       read_next(%{state | socket: socket})
     else
-      {:error, _reason} -> stop(state)
+      {:error, reason} -> stop(state, {:accept_failed, reason})
     end
   end
 
@@ -32,10 +32,11 @@ defmodule KafkaEx.TestSupport.FakeTransport.Peer do
 
   def handle_info(:close, state), do: perform(:close, state)
 
-  def handle_info({tag, socket}, %{socket: socket} = state) when tag in [:tcp_closed, :ssl_closed], do: stop(state)
+  def handle_info({tag, socket}, %{socket: socket} = state) when tag in [:tcp_closed, :ssl_closed],
+    do: stop(state, {:socket_closed, tag})
 
-  def handle_info({tag, socket, _reason}, %{socket: socket} = state) when tag in [:tcp_error, :ssl_error],
-    do: stop(state)
+  def handle_info({tag, socket, reason}, %{socket: socket} = state) when tag in [:tcp_error, :ssl_error],
+    do: stop(state, {:socket_error, reason})
 
   def handle_info(_stray, state), do: {:noreply, state}
 
@@ -57,18 +58,18 @@ defmodule KafkaEx.TestSupport.FakeTransport.Peer do
 
   defp perform(action, state) when action in [:close, :unscripted] do
     close(state)
-    stop(state)
+    stop(state, :scripted_close)
   end
 
   defp read_next(state) do
     case rearm(state) do
       :ok -> {:noreply, state}
-      {:error, _reason} -> stop(state)
+      {:error, reason} -> stop(state, {:rearm_failed, reason})
     end
   end
 
-  defp stop(state) do
-    send(state.controller, {:peer_closed, state.conn_id})
+  defp stop(state, reason) do
+    send(state.controller, {:peer_closed, state.conn_id, reason})
     {:stop, :normal, state}
   end
 
