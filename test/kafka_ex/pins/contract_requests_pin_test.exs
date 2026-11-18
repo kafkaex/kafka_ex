@@ -4,6 +4,7 @@ defmodule KafkaEx.Pins.ContractRequestsPinTest do
   alias KafkaEx.Client.NodeSelector
   alias KafkaEx.Messages.JoinGroup
   alias KafkaEx.Messages.RecordMetadata
+  alias KafkaEx.TestSupport.FakeTransport.Wire
 
   @moduletag pin_set: :invariant
 
@@ -161,12 +162,15 @@ defmodule KafkaEx.Pins.ContractRequestsPinTest do
 
   describe "acks 0" do
     test "completes on write, is written once and carries no offset", %{fake: fake, client: client} do
-      FakeTransport.subscribe(fake)
-      FakeTransport.respond(fake, :produce, :no_reply)
+      FakeTransport.respond(fake, :produce, produce_reply())
 
       assert {:ok, %RecordMetadata{base_offset: nil}} = API.produce(client, @topic, 0, [%{value: "v"}], acks: 0)
-      assert_receive {:fake_transport, :request, %{api: :produce}}, 5_000
-      assert count(fake, :produce) == 1
+      # One connection answers in arrival order, so this reply proves every earlier write was read.
+      assert {:ok, %RecordMetadata{base_offset: 7}} = API.produce(client, @topic, 0, [%{value: "v"}], acks: 1)
+
+      produces = requests(fake, :produce)
+      assert Enum.map(produces, &Wire.acks0?(&1.frame)) == [true, false]
+      assert produces |> Enum.map(& &1.conn) |> Enum.uniq() |> length() == 1
       assert Enum.uniq(nodes(fake, :produce)) == [1]
     end
   end
