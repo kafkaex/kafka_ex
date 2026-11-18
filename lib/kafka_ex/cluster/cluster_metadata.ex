@@ -10,6 +10,7 @@ defmodule KafkaEx.Cluster.ClusterMetadata do
   alias KafkaEx.Client.NodeSelector
   alias KafkaEx.Cluster.Broker
   alias KafkaEx.Cluster.Topic
+  alias KafkaEx.Support.Retry
 
   defstruct brokers: %{},
             controller_id: nil,
@@ -32,6 +33,19 @@ defmodule KafkaEx.Cluster.ClusterMetadata do
   """
   @type node_select_error ::
           :no_such_node | :no_such_topic | :no_such_partition | :no_such_consumer_group | :leader_not_available
+
+  @typedoc false
+  @type refresh :: %{
+          topics: [KafkaExAPI.topic_name()],
+          allow_auto_topic_creation: boolean(),
+          api_version: non_neg_integer() | nil
+        }
+
+  @typedoc false
+  @type action ::
+          {:refresh_metadata, refresh()}
+          | {:rediscover_coordinator, KafkaExAPI.consumer_group_name()}
+          | {:drop_coordinator, KafkaExAPI.consumer_group_name()}
 
   @doc """
   List names of topics known by the cluster metadata
@@ -251,6 +265,49 @@ defmodule KafkaEx.Cluster.ClusterMetadata do
   @spec remove_topics(t, [KafkaExAPI.topic_name()]) :: t
   def remove_topics(%__MODULE__{topics: topics} = cluster_metadata, topics_to_remove) do
     %{cluster_metadata | topics: Map.drop(topics, topics_to_remove)}
+  end
+
+  @doc false
+  @spec selection_miss_actions(NodeSelector.t(), Keyword.t()) :: [action()]
+  def selection_miss_actions(%NodeSelector{strategy: strategy, topic: topic}, opts)
+      when strategy in [:topic_partition, :topic_partition_replica],
+      do: [refresh_action([topic], opts)]
+
+  def selection_miss_actions(%NodeSelector{strategy: :consumer_group, consumer_group_name: group}, _opts),
+    do: [{:rediscover_coordinator, group}]
+
+  def selection_miss_actions(%NodeSelector{}, _opts), do: []
+
+  @doc false
+  @spec error_actions(atom(), NodeSelector.t(), Keyword.t()) :: [action()]
+  def error_actions(error, %NodeSelector{} = selector, opts),
+    do: refresh_actions(error, selector, opts) ++ drop_actions(error, selector, opts)
+
+  defp refresh_actions(error, %NodeSelector{strategy: strategy, consumer_group_name: group}, opts) do
+    cond do
+      Retry.leadership_error?(error) ->
+        [refresh_action([], opts)]
+
+      strategy == :consumer_group and Retry.coordinator_refresh_error?(error) ->
+        [{:drop_coordinator, group}, {:rediscover_coordinator, group}]
+
+      true ->
+        []
+    end
+  end
+
+  # Without a cached coordinator the next attempt runs FindCoordinator instead of retrying a broker that may be gone.
+  defp drop_actions(error, %NodeSelector{strategy: :consumer_group, consumer_group_name: group}, opts) do
+    if Keyword.fetch!(opts, :rediscover_coordinator?) and Retry.coordinator_connection_error?(error),
+      do: [{:drop_coordinator, group}],
+      else: []
+  end
+
+  defp drop_actions(_error, %NodeSelector{}, _opts), do: []
+
+  defp refresh_action(topics, opts) do
+    {:refresh_metadata,
+     %{topics: topics, allow_auto_topic_creation: Keyword.fetch!(opts, :allow_auto_topic_creation), api_version: nil}}
   end
 
   defp partition_leader(%__MODULE__{} = cluster_metadata, topic, partition) do

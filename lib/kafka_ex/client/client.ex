@@ -1245,7 +1245,7 @@ defmodule KafkaEx.Client do
 
   defp act_on_error(error_atom, %RequestContext{} = ctx, state) do
     actions =
-      error_actions(error_atom, ctx.node_selector,
+      ClusterMetadata.error_actions(error_atom, ctx.node_selector,
         rediscover_coordinator?: ctx.rediscover_coordinator?,
         allow_auto_topic_creation: state.allow_auto_topic_creation
       )
@@ -1271,6 +1271,11 @@ defmodule KafkaEx.Client do
     log_error_actions(error_atom, rest)
   end
 
+  defp log_error_actions(error_atom, [{:rediscover_coordinator, _group} | rest]) do
+    Logger.info("Re-discovering group coordinator due to #{inspect(error_atom)} error")
+    log_error_actions(error_atom, rest)
+  end
+
   defp run_cluster_actions(actions, state), do: Enum.reduce(actions, state, &run_cluster_action/2)
 
   defp run_cluster_action({:refresh_metadata, %{api_version: nil} = refresh}, state) do
@@ -1287,45 +1292,6 @@ defmodule KafkaEx.Client do
 
   defp coordinator_request?(%NodeSelector{strategy: :consumer_group}), do: true
   defp coordinator_request?(_), do: false
-
-  defp selection_miss_actions(%NodeSelector{strategy: strategy, topic: topic}, opts)
-       when strategy in [:topic_partition, :topic_partition_replica],
-       do: [refresh_metadata([topic], opts)]
-
-  defp selection_miss_actions(%NodeSelector{strategy: :consumer_group, consumer_group_name: group}, _opts),
-    do: [{:rediscover_coordinator, group}]
-
-  defp selection_miss_actions(%NodeSelector{}, _opts), do: []
-
-  defp error_actions(error, %NodeSelector{} = selector, opts),
-    do: refresh_actions(error, selector, opts) ++ drop_actions(error, selector, opts)
-
-  defp refresh_actions(error, %NodeSelector{strategy: strategy, consumer_group_name: group}, opts) do
-    cond do
-      Retry.leadership_error?(error) ->
-        [refresh_metadata([], opts)]
-
-      strategy == :consumer_group and Retry.coordinator_refresh_error?(error) ->
-        [{:drop_coordinator, group}, {:rediscover_coordinator, group}]
-
-      true ->
-        []
-    end
-  end
-
-  # Without a cached coordinator the next attempt runs FindCoordinator instead of retrying a broker that may be gone.
-  defp drop_actions(error, %NodeSelector{strategy: :consumer_group, consumer_group_name: group}, opts) do
-    if Keyword.fetch!(opts, :rediscover_coordinator?) and Retry.coordinator_connection_error?(error),
-      do: [{:drop_coordinator, group}],
-      else: []
-  end
-
-  defp drop_actions(_error, %NodeSelector{}, _opts), do: []
-
-  defp refresh_metadata(topics, opts) do
-    {:refresh_metadata,
-     %{topics: topics, allow_auto_topic_creation: Keyword.fetch!(opts, :allow_auto_topic_creation), api_version: nil}}
-  end
 
   # ----------------------------------------------------------------------------------------------------
   defp maybe_connect_broker(state, key, broker) do
@@ -1465,7 +1431,7 @@ defmodule KafkaEx.Client do
       {:error, _} ->
         updated_state =
           selector
-          |> selection_miss_actions(allow_auto_topic_creation: state.allow_auto_topic_creation)
+          |> ClusterMetadata.selection_miss_actions(allow_auto_topic_creation: state.allow_auto_topic_creation)
           |> run_cluster_actions(state)
 
         case State.select_broker_entry(updated_state, selector) do
