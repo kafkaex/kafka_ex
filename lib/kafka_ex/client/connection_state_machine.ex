@@ -43,7 +43,11 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
           wait?: boolean(),
           deadline: integer()
         }
-  @type meta :: %{bytes_sent: non_neg_integer(), bytes_received: non_neg_integer()}
+  @type meta :: %{
+          required(:bytes_sent) => non_neg_integer(),
+          required(:bytes_received) => non_neg_integer(),
+          optional(:correlation_id) => integer()
+        }
 
   @spec child_spec(map()) :: Supervisor.child_spec()
   def child_spec(args) do
@@ -79,6 +83,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
       |> Map.take([:host, :port, :role, :use_ssl, :transport, :secrets, :reconnect_backoff])
       |> Map.merge(%{
         opts: opts,
+        owner_ref: Process.monitor(args.client),
         socket: nil,
         node_id: nil,
         api_versions: nil,
@@ -192,6 +197,10 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   # A gen_tcp port that dies without a close message leaves no :tcp_closed behind.
   def handle_event(:info, {:EXIT, raw, _reason}, :connected, %{socket: %{socket: raw}} = data) do
     recv_error(:closed, data)
+  end
+
+  def handle_event(:info, {:DOWN, ref, :process, _pid, reason}, _state, %{owner_ref: ref} = data) do
+    stopped(if(reason == {:shutdown, :init_error}, do: :init_error, else: :shutdown), data)
   end
 
   def handle_event(:info, {:EXIT, _pid, _reason}, _state, _data), do: :keep_state_and_data
@@ -519,12 +528,13 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
 
     case data.transport.write(data.socket, wire) do
       :ok -> written(from, dispatch, id, bytes, data)
-      {:error, reason} -> send_failed(from, dispatch, reason, bytes, data)
+      {:error, reason} -> send_failed(from, dispatch, reason, {id, bytes}, data)
     end
   end
 
-  defp written(from, %{reply?: false}, _id, bytes, data) do
-    {:cont, data, [{:reply, from, {:ok, :no_response, %{bytes_sent: bytes, bytes_received: 0}}}]}
+  defp written(from, %{reply?: false}, id, bytes, data) do
+    meta = %{bytes_sent: bytes, bytes_received: 0, correlation_id: id}
+    {:cont, data, [{:reply, from, {:ok, :no_response, meta}}]}
   end
 
   defp written(from, dispatch, id, bytes, data) do
@@ -545,14 +555,15 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
     {:cont, data, [{{:timeout, {:reply, id}}, dispatch.timeout, nil}, liveness_timer(data), cancel(:idle)]}
   end
 
-  defp send_failed(from, dispatch, reason, bytes, data) do
+  defp send_failed(from, dispatch, reason, {id, bytes}, data) do
     verb = if dispatch.reply?, do: "Sending", else: "Asynchronously sending"
     Logger.error("#{verb} data to broker #{peer(data)} failed with #{inspect(reason)}")
     data = close_socket(data, :send_error)
 
     # Siblings share the send's reason: a :timeout is send_timeout_close, a client-side close.
     {data, replies} = answer_outstanding(data, reason)
-    {:down, data, [{:reply, from, {:error, reason, %{bytes_sent: bytes, bytes_received: 0}}} | replies]}
+    meta = %{bytes_sent: bytes, bytes_received: 0, correlation_id: id}
+    {:down, data, [{:reply, from, {:error, reason, meta}} | replies]}
   end
 
   defp received(<<id::32-signed, _::binary>> = frame, data) do
@@ -562,7 +573,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
         rearm(%{data | in_flight: in_flight}, [])
 
       {:ok, entry, in_flight} ->
-        meta = %{bytes_sent: entry.bytes_sent, bytes_received: byte_size(frame)}
+        meta = %{bytes_sent: entry.bytes_sent, bytes_received: byte_size(frame), correlation_id: id}
         rearm(%{data | in_flight: in_flight}, [cancel({:reply, id}), {:reply, entry.from, {:ok, frame, meta}}])
 
       :error ->
@@ -602,7 +613,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
     case List.keyfind(InFlight.entries(data.in_flight), id, 0) do
       {^id, %{from: from} = entry} when from != nil ->
         Logger.error("Receiving data from broker #{peer(data)} timed out")
-        meta = %{bytes_sent: entry.bytes_sent, bytes_received: 0}
+        meta = meta(id, entry)
 
         {:keep_state, %{data | in_flight: InFlight.abandon(data.in_flight, id)},
          [{:reply, from, {:error, :timeout, meta}}]}
@@ -665,13 +676,13 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
     {entries, in_flight} = InFlight.drain(data.in_flight)
 
     replies =
-      for {_id, %{from: from} = entry} <- entries, from != nil, do: {:reply, from, {:error, reason, meta(entry)}}
+      for {id, %{from: from} = entry} <- entries, from != nil, do: {:reply, from, {:error, reason, meta(id, entry)}}
 
     cancels = for {id, _entry} <- entries, do: cancel({:reply, id})
     {%{data | in_flight: in_flight}, replies ++ cancels}
   end
 
-  defp meta(entry), do: %{bytes_sent: entry.bytes_sent, bytes_received: 0}
+  defp meta(id, entry), do: %{bytes_sent: entry.bytes_sent, bytes_received: 0, correlation_id: id}
 
   defp disconnect(data, actions) do
     data = %{data | socket: nil}
@@ -732,6 +743,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   defp key(data), do: {data.host, data.port}
   defp peer(data), do: "#{inspect(data.host)}:#{inspect(data.port)}"
 
+  defp named(data, %{node_id: nil}), do: data
   defp named(data, %{node_id: node_id}), do: %{data | node_id: node_id}
 
   defp describe_peer(%{node_id: nil} = data), do: "#{data.host}:#{data.port}"
