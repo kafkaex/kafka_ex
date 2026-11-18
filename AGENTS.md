@@ -77,6 +77,7 @@ One exception: OffsetCommit/OffsetFetch v10 identify topics by id, so when the t
 - `mix compile --warnings-as-errors` is enforced — keep the build warning-free.
 - The client retry budget lives in `@retry_count` (`client/client.ex`, exposed via `Client.retry_count/0`); `KafkaEx.API` derives `@fetch_max_retries` from it at compile time (#562), so the two can no longer drift — change `@retry_count` only.
 - Test mocking uses **Mimic** (recently migrated off Hammox). Test support lives in `test/support` (compiled only in `:test`).
+- New client tests start a client on the fake transport (`KafkaEx.TestSupport.PinCase.start_pinned/1`) and send it real calls; do not call `Client.handle_call/3` directly or stub `NetworkClient`, `RequestBuilder` or `KafkaEx.Client` with Mimic.
 - The protocol layer favors keeping Kafka business logic *out* of the `Client` GenServer and *in* the per-version protocol impls, so the client stays stable as the wire protocol evolves.
 
 ## Reference docs

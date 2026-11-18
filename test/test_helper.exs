@@ -18,7 +18,6 @@ ExUnit.configure(
 # type_check: true validates stub args + return values against the module's typespecs,
 # so a stub can't return a value the real function never could (network I/O seam).
 Mimic.copy(KafkaEx.Network.NetworkClient, type_check: true)
-Mimic.copy(KafkaEx.Client.RequestBuilder)
 Mimic.copy(KafkaEx.Client, type_check: true)
 
 ExUnit.start()
