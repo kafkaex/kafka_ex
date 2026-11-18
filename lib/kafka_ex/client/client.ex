@@ -1990,6 +1990,7 @@ defmodule KafkaEx.Client do
 
       :error ->
         args = %{
+          client: self(),
           host: host,
           port: port,
           role: role,

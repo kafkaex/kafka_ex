@@ -63,6 +63,7 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
     auth = opts[:auth]
 
     %{
+      client: self(),
       host: host,
       port: port,
       role: role,
