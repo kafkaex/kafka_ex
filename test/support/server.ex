@@ -1,14 +1,9 @@
 defmodule KafkaEx.TestSupport.Server do
-  def start(port) do
-    {:ok, listen_socket} =
-      :gen_tcp.listen(port, [
-        :binary,
-        {:active, false},
-        {:reuseaddr, true},
-        {:packet, 0}
-      ])
+  def start do
+    {:ok, listen_socket} = :gen_tcp.listen(0, [:binary, {:active, false}, {:packet, 0}])
+    {:ok, port} = :inet.port(listen_socket)
 
-    spawn_link(fn -> listen(listen_socket) end)
+    {spawn_link(fn -> listen(listen_socket) end), port}
   end
 
   defp listen(socket) do
