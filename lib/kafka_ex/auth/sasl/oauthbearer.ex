@@ -32,10 +32,23 @@ defmodule KafkaEx.Auth.SASL.OAuthBearer do
   @impl true
   def authenticate(%Config{mechanism_opts: opts}, send_fun) do
     with {:ok, token} <- fetch_token(opts) do
-      case send_fun.(build_initial_response(token, opts)) do
-        {:ok, _} -> :ok
-        {:error, _} = err -> err
-      end
+      exchange(build_initial_response(token, opts), send_fun)
+    end
+  end
+
+  # RFC 7628 3.2.3: a non-empty server reply is an error challenge; the client answers %x01 and the exchange fails.
+  defp exchange(initial_response, send_fun) do
+    case send_fun.(initial_response) do
+      {:ok, server_reply} when server_reply in [nil, ""] -> :ok
+      {:ok, _error_challenge} -> fail_after_challenge(send_fun)
+      {:error, _} = err -> err
+    end
+  end
+
+  defp fail_after_challenge(send_fun) do
+    case send_fun.("\x01") do
+      {:error, _} = err -> err
+      {:ok, _} -> {:error, {:auth_failed, :sasl_authentication_failed}}
     end
   end
 
