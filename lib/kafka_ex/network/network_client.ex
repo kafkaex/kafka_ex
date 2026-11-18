@@ -3,6 +3,7 @@ defmodule KafkaEx.Network.NetworkClient do
   KafkaEx implementation of Client used to connect to Kafka Broker
   """
   @behaviour KafkaEx.Network.Behaviour
+  @behaviour KafkaEx.Network.Transport
   require Logger
 
   alias KafkaEx.Auth.Config, as: AuthConfig
@@ -169,6 +170,22 @@ defmodule KafkaEx.Network.NetworkClient do
         {:error, reason}
     end
   end
+
+  @impl KafkaEx.Network.Transport
+  def connect(%{host: host, port: port}, socket_options, use_ssl, timeout),
+    do: Socket.create(format_host(host), port, socket_options, use_ssl, timeout)
+
+  @impl KafkaEx.Network.Transport
+  def write(socket, data), do: Socket.send(socket, data)
+
+  @impl KafkaEx.Network.Transport
+  def read(socket, timeout), do: Socket.recv(socket, 0, timeout)
+
+  @impl KafkaEx.Network.Transport
+  def activate(socket), do: Socket.setopts(socket, [:binary, {:packet, 4}, {:active, :once}])
+
+  @impl KafkaEx.Network.Transport
+  def close(socket), do: Socket.close(socket)
 
   @impl true
   def format_host(host) do
