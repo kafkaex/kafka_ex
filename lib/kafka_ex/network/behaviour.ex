@@ -1,7 +1,8 @@
 defmodule KafkaEx.Network.Behaviour do
   @moduledoc """
-  Behaviour for any network client.
-  Created mainly to allow mocking request & responses in unit tests.
+  The transport seam the client calls; `KafkaEx.Network.NetworkClient` is the real transport.
+
+  The client requires `create_socket/5`, `close_socket/3`, `send_sync_request/3` and `send_async_request/2`.
   """
 
   @type host :: binary
@@ -11,13 +12,7 @@ defmodule KafkaEx.Network.Behaviour do
   @type request_data :: iodata
   @type response_data :: iodata
 
-  # Dirty hack to allow mocking of socket in unit tests for elixir 1.8
-  # We should remove this when we drop support for elixir 1.8
-  if Version.match?(System.version(), ">= 1.10.0") do
-    @type kafka_ex_socket :: KafkaEx.Network.Socket.t()
-  else
-    @type kafka_ex_socket :: any
-  end
+  @type kafka_ex_socket :: KafkaEx.Network.Socket.t()
 
   @doc """
   Creates a socket to the given host and port.
@@ -35,6 +30,15 @@ defmodule KafkaEx.Network.Behaviour do
   @callback close_socket(kafka_ex_socket | nil) :: :ok
 
   @doc """
+  Close socket and emit the connection close telemetry with the given reason.
+  """
+  @callback close_socket(
+              %{host: host, port: host_port} | kafka_ex_broker,
+              kafka_ex_socket | port | :ssl.sslsocket() | nil,
+              atom
+            ) :: :ok
+
+  @doc """
   Send request asynchronously to broker.
   """
   @callback send_async_request(kafka_ex_broker, request_data) :: :ok | {:error, :closed | :inet.posix()}
@@ -49,4 +53,11 @@ defmodule KafkaEx.Network.Behaviour do
   Otherwise, returns the host as a char list.
   """
   @callback format_host(binary) :: [char] | :inet.ip_address()
+
+  @optional_callbacks create_socket: 2,
+                      create_socket: 3,
+                      create_socket: 4,
+                      close_socket: 1,
+                      close_socket: 3,
+                      format_host: 1
 end

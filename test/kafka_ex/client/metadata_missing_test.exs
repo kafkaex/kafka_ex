@@ -30,13 +30,14 @@ defmodule KafkaEx.Client.MetadataMissingTest do
 
     broker = %Broker{node_id: 1, host: "localhost", port: lport, socket: %Socket{socket: sock, ssl: false}}
 
-    state = %State{
-      cluster_metadata: %ClusterMetadata{brokers: %{1 => broker}},
-      # api_key 3 = metadata; {min, max} = {0, 0} negotiates the simplest (V0) wire format.
-      api_versions: %{3 => {0, 0}},
-      correlation_id: 1,
-      tracked_topics: MapSet.new(["present-topic", "missing-topic"])
-    }
+    state =
+      KafkaEx.TestHelpers.client_state(%State{
+        cluster_metadata: %ClusterMetadata{brokers: %{1 => broker}},
+        # api_key 3 = metadata; {min, max} = {0, 0} negotiates the simplest (V0) wire format.
+        api_versions: %{3 => {0, 0}},
+        correlation_id: 1,
+        tracked_topics: MapSet.new(["present-topic", "missing-topic"])
+      })
 
     {:ok, state: state, broker: broker, port: lport}
   end

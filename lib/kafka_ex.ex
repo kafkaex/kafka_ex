@@ -139,7 +139,7 @@ defmodule KafkaEx do
       auth: Config.auth_config()
     ]
 
-    worker_init = Keyword.merge(defaults, worker_init)
+    worker_init = defaults |> Keyword.merge(worker_init) |> Keyword.delete(:transport)
     supplied_consumer_group = Keyword.get(worker_init, :consumer_group)
 
     if valid_consumer_group?(supplied_consumer_group) do

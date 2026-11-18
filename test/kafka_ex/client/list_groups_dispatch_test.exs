@@ -42,10 +42,11 @@ defmodule KafkaEx.Client.ListGroupsDispatchTest do
 
     broker = %Broker{node_id: 1, host: "localhost", port: lport, socket: %Socket{socket: sock, ssl: false}}
 
-    state = %State{
-      correlation_id: 7,
-      cluster_metadata: %ClusterMetadata{brokers: %{1 => broker}}
-    }
+    state =
+      KafkaEx.TestHelpers.client_state(%State{
+        correlation_id: 7,
+        cluster_metadata: %ClusterMetadata{brokers: %{1 => broker}}
+      })
 
     {:ok, state: state}
   end

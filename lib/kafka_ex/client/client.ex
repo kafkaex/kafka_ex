@@ -12,7 +12,6 @@ defmodule KafkaEx.Client do
   """
 
   alias KafkaEx.Config
-  alias KafkaEx.Network.NetworkClient
   alias KafkaEx.Telemetry
 
   alias KafkaEx.Client.Error
@@ -96,6 +95,7 @@ defmodule KafkaEx.Client do
   @impl true
   def init([args, _name]) do
     state = State.static_init(args)
+    :ok = validate_transport!(state.transport)
 
     unless KafkaEx.valid_consumer_group?(state.consumer_group_for_auto_commit) do
       raise KafkaEx.InvalidConsumerGroupError,
@@ -111,23 +111,19 @@ defmodule KafkaEx.Client do
     # One-time deprecation notice for the legacy :sync_timeout key (→ :request_timeout).
     :ok = Config.warn_deprecated_timeout_config()
 
-    brokers =
-      state.bootstrap_uris
-      |> Enum.with_index()
-      |> Enum.into(%{}, fn {{host, port}, ix} ->
-        {ix + 1,
-         %Broker{
-           host: host,
-           port: port,
-           socket: NetworkClient.create_socket(host, port, state.ssl_options, state.use_ssl, state.auth)
-         }}
-      end)
-
+    bootstrap = Enum.with_index(state.bootstrap_uris, 1)
+    brokers = Map.new(bootstrap, fn {{host, port}, key} -> {key, %Broker{host: host, port: port}} end)
     state = %{state | cluster_metadata: %ClusterMetadata{brokers: brokers}}
+
+    state =
+      Enum.reduce(bootstrap, state, fn {{host, port}, key}, acc ->
+        socket = acc.transport.create_socket(host, port, acc.ssl_options, acc.use_ssl, acc.auth)
+        State.put_connection(acc, key, brokers[key], socket)
+      end)
 
     # Wrap remaining init in try to ensure sockets are closed on failure
     try do
-      check_brokers_sockets!(brokers)
+      check_brokers_sockets!(state)
 
       # ApiVersions negotiation with retry (issue #433)
       {ok_or_err, api_versions_or_error, state} = get_api_versions_with_retry(state)
@@ -176,16 +172,23 @@ defmodule KafkaEx.Client do
       {:ok, state}
     rescue
       e ->
-        # Close all sockets before re-raising to prevent resource leak
-        close_all_sockets(state)
+        close_connections(state, :init_error)
         reraise e, __STACKTRACE__
     end
   end
 
-  defp close_all_sockets(state) do
-    Enum.each(State.brokers(state), fn broker ->
-      NetworkClient.close_socket(broker, broker.socket, :init_error)
-    end)
+  @transport_functions [create_socket: 5, close_socket: 3, send_sync_request: 3, send_async_request: 2]
+
+  defp validate_transport!(transport) do
+    valid? =
+      is_atom(transport) and Code.ensure_loaded?(transport) and
+        Enum.all?(@transport_functions, fn {name, arity} -> function_exported?(transport, name, arity) end)
+
+    if valid?, do: :ok, else: raise(ArgumentError, "invalid :transport #{inspect(transport)}")
+  end
+
+  defp close_connections(state, reason) do
+    Enum.each(State.connections(state), fn {_key, conn} -> state.transport.close_socket(conn, conn.socket, reason) end)
   end
 
   @impl true
@@ -451,7 +454,7 @@ defmodule KafkaEx.Client do
   def terminate(reason, state) do
     Logger.debug("Shutting down worker #{inspect(worker_identity())}, reason: #{inspect(reason)}")
     if state.metadata_timer_ref, do: :timer.cancel(state.metadata_timer_ref), else: nil
-    Enum.each(State.brokers(state), &NetworkClient.close_socket(&1, &1.socket, :shutdown))
+    close_connections(state, :shutdown)
   end
 
   defp worker_identity do
@@ -474,14 +477,22 @@ defmodule KafkaEx.Client do
         updated_state
 
       %ClusterMetadata{} = new_cluster_metadata ->
-        {updated_cluster_metadata, brokers_to_close} =
+        {updated_cluster_metadata, _brokers_to_close} =
           ClusterMetadata.merge_brokers(updated_state.cluster_metadata, new_cluster_metadata)
 
-        :ok = Enum.each(brokers_to_close, &NetworkClient.close_socket(&1, &1.socket, :metadata_update))
-
-        state_with_meta = %{updated_state | cluster_metadata: updated_cluster_metadata}
-        State.update_brokers(state_with_meta, &maybe_connect_broker(&1, state))
+        refresh_connections(%{updated_state | cluster_metadata: updated_cluster_metadata})
     end
+  end
+
+  defp refresh_connections(state) do
+    {state, stale} = State.reconcile_connections(state)
+
+    :ok =
+      Enum.each(stale, fn entry ->
+        state.transport.close_socket(%{host: entry.host, port: entry.port}, entry.socket, :metadata_update)
+      end)
+
+    Enum.reduce(State.broker_entries(state), state, fn {key, broker}, acc -> maybe_connect_broker(acc, key, broker) end)
   end
 
   # ----------------------------------------------------------------------------------------------------
@@ -1123,11 +1134,7 @@ defmodule KafkaEx.Client do
 
     case handle_request_with_retry(ctx, state) do
       {{:ok, cluster_metadata}, updated_state} ->
-        # Return the response as-is, but merge it into the cached metadata
-        # instead of replacing it: a targeted lookup (by name or by id) lists
-        # only the requested topics, so replacing would drop every other known
-        # topic, the cached group coordinators, and the open broker sockets
-        # (leaking them). Same broker merge as the periodic refresh.
+        # A targeted lookup lists only the requested topics, so merge instead of replacing the cached metadata.
         {{:ok, cluster_metadata}, merge_cluster_metadata(updated_state, cluster_metadata, request)}
 
       error_result ->
@@ -1136,8 +1143,7 @@ defmodule KafkaEx.Client do
   end
 
   defp merge_cluster_metadata(state, %ClusterMetadata{} = new_metadata, request) do
-    {merged, brokers_to_close} = ClusterMetadata.merge_brokers(state.cluster_metadata, new_metadata)
-    :ok = Enum.each(brokers_to_close, &NetworkClient.close_socket(&1, &1.socket, :metadata_update))
+    {merged, _brokers_to_close} = ClusterMetadata.merge_brokers(state.cluster_metadata, new_metadata)
 
     # A full request (no topics filter) lists every topic, so it replaces the
     # topic map (dropping deleted topics); a targeted one only adds or updates.
@@ -1146,8 +1152,7 @@ defmodule KafkaEx.Client do
         do: new_metadata.topics,
         else: Map.merge(state.cluster_metadata.topics, new_metadata.topics)
 
-    state_with_meta = %{state | cluster_metadata: %{merged | topics: topics}}
-    State.update_brokers(state_with_meta, &maybe_connect_broker(&1, state))
+    refresh_connections(%{state | cluster_metadata: %{merged | topics: topics}})
   end
 
   # Matches the built request. "All topics" is a null topic list from V1 on
@@ -1281,15 +1286,15 @@ defmodule KafkaEx.Client do
   end
 
   # ----------------------------------------------------------------------------------------------------
-  defp maybe_connect_broker(broker, state) do
+  defp maybe_connect_broker(state, key, broker) do
     case Broker.connected?(broker) do
       true ->
-        broker
+        state
 
       false ->
-        NetworkClient.close_socket(broker, broker.socket, :reconnecting)
-        socket = NetworkClient.create_socket(broker.host, broker.port, state.ssl_options, state.use_ssl, state.auth)
-        %{broker | socket: socket}
+        state.transport.close_socket(broker, broker.socket, :reconnecting)
+        socket = state.transport.create_socket(broker.host, broker.port, state.ssl_options, state.use_ssl, state.auth)
+        State.put_connection(state, key, broker, socket)
     end
   end
 
@@ -1300,7 +1305,7 @@ defmodule KafkaEx.Client do
   defp reconnect_broker(broker, state, retry_count) when retry_count < @reconnect_max_retries do
     Logger.info("Reconnecting to #{Broker.to_string(broker)}, attempt #{retry_count + 1}/#{@reconnect_max_retries}")
 
-    case NetworkClient.create_socket(broker.host, broker.port, state.ssl_options, state.use_ssl, state.auth) do
+    case state.transport.create_socket(broker.host, broker.port, state.ssl_options, state.use_ssl, state.auth) do
       nil ->
         Process.sleep(@reconnect_delay_ms)
         reconnect_broker(broker, state, retry_count + 1)
@@ -1396,10 +1401,11 @@ defmodule KafkaEx.Client do
     Process.sleep(Application.get_env(:kafka_ex, :sleep_for_reconnect, 400))
   end
 
-  defp check_brokers_sockets!(brokers) do
+  defp check_brokers_sockets!(state) do
     any_socket_opened =
-      brokers
-      |> Enum.map(fn {_, %Broker{socket: socket}} -> !is_nil(socket) end)
+      state
+      |> State.broker_entries()
+      |> Enum.map(fn {key, _broker} -> !is_nil(State.connection_socket(state, key)) end)
       |> Enum.reduce(&(&1 || &2))
 
     if !any_socket_opened do
@@ -1412,27 +1418,24 @@ defmodule KafkaEx.Client do
     %{request | client_id: Config.client_id(), correlation_id: state.correlation_id}
   end
 
-  # select a broker, updating state if necessary (e.g., metadata or consumer group)
-  # returns {broker, maybe_updated_state} - broker will be nil in case of
-  # failure. Ensures the returned broker is connected, attempting reconnection if needed.
   defp select_broker_with_update(state, selector, state_updater) do
-    case State.select_broker(state, selector) do
+    case State.select_broker_entry(state, selector) do
       {:error, _} ->
         updated_state = state_updater.(state)
 
-        case State.select_broker(updated_state, selector) do
+        case State.select_broker_entry(updated_state, selector) do
           {:error, reason} ->
             # Debug, not warning: the consumer's fetch loop retries this lookup and owns the throttled log.
             Logger.debug("No broker for #{describe_selector(selector)} after metadata refresh: #{inspect(reason)}")
 
             {nil, updated_state}
 
-          {:ok, broker} ->
-            ensure_broker_connected(broker, updated_state)
+          {:ok, key, broker} ->
+            ensure_broker_connected(key, broker, updated_state)
         end
 
-      {:ok, broker} ->
-        ensure_broker_connected(broker, state)
+      {:ok, key, broker} ->
+        ensure_broker_connected(key, broker, state)
     end
   end
 
@@ -1443,38 +1446,34 @@ defmodule KafkaEx.Client do
   defp describe_selector(%NodeSelector{strategy: :consumer_group, consumer_group_name: group}),
     do: "consumer group #{group}"
 
-  # Ensures broker is connected, reconnecting if necessary.
-  # Returns {broker, updated_state} where broker may have a new socket,
-  # or nil if reconnection failed.
-  defp ensure_broker_connected(broker, state) do
+  defp ensure_broker_connected(key, broker, state) do
     if Broker.connected?(broker) do
       {broker, state}
     else
-      reconnected_broker = reconnect_broker(broker, state)
-
-      if Broker.connected?(reconnected_broker) do
-        updated_state = update_broker_in_state(state, reconnected_broker)
-        {reconnected_broker, updated_state}
-      else
-        {nil, state}
+      case reconnect(key, broker, state) do
+        {:ok, reconnected, updated_state} -> {reconnected, updated_state}
+        :error -> {nil, state}
       end
     end
   end
 
-  defp update_broker_in_state(state, broker) do
-    State.update_brokers(state, fn b ->
-      if b.node_id == broker.node_id, do: broker, else: b
-    end)
+  defp reconnect(key, broker, state) do
+    reconnected = reconnect_broker(broker, state)
+
+    if Broker.connected?(reconnected) do
+      {:ok, reconnected, State.put_connection(state, key, reconnected, reconnected.socket)}
+    else
+      :error
+    end
   end
 
   @max_reconnect_attempts 3
   defp ensure_any_broker_connected(state) do
-    brokers = State.brokers(state)
-    connected = Enum.filter(brokers, &Broker.connected?/1)
+    entries = State.broker_entries(state)
+    connected = for {_key, broker} <- entries, Broker.connected?(broker), do: broker
 
     if Enum.empty?(connected) do
-      brokers_to_try = Enum.take(brokers, @max_reconnect_attempts)
-      reconnect_any_broker(brokers_to_try, state)
+      reconnect_any_broker(Enum.take(entries, @max_reconnect_attempts), state)
     else
       {state, connected}
     end
@@ -1482,14 +1481,10 @@ defmodule KafkaEx.Client do
 
   defp reconnect_any_broker([], state), do: {state, []}
 
-  defp reconnect_any_broker([broker | rest], state) do
-    reconnected = reconnect_broker(broker, state)
-
-    if Broker.connected?(reconnected) do
-      updated_state = update_broker_in_state(state, reconnected)
-      {updated_state, [reconnected]}
-    else
-      reconnect_any_broker(rest, state)
+  defp reconnect_any_broker([{key, broker} | rest], state) do
+    case reconnect(key, broker, state) do
+      {:ok, reconnected, updated_state} -> {updated_state, [reconnected]}
+      :error -> reconnect_any_broker(rest, state)
     end
   end
 
@@ -1541,24 +1536,24 @@ defmodule KafkaEx.Client do
     end
   end
 
-  defp first_broker_response(request, brokers, timeout) do
-    first_broker_response(request, Enum.shuffle(brokers), timeout, nil)
+  defp first_broker_response(transport, request, brokers, timeout) do
+    first_broker_response(transport, request, Enum.shuffle(brokers), timeout, nil)
   end
 
-  defp first_broker_response(_request, [], _timeout, last_error) do
+  defp first_broker_response(_transport, _request, [], _timeout, last_error) do
     {last_error || {:error, :no_connected_broker}, nil}
   end
 
-  defp first_broker_response(request, [broker | rest], timeout, _last_error) do
-    case try_broker(broker, request, timeout) do
-      nil -> first_broker_response(request, rest, timeout, {:error, :broker_failed})
-      {:error, _} = error -> first_broker_response(request, rest, timeout, error)
+  defp first_broker_response(transport, request, [broker | rest], timeout, _last_error) do
+    case try_broker(transport, broker, request, timeout) do
+      nil -> first_broker_response(transport, request, rest, timeout, {:error, :broker_failed})
+      {:error, _} = error -> first_broker_response(transport, request, rest, timeout, error)
       response -> {response, broker}
     end
   end
 
-  defp try_broker(broker, request, timeout) do
-    case NetworkClient.send_sync_request(broker, request, timeout) do
+  defp try_broker(transport, broker, request, timeout) do
+    case transport.send_sync_request(broker, request, timeout) do
       {:error, :not_connected} ->
         Logger.debug("#{Broker.to_string(broker)} not connected, skipping")
         nil
@@ -1699,7 +1694,8 @@ defmodule KafkaEx.Client do
     if Enum.empty?(connected_brokers) do
       {:no_broker, updated_state}
     else
-      {fn wire_request -> first_broker_response(wire_request, connected_brokers, network_timeout) end, updated_state}
+      {fn wire_request -> first_broker_response(state.transport, wire_request, connected_brokers, network_timeout) end,
+       updated_state}
     end
   end
 
@@ -1714,9 +1710,9 @@ defmodule KafkaEx.Client do
 
     if broker do
       if synchronous do
-        {send_sync_request_fn(broker, network_timeout), updated_state}
+        {send_sync_request_fn(state.transport, broker, network_timeout), updated_state}
       else
-        {send_async_request_fn(broker), updated_state}
+        {send_async_request_fn(state.transport, broker), updated_state}
       end
     else
       {:no_broker, updated_state}
@@ -1735,19 +1731,19 @@ defmodule KafkaEx.Client do
     {broker, updated_state} = broker_for_consumer_group_with_update(state, consumer_group)
 
     if broker do
-      {send_sync_request_fn(broker, network_timeout), updated_state}
+      {send_sync_request_fn(state.transport, broker, network_timeout), updated_state}
     else
       {:no_broker, updated_state}
     end
   end
 
   defp get_send_request_function(%NodeSelector{} = node_selector, state, network_timeout, _synchronous) do
-    case State.select_broker(state, node_selector) do
-      {:ok, broker} ->
-        {connected_broker, updated_state} = ensure_broker_connected(broker, state)
+    case State.select_broker_entry(state, node_selector) do
+      {:ok, key, broker} ->
+        {connected_broker, updated_state} = ensure_broker_connected(key, broker, state)
 
         if connected_broker do
-          {send_sync_request_fn(connected_broker, network_timeout), updated_state}
+          {send_sync_request_fn(state.transport, connected_broker, network_timeout), updated_state}
         else
           {:no_broker, updated_state}
         end
@@ -1757,15 +1753,15 @@ defmodule KafkaEx.Client do
     end
   end
 
-  defp send_sync_request_fn(broker, network_timeout) do
+  defp send_sync_request_fn(transport, broker, network_timeout) do
     fn wire_request ->
-      {NetworkClient.send_sync_request(broker, wire_request, network_timeout), broker}
+      {transport.send_sync_request(broker, wire_request, network_timeout), broker}
     end
   end
 
-  defp send_async_request_fn(broker) do
+  defp send_async_request_fn(transport, broker) do
     fn wire_request ->
-      {NetworkClient.send_async_request(broker, wire_request), broker}
+      {transport.send_async_request(broker, wire_request), broker}
     end
   end
 
@@ -1799,20 +1795,21 @@ defmodule KafkaEx.Client do
   end
 
   defp close_broker_by_socket(state, socket, reason \\ :remote_closed, detail \\ nil) do
-    State.update_brokers(state, fn broker ->
-      if Broker.has_socket?(broker, socket) do
-        log_connection_close(broker, detail)
-        # Socket is already closed (received :tcp_closed/:ssl_closed), just emit telemetry
-        NetworkClient.close_socket(broker, socket, reason)
-        Broker.put_socket(broker, nil)
-      else
-        broker
-      end
+    state
+    |> State.find_connections_by_raw_socket(socket)
+    |> Enum.reduce(state, fn {key, entry}, acc ->
+      broker = acc.cluster_metadata.brokers[key] || entry
+      log_connection_close(broker, detail)
+      state.transport.close_socket(broker, socket, reason)
+      State.drop_connection(acc, key)
     end)
   end
 
-  defp log_connection_close(broker, nil), do: Logger.debug("#{Broker.to_string(broker)} closed connection")
+  defp log_connection_close(broker, nil), do: Logger.debug("#{describe_peer(broker)} closed connection")
 
   defp log_connection_close(broker, detail),
-    do: Logger.warning("#{Broker.to_string(broker)} closed connection: #{inspect(detail)}")
+    do: Logger.warning("#{describe_peer(broker)} closed connection: #{inspect(detail)}")
+
+  defp describe_peer(%Broker{} = broker), do: Broker.to_string(broker)
+  defp describe_peer(%{host: host, port: port}), do: "#{host}:#{port}"
 end

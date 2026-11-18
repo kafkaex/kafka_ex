@@ -123,14 +123,15 @@ defmodule KafkaEx.ClientTest do
 
       broker = %Broker{node_id: 1, host: "localhost", port: lport, socket: %Socket{socket: sock, ssl: false}}
 
-      state = %State{
-        api_versions: %{0 => {0, 8}},
-        correlation_id: 1,
-        cluster_metadata: %ClusterMetadata{
-          brokers: %{1 => broker},
-          topics: %{"t" => %Topic{name: "t", partition_leaders: %{0 => 1}}}
-        }
-      }
+      state =
+        KafkaEx.TestHelpers.client_state(%State{
+          api_versions: %{0 => {0, 8}},
+          correlation_id: 1,
+          cluster_metadata: %ClusterMetadata{
+            brokers: %{1 => broker},
+            topics: %{"t" => %Topic{name: "t", partition_leaders: %{0 => 1}}}
+          }
+        })
 
       {:ok, state: state}
     end
@@ -633,9 +634,9 @@ defmodule KafkaEx.ClientTest do
   end
 
   defp build_state(brokers_by_id) do
-    %State{
+    KafkaEx.TestHelpers.client_state(%State{
       cluster_metadata: %ClusterMetadata{brokers: brokers_by_id}
-    }
+    })
   end
 
   defp broker_with_port(node_id, port) do

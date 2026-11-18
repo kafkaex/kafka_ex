@@ -46,15 +46,16 @@ defmodule KafkaEx.Client.CoordinatorRefreshTest do
 
     broker = %Broker{node_id: 1, host: "localhost", port: lport, socket: %Socket{socket: sock, ssl: false}}
 
-    state = %State{
-      consumer_group_for_auto_commit: "test-group",
-      api_versions: %{9 => {0, 3}},
-      correlation_id: 1,
-      cluster_metadata: %ClusterMetadata{
-        brokers: %{1 => broker},
-        consumer_group_coordinators: %{"test-group" => 1}
-      }
-    }
+    state =
+      KafkaEx.TestHelpers.client_state(%State{
+        consumer_group_for_auto_commit: "test-group",
+        api_versions: %{9 => {0, 3}},
+        correlation_id: 1,
+        cluster_metadata: %ClusterMetadata{
+          brokers: %{1 => broker},
+          consumer_group_coordinators: %{"test-group" => 1}
+        }
+      })
 
     {:ok, state: state}
   end
@@ -104,14 +105,15 @@ defmodule KafkaEx.Client.CoordinatorRefreshTest do
     setup %{state: state} do
       [broker] = Map.values(state.cluster_metadata.brokers)
 
-      state = %State{
-        state
-        | api_versions: %{68 => {0, 1}, 10 => {0, 3}},
-          cluster_metadata: %ClusterMetadata{
-            brokers: %{1 => broker, 2 => %Broker{broker | node_id: 2}},
-            consumer_group_coordinators: %{"test-group" => 1}
-          }
-      }
+      state =
+        KafkaEx.TestHelpers.client_state(%State{
+          state
+          | api_versions: %{68 => {0, 1}, 10 => {0, 3}},
+            cluster_metadata: %ClusterMetadata{
+              brokers: %{1 => broker, 2 => %Broker{broker | node_id: 2}},
+              consumer_group_coordinators: %{"test-group" => 1}
+            }
+        })
 
       {:ok, state: state}
     end
