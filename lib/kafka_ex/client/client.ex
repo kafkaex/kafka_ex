@@ -1220,20 +1220,17 @@ defmodule KafkaEx.Client do
             "not retrying at the client (send-once)"
         )
 
-        {{:error, error}, maybe_drop_coordinator(error_atom, ctx, state)}
+        {{:error, error}, act_on_error(error_atom, ctx, state)}
 
       # A stale topic id (OffsetCommit/OffsetFetch v10+, Metadata by id) is baked
       # into the built request, so resending `ctx.request` cannot succeed.
       # Refresh metadata and return: a caller that retries (e.g. GenConsumer's
       # commit retry) rebuilds the request from the fresh ids.
       error_atom == :unknown_topic_id ->
-        {{:error, error}, refresh_for_error(error_atom, ctx, state)}
+        {{:error, error}, act_on_error(error_atom, ctx, state)}
 
       ctx.retryable?.(error_atom) ->
-        updated_state =
-          error_atom |> refresh_for_error(ctx, state) |> then(&maybe_drop_coordinator(error_atom, ctx, &1))
-
-        handle_request_with_retry(ctx, updated_state, retry_count - 1, error)
+        handle_request_with_retry(ctx, act_on_error(error_atom, ctx, state), retry_count - 1, error)
 
       true ->
         Logger.info("Error #{inspect(error_atom)} is not retryable for #{inspect(request_name)}, failing immediately")
@@ -1246,43 +1243,88 @@ defmodule KafkaEx.Client do
   defp extract_error_atom({_group_id, error}) when is_atom(error), do: error
   defp extract_error_atom(_), do: :unknown
 
-  defp refresh_for_error(error_atom, ctx, state) do
-    cond do
-      Retry.leadership_error?(error_atom) ->
-        Logger.info("Refreshing metadata due to #{inspect(error_atom)} error")
-        update_metadata(state)
+  defp act_on_error(error_atom, %RequestContext{} = ctx, state) do
+    actions =
+      error_actions(error_atom, ctx.node_selector,
+        rediscover_coordinator?: ctx.rediscover_coordinator?,
+        allow_auto_topic_creation: state.allow_auto_topic_creation
+      )
 
-      coordinator_request?(ctx.node_selector) and Retry.coordinator_refresh_error?(error_atom) ->
-        Logger.info("Re-discovering group coordinator due to #{inspect(error_atom)} error")
-        refresh_coordinator(state, ctx.node_selector.consumer_group_name)
-
-      true ->
-        state
-    end
+    log_error_actions(error_atom, actions)
+    run_cluster_actions(actions, state)
   end
 
-  # A connection failure on a request that asks for it (RequestContext
-  # :rediscover_coordinator?) forgets the cached coordinator: the next
-  # attempt's broker selection runs FindCoordinator, instead of retrying a
-  # coordinator whose broker may be gone until a metadata refresh drops it.
-  defp maybe_drop_coordinator(error_atom, %RequestContext{rediscover_coordinator?: true} = ctx, state) do
-    if coordinator_request?(ctx.node_selector) and Retry.coordinator_connection_error?(error_atom) do
-      Logger.info("Forgetting the coordinator of #{ctx.node_selector.consumer_group_name} after #{inspect(error_atom)}")
-      State.drop_consumer_group_coordinator(state, ctx.node_selector.consumer_group_name)
-    else
-      state
-    end
+  defp log_error_actions(_error_atom, []), do: :ok
+
+  defp log_error_actions(error_atom, [{:refresh_metadata, _} | rest]) do
+    Logger.info("Refreshing metadata due to #{inspect(error_atom)} error")
+    log_error_actions(error_atom, rest)
   end
 
-  defp maybe_drop_coordinator(_error_atom, _ctx, state), do: state
+  defp log_error_actions(error_atom, [{:drop_coordinator, group}, {:rediscover_coordinator, group} | rest]) do
+    Logger.info("Re-discovering group coordinator due to #{inspect(error_atom)} error")
+    log_error_actions(error_atom, rest)
+  end
+
+  defp log_error_actions(error_atom, [{:drop_coordinator, group} | rest]) do
+    Logger.info("Forgetting the coordinator of #{group} after #{inspect(error_atom)}")
+    log_error_actions(error_atom, rest)
+  end
+
+  defp run_cluster_actions(actions, state), do: Enum.reduce(actions, state, &run_cluster_action/2)
+
+  defp run_cluster_action({:refresh_metadata, %{api_version: nil} = refresh}, state) do
+    default = state.allow_auto_topic_creation
+
+    updated_state =
+      update_metadata(%{state | allow_auto_topic_creation: refresh.allow_auto_topic_creation}, refresh.topics)
+
+    %{updated_state | allow_auto_topic_creation: default}
+  end
+
+  defp run_cluster_action({:rediscover_coordinator, group}, state), do: update_consumer_group_coordinator(state, group)
+  defp run_cluster_action({:drop_coordinator, group}, state), do: State.drop_consumer_group_coordinator(state, group)
 
   defp coordinator_request?(%NodeSelector{strategy: :consumer_group}), do: true
   defp coordinator_request?(_), do: false
 
-  defp refresh_coordinator(state, consumer_group) do
-    state
-    |> State.drop_consumer_group_coordinator(consumer_group)
-    |> update_consumer_group_coordinator(consumer_group)
+  defp selection_miss_actions(%NodeSelector{strategy: strategy, topic: topic}, opts)
+       when strategy in [:topic_partition, :topic_partition_replica],
+       do: [refresh_metadata([topic], opts)]
+
+  defp selection_miss_actions(%NodeSelector{strategy: :consumer_group, consumer_group_name: group}, _opts),
+    do: [{:rediscover_coordinator, group}]
+
+  defp selection_miss_actions(%NodeSelector{}, _opts), do: []
+
+  defp error_actions(error, %NodeSelector{} = selector, opts),
+    do: refresh_actions(error, selector, opts) ++ drop_actions(error, selector, opts)
+
+  defp refresh_actions(error, %NodeSelector{strategy: strategy, consumer_group_name: group}, opts) do
+    cond do
+      Retry.leadership_error?(error) ->
+        [refresh_metadata([], opts)]
+
+      strategy == :consumer_group and Retry.coordinator_refresh_error?(error) ->
+        [{:drop_coordinator, group}, {:rediscover_coordinator, group}]
+
+      true ->
+        []
+    end
+  end
+
+  # Without a cached coordinator the next attempt runs FindCoordinator instead of retrying a broker that may be gone.
+  defp drop_actions(error, %NodeSelector{strategy: :consumer_group, consumer_group_name: group}, opts) do
+    if Keyword.fetch!(opts, :rediscover_coordinator?) and Retry.coordinator_connection_error?(error),
+      do: [{:drop_coordinator, group}],
+      else: []
+  end
+
+  defp drop_actions(_error, %NodeSelector{}, _opts), do: []
+
+  defp refresh_metadata(topics, opts) do
+    {:refresh_metadata,
+     %{topics: topics, allow_auto_topic_creation: Keyword.fetch!(opts, :allow_auto_topic_creation), api_version: nil}}
   end
 
   # ----------------------------------------------------------------------------------------------------
@@ -1418,10 +1460,13 @@ defmodule KafkaEx.Client do
     %{request | client_id: Config.client_id(), correlation_id: state.correlation_id}
   end
 
-  defp select_broker_with_update(state, selector, state_updater) do
+  defp select_broker_with_update(state, selector) do
     case State.select_broker_entry(state, selector) do
       {:error, _} ->
-        updated_state = state_updater.(state)
+        updated_state =
+          selector
+          |> selection_miss_actions(allow_auto_topic_creation: state.allow_auto_topic_creation)
+          |> run_cluster_actions(state)
 
         case State.select_broker_entry(updated_state, selector) do
           {:error, reason} ->
@@ -1486,15 +1531,6 @@ defmodule KafkaEx.Client do
       {:ok, reconnected, updated_state} -> {updated_state, [reconnected]}
       :error -> reconnect_any_broker(rest, state)
     end
-  end
-
-  defp broker_for_partition_with_update(state, %NodeSelector{topic: topic} = selector) do
-    select_broker_with_update(state, selector, &update_metadata(&1, [topic]))
-  end
-
-  defp broker_for_consumer_group_with_update(state, consumer_group) do
-    node = NodeSelector.consumer_group(consumer_group)
-    select_broker_with_update(state, node, &update_consumer_group_coordinator(&1, consumer_group))
   end
 
   defp update_consumer_group_coordinator(state, consumer_group) do
@@ -1706,7 +1742,7 @@ defmodule KafkaEx.Client do
          synchronous
        )
        when strategy in [:topic_partition, :topic_partition_replica] do
-    {broker, updated_state} = broker_for_partition_with_update(state, selector)
+    {broker, updated_state} = select_broker_with_update(state, selector)
 
     if broker do
       if synchronous do
@@ -1720,15 +1756,12 @@ defmodule KafkaEx.Client do
   end
 
   defp get_send_request_function(
-         %NodeSelector{
-           strategy: :consumer_group,
-           consumer_group_name: consumer_group
-         },
+         %NodeSelector{strategy: :consumer_group} = selector,
          state,
          network_timeout,
          _synchronous
        ) do
-    {broker, updated_state} = broker_for_consumer_group_with_update(state, consumer_group)
+    {broker, updated_state} = select_broker_with_update(state, selector)
 
     if broker do
       {send_sync_request_fn(state.transport, broker, network_timeout), updated_state}
