@@ -6,76 +6,64 @@ defmodule KafkaEx.Client.MetadataLookupMergeTest do
   topic, the cached group coordinators, and the open broker sockets (which were
   then leaked, as nothing referenced them any more).
 
-  Driven through the real `Client.handle_call/3` with NetworkClient stubbed.
+  Driven through a started client on the fake transport.
   """
-  use ExUnit.Case, async: false
-  use Mimic
+  use KafkaEx.TestSupport.PinCase, async: false
 
-  alias KafkaEx.Client
-  alias KafkaEx.Client.State
-  alias KafkaEx.Cluster.Broker
   alias KafkaEx.Cluster.ClusterMetadata
-  alias KafkaEx.Cluster.Topic
-  alias KafkaEx.Network.NetworkClient
-  alias KafkaEx.Network.Socket
 
-  setup :set_mimic_private
+  @moduletag pin_set: :invariant
+
+  @offset_fetch_ok %{
+    error_code: 0,
+    topics: [%{name: "a", partitions: [%{partition_index: 0, committed_offset: 0, metadata: nil, error_code: 0}]}]
+  }
 
   setup do
-    {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false])
-    {:ok, lport} = :inet.port(listen)
-    {:ok, sock} = :gen_tcp.connect(~c"localhost", lport, [:binary, active: false])
+    %{fake: fake, client: client, host: host} =
+      pinned = start_pinned(topics: %{"a" => [1]}, api_versions: %{offset_fetch: 0..3})
 
-    on_exit(fn ->
-      :gen_tcp.close(sock)
-      :gen_tcp.close(listen)
-    end)
-
-    socket = %Socket{socket: sock, ssl: false}
-    broker = %Broker{node_id: 1, host: "localhost", port: lport, socket: socket}
-
-    state =
-      KafkaEx.TestHelpers.client_state(%State{
-        cluster_metadata: %ClusterMetadata{
-          brokers: %{1 => broker},
-          topics: %{"a" => %Topic{name: "a", partition_leaders: %{0 => 1}}},
-          consumer_group_coordinators: %{"g" => 1}
-        },
-        # api_key 3 = metadata; {0, 0} negotiates the V0 wire format.
-        api_versions: %{3 => {0, 0}},
-        correlation_id: 1
-      })
-
-    stub(NetworkClient, :send_sync_request, fn _broker, _wire, _timeout -> v0_metadata_response(["b"], lport) end)
-
-    {:ok, state: state, socket: socket}
+    FakeTransport.respond(fake, :offset_fetch, @offset_fetch_ok)
+    {:ok, _} = offset_fetch(client)
+    FakeTransport.respond(fake, :metadata, metadata_reply(host, %{"b" => [1]}))
+    {:ok, pinned}
   end
 
-  test "a by-name lookup returns only the requested topic", %{state: state} do
-    {:reply, {:ok, %ClusterMetadata{topics: topics}}, _state} =
-      Client.handle_call({:metadata, ["b"], [topics: ["b"]], 0}, self(), state)
+  test "a by-name lookup returns only the requested topic", %{client: client} do
+    {:ok, %ClusterMetadata{topics: topics}} = GenServer.call(client, {:metadata, ["b"], [topics: ["b"]], 0})
 
     assert Map.keys(topics) == ["b"]
   end
 
-  test "...but keeps the other cached topics, the coordinators and the open socket",
-       %{state: state, socket: socket} do
-    {:reply, {:ok, _}, %State{cluster_metadata: cached}} =
-      Client.handle_call({:metadata, ["b"], [topics: ["b"]], 0}, self(), state)
+  test "...but keeps the other cached topics, the coordinators and the open socket", %{
+    fake: fake,
+    client: client,
+    host: host
+  } do
+    connects = length(FakeTransport.connects(fake))
+    watch_close(host)
 
+    {:ok, _} = GenServer.call(client, {:metadata, ["b"], [topics: ["b"]], 0})
+
+    {:ok, cached} = API.cluster_metadata(client)
     assert cached.topics |> Map.keys() |> Enum.sort() == ["a", "b"]
-    assert cached.consumer_group_coordinators == %{"g" => 1}
+    assert_coordinator_cached(fake, client)
+    # Uses node 1 too, so a lost node 1 socket shows up even if reconnects become lazy.
+    FakeTransport.respond(fake, :produce, produce_reply("a"))
+    {:ok, _} = GenServer.call(client, {:produce, "a", 0, [%{value: "v"}], []})
+    assert nodes(fake, :produce) == [1]
     # Before the fix the broker came back with `socket: nil` and the old socket leaked.
-    assert %Broker{socket: ^socket} = cached.brokers[1]
+    assert length(FakeTransport.connects(fake)) == connects
+    refute_received {:pin_closed, _}
   end
 
-  test "a full lookup (no topics filter) replaces the topic map", %{state: state} do
-    {:reply, {:ok, _}, %State{cluster_metadata: cached}} =
-      Client.handle_call({:metadata, nil, [], 0}, self(), state)
+  test "a full lookup (no topics filter) replaces the topic map", %{fake: fake, client: client} do
+    {:ok, _} = GenServer.call(client, {:metadata, nil, [], 0})
 
     # The response listed every topic ("b" only), so "a" is gone, as on a refresh.
+    {:ok, cached} = API.cluster_metadata(client)
     assert Map.keys(cached.topics) == ["b"]
-    assert cached.consumer_group_coordinators == %{"g" => 1}
+    assert_coordinator_cached(fake, client)
   end
 
   test "the full-lookup check is version-aware: V0 sends [] for all topics, V1+ sends null" do
@@ -89,23 +77,13 @@ defmodule KafkaEx.Client.MetadataLookupMergeTest do
     assert [%{name: "b"}] = v1_named.topics
   end
 
-  # Hand-rolled V0 wire bytes: Kayrock ships no response serializer.
-  defp v0_metadata_response(topic_names, port) do
-    partition = [<<0::16-signed, 0::32-signed, 1::32-signed>>, int32_array([1]), int32_array([1])]
+  defp offset_fetch(client), do: GenServer.call(client, {:offset_fetch, "g", [{"a", [%{partition_num: 0}]}], []})
 
-    topics =
-      Enum.map(topic_names, fn name -> [<<0::16-signed>>, string(name), <<1::32-signed>>, partition] end)
-
-    [
-      <<1::32-signed>>,
-      <<1::32-signed>>,
-      [<<1::32-signed>>, string("localhost"), <<port::32-signed>>],
-      <<length(topic_names)::32-signed>>,
-      topics
-    ]
-    |> IO.iodata_to_binary()
+  # A cached coordinator serves the next group request without a FindCoordinator.
+  defp assert_coordinator_cached(fake, client) do
+    found = count(fake, :find_coordinator)
+    {:ok, _} = offset_fetch(client)
+    assert count(fake, :find_coordinator) == found
+    assert fake |> nodes(:offset_fetch) |> List.last() == 2
   end
-
-  defp string(s), do: <<byte_size(s)::16, s::binary>>
-  defp int32_array(values), do: [<<length(values)::32-signed>>, Enum.map(values, &<<&1::32-signed>>)]
 end
