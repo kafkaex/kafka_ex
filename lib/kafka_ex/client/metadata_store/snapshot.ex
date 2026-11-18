@@ -78,8 +78,30 @@ defmodule KafkaEx.Client.MetadataStore.Snapshot do
   @spec to_cluster_metadata(t()) :: ClusterMetadata.t()
   def to_cluster_metadata(tid) do
     case match_object(tid, :_) do
-      {:ok, rows} -> Enum.reduce(rows, %ClusterMetadata{}, &put_row/2)
+      {:ok, rows} -> from_rows(rows)
       {:error, :unavailable} -> %ClusterMetadata{}
+    end
+  end
+
+  @spec consistent(t(), non_neg_integer()) ::
+          {:ok, ClusterMetadata.t(), non_neg_integer()} | {:error, :busy | :unavailable}
+  def consistent(_tid, 0), do: {:error, :busy}
+
+  def consistent(tid, attempts_left) do
+    case read_between_counters(tid) do
+      :torn when attempts_left > 1 -> consistent(tid, attempts_left - 1)
+      :torn -> {:error, :busy}
+      result -> result
+    end
+  end
+
+  defp read_between_counters(tid) do
+    with {:ok, before} <- counter(tid),
+         {:ok, rows} <- match_object(tid, :_),
+         {:ok, after_read} <- counter(tid) do
+      if before == after_read and rem(before, 2) == 0,
+        do: {:ok, from_rows(rows), before},
+        else: :torn
     end
   end
 
@@ -111,8 +133,11 @@ defmodule KafkaEx.Client.MetadataStore.Snapshot do
     }
 
     {rows, deletes, freshness} = plan_rows(current, metadata, seq, scope, freshness)
+    # A seqlock: the counter is odd while the rows change, so a reader can tell a torn read.
+    :ets.insert(tid, {:counter, current.counter + 1})
     :ets.insert(tid, rows)
     Enum.each(deletes, &:ets.delete(tid, &1))
+    :ets.insert(tid, {:counter, current.counter + 2})
     {:applied, freshness}
   end
 
@@ -174,6 +199,8 @@ defmodule KafkaEx.Client.MetadataStore.Snapshot do
     end)
   end
 
+  defp from_rows(rows), do: Enum.reduce(rows, %ClusterMetadata{}, &put_row/2)
+
   defp put_row({:brokers, brokers, controller_id}, metadata),
     do: %{metadata | brokers: brokers, controller_id: controller_id}
 
@@ -206,8 +233,7 @@ defmodule KafkaEx.Client.MetadataStore.Snapshot do
     rows =
       broker_rows(write_brokers?, brokers, metadata.controller_id) ++
         Enum.flat_map(written, fn {_, topic} -> topic_rows(topic, brokers) end) ++
-        rerouted_rows(kept, changed_nodes(write_brokers?, current.brokers, brokers), brokers) ++
-        [{:counter, current.counter + 1}]
+        rerouted_rows(kept, changed_nodes(write_brokers?, current.brokers, brokers), brokers)
 
     deletes =
       Enum.flat_map(dropped, &topic_keys(Map.fetch!(current.topics, &1))) ++

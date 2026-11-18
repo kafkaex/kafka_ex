@@ -4,6 +4,7 @@ defmodule KafkaEx.Client.State do
   # state struct for New.Client
 
   alias KafkaEx.Client.Connection
+  alias KafkaEx.Client.MetadataStore.Snapshot
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Messages.ApiVersions
 
@@ -20,10 +21,6 @@ defmodule KafkaEx.Client.State do
     use_ssl: false,
     api_versions: %{},
     allow_auto_topic_creation: true,
-    metadata_timer_ref: nil,
-    tracked_topics: MapSet.new(),
-    metadata_missing: MapSet.new(),
-    metadata_missing_logged_at: nil,
     transport: KafkaEx.Network.NetworkClient,
     infra: nil,
     conns: %{},
@@ -31,7 +28,13 @@ defmodule KafkaEx.Client.State do
     connection_opts: [],
     connection_options: %{},
     parked: %{},
-    parking: nil
+    parking: nil,
+    store: nil,
+    store_opts: [],
+    hints: %{},
+    deadline: nil,
+    dispatch_stamp: nil,
+    last_view: %ClusterMetadata{}
   )
 
   @type t :: %__MODULE__{
@@ -45,10 +48,6 @@ defmodule KafkaEx.Client.State do
           use_ssl: boolean(),
           api_versions: map(),
           allow_auto_topic_creation: boolean(),
-          metadata_timer_ref: reference() | nil,
-          tracked_topics: MapSet.t(),
-          metadata_missing: MapSet.t(),
-          metadata_missing_logged_at: integer() | nil,
           transport: module(),
           infra: pid() | nil,
           conns: %{optional({binary(), non_neg_integer(), Connection.role()}) => %{pid: pid(), ref: reference()}},
@@ -56,7 +55,13 @@ defmodule KafkaEx.Client.State do
           connection_opts: Keyword.t(),
           connection_options: map(),
           parked: %{optional(reference()) => map()},
-          parking: :first | {:resumed, {binary(), non_neg_integer(), Connection.role()}, pid(), term()} | nil
+          parking: :first | {:resumed, {binary(), non_neg_integer(), Connection.role()}, pid(), term()} | nil,
+          store: %{pid: pid(), ref: reference(), tid: Snapshot.t()} | nil,
+          store_opts: Keyword.t(),
+          deadline: integer() | nil,
+          dispatch_stamp: Snapshot.stamp() | nil,
+          hints: Snapshot.hints(),
+          last_view: ClusterMetadata.t()
         }
 
   @default_metadata_update_interval 30_000

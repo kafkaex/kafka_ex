@@ -117,6 +117,39 @@ defmodule KafkaEx.Client.MetadataStoreTest do
       assert Infra.metadata_store(infra) == store
     end
 
+    test "entering degraded logs one warning with the exception, and recovery one info line" do
+      versions = Map.put(versions(), :metadata, 12..12)
+      ctx = start_fake([{1, 9092}, {2, 9093}], topics: %{"pin" => [1, 2]}, api_versions: versions)
+      %{store: store} = start_store(ctx, store: @quiet)
+      await!(store)
+      FakeTransport.respond(ctx.fake, :metadata, &{:frame, null_topics_metadata_frame(&1)})
+
+      {_, degraded_log} =
+        with_log(fn ->
+          assert {:error, _reason} = MetadataStore.refresh(store, refresh(["pin"]), 5_000)
+          assert {:error, _reason} = MetadataStore.refresh(store, refresh(["pin"]), 5_000)
+        end)
+
+      assert_receive {:store_event, [:kafka_ex, :metadata_store, :degraded], _, %{reason: {:raised, module}}}, 1_000
+
+      assert [_once] =
+               Regex.scan(~r/\[warning\].*Periodic metadata update failed: #{inspect(module)}: \S/, degraded_log)
+
+      refute degraded_log =~ "Periodic metadata update recovered"
+
+      FakeTransport.respond(ctx.fake, :metadata, metadata_reply(ctx.host, %{"pin" => [1, 2]}))
+
+      {_, recovered_log} =
+        with_log(fn ->
+          assert {:ok, _} = MetadataStore.refresh(store, refresh(["pin"]), 5_000)
+          assert {:ok, _} = MetadataStore.refresh(store, refresh(["pin"]), 5_000)
+        end)
+
+      assert_receive {:store_event, [:kafka_ex, :metadata_store, :recovered], _, _}, 1_000
+      assert [_once] = Regex.scan(~r/\[info\].*Periodic metadata update recovered/, recovered_log)
+      refute recovered_log =~ "Periodic metadata update failed"
+    end
+
     test "a round with no reachable broker degrades; a failed load never emits degraded", ctx do
       gate = PinGate.new()
       PinGate.close(gate)
@@ -338,6 +371,61 @@ defmodule KafkaEx.Client.MetadataStoreTest do
       assert {:ok, _versions} = Connection.connect(conn, 5_000)
 
       assert [{9092, :metadata}, {9093, :metadata}] = Enum.map(FakeTransport.connects(ctx.fake), &{&1.port, &1.role})
+    end
+
+    test "while the connection supervisor restarts the store answers without a connection, and connects once it is back",
+         ctx do
+      %{store: store, infra: infra} = start_store(ctx, bootstrap: [9092], store: @quiet)
+      await!(store)
+      :ok = Supervisor.terminate_child(infra, :connections)
+
+      {{connection, refreshed}, _log} =
+        with_log(fn ->
+          {MetadataStore.connection(store, {ctx.host, 9093}, 1_000),
+           MetadataStore.refresh(store, refresh(["pin"]), 5_000)}
+        end)
+
+      assert connection == {:ok, nil}
+      assert {:error, _not_connected} = refreshed
+      assert Infra.metadata_store(infra) == store
+
+      {:ok, _supervisor} = Supervisor.restart_child(infra, :connections)
+      assert {:ok, conn} = MetadataStore.connection(store, {ctx.host, 9093}, 1_000)
+      assert is_pid(conn)
+    end
+
+    test "a boot inside the connection supervisor's restart window fails the boot and keeps the store", ctx do
+      gate = PinGate.new()
+      PinGate.close(gate)
+
+      {%{store: store, infra: infra}, _log} =
+        with_log(fn ->
+          %{store: store} = started = start_store(ctx, gate: gate, store: [backoff_base: 500, backoff_cap: 500])
+          {:error, {:boot, _reason}} = MetadataStore.await_ready(store, 5_000)
+          started
+        end)
+
+      :ok = Supervisor.terminate_child(infra, :connections)
+
+      {result, _log} = with_log(fn -> MetadataStore.await_ready(store, 5_000) end)
+
+      assert result == {:error, {:boot, :no_broker}}
+      assert Infra.metadata_store(infra) == store
+    end
+
+    test "a connection that fails to start crashes the store", ctx do
+      %{store: store} = start_store(ctx, bootstrap: [9092], store: @quiet)
+      await!(store)
+      monitor = Process.monitor(store)
+
+      :sys.replace_state(store, fn {state, data} ->
+        {state, put_in(data.connection.opts, initial_correlation_id: -1)}
+      end)
+
+      {exit, _log} = with_log(fn -> catch_exit(MetadataStore.connection(store, {ctx.host, 9093}, 1_000)) end)
+
+      assert {{{:case_clause, {:error, _}}, [_ | _]}, _call} = exit
+      assert_receive {:DOWN, ^monitor, :process, ^store, {{:case_clause, {:error, _}}, [_ | _]}}, 1_000
     end
 
     test "a broker that leaves the snapshot has its :metadata connection stopped with :metadata_update", ctx do
@@ -574,7 +662,9 @@ defmodule KafkaEx.Client.MetadataStoreTest do
         known_missing: MapSet.new(),
         ladder_delay: 10,
         connect_timeout: 1_000,
+        connect_slack: 1_500,
         request_timeout: 2_000,
+        request_slack: 1_000,
         deadline: System.monotonic_time(:millisecond) + 60_000
       },
       Map.new(overrides)

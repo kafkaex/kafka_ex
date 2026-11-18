@@ -2,6 +2,7 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
   use KafkaEx.TestSupport.PinCase, async: false
 
   alias KafkaEx.Auth.Config, as: AuthConfig
+  alias KafkaEx.Client.MetadataStore
   alias KafkaEx.Messages.RecordMetadata
   alias KafkaEx.TestSupport.FakeTransport.Wire
 
@@ -257,8 +258,7 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
     {window, opts} = Keyword.pop(opts, :window, 25)
     connection = [reconnect_window: window, stable_period: 0]
     pinned = start_pinned([client: [connection: connection] ++ client_opts] ++ opts)
-    %{pid: booted} = Map.fetch!(:sys.get_state(pinned.client).conns, {pinned.host, 9092, :metadata})
-    _ = :sys.get_state(booted)
+    _ = :sys.get_state(metadata_connection(pinned.client, pinned.host))
     pinned
   end
 
@@ -324,8 +324,14 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
   defp watch_old_connections(client, host) do
     conns = :sys.get_state(client).conns
     old = conns |> Map.fetch!({host, 9092, :fetch}) |> Map.fetch!(:pid)
-    metadata = conns |> Map.fetch!({host, 9092, :metadata}) |> Map.fetch!(:pid)
+    metadata = metadata_connection(client, host)
     {{old, Process.monitor(old)}, {metadata, Process.monitor(metadata)}}
+  end
+
+  # The metadata store owns the :metadata connections.
+  defp metadata_connection(client, host) do
+    {:ok, pid} = MetadataStore.connection(:sys.get_state(client).store.pid, {host, 9092}, 1_000)
+    pid
   end
 
   defp move_leader(fake, client, host) do

@@ -6,9 +6,9 @@ defmodule KafkaEx.Client.InfraTest do
   alias KafkaEx.Messages.RecordMetadata
 
   test "Infra restarts rest-for-one, at most 3 times in 5 seconds, with the connection supervisor first" do
-    assert {:ok, {flags, children}} = Infra.init([])
+    assert {:ok, {flags, children}} = Infra.init(%{store: %{}})
     assert %{strategy: :rest_for_one, intensity: 3, period: 5} = flags
-    assert [%{id: :connections, type: :supervisor}] = children
+    assert [%{id: :connections, type: :supervisor}, %{id: :metadata_store}] = children
   end
 
   test "connection_supervisor/1 finds the running connection supervisor" do

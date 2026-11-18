@@ -11,6 +11,7 @@ defmodule KafkaEx.Client.MetadataStore.SnapshotTest do
 
   @fresh %{topics: %{}, brokers: 0}
   @topic_id <<7::128>>
+  @views 50_000
 
   describe "select/3" do
     test "answers every selector exactly as ClusterMetadata.select_node/2 and the broker lookup do" do
@@ -184,21 +185,70 @@ defmodule KafkaEx.Client.MetadataStore.SnapshotTest do
   end
 
   describe "counter" do
-    test "every applied response bumps the counter once; put/drop_coordinator do not" do
+    test "every applied response moves the counter to the next even value; put/drop_coordinator do not" do
       tid = Snapshot.new()
       metadata = snapshot("h", [{1, 9092}], 1)
 
       assert Snapshot.counter(tid) == {:ok, 0}
       {:applied, freshness} = Snapshot.apply(tid, metadata, %{seq: 1, scope: :tracked}, @fresh)
-      assert Snapshot.counter(tid) == {:ok, 1}
-      {:applied, freshness} = Snapshot.apply(tid, metadata, %{seq: 2, scope: :tracked}, freshness)
       assert Snapshot.counter(tid) == {:ok, 2}
+      {:applied, freshness} = Snapshot.apply(tid, metadata, %{seq: 2, scope: :tracked}, freshness)
+      assert Snapshot.counter(tid) == {:ok, 4}
 
       Snapshot.put_coordinator(tid, "g", 1)
       Snapshot.drop_coordinator(tid, "g")
       :ignored = Snapshot.apply(tid, %{metadata | brokers: %{}}, %{seq: 3, scope: :tracked}, freshness)
 
-      assert Snapshot.counter(tid) == {:ok, 2}
+      assert Snapshot.counter(tid) == {:ok, 4}
+    end
+
+    test "the counter is odd from before the first row write until after the last delete" do
+      both = with_topic(snapshot("h", [{1, 9092}], 1), topic("x", 1, @topic_id))
+      test = self()
+
+      writer =
+        spawn_link(fn ->
+          tid = Snapshot.new()
+          {:applied, freshness} = Snapshot.apply(tid, both, %{seq: 1, scope: :tracked}, @fresh)
+          send(test, {:ready, tid})
+
+          receive do
+            :go -> Snapshot.apply(tid, snapshot("h", [{1, 9092}], 1), %{seq: 2, scope: :tracked}, freshness)
+          end
+
+          send(test, :applied)
+          receive(do: (:stop -> :ok))
+        end)
+
+      assert_receive {:ready, tid}, 1_000
+      writes = traced_writes(writer, tid, fn -> send(writer, :go) && assert_receive(:applied, 1_000) end)
+      send(writer, :stop)
+
+      assert Enum.any?(writes, &match?({:delete, {:topic, "x"}}, &1))
+      assert List.first(writes) == {:insert, {:counter, 3}}
+      assert List.last(writes) == {:insert, {:counter, 4}}
+      assert Enum.count(writes, &match?({:insert, {:counter, _}}, &1)) == 2
+    end
+
+    test "a reader racing a writer that alternates two snapshots never sees a mixed one" do
+      test = self()
+      a = %ClusterMetadata{brokers: brokers("h", [{1, 9092}]), controller_id: 1, topics: %{"a" => topic("a", 1)}}
+      b = %ClusterMetadata{brokers: brokers("h", [{2, 9093}]), controller_id: 2, topics: %{"b" => topic("b", 2)}}
+
+      writer =
+        spawn_link(fn ->
+          tid = Snapshot.new()
+          {:applied, freshness} = Snapshot.apply(tid, a, %{seq: 1, scope: :tracked}, @fresh)
+          send(test, {:table, tid})
+          alternate(tid, a, b, 2, freshness)
+        end)
+
+      assert_receive {:table, tid}, 1_000
+      views = read_views(tid, @views, %{})
+      send(writer, :stop)
+
+      assert Map.keys(views) -- [:a, :b, :busy] == []
+      assert views[:a] > 0 and views[:b] > 0
     end
   end
 
@@ -247,6 +297,25 @@ defmodule KafkaEx.Client.MetadataStore.SnapshotTest do
 
   @reads 20_000
 
+  defp read_views(_tid, 0, seen), do: seen
+
+  defp read_views(tid, left, seen) do
+    kind =
+      case Snapshot.consistent(tid, 3) do
+        {:ok, %ClusterMetadata{brokers: brokers, topics: topics}, _counter} ->
+          view_kind(Map.keys(brokers), Map.keys(topics))
+
+        {:error, :busy} ->
+          :busy
+      end
+
+    read_views(tid, left - 1, Map.update(seen, kind, 1, &(&1 + 1)))
+  end
+
+  defp view_kind([1], ["a"]), do: :a
+  defp view_kind([2], ["b"]), do: :b
+  defp view_kind(brokers, topics), do: {:mixed, brokers, topics}
+
   defp read_routes(tid, seen, reads, deadline) do
     seen =
       Enum.reduce(0..7, seen, fn p, acc ->
@@ -267,6 +336,33 @@ defmodule KafkaEx.Client.MetadataStore.SnapshotTest do
     fun.()
   rescue
     e -> {:raised, e.__struct__}
+  end
+
+  @writes [{:ets, :insert, 2}, {:ets, :delete, 2}]
+
+  defp traced_writes(writer, tid, fun) do
+    Enum.each(@writes, &:erlang.trace_pattern(&1, true, []))
+    :erlang.trace(writer, true, [:call])
+
+    try do
+      fun.()
+    after
+      :erlang.trace(writer, false, [:call])
+      Enum.each(@writes, &:erlang.trace_pattern(&1, false, []))
+    end
+
+    ref = :erlang.trace_delivered(writer)
+    assert_receive {:trace_delivered, _, ^ref}, 1_000
+    collect_writes(tid, [])
+  end
+
+  defp collect_writes(tid, writes) do
+    receive do
+      {:trace, _pid, :call, {:ets, op, [^tid, arg]}} -> collect_writes(tid, [{op, arg} | writes])
+      {:trace, _pid, :call, _other} -> collect_writes(tid, writes)
+    after
+      0 -> Enum.reverse(writes)
+    end
   end
 
   defp applied(%ClusterMetadata{brokers: brokers}) when map_size(brokers) == 0, do: Snapshot.new()

@@ -6,22 +6,6 @@ defmodule KafkaEx.Pins.TodayOnlyPinTest do
   @moduletag pin_set: :today_only
 
   @tag retired_by: 1492
-  test "a raising periodic refresh crashes the client with MetadataUpdateError" do
-    Process.flag(:trap_exit, true)
-
-    %{fake: fake, client: client} =
-      start_pinned(api_versions: %{metadata: 12..12}, client: [metadata_update_interval: 100])
-
-    Process.link(client)
-    # Parsing a v12 reply whose topics array is null raises inside the refresh itself.
-    FakeTransport.respond(fake, :metadata, &{:frame, null_topics_metadata_frame(&1)})
-
-    capture_log(fn ->
-      assert_receive {:EXIT, ^client, {%KafkaEx.MetadataUpdateError{}, _stacktrace}}, 5_000
-    end)
-  end
-
-  @tag retired_by: 1492
   test "a failed refresh answers an uncached topic with {:ok, []}" do
     %{fake: fake, client: client} = start_pinned()
     FakeTransport.respond(fake, :metadata, :close)
