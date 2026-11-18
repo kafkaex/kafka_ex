@@ -240,6 +240,17 @@ defmodule KafkaEx.Client.MetadataStoreTest do
       assert Snapshot.counter(tid) == {:ok, counter}
     end
 
+    test "a zero-broker response logs nothing about missing topics", ctx do
+      %{store: store} = start_store(ctx, store: [ladder_delay: 10])
+      await!(store)
+      FakeTransport.respond(ctx.fake, :metadata, %{brokers: [], topics: []})
+
+      {result, log} = with_log(fn -> MetadataStore.refresh(store, refresh(["pin"]), 5_000) end)
+
+      assert {:ok, _} = result
+      refute log =~ "Kafka metadata unavailable"
+    end
+
     test "a merge issued before a refresh that drops a topic cannot bring the topic back" do
       ctx = start_fake([{1, 9092}, {2, 9093}], topics: %{"pin" => [1, 2], "gone" => [1]}, api_versions: versions())
       %{store: store} = start_store(ctx, initial_topics: [])
@@ -524,6 +535,32 @@ defmodule KafkaEx.Client.MetadataStoreTest do
       assert {:ok, [%{name: "pin"}]} = Snapshot.topics(tid, ["pin"])
       assert count(ctx.fake, :metadata, 2) == 1
       assert length(String.split(log, "Unable to build metadata request.")) == 2
+    end
+
+    test "a walk where no candidate can build its request logs the build failure once", ctx do
+      FakeTransport.respond(ctx.fake, :api_versions, FakeTransport.Wire.api_versions_fields(%{18 => 0..0, 10 => 1..1}))
+
+      {%{table: tid}, log} =
+        with_log(fn ->
+          %{store: store} = start_store(ctx, bootstrap: [9092, 9093])
+          await!(store)
+        end)
+
+      assert Snapshot.topics(tid, ["pin"]) == {:ok, []}
+      assert count(ctx.fake, :metadata) == 0
+      assert length(String.split(log, "Unable to build metadata request.")) == 2
+    end
+
+    test "a round logs the builder's unsupported-API line once, however many candidates lack the API", ctx do
+      FakeTransport.respond(ctx.fake, :api_versions, FakeTransport.Wire.api_versions_fields(%{18 => 0..0, 10 => 1..1}))
+
+      {_ready, log} =
+        with_log(fn ->
+          %{store: store} = start_store(ctx, bootstrap: [9092, 9093])
+          await!(store)
+        end)
+
+      assert [_once] = Regex.scan(~r/Kafka API metadata is not supported by the connected broker\./, log)
     end
   end
 

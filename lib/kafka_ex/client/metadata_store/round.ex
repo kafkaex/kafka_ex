@@ -24,6 +24,7 @@ defmodule KafkaEx.Client.MetadataStore.Round do
   @api_versions_retry_base_delay_ms 100
   @ladder_margin 500
   @no_bytes %{bytes_sent: 0, bytes_received: 0}
+  @unsupported_logged {__MODULE__, :unsupported_logged}
 
   @type address :: {binary(), :inet.port_number()}
   @type kind :: :load | :metadata | :find_coordinator
@@ -76,6 +77,7 @@ defmodule KafkaEx.Client.MetadataStore.Round do
 
   @spec run(spec()) :: result()
   def run(spec) do
+    Process.delete(@unsupported_logged)
     if spec.kind == :find_coordinator, do: coordinator(spec), else: metadata(spec, Client.retry_count())
   rescue
     exception -> {:raised, exception.__struct__}
@@ -224,12 +226,12 @@ defmodule KafkaEx.Client.MetadataStore.Round do
     # The connection was up at the await: a drop since then is a dead socket's send.
     case call_connection(fn -> Connection.write(pid, dispatch, left) end, :closed) do
       {:ok, frame, meta} ->
-        case deserialize(frame, dispatch.request, meta) do
-          {:ok, response, meta} ->
+        case ResponseParser.deserialize(frame, dispatch.request) do
+          {:ok, response} ->
             stop_span(%{progress.span | meta: meta}, {:ok, response}, broker_info(spec, address))
             {:ok, response, address, versions}
 
-          {:failed, meta} ->
+          {:error, :parse_error} ->
             walk(rest, spec, build, put_meta(progress, meta))
         end
 
@@ -323,7 +325,6 @@ defmodule KafkaEx.Client.MetadataStore.Round do
 
   defp backoff(attempt), do: Retry.backoff_delay(attempt, @api_versions_retry_base_delay_ms)
 
-  # The Connection assigns the wire id; it comes back in the reply's meta.
   defp request(request), do: %{request | client_id: Config.client_id(), correlation_id: nil}
 
   defp dispatch(spec, request, address) do
@@ -349,21 +350,6 @@ defmodule KafkaEx.Client.MetadataStore.Round do
   defp not_written(spec, address, reason),
     do: Logger.warning("Network call to #{describe(spec, address)} failed: #{inspect(reason)}")
 
-  defp deserialize(frame, request, meta) do
-    {response, _rest} = @protocol.response_deserializer(request).(frame)
-    {:ok, response, meta}
-  rescue
-    error ->
-      Logger.error(
-        "Failed to parse a response from the server: " <>
-          inspect(frame, limit: :infinity) <>
-          " for request #{inspect(request, limit: :infinity)} " <>
-          "error: #{inspect(error)}"
-      )
-
-      {:failed, meta}
-  end
-
   defp call(fun) do
     fun.()
   catch
@@ -378,10 +364,24 @@ defmodule KafkaEx.Client.MetadataStore.Round do
     :exit, _reason -> {:error, dropped, @no_bytes}
   end
 
-  defp build_metadata(versions, spec), do: RequestBuilder.metadata_request(spec.request_opts, state(versions))
+  defp build_metadata(versions, spec), do: build(:metadata, &RequestBuilder.metadata_request/2, versions, spec)
 
   defp build_find_coordinator(versions, spec),
-    do: RequestBuilder.find_coordinator_request(spec.request_opts, state(versions))
+    do: build(:find_coordinator, &RequestBuilder.find_coordinator_request/2, versions, spec)
+
+  # The builder logs a missing API on every call, and a round builds per candidate and per attempt.
+  defp build(api, builder, versions, spec) do
+    state = state(versions)
+
+    if Process.get(@unsupported_logged, false) and
+         State.max_supported_api_version(state, api) == {:error, :api_not_supported_by_broker} do
+      {:error, :api_not_supported_by_broker}
+    else
+      result = builder.(spec.request_opts, state)
+      if result == {:error, :api_not_supported_by_broker}, do: Process.put(@unsupported_logged, true)
+      result
+    end
+  end
 
   defp log_build_failure(%{kind: :find_coordinator} = spec, reason) do
     Logger.warning(
