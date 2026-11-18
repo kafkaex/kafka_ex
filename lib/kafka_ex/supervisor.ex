@@ -19,8 +19,15 @@ defmodule KafkaEx.Supervisor do
     DynamicSupervisor.start_child(__MODULE__, spec)
   end
 
-  def stop_child(child) do
-    DynamicSupervisor.terminate_child(__MODULE__, child)
+  def stop_child(name) when is_atom(name) do
+    case Process.whereis(name) do
+      nil -> {:error, :not_found}
+      pid -> stop_child(pid)
+    end
+  end
+
+  def stop_child(pid) when is_pid(pid) do
+    DynamicSupervisor.terminate_child(__MODULE__, pid)
   end
 
   def init([max_restarts, max_seconds]) do
