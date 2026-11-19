@@ -1,8 +1,11 @@
 defmodule KafkaEx.IntegrationHelpers do
   @moduledoc false
 
+  import ExUnit.Assertions, only: [flunk: 1, refute_receive: 2]
+
   alias KafkaEx.API
   alias KafkaEx.Client
+  alias KafkaEx.Client.Error
   alias KafkaEx.Client.NodeSelector
   alias KafkaEx.Client.ResponseParser
   alias KafkaEx.Test.KayrockFixtures, as: Fixtures
@@ -63,6 +66,29 @@ defmodule KafkaEx.IntegrationHelpers do
     wait_for_topic_on_every_broker(client, topic_name)
     {:ok, metadata} = API.metadata(client, [topic_name])
     Map.fetch!(metadata.topics, topic_name)
+  end
+
+  @doc """
+  Asks for a named topic until the broker reports it unknown or the deadline passes.
+  Returns the last `metadata/3` result.
+  """
+  def wait_for_topic_unknown(client, topic_name, timeout \\ 10_000) do
+    do_wait_for_topic_unknown(client, topic_name, System.monotonic_time(:millisecond) + timeout)
+  end
+
+  defp do_wait_for_topic_unknown(client, topic_name, deadline) do
+    case API.metadata(client, [topic_name], []) do
+      {:error, %Error{error: :unknown_topic_or_partition}} = unknown ->
+        unknown
+
+      other ->
+        if System.monotonic_time(:millisecond) >= deadline do
+          other
+        else
+          refute_receive :__never__, 100
+          do_wait_for_topic_unknown(client, topic_name, deadline)
+        end
+    end
   end
 
   @doc """
