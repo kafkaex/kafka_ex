@@ -65,7 +65,7 @@ defmodule KafkaEx.Client.Front.Decision do
   def error_atom(%Error{error: error}), do: error
   def error_atom(error) when is_atom(error), do: error
   def error_atom({_group_id, error}) when is_atom(error), do: error
-  # A non-atom reason can only be a Connection failure; the client has always retried it as :transport_error.
+  # Every parsed answer matches a clause above, so anything else is a Connection failure and retries as one.
   def error_atom(_transport_reason), do: :transport_error
 
   defp retry(policy, error) do
