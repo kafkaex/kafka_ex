@@ -275,7 +275,7 @@ defmodule KafkaEx.Client do
   end
 
   # Each call keeps the timeout shape it has on its own path: the retry loop builds an %Error{}.
-  defp budget_spent_reply({tag, _, _}) when tag in [:topic_metadata, :network_request], do: {:error, :timeout}
+  defp budget_spent_reply({:network_request, _, _}), do: {:error, :timeout}
   defp budget_spent_reply(_message), do: {:error, Error.build(:timeout, %{})}
 
   # A spent budget ends the operation's span with the timeout error a timed-out request reports, not an exception.
@@ -358,8 +358,11 @@ defmodule KafkaEx.Client do
   end
 
   defp handle_client_call({:topic_metadata, topics, allow_topic_creation}, _from, state) do
-    {_result, state} = refresh(state, %{topics: topics, allow_auto_topic_creation: allow_topic_creation})
-    {:reply, {:ok, cached_topics(state, topics)}, state}
+    {result, state} = refresh(state, %{topics: topics, allow_auto_topic_creation: allow_topic_creation})
+    {:reply, topics_reply(result, topics, cached_topics(state, topics)), state}
+  catch
+    :throw, {:caller_budget_spent, state} ->
+      {:reply, topics_reply({:error, :timeout}, topics, cached_topics(state, topics)), state}
   end
 
   defp handle_client_call({:api_versions, opts}, _from, state) do
@@ -662,14 +665,23 @@ defmodule KafkaEx.Client do
 
   defp short(_store), do: @store_call_timeout
 
-  # Every failed refresh reads as a timeout, as the client's own request path reports an unencodable request.
+  # A failed refresh reads as a timeout; a version refusal keeps the atom the client's request path returns.
   defp refresh(state, refresh) do
     with_store(state, {:error, :timeout}, &round_call_timeout(state, &1), fn store, timeout ->
       case MetadataStore.refresh(store.pid, refresh, timeout) do
         {:ok, _result} = ok -> ok
+        {:error, :api_version_no_supported} = refused -> refused
         {:error, _reason} -> {:error, :timeout}
       end
     end)
+  end
+
+  defp topics_reply({:ok, %{unknown: unknown}}, topics, cached) do
+    if Enum.any?(topics, &(&1 in unknown)), do: {:error, :unknown_topic_or_partition}, else: {:ok, cached}
+  end
+
+  defp topics_reply({:error, _reason} = error, topics, cached) do
+    if length(cached) == length(Enum.uniq(topics)), do: {:ok, cached}, else: error
   end
 
   defp rediscover_coordinator(state, group) do
@@ -1244,10 +1256,11 @@ defmodule KafkaEx.Client do
     case builder.(state) do
       {:ok, request} ->
         case handle_metadata_request(request, builder, node_selector, state) do
-          {{:ok, returned}, _updated_state} = result ->
+          {{:ok, {returned, topic_errors}}, updated_state} ->
             broker_count = map_size(returned.brokers)
             topic_count = map_size(returned.topics)
-            {result, %{broker_count: broker_count, topic_count: topic_count}}
+            reply = named_topics_reply(request, returned, topic_errors)
+            {{reply, updated_state}, %{broker_count: broker_count, topic_count: topic_count}}
 
           error_result ->
             {error_result, %{}}
@@ -1493,16 +1506,33 @@ defmodule KafkaEx.Client do
     ctx = %RequestContext{
       request: request,
       builder: builder,
-      parser_fn: &ResponseParser.metadata_response/1,
+      parser_fn: &metadata_with_topic_errors/1,
       node_selector: node_selector
     }
 
     case handle_request_with_retry(ctx, state) do
-      {{:ok, cluster_metadata}, updated_state} ->
-        {{:ok, cluster_metadata}, merge_cluster_metadata(updated_state, seq, cluster_metadata, request)}
+      {{:ok, {cluster_metadata, _topic_errors}} = ok, updated_state} ->
+        {ok, merge_cluster_metadata(updated_state, seq, cluster_metadata, request)}
 
       error_result ->
         error_result
+    end
+  end
+
+  defp metadata_with_topic_errors(response) do
+    with {:ok, metadata} <- ResponseParser.metadata_response(response) do
+      {:ok, {metadata, ResponseParser.metadata_topic_errors(response)}}
+    end
+  end
+
+  # A named topic the broker does not know fails the call; the topics it did return are cached all the same.
+  defp named_topics_reply(request, metadata, topic_errors) do
+    unknown = for {topic, :unknown_topic_or_partition} <- topic_errors, do: topic
+
+    if all_topics_request?(request) or unknown == [] do
+      {:ok, metadata}
+    else
+      {:error, Error.build(:unknown_topic_or_partition, %{topics: Enum.sort(unknown)})}
     end
   end
 

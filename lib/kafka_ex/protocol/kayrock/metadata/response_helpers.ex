@@ -170,6 +170,20 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpers do
   defp usable_partition?(_), do: false
 
   @doc """
+  Returns the per-topic errors of a by-name Metadata response, keyed by topic
+  name. By-id entries (null name) and topics without an error are left out.
+  """
+  @spec topic_errors([map()]) :: %{String.t() => atom()}
+  def topic_errors(kayrock_topics) when is_list(kayrock_topics) do
+    for %{name: name, error_code: code} when is_binary(name) <- kayrock_topics,
+        error = ErrorCode.code_to_atom(code),
+        error != :no_error,
+        into: %{} do
+      {name, error}
+    end
+  end
+
+  @doc """
   Checks if the metadata response contains any errors.
   """
   @spec check_for_errors(map()) :: :ok | {:error, term}

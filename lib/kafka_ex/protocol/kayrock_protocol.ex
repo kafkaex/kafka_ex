@@ -196,6 +196,14 @@ defmodule KafkaEx.Protocol.KayrockProtocol do
   def parse_response(:delete_topics, response), do: KayrockProtocol.DeleteTopics.Response.parse_response(response)
 
   @doc """
+  Returns the per-topic errors of a Metadata response by topic name, for
+  topics the broker answered with an error (for example
+  `:unknown_topic_or_partition`) and so left out of the parsed metadata.
+  """
+  @spec metadata_topic_errors(map()) :: %{String.t() => atom()}
+  def metadata_topic_errors(response), do: KayrockProtocol.Metadata.ResponseHelpers.topic_errors(response.topics)
+
+  @doc """
   Parses a response that may need client context.
 
   OffsetCommit / OffsetFetch v10+ and ConsumerGroupHeartbeat responses name

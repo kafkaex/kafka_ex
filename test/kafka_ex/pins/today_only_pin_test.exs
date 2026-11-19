@@ -5,38 +5,6 @@ defmodule KafkaEx.Pins.TodayOnlyPinTest do
 
   @moduletag pin_set: :today_only
 
-  @tag retired_by: 1492
-  test "a failed refresh answers an uncached topic with {:ok, []}" do
-    %{fake: fake, client: client} = start_pinned()
-    FakeTransport.respond(fake, :metadata, :close)
-    with_request_timeout(200)
-
-    {result, _log} = with_log(fn -> API.topics_metadata(client, ["uncached"]) end)
-
-    assert result == {:ok, []}
-  end
-
-  @tag retired_by: 1492
-  test "topics_metadata/3 of a topic the broker reports unknown returns {:ok, []}" do
-    %{fake: fake, client: client, host: host} = start_pinned()
-    FakeTransport.respond(fake, :metadata, unknown_topic_reply(host, "gone"))
-
-    {result, _log} = with_log(fn -> API.topics_metadata(client, ["gone"]) end)
-
-    assert result == {:ok, []}
-  end
-
-  @tag retired_by: 1492
-  test "metadata/3 naming a topic the broker reports unknown returns the metadata without it" do
-    %{fake: fake, client: client, host: host} = start_pinned()
-    FakeTransport.respond(fake, :metadata, unknown_topic_reply(host, "gone"))
-
-    {result, _log} = with_log(fn -> API.metadata(client, ["gone"], []) end)
-
-    assert {:ok, %KafkaEx.Cluster.ClusterMetadata{topics: topics}} = result
-    refute Map.has_key?(topics, "gone")
-  end
-
   @tag retired_by: 1493
   test "the [:kafka_ex, :request] start metadata carries the client-wide correlation id" do
     %{fake: fake, client: client, host: host} = start_pinned()

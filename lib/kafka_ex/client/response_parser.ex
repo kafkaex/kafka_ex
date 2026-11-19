@@ -156,6 +156,14 @@ defmodule KafkaEx.Client.ResponseParser do
   end
 
   @doc """
+  Per-topic errors of a Metadata response, by topic name
+  """
+  @spec metadata_topic_errors(term) :: %{String.t() => atom()}
+  def metadata_topic_errors(response) do
+    @protocol.metadata_topic_errors(response)
+  end
+
+  @doc """
   Parses response for Produce API
   """
   @spec produce_response(term) :: {:ok, RecordMetadata.t()} | {:error, Error.t()}
