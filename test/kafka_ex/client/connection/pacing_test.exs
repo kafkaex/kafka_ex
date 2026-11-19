@@ -54,6 +54,22 @@ defmodule KafkaEx.Client.Connection.PacingTest do
     assert Enum.all?(results, &(&1 == :ok or match?({:wait, _}, &1)))
   end
 
+  test "connected/3 wakes each first connect awaiting a slot on that key once, and no other" do
+    pacing = Pacing.new()
+    :ok = Pacing.claim(pacing, @key, 1_000)
+    Pacing.await_slot(pacing, @key, self())
+    other = spawn(fn -> :ok end)
+    Pacing.await_slot(pacing, {"other", 9092}, other)
+
+    Pacing.connected(pacing, @key, 1_010)
+    Pacing.connected(pacing, @key, 1_020)
+
+    assert_received :pacing_slot
+    refute_received :pacing_slot
+    assert Pacing.claim(pacing, @key, 1_020) == :ok
+    assert :ets.lookup(pacing, {:first_connect, {"other", 9092}, other}) != []
+  end
+
   test "two keys are independent" do
     pacing = Pacing.new()
     :ok = Pacing.claim(pacing, @key, 1_000)

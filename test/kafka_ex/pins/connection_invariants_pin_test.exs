@@ -173,7 +173,7 @@ defmodule KafkaEx.Pins.ConnectionInvariantsPinTest do
   end
 
   defp spans(host) do
-    events = drain([])
+    events = [] |> drain() |> await_stops(host)
     contexts = for {_, _, _, :start, %{host: ^host} = meta} <- events, do: meta.telemetry_span_context
 
     for {pid, seq, event, :start, meta} <- events, meta.telemetry_span_context in contexts do
@@ -189,6 +189,20 @@ defmodule KafkaEx.Pins.ConnectionInvariantsPinTest do
         end
 
       %{event: event, pid: pid, from: seq, to: stop_seq, stop_pid: stop_pid, start: meta, stop: stop_meta}
+    end
+  end
+
+  # Connections emit from their own processes, so a stop may still be in flight when the request returns.
+  defp await_stops(events, host) do
+    stopped = for {_, _, _, :stop, meta} <- events, do: meta.telemetry_span_context
+
+    open = for {_, _, _, :start, %{host: ^host} = meta} <- events, meta.telemetry_span_context not in stopped, do: meta
+
+    if open != [] do
+      assert_receive {:pin_span, pid, seq, event, phase, meta}, 5_000
+      await_stops(events ++ [{pid, seq, event, phase, meta}], host)
+    else
+      drain(Enum.reverse(events))
     end
   end
 

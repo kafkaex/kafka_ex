@@ -67,6 +67,16 @@ defmodule KafkaEx.Security.CredentialLeakTest do
               {:scram, :status_p, :client, :username}
             ])
 
+  # A handshake raise happens in the Connection, which reports only the exception's module.
+  @retired_by_connection MapSet.new([
+                           {:oauthbearer, :stacktrace_args, :log, :token},
+                           {:oauthbearer, :stacktrace_args, :start_error, :token},
+                           {:oauthbearer, :stacktrace_args, :telemetry, :token},
+                           {:plain, :stacktrace_args, :log, :password},
+                           {:plain, :stacktrace_args, :start_error, :password},
+                           {:plain, :stacktrace_args, :telemetry, :password}
+                         ])
+
   setup_all do
     {:ok, tls: TLSFixtures.chain()}
   end
@@ -128,6 +138,7 @@ defmodule KafkaEx.Security.CredentialLeakTest do
            "new exposures: #{inspect(MapSet.difference(client_side, @baseline))}"
 
     assert MapSet.new(connection_side) == MapSet.new()
+    assert MapSet.disjoint?(client_side, @retired_by_connection)
   end
 
   defp measure(mechanism, kase, tls) do
@@ -138,10 +149,11 @@ defmodule KafkaEx.Security.CredentialLeakTest do
 
     run = %{mechanism: mechanism, kase: kase, host: host, fake: fake}
     {{start, probes}, log} = with_log([level: :debug], fn -> drive(run, client_opts(run, tls)) end)
-    texts = [{{mechanism, kase, :log}, log}] ++ start_texts(run, start) ++ telemetry_texts(run) ++ probes
+    telemetry = drain_telemetry(host)
+    texts = [{{mechanism, kase, :log}, log}] ++ start_texts(run, start) ++ telemetry_texts(run, telemetry) ++ probes
 
     auth_bytes = sent_auth_bytes(fake)
-    check_controls(run, auth_bytes, probes, log)
+    check_controls(run, auth_bytes, probes, log, telemetry)
     LeakProbe.exposures(texts, secrets(mechanism) ++ Enum.map(auth_bytes, &{:auth_bytes, &1}))
   end
 
@@ -268,8 +280,8 @@ defmodule KafkaEx.Security.CredentialLeakTest do
   defp start_texts(%{mechanism: mechanism, kase: kase}, start),
     do: for(text <- LeakProbe.render(start), do: {{mechanism, kase, :start_error}, text})
 
-  defp telemetry_texts(%{mechanism: mechanism, kase: kase, host: host}),
-    do: for(metadata <- drain_telemetry(host), do: {{mechanism, kase, :telemetry}, hd(LeakProbe.render(metadata))})
+  defp telemetry_texts(%{mechanism: mechanism, kase: kase}, telemetry),
+    do: for(metadata <- telemetry, do: {{mechanism, kase, :telemetry}, hd(LeakProbe.render(metadata))})
 
   defp drain_telemetry(host) do
     receive do
@@ -289,12 +301,21 @@ defmodule KafkaEx.Security.CredentialLeakTest do
     end
   end
 
-  defp check_controls(%{kase: :stacktrace_args}, _auth_bytes, _probes, _log), do: :ok
+  defp check_controls(%{mechanism: mechanism, kase: :stacktrace_args}, _auth_bytes, _probes, _log, telemetry),
+    do:
+      assert(
+        Enum.any?(telemetry, &match?(%{reason: {:handshake_failed, module}} when is_atom(module), &1)),
+        "#{mechanism} stacktrace_args: the credential did not raise"
+      )
 
-  defp check_controls(%{mechanism: mechanism, kase: kase}, auth_bytes, probes, log) do
+  defp check_controls(%{mechanism: mechanism, kase: kase}, auth_bytes, probes, log, _telemetry) do
     assert auth_bytes != [], "#{mechanism} #{kase}: no SaslAuthenticate bytes"
     if mechanism == :plain, do: assert(Enum.uniq(auth_bytes) == [plain_payload()])
     if kase == :healthy_boot, do: assert(Enum.all?(probes, fn {_label, text} -> is_binary(text) end))
+
+    if kase == :healthy_boot,
+      do: assert(Enum.any?(probes, &match?({{_, _, :connection}, text} when is_binary(text), &1)))
+
     if kase == :crash_after_connect, do: assert(log =~ "Ancestors:" and log =~ ":leak_probe_crash")
   end
 
