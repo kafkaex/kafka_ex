@@ -29,6 +29,8 @@ defmodule KafkaEx.TestSupport.FakeTransport do
       more, and its later requests reach neither the log nor the scripts, until the release
       answers it under the scripts in force then.
     * `respond/3` with `:no_reply` never answers that request nor any later one on its connection.
+    * `respond/3` with `{:after, ms, reply}` answers `reply` that many ms late, as a long-poll does;
+      its connection answers nothing else meanwhile.
     * `respond/3` with `:stall` answers nothing either and stops reading the socket for good, so
       the client's sends block once the socket buffers fill.
     * A request at a version outside the range its node advertised in ApiVersions closes its
@@ -48,6 +50,8 @@ defmodule KafkaEx.TestSupport.FakeTransport do
     * `:api_versions` sets the ApiVersions reply; `:api_versions_by_node` overrides it per API for
       one node (`%{node_id => %{api => range}}`).
     * Several brokers (`:brokers`); any other address is refused like an unreachable broker.
+    * `delay_connects/2` answers every later connect attempt that many ms late, each on its own
+      clock, so attempts from different processes overlap as real handshakes do.
     * Scripted SASL success and failure. SCRAM supports failure only: the default
       SaslAuthenticate reply cannot complete its exchange. The handshake uses passive `recv`
       before the socket turns active. `oauthbearer_refusal/1` is a SaslAuthenticate reply
@@ -104,6 +108,7 @@ defmodule KafkaEx.TestSupport.FakeTransport do
 
   def release(fake, api), do: GenServer.call(fake, {:release, Wire.api_key(api)})
   def silence_tls(fake), do: GenServer.call(fake, :silence_tls)
+  def delay_connects(fake, ms) when is_integer(ms) and ms >= 0, do: GenServer.call(fake, {:delay_connects, ms})
 
   # Measured on cp-kafka 7.0: an error challenge with error code 0, then 58 to the client's %x01.
   def oauthbearer_refusal(%{frame: frame}) do

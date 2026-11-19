@@ -183,7 +183,13 @@ defmodule KafkaEx.Integration.Lifecycle.HighestSupportedVersionTest do
     test "finds coordinator for a consumer group", %{client: client} do
       group_id = "cg-find-coord-v3-#{generate_random_string()}"
 
-      {:ok, result} = API.find_coordinator(client, group_id, api_version: 3)
+      {:ok, result} =
+        wait_for_value(
+          fn -> API.find_coordinator(client, group_id, api_version: 3) end,
+          &(&1 != {:error, :coordinator_not_available}),
+          100,
+          100
+        )
 
       assert %FindCoordinator{} = result
       assert FindCoordinator.success?(result)

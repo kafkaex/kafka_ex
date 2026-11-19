@@ -61,6 +61,11 @@ defmodule KafkaEx.TestSupport.FakeTransport.Peer do
     {:noreply, %{state | muted?: false}}
   end
 
+  defp perform({:reply_after, ms, iodata}, state) do
+    Process.send_after(self(), {:action, {:reply, iodata}}, ms)
+    {:noreply, %{state | muted?: true}}
+  end
+
   defp perform(:acks0, state), do: {:noreply, state}
 
   defp perform(action, state) when action in [:hold, :no_reply], do: {:noreply, %{state | muted?: true}}
