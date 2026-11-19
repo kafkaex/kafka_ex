@@ -5,6 +5,8 @@ defmodule KafkaEx.Pins.ReconnectPinTest do
 
   @moduletag pin_set: :invariant
 
+  @reconnect_window 1_500
+
   setup do
     pinned = start_pinned()
     FakeTransport.respond(pinned.fake, :produce, produce_reply())
@@ -57,6 +59,24 @@ defmodule KafkaEx.Pins.ReconnectPinTest do
 
       assert {:error, _} = while_down
       assert {:ok, %RecordMetadata{base_offset: 7}} = result
+    end
+
+    test "concurrent requests to a broker that accepts and closes every connection fail within two reconnect windows",
+         %{fake: fake, client: client, host: host} do
+      FakeTransport.respond(fake, :api_versions, :close)
+      FakeTransport.respond(fake, :produce, :close)
+      drop_connection(fake, host)
+      started = System.monotonic_time(:millisecond)
+
+      {results, _log} =
+        with_log(fn ->
+          1..10
+          |> Enum.map(fn _ -> Task.async(fn -> API.produce(client, @topic, 0, [%{value: "v"}]) end) end)
+          |> Task.await_many(30_000)
+        end)
+
+      assert Enum.all?(results, &match?({:error, _}, &1))
+      assert System.monotonic_time(:millisecond) - started < 2 * @reconnect_window
     end
   end
 

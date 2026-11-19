@@ -291,7 +291,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
         )
 
       assert {:ok, %{brokers: %{1 => broker}}} = API.cluster_metadata(client)
-      assert Broker.connected?(broker)
+      assert broker.socket == nil
       assert [:api_versions, :sasl_handshake, :sasl_authenticate | _] = conn_apis(fake, 1)
     end
   end

@@ -24,7 +24,23 @@ defmodule KafkaEx.Client.Connection.Pacing do
   end
 
   @spec connected(:ets.tid(), term(), integer()) :: true
-  def connected(pacing, key, now), do: :ets.update_element(pacing, key, {2, now}) or :ets.insert(pacing, {key, now, 0})
+  def connected(pacing, key, now) do
+    reopened = :ets.update_element(pacing, key, {2, now}) or :ets.insert(pacing, {key, now, 0})
+
+    for [pid] <- :ets.match(pacing, {{:first_connect, key, :"$1"}}) do
+      :ets.delete(pacing, {:first_connect, key, pid})
+      send(pid, :pacing_slot)
+    end
+
+    reopened
+  end
+
+  # A connection that has not attempted yet waits on another's reservation only until that one connects.
+  @spec await_slot(:ets.tid(), term(), pid()) :: true
+  def await_slot(pacing, key, pid), do: :ets.insert(pacing, {{:first_connect, key, pid}})
+
+  @spec stop_awaiting_slot(:ets.tid(), term(), pid()) :: true
+  def stop_awaiting_slot(pacing, key, pid), do: :ets.delete(pacing, {:first_connect, key, pid})
 
   @spec stable(:ets.tid(), term()) :: true
   def stable(pacing, key), do: :ets.update_element(pacing, key, {3, 0}) or :ets.insert(pacing, {key, 0, 0})

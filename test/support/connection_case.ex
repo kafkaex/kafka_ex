@@ -15,6 +15,7 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
   alias KafkaEx.Client.Connection.Pacing
   alias KafkaEx.Client.RequestBuilder
   alias KafkaEx.Client.State
+  alias KafkaEx.Protocol.KayrockProtocol
   alias KafkaEx.TestSupport.FakeTransport
   alias KafkaEx.TestSupport.PinGate
 
@@ -62,7 +63,6 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
     auth = opts[:auth]
 
     %{
-      client: self(),
       host: host,
       port: port,
       role: role,
@@ -83,13 +83,18 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
     end
   end
 
-  def dispatch(conn, request, overrides \\ []),
-    do: Connection.request(conn, build_dispatch(request, overrides), @call_timeout)
+  def dispatch(conn, request, overrides \\ []) do
+    dispatch = build_dispatch(request, overrides)
+
+    with :ok <- Connection.await(conn, dispatch, @call_timeout),
+         do: Connection.write(conn, dispatch, @call_timeout)
+  end
 
   def build_dispatch(request, overrides \\ []) do
     Map.merge(
       %{
         request: request,
+        info: KayrockProtocol.request_info(request),
         reply?: true,
         timeout: 1_000,
         long_poll: nil,
@@ -102,7 +107,8 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
 
   def async_dispatch(conn, request, overrides \\ []) do
     ref = make_ref()
-    send(conn, {:"$gen_call", {self(), ref}, {:request, build_dispatch(request, overrides)}})
+    test = self()
+    spawn(fn -> send(test, {ref, dispatch(conn, request, overrides)}) end)
     ref
   end
 
@@ -171,13 +177,19 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
     state
   end
 
-  def await_in_flight(conn, count, attempts \\ 500) do
+  def await_in_flight(conn, count),
+    do: await_data(conn, &(map_size(&1.in_flight.entries) >= count), "#{count} requests never got in flight")
+
+  def await_waiting(conn, count),
+    do: await_data(conn, &(:queue.len(&1.waiting) >= count), "#{count} callers never queued")
+
+  defp await_data(conn, ready?, failure, deadline \\ now() + 2_000) do
     {_state, data} = :sys.get_state(conn)
 
     cond do
-      map_size(data.in_flight.entries) >= count -> :ok
-      attempts == 0 -> flunk("#{count} requests never got in flight")
-      true -> await_in_flight(conn, count, attempts - 1)
+      ready?.(data) -> :ok
+      now() >= deadline -> flunk(failure)
+      true -> await_data(conn, ready?, failure, deadline)
     end
   end
 

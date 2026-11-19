@@ -5,15 +5,19 @@ defmodule KafkaEx.Client.TransportOptionTest do
 
   alias KafkaEx.API
   alias KafkaEx.Client
+  alias KafkaEx.Client.Connection
+  alias KafkaEx.Client.Infra
   alias KafkaEx.Client.State
   alias KafkaEx.Cluster.Broker
   alias KafkaEx.Network.NetworkClient
   alias KafkaEx.TestSupport.FakeTransport
+  alias KafkaEx.TestSupport.PinCase
 
   defmodule IncompleteTransport do
-    def create_socket(_host, _port, _ssl_options, _use_ssl, _auth), do: nil
-    def close_socket(_broker, _socket, _reason), do: :ok
-    def send_async_request(_broker, _data), do: :ok
+    def connect(_address, _socket_options, _use_ssl, _timeout), do: {:error, :econnrefused}
+    def write(_socket, _data), do: :ok
+    def read(_socket, _timeout), do: {:error, :closed}
+    def activate(_socket), do: :ok
   end
 
   defp start_failure(transport) do
@@ -44,8 +48,10 @@ defmodule KafkaEx.Client.TransportOptionTest do
         send(test_pid, {:result, catch_error(FakeTransport.close_socket(%{host: "h", port: 1}, socket, :reconnecting))})
       end)
 
-    assert_receive {:result, %ArgumentError{message: "FakeTransport socket closed from a non-owner process"}}
-    assert_receive {:DOWN, ^ref, :process, ^pid, _}
+    # Signals from one process arrive in order, so its :result is in the mailbox once its :DOWN is.
+    assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 1_000
+
+    assert_received {:result, %ArgumentError{message: "FakeTransport socket closed from a non-owner process"}}
     assert FakeTransport.close_socket(%{host: "h", port: 1}, socket, :reconnecting) == :ok
   end
 
@@ -61,8 +67,7 @@ defmodule KafkaEx.Client.TransportOptionTest do
       handler,
       [:kafka_ex, :connection, :close],
       fn _event, _measurements, metadata, _config ->
-        {:links, links} = Process.info(self(), :links)
-        if test_pid in links, do: send(test_pid, {:closed, metadata})
+        if test_pid in Process.get(:"$ancestors", []), do: send(test_pid, {:closed, metadata})
       end,
       nil
     )
@@ -77,8 +82,11 @@ defmodule KafkaEx.Client.TransportOptionTest do
 
     assert {:ok, %{brokers: brokers}} = API.cluster_metadata(client)
     assert [%Broker{node_id: 1, host: "localhost", port: 9} = broker] = Map.values(brokers)
-    assert Broker.connected?(broker)
+    assert broker.socket == nil
     refute_receive {:closed, _}, 100
+
+    GenServer.stop(client)
+    assert_receive {:closed, %{reason: :shutdown}}, 1_000
   end
 
   test "plain SASL without TLS fails the boot with plain_requires_tls" do
@@ -103,24 +111,10 @@ defmodule KafkaEx.Client.TransportOptionTest do
     assert log =~ "plain_requires_tls"
   end
 
-  defmodule ApiVersionsFailingTransport do
-    @api_versions_api_key 18
-
-    defdelegate create_socket(host, port, ssl_options, use_ssl, auth), to: FakeTransport
-    defdelegate close_socket(broker, socket, reason), to: FakeTransport
-    defdelegate send_async_request(broker, data), to: FakeTransport
-
-    def send_sync_request(broker, data, timeout) do
-      <<api_key::16-signed, _::binary>> = IO.iodata_to_binary(data)
-
-      if api_key == @api_versions_api_key,
-        do: {:error, :api_versions_down},
-        else: FakeTransport.send_sync_request(broker, data, timeout)
-    end
-  end
-
-  test "a boot that fails after the bootstrap sockets opened closes each once with :init_error" do
+  test "a boot that fails closes every connection it opened, once, and leaves no process behind" do
     Process.flag(:trap_exit, true)
+    %{fake: fake, host: host} = PinCase.start_fake([{1, 9092}, {2, 9093}], api_versions: %{metadata: 12..12})
+    FakeTransport.respond(fake, :metadata, &{:frame, PinCase.null_topics_metadata_frame(&1)})
     test_pid = self()
     handler = "init-error-#{inspect(make_ref())}"
 
@@ -128,28 +122,47 @@ defmodule KafkaEx.Client.TransportOptionTest do
       handler,
       [:kafka_ex, :connection, :close],
       fn _event, _measurements, metadata, _config ->
-        {:links, links} = Process.info(self(), :links)
-        if test_pid in links, do: send(test_pid, {:closed, metadata})
+        if metadata.host == host, do: send(test_pid, {:closed, metadata})
       end,
       nil
     )
 
     on_exit(fn -> :telemetry.detach(handler) end)
 
+    # ExUnit <= 1.16 runs its test supervisor as Supervisor.Default under the test pid.
+    existing = Process.list()
+
     capture_log(fn ->
       assert {:error, _} =
                Client.start_link(
                  [
-                   uris: [{"a", 1}, {"b", 2}],
+                   uris: [{host, 9092}, {host, 9093}],
                    consumer_group: :no_consumer_group,
-                   transport: ApiVersionsFailingTransport
+                   transport: FakeTransport,
+                   ssl_options: FakeTransport.ssl_options(fake)
                  ],
                  :no_name
                )
     end)
 
-    assert_receive {:closed, %{host: "a", port: 1, reason: :init_error}}
-    assert_receive {:closed, %{host: "b", port: 2, reason: :init_error}}
+    assert_receive {:closed, %{port: 9092, reason: :init_error}}, 5_000
     refute_receive {:closed, _}, 100
+
+    connections = fake |> FakeTransport.connects() |> Enum.map(& &1.owner)
+    assert connections != []
+    refute Enum.any?(connections, &Process.alive?/1)
+    assert left_behind(existing) == []
+  end
+
+  defp left_behind(existing) do
+    for pid <- Process.list() -- existing,
+        {:dictionary, dictionary} <- [Process.info(pid, :dictionary)],
+        self() in Keyword.get(dictionary, :"$ancestors", []),
+        Keyword.get(dictionary, :"$initial_call") in [
+          {Connection, :init, 1},
+          {:supervisor, Infra, 1},
+          {:supervisor, Supervisor.Default, 1}
+        ],
+        do: pid
   end
 end

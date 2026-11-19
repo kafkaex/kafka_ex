@@ -48,7 +48,8 @@ defmodule KafkaEx.TestSupport.PinCase do
   def start_pinned(opts \\ []) do
     versions = @versions |> Map.merge(Keyword.get(opts, :api_versions, %{})) |> Map.reject(&is_nil(elem(&1, 1)))
     topics = Keyword.get(opts, :topics, %{@topic => [1, 2]})
-    %{fake: fake, host: host} = start_fake([{1, 9092}, {2, 9093}], topics: topics, api_versions: versions)
+    fake_opts = [topics: topics, api_versions: versions] ++ Keyword.get(opts, :fake, [])
+    %{fake: fake, host: host} = start_fake([{1, 9092}, {2, 9093}], fake_opts)
 
     :ok = FakeTransport.respond(fake, :find_coordinator, %{node_id: 2, host: host, port: 9093, error_message: nil})
     Keyword.get(opts, :before_boot, fn _fake -> :ok end).(fake)
@@ -152,13 +153,22 @@ defmodule KafkaEx.TestSupport.PinCase do
       1000::32-signed, 255, 0>>
   end
 
-  def member_epoch(%{frame: frame}) do
+  def member_epoch(request) do
+    {_member, <<epoch::32-signed, _::binary>>} = heartbeat_member(request)
+    epoch
+  end
+
+  def member_id(request) do
+    {member, _rest} = heartbeat_member(request)
+    member
+  end
+
+  defp heartbeat_member(%{frame: frame}) do
     <<_api::16, _version::16, _corr::32, client_id_size::16-signed, _client_id::binary-size(client_id_size), 0,
       rest::binary>> = frame
 
     {_group, rest} = compact_string(rest)
-    {_member, <<epoch::32-signed, _::binary>>} = compact_string(rest)
-    epoch
+    compact_string(rest)
   end
 
   defp compact_string(<<length_plus_one, rest::binary>>) when length_plus_one < 128 do

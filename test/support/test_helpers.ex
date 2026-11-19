@@ -50,13 +50,6 @@ defmodule KafkaEx.TestHelpers do
     wait_for_accum(value_getter, 1, dwell, max_tries)
   end
 
-  def client_state(%KafkaEx.Client.State{} = state) do
-    Enum.reduce(state.cluster_metadata.brokers, state, fn
-      {_key, %{socket: nil}}, acc -> acc
-      {key, broker}, acc -> KafkaEx.Client.State.put_connection(acc, key, broker, broker.socket)
-    end)
-  end
-
   @doc """
   Returns a list of the brokers in the cluster
   """
