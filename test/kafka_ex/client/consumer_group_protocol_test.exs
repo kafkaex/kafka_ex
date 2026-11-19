@@ -27,6 +27,7 @@ defmodule KafkaEx.Client.ConsumerGroupProtocolTest do
      start_pinned(
        api_versions: versions,
        topics: %{},
+       fake: Map.get(context, :fake, []),
        client: [consumer_group: "g"],
        before_boot: &FakeTransport.respond(&1, :metadata, fn request -> orders_metadata(request.host) end)
      )}
@@ -314,6 +315,32 @@ defmodule KafkaEx.Client.ConsumerGroupProtocolTest do
       with_log(fn -> heartbeat(client, member_epoch: 0, member_id: "mine") end)
 
       assert_receive {:stop, %{result: :error, member_id: "mine"}}, 5_000
+    end
+
+    @tag fake: [api_versions_by_node: %{2 => %{consumer_group_heartbeat: 0..0}}]
+    test "a join rebuilt at the coordinator's lower version keeps its generated member id across retries", %{
+      fake: fake,
+      client: client
+    } do
+      calls = :counters.new(1, [])
+
+      FakeTransport.respond(fake, :consumer_group_heartbeat, fn request ->
+        :counters.add(calls, 1, 1)
+
+        if :counters.get(calls, 1) <= 2,
+          do: :close,
+          else:
+            {:frame,
+             heartbeat_response(request.correlation_id, member_id: sent_member_id(request.frame), member_epoch: 1)}
+      end)
+
+      {result, _log} = with_log(fn -> heartbeat(client, member_epoch: 0, topic_partitions: []) end)
+
+      assert {:ok, _} = result
+      sent = Enum.map(requests(fake, :consumer_group_heartbeat), &sent_member_id(&1.frame))
+      assert length(sent) == 3
+      assert [generated] = Enum.uniq(sent)
+      assert byte_size(generated) == 22
     end
   end
 
