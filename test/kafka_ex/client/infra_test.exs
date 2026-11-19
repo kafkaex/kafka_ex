@@ -3,12 +3,18 @@ defmodule KafkaEx.Client.InfraTest do
 
   alias KafkaEx.Client.Connection
   alias KafkaEx.Client.Infra
+  alias KafkaEx.Client.MetadataStore
   alias KafkaEx.Messages.RecordMetadata
 
   test "Infra restarts rest-for-one, at most 3 times in 5 seconds, with the connection supervisor first" do
     assert {:ok, {flags, children}} = Infra.init(%{store: %{}})
     assert %{strategy: :rest_for_one, intensity: 3, period: 5} = flags
     assert [%{id: :connections, type: :supervisor}, %{id: :metadata_store}] = children
+  end
+
+  test "the metadata store is a transient child with a 5 second shutdown" do
+    assert {:ok, {_flags, [_connections, store]}} = Infra.init(%{store: %{}})
+    assert %{id: :metadata_store, restart: :transient, shutdown: 5_000} = store
   end
 
   test "connection_supervisor/1 finds the running connection supervisor" do
@@ -86,6 +92,32 @@ defmodule KafkaEx.Client.InfraTest do
 
     test "killed, closes every connection with :shutdown and leaves no Infra or Connection alive", ctx do
       assert_teardown(ctx, &Process.exit(&1, :kill))
+    end
+
+    test "lists its metadata store before its connection supervisor, in reverse start order", %{infra: infra} do
+      assert [{:metadata_store, store, :worker, _}, {:connections, connections, :supervisor, _}] =
+               Supervisor.which_children(infra)
+
+      assert is_pid(store) and is_pid(connections)
+    end
+
+    test "stopped, takes its metadata store down and closes the store's metadata connection with :shutdown", %{
+      client: client,
+      infra: infra,
+      host: host
+    } do
+      store = Infra.metadata_store(infra)
+      {:ok, metadata} = MetadataStore.connection(store, {host, 9092}, 1_000)
+      assert connections(infra) == [metadata]
+      store_ref = Process.monitor(store)
+      metadata_ref = Process.monitor(metadata)
+
+      :ok = GenServer.stop(client, :normal, 5_000)
+
+      assert_receive {:DOWN, ^store_ref, :process, ^store, :shutdown}, 5_000
+      assert_receive {:DOWN, ^metadata_ref, :process, ^metadata, _reason}, 5_000
+      assert_receive {:pin_closed, %{port: 9092, reason: :shutdown}}, 1_000
+      refute_receive {:pin_closed, _}, 100
     end
 
     test "survives its connection supervisor being killed, which Infra restarts", %{client: client, infra: infra} do
@@ -172,6 +204,31 @@ defmodule KafkaEx.Client.InfraTest do
     assert length(infra_processes() -- before) == 2
   end
 
+  test "a boot every bootstrap broker refuses leaves no metadata store alive" do
+    sleep = Application.get_env(:kafka_ex, :sleep_for_reconnect)
+    Application.put_env(:kafka_ex, :sleep_for_reconnect, 0)
+    on_exit(fn -> Application.put_env(:kafka_ex, :sleep_for_reconnect, sleep) end)
+    %{client: client, fake: fake, host: host} = start_pinned()
+    store = client |> :sys.get_state() |> Map.fetch!(:infra) |> Infra.metadata_store()
+    before = store_processes()
+    assert store in before
+    Process.flag(:trap_exit, true)
+    gate = PinGate.new()
+    PinGate.close(gate)
+
+    opts = [
+      uris: [{host, 9092}],
+      consumer_group: :no_consumer_group,
+      transport: PinGate,
+      ssl_options: PinGate.ssl_options(gate, fake)
+    ]
+
+    {result, _log} = with_log(fn -> Client.start_link(opts, :no_name) end)
+
+    assert {:error, _reason} = result
+    assert store_processes() -- before == []
+  end
+
   defp assert_teardown(%{client: client, infra: infra}, stop) do
     {:ok, _} = API.produce(client, @topic, 0, [%{value: "v"}])
     {:ok, _} = API.produce(client, @topic, 1, [%{value: "v"}])
@@ -212,6 +269,13 @@ defmodule KafkaEx.Client.InfraTest do
     for pid <- Process.list(),
         {:dictionary, dictionary} <- [Process.info(pid, :dictionary)],
         dictionary[:"$initial_call"] in @infra_calls,
+        do: pid
+  end
+
+  defp store_processes do
+    for pid <- Process.list(),
+        {:dictionary, dictionary} <- [Process.info(pid, :dictionary)],
+        dictionary[:"$initial_call"] == {MetadataStore, :init, 1},
         do: pid
   end
 end
