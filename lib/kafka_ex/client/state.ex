@@ -193,13 +193,14 @@ defmodule KafkaEx.Client.State do
     ClusterMetadata.brokers(cluster_metadata)
   end
 
-  def ingest_api_versions(%__MODULE__{} = state, %ApiVersions{api_versions: api_versions_map}) do
-    api_versions =
-      Enum.into(api_versions_map, %{}, fn {api_key, %{min_version: min_version, max_version: max_version}} ->
-        {api_key, {min_version, max_version}}
-      end)
+  def ingest_api_versions(%__MODULE__{} = state, %ApiVersions{} = api_versions),
+    do: %{state | api_versions: api_version_ranges(api_versions)}
 
-    %{state | api_versions: api_versions}
+  @spec api_version_ranges(ApiVersions.t()) :: %{non_neg_integer() => {non_neg_integer(), non_neg_integer()}}
+  def api_version_ranges(%ApiVersions{api_versions: api_versions_map}) do
+    Map.new(api_versions_map, fn {api_key, %{min_version: min_version, max_version: max_version}} ->
+      {api_key, {min_version, max_version}}
+    end)
   end
 
   @doc """

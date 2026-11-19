@@ -132,6 +132,14 @@ defmodule KafkaEx.Auth.Config do
     end
   end
 
+  @doc false
+  @spec mechanism_name(t()) :: String.t()
+  def mechanism_name(%__MODULE__{mechanism: :plain}), do: "PLAIN"
+  def mechanism_name(%__MODULE__{mechanism: :scram, mechanism_opts: %{algo: :sha512}}), do: "SCRAM-SHA-512"
+  def mechanism_name(%__MODULE__{mechanism: :scram}), do: "SCRAM-SHA-256"
+  def mechanism_name(%__MODULE__{mechanism: :oauthbearer}), do: "OAUTHBEARER"
+  def mechanism_name(%__MODULE__{mechanism: mechanism}), do: to_string(mechanism)
+
   # ---- Internal helpers ----
 
   defp normalize_opts(nil), do: %{}

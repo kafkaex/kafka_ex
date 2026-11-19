@@ -50,7 +50,7 @@ defmodule KafkaEx.Network.NetworkClient do
   defp do_authenticate_sasl(_socket, nil, _host, _port), do: :ok
 
   defp do_authenticate_sasl(socket, %AuthConfig{} = cfg, host, port) do
-    mechanism = get_mechanism_name(cfg)
+    mechanism = AuthConfig.mechanism_name(cfg)
     metadata = Telemetry.auth_metadata(host, port, mechanism)
 
     Telemetry.span([:kafka_ex, :auth], metadata, fn ->
@@ -58,12 +58,6 @@ defmodule KafkaEx.Network.NetworkClient do
       {result, %{}}
     end)
   end
-
-  defp get_mechanism_name(%AuthConfig{mechanism: :plain}), do: "PLAIN"
-  defp get_mechanism_name(%AuthConfig{mechanism: :scram, mechanism_opts: %{algo: :sha512}}), do: "SCRAM-SHA-512"
-  defp get_mechanism_name(%AuthConfig{mechanism: :scram}), do: "SCRAM-SHA-256"
-  defp get_mechanism_name(%AuthConfig{mechanism: :oauthbearer}), do: "OAUTHBEARER"
-  defp get_mechanism_name(%AuthConfig{mechanism: mech}), do: to_string(mech)
 
   @impl true
   def close_socket(nil), do: :ok
