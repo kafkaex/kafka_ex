@@ -24,6 +24,14 @@
 * **Elixir 1.17 is the minimum supported version** (`elixir: "~> 1.17"` in `mix.exs`).
   Elixir 1.14, 1.15 and 1.16 are no longer supported or tested. Unit tests run on Elixir 1.17 /
   OTP 25, 1.18 / OTP 27, 1.19 / OTP 28 and 1.20 / OTP 29. The OTP minimum stays at 25.
+* **Client messages carry a call budget.** Every `KafkaEx.API` call that reaches the network now puts
+  `call_budget: {ms, sent_at}` into the request's `opts`, and three messages change shape:
+  `{:topic_metadata, topics, opts}` (with `allow_topic_creation:` in `opts`), sent by
+  `KafkaEx.API.topics_metadata/3`; `{:network_request, request, node_selector, opts}`, which
+  `KafkaEx.Client.send_request/4` now sends; and `{:cluster_metadata, opts}`, sent by
+  `KafkaEx.API.cluster_metadata/1`. The client still accepts the old shapes. If you
+  keep your own mock client that matches these messages or asserts on recorded `opts`, accept the new
+  shapes and ignore `:call_budget`.
 
 ### Fixed
 

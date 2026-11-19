@@ -426,7 +426,7 @@ defmodule KafkaEx.API do
   @spec list_offsets(client, [{topic_name, [partition_offset_request]}], opts) ::
           {:ok, list(Offset.t())} | {:error, any}
   def list_offsets(client, [{topic, [partition_request]}], opts \\ []) do
-    case GenServer.call(client, {:list_offsets, [{topic, [partition_request]}], opts}, generic_call_budget()) do
+    case call_client(client, &{:list_offsets, [{topic, [partition_request]}], &1}, opts, generic_call_budget()) do
       {:ok, offsets} -> {:ok, offsets}
       {:error, %{error: error_atom}} -> {:error, error_atom}
       {:error, error_atom} -> {:error, error_atom}
@@ -461,7 +461,12 @@ defmodule KafkaEx.API do
   """
   @spec topics_metadata(client, [topic_name], boolean) :: {:ok, [Topic.t()]} | {:error, error_atom}
   def topics_metadata(client, topics, allow_topic_creation \\ false) do
-    GenServer.call(client, {:topic_metadata, topics, allow_topic_creation}, generic_call_budget())
+    call_client(
+      client,
+      &{:topic_metadata, topics, &1},
+      [allow_topic_creation: allow_topic_creation],
+      generic_call_budget()
+    )
   end
 
   @doc """
@@ -477,7 +482,7 @@ defmodule KafkaEx.API do
   """
   @spec cluster_metadata(client) :: {:ok, ClusterMetadata.t()}
   def cluster_metadata(client) do
-    GenServer.call(client, :cluster_metadata, generic_call_budget())
+    call_client(client, &{:cluster_metadata, &1}, [], generic_call_budget())
   end
 
   @doc """
@@ -526,7 +531,7 @@ defmodule KafkaEx.API do
   def metadata(client, opts) do
     api_version = Keyword.get(opts, :api_version, 1)
 
-    case GenServer.call(client, {:metadata, nil, opts, api_version}, generic_call_budget()) do
+    case call_client(client, &{:metadata, nil, &1, api_version}, opts, generic_call_budget()) do
       {:ok, cluster_metadata} -> {:ok, cluster_metadata}
       {:error, error} -> {:error, error}
     end
@@ -551,7 +556,7 @@ defmodule KafkaEx.API do
     api_version = Keyword.get(opts, :api_version, 1)
     request_opts = Keyword.put(opts, :topics, topics)
 
-    case GenServer.call(client, {:metadata, topics, request_opts, api_version}, generic_call_budget()) do
+    case call_client(client, &{:metadata, topics, &1, api_version}, request_opts, generic_call_budget()) do
       {:ok, cluster_metadata} -> {:ok, cluster_metadata}
       {:error, error} -> {:error, error}
     end
@@ -581,7 +586,7 @@ defmodule KafkaEx.API do
   @spec api_versions(client) :: {:ok, ApiVersions.t()} | {:error, error_atom}
   @spec api_versions(client, opts) :: {:ok, ApiVersions.t()} | {:error, error_atom}
   def api_versions(client, opts \\ []) do
-    case GenServer.call(client, {:api_versions, opts}, generic_call_budget()) do
+    case call_client(client, &{:api_versions, &1}, opts, generic_call_budget()) do
       {:ok, versions} -> {:ok, versions}
       {:error, %{error: error_atom}} -> {:error, error_atom}
       {:error, error_atom} -> {:error, error_atom}
@@ -616,7 +621,7 @@ defmodule KafkaEx.API do
   @spec describe_group(client, consumer_group_name) :: {:ok, ConsumerGroupDescription.t()} | {:error, any}
   @spec describe_group(client, consumer_group_name, opts) :: {:ok, ConsumerGroupDescription.t()} | {:error, any}
   def describe_group(client, consumer_group_name, opts \\ []) do
-    case GenServer.call(client, {:describe_groups, [consumer_group_name], opts}, generic_call_budget()) do
+    case call_client(client, &{:describe_groups, [consumer_group_name], &1}, opts, generic_call_budget()) do
       {:ok, [group]} -> {:ok, group}
       {:error, error} -> {:error, error}
     end
@@ -658,7 +663,7 @@ defmodule KafkaEx.API do
     node_ids = brokers |> Enum.map(& &1.node_id) |> Enum.sort()
 
     Enum.reduce_while(node_ids, {:ok, []}, fn node_id, {:ok, acc} ->
-      case GenServer.call(client, {:list_groups, node_id, opts}, generic_call_budget()) do
+      case call_client(client, &{:list_groups, node_id, &1}, opts, generic_call_budget()) do
         {:ok, listings} -> {:cont, {:ok, acc ++ listings}}
         {:error, reason} -> {:halt, {:error, {:node_error, node_id, normalize_error_reason(reason)}}}
       end
@@ -736,7 +741,7 @@ defmodule KafkaEx.API do
           {:ok, :no_error | LeaveGroup.t()} | {:error, error_atom}
   def leave_group(client, consumer_group, member_id, opts \\ []) do
     client
-    |> GenServer.call({:leave_group, consumer_group, member_id, opts}, generic_call_budget())
+    |> call_client(&{:leave_group, consumer_group, member_id, &1}, opts, generic_call_budget())
     |> normalize_reply()
   end
 
@@ -762,8 +767,9 @@ defmodule KafkaEx.API do
     opts = Keyword.put(opts, :network_timeout, network_timeout)
 
     client
-    |> GenServer.call(
-      {:heartbeat, consumer_group, member_id, generation_id, opts},
+    |> call_client(
+      &{:heartbeat, consumer_group, member_id, generation_id, &1},
+      opts,
       RequestBudget.call_budget(network_timeout, @fetch_max_retries)
     )
     |> normalize_reply()
@@ -794,7 +800,7 @@ defmodule KafkaEx.API do
   @spec find_coordinator(client, consumer_group_name, opts) :: {:ok, FindCoordinator.t()} | {:error, error_atom}
   def find_coordinator(client, group_id, opts \\ []) do
     client
-    |> GenServer.call({:find_coordinator, group_id, opts}, generic_call_budget())
+    |> call_client(&{:find_coordinator, group_id, &1}, opts, generic_call_budget())
     |> normalize_reply()
   end
 
@@ -934,8 +940,9 @@ defmodule KafkaEx.API do
     opts = Keyword.put(opts, :network_timeout, network_timeout)
 
     client
-    |> GenServer.call(
-      {:consumer_group_heartbeat, consumer_group, opts},
+    |> call_client(
+      &{:consumer_group_heartbeat, consumer_group, &1},
+      opts,
       RequestBudget.call_budget(network_timeout, @fetch_max_retries)
     )
     |> normalize_reply()
@@ -970,7 +977,7 @@ defmodule KafkaEx.API do
   @spec describe_consumer_group(client, consumer_group_name, opts) ::
           {:ok, ConsumerGroupDescription.t()} | {:error, error_atom}
   def describe_consumer_group(client, consumer_group, opts \\ []) do
-    case GenServer.call(client, {:consumer_group_describe, [consumer_group], opts}, generic_call_budget()) do
+    case call_client(client, &{:consumer_group_describe, [consumer_group], &1}, opts, generic_call_budget()) do
       {:ok, [group]} -> {:ok, group}
       {:error, {_group_id, error_atom}} when is_atom(error_atom) -> {:error, error_atom}
       {:error, error} -> normalize_reply({:error, error})
@@ -1011,7 +1018,9 @@ defmodule KafkaEx.API do
   @spec fetch_committed_offset(client, consumer_group_name, topic_name, [partition_id_request], opts) ::
           {:ok, [Offset.t()]} | {:error, error_atom}
   def fetch_committed_offset(client, consumer_group, topic, partitions, opts \\ []) do
-    case GenServer.call(client, {:offset_fetch, consumer_group, [{topic, partitions}], opts}, generic_call_budget()) do
+    message = &{:offset_fetch, consumer_group, [{topic, partitions}], &1}
+
+    case call_client(client, message, opts, generic_call_budget()) do
       {:ok, offsets} -> {:ok, offsets}
       {:error, %{error: error_atom}} -> {:error, error_atom}
       {:error, error_atom} -> {:error, error_atom}
@@ -1049,7 +1058,9 @@ defmodule KafkaEx.API do
   @spec commit_offset(client, consumer_group_name, topic_name, [partition_offset_commit_request], opts) ::
           {:ok, [Offset.t()]} | {:error, error_atom}
   def commit_offset(client, consumer_group, topic, partitions, opts \\ []) do
-    case GenServer.call(client, {:offset_commit, consumer_group, [{topic, partitions}], opts}, generic_call_budget()) do
+    message = &{:offset_commit, consumer_group, [{topic, partitions}], &1}
+
+    case call_client(client, message, opts, generic_call_budget()) do
       {:ok, offsets} -> {:ok, offsets}
       {:error, %{error: error_atom}} -> {:error, error_atom}
       {:error, error_atom} -> {:error, error_atom}
@@ -1128,7 +1139,7 @@ defmodule KafkaEx.API do
 
   def produce(client, topic, partition, messages, opts) when is_integer(partition) do
     client
-    |> GenServer.call({:produce, topic, partition, messages, opts}, generic_call_budget())
+    |> call_client(&{:produce, topic, partition, messages, &1}, opts, generic_call_budget())
     |> normalize_reply()
   end
 
@@ -1227,7 +1238,7 @@ defmodule KafkaEx.API do
     {call_timeout, opts_with_timeout} = derive_fetch_timeouts(opts)
 
     client
-    |> GenServer.call({:fetch, topic, partition, offset, opts_with_timeout}, call_timeout)
+    |> call_client(&{:fetch, topic, partition, offset, &1}, opts_with_timeout, call_timeout)
     |> normalize_reply()
   end
 
@@ -1242,13 +1253,17 @@ defmodule KafkaEx.API do
   # would otherwise exit the caller before the client replies (#357).
   defp generic_call_budget, do: RequestBudget.call_budget(Config.request_timeout(), @fetch_max_retries)
 
+  defp call_client(client, message, opts, call_timeout) do
+    GenServer.call(client, message.(RequestBudget.put_call_budget(opts, call_timeout)), call_timeout)
+  end
+
   # join/sync share this: inject the per-attempt network_timeout as a control opt,
   # size the send-once outer budget from it, normalize the reply.
   defp coordinator_call(client, opts, network_timeout, msg_fun) do
     call_timeout = RequestBudget.call_budget(network_timeout, Client.coordinator_max_attempts())
     call_opts = opts |> Keyword.delete(:timeout) |> Keyword.put(:network_timeout, network_timeout)
 
-    client |> GenServer.call(msg_fun.(call_opts), call_timeout) |> normalize_reply()
+    client |> call_client(msg_fun, call_opts, call_timeout) |> normalize_reply()
   end
 
   # Collapse the client's reply into the public {:ok, _} | {:error, atom} contract.
@@ -1343,8 +1358,9 @@ defmodule KafkaEx.API do
     opts = Keyword.put_new(opts, :network_timeout, network_timeout)
 
     client
-    |> GenServer.call(
-      {:create_topics, topics, timeout, opts},
+    |> call_client(
+      &{:create_topics, topics, timeout, &1},
+      opts,
       RequestBudget.call_budget(network_timeout, @fetch_max_retries)
     )
     |> normalize_reply()
@@ -1427,8 +1443,9 @@ defmodule KafkaEx.API do
     opts = Keyword.put_new(opts, :network_timeout, network_timeout)
 
     client
-    |> GenServer.call(
-      {:delete_topics, topics, timeout, opts},
+    |> call_client(
+      &{:delete_topics, topics, timeout, &1},
+      opts,
       RequestBudget.call_budget(network_timeout, @fetch_max_retries)
     )
     |> normalize_reply()

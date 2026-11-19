@@ -33,4 +33,27 @@ defmodule KafkaEx.Client.RequestBudgetTest do
       assert_raise FunctionClauseError, fn -> RequestBudget.call_budget(100, 0) end
     end
   end
+
+  describe "deadline_budget/1" do
+    test "is strictly below the call timeout, and at least 1 ms from a 2 ms call timeout up" do
+      for t <- [1, 2, 3, 999, 1_000, 1_999, 2_000, 2_001, 5_001, 50_000, 1_000_000] do
+        assert RequestBudget.deadline_budget(t) < t
+        if t >= 2, do: assert(RequestBudget.deadline_budget(t) >= 1)
+      end
+    end
+
+    test "keeps a 1 000 ms reply margin from a 2 000 ms call timeout up" do
+      assert RequestBudget.deadline_budget(RequestBudget.call_budget(30_000, 3)) == 94_000
+    end
+  end
+
+  describe "put_call_budget/2" do
+    test "adds the duration and the send time, keeping the other opts" do
+      opts = RequestBudget.put_call_budget([a: 1], 6_000)
+
+      assert opts[:a] == 1
+      assert {5_000, sent_at} = opts[:call_budget]
+      assert sent_at <= System.monotonic_time(:millisecond)
+    end
+  end
 end

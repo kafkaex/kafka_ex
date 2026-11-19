@@ -16,13 +16,16 @@ defmodule KafkaEx.APIMetadataTest do
       {:ok, state}
     end
 
+    def handle_call({:cluster_metadata, _opts}, from, state), do: handle_call(:cluster_metadata, from, state)
+
     def handle_call(:cluster_metadata, _from, state) do
       {:reply, {:ok, state.cluster_metadata}, state}
     end
 
     def handle_call({:metadata, topics, opts, api_version}, _from, state) do
       # Store the call args for test verification
-      call_info = %{topics: topics, opts: opts, api_version: api_version}
+      {call_budget, opts} = Keyword.pop(opts, :call_budget)
+      call_info = %{topics: topics, opts: opts, api_version: api_version, call_budget: call_budget}
       new_state = Map.put(state, :last_call, call_info)
 
       # Return configured response or default
@@ -100,6 +103,23 @@ defmodule KafkaEx.APIMetadataTest do
 
       last_call = GenServer.call(client, :get_last_call)
       assert Keyword.get(last_call.opts, :timeout) == 10_000
+    end
+
+    test "metadata/2 sends a call budget below its GenServer.call timeout" do
+      {:ok, client} =
+        MockClient.start_link(%{
+          cluster_metadata: build_empty_cluster_metadata(),
+          metadata_response: {:ok, build_empty_cluster_metadata()}
+        })
+
+      call_timeout =
+        KafkaEx.Client.RequestBudget.call_budget(KafkaEx.Config.request_timeout(), KafkaEx.Client.retry_count())
+
+      {:ok, _metadata} = KafkaExAPI.metadata(client, [])
+
+      assert {ms, sent_at} = GenServer.call(client, :get_last_call).call_budget
+      assert ms > 0 and ms < call_timeout
+      assert sent_at <= System.monotonic_time(:millisecond)
     end
 
     test "returns error when request fails" do
