@@ -66,6 +66,30 @@ defmodule KafkaEx.Client.MetadataStorePacingTest do
       assert count(ctx.fake, :metadata) - mark == 2
     end
 
+    test "a named trigger does not join an in-flight all-topics round; its own request reports the unknown topic",
+         ctx do
+      FakeTransport.respond(ctx.fake, :metadata, fn request ->
+        if MapSet.member?(requested_topics(request), "absent"),
+          do: unknown_topic_reply(ctx.host, "absent"),
+          else: metadata_reply(ctx.host, %{"pin" => [1, 2]})
+      end)
+
+      %{store: store} = start_store(ctx, initial_topics: [], interval: 500, store: [ladder_delay: 10])
+      await!(store)
+      FakeTransport.subscribe(ctx.fake)
+      FakeTransport.hold(ctx.fake, :metadata)
+      assert_receive {:fake_transport, :request, %{api: :metadata, action: :hold} = periodic}, 2_000
+      assert requested_topics(periodic) == MapSet.new()
+
+      task = Task.async(fn -> MetadataStore.refresh(store, refresh(["absent"]), 5_000) end)
+      await_parked([task], store)
+      FakeTransport.release(ctx.fake, :metadata)
+
+      assert {:ok, %{unknown: ["absent"]}} = Task.await(task, 5_000)
+      assert_receive {:fake_transport, :request, %{api: :metadata} = named}, 2_000
+      assert requested_topics(named) == MapSet.new(["absent"])
+    end
+
     test "concurrent coordinator lookups for one group share one FindCoordinator", ctx do
       FakeTransport.respond(ctx.fake, :find_coordinator, coordinator_reply(ctx.host))
       %{store: store} = start_store(ctx)

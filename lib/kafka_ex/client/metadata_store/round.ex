@@ -127,7 +127,10 @@ defmodule KafkaEx.Client.MetadataStore.Round do
           Process.sleep(spec.ladder_delay)
           metadata(spec, attempts_left - 1)
         else
-          {:ok, %{metadata: metadata, unknown: [], missing: missing, address: address, versions: versions}}
+          unknown =
+            for {topic, :unknown_topic_or_partition} <- ResponseParser.metadata_topic_errors(response), do: topic
+
+          {:ok, %{metadata: metadata, unknown: unknown, missing: missing, address: address, versions: versions}}
         end
 
       {:error, _reason} ->

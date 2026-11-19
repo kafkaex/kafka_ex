@@ -102,6 +102,17 @@ defmodule KafkaEx.Client.MetadataStoreOutageTest do
     assert {{:error, %Error{error: :timeout}}, {:error, :timeout}} = results
   end
 
+  test "a cut budget still answers topics_metadata/3 for a cached topic from the cache" do
+    with_request_timeout(100)
+    %{client: client} = start_pinned()
+    store = suspend_store(client)
+
+    {result, _log} = with_log(fn -> API.topics_metadata(client, [@topic]) end)
+
+    :sys.resume(store)
+    assert {:ok, [%{name: @topic}]} = result
+  end
+
   test "a budget cut inside the metadata span stops it with the timeout error and emits no exception" do
     with_request_timeout(100)
     %{client: client, host: host} = start_pinned()
@@ -160,6 +171,18 @@ defmodule KafkaEx.Client.MetadataStoreOutageTest do
     assert brokers == %{1 => %Broker{host: host, port: 9092}}
     assert requests(fake, :metadata) == []
     assert log =~ "failed: :api_version_no_supported"
+  end
+
+  test "a topics_metadata/3 refresh every broker refuses at the pinned version returns :api_version_no_supported" do
+    previous = Application.fetch_env(:kafka_ex, :api_versions)
+    Application.put_env(:kafka_ex, :api_versions, %{metadata: 0})
+    on_exit(fn -> restore_env(:api_versions, previous) end)
+    {%{fake: fake, client: client}, _log} = with_log(fn -> start_pinned(api_versions: %{metadata: 1..1}) end)
+
+    {result, _log} = with_log(fn -> API.topics_metadata(client, [@topic]) end)
+
+    assert result == {:error, :api_version_no_supported}
+    assert requests(fake, :metadata) == []
   end
 
   test "a cut budget answers cluster_metadata/1 and the internal refresh with the last consistent snapshot" do

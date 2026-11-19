@@ -150,6 +150,75 @@ defmodule KafkaEx.Pins.MetadataStorePinTest do
     assert {:ok, [%{name: "late"}]} = result
   end
 
+  test "a failed refresh answers an uncached topic with :timeout" do
+    %{fake: fake, client: client} = start_pinned()
+    FakeTransport.respond(fake, :metadata, :close)
+    with_request_timeout(200)
+
+    {{uncached, cached}, _log} =
+      with_log(fn -> {API.topics_metadata(client, ["uncached"]), API.topics_metadata(client, [@topic])} end)
+
+    assert uncached == {:error, :timeout}
+    assert {:ok, [%{name: @topic}]} = cached
+  end
+
+  test "topics_metadata/3 of an unknown topic returns :unknown_topic_or_partition, and a multi-topic call fails as a whole" do
+    %{fake: fake, client: client, host: host} = start_pinned()
+    reply = unknown_topic_reply(host, "gone")
+
+    FakeTransport.respond(fake, :metadata, %{
+      reply
+      | topics: reply.topics ++ metadata_reply(host, %{@topic => [1, 2]}).topics
+    })
+
+    {{alone, mixed}, _log} =
+      with_log(fn -> {API.topics_metadata(client, ["gone"]), API.topics_metadata(client, [@topic, "gone"])} end)
+
+    assert alone == {:error, :unknown_topic_or_partition}
+    assert mixed == {:error, :unknown_topic_or_partition}
+  end
+
+  test "metadata/3 naming an unknown topic returns that error and still caches the topics it got" do
+    %{fake: fake, client: client, host: host} = start_pinned()
+    reply = unknown_topic_reply(host, "gone")
+
+    FakeTransport.respond(fake, :metadata, %{
+      reply
+      | topics: reply.topics ++ metadata_reply(host, %{"other" => [2]}).topics
+    })
+
+    {result, _log} = with_log(fn -> API.metadata(client, ["gone", "other"], []) end)
+    {:ok, cached} = API.cluster_metadata(client)
+
+    assert {:error, %KafkaEx.Client.Error{error: :unknown_topic_or_partition, metadata: %{topics: ["gone"]}}} = result
+    assert Map.has_key?(cached.topics, "other")
+  end
+
+  test "a refresh refused at a pinned version leaves produce with a nil partition as it was" do
+    %{fake: fake, client: client} = start_pinned()
+    FakeTransport.respond(fake, :produce, produce_reply())
+    previous = Application.fetch_env(:kafka_ex, :api_versions)
+    Application.put_env(:kafka_ex, :api_versions, %{metadata: 1})
+    on_exit(fn -> restore_env(:api_versions, previous) end)
+
+    {{cached, uncached}, _log} =
+      with_log(fn ->
+        {API.produce(client, @topic, nil, [%{value: "v"}]), API.produce(client, "uncached", nil, [%{value: "v"}])}
+      end)
+
+    assert {:ok, %{base_offset: 7}} = cached
+    assert uncached == {:error, :topic_not_found}
+  end
+
+  test "a topic the broker is still auto-creating after every attempt is not reported unknown" do
+    %{fake: fake, client: client, host: host} = start_pinned()
+    FakeTransport.respond(fake, :metadata, leaderless_reply(host, "fresh"))
+
+    {result, _log} = with_log(fn -> API.topics_metadata(client, ["fresh"], true) end)
+
+    assert result == {:ok, []}
+  end
+
   defp fetch(client), do: API.fetch(client, @topic, 0, 0, max_wait_time: 10, rack_id: "az-pin")
 
   defp parser_exception(frame) do
@@ -162,4 +231,7 @@ defmodule KafkaEx.Pins.MetadataStorePinTest do
       exception -> exception
     end
   end
+
+  defp restore_env(key, {:ok, value}), do: Application.put_env(:kafka_ex, key, value)
+  defp restore_env(key, :error), do: Application.delete_env(:kafka_ex, key)
 end
