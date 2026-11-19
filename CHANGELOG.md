@@ -19,6 +19,17 @@
   `ConsumerGroup.start_link/4` return `{:error, {:invalid_option, :invalid_max_records}}`. The
   `[:kafka_ex, :consumer, :process]` span's `message_count` is the chunk size.
 
+### Changed
+
+* **Client messages carry a call budget.** Every `KafkaEx.API` call that reaches the network now puts
+  `call_budget: {ms, sent_at}` into the request's `opts`, and three messages change shape:
+  `{:topic_metadata, topics, opts}` (with `allow_topic_creation:` in `opts`), sent by
+  `KafkaEx.API.topics_metadata/3`; `{:network_request, request, node_selector, opts}`, which
+  `KafkaEx.Client.send_request/4` now sends; and `{:cluster_metadata, opts}`, sent by
+  `KafkaEx.API.cluster_metadata/1`. The client still accepts the old shapes. If you
+  keep your own mock client that matches these messages or asserts on recorded `opts`, accept the new
+  shapes and ignore `:call_budget`.
+
 ### Fixed
 
 * **`required_compression: [:zstd]` no longer requires `ezstd` on OTP 28+.** The boot check

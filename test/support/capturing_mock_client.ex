@@ -41,28 +41,30 @@ defmodule KafkaEx.Test.CapturingMockClient do
 
   def handle_call({:join_group, group, member_id, opts}, _from, {calls, watcher}) do
     resp = {:ok, %KafkaEx.Messages.JoinGroup{generation_id: 1, member_id: "m", leader_id: "x", members: []}}
-    {:reply, resp, {[{:join_group, group, member_id, opts} | calls], watcher}}
+    {:reply, resp, {[{:join_group, group, member_id, Keyword.delete(opts, :call_budget)} | calls], watcher}}
   end
 
   def handle_call({:sync_group, group, gen, member_id, opts}, _from, {calls, watcher}) do
     resp = {:ok, %KafkaEx.Messages.SyncGroup{partition_assignments: []}}
-    {:reply, resp, {[{:sync_group, group, gen, member_id, opts} | calls], watcher}}
+    {:reply, resp, {[{:sync_group, group, gen, member_id, Keyword.delete(opts, :call_budget)} | calls], watcher}}
   end
 
   def handle_call({:heartbeat, group, member_id, gen, opts}, _from, {calls, watcher}) do
-    {:reply, {:ok, %KafkaEx.Messages.Heartbeat{}}, {[{:heartbeat, group, member_id, gen, opts} | calls], watcher}}
+    {:reply, {:ok, %KafkaEx.Messages.Heartbeat{}},
+     {[{:heartbeat, group, member_id, gen, Keyword.delete(opts, :call_budget)} | calls], watcher}}
   end
 
   def handle_call({:leave_group, group, member_id, opts}, _from, {calls, watcher}) do
-    {:reply, {:ok, %KafkaEx.Messages.LeaveGroup{}}, {[{:leave_group, group, member_id, opts} | calls], watcher}}
+    {:reply, {:ok, %KafkaEx.Messages.LeaveGroup{}},
+     {[{:leave_group, group, member_id, Keyword.delete(opts, :call_budget)} | calls], watcher}}
   end
 
   def handle_call({:create_topics, topics, timeout, opts}, _from, {calls, watcher}) do
-    {:reply, {:ok, %{}}, {[{:create_topics, topics, timeout, opts} | calls], watcher}}
+    {:reply, {:ok, %{}}, {[{:create_topics, topics, timeout, Keyword.delete(opts, :call_budget)} | calls], watcher}}
   end
 
   def handle_call({:delete_topics, topics, timeout, opts}, _from, {calls, watcher}) do
-    {:reply, {:ok, %{}}, {[{:delete_topics, topics, timeout, opts} | calls], watcher}}
+    {:reply, {:ok, %{}}, {[{:delete_topics, topics, timeout, Keyword.delete(opts, :call_budget)} | calls], watcher}}
   end
 
   @impl true
