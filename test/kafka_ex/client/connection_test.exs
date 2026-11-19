@@ -800,6 +800,42 @@ defmodule KafkaEx.Client.ConnectionTest do
           do: assert(gap >= 0.75 * lower_bound(failures), "gap #{failures} was #{gap} ms: #{inspect(gaps)}")
     end
 
+    test "a connection that has attempted ignores a pacing wake and keeps its backoff", %{
+      fake: fake,
+      host: host,
+      gate: gate
+    } do
+      PinGate.close(gate)
+      pacing = Pacing.new()
+      %{conn: conn} = start_connection(fake, host, port(), :data, gate: gate, pacing: pacing, reconnect_window: 5_000)
+
+      {_ref, _log} = with_log(fn -> async_dispatch(conn, request(:produce)) end)
+      assert_receive {:attempt, ^conn, _at}, 1_000
+      assert {:reconnecting, _data} = :sys.get_state(conn)
+      PinGate.open(gate)
+      Pacing.connected(pacing, {host, port()}, now())
+      send(conn, :pacing_slot)
+
+      assert {:reconnecting, _data} = :sys.get_state(conn)
+      refute_received {:attempt, ^conn, _at}
+    end
+
+    test "a connection that waited on another's reservation drops its wake row once it attempts", %{
+      fake: fake,
+      host: host,
+      gate: gate
+    } do
+      PinGate.close(gate)
+      pacing = Pacing.new()
+      :ok = Pacing.claim(pacing, {host, port()}, now())
+      %{conn: conn} = start_connection(fake, host, port(), :data, gate: gate, pacing: pacing)
+
+      {result, _log} = with_log(fn -> Connection.connect(conn, 5_000) end)
+
+      assert {:error, _reason} = result
+      assert :ets.match_object(pacing, {{:first_connect, :_, :_}}) == []
+    end
+
     test "a request that arrives after the backoff interval attempts at once", %{fake: fake, host: host, gate: gate} do
       FakeTransport.respond(fake, :produce, frame("ok"))
       PinGate.close(gate)

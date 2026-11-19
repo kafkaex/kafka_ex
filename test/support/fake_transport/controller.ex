@@ -41,11 +41,18 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
        connects: [],
        connections: %{},
        subscribers: [],
-       next_id: 1
+       next_id: 1,
+       connect_delay: 0
      }}
   end
 
   @impl true
+  def handle_call({:connect, record}, from, %{connect_delay: delay} = state) when delay > 0 do
+    {:reply, reply, state} = handle_call({:connect, record}, from, %{state | connect_delay: 0})
+    Process.send_after(self(), {:reply_later, from, reply}, delay)
+    {:noreply, %{state | connect_delay: delay}}
+  end
+
   def handle_call({:connect, record}, _from, state) do
     state = %{state | connects: [record | state.connects]}
     node_id = node_id(state, record)
@@ -56,6 +63,8 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
       true -> listen(record, node_id, state)
     end
   end
+
+  def handle_call({:delay_connects, ms}, _from, state), do: {:reply, :ok, %{state | connect_delay: ms}}
 
   def handle_call({:attach, id, socket}, _from, state),
     do: {:reply, :ok, update_in(state.connections[id], &%{&1 | socket: socket})}
@@ -143,6 +152,11 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
     notify(state, {:fake_transport, :closed, id})
     connections = Map.update!(state.connections, id, &%{&1 | open?: false, close_reason: reason})
     {:noreply, forget_held(%{state | connections: connections}, [id])}
+  end
+
+  def handle_info({:reply_later, from, reply}, state) do
+    GenServer.reply(from, reply)
+    {:noreply, state}
   end
 
   def handle_info({:DOWN, _ref, :process, _owner, _reason}, state), do: {:stop, :normal, state}
@@ -249,6 +263,14 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
 
   defp normalize(fun, request) when is_function(fun, 1), do: normalize(fun.(request), request)
   defp normalize(action, _request) when action in [:no_reply, :close, :stall], do: action
+
+  defp normalize({:after, ms, rule}, request) when is_integer(ms) and ms > 0 do
+    case normalize(rule, request) do
+      {:reply, iodata} -> {:reply_after, ms, iodata}
+      action -> action
+    end
+  end
+
   defp normalize({:frame, frame}, _request), do: {:reply, IO.iodata_to_binary(frame)}
 
   defp normalize(%{} = fields, request),
@@ -257,5 +279,6 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
   defp normalize(other, _request), do: raise(ArgumentError, "unsupported reply #{inspect(other)}")
 
   defp action_name({:reply, _iodata}), do: :reply
+  defp action_name({:reply_after, _ms, _iodata}), do: :reply
   defp action_name(action), do: action
 end
