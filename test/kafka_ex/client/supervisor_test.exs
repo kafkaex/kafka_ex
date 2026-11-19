@@ -2,6 +2,7 @@ defmodule KafkaEx.Client.SupervisorTest do
   use KafkaEx.TestSupport.PinCase, async: false
 
   alias KafkaEx.Client.ConnectionStateMachine
+  alias KafkaEx.Client.MetadataStore
   alias KafkaEx.Client.Supervisor, as: ClientSupervisor
   alias KafkaEx.Messages.RecordMetadata
 
@@ -9,6 +10,11 @@ defmodule KafkaEx.Client.SupervisorTest do
     assert {:ok, {flags, children}} = ClientSupervisor.init(%{store: %{}})
     assert %{strategy: :rest_for_one, intensity: 3, period: 5} = flags
     assert [%{id: :connections, type: :supervisor}, %{id: :metadata_store}] = children
+  end
+
+  test "the metadata store is a transient child with a 5 second shutdown" do
+    assert {:ok, {_flags, [_connections, store]}} = ClientSupervisor.init(%{store: %{}})
+    assert %{id: :metadata_store, restart: :transient, shutdown: 5_000} = store
   end
 
   test "a stop that runs out of time leaves the process linked to the client supervisor alive" do
@@ -73,6 +79,32 @@ defmodule KafkaEx.Client.SupervisorTest do
 
     test "killed, closes every connection with :shutdown and leaves no supervisor or connection alive", ctx do
       assert_teardown(ctx, &Process.exit(&1, :kill))
+    end
+
+    test "lists its metadata store before its connection supervisor, in reverse start order", %{supervisor: supervisor} do
+      assert [{:metadata_store, store, :worker, _}, {:connections, connections, :supervisor, _}] =
+               Supervisor.which_children(supervisor)
+
+      assert is_pid(store) and is_pid(connections)
+    end
+
+    test "stopped, takes its metadata store down and closes the store's metadata connection with :shutdown", %{
+      client: client,
+      supervisor: supervisor,
+      host: host
+    } do
+      store = ClientSupervisor.metadata_store(supervisor)
+      {:ok, metadata} = MetadataStore.connection(store, {host, 9092}, 1_000)
+      assert connections(supervisor) == [metadata]
+      store_ref = Process.monitor(store)
+      metadata_ref = Process.monitor(metadata)
+
+      :ok = GenServer.stop(client, :normal, 5_000)
+
+      assert_receive {:DOWN, ^store_ref, :process, ^store, :shutdown}, 5_000
+      assert_receive {:DOWN, ^metadata_ref, :process, ^metadata, _reason}, 5_000
+      assert_receive {:pin_closed, %{port: 9092, reason: :shutdown}}, 1_000
+      refute_receive {:pin_closed, _}, 100
     end
 
     test "survives its connection supervisor being killed, which the client supervisor restarts", %{
@@ -160,6 +192,31 @@ defmodule KafkaEx.Client.SupervisorTest do
     assert length(supervisor_processes() -- before) == 3
   end
 
+  test "a boot every bootstrap broker refuses leaves no metadata store alive" do
+    sleep = Application.get_env(:kafka_ex, :sleep_for_reconnect)
+    Application.put_env(:kafka_ex, :sleep_for_reconnect, 0)
+    on_exit(fn -> Application.put_env(:kafka_ex, :sleep_for_reconnect, sleep) end)
+    %{client: client, fake: fake, host: host} = start_pinned()
+    store = client |> :sys.get_state() |> Map.fetch!(:supervisor) |> ClientSupervisor.metadata_store()
+    before = store_processes()
+    assert store in before
+    Process.flag(:trap_exit, true)
+    gate = PinGate.new()
+    PinGate.close(gate)
+
+    opts = [
+      uris: [{host, 9092}],
+      consumer_group: :no_consumer_group,
+      transport: PinGate,
+      ssl_options: PinGate.ssl_options(gate, fake)
+    ]
+
+    {result, _log} = with_log(fn -> Client.start_link(opts, :no_name) end)
+
+    assert {:error, _reason} = result
+    assert store_processes() -- before == []
+  end
+
   defp assert_teardown(%{client: client, supervisor: supervisor}, stop) do
     {:ok, _} = API.produce(client, @topic, 0, [%{value: "v"}])
     {:ok, _} = API.produce(client, @topic, 1, [%{value: "v"}])
@@ -184,6 +241,14 @@ defmodule KafkaEx.Client.SupervisorTest do
     for {_id, pid, _type, _modules} <-
           DynamicSupervisor.which_children(ClientSupervisor.connection_supervisor(supervisor)),
         is_pid(pid) do
+      pid
+    end
+  end
+
+  defp store_processes do
+    for pid <- Process.list(),
+        {:dictionary, dictionary} <- [Process.info(pid, :dictionary)],
+        dictionary[:"$initial_call"] == {MetadataStore, :init, 1} do
       pid
     end
   end

@@ -2,6 +2,7 @@ defmodule KafkaEx.Client.MetadataStoreOutageTest do
   use KafkaEx.TestSupport.PinCase, async: false
 
   alias KafkaEx.Client.Error
+  alias KafkaEx.Client.Supervisor, as: ClientSupervisor
   alias KafkaEx.Cluster.Broker
 
   test "while a restarted store loads, :random selections answer :no_broker and the client stays up" do
@@ -209,6 +210,78 @@ defmodule KafkaEx.Client.MetadataStoreOutageTest do
     assert {brokers, topics} == {before.brokers, before.topics}
     assert {:ok, %{brokers: ^brokers}} = refreshed
     assert {:error, {:node_error, 1, _reason}} = groups
+  end
+
+  describe "outages and restarts at client level" do
+    @describetag pin_set: :invariant
+
+    test "a store killed while every broker is black-holed: the client and its supervisor survive, and everything recovers" do
+      %{client: client, fake: fake, supervisor: supervisor, store: store} = start_outage_client()
+      FakeTransport.respond(fake, :api_versions, :no_reply)
+
+      kill(store)
+      refute_receive :never, 500
+
+      assert_outage_survived(client, supervisor)
+      FakeTransport.respond(fake, :api_versions, nil)
+      # A load round already hanging on a black-holed handshake gives up after the connect timeout.
+      refute_receive :never, 600
+      assert_recovered(client, supervisor, store)
+    end
+
+    test "a ConnectionSupervisor killed while every broker refuses: the store restarts with it, and everything recovers" do
+      %{client: client, gate: gate, supervisor: supervisor, store: store} = start_outage_client()
+      PinGate.close(gate)
+
+      kill(ClientSupervisor.connection_supervisor(supervisor))
+      refute_receive :never, 500
+
+      assert_outage_survived(client, supervisor)
+      PinGate.open(gate)
+      assert_recovered(client, supervisor, store)
+    end
+
+    test "a store killed between the client's resolve and its read: the next produce succeeds, the client stays up" do
+      %{client: client, supervisor: supervisor, store: store} = start_outage_client()
+      :ok = :sys.suspend(client)
+      request = :gen_server.send_request(client, {:produce, @topic, 0, [%{value: "v"}], []})
+
+      kill(store)
+      restarted = ClientSupervisor.metadata_store(supervisor)
+      assert is_pid(restarted) and restarted != store
+      :ok = :sys.resume(client)
+
+      assert {:reply, {:ok, _}} = :gen_server.receive_response(request, 10_000)
+      assert Process.alive?(client)
+    end
+  end
+
+  defp start_outage_client do
+    pinned = start_pinned(client: [metadata_update_interval: 100, connection: [connect_timeout: 300]])
+    FakeTransport.respond(pinned.fake, :produce, produce_reply())
+    %{supervisor: supervisor, store: %{pid: store}} = :sys.get_state(pinned.client)
+    Map.merge(pinned, %{supervisor: supervisor, store: store})
+  end
+
+  defp kill(pid) do
+    ref = Process.monitor(pid)
+    Process.exit(pid, :kill)
+    assert_receive {:DOWN, ^ref, :process, ^pid, :killed}, 1_000
+  end
+
+  defp assert_outage_survived(client, supervisor) do
+    with_request_timeout(200)
+    {during, _log} = with_log(fn -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
+
+    assert {:error, :no_broker} = during
+    assert Process.alive?(client)
+    assert %{supervisor: ^supervisor} = :sys.get_state(client)
+    assert Supervisor.count_children(supervisor).active == 2
+  end
+
+  defp assert_recovered(client, supervisor, store) do
+    assert {:ok, _} = API.produce(client, @topic, 0, [%{value: "v"}])
+    assert ClientSupervisor.metadata_store(supervisor) != store
   end
 
   defp suspend_store(client) do
