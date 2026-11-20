@@ -441,6 +441,16 @@ defmodule KafkaEx.API do
   allow_topic_creation to true to allow the topics to be created if they
   don't exist.
 
+  ## Errors
+
+  If any requested topic is one the broker does not know, the whole call
+  returns `{:error, :unknown_topic_or_partition}`, even when other requested
+  topics exist. If the refresh fails (no broker answered), topics already
+  cached are still answered from the cache; if a requested topic is not
+  cached, the call returns `{:error, :timeout}`. If every broker refuses the
+  Metadata version pinned in `:api_versions`, an uncached topic returns
+  `{:error, :api_version_no_supported}`.
+
   ## Examples
 
       {:ok, topics} = KafkaEx.API.topics_metadata(client, ["my-topic"])
@@ -517,7 +527,10 @@ defmodule KafkaEx.API do
 
   Makes a network request to fetch fresh metadata for the specified topics only.
   This is more efficient than fetching all topics if you only need information
-  about a subset of topics. Errors are returned as for `metadata/2`.
+  about a subset of topics. Errors are returned as for `metadata/2`. If the
+  broker does not know a named topic, the call returns
+  `{:error, %KafkaEx.Client.Error{error: :unknown_topic_or_partition, metadata: %{topics: unknown}}}`;
+  the topics it did return are still cached.
 
   ## Examples
 
@@ -1159,6 +1172,9 @@ defmodule KafkaEx.API do
         end
 
       {:ok, []} ->
+        {:error, :topic_not_found}
+
+      {:error, reason} when reason in [:unknown_topic_or_partition, :timeout, :api_version_no_supported] ->
         {:error, :topic_not_found}
 
       {:error, _} = error ->

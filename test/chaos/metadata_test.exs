@@ -122,11 +122,16 @@ defmodule KafkaEx.Chaos.MetadataTest do
     test "topics_metadata for multiple topics with latency", ctx do
       {:ok, client} = ChaosTestHelpers.start_client(ctx)
 
-      topics = ["topic1", "topic2", "topic3"]
+      suffix = System.unique_integer([:positive])
+      topics = for n <- 1..3, do: "chaos_latency_#{n}_#{suffix}"
+      for topic <- topics, do: {:ok, _} = KafkaEx.API.produce(client, topic, 0, [%{key: "k", value: "v"}])
 
       ChaosTestHelpers.with_latency(ctx.toxiproxy_container, ctx.proxy_name, 300, fn ->
-        result = KafkaEx.API.topics_metadata(client, topics)
-        assert match?({:ok, _}, result), "Expected success with moderate latency"
+        assert {:ok, found} = KafkaEx.API.topics_metadata(client, topics)
+        assert Enum.sort(Enum.map(found, & &1.name)) == topics
+
+        assert KafkaEx.API.topics_metadata(client, ["chaos_latency_never_created_#{suffix}"]) ==
+                 {:error, :unknown_topic_or_partition}
       end)
     end
   end

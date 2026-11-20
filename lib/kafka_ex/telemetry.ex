@@ -306,6 +306,20 @@ defmodule KafkaEx.Telemetry do
     * Measurements: `%{duration: integer()}`
     * Metadata: Start metadata plus `%{kind: atom(), reason: term(), stacktrace: list()}`
 
+  ### Metadata Store Events
+
+  Each client keeps its metadata in a metadata store. When a refresh gets no usable answer from
+  any broker, or raises, the store keeps serving its last snapshot and retries with backoff.
+
+  * `[:kafka_ex, :metadata_store, :degraded]` - Emitted once when the store's refreshes start failing
+    * Measurements: `%{system_time: integer()}`
+    * Metadata: `%{reason: term()}` - the failure, e.g. `:broker_failed`, `:no_broker` or
+      `{:raised, module()}` for a refresh that raised
+
+  * `[:kafka_ex, :metadata_store, :recovered]` - Emitted once when a metadata refresh succeeds again
+    * Measurements: `%{duration: integer()}` - native time units spent degraded
+    * Metadata: `%{}`
+
   ### Consumer Processing Events
 
   * `[:kafka_ex, :consumer, :process, :start]` - Emitted when GenConsumer begins processing a message batch
@@ -385,6 +399,9 @@ defmodule KafkaEx.Telemetry do
   @metadata_update_stop [:kafka_ex, :metadata, :update, :stop]
   @metadata_update_exception [:kafka_ex, :metadata, :update, :exception]
 
+  @metadata_store_degraded [:kafka_ex, :metadata_store, :degraded]
+  @metadata_store_recovered [:kafka_ex, :metadata_store, :recovered]
+
   @consumer_process_start [:kafka_ex, :consumer, :process, :start]
   @consumer_process_stop [:kafka_ex, :consumer, :process, :stop]
   @consumer_process_exception [:kafka_ex, :consumer, :process, :exception]
@@ -425,6 +442,7 @@ defmodule KafkaEx.Telemetry do
   @consumer_process_events [@consumer_process_start, @consumer_process_stop, @consumer_process_exception]
   @consumer_events @consumer_commit_events ++ @consumer_group_events ++ @consumer_process_events
   @metadata_events [@metadata_update_start, @metadata_update_stop, @metadata_update_exception]
+  @metadata_store_events [@metadata_store_degraded, @metadata_store_recovered]
 
   @doc """
   Returns the list of all telemetry events emitted by KafkaEx.
@@ -433,7 +451,8 @@ defmodule KafkaEx.Telemetry do
   def events do
     @request_events ++
       @connection_events ++
-      @auth_events ++ @produce_events ++ @fetch_events ++ @consumer_events ++ @metadata_events
+      @auth_events ++
+      @produce_events ++ @fetch_events ++ @consumer_events ++ @metadata_events ++ @metadata_store_events
   end
 
   @doc "Returns request-related telemetry events."
@@ -467,6 +486,10 @@ defmodule KafkaEx.Telemetry do
   @doc "Returns metadata update-related telemetry events."
   @spec metadata_events() :: [list(atom())]
   def metadata_events, do: @metadata_events
+
+  @doc "Returns metadata store lifecycle telemetry events (degraded, recovered)."
+  @spec metadata_store_events() :: [list(atom())]
+  def metadata_store_events, do: @metadata_store_events
 
   @doc "Returns consumer message processing telemetry events."
   @spec consumer_process_events() :: [list(atom())]
@@ -905,6 +928,16 @@ defmodule KafkaEx.Telemetry do
       }
     )
   end
+
+  @doc false
+  @spec emit_metadata_store_degraded(term()) :: :ok
+  def emit_metadata_store_degraded(reason),
+    do: :telemetry.execute(@metadata_store_degraded, %{system_time: System.system_time()}, %{reason: reason})
+
+  @doc false
+  @spec emit_metadata_store_recovered(integer()) :: :ok
+  def emit_metadata_store_recovered(duration),
+    do: :telemetry.execute(@metadata_store_recovered, %{duration: duration}, %{})
 
   @doc false
   @spec emit_connection_close(binary(), integer(), atom()) :: :ok

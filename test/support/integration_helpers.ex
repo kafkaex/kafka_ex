@@ -1,7 +1,10 @@
 defmodule KafkaEx.IntegrationHelpers do
   @moduledoc false
 
+  import ExUnit.Assertions, only: [flunk: 1, refute_receive: 2]
+
   alias KafkaEx.API
+  alias KafkaEx.Client.Error
   alias KafkaEx.Test.KayrockFixtures, as: Fixtures
 
   @doc """
@@ -59,18 +62,42 @@ defmodule KafkaEx.IntegrationHelpers do
   Returns the topic metadata map on success.
   """
   def wait_for_topic_in_metadata(client, topic_name, retries \\ 20) do
-    {:ok, metadata} = API.metadata(client, [topic_name])
-    topic = Map.get(metadata.topics, topic_name)
+    case API.metadata(client, [topic_name]) do
+      {:ok, %{topics: %{^topic_name => topic}}} -> topic
+      {:ok, _metadata} -> retry_topic_in_metadata(client, topic_name, retries)
+      {:error, %Error{error: :unknown_topic_or_partition}} -> retry_topic_in_metadata(client, topic_name, retries)
+    end
+  end
 
-    if topic != nil do
-      topic
-    else
-      if retries > 0 do
-        Process.sleep(500)
-        wait_for_topic_in_metadata(client, topic_name, retries - 1)
-      else
-        raise "Topic #{topic_name} not found in metadata after retries"
-      end
+  defp retry_topic_in_metadata(_client, topic_name, 0) do
+    raise "Topic #{topic_name} not found in metadata after retries"
+  end
+
+  defp retry_topic_in_metadata(client, topic_name, retries) do
+    refute_receive :__never__, 500
+    wait_for_topic_in_metadata(client, topic_name, retries - 1)
+  end
+
+  @doc """
+  Asks for a named topic until the broker reports it unknown or the deadline passes.
+  Returns the last `metadata/3` result.
+  """
+  def wait_for_topic_unknown(client, topic_name, timeout \\ 10_000) do
+    do_wait_for_topic_unknown(client, topic_name, System.monotonic_time(:millisecond) + timeout)
+  end
+
+  defp do_wait_for_topic_unknown(client, topic_name, deadline) do
+    case API.metadata(client, [topic_name], []) do
+      {:error, %Error{error: :unknown_topic_or_partition}} = unknown ->
+        unknown
+
+      other ->
+        if System.monotonic_time(:millisecond) >= deadline do
+          other
+        else
+          refute_receive :__never__, 100
+          do_wait_for_topic_unknown(client, topic_name, deadline)
+        end
     end
   end
 

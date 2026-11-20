@@ -7,6 +7,7 @@ defmodule KafkaEx.Integration.Lifecycle.TopicAdminTest do
 
   alias KafkaEx.Client
   alias KafkaEx.API
+  alias KafkaEx.Client.Error
   alias KafkaEx.Messages.CreateTopics
   alias KafkaEx.Messages.DeleteTopics
 
@@ -149,18 +150,8 @@ defmodule KafkaEx.Integration.Lifecycle.TopicAdminTest do
       assert %DeleteTopics{} = result
       assert DeleteTopics.success?(result)
 
-      # Allow time for deletion to propagate
-      Process.sleep(500)
-
-      # Verify it's gone (may show as unknown_topic_or_partition or not in list)
-      {:ok, metadata2} = API.metadata(client, [topic_name])
-      topic = Map.get(metadata2.topics, topic_name)
-
-      # Topic either doesn't exist or has empty partitions (still being deleted)
-      if topic do
-        # If topic is still visible, it might be in process of deletion
-        assert length(topic.partitions) == 0 or length(topic.partitions) >= 1
-      end
+      assert {:error, %Error{error: :unknown_topic_or_partition, metadata: %{topics: [^topic_name]}}} =
+               wait_for_topic_unknown(client, topic_name)
     end
 
     test "deleting non-existent topic returns error", %{client: client} do
