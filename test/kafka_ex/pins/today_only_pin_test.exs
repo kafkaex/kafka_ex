@@ -5,30 +5,6 @@ defmodule KafkaEx.Pins.TodayOnlyPinTest do
 
   @moduletag pin_set: :today_only
 
-  @tag retired_by: 1493
-  test "the [:kafka_ex, :request] start metadata carries the client-wide correlation id" do
-    %{fake: fake, client: client, host: host} = start_pinned()
-    FakeTransport.respond(fake, :produce, produce_reply())
-    # Moves the client-wide id past any id a fresh node-1 connection would start from.
-    for _ <- 1..5, do: {:ok, _} = API.produce(client, @topic, 1, [%{value: "v"}])
-    test = self()
-    handler = "pin-request-#{host}"
-
-    :telemetry.attach(
-      handler,
-      [:kafka_ex, :request, :start],
-      fn _event, _measurements, metadata, _config -> send(test, {:pin_request, metadata.correlation_id}) end,
-      nil
-    )
-
-    on_exit(fn -> :telemetry.detach(handler) end)
-
-    {:ok, expected} = API.correlation_id(client)
-    {:ok, _} = API.produce(client, @topic, 0, [%{value: "v"}])
-
-    assert_received {:pin_request, ^expected}
-  end
-
   @tag retired_by: 1497
   test ":no_broker is returned well before the request deadline" do
     %{client: client} = start_pinned()

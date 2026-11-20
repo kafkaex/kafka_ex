@@ -37,13 +37,15 @@ defmodule KafkaEx.Test.MockClient do
 
   def handle_call({:list_offsets, topic_partitions, opts}, _from, state) do
     response = Map.get(state.responses, :list_offsets, {:ok, []})
-    {:reply, response, record_call(state, {:list_offsets, topic_partitions, opts})}
+    {:reply, response, record_call(state, {:list_offsets, topic_partitions, Keyword.delete(opts, :call_budget)})}
   end
 
   def handle_call({:metadata, topics, _opts, _api_version}, _from, state) do
     response = Map.get(state.responses, :metadata, {:ok, %ClusterMetadata{}})
     {:reply, response, record_call(state, {:metadata, topics})}
   end
+
+  def handle_call({:cluster_metadata, _opts}, from, state), do: handle_call(:cluster_metadata, from, state)
 
   def handle_call(:cluster_metadata, _from, state) do
     response = Map.get(state.responses, :cluster_metadata, {:ok, %ClusterMetadata{}})
@@ -72,7 +74,7 @@ defmodule KafkaEx.Test.MockClient do
 
   def handle_call({:fetch, topic, partition, offset, opts}, _from, state) do
     response = Map.get(state.responses, :fetch, {:ok, %Fetch{}})
-    {:reply, response, record_call(state, {:fetch, topic, partition, offset, opts})}
+    {:reply, response, record_call(state, {:fetch, topic, partition, offset, Keyword.delete(opts, :call_budget)})}
   end
 
   def handle_call({:describe_groups, groups, _opts}, _from, state) do
@@ -83,7 +85,7 @@ defmodule KafkaEx.Test.MockClient do
   def handle_call({:list_groups, node_id, opts}, _from, state) do
     per_node = Map.get(state.responses, :list_groups, %{})
     response = Map.get(per_node, node_id, {:ok, []})
-    {:reply, response, record_call(state, {:list_groups, node_id, opts})}
+    {:reply, response, record_call(state, {:list_groups, node_id, Keyword.delete(opts, :call_budget)})}
   end
 
   def handle_call({:join_group, group, member_id, _opts}, _from, state) do
@@ -119,22 +121,24 @@ defmodule KafkaEx.Test.MockClient do
         {:ok, %KafkaEx.Messages.ConsumerGroupHeartbeat{member_epoch: 1, heartbeat_interval_ms: 5_000}}
       )
 
-    {:reply, response, record_call(state, {:consumer_group_heartbeat, group, opts})}
+    {:reply, response, record_call(state, {:consumer_group_heartbeat, group, Keyword.delete(opts, :call_budget)})}
   end
 
   def handle_call({:consumer_group_describe, groups, opts}, _from, state) do
     response = Map.get(state.responses, :consumer_group_describe, {:ok, []})
-    {:reply, response, record_call(state, {:consumer_group_describe, groups, opts})}
+    {:reply, response, record_call(state, {:consumer_group_describe, groups, Keyword.delete(opts, :call_budget)})}
   end
 
   def handle_call({:offset_fetch, group, topic_partitions, opts}, _from, state) do
     response = Map.get(state.responses, :offset_fetch, {:ok, []})
-    {:reply, response, record_call(state, {:offset_fetch, group, topic_partitions, opts})}
+    {:reply, response, record_call(state, {:offset_fetch, group, topic_partitions, Keyword.delete(opts, :call_budget)})}
   end
 
   def handle_call({:offset_commit, group, topic_partitions, opts}, _from, state) do
     response = Map.get(state.responses, :offset_commit, {:ok, []})
-    {:reply, response, record_call(state, {:offset_commit, group, topic_partitions, opts})}
+
+    {:reply, response,
+     record_call(state, {:offset_commit, group, topic_partitions, Keyword.delete(opts, :call_budget)})}
   end
 
   def handle_call({:create_topics, topics, timeout, _opts}, _from, state) do
@@ -146,6 +150,12 @@ defmodule KafkaEx.Test.MockClient do
     response = Map.get(state.responses, :delete_topics, {:ok, %DeleteTopics{}})
     {:reply, response, record_call(state, {:delete_topics, topics, timeout})}
   end
+
+  def handle_call({:network_request, _request, _selector, _opts}, _from, state),
+    do: {:reply, Map.get(state.responses, :network_request, {:error, :not_mocked}), state}
+
+  def handle_call({:network_request, _request, _selector}, _from, state),
+    do: {:reply, Map.get(state.responses, :network_request, {:error, :not_mocked}), state}
 
   def handle_call({:set_consumer_group_for_auto_commit, group}, _from, state) do
     response = Map.get(state.responses, :set_consumer_group, :ok)
