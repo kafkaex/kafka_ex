@@ -96,5 +96,34 @@ defmodule KafkaEx.Auth.SASL.OAuthBearerTest do
 
       assert {:error, :connection_closed} = OAuthBearer.authenticate(config, send_fun)
     end
+
+    test "an empty server reply is success" do
+      config = Config.new(%{mechanism: :oauthbearer, mechanism_opts: %{token_provider: fn -> {:ok, "t"} end}})
+
+      assert OAuthBearer.authenticate(config, fn _msg -> {:ok, ""} end) == :ok
+    end
+
+    test "an error challenge is answered with %x01 and fails with the broker's final error" do
+      config = Config.new(%{mechanism: :oauthbearer, mechanism_opts: %{token_provider: fn -> {:ok, "t"} end}})
+
+      send_fun = fn msg ->
+        send(self(), {:auth_message, msg})
+
+        if msg == "\x01",
+          do: {:error, {:auth_failed, :sasl_authentication_failed}},
+          else: {:ok, ~s({"status":"invalid_token"})}
+      end
+
+      assert OAuthBearer.authenticate(config, send_fun) == {:error, {:auth_failed, :sasl_authentication_failed}}
+      assert_received {:auth_message, "n,,\x01auth=Bearer t\x01\x01"}
+      assert_received {:auth_message, "\x01"}
+    end
+
+    test "an error challenge fails even when the broker accepts the %x01" do
+      config = Config.new(%{mechanism: :oauthbearer, mechanism_opts: %{token_provider: fn -> {:ok, "t"} end}})
+      send_fun = fn msg -> if msg == "\x01", do: {:ok, ""}, else: {:ok, ~s({"status":"invalid_token"})} end
+
+      assert OAuthBearer.authenticate(config, send_fun) == {:error, {:auth_failed, :sasl_authentication_failed}}
+    end
   end
 end

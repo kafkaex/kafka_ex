@@ -44,6 +44,7 @@ defmodule KafkaEx.Cluster.Broker do
   @doc """
   Checks if the broker has an active socket connection.
   Returns `true` if the broker has a non-nil socket that is currently open, `false` otherwise.
+  Brokers returned by `KafkaEx.API.cluster_metadata/1` carry no socket, so for them it is always `false`.
   """
   @spec connected?(t()) :: boolean()
   def connected?(%__MODULE__{socket: nil}), do: false

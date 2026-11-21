@@ -18,12 +18,19 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
     Process.monitor(owner)
     versions = Map.merge(by_api_key(@default_versions), by_api_key(Keyword.get(opts, :api_versions, %{})))
 
+    versions_by_node =
+      Map.new(Keyword.get(opts, :api_versions_by_node, %{}), fn {node_id, node_versions} ->
+        {node_id, Map.merge(versions, by_api_key(node_versions))}
+      end)
+
     {:ok,
      %{
        brokers: Keyword.get(opts, :brokers),
        topics: Keyword.get(opts, :topics, %{}),
        versions: versions,
+       versions_by_node: versions_by_node,
        tls: Keyword.get(opts, :tls),
+       tls_silent?: false,
        rules: %{},
        holds: MapSet.new(),
        held: [],
@@ -34,11 +41,18 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
        connects: [],
        connections: %{},
        subscribers: [],
-       next_id: 1
+       next_id: 1,
+       connect_delay: 0
      }}
   end
 
   @impl true
+  def handle_call({:connect, record}, from, %{connect_delay: delay} = state) when delay > 0 do
+    {:reply, reply, state} = handle_call({:connect, record}, from, %{state | connect_delay: 0})
+    Process.send_after(self(), {:reply_later, from, reply}, delay)
+    {:noreply, %{state | connect_delay: delay}}
+  end
+
   def handle_call({:connect, record}, _from, state) do
     state = %{state | connects: [record | state.connects]}
     node_id = node_id(state, record)
@@ -49,6 +63,8 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
       true -> listen(record, node_id, state)
     end
   end
+
+  def handle_call({:delay_connects, ms}, _from, state), do: {:reply, :ok, %{state | connect_delay: ms}}
 
   def handle_call({:attach, id, socket}, _from, state),
     do: {:reply, :ok, update_in(state.connections[id], &%{&1 | socket: socket})}
@@ -76,6 +92,8 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
 
   def handle_call({:respond, api_key, reply}, _from, state),
     do: {:reply, :ok, %{state | rules: Map.put(state.rules, api_key, reply)}}
+
+  def handle_call(:silence_tls, _from, state), do: {:reply, :ok, %{state | tls_silent?: true}}
 
   def handle_call({:hold, api_key}, _from, state), do: {:reply, :ok, %{state | holds: MapSet.put(state.holds, api_key)}}
 
@@ -136,6 +154,11 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
     {:noreply, forget_held(%{state | connections: connections}, [id])}
   end
 
+  def handle_info({:reply_later, from, reply}, state) do
+    GenServer.reply(from, reply)
+    {:noreply, state}
+  end
+
   def handle_info({:DOWN, _ref, :process, _owner, _reason}, state), do: {:stop, :normal, state}
   def handle_info(_stray, state), do: {:noreply, state}
 
@@ -152,7 +175,7 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
     {:ok, listener} = :gen_tcp.listen(0, [:binary, packet: 4, active: false, ip: {127, 0, 0, 1}])
     {:ok, listen_port} = :inet.port(listener)
     id = state.next_id
-    tls = if record.use_ssl, do: state.tls
+    tls = if record.use_ssl, do: peer_tls(state)
     {:ok, peer} = Peer.start_link(%{listener: listener, conn_id: id, controller: self(), tls: tls})
     :ok = :gen_tcp.controlling_process(listener, peer)
     send(peer, :accept)
@@ -173,6 +196,9 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
      %{state | next_id: id + 1, connections: Map.put(state.connections, id, connection)}}
   end
 
+  defp peer_tls(%{tls_silent?: true}), do: :silent
+  defp peer_tls(state), do: state.tls
+
   defp by_api_key(versions), do: Map.new(versions, fn {api, range} -> {Wire.api_key(api), range} end)
 
   defp notify(state, message), do: Enum.each(state.subscribers, &send(&1, message))
@@ -191,9 +217,19 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
 
   defp decide(request, state) do
     cond do
+      unsupported_version?(request, state) -> :unsupported_version
       Wire.acks0?(request.frame) -> :acks0
       MapSet.member?(state.holds, request.api_key) -> :hold
       true -> reply_for(request, state)
+    end
+  end
+
+  defp unsupported_version?(%{api: :api_versions}, _state), do: false
+
+  defp unsupported_version?(request, state) do
+    case Map.get(node_versions(state, request.node_id), request.api_key) do
+      nil -> false
+      range -> request.api_version not in range
     end
   end
 
@@ -212,7 +248,8 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
       :close
   end
 
-  defp default_rule(%{api: :api_versions}, state), do: Wire.api_versions_fields(state.versions)
+  defp default_rule(%{api: :api_versions} = request, state),
+    do: Wire.api_versions_fields(node_versions(state, request.node_id))
 
   defp default_rule(%{api: :metadata} = request, state),
     do: Wire.metadata_fields(state.brokers || [{1, request.host, request.port}], state.topics)
@@ -222,8 +259,18 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
 
   defp default_rule(_request, _state), do: nil
 
+  defp node_versions(state, node_id), do: Map.get(state.versions_by_node, node_id, state.versions)
+
   defp normalize(fun, request) when is_function(fun, 1), do: normalize(fun.(request), request)
-  defp normalize(action, _request) when action in [:no_reply, :close], do: action
+  defp normalize(action, _request) when action in [:no_reply, :close, :stall], do: action
+
+  defp normalize({:after, ms, rule}, request) when is_integer(ms) and ms > 0 do
+    case normalize(rule, request) do
+      {:reply, iodata} -> {:reply_after, ms, iodata}
+      action -> action
+    end
+  end
+
   defp normalize({:frame, frame}, _request), do: {:reply, IO.iodata_to_binary(frame)}
 
   defp normalize(%{} = fields, request),
@@ -232,5 +279,6 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
   defp normalize(other, _request), do: raise(ArgumentError, "unsupported reply #{inspect(other)}")
 
   defp action_name({:reply, _iodata}), do: :reply
+  defp action_name({:reply_after, _ms, _iodata}), do: :reply
   defp action_name(action), do: action
 end

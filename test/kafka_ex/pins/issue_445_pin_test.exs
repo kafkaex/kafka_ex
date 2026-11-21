@@ -34,7 +34,6 @@ defmodule KafkaEx.Pins.Issue445PinTest do
     assert {{:ok, []}, {:ok, [%{name: "b"}]}} = results
   end
 
-  @tag skip: "the client does not compare a reply's correlation id with its request's"
   test "a reply carrying the previous request's correlation id is not taken as the answer", %{
     fake: fake,
     client: client

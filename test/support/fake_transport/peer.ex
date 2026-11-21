@@ -7,9 +7,19 @@ defmodule KafkaEx.TestSupport.FakeTransport.Peer do
   def start_link(args), do: GenServer.start_link(__MODULE__, args)
 
   @impl true
-  def init(args), do: {:ok, Map.merge(args, %{socket: nil, muted?: false, queue: []})}
+  def init(args), do: {:ok, Map.merge(args, %{socket: nil, muted?: false, stalled?: false, queue: []})}
 
   @impl true
+  def handle_info(:accept, %{listener: listener, tls: :silent} = state) do
+    accepted = :gen_tcp.accept(listener, @accept_timeout)
+    :gen_tcp.close(listener)
+
+    case accepted do
+      {:ok, tcp} -> {:noreply, %{state | socket: tcp}}
+      {:error, _reason} -> stop(state)
+    end
+  end
+
   def handle_info(:accept, %{listener: listener} = state) do
     accepted = :gen_tcp.accept(listener, @accept_timeout)
     :gen_tcp.close(listener)
@@ -52,14 +62,23 @@ defmodule KafkaEx.TestSupport.FakeTransport.Peer do
     {:noreply, %{state | muted?: false}}
   end
 
+  defp perform({:reply_after, ms, iodata}, state) do
+    Process.send_after(self(), {:action, {:reply, iodata}}, ms)
+    {:noreply, %{state | muted?: true}}
+  end
+
   defp perform(:acks0, state), do: {:noreply, state}
 
   defp perform(action, state) when action in [:hold, :no_reply], do: {:noreply, %{state | muted?: true}}
 
-  defp perform(action, state) when action in [:close, :unscripted] do
+  defp perform(:stall, state), do: {:noreply, %{state | muted?: true, stalled?: true}}
+
+  defp perform(action, state) when action in [:close, :unscripted, :unsupported_version] do
     close(state)
     stop(state, :scripted_close)
   end
+
+  defp read_next(%{stalled?: true} = state), do: {:noreply, state}
 
   defp read_next(state) do
     case rearm(state) do
@@ -83,6 +102,6 @@ defmodule KafkaEx.TestSupport.FakeTransport.Peer do
   defp write(%{socket: socket}, iodata), do: :ssl.send(socket, iodata)
 
   defp close(%{socket: nil}), do: :ok
-  defp close(%{tls: nil, socket: socket}), do: :gen_tcp.close(socket)
+  defp close(%{tls: tls, socket: socket}) when tls in [nil, :silent], do: :gen_tcp.close(socket)
   defp close(%{socket: socket}), do: :ssl.close(socket)
 end

@@ -8,7 +8,7 @@ defmodule KafkaEx.Integration.ConnectionStatePinTest do
   alias KafkaEx.Client
   alias KafkaEx.Cluster.Broker
 
-  test "brokers returned by cluster_metadata/1 report connected? when connected" do
+  test "brokers returned by cluster_metadata/1 carry no socket" do
     {:ok, args} = KafkaEx.build_worker_options([])
     {:ok, client} = Client.start_link(args, :no_name)
     on_exit(fn -> stop_safely(client) end)
@@ -17,6 +17,7 @@ defmodule KafkaEx.Integration.ConnectionStatePinTest do
     brokers = Map.values(metadata.brokers)
 
     assert brokers != []
-    assert Enum.all?(brokers, &Broker.connected?/1)
+    refute Enum.any?(brokers, &Broker.connected?/1)
+    assert Enum.all?(brokers, &(&1.socket == nil))
   end
 end

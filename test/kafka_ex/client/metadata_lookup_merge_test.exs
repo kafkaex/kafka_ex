@@ -40,7 +40,6 @@ defmodule KafkaEx.Client.MetadataLookupMergeTest do
     client: client,
     host: host
   } do
-    connects = length(FakeTransport.connects(fake))
     watch_close(host)
 
     {:ok, _} = GenServer.call(client, {:metadata, ["b"], [topics: ["b"]], 0})
@@ -53,7 +52,7 @@ defmodule KafkaEx.Client.MetadataLookupMergeTest do
     {:ok, _} = GenServer.call(client, {:produce, "a", 0, [%{value: "v"}], []})
     assert nodes(fake, :produce) == [1]
     # Before the fix the broker came back with `socket: nil` and the old socket leaked.
-    assert length(FakeTransport.connects(fake)) == connects
+    assert reconnects(fake) == []
     refute_received {:pin_closed, _}
   end
 
@@ -85,5 +84,11 @@ defmodule KafkaEx.Client.MetadataLookupMergeTest do
     {:ok, _} = offset_fetch(client)
     assert count(fake, :find_coordinator) == found
     assert fake |> nodes(:offset_fetch) |> List.last() == 2
+  end
+
+  defp reconnects(fake) do
+    for {address, count} <- Enum.frequencies_by(FakeTransport.connects(fake), &{&1.port, &1.role}),
+        count > 1,
+        do: address
   end
 end
