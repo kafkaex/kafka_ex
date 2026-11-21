@@ -2,6 +2,9 @@ defmodule KafkaEx.IntegrationHelpers do
   @moduledoc false
 
   alias KafkaEx.API
+  alias KafkaEx.Client
+  alias KafkaEx.Client.NodeSelector
+  alias KafkaEx.Client.ResponseParser
   alias KafkaEx.Test.KayrockFixtures, as: Fixtures
 
   @doc """
@@ -19,32 +22,30 @@ defmodule KafkaEx.IntegrationHelpers do
     ]
 
     result = API.create_topics(client, topics, 10_000)
-    # Wait for topic to appear in metadata (propagation can take time)
-    wait_for_topic_metadata(client, topic_name)
+    wait_for_topic_on_every_broker(client, topic_name)
     result
   end
 
-  defp wait_for_topic_metadata(client, topic_name, retries \\ 10) do
-    case API.metadata(client, [topic_name], []) do
-      {:ok, metadata} when map_size(metadata.topics) > 0 ->
-        if Map.has_key?(metadata.topics, topic_name) do
-          :ok
-        else
-          retry_or_fail(client, topic_name, retries)
-        end
+  # Metadata requests go to a random broker, and brokers learn of a new topic asynchronously.
+  defp wait_for_topic_on_every_broker(client, topic_name) do
+    {:ok, %{brokers: brokers}} = API.cluster_metadata(client)
+    deadline = System.monotonic_time(:millisecond) + 10_000
+    Enum.each(Map.keys(brokers), &wait_for_topic_on_broker(client, &1, topic_name, deadline))
+  end
 
+  defp wait_for_topic_on_broker(client, node_id, topic_name, deadline) do
+    request = %Kayrock.Metadata.V4.Request{topics: [%{name: topic_name}], allow_auto_topic_creation: false}
+
+    with {:ok, response} <- Client.send_request(client, request, NodeSelector.node_id(node_id)),
+         {:ok, %{topics: %{^topic_name => _}}} <- ResponseParser.metadata_response(response) do
+      :ok
+    else
       _ ->
-        retry_or_fail(client, topic_name, retries)
+        if System.monotonic_time(:millisecond) > deadline,
+          do: raise("Topic #{topic_name} not visible on broker #{node_id} within 10s")
+
+        wait_for_topic_on_broker(client, node_id, topic_name, deadline)
     end
-  end
-
-  defp retry_or_fail(_client, topic_name, 0) do
-    raise "Timeout waiting for topic #{topic_name} to appear in metadata"
-  end
-
-  defp retry_or_fail(client, topic_name, retries) do
-    :timer.sleep(100)
-    wait_for_topic_metadata(client, topic_name, retries - 1)
   end
 
   @doc """
@@ -58,20 +59,10 @@ defmodule KafkaEx.IntegrationHelpers do
   Waits for topic to be fully available in metadata with partitions ready.
   Returns the topic metadata map on success.
   """
-  def wait_for_topic_in_metadata(client, topic_name, retries \\ 20) do
+  def wait_for_topic_in_metadata(client, topic_name) do
+    wait_for_topic_on_every_broker(client, topic_name)
     {:ok, metadata} = API.metadata(client, [topic_name])
-    topic = Map.get(metadata.topics, topic_name)
-
-    if topic != nil do
-      topic
-    else
-      if retries > 0 do
-        Process.sleep(500)
-        wait_for_topic_in_metadata(client, topic_name, retries - 1)
-      else
-        raise "Topic #{topic_name} not found in metadata after retries"
-      end
-    end
+    Map.fetch!(metadata.topics, topic_name)
   end
 
   @doc """

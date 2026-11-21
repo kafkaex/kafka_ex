@@ -115,6 +115,15 @@ defmodule KafkaEx.Consumer.GenConsumerMembershipTest do
     for {:fetch, "t", 0, _, _} = call <- MockClient.get_calls(client), do: call
   end
 
+  defp fetches_between_first_two_commits(client) do
+    client
+    |> MockClient.get_calls()
+    |> Enum.drop_while(&(elem(&1, 0) != :offset_commit))
+    |> Enum.drop(1)
+    |> Enum.take_while(&(elem(&1, 0) != :offset_commit))
+    |> Enum.count(&(elem(&1, 0) == :fetch))
+  end
+
   defp offset_fetch_opts(client) do
     for {:offset_fetch, "g", [{"t", _}], opts} <- MockClient.get_calls(client), do: opts
   end
@@ -580,6 +589,20 @@ defmodule KafkaEx.Consumer.GenConsumerMembershipTest do
           {"the commit interval", AsyncConsumer, [commit_threshold: 1_000_000]}
         ] do
       test "after a :stale_member_epoch rejection, #{name} waits a commit interval before resending" do
+        test_pid = self()
+        handler_id = {__MODULE__, make_ref()}
+
+        :telemetry.attach(
+          handler_id,
+          [:kafka_ex, :consumer, :commit_failed],
+          fn _event, _measurements, %{error: error}, _ ->
+            send(test_pid, {:commit_failed, error, System.monotonic_time(:millisecond)})
+          end,
+          nil
+        )
+
+        on_exit(fn -> :telemetry.detach(handler_id) end)
+
         capture_log(fn ->
           {client, pid} =
             start_consumer(
@@ -591,18 +614,13 @@ defmodule KafkaEx.Consumer.GenConsumerMembershipTest do
               unquote(consumer)
             )
 
-          wait_for_commits(client, 1)
-          started = System.monotonic_time(:millisecond)
-          fetches_before = length(fetch_calls(client))
-          Process.sleep(250)
+          # Timed in the consumer: this process may see the commits late.
+          assert_receive {:commit_failed, :stale_member_epoch, first_rejected_at}, 5_000
+          assert_receive {:commit_failed, :stale_member_epoch, second_rejected_at}, 5_000
 
-          # Records kept flowing, but no commit was resent.
-          assert length(fetch_calls(client)) > fetches_before + 10
-          assert length(commit_opts(client)) == 1
-
-          # After the interval the acked offsets are committed again.
-          wait_for_commits(client, 2)
-          assert System.monotonic_time(:millisecond) - started >= 300
+          # Records kept flowing, but no commit was resent until the interval passed.
+          assert fetches_between_first_two_commits(client) > 10
+          assert second_rejected_at - first_rejected_at >= 300
           assert Process.alive?(pid)
         end)
       end

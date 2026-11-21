@@ -1,6 +1,5 @@
 defmodule KafkaEx.Network.Socket.Test do
   use ExUnit.Case, async: false
-  import KafkaEx.TestHelpers
 
   setup_all do
     {:ok, _} = Application.ensure_all_started(:ssl)
@@ -8,8 +7,7 @@ defmodule KafkaEx.Network.Socket.Test do
 
   describe "without SSL socket" do
     setup do
-      port = get_free_port(3040)
-      KafkaEx.TestSupport.Server.start(port)
+      {_pid, port} = KafkaEx.TestSupport.Server.start()
       {:ok, [port: port]}
     end
 
@@ -59,7 +57,7 @@ defmodule KafkaEx.Network.Socket.Test do
 
   describe "with ssl socket" do
     setup do
-      KafkaEx.TestSupport.SSLServer.start(3030)
+      {_pid, ssl_port} = KafkaEx.TestSupport.SSLServer.start()
 
       ssl_opts = [
         :binary,
@@ -71,7 +69,7 @@ defmodule KafkaEx.Network.Socket.Test do
         {:keyfile, ~c"test/fixtures/client.key"}
       ]
 
-      {:ok, [ssl_port: 3030, ssl_opts: ssl_opts]}
+      {:ok, [ssl_port: ssl_port, ssl_opts: ssl_opts]}
     end
 
     test "create a SSL socket", context do

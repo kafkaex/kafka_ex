@@ -15,20 +15,6 @@ defmodule KafkaEx.TestHelpers do
   end
 
   @doc """
-  Returns a random port number that is not in use.
-  """
-  def get_free_port(port) do
-    case :gen_tcp.listen(port, [:binary]) do
-      {:ok, socket} ->
-        :ok = :gen_tcp.close(socket)
-        port
-
-      {:error, :eaddrinuse} ->
-        get_free_port(port + 1)
-    end
-  end
-
-  @doc """
   Wait for the return value of value_getter to pass the predicate condn
   ~> If condn does not pass, sleep for dwell msec and try again
   ~> If condn does not pass after max_tries attempts, raises an error

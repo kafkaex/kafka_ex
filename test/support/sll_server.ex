@@ -1,18 +1,19 @@
 defmodule KafkaEx.TestSupport.SSLServer do
-  def start(port) do
+  def start do
     {:ok, listen_socket} =
-      :ssl.listen(port, [
+      :ssl.listen(0, [
         :binary,
         {:verify, :verify_peer},
         {:active, false},
-        {:reuseaddr, true},
         {:packet, 0},
         {:cacertfile, ~c"test/fixtures/server.pem"},
         {:certfile, ~c"test/fixtures/server.crt"},
         {:keyfile, ~c"test/fixtures/server.key"}
       ])
 
-    spawn_link(fn -> listen(listen_socket) end)
+    {:ok, {_addr, port}} = :ssl.sockname(listen_socket)
+
+    {spawn_link(fn -> listen(listen_socket) end), port}
   end
 
   defp listen(socket) do

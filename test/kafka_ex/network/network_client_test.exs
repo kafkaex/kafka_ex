@@ -1,14 +1,13 @@
 defmodule KafkaEx.Network.NetworkClientTest do
   use ExUnit.Case, async: true
   import ExUnit.CaptureLog
-  import KafkaEx.TestHelpers
 
   alias KafkaEx.Network.NetworkClient
 
   describe "close_socket/1" do
     test "closes the socket" do
       {:ok, socket} =
-        :gen_tcp.listen(get_free_port(3001), [
+        :gen_tcp.listen(0, [
           :binary,
           {:active, false},
           {:reuseaddr, true},
@@ -28,8 +27,7 @@ defmodule KafkaEx.Network.NetworkClientTest do
 
   describe "create_socket/3" do
     setup do
-      port = get_free_port(3040)
-      pid = KafkaEx.TestSupport.Server.start(port)
+      {pid, port} = KafkaEx.TestSupport.Server.start()
 
       on_exit(fn ->
         Process.exit(pid, :normal)
@@ -46,7 +44,9 @@ defmodule KafkaEx.Network.NetworkClientTest do
     end
 
     test "returns nil if socket creation fails" do
-      port = get_free_port(3040)
+      {:ok, listen} = :gen_tcp.listen(0, [])
+      {:ok, port} = :inet.port(listen)
+      :ok = :gen_tcp.close(listen)
       assert nil == NetworkClient.create_socket("localhost", port, [], true)
     end
   end
@@ -96,7 +96,7 @@ defmodule KafkaEx.Network.NetworkClientTest do
   describe "close_socket/3" do
     test "closes socket with broker context and reason" do
       {:ok, socket} =
-        :gen_tcp.listen(get_free_port(3050), [
+        :gen_tcp.listen(0, [
           :binary,
           {:active, false},
           {:reuseaddr, true},
@@ -123,8 +123,7 @@ defmodule KafkaEx.Network.NetworkClientTest do
     end
 
     test "sends data successfully when socket is connected" do
-      port = get_free_port(3060)
-      pid = KafkaEx.TestSupport.Server.start(port)
+      {pid, port} = KafkaEx.TestSupport.Server.start()
 
       {:ok, tcp_socket} = :gen_tcp.connect(~c"localhost", port, [:binary, {:active, false}, {:packet, 0}])
 
@@ -138,8 +137,8 @@ defmodule KafkaEx.Network.NetworkClientTest do
     end
 
     test "a failed send returns the reason, closes the socket and emits a :send_error close event" do
-      port = get_free_port(3070)
-      pid = KafkaEx.TestSupport.Server.start(port)
+      {:ok, listen} = :gen_tcp.listen(0, [:binary, {:active, false}])
+      {:ok, port} = :inet.port(listen)
 
       {:ok, tcp_socket} = :gen_tcp.connect(~c"localhost", port, [:binary, {:active, false}, {:packet, 0}])
 
@@ -167,7 +166,7 @@ defmodule KafkaEx.Network.NetworkClientTest do
         assert_receive {:telemetry, _measurements, %{reason: :send_error, host: "localhost", port: ^port}}
       after
         :telemetry.detach(handler_id)
-        Process.exit(pid, :normal)
+        :gen_tcp.close(listen)
       end
     end
   end

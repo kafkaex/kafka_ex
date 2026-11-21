@@ -28,12 +28,12 @@ testcontainers_tags = ["chaos", "kafka4"]
 
 needs_testcontainers? =
   System.get_env("ENABLE_TESTCONTAINERS") == "true" or
-    Enum.any?(System.argv(), &(&1 in ["--only", "--include"] or String.contains?(&1, testcontainers_tags))) or
     System.argv()
-    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.chunk_every(2, 1)
     |> Enum.any?(fn
-      ["--only", tag] -> tag in testcontainers_tags
-      ["--include", tag] -> tag in testcontainers_tags
+      [flag, tag | _] when flag in ["--only", "--include"] -> hd(String.split(tag, ":")) in testcontainers_tags
+      ["--only=" <> tag | _] -> hd(String.split(tag, ":")) in testcontainers_tags
+      ["--include=" <> tag | _] -> hd(String.split(tag, ":")) in testcontainers_tags
       _ -> false
     end)
 

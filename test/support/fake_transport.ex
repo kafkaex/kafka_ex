@@ -31,7 +31,7 @@ defmodule KafkaEx.TestSupport.FakeTransport do
     * A Produce with `acks = 0` gets no reply, whatever its script or hold, and its connection reads on (`:acks0`).
     * A client closing a connection that waits on a held or unanswered request turns it
       `open?: false` in `connections/1` and sends `{:fake_transport, :closed, id}` to subscribers;
-      from then on `release/2` runs no reply function for it. A `release/2` issued before that
+      from then on `release/2` runs no reply function for it. `connections/1` then also has `close_reason`. A `release/2` issued before that
       notice may still run it, so wait for the notice first.
     * `respond/3` with `:close` and `close/2` close from the broker side. `close/2` returns once
       the peers have closed and every active tcp client socket has its `tcp_closed` in the

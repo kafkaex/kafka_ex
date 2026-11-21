@@ -130,9 +130,10 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
   def handle_call({:subscribe, pid}, _from, state), do: {:reply, :ok, %{state | subscribers: [pid | state.subscribers]}}
 
   @impl true
-  def handle_info({:peer_closed, id}, state) do
+  def handle_info({:peer_closed, id, reason}, state) do
     notify(state, {:fake_transport, :closed, id})
-    {:noreply, state |> put_in([:connections, id, :open?], false) |> forget_held([id])}
+    connections = Map.update!(state.connections, id, &%{&1 | open?: false, close_reason: reason})
+    {:noreply, forget_held(%{state | connections: connections}, [id])}
   end
 
   def handle_info({:DOWN, _ref, :process, _owner, _reason}, state), do: {:stop, :normal, state}
@@ -164,7 +165,8 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
       owner: record.owner,
       socket: nil,
       peer: peer,
-      open?: true
+      open?: true,
+      close_reason: nil
     }
 
     {:reply, {:ok, id, listen_port},

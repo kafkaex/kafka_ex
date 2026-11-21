@@ -1,13 +1,11 @@
 defmodule KafkaEx.Cluster.BrokerTest do
   use ExUnit.Case, async: false
-  import KafkaEx.TestHelpers
 
   alias KafkaEx.Cluster.Broker
   alias KafkaEx.Network.Socket
 
   setup do
-    port = get_free_port(3040)
-    pid = KafkaEx.TestSupport.Server.start(port)
+    {pid, port} = KafkaEx.TestSupport.Server.start()
 
     {:ok, socket} = Socket.create(~c"localhost", port, [:binary, {:packet, 0}], false)
 
