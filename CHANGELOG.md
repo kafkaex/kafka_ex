@@ -28,6 +28,11 @@
   raised `FunctionClauseError`; it now stops the worker. An unknown name returns
   `{:error, :not_found}`. The impossible `{:error, :simple_one_for_one}` is gone from the spec.
 
+* **`metadata/2` with a list of topic names now fetches those topics instead of silently fetching all.**
+  `KafkaEx.API.metadata(client, ["orders"])` read the list as options and requested every topic.
+  It now behaves like `metadata(client, ["orders"], [])`. Modules that `use KafkaEx.API` get the
+  same fix in `metadata/1`, plus a new `metadata/2` mirroring `metadata/3`.
+
 ## 1.2.0 (2026-11-07)
 
 > Requires Kayrock 1.1.0 (`{:kayrock, "~> 1.1"}`). Upgrade KafkaEx in the same
