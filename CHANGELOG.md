@@ -1,5 +1,13 @@
 # KafkaEx Changelog
 
+## Unreleased
+
+### Fixed
+
+* **`KafkaEx.stop_worker/1` accepts a worker name, as documented.** Passing a registered name
+  raised `FunctionClauseError`; it now stops the worker. An unknown name returns
+  `{:error, :not_found}`. The impossible `{:error, :simple_one_for_one}` is gone from the spec.
+
 ## 1.2.0 (2026-11-07)
 
 > Requires Kayrock 1.1.0 (`{:kayrock, "~> 1.1"}`). Upgrade KafkaEx in the same

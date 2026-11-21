@@ -88,9 +88,10 @@ defmodule KafkaEx do
   @doc """
   Stops a worker created with `create_worker/2`.
 
-  Returns `:ok` on success or `{:error, reason}` on failure.
+  Accepts the worker's registered name or its pid. Returns `:ok` on success, or
+  `{:error, :not_found}` when no such worker is running.
   """
-  @spec stop_worker(atom | pid) :: :ok | {:error, :not_found} | {:error, :simple_one_for_one}
+  @spec stop_worker(atom | pid) :: :ok | {:error, :not_found}
   def stop_worker(worker) do
     KafkaEx.Supervisor.stop_child(worker)
   end
