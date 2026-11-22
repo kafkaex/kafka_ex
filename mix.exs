@@ -9,7 +9,7 @@ defmodule KafkaEx.Mixfile do
     [
       app: :kafka_ex,
       version: @version,
-      elixir: "~> 1.14",
+      elixir: "~> 1.17",
       elixirc_paths: elixirc_paths(Mix.env()),
       dialyzer: [
         plt_add_apps: [:ssl],

@@ -129,10 +129,7 @@ defmodule KafkaEx.Consumer.ConsumerGroupProtocolOptionTest do
         assert {:ok, {flags, [child]}} =
                  ConsumerGroup.init({{KafkaEx.Consumer.GenConsumer, NoopConsumer}, @group, ["topic"], input})
 
-        # Elixir 1.15+ also adds auto_shutdown: :never; 1.14 does not. Pin the
-        # flags that matter and allow only that version-dependent default.
-        assert Map.take(flags, [:strategy, :intensity, :period]) == %{strategy: :one_for_all, intensity: 0, period: 1}
-        assert Map.drop(flags, [:strategy, :intensity, :period]) in [%{}, %{auto_shutdown: :never}]
+        assert flags == %{strategy: :one_for_all, intensity: 0, period: 1, auto_shutdown: :never}
 
         assert %{
                  id: Manager,

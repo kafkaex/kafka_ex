@@ -1,3 +1,12 @@
+# Upgrading to KafkaEx 1.3.0
+
+## Elixir 1.17 or newer is required
+
+KafkaEx 1.3.0 requires Elixir 1.17 or newer; Elixir 1.14, 1.15 and 1.16 are
+no longer supported or tested. Upgrade Elixir before upgrading KafkaEx. The
+OTP minimum is unchanged at 25. Tested combinations: Elixir 1.17 / OTP 25,
+1.18 / OTP 27, 1.19 / OTP 28 and 1.20 / OTP 29.
+
 # Upgrading to KafkaEx 1.2.0
 
 This section covers changes since the 1.1 release. The 1.0 → 1.1 changes are

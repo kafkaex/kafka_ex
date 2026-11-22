@@ -19,6 +19,12 @@
   `ConsumerGroup.start_link/4` return `{:error, {:invalid_option, :invalid_max_records}}`. The
   `[:kafka_ex, :consumer, :process]` span's `message_count` is the chunk size.
 
+### Changed
+
+* **Elixir 1.17 is the minimum supported version** (`elixir: "~> 1.17"` in `mix.exs`).
+  Elixir 1.14, 1.15 and 1.16 are no longer supported or tested. Unit tests run on Elixir 1.17 /
+  OTP 25, 1.18 / OTP 27, 1.19 / OTP 28 and 1.20 / OTP 29. The OTP minimum stays at 25.
+
 ### Fixed
 
 * **`required_compression: [:zstd]` no longer requires `ezstd` on OTP 28+.** The boot check
