@@ -34,28 +34,31 @@ defmodule KafkaEx.Client.RebuildTest do
   defp at_versions(versions), do: %State{api_versions: versions}
 
   defp watch_request_spans do
-    test = self()
-    handler = "rebuild-span-#{inspect(test)}"
-    events = [[:kafka_ex, :request, :start], [:kafka_ex, :request, :stop]]
-    :telemetry.attach_many(handler, events, fn [_, _, phase], _m, meta, _c -> send(test, {:span, phase, meta}) end, nil)
-    on_exit(fn -> :telemetry.detach(handler) end)
+    events = for phase <- [:start, :stop, :exception], do: [:kafka_ex, :request, phase]
+    forward_telemetry(events, fn [_, _, phase], _measurements, metadata -> {:span, phase, metadata} end)
   end
 
   defp with_error_code(reply, code),
     do: put_in(reply, [:responses, Access.at(0), :partition_responses, Access.at(0), :error_code], code)
 
   describe "a connection that refuses the version the client built" do
-    test "a target with a lower max than the boot broker gets the request rebuilt at its own version, at no attempt's cost" do
+    test "a target with a lower max than the boot broker gets the request rebuilt from the caller's options at its own version, at no attempt's cost" do
       %{fake: fake, client: client} = start_mixed(%{produce: 3..3}, %{produce: 2..2})
       FakeTransport.respond(fake, :produce, produce_reply())
       watch_request_spans()
       {:ok, before} = API.correlation_id(client)
+      messages = [%{key: "k", value: "v"}]
 
-      assert {:ok, %RecordMetadata{base_offset: 7}} = API.produce(client, @topic, 1, [%{value: "v"}])
+      assert {:ok, %RecordMetadata{base_offset: 7}} = API.produce(client, @topic, 1, messages, acks: 1, timeout: 1_234)
       assert writes(fake, :produce) == [{2, 2}]
       assert API.correlation_id(client) == {:ok, before + 1}
       assert_receive {:span, :start, %{operation: :produce, api_version: 2}}, 1_000
       assert_receive {:span, :stop, %{operation: :produce, api_version: 2}}, 1_000
+
+      req_data = [topic: @topic, partition: 1, messages: messages, acks: 1, timeout: 1_234]
+      expected = req_data |> RequestBuilder.produce_request(at_versions(%{@produce_key => {2, 2}})) |> expected_body()
+      assert [written] = requests(fake, :produce)
+      assert body(written) == expected
     end
 
     test "an acks 0 produce is rebuilt at the target's version too" do
@@ -93,19 +96,6 @@ defmodule KafkaEx.Client.RebuildTest do
       refute log =~ "Produce.V3"
     end
 
-    test "a rebuilt produce is what RequestBuilder makes from the caller's options at the target's versions" do
-      %{fake: fake, client: client} = start_mixed(%{produce: 3..3}, %{produce: 2..2})
-      FakeTransport.respond(fake, :produce, produce_reply())
-      messages = [%{key: "k", value: "v"}]
-
-      assert {:ok, _} = API.produce(client, @topic, 1, messages, acks: 1, timeout: 1_234)
-
-      req_data = [topic: @topic, partition: 1, messages: messages, acks: 1, timeout: 1_234]
-      expected = req_data |> RequestBuilder.produce_request(at_versions(%{@produce_key => {2, 2}})) |> expected_body()
-      assert [written] = requests(fake, :produce)
-      assert body(written) == expected
-    end
-
     test "a rebuilt fetch is what RequestBuilder makes from the caller's options at the target's versions" do
       %{fake: fake, client: client} = start_mixed(%{fetch: 11..11}, %{fetch: 0..0})
       FakeTransport.respond(fake, :fetch, fn request -> {:frame, fetch_frame(request, -1)} end)
@@ -117,16 +107,6 @@ defmodule KafkaEx.Client.RebuildTest do
       assert [{2, 0}] = writes(fake, :fetch)
       assert [written] = requests(fake, :fetch)
       assert body(written) == expected
-    end
-
-    test "an explicit api_version above the boot broker's max is refused before any write, as on master" do
-      %{fake: fake, client: client} = start_mixed(%{produce: 2..2}, %{produce: 3..3})
-      FakeTransport.respond(fake, :produce, produce_reply())
-
-      {result, _log} = with_log(fn -> API.produce(client, @topic, 1, [%{value: "v"}], api_version: 3) end)
-
-      assert result == {:error, :api_version_no_supported}
-      assert requests(fake, :produce) == []
     end
 
     test "a consumer_group_heartbeat rebuild keeps the member id the first build generated" do
@@ -155,22 +135,8 @@ defmodule KafkaEx.Client.RebuildTest do
   end
 
   describe "declared change C13: a pinned version outside the target's range" do
-    test "an explicit api_version above the target's max is never downgraded" do
-      %{fake: fake, client: client} = start_mixed(%{produce: 3..3}, %{produce: 2..2})
-      FakeTransport.respond(fake, :produce, produce_reply())
-      {:ok, before} = API.correlation_id(client)
-
-      {result, _log} = with_log(fn -> API.produce(client, @topic, 1, [%{value: "v"}], api_version: 3) end)
-
-      assert result == {:error, :api_version_no_supported}
-      assert requests(fake, :produce) == []
-      assert API.correlation_id(client) == {:ok, before}
-    end
-
     test "an app-config api_versions pin above the target's max is never downgraded" do
-      previous = Application.fetch_env(:kafka_ex, :api_versions)
-      Application.put_env(:kafka_ex, :api_versions, %{produce: 3})
-      on_exit(fn -> restore_env(:api_versions, previous) end)
+      with_env(:api_versions, %{produce: 3})
       %{fake: fake, client: client} = start_mixed(%{produce: 3..3}, %{produce: 2..2})
       FakeTransport.respond(fake, :produce, produce_reply())
       {:ok, before} = API.correlation_id(client)
@@ -181,17 +147,28 @@ defmodule KafkaEx.Client.RebuildTest do
       assert requests(fake, :produce) == []
       assert API.correlation_id(client) == {:ok, before}
     end
+  end
 
-    test "an explicit api_version below the target's min is refused after one rebuild" do
-      %{fake: fake, client: client} = start_mixed(%{produce: 2..3}, %{produce: 3..3})
-      FakeTransport.respond(fake, :produce, produce_reply())
-      {:ok, before} = API.correlation_id(client)
+  describe "an explicit api_version" do
+    for {label, boot, target, pinned} <- [
+          {"above the boot broker's max is refused before any write, as on master", 2..2, 3..3, 3},
+          {"above the target's max is never downgraded (declared change C13)", 3..3, 2..2, 3},
+          {"below the target's min is refused after one rebuild (declared change C13)", 2..3, 3..3, 2}
+        ] do
+      test label do
+        %{fake: fake, client: client} =
+          start_mixed(%{produce: unquote(Macro.escape(boot))}, %{produce: unquote(Macro.escape(target))})
 
-      {result, _log} = with_log(fn -> API.produce(client, @topic, 1, [%{value: "v"}], api_version: 2) end)
+        FakeTransport.respond(fake, :produce, produce_reply())
+        {:ok, before} = API.correlation_id(client)
 
-      assert result == {:error, :api_version_no_supported}
-      assert requests(fake, :produce) == []
-      assert API.correlation_id(client) == {:ok, before}
+        {result, _log} =
+          with_log(fn -> API.produce(client, @topic, 1, [%{value: "v"}], api_version: unquote(pinned)) end)
+
+        assert result == {:error, :api_version_no_supported}
+        assert requests(fake, :produce) == []
+        assert API.correlation_id(client) == {:ok, before}
+      end
     end
   end
 
@@ -205,12 +182,16 @@ defmodule KafkaEx.Client.RebuildTest do
 
       mark = length(requests(fake, :metadata))
       watch_request_spans()
-      {result, _log} = with_log(fn -> API.topics_metadata(client, [@topic]) end)
+      {:ok, before} = API.correlation_id(client)
+      {result, log} = with_log(fn -> API.topics_metadata(client, [@topic]) end)
 
       assert {:ok, [%{name: @topic}]} = result
+      assert log =~ "Network call to broker 1 (#{host}:9092) failed: :closed\n"
       assert fake |> writes(:metadata) |> Enum.drop(mark) == [{1, 1}, {2, 0}]
-      assert_receive {:span, :start, %{operation: :metadata, api_version: 1}}, 1_000
+      assert_receive {:span, :start, %{operation: :metadata, api_version: 1, correlation_id: ^before}}, 1_000
       assert_receive {:span, :stop, %{operation: :metadata, api_version: 0, broker: %{port: 9093}}}, 1_000
+      refute_receive {:span, _, _}, 100
+      assert API.correlation_id(client) == {:ok, before + 1}
     end
 
     test "a coordinator lookup that walks on to a broker with a lower max is rebuilt at that broker's version" do
@@ -264,7 +245,4 @@ defmodule KafkaEx.Client.RebuildTest do
 
   defp heartbeat_error_frame(%{correlation_id: corr}, error_code),
     do: <<corr::32-signed, 0, 0::32-signed, error_code::16-signed, 0, 1, -1::32-signed, 0::32-signed, 255, 0>>
-
-  defp restore_env(key, {:ok, value}), do: Application.put_env(:kafka_ex, key, value)
-  defp restore_env(key, :error), do: Application.delete_env(:kafka_ex, key)
 end

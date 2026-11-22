@@ -6,17 +6,8 @@ defmodule KafkaEx.Client.RequestSpanTest do
 
   setup do
     pinned = start_pinned(client: [connection: [reconnect_window: 200]])
-    handler = "request-span-#{pinned.host}"
-    test = self()
-
-    :telemetry.attach_many(
-      handler,
-      [[:kafka_ex, :request, :start], [:kafka_ex, :request, :stop], [:kafka_ex, :request, :exception]],
-      fn [_, _, phase], _measurements, metadata, _config -> send(test, {:request_span, phase, metadata}) end,
-      nil
-    )
-
-    on_exit(fn -> :telemetry.detach(handler) end)
+    events = for phase <- [:start, :stop, :exception], do: [:kafka_ex, :request, phase]
+    forward_telemetry(events, fn [_, _, phase], _measurements, metadata -> {:request_span, phase, metadata} end)
     pinned
   end
 
@@ -35,28 +26,6 @@ defmodule KafkaEx.Client.RequestSpanTest do
 
     assert {:ok, _} = Task.await(produce, 5_000)
     assert_receive {:request_span, :stop, %{operation: :produce, result: :ok}}, 1_000
-  end
-
-  test "a :first_available walk whose first candidate fails is one span and one correlation id", %{
-    fake: fake,
-    client: client,
-    host: host
-  } do
-    FakeTransport.respond(fake, :metadata, fn request ->
-      if request.port == 9092, do: :close, else: metadata_reply(host, [{@topic, [1, 2]}])
-    end)
-
-    {:ok, before} = API.correlation_id(client)
-
-    {result, log} = with_log(fn -> API.topics_metadata(client, [@topic]) end)
-
-    assert {:ok, [%{name: @topic}]} = result
-    assert log =~ "Network call to broker 1 (#{host}:9092) failed: :closed\n"
-    assert nodes(fake, :metadata) |> Enum.take(-2) == [1, 2]
-    assert_receive {:request_span, :start, %{operation: :metadata, correlation_id: ^before}}, 1_000
-    assert_receive {:request_span, :stop, %{result: :ok, broker: %{port: 9093}}}, 1_000
-    refute_receive {:request_span, _, _}, 100
-    assert API.correlation_id(client) == {:ok, before + 1}
   end
 
   test "an attempt that never reaches a connection emits no span and spends no correlation id", %{

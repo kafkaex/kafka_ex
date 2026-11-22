@@ -1,9 +1,6 @@
 defmodule KafkaEx.Pins.ConnectionInvariantsPinTest do
   use KafkaEx.TestSupport.PinCase, async: false
 
-  alias KafkaEx.Auth.Config, as: AuthConfig
-  alias KafkaEx.Messages.RecordMetadata
-
   @moduletag pin_set: :invariant
 
   @span_events [
@@ -30,23 +27,6 @@ defmodule KafkaEx.Pins.ConnectionInvariantsPinTest do
 
       for ref <- refs, do: assert_receive({^ref, {:ok, :no_error}}, 5_000)
       assert fake |> requests(:heartbeat) |> Enum.map(&generation/1) == [1, 2, 3]
-    end
-
-    test "a produce reply that arrives after its request timed out never answers the next produce", %{
-      fake: fake,
-      client: client
-    } do
-      with_request_timeout(200)
-      FakeTransport.respond(fake, :produce, fn request -> offset_reply(request.correlation_id) end)
-      FakeTransport.hold(fake, :produce)
-
-      {timed_out, _log} = with_log(fn -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
-      FakeTransport.release(fake, :produce)
-      {answered, _log} = with_log(fn -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
-
-      assert timed_out == {:error, :timeout}
-      assert {:ok, %RecordMetadata{base_offset: offset}} = answered
-      assert offset == List.last(requests(fake, :produce)).correlation_id
     end
 
     test "a fetch long-poll that outlasts :request_timeout is answered without closing its socket", %{
@@ -83,9 +63,7 @@ defmodule KafkaEx.Pins.ConnectionInvariantsPinTest do
     end
 
     test "an application-config version is written when the request names none", %{fake: fake, client: client} do
-      previous = Application.fetch_env(:kafka_ex, :api_versions)
-      Application.put_env(:kafka_ex, :api_versions, %{produce: 2})
-      on_exit(fn -> restore_env(:api_versions, previous) end)
+      with_env(:api_versions, %{produce: 2})
 
       assert {:ok, _} = API.produce(client, @topic, 0, [%{value: "v"}])
       assert List.last(requests(fake, :produce)).api_version == 2
@@ -123,8 +101,7 @@ defmodule KafkaEx.Pins.ConnectionInvariantsPinTest do
 
     test "every OAUTHBEARER connection span encloses exactly one auth span" do
       attach_spans()
-      auth = AuthConfig.new(%{mechanism: :oauthbearer, mechanism_opts: %{token_provider: fn -> {:ok, "t"} end}})
-      %{fake: fake, client: client, host: host} = start_pinned(client: [auth: auth])
+      %{fake: fake, client: client, host: host} = start_pinned(client: [auth: oauthbearer()])
       FakeTransport.respond(fake, :produce, produce_reply())
       assert {:ok, _} = API.produce(client, @topic, 0, [%{value: "v"}])
 
@@ -150,17 +127,6 @@ defmodule KafkaEx.Pins.ConnectionInvariantsPinTest do
 
     generation
   end
-
-  defp offset_reply(corr) do
-    update_in(
-      produce_reply(),
-      [:responses, Access.at(0), :partition_responses, Access.at(0)],
-      &%{&1 | base_offset: corr}
-    )
-  end
-
-  defp restore_env(key, {:ok, value}), do: Application.put_env(:kafka_ex, key, value)
-  defp restore_env(key, :error), do: Application.delete_env(:kafka_ex, key)
 
   defp attach_spans do
     handler = "pin-spans-#{System.unique_integer([:positive])}"

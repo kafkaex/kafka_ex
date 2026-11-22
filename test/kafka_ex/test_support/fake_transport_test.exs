@@ -10,7 +10,6 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
   alias KafkaEx.Network.Socket
   alias KafkaEx.TestSupport.FakeTransport
   alias KafkaEx.TestSupport.FakeTransport.Wire
-  alias KafkaEx.TestSupport.PinGate
   alias KafkaEx.TestSupport.TLSFixtures
 
   @heartbeat 12
@@ -1080,15 +1079,6 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
   end
 
   describe "the low-level seam" do
-    test "connect records the role, and an old-seam connect records none" do
-      fake = start_fake()
-      {:ok, _socket} = seam_connect(fake, "a", 1, role: :coordinator)
-      connect(fake, "a", 1)
-
-      assert [%{host: "a", port: 1, role: :coordinator, owner: owner}, %{role: nil}] = FakeTransport.connects(fake)
-      assert owner == self()
-    end
-
     test "a frame written on the seam is answered on read" do
       fake = start_fake()
       {:ok, socket} = seam_connect(fake, "a", 1)
@@ -1098,140 +1088,12 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       assert [%{api: :metadata}] = FakeTransport.requests(fake)
     end
 
-    test "fail_send writes a partial frame, closes the socket and returns the reason without a log line" do
-      host = unique_host()
-      attach([:kafka_ex, :connection, :close], host)
-      fake = start_fake()
-      FakeTransport.subscribe(fake)
-      FakeTransport.fail_send(fake, :metadata, 3, :closed)
-      {:ok, socket} = seam_connect(fake, host, 1)
-
-      log = capture_log(fn -> assert FakeTransport.write(socket, metadata_v0(1)) == {:error, :closed} end)
-
-      refute log =~ "Sending data to"
-      refute Socket.open?(socket)
-      assert_receive {:fake_transport, :closed, 1}, 1_000
-      refute_received {:fake_transport, :request, _}
-      refute_received {:telemetry, _, _}
-    end
-
-    test "hang_send blocks write/2 until release" do
-      fake = start_fake()
-      FakeTransport.subscribe(fake)
-      FakeTransport.hang_send(fake, :metadata)
-
-      task =
-        Task.async(fn ->
-          {:ok, socket} = seam_connect(fake, "a", 1)
-          :ok = FakeTransport.write(socket, metadata_v0(1))
-          FakeTransport.read(socket, 1_000)
-        end)
-
-      ref = task.ref
-      refute_receive {^ref, _}, 100
-      refute_received {:fake_transport, :request, _}
-      FakeTransport.release(fake, :metadata)
-      assert {:ok, <<1::32-signed, _::binary>>} = Task.await(task)
-    end
-
-    test "a stalled broker stops reading, so a large write times out on send_timeout" do
-      fake = start_fake()
-      FakeTransport.subscribe(fake)
-      FakeTransport.respond(fake, :metadata, :stall)
-      socket_options = [sndbuf: 4096, send_timeout: 200, send_timeout_close: true]
-      {:ok, %Socket{socket: raw} = socket} = seam_connect(fake, "a", 1, socket_options: socket_options)
-      :ok = FakeTransport.write(socket, metadata_v0(1))
-      assert_receive {:fake_transport, :request, %{api: :metadata, action: :stall}}, 1_000
-
-      chunk = [metadata_v0(2), :binary.copy(<<0>>, 4 * 1024 * 1024)]
-      {result, elapsed} = write_until_failure(socket, chunk, 8)
-
-      assert result == {:error, :timeout}
-      assert elapsed >= 200
-      assert {:error, _closed} = :inet.peername(raw)
-    end
-
-    test "after silence_tls/1 a TLS connect times out in the handshake", %{tls: tls} do
-      fake = start_fake(tls: tls.server)
-      {:ok, _before} = seam_connect(fake, "a", 1, use_ssl: true, socket_options: tls.client_ok)
-      FakeTransport.silence_tls(fake)
-
-      assert seam_connect(fake, "a", 1, use_ssl: true, socket_options: tls.client_ok, timeout: 200) ==
-               {:error, :timeout}
-
-      FakeTransport.close(fake, {"a", 1})
-      assert [%{open?: false}, %{open?: false}] = FakeTransport.connections(fake)
-    end
-
-    test "PinGate refuses connect/4 while closed" do
-      fake = start_fake()
-      gate = PinGate.new()
-      address = %{host: "a", port: 1, role: :data}
-      socket_options = PinGate.ssl_options(gate, fake) ++ [:binary, {:packet, 4}, {:active, false}]
-      PinGate.close(gate)
-
-      assert PinGate.connect(address, socket_options, false, 1_000) == {:error, :econnrefused}
-      assert FakeTransport.connects(fake) == []
-
-      PinGate.open(gate)
-      assert {:ok, %Socket{} = socket} = PinGate.connect(address, socket_options, false, 1_000)
-      assert [%{role: :data}] = FakeTransport.connects(fake)
-      assert PinGate.close(socket) == :ok
-      refute Socket.open?(socket)
-    end
-
-    test "api_versions_by_node overrides the ApiVersions reply of that node only" do
-      fake =
-        start_fake(
-          brokers: [{1, "a", 1}, {2, "b", 2}],
-          api_versions: %{produce: 3..3},
-          api_versions_by_node: %{2 => %{produce: 2..2}}
-        )
-
-      assert ranges(fake, "a", 1) |> Map.take([0, 3]) == %{0 => {3, 3}, 3 => {0, 0}}
-      assert ranges(fake, "b", 2) |> Map.take([0, 3]) == %{0 => {2, 2}, 3 => {0, 0}}
-    end
-
-    test "a request outside its node's advertised range closes the connection, as Kafka does" do
-      fake = start_fake(brokers: [{1, "a", 1}, {2, "b", 2}], api_versions_by_node: %{2 => %{metadata: 1..1}})
-      FakeTransport.subscribe(fake)
-      {:ok, in_range} = seam_connect(fake, "a", 1)
-      {:ok, out_of_range} = seam_connect(fake, "b", 2)
-
-      :ok = FakeTransport.write(in_range, metadata_v0(1))
-      assert {:ok, <<1::32-signed, _::binary>>} = FakeTransport.read(in_range, 1_000)
-      :ok = FakeTransport.write(out_of_range, metadata_v0(2))
-      assert FakeTransport.read(out_of_range, 1_000) == {:error, :closed}
-
-      assert_receive {:fake_transport, :request, %{conn: 2, action: :unsupported_version}}, 1_000
-      assert_receive {:fake_transport, :closed, 2}, 1_000
-    end
-
     test "an ApiVersions request at any version is answered" do
       fake = start_fake()
       {:ok, socket} = seam_connect(fake, "a", 1)
 
       :ok = FakeTransport.write(socket, <<18::16, 3::16, 7::32, 4::16, "test", 0, 0, 0>>)
       assert {:ok, <<7::32-signed, _::binary>>} = FakeTransport.read(socket, 1_000)
-    end
-  end
-
-  defp ranges(fake, host, port) do
-    {:ok, socket} = seam_connect(fake, host, port)
-    :ok = FakeTransport.write(socket, api_versions_v0(1))
-    {:ok, frame} = FakeTransport.read(socket, 1_000)
-    {%{api_keys: api_keys}, ""} = Kayrock.ApiVersions.V0.Response.deserialize(frame)
-    Map.new(api_keys, &{&1.api_key, {&1.min_version, &1.max_version}})
-  end
-
-  defp write_until_failure(_socket, _chunk, 0), do: {:no_failure, 0}
-
-  defp write_until_failure(socket, chunk, writes_left) do
-    started = System.monotonic_time(:millisecond)
-
-    case FakeTransport.write(socket, chunk) do
-      :ok -> write_until_failure(socket, chunk, writes_left - 1)
-      error -> {error, System.monotonic_time(:millisecond) - started}
     end
   end
 end

@@ -1,7 +1,6 @@
 defmodule KafkaEx.Client.ConnectionSemanticsTest do
   use KafkaEx.TestSupport.PinCase, async: false
 
-  alias KafkaEx.Auth.Config, as: AuthConfig
   alias KafkaEx.Messages.RecordMetadata
   alias KafkaEx.TestSupport.FakeTransport.Wire
 
@@ -20,36 +19,29 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
       start_pinned()
     end
 
-    test "fails a produce with :timeout and writes it once", %{fake: fake, client: client} do
-      FakeTransport.respond(fake, :produce, produce_reply())
+    for {name, api, call} <- [
+          {"produce", :produce, quote(do: API.produce(var!(client), @topic, 0, [%{value: "v"}]))},
+          {"JoinGroup", :join_group,
+           quote(
+             do:
+               API.join_group(var!(client), "g", "",
+                 topics: [@topic],
+                 session_timeout: 10_000,
+                 rebalance_timeout: 10_000
+               )
+           )},
+          {"KIP-848 heartbeat of a member", :consumer_group_heartbeat,
+           quote(do: API.consumer_group_heartbeat(var!(client), "g", member_id: "m", member_epoch: 3))}
+        ] do
+      test "fails a #{name} with :timeout and writes it once", %{fake: fake, client: client} do
+        var!(client) = client
 
-      {result, _killed} = kill_mid_request(fake, :produce, fn -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
+        {result, _killed} = kill_mid_request(fake, unquote(api), fn -> unquote(call) end)
 
-      assert result == {:error, :timeout}
-      assert count(fake, :produce) == 1
-      assert Process.alive?(client)
-    end
-
-    test "fails a JoinGroup with :timeout and writes it once", %{fake: fake, client: client} do
-      join = fn ->
-        API.join_group(client, "g", "", topics: [@topic], session_timeout: 10_000, rebalance_timeout: 10_000)
+        assert result == {:error, :timeout}
+        assert count(fake, unquote(api)) == 1
+        assert Process.alive?(client)
       end
-
-      {result, _killed} = kill_mid_request(fake, :join_group, join)
-
-      assert result == {:error, :timeout}
-      assert count(fake, :join_group) == 1
-      assert Process.alive?(client)
-    end
-
-    test "fails a KIP-848 heartbeat of a member with :timeout and writes it once", %{fake: fake, client: client} do
-      heartbeat = fn -> API.consumer_group_heartbeat(client, "g", member_id: "m", member_epoch: 3) end
-
-      {result, _killed} = kill_mid_request(fake, :consumer_group_heartbeat, heartbeat)
-
-      assert result == {:error, :timeout}
-      assert count(fake, :consumer_group_heartbeat) == 1
-      assert Process.alive?(client)
     end
 
     test "resends a fetch on a new connection", %{fake: fake, client: client} do
@@ -66,22 +58,6 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
     end
   end
 
-  describe "a peer close" do
-    test "after the write keeps the transport atom" do
-      %{fake: fake, client: client, host: host} = start_pinned()
-      FakeTransport.respond(fake, :produce, produce_reply())
-      FakeTransport.hold(fake, :produce)
-      :ok = FakeTransport.subscribe(fake)
-
-      produce = Task.async(fn -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
-      assert_receive {:fake_transport, :request, %{api: :produce}}, 5_000
-      FakeTransport.close(fake, {host, 9092})
-
-      assert Task.await(produce, 10_000) == {:error, :closed}
-      assert count(fake, :produce) == 1
-    end
-  end
-
   test "a produce held past its request deadline gets :timeout, then liveness closes its connection, without a resend" do
     %{fake: fake, client: client, host: host} = start_pinned(client: [connection: [liveness_slack: 100]])
     with_request_timeout(100)
@@ -95,25 +71,17 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
   end
 
   describe "pacing with 100 concurrent callers" do
-    test "spaces connect attempts that fail authentication" do
-      %{fake: fake, client: client, host: host} = start_paced([auth: oauthbearer(fn -> {:ok, "t"} end)], window: 400)
+    for {name, kind} <- [
+          {"that fail authentication", :auth_failed},
+          {"whose OAUTHBEARER token the broker refuses", :token_refused},
+          {"the broker accepts and closes after ApiVersions", :handshake_closed}
+        ] do
+      test "spaces connect attempts #{name}" do
+        %{fake: fake, client: client, host: host} = start_paced([auth: oauthbearer()], window: 400)
+        script(fake, unquote(kind))
 
-      FakeTransport.respond(fake, :sasl_authenticate, %{
-        error_code: @sasl_authentication_failed,
-        error_message: "denied",
-        auth_bytes: ""
-      })
-
-      assert_paced(client, {host, 9092}, fn _i -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
-    end
-
-    test "spaces connect attempts whose OAUTHBEARER token the broker refuses" do
-      %{fake: fake, client: client, host: host} = start_paced([auth: oauthbearer(fn -> {:ok, "t"} end)], window: 400)
-      FakeTransport.respond(fake, :sasl_authenticate, &FakeTransport.oauthbearer_refusal/1)
-      # Kafka refuses any request but the %x01 after an error challenge; a close stands in for that.
-      FakeTransport.respond(fake, :produce, :close)
-
-      assert_paced(client, {host, 9092}, fn _i -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
+        assert_paced(client, {host, 9092}, fn _i -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
+      end
     end
 
     test "spaces connect attempts whose handshake crashes the connection" do
@@ -121,13 +89,6 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
       provider = fn -> if :atomics.get(raising, 1) == 1, do: raise("token provider down"), else: {:ok, "t"} end
       %{client: client, host: host} = start_paced(auth: oauthbearer(provider))
       :atomics.put(raising, 1, 1)
-
-      assert_paced(client, {host, 9092}, fn _i -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
-    end
-
-    test "spaces connect attempts the broker accepts and closes after ApiVersions" do
-      %{fake: fake, client: client, host: host} = start_paced([auth: oauthbearer(fn -> {:ok, "t"} end)], window: 400)
-      FakeTransport.respond(fake, :sasl_handshake, :close)
 
       assert_paced(client, {host, 9092}, fn _i -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
     end
@@ -249,8 +210,21 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
     owner
   end
 
-  defp oauthbearer(provider),
-    do: AuthConfig.new(%{mechanism: :oauthbearer, mechanism_opts: %{token_provider: provider}})
+  defp script(fake, :auth_failed) do
+    FakeTransport.respond(fake, :sasl_authenticate, %{
+      error_code: @sasl_authentication_failed,
+      error_message: "denied",
+      auth_bytes: ""
+    })
+  end
+
+  defp script(fake, :token_refused) do
+    FakeTransport.respond(fake, :sasl_authenticate, &FakeTransport.oauthbearer_refusal/1)
+    # Kafka refuses any request but the %x01 after an error challenge; a close stands in for that.
+    FakeTransport.respond(fake, :produce, :close)
+  end
+
+  defp script(fake, :handshake_closed), do: FakeTransport.respond(fake, :sasl_handshake, :close)
 
   # stable_period 0 resets boot failures at once; a window past the second backoff keeps an outage unspent.
   defp start_paced(client_opts, opts \\ []) do
@@ -298,19 +272,9 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
   defp to_ms(native), do: System.convert_time_unit(native, :native, :microsecond) / 1_000
 
   defp watch_attempts({host, port}) do
-    test = self()
-    handler = "attempts-#{host}-#{port}"
-
-    :telemetry.attach(
-      handler,
-      [:kafka_ex, :connection, :start],
-      fn _event, %{monotonic_time: at}, metadata, _config ->
-        if metadata.host == host and metadata.port == port, do: send(test, {:attempt, at})
-      end,
-      nil
-    )
-
-    on_exit(fn -> :telemetry.detach(handler) end)
+    forward_telemetry([[:kafka_ex, :connection, :start]], fn _event, %{monotonic_time: at}, metadata ->
+      if metadata.host == host and metadata.port == port, do: {:attempt, at}
+    end)
   end
 
   defp attempts(collected \\ []) do

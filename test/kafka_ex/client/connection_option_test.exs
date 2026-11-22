@@ -42,11 +42,6 @@ defmodule KafkaEx.Client.ConnectionOptionTest do
     end
   end
 
-  test "a :connection client_id that is not a binary is rejected" do
-    assert {:error, {%ArgumentError{message: message}, _}} = start_failure(client_id: :kafka_ex)
-    assert message =~ "invalid :connection"
-  end
-
   defp start_on_fake(connection) do
     Client.start_link(
       [uris: [{"localhost", 9}], consumer_group: :no_consumer_group, transport: FakeTransport, connection: connection],
@@ -61,9 +56,7 @@ defmodule KafkaEx.Client.ConnectionOptionTest do
 
   test "every option a connection reads is accepted at its bounds" do
     Process.flag(:trap_exit, true)
-    sleep = Application.get_env(:kafka_ex, :sleep_for_reconnect)
-    Application.put_env(:kafka_ex, :sleep_for_reconnect, 0)
-    on_exit(fn -> Application.put_env(:kafka_ex, :sleep_for_reconnect, sleep) end)
+    PinCase.with_env(:sleep_for_reconnect, 0)
 
     bounds = [
       connect_timeout: 1,
@@ -103,7 +96,8 @@ defmodule KafkaEx.Client.ConnectionOptionTest do
       send_timeout: nil,
       initial_correlation_id: -1,
       initial_correlation_id: 2_147_483_648,
-      client_id: nil
+      client_id: nil,
+      client_id: :kafka_ex
     ]
 
     for option <- invalid do

@@ -2,6 +2,7 @@ defmodule KafkaEx.Network.TransportTest do
   use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
+  import KafkaEx.TestHelpers, only: [forward_telemetry: 2]
 
   alias KafkaEx.Network.NetworkClient
   alias KafkaEx.Network.Socket
@@ -24,18 +25,7 @@ defmodule KafkaEx.Network.TransportTest do
 
   defp attach_here(events) do
     test_pid = self()
-    handler = "transport-#{inspect(make_ref())}"
-
-    :telemetry.attach_many(
-      handler,
-      events,
-      fn event, _measurements, _metadata, _ ->
-        if self() == test_pid, do: send(test_pid, {:telemetry, event})
-      end,
-      nil
-    )
-
-    on_exit(fn -> :telemetry.detach(handler) end)
+    forward_telemetry(events, fn event, _measurements, _metadata -> if self() == test_pid, do: {:telemetry, event} end)
   end
 
   test "connect/4 returns a passive plain socket framed by a 4-byte length", context do

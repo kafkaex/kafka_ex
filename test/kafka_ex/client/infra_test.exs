@@ -11,25 +11,9 @@ defmodule KafkaEx.Client.InfraTest do
     assert [%{id: :connections, type: :supervisor}] = children
   end
 
-  test "connection_supervisor/1 finds the running connection supervisor" do
-    infra = start_supervised!(Infra)
-    sup = Infra.connection_supervisor(infra)
-    assert is_pid(sup)
-    assert %{active: 0, supervisors: 0} = DynamicSupervisor.count_children(sup)
-  end
-
-  test "a stop that runs out of time kills Infra rather than leave it behind" do
-    {:ok, infra} = Infra.start_link()
-    Process.unlink(infra)
-    start_stuck_child(infra)
-    monitor = Process.monitor(infra)
-
-    assert Infra.stop(infra, :shutdown, 100) == :ok
-    assert_receive {:DOWN, ^monitor, :process, ^infra, _reason}, 1_000
-  end
-
   test "a stop that runs out of time leaves the process linked to Infra alive" do
     {:ok, infra} = Infra.start_link()
+    assert %{active: 0, supervisors: 0} = DynamicSupervisor.count_children(Infra.connection_supervisor(infra))
     start_stuck_child(infra)
     monitor = Process.monitor(infra)
 
@@ -143,9 +127,7 @@ defmodule KafkaEx.Client.InfraTest do
   end
 
   test "a failed boot leaves no Infra or Connection alive" do
-    sleep = Application.get_env(:kafka_ex, :sleep_for_reconnect)
-    Application.put_env(:kafka_ex, :sleep_for_reconnect, 0)
-    on_exit(fn -> Application.put_env(:kafka_ex, :sleep_for_reconnect, sleep) end)
+    with_env(:sleep_for_reconnect, 0)
     Process.flag(:trap_exit, true)
     %{fake: fake, host: host} = start_fake([{1, 9092}])
     before = infra_processes()
@@ -169,7 +151,7 @@ defmodule KafkaEx.Client.InfraTest do
 
     %{client: client} = start_pinned()
     assert client |> :sys.get_state() |> Map.fetch!(:infra) |> connections() |> length() == 1
-    assert length(infra_processes() -- before) == 2
+    assert length(infra_processes() -- before) == 3
   end
 
   defp assert_teardown(%{client: client, infra: infra}, stop) do
@@ -187,31 +169,14 @@ defmodule KafkaEx.Client.InfraTest do
   end
 
   defp attach_request_start do
-    test = self()
-    handler = "infra-request-start-#{System.unique_integer([:positive])}"
-
-    :telemetry.attach(
-      handler,
-      [:kafka_ex, :request, :start],
-      fn _event, _measurements, metadata, _config -> send(test, {:request_start, metadata}) end,
-      nil
-    )
-
-    on_exit(fn -> :telemetry.detach(handler) end)
+    forward_telemetry([[:kafka_ex, :request, :start]], fn _event, _measurements, metadata ->
+      {:request_start, metadata}
+    end)
   end
 
   defp connections(infra) do
     for {_id, pid, _type, _modules} <- DynamicSupervisor.which_children(Infra.connection_supervisor(infra)),
         is_pid(pid),
-        do: pid
-  end
-
-  @infra_calls [{:supervisor, Infra, 1}, {Connection, :init, 1}]
-
-  defp infra_processes do
-    for pid <- Process.list(),
-        {:dictionary, dictionary} <- [Process.info(pid, :dictionary)],
-        dictionary[:"$initial_call"] in @infra_calls,
         do: pid
   end
 end

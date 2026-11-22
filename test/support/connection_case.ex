@@ -9,7 +9,9 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
   use ExUnit.CaseTemplate
 
   import ExUnit.Assertions
-  import ExUnit.Callbacks, only: [start_supervised!: 1, on_exit: 1]
+  import ExUnit.Callbacks, only: [start_supervised!: 1]
+  import ExUnit.CaptureLog
+  import KafkaEx.TestHelpers, only: [forward_telemetry: 2]
 
   alias KafkaEx.Client.Connection
   alias KafkaEx.Client.Connection.Pacing
@@ -33,7 +35,9 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
   using do
     quote do
       import ExUnit.CaptureLog
+      import KafkaEx.TestHelpers, only: [forward_telemetry: 2, oauthbearer: 0, oauthbearer: 1]
       import KafkaEx.TestSupport.ConnectionCase
+      import KafkaEx.TestSupport.PinCase, only: [requests: 2]
 
       alias KafkaEx.Client.Connection
       alias KafkaEx.Client.Connection.Pacing
@@ -56,6 +60,12 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
     pacing = Keyword.get_lazy(opts, :pacing, &Pacing.new/0)
     pid = start_supervised!(%{Connection.child_spec(args(fake, host, port, role, pacing, opts)) | id: make_ref()})
     %{conn: pid, pacing: pacing}
+  end
+
+  def start_connected(fake, host, role, opts \\ []) do
+    %{conn: conn} = started = start_connection(fake, host, @port, role, opts)
+    {:ok, _versions} = Connection.connect(conn, 5_000)
+    started
   end
 
   def args(fake, host, port, role, pacing, opts) do
@@ -141,35 +151,27 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
   def payload(<<_correlation_id::32-signed, payload::binary>>), do: payload
 
   def watch_close(host) do
-    test = self()
-    handler = "conn-close-#{host}-#{System.unique_integer([:positive])}"
-
-    :telemetry.attach(
-      handler,
-      [:kafka_ex, :connection, :close],
-      fn _event, _measurements, metadata, _config ->
-        if metadata.host == host, do: send(test, {:closed, metadata})
-      end,
-      nil
-    )
-
-    on_exit(fn -> :telemetry.detach(handler) end)
+    forward_telemetry([[:kafka_ex, :connection, :close]], fn _event, _measurements, metadata ->
+      if metadata.host == host, do: {:closed, metadata}
+    end)
   end
 
   def watch_attempts(host) do
-    test = self()
-    handler = "conn-attempts-#{host}-#{System.unique_integer([:positive])}"
+    forward_telemetry([[:kafka_ex, :connection, :start]], fn _event, _measurements, metadata ->
+      if metadata.host == host, do: {:attempt, self(), now()}
+    end)
+  end
 
-    :telemetry.attach(
-      handler,
-      [:kafka_ex, :connection, :start],
-      fn _event, _measurements, metadata, _config ->
-        if metadata.host == host, do: send(test, {:attempt, self(), System.monotonic_time(:millisecond)})
-      end,
-      nil
-    )
+  def inject_tcp_error(conn) do
+    {:connected, %{socket: %{socket: raw}}} = :sys.get_state(conn)
 
-    on_exit(fn -> :telemetry.detach(handler) end)
+    {_, log} =
+      with_log([level: :debug], fn ->
+        send(conn, {:tcp_error, raw, :econnreset})
+        :sys.get_state(conn)
+      end)
+
+    log
   end
 
   def connection_state(conn) do
@@ -192,6 +194,4 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
       true -> await_data(conn, ready?, failure, deadline)
     end
   end
-
-  def requests(fake, api), do: fake |> FakeTransport.requests() |> Enum.filter(&(&1.api == api))
 end

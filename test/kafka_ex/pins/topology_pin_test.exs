@@ -1,7 +1,6 @@
 defmodule KafkaEx.Pins.TopologyPinTest do
   use KafkaEx.TestSupport.PinCase, async: false
 
-  alias KafkaEx.Auth.Config, as: AuthConfig
   alias KafkaEx.Cluster.Broker
   alias KafkaEx.Messages.RecordMetadata
   alias KafkaEx.TestSupport.FakeTransport.Wire
@@ -45,8 +44,7 @@ defmodule KafkaEx.Pins.TopologyPinTest do
   end
 
   test "one ApiVersions per connect, also under SASL" do
-    auth = AuthConfig.new(%{mechanism: :oauthbearer, mechanism_opts: %{token_provider: fn -> {:ok, "t"} end}})
-    %{fake: fake, client: client} = start_pinned(client: [auth: auth])
+    %{fake: fake, client: client} = start_pinned(client: [auth: oauthbearer()])
     FakeTransport.respond(fake, :produce, produce_reply())
 
     {:ok, _} = API.produce(client, @topic, 0, [%{value: "v"}])

@@ -13,6 +13,8 @@ defmodule KafkaEx.TestSupport.PinCase do
   import ExUnit.Callbacks, only: [start_supervised!: 1, on_exit: 1]
 
   alias KafkaEx.Client
+  alias KafkaEx.Client.Connection
+  alias KafkaEx.Client.Infra
   alias KafkaEx.TestSupport.FakeTransport
   alias KafkaEx.TestSupport.PinGate
 
@@ -34,6 +36,7 @@ defmodule KafkaEx.TestSupport.PinCase do
   using do
     quote do
       import ExUnit.CaptureLog
+      import KafkaEx.TestHelpers, only: [forward_telemetry: 2, oauthbearer: 0, oauthbearer: 1]
       import KafkaEx.TestSupport.PinCase
 
       alias KafkaEx.API
@@ -198,9 +201,30 @@ defmodule KafkaEx.TestSupport.PinCase do
     assert_receive {:pin_closed, %{port: 9092}}, 5_000
   end
 
-  def with_request_timeout(ms) do
-    previous = Application.get_env(:kafka_ex, :request_timeout)
-    Application.put_env(:kafka_ex, :request_timeout, ms)
-    on_exit(fn -> Application.put_env(:kafka_ex, :request_timeout, previous) end)
+  def with_request_timeout(ms), do: with_env(:request_timeout, ms)
+
+  def with_env(key, value) do
+    previous = Application.fetch_env(:kafka_ex, key)
+    Application.put_env(:kafka_ex, key, value)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, previous} -> Application.put_env(:kafka_ex, key, previous)
+        :error -> Application.delete_env(:kafka_ex, key)
+      end
+    end)
+  end
+
+  # The connection supervisor runs as Supervisor.Default, as ExUnit <= 1.16's test supervisor does: diff two calls.
+  def infra_processes do
+    for pid <- Process.list(),
+        {:dictionary, dictionary} <- [Process.info(pid, :dictionary)],
+        self() in Keyword.get(dictionary, :"$ancestors", []),
+        Keyword.get(dictionary, :"$initial_call") in [
+          {Connection, :init, 1},
+          {:supervisor, Infra, 1},
+          {:supervisor, Supervisor.Default, 1}
+        ],
+        do: pid
   end
 end

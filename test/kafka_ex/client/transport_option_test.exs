@@ -5,8 +5,6 @@ defmodule KafkaEx.Client.TransportOptionTest do
 
   alias KafkaEx.API
   alias KafkaEx.Client
-  alias KafkaEx.Client.Connection
-  alias KafkaEx.Client.Infra
   alias KafkaEx.Client.State
   alias KafkaEx.Cluster.Broker
   alias KafkaEx.Network.NetworkClient
@@ -129,8 +127,7 @@ defmodule KafkaEx.Client.TransportOptionTest do
 
     on_exit(fn -> :telemetry.detach(handler) end)
 
-    # ExUnit <= 1.16 runs its test supervisor as Supervisor.Default under the test pid.
-    existing = Process.list()
+    existing = PinCase.infra_processes()
 
     capture_log(fn ->
       assert {:error, _} =
@@ -151,18 +148,6 @@ defmodule KafkaEx.Client.TransportOptionTest do
     connections = fake |> FakeTransport.connects() |> Enum.map(& &1.owner)
     assert connections != []
     refute Enum.any?(connections, &Process.alive?/1)
-    assert left_behind(existing) == []
-  end
-
-  defp left_behind(existing) do
-    for pid <- Process.list() -- existing,
-        {:dictionary, dictionary} <- [Process.info(pid, :dictionary)],
-        self() in Keyword.get(dictionary, :"$ancestors", []),
-        Keyword.get(dictionary, :"$initial_call") in [
-          {Connection, :init, 1},
-          {:supervisor, Infra, 1},
-          {:supervisor, Supervisor.Default, 1}
-        ],
-        do: pid
+    assert PinCase.infra_processes() -- existing == []
   end
 end

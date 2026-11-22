@@ -120,32 +120,7 @@ defmodule KafkaEx.Client.RoutingConnectLogTest do
     assert {:ok, :no_error} = API.heartbeat(client, "g", "m", 1)
 
     assert connects(fake, :coordinator) == [%{role: :coordinator, port: 9093}]
-  end
-
-  test "an acks 0 produce completes on write over one :data connection", %{fake: fake, client: client} do
-    assert {:ok, %RecordMetadata{base_offset: nil}} = API.produce(client, @topic, 0, [%{value: "v"}], acks: 0)
-
-    assert connects(fake, :data) == [%{role: :data, port: 9092}]
-  end
-
-  test "coordinator requests are written in arrival order on the :coordinator connection", %{
-    fake: fake,
-    client: client
-  } do
-    FakeTransport.respond(fake, :heartbeat, %{error_code: 0})
-
-    refs =
-      for generation <- 1..3 do
-        ref = make_ref()
-        send(client, {:"$gen_call", {self(), ref}, {:heartbeat, "g", "m", generation, []}})
-        ref
-      end
-
-    for ref <- refs, do: assert_receive({^ref, {:ok, :no_error}}, 5_000)
-
-    heartbeats = requests(fake, :heartbeat)
-    assert Enum.map(heartbeats, &generation/1) == [1, 2, 3]
-    assert heartbeats |> Enum.map(&role_of(fake, &1.conn)) |> Enum.uniq() == [:coordinator]
+    assert fake |> requests(:heartbeat) |> Enum.map(&role_of(fake, &1.conn)) |> Enum.uniq() == [:coordinator]
   end
 
   defp connects(fake, role) do
@@ -155,13 +130,6 @@ defmodule KafkaEx.Client.RoutingConnectLogTest do
   defp role_of(fake, conn) do
     %{owner: owner} = fake |> FakeTransport.connections() |> Enum.find(&(&1.id == conn))
     fake |> FakeTransport.connects() |> Enum.find(&(&1.owner == owner)) |> Map.fetch!(:role)
-  end
-
-  defp generation(%{frame: frame}) do
-    <<_api::16, _version::16, _corr::32, client_id_size::16-signed, _client_id::binary-size(client_id_size),
-      group_size::16-signed, _group::binary-size(group_size), generation::32-signed, _::binary>> = frame
-
-    generation
   end
 
   defp describe_groups_v0_response(correlation_id, group_id) do

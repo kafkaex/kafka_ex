@@ -1,7 +1,6 @@
 defmodule KafkaEx.Client.ParallelSetupTest do
   use KafkaEx.TestSupport.PinCase, async: false
 
-  alias KafkaEx.Auth.Config, as: AuthConfig
   alias KafkaEx.Client.Connection.Pacing
 
   @moduletag capture_log: true
@@ -67,8 +66,7 @@ defmodule KafkaEx.Client.ParallelSetupTest do
     test "whose handshake crashes is retried on a new connection, as a waiting call would be" do
       raise_once = :atomics.new(1, [])
       provider = fn -> if :atomics.compare_exchange(raise_once, 1, 1, 0) == :ok, do: raise("down"), else: {:ok, "t"} end
-      auth = AuthConfig.new(%{mechanism: :oauthbearer, mechanism_opts: %{token_provider: provider}})
-      %{fake: fake, client: client} = start_pinned(client: [auth: auth])
+      %{fake: fake, client: client} = start_pinned(client: [auth: oauthbearer(provider)])
       FakeTransport.respond(fake, :fetch, &{:frame, fetch_frame(&1, -1)})
       :atomics.put(raise_once, 1, 1)
 
@@ -200,31 +198,15 @@ defmodule KafkaEx.Client.ParallelSetupTest do
   end
 
   defp watch_fetch_stops do
-    test = self()
-    handler = "parallel-setup-#{inspect(test)}"
-
-    :telemetry.attach(
-      handler,
-      [:kafka_ex, :fetch, :stop],
-      fn _event, _measurements, metadata, _config -> send(test, {:fetch_stop, metadata.partition}) end,
-      nil
-    )
-
-    on_exit(fn -> :telemetry.detach(handler) end)
+    forward_telemetry([[:kafka_ex, :fetch, :stop]], fn _event, _measurements, metadata ->
+      {:fetch_stop, metadata.partition}
+    end)
   end
 
   defp watch_fetch_exceptions do
-    test = self()
-    handler = "parallel-setup-exception-#{inspect(test)}"
-
-    :telemetry.attach(
-      handler,
-      [:kafka_ex, :fetch, :exception],
-      fn _event, _measurements, metadata, _config -> send(test, {:fetch_exception, metadata.kind, metadata.reason}) end,
-      nil
-    )
-
-    on_exit(fn -> :telemetry.detach(handler) end)
+    forward_telemetry([[:kafka_ex, :fetch, :exception]], fn _event, _measurements, metadata ->
+      {:fetch_exception, metadata.kind, metadata.reason}
+    end)
   end
 
   defp wait_for(condition) do
