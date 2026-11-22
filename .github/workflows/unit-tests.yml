@@ -23,11 +23,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - elixir: "1.20"
+            otp: "29.1"
+          - elixir: "1.19"
+            otp: "28.5"
           - elixir: "1.18"
             otp: "27.2"
-          - elixir: "1.16"
-            otp: "26.2"
-          - elixir: "1.14"
+          - elixir: "1.17"
             otp: "25.3"
 
     steps:
@@ -58,10 +60,10 @@ jobs:
           mix deps.compile
 
       - name: Compile
-        run: mix compile
+        run: mix compile --warnings-as-errors
 
       - name: Run Unit Tests
-        run: mix test.unit
+        run: mix test.unit --warnings-as-errors
 
   coverage:
     name: Test Coverage

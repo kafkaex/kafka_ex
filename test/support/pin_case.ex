@@ -163,7 +163,7 @@ defmodule KafkaEx.TestSupport.PinCase do
 
   defp compact_string(<<length_plus_one, rest::binary>>) when length_plus_one < 128 do
     size = length_plus_one - 1
-    <<value::binary-size(size), rest::binary>> = rest
+    <<value::binary-size(^size), rest::binary>> = rest
     {value, rest}
   end
 

@@ -5,6 +5,9 @@ defmodule KafkaEx.TestHelpers do
   alias KafkaEx.Test.KayrockFixtures, as: Fixtures
   require Logger
 
+  # Hides a value's type from the compiler, so a test can pass a deliberately wrong one.
+  def opaque(value), do: Process.get(:__opaque__, value)
+
   @doc """
   Returns a random string of length string_length.
   """

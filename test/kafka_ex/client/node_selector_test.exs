@@ -1,5 +1,6 @@
 defmodule KafkaEx.Client.NodeSelectorTest do
   use ExUnit.Case, async: true
+  import KafkaEx.TestHelpers, only: [opaque: 1]
 
   alias KafkaEx.Client.NodeSelector
 
@@ -16,7 +17,7 @@ defmodule KafkaEx.Client.NodeSelectorTest do
 
     test "raises error when node id is  invalid" do
       assert_raise FunctionClauseError, fn ->
-        NodeSelector.node_id("invalid data")
+        NodeSelector.node_id(opaque("invalid data"))
       end
     end
   end

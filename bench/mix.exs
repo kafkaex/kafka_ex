@@ -5,7 +5,7 @@ defmodule KafkaExBench.MixProject do
     [
       app: :kafka_ex_bench,
       version: "0.1.0",
-      elixir: "~> 1.14",
+      elixir: "~> 1.17",
       build_path: System.get_env("BENCH_BUILD_PATH", "_build"),
       deps: deps()
     ]

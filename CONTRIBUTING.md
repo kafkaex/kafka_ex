@@ -13,8 +13,8 @@ Thank you for contributing to KafkaEx!
 
 ## Requirements
 
-- **Elixir:** 1.14+
-- **Erlang OTP:** 24+
+- **Elixir:** 1.17+
+- **Erlang OTP:** 25+
 - **Docker:** Required for integration tests
 
 ## Testing

@@ -57,11 +57,7 @@ defmodule KafkaEx.Kafka4.GenConsumerMaxRecordsTest do
       values = for i <- 0..(@records - 1), do: "r#{i}"
       Kafka4TestHelpers.produce!(ctx.client, topic, 0, Enum.map(values, &%{value: &1}))
 
-      protocol_opts =
-        case protocol do
-          :classic -> [group_protocol: :classic]
-          :consumer -> [group_protocol: :consumer, leave_timeout_ms: 5_000]
-        end
+      protocol_opts = protocol_opts(protocol)
 
       opts =
         Kafka4TestHelpers.consumer_group_opts(
@@ -73,7 +69,7 @@ defmodule KafkaEx.Kafka4.GenConsumerMaxRecordsTest do
           ] ++ protocol_opts
         )
 
-      opts = if protocol == :consumer, do: Keyword.drop(opts, [:heartbeat_interval, :session_timeout]), else: opts
+      opts = drop_classic_timeouts(opts, protocol)
 
       {:ok, sup} = ConsumerGroup.start_link(ChunkConsumer, group, [topic], opts)
       Process.unlink(sup)
@@ -105,6 +101,12 @@ defmodule KafkaEx.Kafka4.GenConsumerMaxRecordsTest do
       assert committed(ctx.client, group, topic) == @records
     end
   end
+
+  defp protocol_opts(:classic), do: [group_protocol: :classic]
+  defp protocol_opts(:consumer), do: [group_protocol: :consumer, leave_timeout_ms: 5_000]
+
+  defp drop_classic_timeouts(opts, :consumer), do: Keyword.drop(opts, [:heartbeat_interval, :session_timeout])
+  defp drop_classic_timeouts(opts, :classic), do: opts
 
   # Collects chunks until the one holding `last_offset` (replays included).
   defp collect_chunks(last_offset, acc) do

@@ -51,7 +51,7 @@ defmodule KafkaEx.TestSupport.TestGenConsumer do
   end
 
   @impl true
-  def handle_message_set(message_set, state) do
+  def handle_message_set(message_set, %State{} = state) do
     new_messages = Enum.map(message_set, fn %Record{value: value} -> value end)
 
     new_state = %State{

@@ -13,7 +13,7 @@ The harness uses only the public `KafkaEx.API`. Process introspection (`Process.
 ## Prerequisites
 
 - Docker with at least 12 GB of memory for the Docker VM. Brokers were OOM-killed at 7.7 GB; at 16.7 GB peak broker usage was about 1.3 GiB each.
-- Elixir 1.14+ and an OTP version supported by kafka_ex.
+- Elixir 1.17+ and an OTP version supported by kafka_ex.
 - The 3-broker cluster plus the Toxiproxy overlay, started from the repository root or from anywhere:
 
   ```bash

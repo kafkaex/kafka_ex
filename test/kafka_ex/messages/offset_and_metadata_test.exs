@@ -1,5 +1,6 @@
 defmodule KafkaEx.Messages.OffsetAndMetadataTest do
   use ExUnit.Case, async: true
+  import KafkaEx.TestHelpers, only: [opaque: 1]
 
   alias KafkaEx.Messages.OffsetAndMetadata
 
@@ -29,7 +30,7 @@ defmodule KafkaEx.Messages.OffsetAndMetadataTest do
 
     test "raises FunctionClauseError for non-integer offset" do
       assert_raise FunctionClauseError, fn ->
-        OffsetAndMetadata.new("100")
+        OffsetAndMetadata.new(opaque("100"))
       end
     end
   end
@@ -53,7 +54,7 @@ defmodule KafkaEx.Messages.OffsetAndMetadataTest do
 
     test "raises FunctionClauseError for non-string metadata" do
       assert_raise FunctionClauseError, fn ->
-        OffsetAndMetadata.new(100, :metadata)
+        OffsetAndMetadata.new(100, opaque(:metadata))
       end
     end
   end

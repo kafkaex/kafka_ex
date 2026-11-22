@@ -1,5 +1,6 @@
 defmodule KafkaEx.Protocol.Kayrock.Produce.RequestHelpersTest do
   use ExUnit.Case, async: true
+  import KafkaEx.TestHelpers, only: [opaque: 1]
 
   alias KafkaEx.Protocol.Kayrock.Produce.RequestHelpers
   alias Kayrock.MessageSet
@@ -158,7 +159,7 @@ defmodule KafkaEx.Protocol.Kayrock.Produce.RequestHelpersTest do
 
     test "raises FunctionClauseError for unknown compression type" do
       assert_raise FunctionClauseError, fn ->
-        RequestHelpers.compression_to_attributes(:brotli)
+        RequestHelpers.compression_to_attributes(opaque(:brotli))
       end
     end
   end

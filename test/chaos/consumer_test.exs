@@ -104,7 +104,7 @@ defmodule KafkaEx.Chaos.ConsumerTest do
 
       ChaosTestHelpers.with_bandwidth_limit(ctx.toxiproxy_container, ctx.proxy_name, 10, fn ->
         result = KafkaEx.API.fetch(client, @test_topic, 0, 0, max_bytes: 1024)
-        assert !is_nil(result), "Expected fetch to complete under bandwidth limit"
+        assert result, "Expected fetch to complete under bandwidth limit"
       end)
     end
 
@@ -120,7 +120,7 @@ defmodule KafkaEx.Chaos.ConsumerTest do
       Process.sleep(500)
 
       {:ok, result} = KafkaEx.API.fetch(client, @test_topic, 0, 5)
-      assert !is_nil(result)
+      assert result
     end
   end
 
@@ -152,7 +152,7 @@ defmodule KafkaEx.Chaos.ConsumerTest do
 
       Process.sleep(500)
       {:ok, result} = KafkaEx.API.latest_offset(client, @test_topic, 0)
-      assert !is_nil(result)
+      assert result
     end
   end
 
@@ -192,7 +192,7 @@ defmodule KafkaEx.Chaos.ConsumerTest do
 
       Process.sleep(1000)
       {:ok, result} = KafkaEx.API.fetch(client, @test_topic, 0, 0)
-      assert !is_nil(result)
+      assert result
     end
   end
 

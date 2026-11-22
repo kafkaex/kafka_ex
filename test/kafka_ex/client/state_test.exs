@@ -198,14 +198,14 @@ defmodule KafkaEx.Client.StateTest do
     test "returns integer version when api is in cache" do
       state = %State{api_versions: %{0 => {0, 10}}}
 
-      result = State.max_supported_api_version(state, :produce, 0)
+      result = apply(State, :max_supported_api_version, [state, :produce, 0])
       assert is_integer(result)
     end
 
     test "returns default when api not in cache" do
       state = %State{api_versions: %{}}
 
-      result = State.max_supported_api_version(state, :produce, 0)
+      result = apply(State, :max_supported_api_version, [state, :produce, 0])
       assert result == 0
     end
   end

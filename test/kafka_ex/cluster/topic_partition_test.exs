@@ -1,5 +1,6 @@
 defmodule KafkaEx.Cluster.TopicPartitionTest do
   use ExUnit.Case, async: true
+  import KafkaEx.TestHelpers, only: [opaque: 1]
 
   alias KafkaEx.Cluster.TopicPartition
 
@@ -48,13 +49,13 @@ defmodule KafkaEx.Cluster.TopicPartitionTest do
 
     test "raises FunctionClauseError for non-string topic" do
       assert_raise FunctionClauseError, fn ->
-        TopicPartition.new(:topic, 0)
+        TopicPartition.new(opaque(:topic), 0)
       end
     end
 
     test "raises FunctionClauseError for non-integer partition" do
       assert_raise FunctionClauseError, fn ->
-        TopicPartition.new("topic", "0")
+        TopicPartition.new("topic", opaque("0"))
       end
     end
   end
@@ -111,7 +112,7 @@ defmodule KafkaEx.Cluster.TopicPartitionTest do
 
     test "raises FunctionClauseError for invalid tuple format" do
       assert_raise FunctionClauseError, fn ->
-        TopicPartition.from_tuple({:topic, 0})
+        TopicPartition.from_tuple(opaque({:topic, 0}))
       end
     end
   end

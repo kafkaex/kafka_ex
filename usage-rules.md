@@ -441,8 +441,8 @@ KafkaEx emits telemetry events for observability:
 - **Minimum Kafka:** 0.10.0+
 - **Recommended Kafka:** 0.11.0+ (for headers, timestamps, RecordBatch format)
 - **`group_protocol: :consumer` (KIP-848):** Kafka 4.0+, with `consumer` in `group.coordinator.rebalance.protocols` and `group.version` finalized at 1+
-- **Elixir:** 1.14+
-- **Erlang OTP:** 24+
+- **Elixir:** 1.17+
+- **Erlang OTP:** 25+
 
 ## When to Use What
 

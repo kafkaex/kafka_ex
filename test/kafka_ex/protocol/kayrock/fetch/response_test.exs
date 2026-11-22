@@ -92,7 +92,7 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.ResponseTest do
       assert length(fetch.records) == 1
       assert fetch.last_offset == 0
       # V0 has no throttle_time_ms
-      assert is_nil(fetch.throttle_time_ms) or fetch.throttle_time_ms == nil
+      assert is_nil(fetch.throttle_time_ms)
     end
 
     test "parses response with multiple messages" do
@@ -867,7 +867,7 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.ResponseTest do
         |> Map.put(:__struct__, Kayrock.Fetch.V0.Response)
 
       assert {:ok, fetch} = Response.parse_response(v0_response)
-      assert is_nil(fetch.throttle_time_ms) or fetch.throttle_time_ms == nil
+      assert is_nil(fetch.throttle_time_ms)
     end
 
     test "V1+ have throttle_time_ms" do

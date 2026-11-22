@@ -247,7 +247,7 @@ defmodule KafkaEx.Auth.SASL.CodecBinary do
       # Not enough data for this string
       {Enum.reverse(acc), <<len::16, rest::binary>>}
     else
-      <<str::binary-size(len), rest2::binary>> = rest
+      <<str::binary-size(^len), rest2::binary>> = rest
       parse_string_array(n - 1, rest2, [str | acc])
     end
   end
@@ -262,7 +262,7 @@ defmodule KafkaEx.Auth.SASL.CodecBinary do
     if byte_size(rest) < len do
       {:error, :incomplete}
     else
-      <<str::binary-size(len), rest::binary>> = rest
+      <<str::binary-size(^len), rest::binary>> = rest
       {str, rest}
     end
   end
@@ -277,7 +277,7 @@ defmodule KafkaEx.Auth.SASL.CodecBinary do
     if byte_size(rest) < len do
       {:error, :incomplete}
     else
-      <<bytes::binary-size(len), _rest::binary>> = rest
+      <<bytes::binary-size(^len), _rest::binary>> = rest
       {:ok, bytes}
     end
   end
@@ -358,7 +358,7 @@ defmodule KafkaEx.Auth.SASL.CodecBinary do
   defp read_compact_nullable_string(bin) do
     {len_plus_1, after_len} = uvarint_decode(bin)
     len = len_plus_1 - 1
-    <<s::binary-size(len), rest::binary>> = after_len
+    <<s::binary-size(^len), rest::binary>> = after_len
     {s, rest}
   end
 
@@ -369,7 +369,7 @@ defmodule KafkaEx.Auth.SASL.CodecBinary do
   defp read_compact_bytes(bin) do
     {len_plus_1, after_len} = uvarint_decode(bin)
     len = len_plus_1 - 1
-    <<payload::binary-size(len), rest::binary>> = after_len
+    <<payload::binary-size(^len), rest::binary>> = after_len
     {payload, rest}
   end
 
@@ -389,7 +389,7 @@ defmodule KafkaEx.Auth.SASL.CodecBinary do
     {_, r1} = uvarint_decode(bin)
     # size
     {sz, r2} = uvarint_decode(r1)
-    <<_val::binary-size(sz), r3::binary>> = r2
+    <<_val::binary-size(^sz), r3::binary>> = r2
     skip_tags(n - 1, r3)
   end
 end

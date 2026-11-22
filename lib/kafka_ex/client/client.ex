@@ -1549,7 +1549,6 @@ defmodule KafkaEx.Client do
   defp first_broker_response(transport, request, [broker | rest], timeout, _last_error) do
     case try_broker(transport, broker, request, timeout) do
       nil -> first_broker_response(transport, request, rest, timeout, {:error, :broker_failed})
-      {:error, _} = error -> first_broker_response(transport, request, rest, timeout, error)
       response -> {response, broker}
     end
   end
