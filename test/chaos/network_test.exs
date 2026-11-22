@@ -149,7 +149,7 @@ defmodule KafkaEx.Chaos.NetworkTest do
 
       ChaosTestHelpers.with_latency(ctx.toxiproxy_container, ctx.proxy_name, 2000, fn ->
         result = KafkaEx.API.metadata(client)
-        assert !is_nil(result), "Expected a response (success or error)"
+        assert result, "Expected a response (success or error)"
       end)
 
       {:ok, _metadata} = KafkaEx.API.metadata(client)
@@ -167,7 +167,7 @@ defmodule KafkaEx.Chaos.NetworkTest do
 
       ChaosTestHelpers.with_bandwidth_limit(ctx.toxiproxy_container, ctx.proxy_name, 1, fn ->
         result = KafkaEx.API.metadata(client)
-        assert !is_nil(result), "Expected a response under bandwidth limit"
+        assert result, "Expected a response under bandwidth limit"
       end)
 
       {:ok, _metadata} = KafkaEx.API.metadata(client)

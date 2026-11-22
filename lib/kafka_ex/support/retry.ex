@@ -27,8 +27,6 @@ defmodule KafkaEx.Support.Retry do
       delay = Retry.backoff_delay(attempt, 100, 5000)
   """
 
-  require Logger
-
   @type error :: atom() | term()
   @type retry_result :: {:ok, term()} | {:error, error()}
 

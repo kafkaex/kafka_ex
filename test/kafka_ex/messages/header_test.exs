@@ -1,5 +1,6 @@
 defmodule KafkaEx.Messages.HeaderTest do
   use ExUnit.Case, async: true
+  import KafkaEx.TestHelpers, only: [opaque: 1]
 
   alias KafkaEx.Messages.Header
 
@@ -38,13 +39,13 @@ defmodule KafkaEx.Messages.HeaderTest do
 
     test "raises FunctionClauseError for non-string key" do
       assert_raise FunctionClauseError, fn ->
-        Header.new(:key, "value")
+        Header.new(opaque(:key), "value")
       end
     end
 
     test "raises FunctionClauseError for non-binary value (atoms other than nil)" do
       assert_raise FunctionClauseError, fn ->
-        Header.new("key", :value)
+        Header.new("key", opaque(:value))
       end
     end
   end
@@ -93,7 +94,7 @@ defmodule KafkaEx.Messages.HeaderTest do
 
     test "raises FunctionClauseError for invalid tuple" do
       assert_raise FunctionClauseError, fn ->
-        Header.from_tuple({:key, "value"})
+        Header.from_tuple(opaque({:key, "value"}))
       end
     end
   end

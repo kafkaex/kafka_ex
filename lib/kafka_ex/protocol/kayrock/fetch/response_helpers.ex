@@ -134,8 +134,6 @@ defmodule KafkaEx.Protocol.Kayrock.Fetch.ResponseHelpers do
     end
   end
 
-  defp raw_next_offset(_), do: nil
-
   # Highest absolute offset covered by a RecordBatch. Prefer the batch metadata
   # (base_offset + last_offset_delta) so control/empty batches still advance the
   # fetch position even though their records are dropped; fall back to the

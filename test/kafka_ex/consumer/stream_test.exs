@@ -1,5 +1,6 @@
 defmodule KafkaEx.Consumer.StreamTest do
   use ExUnit.Case, async: true
+  import KafkaEx.TestHelpers, only: [opaque: 1]
 
   alias KafkaEx.Consumer.Stream
 
@@ -52,7 +53,7 @@ defmodule KafkaEx.Consumer.StreamTest do
     end
 
     test "partial versions leave other keys absent" do
-      stream = %Stream{api_versions: %{fetch: 2}}
+      stream = opaque(%Stream{api_versions: %{fetch: 2}})
       assert Map.get(stream.api_versions, :fetch) == 2
       assert Map.get(stream.api_versions, :offset_fetch) == nil
       assert Map.get(stream.api_versions, :offset_commit) == nil

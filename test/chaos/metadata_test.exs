@@ -180,7 +180,7 @@ defmodule KafkaEx.Chaos.MetadataTest do
       # depending on implementation
       ChaosTestHelpers.with_broker_down(ctx.toxiproxy_container, ctx.proxy_name, fn ->
         result = KafkaEx.API.cluster_metadata(client)
-        assert !is_nil(result)
+        assert result
       end)
 
       Process.sleep(500)
@@ -230,7 +230,7 @@ defmodule KafkaEx.Chaos.MetadataTest do
       # Slow network
       ChaosTestHelpers.with_bandwidth_limit(ctx.toxiproxy_container, ctx.proxy_name, 5, fn ->
         result = KafkaEx.API.metadata(client)
-        assert !is_nil(result)
+        assert result
       end)
 
       # Normal speed should work fine after

@@ -65,9 +65,9 @@ defmodule KafkaEx.Integration.Lifecycle.ClientLifecycleTest do
           :ok
 
         {:ok, pid} ->
-          # Client started but operations should fail
+          # Either outcome is fine; the call must not hang
           result = API.metadata(pid)
-          assert {:error, _} = result or match?({:ok, _}, result)
+          assert match?({:error, _}, result) or match?({:ok, _}, result)
           GenServer.stop(pid)
       end
 

@@ -100,7 +100,7 @@ defmodule KafkaEx.Auth.ScramFlow.InternalTest do
       assert String.contains?(message, "c=biws")
       assert String.contains?(message, "r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0")
       assert String.contains?(message, "p=")
-      assert new_state.auth_message != nil
+      assert is_binary(new_state.auth_message)
       assert new_state.server_signature != nil
     end
   end
@@ -159,7 +159,7 @@ defmodule KafkaEx.Auth.ScramFlow.InternalTest do
       {message, new_state} = Internal.client_first(state)
 
       assert String.starts_with?(message, "n,,")
-      assert new_state.client_first_bare != nil
+      assert is_binary(new_state.client_first_bare)
     end
   end
 end

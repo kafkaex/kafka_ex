@@ -266,7 +266,7 @@ defmodule KafkaEx.ConfigTest do
   describe "consumer_group/0 (deprecated)" do
     test "delegates to default_consumer_group/0" do
       Application.put_env(:kafka_ex, :default_consumer_group, "delegated_group")
-      assert Config.consumer_group() == Config.default_consumer_group()
+      assert apply(Config, :consumer_group, []) == Config.default_consumer_group()
     end
   end
 
