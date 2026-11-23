@@ -77,7 +77,7 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
     end
   end
 
-  defp lower_bound(failures), do: min(75 * Integer.pow(2, failures - 1), 400)
+  defp lower_bound(failures), do: min(80 * Integer.pow(2, failures - 1), 400)
 
   # Every attempt runs into the 700 ms setup deadline, longer than any backoff, so attempts follow back to back.
   defp start_never_completing(tls, window) do
@@ -381,6 +381,22 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
       assert payload(reply) == "ok"
       assert [_one_connection] = fake |> requests(:produce) |> Enum.map(& &1.conn) |> Enum.uniq()
       refute_receive {:closed, _}, 50
+    end
+
+    test "a reply to a written request carries its wire correlation id, also when it times out", %{
+      fake: fake,
+      host: host
+    } do
+      %{conn: conn} = start_connection(fake, host, port(), :data, initial_correlation_id: 41)
+      FakeTransport.respond(fake, :produce, frame("ok"))
+
+      assert {:ok, _reply, %{correlation_id: answered}} = dispatch(conn, request(:produce))
+      FakeTransport.hold(fake, :produce)
+      {timed_out, _log} = with_log(fn -> dispatch(conn, request(:produce), timeout: 100) end)
+
+      assert {:error, :timeout, %{correlation_id: abandoned}} = timed_out
+      assert [answered, abandoned] == Enum.map(requests(fake, :produce), & &1.correlation_id)
+      assert answered == 41
     end
 
     test "an id is not reused while its late reply can arrive, also after the counter wraps onto it", %{
@@ -875,7 +891,7 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
       assert [_ | _] = attempts = drain_attempts()
       gaps = attempts |> Enum.zip(tl(attempts)) |> Enum.map(fn {a, b} -> b - a end)
 
-      assert length(attempts) <= ceil(:math.log2(600 / 75)) + 2
+      assert length(attempts) <= ceil(:math.log2(600 / 80)) + 2
 
       for {gap, failures} <- Enum.with_index(gaps, 1) do
         assert gap >= 0.75 * lower_bound(failures), "gap #{failures} was #{gap} ms: #{inspect(gaps)}"
@@ -1152,6 +1168,22 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
       :ok = DynamicSupervisor.terminate_child(supervisor, conn)
 
       assert_receive {:closed, %{reason: :shutdown}}, 1_000
+    end
+
+    test "a connection stops when its owner dies, closing with :shutdown, or with :init_error for a {:shutdown, :init_error} exit",
+         %{fake: fake, host: host} do
+      for {exit_reason, close} <- [{:kill, :shutdown}, {{:shutdown, :init_error}, :init_error}] do
+        owner = spawn(fn -> receive do: (:never -> :ok) end)
+        args = %{args(fake, host, port(), :metadata, ReconnectBackoff.new(), []) | client: owner}
+        conn = start_supervised!(%{ConnectionStateMachine.child_spec(args) | id: make_ref()})
+        monitor = Process.monitor(conn)
+        {:ok, _versions} = ConnectionStateMachine.connect(conn, 5_000)
+
+        Process.exit(owner, exit_reason)
+
+        assert_receive {:closed, %{reason: ^close}}, 1_000
+        assert_receive {:DOWN, ^monitor, :process, ^conn, :normal}, 1_000
+      end
     end
 
     test "format_status redacts the secrets fun and queued requests", %{fake: fake, host: host} do

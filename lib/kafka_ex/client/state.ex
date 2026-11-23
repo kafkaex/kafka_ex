@@ -4,6 +4,7 @@ defmodule KafkaEx.Client.State do
   # state struct for New.Client
 
   alias KafkaEx.Client.ConnectionStateMachine
+  alias KafkaEx.Client.MetadataStore.MetadataTable
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Messages.ApiVersions
 
@@ -20,10 +21,6 @@ defmodule KafkaEx.Client.State do
     use_ssl: false,
     api_versions: %{},
     allow_auto_topic_creation: true,
-    metadata_timer_ref: nil,
-    tracked_topics: MapSet.new(),
-    metadata_missing: MapSet.new(),
-    metadata_missing_logged_at: nil,
     transport: KafkaEx.Network.NetworkClient,
     supervisor: nil,
     conns: %{},
@@ -31,7 +28,13 @@ defmodule KafkaEx.Client.State do
     connection_opts: [],
     connection_options: %{},
     parked: %{},
-    parking: nil
+    parking: nil,
+    store: nil,
+    store_opts: [],
+    hints: %{},
+    deadline: nil,
+    dispatch_stamp: nil,
+    last_view: %ClusterMetadata{}
   )
 
   @type t :: %__MODULE__{
@@ -45,10 +48,6 @@ defmodule KafkaEx.Client.State do
           use_ssl: boolean(),
           api_versions: map(),
           allow_auto_topic_creation: boolean(),
-          metadata_timer_ref: reference() | nil,
-          tracked_topics: MapSet.t(),
-          metadata_missing: MapSet.t(),
-          metadata_missing_logged_at: integer() | nil,
           transport: module(),
           supervisor: pid() | nil,
           conns: %{
@@ -59,7 +58,13 @@ defmodule KafkaEx.Client.State do
           connection_options: map(),
           parked: %{optional(reference()) => map()},
           parking:
-            :first | {:resumed, {binary(), non_neg_integer(), ConnectionStateMachine.role()}, pid(), term()} | nil
+            :first | {:resumed, {binary(), non_neg_integer(), ConnectionStateMachine.role()}, pid(), term()} | nil,
+          store: %{pid: pid(), ref: reference(), tid: MetadataTable.t()} | nil,
+          store_opts: Keyword.t(),
+          deadline: integer() | nil,
+          dispatch_stamp: MetadataTable.stamp() | nil,
+          hints: MetadataTable.hints(),
+          last_view: ClusterMetadata.t()
         }
 
   @default_metadata_update_interval 30_000
@@ -86,52 +91,6 @@ defmodule KafkaEx.Client.State do
 
   def increment_correlation_id(%__MODULE__{correlation_id: cid} = state) do
     %{state | correlation_id: cid + 1}
-  end
-
-  def select_broker(%__MODULE__{cluster_metadata: cluster_metadata}, selector) do
-    with {:ok, node_id} <- ClusterMetadata.select_node(cluster_metadata, selector),
-         broker when not is_nil(broker) <- ClusterMetadata.broker_by_node_id(cluster_metadata, node_id) do
-      {:ok, broker}
-    else
-      nil -> {:error, :broker_not_found}
-      err -> err
-    end
-  end
-
-  def update_brokers(%__MODULE__{cluster_metadata: cluster_metadata} = state, cb) when is_function(cb, 1) do
-    %{state | cluster_metadata: ClusterMetadata.update_brokers(cluster_metadata, cb)}
-  end
-
-  def select_broker_entry(%__MODULE__{cluster_metadata: cluster_metadata}, selector) do
-    with {:ok, key} <- ClusterMetadata.select_node(cluster_metadata, selector),
-         broker when not is_nil(broker) <- ClusterMetadata.broker_by_node_id(cluster_metadata, key) do
-      {:ok, key, broker}
-    else
-      nil -> {:error, :broker_not_found}
-      err -> err
-    end
-  end
-
-  def put_consumer_group_coordinator(%__MODULE__{cluster_metadata: cluster_metadata} = state, group, node_id) do
-    new_metadata = ClusterMetadata.put_consumer_group_coordinator(cluster_metadata, group, node_id)
-    %{state | cluster_metadata: new_metadata}
-  end
-
-  def drop_consumer_group_coordinator(%__MODULE__{cluster_metadata: cluster_metadata} = state, group) do
-    new_metadata = ClusterMetadata.drop_consumer_group_coordinator(cluster_metadata, group)
-    %{state | cluster_metadata: new_metadata}
-  end
-
-  def remove_topics(%__MODULE__{cluster_metadata: cluster_metadata} = state, topics) do
-    %{state | cluster_metadata: ClusterMetadata.remove_topics(cluster_metadata, topics)}
-  end
-
-  def topics_metadata(%__MODULE__{cluster_metadata: cluster_metadata}, wanted_topics) do
-    ClusterMetadata.topics_metadata(cluster_metadata, wanted_topics)
-  end
-
-  def brokers(%__MODULE__{cluster_metadata: cluster_metadata}) do
-    ClusterMetadata.brokers(cluster_metadata)
   end
 
   @spec api_version_ranges(ApiVersions.t()) :: %{non_neg_integer() => {non_neg_integer(), non_neg_integer()}}

@@ -3,6 +3,8 @@ defmodule KafkaEx.Client.ResponseParser do
   This module is used to parse response from KafkaEx.Client.
   It's main decision point which protocol to use for parsing response
   """
+  require Logger
+
   alias KafkaEx.Client.Error
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Messages.ApiVersions
@@ -21,6 +23,23 @@ defmodule KafkaEx.Client.ResponseParser do
   alias KafkaEx.Messages.SyncGroup
 
   @protocol Application.compile_env(:kafka_ex, :protocol, KafkaEx.Protocol.KayrockProtocol)
+
+  @doc false
+  @spec deserialize(binary(), term()) :: {:ok, term()} | {:error, :parse_error}
+  def deserialize(frame, request) do
+    {response, _rest} = @protocol.response_deserializer(request).(frame)
+    {:ok, response}
+  rescue
+    error ->
+      Logger.error(
+        "Failed to parse a response from the server: " <>
+          inspect(frame, limit: :infinity) <>
+          " for request #{inspect(request, limit: :infinity)} " <>
+          "error: #{inspect(error)}"
+      )
+
+      {:error, :parse_error}
+  end
 
   @doc """
   Parses response for ApiVersions API
@@ -134,6 +153,14 @@ defmodule KafkaEx.Client.ResponseParser do
   @spec metadata_response(term) :: {:ok, ClusterMetadata.t()} | {:error, Error.t()}
   def metadata_response(response) do
     @protocol.parse_response(:metadata, response)
+  end
+
+  @doc """
+  Per-topic errors of a Metadata response, by topic name
+  """
+  @spec metadata_topic_errors(term) :: %{String.t() => atom()}
+  def metadata_topic_errors(response) do
+    @protocol.metadata_topic_errors(response)
   end
 
   @doc """

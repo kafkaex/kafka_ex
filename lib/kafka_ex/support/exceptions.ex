@@ -100,10 +100,7 @@ end
 
 defmodule KafkaEx.MetadataUpdateError do
   @moduledoc """
-  Raised when periodic metadata updates fail after exhausting all retry attempts.
-
-  This triggers a GenServer crash, allowing the supervisor to restart the client
-  with fresh broker connections.
+  No longer raised since 1.3.0; a raising refresh moves the metadata store to `:degraded`.
   """
   defexception [:message, :attempts]
 

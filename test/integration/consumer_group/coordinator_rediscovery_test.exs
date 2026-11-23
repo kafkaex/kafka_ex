@@ -23,7 +23,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.CoordinatorRediscoveryTest do
 
   alias KafkaEx.API
   alias KafkaEx.Client
-  alias KafkaEx.Client.State
+  alias KafkaEx.Client.MetadataStore.MetadataTable
 
   setup do
     {:ok, args} = KafkaEx.build_worker_options([])
@@ -45,23 +45,29 @@ defmodule KafkaEx.Integration.ConsumerGroup.CoordinatorRediscoveryTest do
     # First request populates the real coordinator in the cache.
     assert {:ok, _} = API.fetch_committed_offset(client, group, topic, partitions)
 
-    state = :sys.get_state(client)
-    real_coord = state.cluster_metadata.consumer_group_coordinators[group]
-    wrong_node = state.cluster_metadata.brokers |> Map.keys() |> Enum.find(&(&1 != real_coord))
+    {:ok, metadata} = API.cluster_metadata(client)
+    real_coord = metadata.consumer_group_coordinators[group]
+    wrong_node = metadata.brokers |> Map.keys() |> Enum.find(&(&1 != real_coord))
 
     assert wrong_node,
            "need a multi-broker cluster to pick a non-coordinator broker (got brokers: " <>
-             "#{inspect(Map.keys(state.cluster_metadata.brokers))}, coord: #{inspect(real_coord)})"
+             "#{inspect(Map.keys(metadata.brokers))}, coord: #{inspect(real_coord)})"
 
     # Seed the cache with the WRONG coordinator -> the next request hits a broker that
     # really is not the coordinator for this group and returns NOT_COORDINATOR.
-    :sys.replace_state(client, fn st -> State.put_consumer_group_coordinator(st, group, wrong_node) end)
+    store = :sys.get_state(client).store.pid
+
+    :sys.replace_state(store, fn {_, data} = s ->
+      MetadataTable.put_coordinator(data.table, group, wrong_node)
+      s
+    end)
 
     # PR-3: invalidate + re-discover + succeed.
     assert {:ok, _} = API.fetch_committed_offset(client, group, topic, partitions)
 
     # the cache self-corrected back to the real coordinator
-    healed = :sys.get_state(client).cluster_metadata.consumer_group_coordinators[group]
+    {:ok, healed_metadata} = API.cluster_metadata(client)
+    healed = healed_metadata.consumer_group_coordinators[group]
     assert healed == real_coord
   end
 end

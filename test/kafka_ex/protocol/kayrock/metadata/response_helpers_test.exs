@@ -266,4 +266,20 @@ defmodule KafkaEx.Protocol.Kayrock.Metadata.ResponseHelpersTest do
       assert {"auth-topic", :topic_authorization_failed} in errors
     end
   end
+
+  describe "topic_errors/1" do
+    test "topic_errors/1 keeps by-name per-topic errors and skips by-id entries and :no_error" do
+      topics = [
+        %{name: "present", error_code: 0, partitions: []},
+        %{name: "gone", error_code: 3, partitions: []},
+        %{name: "fresh", error_code: 5, partitions: []},
+        %{name: nil, topic_id: <<1::128>>, error_code: 100, partitions: []}
+      ]
+
+      assert ResponseHelpers.topic_errors(topics) == %{
+               "gone" => :unknown_topic_or_partition,
+               "fresh" => :leader_not_available
+             }
+    end
+  end
 end

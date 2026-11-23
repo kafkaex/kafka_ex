@@ -28,10 +28,11 @@ defmodule KafkaEx.Pins.Issue445PinTest do
     FakeTransport.respond(fake, :metadata, :close)
     with_request_timeout(200)
 
-    {results, _log} =
+    {{uncached, cached}, _log} =
       with_log(fn -> {API.topics_metadata(client, ["a"]), API.topics_metadata(client, ["b"])} end)
 
-    assert {{:ok, []}, {:ok, [%{name: "b"}]}} = results
+    assert {:ok, [%{name: "b"}]} = cached
+    refute match?({:ok, [_ | _]}, uncached)
   end
 
   test "a reply carrying the previous request's correlation id is not taken as the answer", %{
