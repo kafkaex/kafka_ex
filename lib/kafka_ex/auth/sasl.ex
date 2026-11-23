@@ -54,15 +54,15 @@ defmodule KafkaEx.Auth.SASL do
 
   # -------- Public API --------
 
-  @spec authenticate(Socket.t(), Config.t()) :: :ok | {:error, term()}
-  def authenticate(socket, %Config{} = creds) do
+  @spec authenticate(Socket.t(), Config.t(), Keyword.t()) :: :ok | {:error, term()}
+  def authenticate(socket, %Config{} = creds, opts \\ []) do
     with {:ok, mech_mod} <- get_mechanism_module(creds),
-         api_versions <- fetch_api_versions_if_needed(socket),
+         api_versions <- fetch_api_versions_if_needed(socket, opts),
          handshake_v <- CodecBinary.pick_handshake_version(api_versions),
          # v2 flexible headers support is limited, better play safe now
          auth_v <- api_versions |> CodecBinary.pick_authenticate_version() |> min(1),
-         :ok <- perform_handshake(socket, mech_mod, handshake_v, creds),
-         :ok <- mech_mod.authenticate(creds, fn bytes -> send_authenticate(socket, bytes, auth_v) end) do
+         :ok <- perform_handshake(socket, mech_mod, handshake_v, creds, opts),
+         :ok <- mech_mod.authenticate(creds, fn bytes -> send_authenticate(socket, bytes, auth_v, opts) end) do
       Logger.debug("SASL authentication successful")
       :ok
     else
@@ -74,12 +74,19 @@ defmodule KafkaEx.Auth.SASL do
 
   # -------- Internals --------
 
-  defp fetch_api_versions_if_needed(socket) do
+  defp fetch_api_versions_if_needed(socket, opts) do
+    case Keyword.fetch(opts, :api_versions) do
+      {:ok, api_versions} -> api_versions
+      :error -> fetch_api_versions(socket, opts)
+    end
+  end
+
+  defp fetch_api_versions(socket, opts) do
     # With Kayrock-based client, always fetch API versions (Kafka 0.10.0+)
     corr = next_correlation_id()
     req = CodecBinary.api_versions_request(corr, 0)
 
-    case send_and_receive(socket, req) do
+    case send_and_receive(socket, req, opts) do
       {:ok, resp} -> CodecBinary.parse_api_versions_response(resp, corr)
       {:error, _} -> %{}
     end
@@ -92,30 +99,38 @@ defmodule KafkaEx.Auth.SASL do
     end
   end
 
-  defp perform_handshake(socket, mech_mod, version, %Config{} = creds) do
+  defp perform_handshake(socket, mech_mod, version, %Config{} = creds, opts) do
     mech = mech_mod.mechanism_name(creds)
     corr = next_correlation_id()
     req = CodecBinary.handshake_request(mech, corr, version)
 
-    with {:ok, resp} <- send_and_receive(socket, req) do
+    with {:ok, resp} <- send_and_receive(socket, req, opts) do
       CodecBinary.parse_handshake_response(resp, corr, mech, version)
     end
   end
 
-  defp send_and_receive(socket, data) do
-    with :ok <- Socket.send(socket, data),
-         {:ok, payload} <- Socket.recv(socket, 0) do
-      {:ok, payload}
-    else
-      error -> error
+  defp send_and_receive(socket, data, opts) do
+    case Keyword.fetch(opts, :deadline) do
+      {:ok, deadline} -> send_and_receive_by(socket, data, deadline)
+      :error -> with :ok <- Socket.send(socket, data), do: Socket.recv(socket, 0)
     end
   end
 
-  defp send_authenticate(socket, auth_bytes, version) do
+  defp send_and_receive_by(socket, data, deadline) do
+    if remaining(deadline) == 0 do
+      {:error, :timeout}
+    else
+      with :ok <- Socket.send(socket, data), do: Socket.recv(socket, 0, remaining(deadline))
+    end
+  end
+
+  defp remaining(deadline), do: max(deadline - System.monotonic_time(:millisecond), 0)
+
+  defp send_authenticate(socket, auth_bytes, version, opts) do
     corr = next_correlation_id()
     req = CodecBinary.authenticate_request(auth_bytes, corr, version)
 
-    with {:ok, resp} <- send_and_receive(socket, req) do
+    with {:ok, resp} <- send_and_receive(socket, req, opts) do
       CodecBinary.parse_authenticate_response(resp, corr, version)
     end
   end

@@ -1,5 +1,8 @@
 defmodule KafkaEx.TestHelpers do
+  import ExUnit.Callbacks, only: [on_exit: 1]
+
   alias KafkaEx.API
+  alias KafkaEx.Auth.Config, as: AuthConfig
   alias KafkaEx.Client
   alias KafkaEx.Client.NodeSelector
   alias KafkaEx.Test.KayrockFixtures, as: Fixtures
@@ -7,6 +10,29 @@ defmodule KafkaEx.TestHelpers do
 
   # Hides a value's type from the compiler, so a test can pass a deliberately wrong one.
   def opaque(value), do: Process.get(:__opaque__, value)
+
+  def forward_telemetry(events, to_message) do
+    test = self()
+    handler = "forward-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach_many(
+      handler,
+      events,
+      fn event, measurements, metadata, _config ->
+        case to_message.(event, measurements, metadata) do
+          nil -> :ok
+          message -> send(test, message)
+        end
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+  end
+
+  def oauthbearer(provider \\ fn -> {:ok, "t"} end) do
+    AuthConfig.new(%{mechanism: :oauthbearer, mechanism_opts: %{token_provider: provider}})
+  end
 
   @doc """
   Returns a random string of length string_length.
@@ -48,13 +74,6 @@ defmodule KafkaEx.TestHelpers do
   """
   def wait_for_any(value_getter, dwell \\ 500, max_tries \\ 200) do
     wait_for_accum(value_getter, 1, dwell, max_tries)
-  end
-
-  def client_state(%KafkaEx.Client.State{} = state) do
-    Enum.reduce(state.cluster_metadata.brokers, state, fn
-      {_key, %{socket: nil}}, acc -> acc
-      {key, broker}, acc -> KafkaEx.Client.State.put_connection(acc, key, broker, broker.socket)
-    end)
   end
 
   @doc """

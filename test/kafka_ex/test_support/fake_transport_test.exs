@@ -61,6 +61,18 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
     )
   end
 
+  defp seam_connect(fake, host, port, opts \\ []) do
+    FakeTransport.connect(
+      %{host: host, port: port, role: Keyword.get(opts, :role, :data)},
+      FakeTransport.ssl_options(
+        fake,
+        [:binary, {:packet, 4}, {:active, false}] ++ Keyword.get(opts, :socket_options, [])
+      ),
+      Keyword.get(opts, :use_ssl, false),
+      Keyword.get(opts, :timeout, 1_000)
+    )
+  end
+
   defp attach(event, host) do
     test_pid = self()
     handler = "fake-transport-#{inspect(make_ref())}"
@@ -278,7 +290,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
         )
 
       assert {:ok, %{brokers: %{1 => broker}}} = API.cluster_metadata(client)
-      assert Broker.connected?(broker)
+      assert broker.socket == nil
       assert [:api_versions, :sasl_handshake, :sasl_authenticate | _] = conn_apis(fake, 1)
     end
   end
@@ -1063,6 +1075,25 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
         assert FakeTransport.send_sync_request(%{host: "a", port: 1, socket: socket}, metadata_v0(1), 1_000) ==
                  {:error, :closed}
       end)
+    end
+  end
+
+  describe "the low-level seam" do
+    test "a frame written on the seam is answered on read" do
+      fake = start_fake()
+      {:ok, socket} = seam_connect(fake, "a", 1)
+
+      assert FakeTransport.write(socket, metadata_v0(5)) == :ok
+      assert {:ok, <<5::32-signed, _::binary>>} = FakeTransport.read(socket, 1_000)
+      assert [%{api: :metadata}] = FakeTransport.requests(fake)
+    end
+
+    test "an ApiVersions request at any version is answered" do
+      fake = start_fake()
+      {:ok, socket} = seam_connect(fake, "a", 1)
+
+      :ok = FakeTransport.write(socket, <<18::16, 3::16, 7::32, 4::16, "test", 0, 0, 0>>)
+      assert {:ok, <<7::32-signed, _::binary>>} = FakeTransport.read(socket, 1_000)
     end
   end
 end

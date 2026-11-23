@@ -3,6 +3,7 @@ defmodule KafkaEx.Network.NetworkClient do
   KafkaEx implementation of Client used to connect to Kafka Broker
   """
   @behaviour KafkaEx.Network.Behaviour
+  @behaviour KafkaEx.Network.Transport
   require Logger
 
   alias KafkaEx.Auth.Config, as: AuthConfig
@@ -49,7 +50,7 @@ defmodule KafkaEx.Network.NetworkClient do
   defp do_authenticate_sasl(_socket, nil, _host, _port), do: :ok
 
   defp do_authenticate_sasl(socket, %AuthConfig{} = cfg, host, port) do
-    mechanism = get_mechanism_name(cfg)
+    mechanism = AuthConfig.mechanism_name(cfg)
     metadata = Telemetry.auth_metadata(host, port, mechanism)
 
     Telemetry.span([:kafka_ex, :auth], metadata, fn ->
@@ -57,12 +58,6 @@ defmodule KafkaEx.Network.NetworkClient do
       {result, %{}}
     end)
   end
-
-  defp get_mechanism_name(%AuthConfig{mechanism: :plain}), do: "PLAIN"
-  defp get_mechanism_name(%AuthConfig{mechanism: :scram, mechanism_opts: %{algo: :sha512}}), do: "SCRAM-SHA-512"
-  defp get_mechanism_name(%AuthConfig{mechanism: :scram}), do: "SCRAM-SHA-256"
-  defp get_mechanism_name(%AuthConfig{mechanism: :oauthbearer}), do: "OAUTHBEARER"
-  defp get_mechanism_name(%AuthConfig{mechanism: mech}), do: to_string(mech)
 
   @impl true
   def close_socket(nil), do: :ok
@@ -169,6 +164,23 @@ defmodule KafkaEx.Network.NetworkClient do
         {:error, reason}
     end
   end
+
+  @impl KafkaEx.Network.Transport
+  def connect(%{host: host, port: port}, socket_options, use_ssl, timeout) do
+    Socket.create(format_host(host), port, socket_options, use_ssl, timeout)
+  end
+
+  @impl KafkaEx.Network.Transport
+  def write(socket, data), do: Socket.send(socket, data)
+
+  @impl KafkaEx.Network.Transport
+  def read(socket, timeout), do: Socket.recv(socket, 0, timeout)
+
+  @impl KafkaEx.Network.Transport
+  def activate(socket), do: Socket.setopts(socket, [:binary, {:packet, 4}, {:active, :once}])
+
+  @impl KafkaEx.Network.Transport
+  def close(socket), do: Socket.close(socket)
 
   @impl true
   def format_host(host) do

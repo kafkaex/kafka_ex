@@ -1,50 +1,9 @@
 defmodule KafkaEx.Pins.TodayOnlyPinTest do
   use KafkaEx.TestSupport.PinCase, async: false
 
-  alias KafkaEx.Cluster.Broker
   alias KafkaEx.Config
 
   @moduletag pin_set: :today_only
-
-  @tag retired_by: 1491
-  test "raw Broker.connected?/1 is true for every connected broker" do
-    %{client: client} = start_pinned()
-
-    assert {:ok, %{brokers: brokers}} = API.cluster_metadata(client)
-    assert brokers |> Map.values() |> Enum.map(&Broker.connected?/1) == [true, true]
-  end
-
-  @tag retired_by: 1491
-  test "a request timeout closes the socket with close reason :timeout" do
-    %{fake: fake, client: client, host: host} = start_pinned()
-    watch_close(host)
-    with_request_timeout(200)
-    FakeTransport.respond(fake, :produce, :no_reply)
-
-    {result, _log} = with_log(fn -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
-
-    assert result == {:error, :timeout}
-    assert_receive {:pin_closed, %{port: 9092, reason: :timeout}}, 5_000
-  end
-
-  @tag retired_by: 1491
-  test "the client connects to every broker in the boot metadata before any request" do
-    %{fake: fake, host: host} = start_pinned()
-
-    assert fake |> FakeTransport.connects() |> Enum.map(&{&1.host, &1.port}) |> Enum.sort() ==
-             [{host, 9092}, {host, 9093}]
-  end
-
-  @tag retired_by: 1491
-  test "ApiVersions is negotiated once per client" do
-    %{fake: fake, client: client} = start_pinned()
-    FakeTransport.respond(fake, :produce, produce_reply())
-
-    {:ok, _} = API.produce(client, @topic, 0, [%{value: "v"}])
-    {:ok, _} = API.produce(client, @topic, 1, [%{value: "v"}])
-
-    assert count(fake, :api_versions) == 1
-  end
 
   @tag retired_by: 1492
   test "a raising periodic refresh crashes the client with MetadataUpdateError" do

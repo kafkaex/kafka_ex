@@ -13,6 +13,8 @@ defmodule KafkaEx.TestSupport.PinCase do
   import ExUnit.Callbacks, only: [start_supervised!: 1, on_exit: 1]
 
   alias KafkaEx.Client
+  alias KafkaEx.Client.ConnectionStateMachine
+  alias KafkaEx.Client.Supervisor, as: ClientSupervisor
   alias KafkaEx.TestSupport.FakeTransport
   alias KafkaEx.TestSupport.PinGate
 
@@ -34,6 +36,7 @@ defmodule KafkaEx.TestSupport.PinCase do
   using do
     quote do
       import ExUnit.CaptureLog
+      import KafkaEx.TestHelpers, only: [forward_telemetry: 2, oauthbearer: 0, oauthbearer: 1]
       import KafkaEx.TestSupport.PinCase
 
       alias KafkaEx.API
@@ -48,7 +51,8 @@ defmodule KafkaEx.TestSupport.PinCase do
   def start_pinned(opts \\ []) do
     versions = @versions |> Map.merge(Keyword.get(opts, :api_versions, %{})) |> Map.reject(&is_nil(elem(&1, 1)))
     topics = Keyword.get(opts, :topics, %{@topic => [1, 2]})
-    %{fake: fake, host: host} = start_fake([{1, 9092}, {2, 9093}], topics: topics, api_versions: versions)
+    fake_opts = [topics: topics, api_versions: versions] ++ Keyword.get(opts, :fake, [])
+    %{fake: fake, host: host} = start_fake([{1, 9092}, {2, 9093}], fake_opts)
 
     :ok = FakeTransport.respond(fake, :find_coordinator, %{node_id: 2, host: host, port: 9093, error_message: nil})
     Keyword.get(opts, :before_boot, fn _fake -> :ok end).(fake)
@@ -152,13 +156,22 @@ defmodule KafkaEx.TestSupport.PinCase do
       1000::32-signed, 255, 0>>
   end
 
-  def member_epoch(%{frame: frame}) do
+  def member_epoch(request) do
+    {_member, <<epoch::32-signed, _::binary>>} = heartbeat_member(request)
+    epoch
+  end
+
+  def member_id(request) do
+    {member, _rest} = heartbeat_member(request)
+    member
+  end
+
+  defp heartbeat_member(%{frame: frame}) do
     <<_api::16, _version::16, _corr::32, client_id_size::16-signed, _client_id::binary-size(client_id_size), 0,
       rest::binary>> = frame
 
     {_group, rest} = compact_string(rest)
-    {_member, <<epoch::32-signed, _::binary>>} = compact_string(rest)
-    epoch
+    compact_string(rest)
   end
 
   defp compact_string(<<length_plus_one, rest::binary>>) when length_plus_one < 128 do
@@ -188,9 +201,31 @@ defmodule KafkaEx.TestSupport.PinCase do
     assert_receive {:pin_closed, %{port: 9092}}, 5_000
   end
 
-  def with_request_timeout(ms) do
-    previous = Application.get_env(:kafka_ex, :request_timeout)
-    Application.put_env(:kafka_ex, :request_timeout, ms)
-    on_exit(fn -> Application.put_env(:kafka_ex, :request_timeout, previous) end)
+  def with_request_timeout(ms), do: with_env(:request_timeout, ms)
+
+  def with_env(key, value) do
+    previous = Application.fetch_env(:kafka_ex, key)
+    Application.put_env(:kafka_ex, key, value)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, previous} -> Application.put_env(:kafka_ex, key, previous)
+        :error -> Application.delete_env(:kafka_ex, key)
+      end
+    end)
+  end
+
+  # The connection supervisor runs as Supervisor.Default, as ExUnit <= 1.16's test supervisor does: diff two calls.
+  def supervisor_processes do
+    for pid <- Process.list(),
+        {:dictionary, dictionary} <- [Process.info(pid, :dictionary)],
+        self() in Keyword.get(dictionary, :"$ancestors", []),
+        Keyword.get(dictionary, :"$initial_call") in [
+          {ConnectionStateMachine, :init, 1},
+          {:supervisor, ClientSupervisor, 1},
+          {:supervisor, Supervisor.Default, 1}
+        ] do
+      pid
+    end
   end
 end

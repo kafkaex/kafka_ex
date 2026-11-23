@@ -15,7 +15,8 @@ defmodule KafkaEx.Client.RequestContextTest do
       ctx = %RequestContext{
         request: %FakeRequest{},
         parser_fn: fn _ -> {:ok, :parsed} end,
-        node_selector: NodeSelector.first_available()
+        node_selector: NodeSelector.first_available(),
+        builder: fn _state -> {:ok, %FakeRequest{}} end
       }
 
       assert ctx.retryable?.(:not_leader_for_partition) == true

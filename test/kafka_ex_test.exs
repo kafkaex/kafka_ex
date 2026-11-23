@@ -28,6 +28,12 @@ defmodule KafkaExTest do
       refute Keyword.has_key?(opts, :transport)
     end
 
+    test "drops the internal :connection option" do
+      {:ok, opts} = KafkaEx.build_worker_options(connection: :anything)
+
+      refute Keyword.has_key?(opts, :connection)
+    end
+
     test "merges config defaults when nothing is supplied" do
       {:ok, opts} = KafkaEx.build_worker_options([])
 

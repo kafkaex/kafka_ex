@@ -40,6 +40,8 @@ defmodule KafkaEx.Telemetry do
 
   ### Connection Events
 
+  A client's connection events are emitted by its connection processes, not by the client process.
+
   * `[:kafka_ex, :connection, :start]` - Emitted when connecting to a broker
     * Measurements: `%{system_time: integer()}`
     * Metadata: `%{host: binary(), port: integer(), ssl: boolean()}`
@@ -57,13 +59,18 @@ defmodule KafkaEx.Telemetry do
     * Metadata: `%{host: binary(), port: integer(), reason: atom()}`
       * `reason` - Why the connection closed:
         * `:remote_closed` - Remote broker closed the connection
-        * `:timeout` - Request timed out
         * `:send_error` - Error sending data
         * `:recv_error` - Error receiving data
+        * `:liveness` - A request outlived its liveness bound
+        * `:setup_timeout` - The connection handshake missed its deadline
+        * `:correlation_mismatch` - A reply carried an unknown or duplicate correlation id
+        * `:idle` - An idle fetch connection was closed
+        * `:auth_error` - SASL authentication failed
         * `:shutdown` - Client shutdown
         * `:init_error` - Error during client initialization
         * `:metadata_update` - Broker removed due to cluster topology change
-        * `:reconnecting` - Socket closed before reconnection attempt
+        * `:timeout` - A request sent directly through `KafkaEx.Network.NetworkClient` timed out; a client's
+          connections stay open when a request times out
 
   ### Authentication Events
 
@@ -477,6 +484,49 @@ defmodule KafkaEx.Telemetry do
       stop_metadata_with_result = add_result_to_metadata(result, stop_metadata)
       {result, stop_metadata_with_result}
     end)
+  end
+
+  # :telemetry.span/3 split in two, for a span that opens partway through the caller's work.
+  @doc false
+  @spec start_span(list(atom()), map()) :: {list(atom()), reference(), integer()}
+  def start_span(event_prefix, start_metadata) do
+    context = make_ref()
+    start_time = System.monotonic_time()
+
+    :telemetry.execute(
+      event_prefix ++ [:start],
+      %{monotonic_time: start_time, system_time: System.system_time()},
+      Map.put_new(start_metadata, :telemetry_span_context, context)
+    )
+
+    {event_prefix, context, start_time}
+  end
+
+  @doc false
+  @spec stop_span({list(atom()), reference(), integer()}, {result, map()}) :: result when result: any()
+  def stop_span({event_prefix, context, start_time}, {result, stop_metadata}) do
+    stop_time = System.monotonic_time()
+
+    :telemetry.execute(
+      event_prefix ++ [:stop],
+      %{duration: stop_time - start_time, monotonic_time: stop_time},
+      Map.put_new(add_result_to_metadata(result, stop_metadata), :telemetry_span_context, context)
+    )
+
+    result
+  end
+
+  @doc false
+  @spec exception_span({list(atom()), reference(), integer()}, map(), :error | :exit | :throw, term(), list()) :: :ok
+  def exception_span({event_prefix, context, start_time}, start_metadata, kind, reason, stacktrace) do
+    stop_time = System.monotonic_time()
+    failure = %{kind: kind, reason: reason, stacktrace: stacktrace}
+
+    :telemetry.execute(
+      event_prefix ++ [:exception],
+      %{duration: stop_time - start_time, monotonic_time: stop_time},
+      Map.put_new(Map.merge(start_metadata, failure), :telemetry_span_context, context)
+    )
   end
 
   defp add_result_to_metadata({{:ok, _}, _state}, metadata), do: Map.put(metadata, :result, :ok)

@@ -1,0 +1,190 @@
+defmodule KafkaEx.Client.SupervisorTest do
+  use KafkaEx.TestSupport.PinCase, async: false
+
+  alias KafkaEx.Client.ConnectionStateMachine
+  alias KafkaEx.Client.Supervisor, as: ClientSupervisor
+  alias KafkaEx.Messages.RecordMetadata
+
+  test "the client supervisor restarts rest-for-one, at most 3 times in 5 seconds, with the connection supervisor first" do
+    assert {:ok, {flags, children}} = ClientSupervisor.init([])
+    assert %{strategy: :rest_for_one, intensity: 3, period: 5} = flags
+    assert [%{id: :connections, type: :supervisor}] = children
+  end
+
+  test "a stop that runs out of time leaves the process linked to the client supervisor alive" do
+    {:ok, supervisor} = ClientSupervisor.start_link()
+
+    assert %{active: 0, supervisors: 0} =
+             DynamicSupervisor.count_children(ClientSupervisor.connection_supervisor(supervisor))
+
+    start_stuck_child(supervisor)
+    monitor = Process.monitor(supervisor)
+
+    assert ClientSupervisor.stop(supervisor, :shutdown, 100) == :ok
+    assert_receive {:DOWN, ^monitor, :process, ^supervisor, :killed}, 1_000
+  end
+
+  defp start_stuck_child(supervisor) do
+    test = self()
+
+    stuck = fn ->
+      Process.flag(:trap_exit, true)
+      send(test, :trapping)
+
+      receive do
+        :never -> :ok
+      end
+    end
+
+    {:ok, _pid} =
+      DynamicSupervisor.start_child(
+        ClientSupervisor.connection_supervisor(supervisor),
+        %{id: :stuck, start: {Task, :start_link, [stuck]}, shutdown: 5_000}
+      )
+
+    assert_receive :trapping, 1_000
+  end
+
+  test "a connection is a temporary child with a 2 second shutdown" do
+    assert %{restart: :temporary, shutdown: 2_000, start: {ConnectionStateMachine, :start_link, [_]}} =
+             Supervisor.child_spec({ConnectionStateMachine, %{}}, [])
+  end
+
+  describe "a running client" do
+    setup do
+      pinned = start_pinned()
+      FakeTransport.respond(pinned.fake, :produce, produce_reply())
+      watch_close(pinned.host)
+      Map.put(pinned, :supervisor, :sys.get_state(pinned.client).supervisor)
+    end
+
+    test "is linked to its supervisor and does not trap exits", %{client: client, supervisor: supervisor} do
+      assert {:links, links} = Process.info(client, :links)
+      assert supervisor in links
+      assert Process.info(client, :trap_exit) == {:trap_exit, false}
+    end
+
+    test "stopped, closes every connection with :shutdown and leaves no supervisor or connection alive", ctx do
+      assert_teardown(ctx, fn client ->
+        :ok = GenServer.stop(client, :normal, 5_000)
+        refute Process.alive?(ctx.supervisor)
+      end)
+    end
+
+    test "killed, closes every connection with :shutdown and leaves no supervisor or connection alive", ctx do
+      assert_teardown(ctx, &Process.exit(&1, :kill))
+    end
+
+    test "survives its connection supervisor being killed, which the client supervisor restarts", %{
+      client: client,
+      supervisor: supervisor
+    } do
+      connection_supervisor = ClientSupervisor.connection_supervisor(supervisor)
+      refs = Enum.map([connection_supervisor | connections(supervisor)], &Process.monitor/1)
+
+      Process.exit(connection_supervisor, :kill)
+
+      for ref <- refs, do: assert_receive({:DOWN, ^ref, :process, _pid, _reason}, 5_000)
+      restarted = ClientSupervisor.connection_supervisor(supervisor)
+      assert is_pid(restarted) and restarted != connection_supervisor
+      assert Process.alive?(client)
+      assert {:ok, %RecordMetadata{base_offset: 7}} = API.produce(client, @topic, 0, [%{value: "v"}])
+    end
+
+    test "answers without a connection while its connection supervisor is down, and connects once it is back", %{
+      client: client,
+      supervisor: supervisor
+    } do
+      :ok = Supervisor.terminate_child(supervisor, :connections)
+      assert ClientSupervisor.connection_supervisor(supervisor) == nil
+      {:ok, before} = API.correlation_id(client)
+      attach_request_start()
+
+      {result, _log} = with_log(fn -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
+
+      assert result == {:error, :no_broker}
+      assert Process.alive?(client)
+      assert API.correlation_id(client) == {:ok, before}
+      refute_received {:request_start, _metadata}
+
+      {:ok, _supervisor} = Supervisor.restart_child(supervisor, :connections)
+      assert {:ok, %RecordMetadata{base_offset: 7}} = API.produce(client, @topic, 0, [%{value: "v"}])
+    end
+
+    test "crashes when a connection fails to start", %{client: client} do
+      ref = Process.monitor(client)
+      :sys.replace_state(client, &%{&1 | connection_opts: [initial_correlation_id: -1]})
+
+      {exit, _log} = with_log(fn -> catch_exit(API.produce(client, @topic, 0, [%{value: "v"}])) end)
+
+      assert {{{:case_clause, {:error, _}}, [_ | _]}, _call} = exit
+      assert_receive {:DOWN, ^ref, :process, ^client, {{:case_clause, {:error, _}}, [_ | _]}}, 5_000
+    end
+
+    test "crashes when its connection supervisor exits on a start", %{client: client, supervisor: supervisor} do
+      ref = Process.monitor(client)
+      :sys.replace_state(ClientSupervisor.connection_supervisor(supervisor), fn _state -> :broken end)
+
+      {exit, _log} = with_log(fn -> catch_exit(API.produce(client, @topic, 0, [%{value: "v"}])) end)
+
+      assert {{_crash, {GenServer, :call, [_supervisor, {:start_child, _child}, :infinity]}} = reason, _call} = exit
+      assert_receive {:DOWN, ^ref, :process, ^client, ^reason}, 5_000
+    end
+  end
+
+  test "a failed boot leaves no supervisor or connection alive" do
+    with_env(:sleep_for_reconnect, 0)
+    Process.flag(:trap_exit, true)
+    %{fake: fake, host: host} = start_fake([{1, 9092}])
+    before = supervisor_processes()
+
+    {result, _log} =
+      with_log(fn ->
+        Client.start_link(
+          [
+            uris: [{host, 9999}],
+            consumer_group: :no_consumer_group,
+            transport: FakeTransport,
+            ssl_options: FakeTransport.ssl_options(fake)
+          ],
+          :no_name
+        )
+      end)
+
+    assert {:error, _reason} = result
+    assert [_ | _] = FakeTransport.connects(fake)
+    assert supervisor_processes() -- before == []
+
+    %{client: client} = start_pinned()
+    assert client |> :sys.get_state() |> Map.fetch!(:supervisor) |> connections() |> length() == 1
+    assert length(supervisor_processes() -- before) == 3
+  end
+
+  defp assert_teardown(%{client: client, supervisor: supervisor}, stop) do
+    {:ok, _} = API.produce(client, @topic, 0, [%{value: "v"}])
+    {:ok, _} = API.produce(client, @topic, 1, [%{value: "v"}])
+    processes = [supervisor | connections(supervisor)]
+    assert length(processes) == 4
+    refs = Enum.map(processes, &Process.monitor/1)
+
+    stop.(client)
+
+    for ref <- refs, do: assert_receive({:DOWN, ^ref, :process, _pid, _reason}, 5_000)
+    for _connection <- 1..3, do: assert_receive({:pin_closed, %{reason: :shutdown}}, 1_000)
+    refute_receive {:pin_closed, _}, 100
+  end
+
+  defp attach_request_start do
+    forward_telemetry([[:kafka_ex, :request, :start]], fn _event, _measurements, metadata ->
+      {:request_start, metadata}
+    end)
+  end
+
+  defp connections(supervisor) do
+    for {_id, pid, _type, _modules} <-
+          DynamicSupervisor.which_children(ClientSupervisor.connection_supervisor(supervisor)),
+        is_pid(pid) do
+      pid
+    end
+  end
+end

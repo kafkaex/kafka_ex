@@ -53,6 +53,10 @@ defmodule KafkaEx.Client.RequestContext do
       full request with the owned partitions (Java resets the heartbeat
       state on any disconnect and never resends a request).
 
+    * `builder` - builds the request again against the versions
+      a connection reports when it refuses the built one, so the retry loop can
+      resend at a version that connection negotiated.
+
     * Backoff/jitter between attempts is intentionally absent — the client loop
       retries immediately (refreshing metadata on leadership errors). If added
       later, a retry-policy field on this struct is the seam.
@@ -61,11 +65,12 @@ defmodule KafkaEx.Client.RequestContext do
   alias KafkaEx.Client.NodeSelector
   alias KafkaEx.Support.Retry
 
-  @enforce_keys [:request, :parser_fn, :node_selector]
+  @enforce_keys [:request, :parser_fn, :node_selector, :builder]
   defstruct [
     :request,
     :parser_fn,
     :node_selector,
+    :builder,
     retryable?: &Retry.data_plane_retryable?/1,
     network_timeout: nil,
     rediscover_coordinator?: false,
@@ -78,6 +83,9 @@ defmodule KafkaEx.Client.RequestContext do
   @typedoc "Decides whether an error should trigger a retry."
   @type retryable_fn :: (term() -> boolean())
 
+  @typedoc "Builds the request again from client state with another version map."
+  @type builder_fn :: (KafkaEx.Client.State.t() -> {:ok, struct()} | {:error, term()})
+
   @type t :: %__MODULE__{
           request: struct(),
           parser_fn: parser_fn(),
@@ -85,6 +93,7 @@ defmodule KafkaEx.Client.RequestContext do
           retryable?: retryable_fn(),
           network_timeout: non_neg_integer() | nil,
           rediscover_coordinator?: boolean(),
-          send_once?: (atom() -> boolean())
+          send_once?: (atom() -> boolean()),
+          builder: builder_fn()
         }
 end

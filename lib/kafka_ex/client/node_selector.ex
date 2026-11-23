@@ -4,6 +4,7 @@ defmodule KafkaEx.Client.NodeSelector do
   """
 
   alias KafkaEx.API, as: KafkaExAPI
+  alias KafkaEx.Client.ConnectionStateMachine
 
   defstruct strategy: nil,
             node_id: nil,
@@ -95,4 +96,18 @@ defmodule KafkaEx.Client.NodeSelector do
       consumer_group_name: consumer_group_name
     }
   end
+
+  @metadata_ops [:metadata, :find_coordinator, :api_versions]
+
+  @doc false
+  @spec connection_role(t(), atom()) :: ConnectionStateMachine.role()
+  def connection_role(_selector, op) when op in @metadata_ops, do: :metadata
+  def connection_role(%__MODULE__{strategy: :consumer_group}, _op), do: :coordinator
+
+  def connection_role(%__MODULE__{strategy: strategy}, :fetch)
+      when strategy in [:topic_partition, :topic_partition_replica] do
+    :fetch
+  end
+
+  def connection_role(_selector, _op), do: :data
 end
