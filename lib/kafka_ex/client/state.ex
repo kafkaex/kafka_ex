@@ -93,52 +93,6 @@ defmodule KafkaEx.Client.State do
     %{state | correlation_id: cid + 1}
   end
 
-  def select_broker(%__MODULE__{cluster_metadata: cluster_metadata}, selector) do
-    with {:ok, node_id} <- ClusterMetadata.select_node(cluster_metadata, selector),
-         broker when not is_nil(broker) <- ClusterMetadata.broker_by_node_id(cluster_metadata, node_id) do
-      {:ok, broker}
-    else
-      nil -> {:error, :broker_not_found}
-      err -> err
-    end
-  end
-
-  def update_brokers(%__MODULE__{cluster_metadata: cluster_metadata} = state, cb) when is_function(cb, 1) do
-    %{state | cluster_metadata: ClusterMetadata.update_brokers(cluster_metadata, cb)}
-  end
-
-  def select_broker_entry(%__MODULE__{cluster_metadata: cluster_metadata}, selector) do
-    with {:ok, key} <- ClusterMetadata.select_node(cluster_metadata, selector),
-         broker when not is_nil(broker) <- ClusterMetadata.broker_by_node_id(cluster_metadata, key) do
-      {:ok, key, broker}
-    else
-      nil -> {:error, :broker_not_found}
-      err -> err
-    end
-  end
-
-  def put_consumer_group_coordinator(%__MODULE__{cluster_metadata: cluster_metadata} = state, group, node_id) do
-    new_metadata = ClusterMetadata.put_consumer_group_coordinator(cluster_metadata, group, node_id)
-    %{state | cluster_metadata: new_metadata}
-  end
-
-  def drop_consumer_group_coordinator(%__MODULE__{cluster_metadata: cluster_metadata} = state, group) do
-    new_metadata = ClusterMetadata.drop_consumer_group_coordinator(cluster_metadata, group)
-    %{state | cluster_metadata: new_metadata}
-  end
-
-  def remove_topics(%__MODULE__{cluster_metadata: cluster_metadata} = state, topics) do
-    %{state | cluster_metadata: ClusterMetadata.remove_topics(cluster_metadata, topics)}
-  end
-
-  def topics_metadata(%__MODULE__{cluster_metadata: cluster_metadata}, wanted_topics) do
-    ClusterMetadata.topics_metadata(cluster_metadata, wanted_topics)
-  end
-
-  def brokers(%__MODULE__{cluster_metadata: cluster_metadata}) do
-    ClusterMetadata.brokers(cluster_metadata)
-  end
-
   @spec api_version_ranges(ApiVersions.t()) :: %{non_neg_integer() => {non_neg_integer(), non_neg_integer()}}
   def api_version_ranges(%ApiVersions{api_versions: api_versions_map}) do
     Map.new(api_versions_map, fn {api_key, %{min_version: min_version, max_version: max_version}} ->

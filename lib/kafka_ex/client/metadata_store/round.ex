@@ -1,5 +1,11 @@
 defmodule KafkaEx.Client.MetadataStore.Round do
-  @moduledoc false
+  @moduledoc """
+  One metadata or FindCoordinator request, walked across the candidate brokers in order. The store runs `run/1`
+  in a separate monitored process that sends the result back to the store. A candidate that fails to connect,
+  cannot take the request at its versions, times out or answers with an unparsable response passes the walk to
+  the next one. The walk opens one request span, at its first write, and closes it with the result. A metadata
+  answer that misses a newly requested topic is retried after a delay while the round's bound allows.
+  """
 
   require Logger
 

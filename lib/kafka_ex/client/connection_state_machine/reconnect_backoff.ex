@@ -9,7 +9,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine.ReconnectBackoff do
   stable for `stable_period` resets the failure count.
   """
 
-  import Bitwise, only: [<<<: 2]
+  alias KafkaEx.Support.Retry
 
   @base_ms 100
   @cap_ms 500
@@ -55,9 +55,6 @@ defmodule KafkaEx.Client.ConnectionStateMachine.ReconnectBackoff do
 
   @spec delay(pos_integer()) :: pos_integer()
   def delay(failures) when is_integer(failures) and failures > 0 do
-    raw = (@base_ms <<< min(failures - 1, 16)) * uniform(0.75, 1.5)
-    if raw < @cap_ms, do: round(raw), else: round(@cap_ms * uniform(0.8, 1.0))
+    Retry.backoff_delay_jittered(failures - 1, @base_ms, @cap_ms)
   end
-
-  defp uniform(low, high), do: low + (high - low) * :rand.uniform()
 end

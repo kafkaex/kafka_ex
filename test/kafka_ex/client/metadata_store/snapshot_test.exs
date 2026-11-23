@@ -3,7 +3,6 @@ defmodule KafkaEx.Client.MetadataStore.SnapshotTest do
 
   alias KafkaEx.Client.MetadataStore.Snapshot
   alias KafkaEx.Client.NodeSelector
-  alias KafkaEx.Client.State
   alias KafkaEx.Cluster.Broker
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Cluster.PartitionInfo
@@ -54,13 +53,7 @@ defmodule KafkaEx.Client.MetadataStore.SnapshotTest do
             {key, {node, :stale}} -> {key, {node, {tid, counter - 1}}}
           end)
 
-        expected =
-          outcome(fn ->
-            State.select_broker_entry(
-              %State{cluster_metadata: %{metadata | preferred_replicas: preferred}},
-              selector
-            )
-          end)
+        expected = outcome(fn -> select_broker_entry(%{metadata | preferred_replicas: preferred}, selector) end)
 
         assert outcome(fn -> Snapshot.select(tid, selector, stamped) end) == expected, name
       end
@@ -251,6 +244,15 @@ defmodule KafkaEx.Client.MetadataStore.SnapshotTest do
       seen
     else
       read_routes(tid, seen, reads + 1, deadline)
+    end
+  end
+
+  defp select_broker_entry(metadata, selector) do
+    with {:ok, node_id} <- ClusterMetadata.select_node(metadata, selector) do
+      case ClusterMetadata.broker_by_node_id(metadata, node_id) do
+        nil -> {:error, :broker_not_found}
+        broker -> {:ok, node_id, broker}
+      end
     end
   end
 

@@ -2,7 +2,6 @@ defmodule KafkaEx.Client.MetadataStoreTest do
   use KafkaEx.TestSupport.StoreCase, async: false
 
   alias KafkaEx.Client.MetadataStore.Round
-  alias KafkaEx.Client.State
   alias KafkaEx.Cluster.Broker
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Cluster.Topic
@@ -656,8 +655,17 @@ defmodule KafkaEx.Client.MetadataStoreTest do
         end
 
     for selector <- selectors do
-      today = outcome(fn -> State.select_broker_entry(%State{cluster_metadata: expected}, selector) end)
+      today = outcome(fn -> select_broker_entry(expected, selector) end)
       assert outcome(fn -> Snapshot.select(tid, selector, %{}) end) == today, inspect(selector)
+    end
+  end
+
+  defp select_broker_entry(metadata, selector) do
+    with {:ok, node_id} <- ClusterMetadata.select_node(metadata, selector) do
+      case ClusterMetadata.broker_by_node_id(metadata, node_id) do
+        nil -> {:error, :broker_not_found}
+        broker -> {:ok, node_id, broker}
+      end
     end
   end
 

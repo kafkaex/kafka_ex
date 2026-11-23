@@ -261,7 +261,7 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
     end
   end
 
-  defp lower_bound(n), do: min(0.75 * @backoff_base_ms * Integer.pow(2, n - 1), 0.8 * @backoff_cap_ms)
+  defp lower_bound(n), do: min(0.8 * @backoff_base_ms * Integer.pow(2, n - 1), 0.8 * @backoff_cap_ms)
 
   defp fitting(duration, n, elapsed \\ 0, attempts \\ 1) do
     elapsed = elapsed + lower_bound(n)

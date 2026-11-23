@@ -1,5 +1,13 @@
 defmodule KafkaEx.Client.MetadataStore.Snapshot do
-  @moduledoc false
+  @moduledoc """
+  The per-client ETS table holding the cluster metadata the metadata store fetched: the broker map with the
+  controller id, topics, one row per partition with its leader and that leader's broker, consumer-group
+  coordinators, topic ids, and a counter bumped on every applied response.
+
+  The table is protected, so only the store writes it; any process reads it directly, without calling the client
+  or the store. `select/3` routes a partition from that one partition row. On a deleted table, routing, counter
+  and topic reads return `{:error, :unavailable}`; the broker list and the struct views come back empty.
+  """
 
   alias KafkaEx.Client.NodeSelector
   alias KafkaEx.Cluster.Broker

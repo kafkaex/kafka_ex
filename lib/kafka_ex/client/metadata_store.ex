@@ -7,13 +7,13 @@ defmodule KafkaEx.Client.MetadataStore do
   alias KafkaEx.Client
   alias KafkaEx.Client.ConnectionStateMachine
   alias KafkaEx.Client.MetadataLog
-  alias KafkaEx.Client.MetadataStore.Backoff
   alias KafkaEx.Client.MetadataStore.Round
   alias KafkaEx.Client.MetadataStore.Snapshot
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Cluster.Topic
   alias KafkaEx.Config
   alias KafkaEx.Messages.FindCoordinator
+  alias KafkaEx.Support.Retry
   alias KafkaEx.Telemetry
 
   @defaults [
@@ -368,12 +368,23 @@ defmodule KafkaEx.Client.MetadataStore do
 
     backoffs =
       Enum.reduce(round.reasons, data.backoffs, fn reason, backoffs ->
-        entry = Backoff.next_at(backoffs[reason], outcome(reason, result, data), now, pacing(data.opts, reason))
+        entry = next_at(backoffs[reason], outcome(reason, result, data), now, pacing(data.opts, reason))
         Map.put(backoffs, reason, entry)
       end)
 
     %{data | backoffs: backoffs}
   end
+
+  defp next_at(_entry, :ok, now, pacing), do: %{failures: 0, next_at: now + pacing.min_interval}
+  defp next_at(entry, :failed, now, pacing), do: %{failures: failures(entry), next_at: now + pacing.min_interval}
+
+  defp next_at(entry, :bad, now, pacing) do
+    failures = failures(entry) + 1
+    %{failures: failures, next_at: now + max(pacing.min_interval, delay(failures, pacing.base, pacing.cap))}
+  end
+
+  defp failures(nil), do: 0
+  defp failures(entry), do: entry.failures
 
   defp pacing(opts, {:coordinator, _group}) do
     %{min_interval: opts.min_interval, base: opts.coordinator_base, cap: opts.coordinator_cap}
@@ -577,7 +588,8 @@ defmodule KafkaEx.Client.MetadataStore do
 
   defp failure_text({:error, reason}), do: inspect(reason)
 
-  defp backoff(data), do: Backoff.delay(data.failures, data.opts.backoff_base, data.opts.backoff_cap)
+  defp backoff(data), do: delay(data.failures, data.opts.backoff_base, data.opts.backoff_cap)
+  defp delay(failures, base, cap), do: Retry.backoff_delay_jittered(failures - 1, base, cap)
 
   defp periodic(data), do: {{:timeout, :periodic}, data.interval, nil}
 

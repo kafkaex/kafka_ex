@@ -77,7 +77,7 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
     end
   end
 
-  defp lower_bound(failures), do: min(75 * Integer.pow(2, failures - 1), 400)
+  defp lower_bound(failures), do: min(80 * Integer.pow(2, failures - 1), 400)
 
   # Every attempt runs into the 700 ms setup deadline, longer than any backoff, so attempts follow back to back.
   defp start_never_completing(tls, window) do
@@ -891,7 +891,7 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
       assert [_ | _] = attempts = drain_attempts()
       gaps = attempts |> Enum.zip(tl(attempts)) |> Enum.map(fn {a, b} -> b - a end)
 
-      assert length(attempts) <= ceil(:math.log2(600 / 75)) + 2
+      assert length(attempts) <= ceil(:math.log2(600 / 80)) + 2
 
       for {gap, failures} <- Enum.with_index(gaps, 1) do
         assert gap >= 0.75 * lower_bound(failures), "gap #{failures} was #{gap} ms: #{inspect(gaps)}"

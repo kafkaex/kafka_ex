@@ -9,9 +9,7 @@ defmodule KafkaEx.ClientTest do
   alias KafkaEx.API
   alias KafkaEx.Client
   alias KafkaEx.Client.Error
-  alias KafkaEx.Client.State
   alias KafkaEx.Cluster.Broker
-  alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Messages.RecordMetadata
   alias KafkaEx.TestSupport.FakeTransport
 
@@ -183,34 +181,6 @@ defmodule KafkaEx.ClientTest do
     test "Broker.connected?/1 returns false for closed socket" do
       broker = %Broker{node_id: 1, host: "localhost", port: 9092, socket: nil}
       refute Broker.connected?(broker)
-    end
-  end
-
-  describe "select_broker_with_update via State.select_broker" do
-    test "returns error when broker not found" do
-      state = %State{
-        cluster_metadata: %ClusterMetadata{
-          brokers: %{},
-          topics: %{}
-        }
-      }
-
-      selector = KafkaEx.Client.NodeSelector.node_id(999)
-      assert {:error, :no_such_node} = State.select_broker(state, selector)
-    end
-
-    test "returns broker when found" do
-      broker = %Broker{node_id: 1, host: "localhost", port: 9092, socket: nil}
-
-      state = %State{
-        cluster_metadata: %ClusterMetadata{
-          brokers: %{1 => broker},
-          topics: %{}
-        }
-      }
-
-      selector = KafkaEx.Client.NodeSelector.node_id(1)
-      assert {:ok, ^broker} = State.select_broker(state, selector)
     end
   end
 
