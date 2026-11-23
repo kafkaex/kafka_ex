@@ -7,8 +7,8 @@ defmodule KafkaEx.Client.MetadataStore do
   alias KafkaEx.Client
   alias KafkaEx.Client.ConnectionStateMachine
   alias KafkaEx.Client.MetadataLog
+  alias KafkaEx.Client.MetadataStore.MetadataTable
   alias KafkaEx.Client.MetadataStore.Round
-  alias KafkaEx.Client.MetadataStore.Snapshot
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Cluster.Topic
   alias KafkaEx.Config
@@ -50,10 +50,11 @@ defmodule KafkaEx.Client.MetadataStore do
   @spec start_link(args()) :: :gen_statem.start_ret()
   def start_link(args), do: :gen_statem.start_link(__MODULE__, args, [])
 
-  @spec await_ready(pid(), timeout()) :: {:ok, %{table: Snapshot.t(), api_versions: map()}} | {:error, {:boot, term()}}
+  @spec await_ready(pid(), timeout()) ::
+          {:ok, %{table: MetadataTable.t(), api_versions: map()}} | {:error, {:boot, term()}}
   def await_ready(store, timeout), do: :gen_statem.call(store, :await_ready, timeout)
 
-  @spec table(pid(), timeout()) :: {:ok, Snapshot.t()}
+  @spec table(pid(), timeout()) :: {:ok, MetadataTable.t()}
   def table(store, timeout), do: :gen_statem.call(store, :table, timeout)
 
   @spec refresh(pid(), refresh(), timeout()) :: {:ok, %{unknown: [binary()]}} | {:error, term()}
@@ -77,7 +78,7 @@ defmodule KafkaEx.Client.MetadataStore do
   @spec next_seq(pid(), timeout()) :: pos_integer()
   def next_seq(store, timeout), do: :gen_statem.call(store, :next_seq, timeout)
 
-  @spec merge(pid(), pos_integer(), ClusterMetadata.t(), Snapshot.scope(), timeout()) :: :ok
+  @spec merge(pid(), pos_integer(), ClusterMetadata.t(), MetadataTable.scope(), timeout()) :: :ok
   def merge(store, seq, metadata, scope, timeout) do
     :gen_statem.call(store, {:merge, seq, metadata, scope}, timeout)
   end
@@ -95,7 +96,7 @@ defmodule KafkaEx.Client.MetadataStore do
   end
 
   @doc false
-  @spec prune(Snapshot.freshness(), pos_integer()) :: Snapshot.freshness()
+  @spec prune(MetadataTable.freshness(), pos_integer()) :: MetadataTable.freshness()
   def prune(freshness, floor), do: %{freshness | topics: Map.filter(freshness.topics, fn {_, seq} -> seq >= floor end)}
 
   @impl :gen_statem
@@ -111,7 +112,7 @@ defmodule KafkaEx.Client.MetadataStore do
       allow_default: args.allow_auto_topic_creation,
       connection: args.connection,
       opts: Map.new(Keyword.merge(@defaults, args.opts)),
-      table: Snapshot.new(),
+      table: MetadataTable.new(),
       freshness: %{topics: %{}, brokers: 0},
       seq: 0,
       tickets: %{},
@@ -150,8 +151,8 @@ defmodule KafkaEx.Client.MetadataStore do
 
   # The store is the only writer, so no swap can interleave with this read.
   def handle_event({:call, from}, :snapshot, _state, data) do
-    {:ok, counter} = Snapshot.counter(data.table)
-    {:keep_state_and_data, [{:reply, from, {:ok, Snapshot.to_cluster_metadata(data.table), counter}}]}
+    {:ok, counter} = MetadataTable.counter(data.table)
+    {:keep_state_and_data, [{:reply, from, {:ok, MetadataTable.to_cluster_metadata(data.table), counter}}]}
   end
 
   def handle_event({:call, from}, {trigger, _} = msg, :loading, data) when trigger in [:refresh, :coordinator] do
@@ -169,7 +170,7 @@ defmodule KafkaEx.Client.MetadataStore do
   end
 
   def handle_event({:call, from}, {:forget_coordinator, group}, _state, data) do
-    Snapshot.drop_coordinator(data.table, group)
+    MetadataTable.drop_coordinator(data.table, group)
     {:keep_state_and_data, [{:reply, from, :ok}]}
   end
 
@@ -394,7 +395,7 @@ defmodule KafkaEx.Client.MetadataStore do
 
   defp outcome({:coordinator, _group}, {:ok, %{coordinator: %FindCoordinator{} = coordinator}}, data) do
     node_id = FindCoordinator.coordinator_node_id(coordinator)
-    if Enum.any?(Snapshot.brokers(data.table), &(&1.node_id == node_id)), do: :ok, else: :bad
+    if Enum.any?(MetadataTable.brokers(data.table), &(&1.node_id == node_id)), do: :ok, else: :bad
   end
 
   defp outcome({:coordinator, _group}, _result, _data), do: :bad
@@ -463,7 +464,7 @@ defmodule KafkaEx.Client.MetadataStore do
       Map.merge(budget, %{
         request_opts: request_opts,
         known_missing: data.known_missing,
-        brokers: Map.new(Snapshot.brokers(data.table), &{{&1.host, &1.port}, &1}),
+        brokers: Map.new(MetadataTable.brokers(data.table), &{{&1.host, &1.port}, &1}),
         deadline: now() + bound
       })
 
@@ -542,7 +543,7 @@ defmodule KafkaEx.Client.MetadataStore do
 
   defp handle_result(:find_coordinator, round, {:ok, %{coordinator: %FindCoordinator{} = coordinator}}, state, data) do
     {:coordinator, group} = round.key
-    Snapshot.put_coordinator(data.table, group, FindCoordinator.coordinator_node_id(coordinator))
+    MetadataTable.put_coordinator(data.table, group, FindCoordinator.coordinator_node_id(coordinator))
     {state, data, for(from <- round.waiters, do: {:reply, from, :ok})}
   end
 
@@ -602,7 +603,7 @@ defmodule KafkaEx.Client.MetadataStore do
   end
 
   defp apply_snapshot(data, seq, metadata, scope) do
-    case Snapshot.apply(data.table, metadata, %{seq: seq, scope: scope}, data.freshness) do
+    case MetadataTable.apply(data.table, metadata, %{seq: seq, scope: scope}, data.freshness) do
       {:applied, freshness} ->
         send(data.client, {:kafka_ex_metadata_store, :swapped})
         {:applied, prune_freshness(stop_departed(%{data | freshness: freshness}))}
@@ -665,7 +666,7 @@ defmodule KafkaEx.Client.MetadataStore do
   end
 
   defp candidate_addresses(data) do
-    case Enum.map(Snapshot.brokers(data.table), &{&1.host, &1.port}) do
+    case Enum.map(MetadataTable.brokers(data.table), &{&1.host, &1.port}) do
       [] -> data.bootstrap
       addresses -> current_first(data.current, Enum.uniq(addresses))
     end
@@ -695,7 +696,7 @@ defmodule KafkaEx.Client.MetadataStore do
   end
 
   defp stop_departed(data) do
-    addresses = MapSet.new(Snapshot.brokers(data.table), &{&1.host, &1.port})
+    addresses = MapSet.new(MetadataTable.brokers(data.table), &{&1.host, &1.port})
     {departed, kept} = Enum.split_with(data.conns, fn {address, _conn} -> not MapSet.member?(addresses, address) end)
 
     Enum.each(departed, fn {_address, conn} ->

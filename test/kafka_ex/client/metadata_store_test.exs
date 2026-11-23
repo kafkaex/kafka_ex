@@ -26,7 +26,7 @@ defmodule KafkaEx.Client.MetadataStoreTest do
       %{store: store} = start_store(ctx)
 
       assert %{table: tid, api_versions: versions} = await!(store)
-      assert {:ok, [%{name: "pin"}]} = Snapshot.topics(tid, ["pin"])
+      assert {:ok, [%{name: "pin"}]} = MetadataTable.topics(tid, ["pin"])
       assert Map.has_key?(versions, KafkaEx.Protocol.KayrockProtocol.api_key(:metadata))
       assert [%{role: :metadata}] = FakeTransport.connects(ctx.fake)
     end
@@ -53,7 +53,7 @@ defmodule KafkaEx.Client.MetadataStoreTest do
       {result, _log} = with_log(fn -> MetadataStore.await_ready(store, 5_000) end)
 
       assert {:ok, %{table: tid}} = result
-      assert Snapshot.topics(tid, ["pin"]) == {:ok, []}
+      assert MetadataTable.topics(tid, ["pin"]) == {:ok, []}
       assert Enum.sort(MetadataStore.candidates(store, 1_000)) == [{ctx.host, 9092}, {ctx.host, 9093}]
     end
 
@@ -199,19 +199,19 @@ defmodule KafkaEx.Client.MetadataStoreTest do
       FakeTransport.release(ctx.fake, :metadata)
 
       assert {:ok, _} = Task.await(older, 5_000)
-      assert {:ok, 2, _broker} = Snapshot.select(tid, NodeSelector.topic_partition("pin", 0), %{})
+      assert {:ok, 2, _broker} = MetadataTable.select(tid, NodeSelector.topic_partition("pin", 0), %{})
     end
 
     test "a zero-broker response is ignored", ctx do
       %{store: store} = start_store(ctx, store: [ladder_delay: 10])
       %{table: tid} = await!(store)
-      {:ok, counter} = Snapshot.counter(tid)
+      {:ok, counter} = MetadataTable.counter(tid)
       FakeTransport.respond(ctx.fake, :metadata, %{brokers: [], topics: []})
 
       {result, _log} = with_log(fn -> MetadataStore.refresh(store, refresh(["pin"]), 5_000) end)
 
       assert {:ok, _} = result
-      assert Snapshot.counter(tid) == {:ok, counter}
+      assert MetadataTable.counter(tid) == {:ok, counter}
     end
 
     test "a zero-broker response logs nothing about missing topics", ctx do
@@ -237,7 +237,7 @@ defmodule KafkaEx.Client.MetadataStoreTest do
       assert {:ok, _} = MetadataStore.refresh(store, refresh([]), 5_000)
       :ok = MetadataStore.merge(store, seq, with_gone.metadata, {:topics, ["gone"]}, 1_000)
 
-      assert Snapshot.topics(tid, ["gone"]) == {:ok, []}
+      assert MetadataTable.topics(tid, ["gone"]) == {:ok, []}
     end
 
     test "freshness entries older than every live seq are pruned, newer ones kept" do
@@ -380,7 +380,7 @@ defmodule KafkaEx.Client.MetadataStoreTest do
       refute_received {:kafka_ex_metadata_store, :swapped}
 
       assert :ok = MetadataStore.coordinator(store, "g", 5_000)
-      assert {:ok, 2, _broker} = Snapshot.select(tid, NodeSelector.consumer_group("g"), %{})
+      assert {:ok, 2, _broker} = MetadataTable.select(tid, NodeSelector.consumer_group("g"), %{})
       refute_receive {:kafka_ex_metadata_store, :swapped}, 200
     end
   end
@@ -548,7 +548,7 @@ defmodule KafkaEx.Client.MetadataStoreTest do
           await!(store)
         end)
 
-      assert {:ok, [%{name: "pin"}]} = Snapshot.topics(tid, ["pin"])
+      assert {:ok, [%{name: "pin"}]} = MetadataTable.topics(tid, ["pin"])
       assert count(ctx.fake, :metadata, 2) == 1
       assert length(String.split(log, "Unable to build metadata request.")) == 2
     end
@@ -562,7 +562,7 @@ defmodule KafkaEx.Client.MetadataStoreTest do
           await!(store)
         end)
 
-      assert Snapshot.topics(tid, ["pin"]) == {:ok, []}
+      assert MetadataTable.topics(tid, ["pin"]) == {:ok, []}
       assert count(ctx.fake, :metadata) == 0
       assert length(String.split(log, "Unable to build metadata request.")) == 2
     end
@@ -618,8 +618,6 @@ defmodule KafkaEx.Client.MetadataStoreTest do
   end
 
   defp layout(host, brokers, topics) do
-    leaders = fn partitions -> partitions |> Enum.with_index() |> Map.new(fn {leader, index} -> {index, leader} end) end
-
     reply = %{
       brokers: Enum.map(brokers, fn {node_id, port} -> %{node_id: node_id, host: host, port: port} end),
       topics:
@@ -630,7 +628,13 @@ defmodule KafkaEx.Client.MetadataStoreTest do
               partitions
               |> Enum.with_index()
               |> Enum.map(fn {leader, index} ->
-                %{partition_index: index, leader_id: leader, replica_nodes: [leader], isr_nodes: [leader]}
+                %{
+                  error_code: 0,
+                  partition_index: index,
+                  leader_id: leader,
+                  replica_nodes: [leader],
+                  isr_nodes: [leader]
+                }
               end)
           }
         end)
@@ -638,8 +642,7 @@ defmodule KafkaEx.Client.MetadataStoreTest do
 
     metadata = %ClusterMetadata{
       brokers: Map.new(brokers, fn {node_id, port} -> {node_id, %Broker{node_id: node_id, host: host, port: port}} end),
-      topics:
-        Map.new(topics, fn {name, partitions} -> {name, %Topic{name: name, partition_leaders: leaders.(partitions)}} end)
+      topics: Map.new(reply.topics, &{&1.name, Topic.from_topic_metadata(Map.put(&1, :is_internal, false))})
     }
 
     %{reply: reply, metadata: metadata}
@@ -656,7 +659,7 @@ defmodule KafkaEx.Client.MetadataStoreTest do
 
     for selector <- selectors do
       today = outcome(fn -> select_broker_entry(expected, selector) end)
-      assert outcome(fn -> Snapshot.select(tid, selector, %{}) end) == today, inspect(selector)
+      assert outcome(fn -> MetadataTable.select(tid, selector, %{}) end) == today, inspect(selector)
     end
   end
 

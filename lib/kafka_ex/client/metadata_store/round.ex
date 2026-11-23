@@ -56,15 +56,7 @@ defmodule KafkaEx.Client.MetadataStore.Round do
           optional(atom()) => term()
         }
   @type result ::
-          {:ok,
-           %{
-             metadata: ClusterMetadata.t(),
-             unknown: [binary()],
-             missing: [binary()],
-             address: address(),
-             versions: map()
-           }}
-          | {:ok, %{coordinator: FindCoordinator.t() | {:error, term()}, address: address()}}
+          {:ok, %{required(:address) => address(), optional(atom()) => term()}}
           | {:error, term()}
           | {:raised, {:error, Exception.t(), Exception.stacktrace()}}
 
@@ -96,9 +88,10 @@ defmodule KafkaEx.Client.MetadataStore.Round do
   end
 
   defp coordinator(spec) do
-    case first_response(spec, &build_find_coordinator(&1, spec)) do
+    builder = fn versions -> build(:find_coordinator, &RequestBuilder.find_coordinator_request/2, versions, spec) end
+
+    case first_response(spec, builder) do
       {:ok, response, address, _versions} -> {:ok, %{coordinator: parse_coordinator(response, spec), address: address}}
-      {:error, {:build, _at, reason}} -> {:error, reason}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -106,21 +99,12 @@ defmodule KafkaEx.Client.MetadataStore.Round do
   defp metadata(spec, attempts_left) do
     started = now()
 
-    case first_response(spec, &build_metadata(&1, spec)) do
-      {:ok, response, address, versions} ->
-        parsed(spec, response, address, versions, attempts_left, now() - started)
+    builder = fn versions -> build(:metadata, &RequestBuilder.metadata_request/2, versions, spec) end
 
-      {:error, {:connected, address, versions}} ->
-        bootstrap_only(spec, address, versions)
-
-      {:error, {tag, {address, versions}, _reason}} when tag in [:build, :refused] and spec.kind == :load ->
-        bootstrap_only(spec, address, versions)
-
-      {:error, {:build, _at, reason}} ->
-        {:error, reason}
-
-      {:error, reason} ->
-        {:error, reason}
+    case first_response(spec, builder) do
+      {:ok, response, address, versions} -> parsed(spec, response, address, versions, attempts_left, now() - started)
+      {:bootstrap, address, versions} -> bootstrap_only(spec, address, versions)
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -145,7 +129,6 @@ defmodule KafkaEx.Client.MetadataStore.Round do
     end
   end
 
-  # Another attempt at the walk time just seen must fit in the round's bound; only a far slower walk meets the backstop.
   defp ladder?(spec, missing, attempts_left, walked) do
     attempts_left > 1 and Enum.any?(missing, &(not MapSet.member?(spec.known_missing, &1))) and
       now() + spec.ladder_delay + min(walked, walk_cost(spec)) + @ladder_margin <= spec.deadline
@@ -163,69 +146,63 @@ defmodule KafkaEx.Client.MetadataStore.Round do
   end
 
   defp first_response(spec, build) do
-    spec.candidates
-    |> walk(spec, build, %{acc: {:error, :no_broker}, logged?: false, span: nil})
-    |> all_failed(spec)
+    start = %{failures: [], span: nil}
+
+    case Enum.reduce_while(spec.candidates, start, &visit(&1, spec, build, &2)) do
+      {:answered, response, address, versions} ->
+        {:ok, response, address, versions}
+
+      walk ->
+        if walk.span do
+          stop_span(%{walk.span | meta: %{walk.span.meta | bytes_received: 0}}, {:error, :broker_failed}, %{})
+        end
+
+        give_up(spec, Enum.reverse(walk.failures))
+    end
   end
 
-  defp walk([], _spec, _build, %{span: nil, acc: acc}), do: acc
+  defp visit({address, pid}, spec, build, walk) do
+    case under_span(walk, fn -> prepare(spec, build, address, pid) end) do
+      {:skip, failure} ->
+        {:cont, record(spec, walk, failure)}
 
-  defp walk([], _spec, _build, %{span: span, acc: acc}) do
-    stop_span(%{span | meta: %{span.meta | bytes_received: 0}}, {:error, :broker_failed}, %{})
-    acc
+      {:ready, dispatch, versions} ->
+        walk = begin_request(walk, dispatch.request, {address, versions})
+        under_span(walk, fn -> exchange(spec, walk, {address, pid, versions}, dispatch) end)
+    end
   end
 
-  defp walk([{address, pid} | rest], spec, build, progress) do
+  defp prepare(spec, build, address, pid) do
     case connect(spec, address, pid, @api_versions_max_retries) do
       {:connect_error, reason} ->
-        walk(rest, spec, build, %{progress | acc: not_connected(progress.acc, reason)})
+        {:skip, {:not_connected, reason}}
 
       {:ok, versions} ->
         case build.(versions) do
-          {:ok, request} ->
-            await(spec, build, {address, pid, versions, request}, rest, connected(progress, address, versions))
-
           {:error, reason} ->
-            walk(rest, spec, build, build_failed(progress, spec, {address, versions}, reason))
+            {:skip, {:not_built, {address, versions}, reason}}
+
+          {:ok, request} ->
+            ready(spec, build, {address, pid, versions}, new_dispatch(spec, request(request), address))
         end
     end
   end
 
-  defp connected(%{acc: {:error, {:connected, _, _}}} = progress, _address, _versions), do: progress
-  defp connected(%{acc: {:error, {:refused, _, _}}} = progress, _address, _versions), do: progress
-  defp connected(progress, address, versions), do: %{progress | acc: {:error, {:connected, address, versions}}}
-
-  # One build-failure line per walk, as the client logged one per refresh.
-  defp build_failed(progress, spec, at, reason) do
-    if not progress.logged?, do: log_build_failure(spec, reason)
-
-    case progress.acc do
-      {:error, {tag, _at, _reason}} when tag in [:build, :connected, :refused] -> %{progress | logged?: true}
-      _acc -> %{progress | acc: {:error, {:build, at, reason}}, logged?: true}
-    end
-  end
-
-  # One span per walk, opened once a connection is up for the write: a walk that writes nothing has none.
-  defp await(spec, build, {address, pid, versions, request}, rest, progress) do
-    case negotiated(spec, build, pid, versions, dispatch(spec, request(request), address)) do
-      {:ok, dispatch, versions} when progress.span == nil ->
-        progress = open_span(%{progress | acc: {:error, {:connected, address, versions}}}, dispatch.request)
-        opened(progress, &write(spec, build, {address, pid, versions, dispatch}, rest, &1))
-
+  defp ready(spec, build, {address, pid, versions}, dispatch) do
+    case negotiated(spec, build, pid, versions, dispatch) do
       {:ok, dispatch, versions} ->
-        write(spec, build, {address, pid, versions, dispatch}, rest, restamp(progress, dispatch.request))
+        {:ready, dispatch, versions}
 
-      {:refused, reason, versions} ->
+      {:refused, reason, refused_versions} ->
         log_failed(spec, address, reason)
-        walk(rest, spec, build, refused(progress, {address, versions}, reason))
+        {:skip, {:refused, {address, refused_versions}, reason}}
 
       {:error, reason, _meta} ->
         not_written(spec, address, reason)
-        walk(rest, spec, build, progress)
+        {:skip, {:connected, {address, versions}}}
     end
   end
 
-  # A refused request was never written, so rebuilding it at the connection's versions costs no attempt.
   defp negotiated(spec, build, pid, versions, dispatch) do
     case await_connection(spec, pid, dispatch) do
       :ok -> {:ok, dispatch, versions}
@@ -234,7 +211,6 @@ defmodule KafkaEx.Client.MetadataStore.Round do
     end
   end
 
-  # The same dispatch keeps its deadline; a pinned version outside the connection's range is never downgraded.
   defp rebuild(spec, build, pid, versions, dispatch) do
     with {:ok, request} <- build.(versions),
          rebuilt = carrying(dispatch, request(request)),
@@ -254,87 +230,108 @@ defmodule KafkaEx.Client.MetadataStore.Round do
     )
   end
 
-  # A walk that writes nothing ends on the refusal, not on a missing broker.
-  defp refused(%{span: nil} = progress, at, reason), do: %{progress | acc: {:error, {:refused, at, reason}}}
-  defp refused(progress, _at, _reason), do: progress
-
-  # The rest of the walk runs under the open span, so a crash in it still ends the span.
-  defp opened(progress, rest_of_walk) do
-    rest_of_walk.(progress)
-  catch
-    kind, reason ->
-      Telemetry.exception_span(progress.span.handle, progress.span.metadata, kind, reason, __STACKTRACE__)
-      :erlang.raise(kind, reason, __STACKTRACE__)
-  end
-
-  # Same dispatch, so the same deadline: the write never gets a second request timeout.
-  defp write(spec, build, {address, pid, versions, dispatch}, rest, progress) do
+  defp exchange(spec, walk, {address, pid, versions}, dispatch) do
     left = max(dispatch.deadline + spec.request_slack - now(), 0)
 
-    # The connection was up at the await: a drop since then is a dead socket's send.
     case call_connection(fn -> ConnectionStateMachine.write(pid, dispatch, left) end, :closed) do
       {:ok, frame, meta} ->
         case ResponseParser.deserialize(frame, dispatch.request) do
           {:ok, response} ->
-            stop_span(%{progress.span | meta: meta}, {:ok, response}, broker_info(spec, address))
-            {:ok, response, address, versions}
+            stop_span(%{walk.span | meta: meta}, {:ok, response}, broker_info(spec, address))
+            {:halt, {:answered, response, address, versions}}
 
           {:error, :parse_error} ->
-            walk(rest, spec, build, put_meta(progress, meta))
+            {:cont, put_meta(walk, meta)}
         end
 
       # Encoding is deterministic: no other candidate can do better.
       {:error, {:exception, kind, reason, stacktrace}, _meta} ->
         Logger.warning("Network call to #{describe(spec, address)} failed: #{inspect({:exception, kind, reason})}")
-        Telemetry.exception_span(progress.span.handle, progress.span.metadata, kind, reason, stacktrace)
-        progress.acc
+        Telemetry.exception_span(walk.span.handle, walk.span.metadata, kind, reason, stacktrace)
+        {:halt, %{walk | span: nil}}
 
       {:error, reason, meta} ->
         log_failed(spec, address, reason)
-        walk(rest, spec, build, put_meta(progress, meta))
+        {:cont, put_meta(walk, meta)}
     end
   end
 
-  defp open_span(%{span: nil} = progress, request) do
+  defp begin_request(%{span: nil} = walk, request, written_at) do
     metadata = Telemetry.request_metadata(request, %{})
-    %{progress | span: %{handle: Telemetry.start_span([:kafka_ex, :request], metadata), metadata: metadata, meta: nil}}
+    handle = Telemetry.start_span([:kafka_ex, :request], metadata)
+    span = %{handle: handle, start_metadata: metadata, metadata: metadata, meta: @no_bytes}
+    %{walk | span: span, failures: [{:written, written_at} | walk.failures]}
   end
 
-  # A later candidate keeps the walk's span; its stop reports the version this candidate writes.
-  defp restamp(progress, request) do
-    %{progress | span: %{progress.span | metadata: Telemetry.request_metadata(request, %{})}}
+  defp begin_request(%{span: span} = walk, request, _written_at) do
+    %{walk | span: %{span | metadata: Telemetry.request_metadata(request, %{})}}
   end
 
-  defp put_meta(progress, meta), do: %{progress | span: %{progress.span | meta: meta}}
+  defp put_meta(walk, meta), do: %{walk | span: %{walk.span | meta: meta}}
 
   defp stop_span(%{handle: handle, metadata: metadata, meta: meta}, result, broker) do
     Telemetry.stop_span(handle, {result, Map.merge(metadata, Map.put(meta, :broker, broker))})
   end
 
-  defp not_connected({:error, {tag, _at, _detail}} = acc, _reason) when tag in [:build, :connected, :refused], do: acc
-  defp not_connected({:error, {:api_versions, _}} = acc, _reason), do: acc
-  defp not_connected({:error, _}, reason), do: {:error, reason}
+  # A crash while a span is open still ends it.
+  defp under_span(%{span: nil}, fun), do: fun.()
 
-  defp all_failed({:ok, _response, _address, _versions} = ok, _spec), do: ok
-  defp all_failed({:error, {:build, _, _}} = error, _spec), do: error
-
-  defp all_failed({:error, reason} = error, %{kind: :load} = spec) do
-    log_all_failed(spec, reason)
-    error
+  defp under_span(%{span: span}, fun) do
+    fun.()
+  catch
+    kind, reason ->
+      Telemetry.exception_span(span.handle, span.start_metadata, kind, reason, __STACKTRACE__)
+      :erlang.raise(kind, reason, __STACKTRACE__)
   end
 
-  defp all_failed({:error, {:connected, _, _}}, spec), do: log_all_failed(spec, :broker_failed)
-  defp all_failed({:error, {:refused, _at, reason}}, spec), do: log_all_failed(spec, reason)
-  defp all_failed({:error, _reason}, spec), do: log_all_failed(spec, :no_broker)
-
-  defp log_all_failed(%{kind: :find_coordinator} = spec, reason) do
-    log_coordinator_failure(spec, reason)
-    {:error, reason}
+  # One build-failure line per walk, as the client logged one per refresh.
+  defp record(spec, walk, {:not_built, _at, reason} = failure) do
+    if not Enum.any?(walk.failures, &match?({:not_built, _at, _reason}, &1)), do: log_build_failure(spec, reason)
+    %{walk | failures: [failure | walk.failures]}
   end
 
-  defp log_all_failed(spec, reason) do
+  defp record(_spec, walk, failure), do: %{walk | failures: [failure | walk.failures]}
+
+  defp give_up(spec, failures) do
+    case culprit(failures) do
+      {:not_built, at, reason} ->
+        settle(spec, at, reason)
+
+      {:not_connected, reason} ->
+        reported = if spec.kind == :load, do: reason, else: :no_broker
+        log_all_failed(spec, reported)
+        {:error, reported}
+
+      culprit ->
+        {at, reason} = failed_at(culprit)
+        log_all_failed(spec, reason)
+        settle(spec, at, reason)
+    end
+  end
+
+  defp failed_at({:refused, at, reason}), do: {at, reason}
+  defp failed_at({_kind, at}), do: {at, :broker_failed}
+
+  # Precedence: a write, the last refusal, a connect without a write, a build failure, then the connect errors.
+  defp culprit(failures) do
+    first_of(failures, :written) || first_of(Enum.reverse(failures), :refused) || first_of(failures, :connected) ||
+      first_of(failures, :not_built) || connect_failure(failures)
+  end
+
+  defp first_of(failures, kind), do: Enum.find(failures, &(elem(&1, 0) == kind))
+
+  defp connect_failure(failures) do
+    reasons = for {:not_connected, reason} <- failures, do: reason
+    {:not_connected, Enum.find(reasons, &match?({:api_versions, _}, &1)) || List.last(reasons) || :no_broker}
+  end
+
+  defp settle(%{kind: :load}, {address, versions}, _reason), do: {:bootstrap, address, versions}
+  defp settle(_spec, _at, reason), do: {:error, reason}
+
+  defp log_all_failed(%{kind: :find_coordinator} = spec, reason), do: log_coordinator_failure(spec, reason)
+
+  defp log_all_failed(spec, _reason) do
     Logger.error("Unable to fetch metadata from any brokers. Timeout is #{spec.request_timeout}.")
-    {:error, reason}
   end
 
   defp connect(spec, address, pid, retries_left) do
@@ -378,7 +375,7 @@ defmodule KafkaEx.Client.MetadataStore.Round do
 
   defp request(request), do: %{request | client_id: Config.client_id(), correlation_id: nil}
 
-  defp dispatch(spec, request, address) do
+  defp new_dispatch(spec, request, address) do
     %{
       node_id: broker_info(spec, address).node_id,
       request: request,
@@ -407,10 +404,10 @@ defmodule KafkaEx.Client.MetadataStore.Round do
   defp refusal(reason), do: reason
 
   defp call(fun) do
-    fun.()
-  catch
-    :exit, {:timeout, _call} -> {:error, :timeout}
-    :exit, _reason -> {:error, :not_connected}
+    case call_connection(fun, :not_connected) do
+      {:error, reason, _meta} -> {:error, reason}
+      reply -> reply
+    end
   end
 
   defp call_connection(fun, dropped) do
@@ -420,15 +417,9 @@ defmodule KafkaEx.Client.MetadataStore.Round do
     :exit, _reason -> {:error, dropped, @no_bytes}
   end
 
-  defp build_metadata(versions, spec), do: build(:metadata, &RequestBuilder.metadata_request/2, versions, spec)
-
-  defp build_find_coordinator(versions, spec) do
-    build(:find_coordinator, &RequestBuilder.find_coordinator_request/2, versions, spec)
-  end
-
   # The builder logs a missing API on every call, and a round builds per candidate and per attempt.
   defp build(api, builder, versions, spec) do
-    state = state(versions)
+    state = struct(State, api_versions: versions)
 
     if Process.get(@unsupported_logged, false) and
          State.max_supported_api_version(state, api) == {:error, :api_not_supported_by_broker} do
@@ -448,8 +439,6 @@ defmodule KafkaEx.Client.MetadataStore.Round do
   end
 
   defp log_build_failure(_spec, _reason), do: Logger.error("Unable to build metadata request.")
-
-  defp state(versions), do: struct(State, api_versions: versions)
 
   defp parse_coordinator(response, spec) do
     case ResponseParser.find_coordinator_response(response) do

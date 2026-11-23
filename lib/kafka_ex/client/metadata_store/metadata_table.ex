@@ -1,17 +1,19 @@
-defmodule KafkaEx.Client.MetadataStore.Snapshot do
+defmodule KafkaEx.Client.MetadataStore.MetadataTable do
   @moduledoc """
-  The per-client ETS table holding the cluster metadata the metadata store fetched: the broker map with the
-  controller id, topics, one row per partition with its leader and that leader's broker, consumer-group
+  The per-client ETS table holding the cluster metadata the metadata store fetched, as `KafkaEx.Cluster` structs:
+  one row per broker, the controller id, topics, an index row each of broker ids and topic names, one `PartitionInfo` row per partition, consumer-group
   coordinators, topic ids, and a counter bumped on every applied response.
 
   The table is protected, so only the store writes it; any process reads it directly, without calling the client
-  or the store. `select/3` routes a partition from that one partition row. On a deleted table, routing, counter
-  and topic reads return `{:error, :unavailable}`; the broker list and the struct views come back empty.
+  or the store. `select/3` routes a partition with two narrow lookups, the partition row and its leader's broker
+  row. On a deleted table, routing, counter and topic reads return `{:error, :unavailable}`; the broker list and
+  the struct views come back empty.
   """
 
   alias KafkaEx.Client.NodeSelector
   alias KafkaEx.Cluster.Broker
   alias KafkaEx.Cluster.ClusterMetadata
+  alias KafkaEx.Cluster.PartitionInfo
   alias KafkaEx.Cluster.Topic
 
   @type t :: :ets.tid()
@@ -23,7 +25,7 @@ defmodule KafkaEx.Client.MetadataStore.Snapshot do
   @spec new() :: t()
   def new do
     tid = :ets.new(__MODULE__, [:set, :protected, read_concurrency: true])
-    :ets.insert(tid, [{:counter, 0}, {:brokers, %{}, nil}])
+    :ets.insert(tid, [{:counter, 0}, {:controller_id, nil}, {:broker_ids, []}, {:topic_names, []}])
     tid
   end
 
@@ -36,12 +38,12 @@ defmodule KafkaEx.Client.MetadataStore.Snapshot do
           {:ok, integer(), Broker.t()}
           | {:error, ClusterMetadata.node_select_error() | :broker_not_found | :unavailable}
   def select(tid, %NodeSelector{strategy: :topic_partition, topic: topic, partition: partition}, _hints) do
-    with {:ok, leader, broker} <- partition_route(tid, topic, partition), do: found(leader, broker)
+    with {:ok, leader} <- partition_route(tid, topic, partition), do: broker_route(tid, leader, :broker_not_found)
   end
 
   def select(tid, %NodeSelector{strategy: :topic_partition_replica, topic: topic, partition: partition}, hints) do
-    with {:ok, leader, broker} <- partition_route(tid, topic, partition) do
-      pick_preferred_or_leader(tid, Map.get(hints, {topic, partition}), leader, broker)
+    with {:ok, leader} <- partition_route(tid, topic, partition) do
+      pick_preferred_or_leader(tid, Map.get(hints, {topic, partition}), leader)
     end
   end
 
@@ -54,7 +56,7 @@ defmodule KafkaEx.Client.MetadataStore.Snapshot do
   end
 
   def select(tid, %NodeSelector{strategy: :controller}, hints) do
-    with {:ok, [{:brokers, _, controller_id}]} <- lookup(tid, :brokers) do
+    with {:ok, [{:controller_id, controller_id}]} <- lookup(tid, :controller_id) do
       select(tid, NodeSelector.node_id(controller_id), hints)
     end
   end
@@ -64,9 +66,9 @@ defmodule KafkaEx.Client.MetadataStore.Snapshot do
   end
 
   def select(tid, %NodeSelector{strategy: :random}, _hints) do
-    with {:ok, [{:brokers, brokers, _}]} <- lookup(tid, :brokers) do
-      [node_id] = Enum.take_random(Map.keys(brokers), 1)
-      {:ok, node_id, Map.fetch!(brokers, node_id)}
+    with {:ok, entries} <- broker_entries(tid) do
+      [{node_id, broker}] = Enum.take_random(entries, 1)
+      {:ok, node_id, broker}
     end
   end
 
@@ -77,16 +79,26 @@ defmodule KafkaEx.Client.MetadataStore.Snapshot do
 
   @spec brokers(t()) :: [Broker.t()]
   def brokers(tid) do
-    case lookup(tid, :brokers) do
-      {:ok, [{:brokers, brokers, _}]} -> Map.values(brokers)
+    case broker_entries(tid) do
+      {:ok, entries} -> entries |> Enum.map(&elem(&1, 1)) |> Enum.sort_by(& &1.node_id)
       {:error, :unavailable} -> []
     end
   end
 
   @spec to_cluster_metadata(t()) :: ClusterMetadata.t()
   def to_cluster_metadata(tid) do
-    case match_object(tid, :_) do
-      {:ok, rows} -> Enum.reduce(rows, %ClusterMetadata{}, &put_row/2)
+    with {:ok, brokers} <- broker_entries(tid),
+         {:ok, [{_, names}]} <- lookup(tid, :topic_names),
+         {:ok, topics} <- topics_by_name(tid, names),
+         {:ok, [{_, controller_id}]} <- lookup(tid, :controller_id),
+         {:ok, coordinators} <- match_object(tid, {{:coordinator, :_}, :_}) do
+      %ClusterMetadata{
+        brokers: Map.new(brokers),
+        topics: topics,
+        controller_id: controller_id,
+        consumer_group_coordinators: Map.new(coordinators, fn {{:coordinator, group}, node_id} -> {group, node_id} end)
+      }
+    else
       {:error, :unavailable} -> %ClusterMetadata{}
     end
   end
@@ -112,10 +124,14 @@ defmodule KafkaEx.Client.MetadataStore.Snapshot do
   def apply(_tid, %ClusterMetadata{brokers: brokers}, _request, _freshness) when map_size(brokers) == 0, do: :ignored
 
   def apply(tid, %ClusterMetadata{} = metadata, %{seq: seq, scope: scope}, freshness) do
+    topic_names = :ets.lookup_element(tid, :topic_names, 2)
+    known = MapSet.new(topic_names)
+
     current = %{
       counter: :ets.lookup_element(tid, :counter, 2),
-      brokers: :ets.lookup_element(tid, :brokers, 2),
-      topics: Map.new(:ets.match_object(tid, {{:topic, :_}, :_}), fn {{:topic, name}, topic} -> {name, topic} end)
+      broker_ids: :ets.lookup_element(tid, :broker_ids, 2),
+      topic_names: topic_names,
+      topic: fn name -> MapSet.member?(known, name) && :ets.lookup_element(tid, {:topic, name}, 2) end
     }
 
     {rows, deletes, freshness} = plan_rows(current, metadata, seq, scope, freshness)
@@ -132,8 +148,8 @@ defmodule KafkaEx.Client.MetadataStore.Snapshot do
 
   defp partition_route(tid, topic, partition) do
     case lookup(tid, {:partition, topic, partition}) do
-      {:ok, [{_, leader, _}]} when leader < 0 -> {:error, :leader_not_available}
-      {:ok, [{_, leader, broker}]} -> {:ok, leader, broker}
+      {:ok, [{_, %PartitionInfo{leader: leader}}]} when leader < 0 -> {:error, :leader_not_available}
+      {:ok, [{_, %PartitionInfo{leader: leader}}]} -> {:ok, leader}
       {:ok, []} -> missing_partition(tid, topic)
       error -> error
     end
@@ -147,30 +163,38 @@ defmodule KafkaEx.Client.MetadataStore.Snapshot do
     end
   end
 
-  defp pick_preferred_or_leader(_tid, nil, leader, broker), do: found(leader, broker)
+  defp pick_preferred_or_leader(tid, nil, leader), do: broker_route(tid, leader, :broker_not_found)
 
-  defp pick_preferred_or_leader(tid, {node_id, stamp}, leader, broker) do
+  defp pick_preferred_or_leader(tid, {node_id, stamp}, leader) do
     with {:ok, counter} <- counter(tid),
          true <- stamp == {tid, counter},
          {:ok, _, _} = preferred <- broker_route(tid, node_id, :no_such_node) do
       preferred
     else
       {:error, :unavailable} = error -> error
-      _ -> found(leader, broker)
+      _ -> broker_route(tid, leader, :broker_not_found)
     end
   end
 
   defp broker_route(tid, node_id, missing) do
-    with {:ok, [{:brokers, brokers, _}]} <- lookup(tid, :brokers) do
-      case Map.fetch(brokers, node_id) do
-        {:ok, broker} -> {:ok, node_id, broker}
-        :error -> {:error, missing}
-      end
+    case lookup(tid, {:broker, node_id}) do
+      {:ok, [{_, broker}]} -> {:ok, node_id, broker}
+      {:ok, []} -> {:error, missing}
+      error -> error
     end
   end
 
-  defp found(_node_id, nil), do: {:error, :broker_not_found}
-  defp found(node_id, %Broker{} = broker), do: {:ok, node_id, broker}
+  defp broker_entries(tid) do
+    with {:ok, [{_, ids}]} <- lookup(tid, :broker_ids) do
+      Enum.reduce_while(ids, {:ok, []}, fn id, {:ok, acc} ->
+        case lookup(tid, {:broker, id}) do
+          {:ok, [{_, broker}]} -> {:cont, {:ok, [{id, broker} | acc]}}
+          {:ok, []} -> {:cont, {:ok, acc}}
+          error -> {:halt, error}
+        end
+      end)
+    end
+  end
 
   defp topics_by_name(tid, names) do
     Enum.reduce_while(names, {:ok, %{}}, fn name, {:ok, acc} ->
@@ -181,18 +205,6 @@ defmodule KafkaEx.Client.MetadataStore.Snapshot do
       end
     end)
   end
-
-  defp put_row({:brokers, brokers, controller_id}, metadata) do
-    %{metadata | brokers: brokers, controller_id: controller_id}
-  end
-
-  defp put_row({{:topic, name}, topic}, metadata), do: %{metadata | topics: Map.put(metadata.topics, name, topic)}
-
-  defp put_row({{:coordinator, group}, node_id}, metadata) do
-    %{metadata | consumer_group_coordinators: Map.put(metadata.consumer_group_coordinators, group, node_id)}
-  end
-
-  defp put_row(_row, metadata), do: metadata
 
   defp lookup(tid, key) do
     {:ok, :ets.lookup(tid, key)}
@@ -208,20 +220,18 @@ defmodule KafkaEx.Client.MetadataStore.Snapshot do
 
   defp plan_rows(current, %ClusterMetadata{} = metadata, seq, scope, freshness) do
     write_brokers? = seq > freshness.brokers
-    brokers = if write_brokers?, do: without_sockets(metadata.brokers), else: current.brokers
     written = Map.filter(metadata.topics, fn {name, _} -> newer?(seq, freshness, name) end)
-    dropped = dropped_topics(current.topics, metadata.topics, seq, scope, freshness)
-    kept = current.topics |> Map.drop(Map.keys(written)) |> Map.drop(dropped)
+    dropped = dropped_topics(current.topic_names, metadata.topics, seq, scope, freshness)
 
     rows =
-      broker_rows(write_brokers?, brokers, metadata.controller_id) ++
-        Enum.flat_map(written, fn {_, topic} -> topic_rows(topic, brokers) end) ++
-        rerouted_rows(kept, changed_nodes(write_brokers?, current.brokers, brokers), brokers) ++
-        [{:counter, current.counter + 1}]
+      cluster_rows(write_brokers?, metadata) ++
+        Enum.flat_map(written, fn {_, topic} -> topic_rows(topic) end) ++
+        [{:counter, current.counter + 1}, {:topic_names, topic_names(current.topic_names, written, dropped)}]
 
     deletes =
-      Enum.flat_map(dropped, &topic_keys(Map.fetch!(current.topics, &1))) ++
-        Enum.flat_map(written, fn {name, topic} -> stale_keys(Map.get(current.topics, name), topic) end)
+      lost_broker_keys(write_brokers?, current.broker_ids, metadata.brokers) ++
+        Enum.flat_map(dropped, &topic_keys(current.topic.(&1))) ++
+        Enum.flat_map(written, fn {name, topic} -> stale_keys(current.topic.(name), topic) end)
 
     touched = Map.new(Map.keys(written) ++ dropped, &{&1, seq})
 
@@ -233,55 +243,48 @@ defmodule KafkaEx.Client.MetadataStore.Snapshot do
     {rows, deletes, freshness}
   end
 
-  defp newer?(seq, freshness, name), do: seq > Map.get(freshness.topics, name, 0)
+  defp topic_names(current, written, dropped), do: Enum.uniq(current ++ Map.keys(written)) -- dropped
 
-  defp without_sockets(brokers), do: Map.new(brokers, fn {id, broker} -> {id, %{broker | socket: nil}} end)
+  defp newer?(seq, freshness, name), do: seq > Map.get(freshness.topics, name, 0)
 
   defp dropped_topics(_current, _response, _seq, {:topics, _}, _freshness), do: []
 
   defp dropped_topics(current, response, seq, scope, freshness) when scope in [:all, :tracked] do
-    for {name, _} <- current, not Map.has_key?(response, name), newer?(seq, freshness, name), do: name
+    for name <- current, not Map.has_key?(response, name), newer?(seq, freshness, name), do: name
   end
 
-  defp broker_rows(false, _brokers, _controller_id), do: []
+  defp cluster_rows(false, _metadata), do: []
 
-  defp broker_rows(true, brokers, controller_id), do: [{:brokers, brokers, controller_id}]
+  defp cluster_rows(true, %ClusterMetadata{brokers: brokers, controller_id: controller_id}) do
+    [
+      {:controller_id, controller_id},
+      {:broker_ids, Map.keys(brokers)}
+      | Enum.map(brokers, fn {id, broker} -> {{:broker, id}, %{broker | socket: nil}} end)
+    ]
+  end
 
-  defp topic_rows(%Topic{name: name, partition_leaders: leaders} = topic, brokers) do
+  defp lost_broker_keys(false, _current_ids, _brokers), do: []
+  defp lost_broker_keys(true, current_ids, brokers), do: Enum.map(current_ids -- Map.keys(brokers), &{:broker, &1})
+
+  defp topic_rows(%Topic{name: name, partitions: partitions} = topic) do
     [{{:topic, name}, topic} | topic_id_rows(topic)] ++
-      Enum.map(leaders, fn {partition, leader} -> partition_row(name, partition, leader, brokers) end)
+      Enum.map(partitions, &{{:partition, name, &1.partition_id}, &1})
   end
 
   defp topic_id_rows(%Topic{name: name, topic_id: <<_::128>> = id}), do: [{{:topic_id, id}, name}]
   defp topic_id_rows(%Topic{}), do: []
 
-  defp partition_row(name, partition, leader, brokers) do
-    {{:partition, name, partition}, leader, Map.get(brokers, leader)}
-  end
-
-  defp changed_nodes(false, _old, _new), do: MapSet.new()
-
-  defp changed_nodes(true, old, new) do
-    for id <- Map.keys(old) ++ Map.keys(new), Map.get(old, id) != Map.get(new, id), into: MapSet.new(), do: id
-  end
-
-  defp rerouted_rows(topics, changed, brokers) do
-    for {name, %Topic{partition_leaders: leaders}} <- topics,
-        {partition, leader} <- leaders,
-        MapSet.member?(changed, leader) do
-      partition_row(name, partition, leader, brokers)
-    end
-  end
-
-  defp topic_keys(%Topic{name: name, partition_leaders: leaders} = topic) do
+  defp topic_keys(%Topic{name: name} = topic) do
     [{:topic, name} | Enum.map(topic_id_rows(topic), &elem(&1, 0))] ++
-      Enum.map(Map.keys(leaders), &{:partition, name, &1})
+      Enum.map(partition_ids(topic), &{:partition, name, &1})
   end
 
-  defp stale_keys(nil, _topic), do: []
+  defp partition_ids(%Topic{partitions: partitions}), do: Enum.map(partitions, & &1.partition_id)
+
+  defp stale_keys(false, _topic), do: []
 
   defp stale_keys(%Topic{name: name} = old, %Topic{} = new) do
-    lost_partitions = Map.keys(old.partition_leaders) -- Map.keys(new.partition_leaders)
+    lost_partitions = partition_ids(old) -- partition_ids(new)
     lost_ids = Enum.map(topic_id_rows(old) -- topic_id_rows(new), &elem(&1, 0))
     lost_ids ++ Enum.map(lost_partitions, &{:partition, name, &1})
   end

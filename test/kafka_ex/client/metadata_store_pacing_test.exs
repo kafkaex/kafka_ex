@@ -112,11 +112,11 @@ defmodule KafkaEx.Client.MetadataStorePacingTest do
       %{store: store} = start_store(ctx)
       %{table: tid} = await!(store)
       assert :ok = MetadataStore.coordinator(store, "g", 5_000)
-      assert {:ok, 2, _broker} = Snapshot.select(tid, NodeSelector.consumer_group("g"), %{})
+      assert {:ok, 2, _broker} = MetadataTable.select(tid, NodeSelector.consumer_group("g"), %{})
 
       assert :ok = MetadataStore.forget_coordinator(store, "g", 1_000)
 
-      assert Snapshot.select(tid, NodeSelector.consumer_group("g"), %{}) == {:error, :no_such_consumer_group}
+      assert MetadataTable.select(tid, NodeSelector.consumer_group("g"), %{}) == {:error, :no_such_consumer_group}
       assert :ok = MetadataStore.coordinator(store, "g", 5_000)
       assert count(ctx.fake, :find_coordinator) == 2
     end

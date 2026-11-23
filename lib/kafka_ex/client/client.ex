@@ -18,8 +18,8 @@ defmodule KafkaEx.Client do
   alias KafkaEx.Client.ConnectionStateMachine.ReconnectBackoff
   alias KafkaEx.Client.Error
   alias KafkaEx.Client.MetadataStore
+  alias KafkaEx.Client.MetadataStore.MetadataTable
   alias KafkaEx.Client.MetadataStore.Round
-  alias KafkaEx.Client.MetadataStore.Snapshot
   alias KafkaEx.Client.NodeSelector
   alias KafkaEx.Client.RequestBudget
   alias KafkaEx.Client.RequestBuilder
@@ -692,22 +692,22 @@ defmodule KafkaEx.Client do
 
   # An empty snapshot means the store is loading, and a refresh then waits for its load round.
   defp round_call_timeout(state, store) do
-    case Snapshot.brokers(store.tid) do
+    case MetadataTable.brokers(store.tid) do
       [] -> MetadataStore.call_timeout(length(state.bootstrap_uris), connection_opts(state), state.store_opts, :load)
       brokers -> MetadataStore.call_timeout(length(brokers), connection_opts(state), state.store_opts)
     end
   end
 
   defp select(%State{store: nil}, _selector), do: {:error, :unavailable}
-  defp select(%State{store: %{tid: tid}, hints: hints}, selector), do: Snapshot.select(tid, selector, hints)
+  defp select(%State{store: %{tid: tid}, hints: hints}, selector), do: MetadataTable.select(tid, selector, hints)
 
   defp brokers(%State{store: nil}), do: []
-  defp brokers(%State{store: %{tid: tid}}), do: Snapshot.brokers(tid)
+  defp brokers(%State{store: %{tid: tid}}), do: MetadataTable.brokers(tid)
 
   defp cached_topics(%State{store: nil}, _topics), do: []
 
   defp cached_topics(%State{store: %{tid: tid}}, topics) do
-    case Snapshot.topics(tid, topics) do
+    case MetadataTable.topics(tid, topics) do
       {:ok, cached} -> cached
       {:error, :unavailable} -> []
     end
@@ -741,7 +741,7 @@ defmodule KafkaEx.Client do
   defp snapshot_stamp(%State{store: nil}), do: nil
 
   defp snapshot_stamp(%State{store: %{tid: tid}}) do
-    case Snapshot.counter(tid) do
+    case MetadataTable.counter(tid) do
       {:ok, counter} -> {tid, counter}
       {:error, :unavailable} -> nil
     end
@@ -751,7 +751,7 @@ defmodule KafkaEx.Client do
   defp store_tid(%State{store: %{tid: tid}}), do: tid
 
   defp with_topic_view(state, nil, _topics), do: %{state | cluster_metadata: %ClusterMetadata{}}
-  defp with_topic_view(state, tid, topics), do: %{state | cluster_metadata: Snapshot.topic_view(tid, topics)}
+  defp with_topic_view(state, tid, topics), do: %{state | cluster_metadata: MetadataTable.topic_view(tid, topics)}
 
   # ----------------------------------------------------------------------------------------------------
   defp describe_group_request(consumer_group_name, opts, state) do
@@ -1160,7 +1160,7 @@ defmodule KafkaEx.Client do
   defp reading_from_replica?(%State{store: nil}, _selector), do: false
 
   defp reading_from_replica?(%State{store: %{tid: tid}, hints: hints}, selector) do
-    Snapshot.select(tid, selector, hints) != Snapshot.select(tid, selector, %{})
+    MetadataTable.select(tid, selector, hints) != MetadataTable.select(tid, selector, %{})
   end
 
   # `-1` means "stay where you are" (Java client semantics). Clearing the
@@ -1342,7 +1342,7 @@ defmodule KafkaEx.Client do
   defp topic_name_parse_opts(state) do
     case store_tid(state) do
       nil -> [topic_name_resolver: fn _topic_id -> {:error, :no_such_topic} end]
-      tid -> [topic_name_resolver: &Snapshot.topic_name_by_id(tid, &1)]
+      tid -> [topic_name_resolver: &MetadataTable.topic_name_by_id(tid, &1)]
     end
   end
 

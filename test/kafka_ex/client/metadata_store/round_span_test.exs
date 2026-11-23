@@ -173,6 +173,23 @@ defmodule KafkaEx.Client.MetadataStore.RoundSpanTest do
     refute_received {:request, _phase, _metadata}
   end
 
+  test "a raise after a later candidate negotiated another version reports the version the span opened with" do
+    closed = {:error, :closed, @no_bytes}
+
+    candidates = [
+      stand_in("v0-closed", %{connect: {:ok, %{3 => {0, 0}}}, await: :ok, write: closed}),
+      stand_in("v1-closed", %{connect: {:ok, %{3 => {0, 1}}}, await: :ok, write: closed}),
+      stand_in("raises-on-connect", %{connect: :unexpected})
+    ]
+
+    {result, _log} = with_log(fn -> Round.run(round_spec(candidates, [])) end)
+
+    assert {:raised, {:error, %CaseClauseError{}, [_ | _]}} = result
+    assert_received {:request, :start, %{operation: :metadata, api_version: 0}}
+    assert_received {:request, :exception, %{operation: :metadata, api_version: 0, kind: :error}}
+    refute_received {:request, _phase, _metadata}
+  end
+
   # A via-name lookup runs in the walk's process, so its throw reaches the walk past the connection call.
   test "a throw after the span opens ends it with the request exception and the raw reason" do
     candidates = [

@@ -23,7 +23,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.CoordinatorRediscoveryTest do
 
   alias KafkaEx.API
   alias KafkaEx.Client
-  alias KafkaEx.Client.MetadataStore.Snapshot
+  alias KafkaEx.Client.MetadataStore.MetadataTable
 
   setup do
     {:ok, args} = KafkaEx.build_worker_options([])
@@ -58,7 +58,7 @@ defmodule KafkaEx.Integration.ConsumerGroup.CoordinatorRediscoveryTest do
     store = :sys.get_state(client).store.pid
 
     :sys.replace_state(store, fn {_, data} = s ->
-      Snapshot.put_coordinator(data.table, group, wrong_node)
+      MetadataTable.put_coordinator(data.table, group, wrong_node)
       s
     end)
 

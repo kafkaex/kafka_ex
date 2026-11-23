@@ -29,7 +29,7 @@ defmodule KafkaEx.TestSupport.StoreCase do
 
       alias KafkaEx.Client.ConnectionStateMachine
       alias KafkaEx.Client.MetadataStore
-      alias KafkaEx.Client.MetadataStore.Snapshot
+      alias KafkaEx.Client.MetadataStore.MetadataTable
       alias KafkaEx.Client.NodeSelector
       alias KafkaEx.Client.Supervisor, as: ClientSupervisor
       alias KafkaEx.TestSupport.FakeTransport

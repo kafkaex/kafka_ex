@@ -4,7 +4,7 @@ defmodule KafkaEx.Client.State do
   # state struct for New.Client
 
   alias KafkaEx.Client.ConnectionStateMachine
-  alias KafkaEx.Client.MetadataStore.Snapshot
+  alias KafkaEx.Client.MetadataStore.MetadataTable
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Messages.ApiVersions
 
@@ -59,11 +59,11 @@ defmodule KafkaEx.Client.State do
           parked: %{optional(reference()) => map()},
           parking:
             :first | {:resumed, {binary(), non_neg_integer(), ConnectionStateMachine.role()}, pid(), term()} | nil,
-          store: %{pid: pid(), ref: reference(), tid: Snapshot.t()} | nil,
+          store: %{pid: pid(), ref: reference(), tid: MetadataTable.t()} | nil,
           store_opts: Keyword.t(),
           deadline: integer() | nil,
-          dispatch_stamp: Snapshot.stamp() | nil,
-          hints: Snapshot.hints(),
+          dispatch_stamp: MetadataTable.stamp() | nil,
+          hints: MetadataTable.hints(),
           last_view: ClusterMetadata.t()
         }
 
