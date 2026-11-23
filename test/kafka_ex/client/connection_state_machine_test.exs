@@ -3,6 +3,8 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
 
   alias KafkaEx.Auth.Config, as: AuthConfig
   alias KafkaEx.Client.ConnectionStateMachine.InFlight
+  alias KafkaEx.Client.Error
+  alias KafkaEx.TestSupport.FakeTransport.Wire
   alias KafkaEx.TestSupport.LeakProbe
   alias KafkaEx.TestSupport.TLSFixtures
 
@@ -138,6 +140,42 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
   defp silent_opts(:api_versions, _tls), do: []
   defp silent_opts(_sasl, _tls), do: [auth: oauthbearer()]
 
+  defp api_versions_reply(:error_code), do: %{error_code: 35, api_keys: []}
+  defp api_versions_reply(:truncated), do: fn request -> {:frame, <<request.correlation_id::32-signed, 0>>} end
+  defp api_versions_reply(:wrong_id), do: fn request -> {:frame, <<request.correlation_id + 1::32-signed, 0::48>>} end
+
+  defp api_versions_failure(:error_code), do: %Error{error: :unsupported_version, metadata: %{}}
+  defp api_versions_failure(_malformed), do: :parse_error
+
+  # Suspended, the Connection already holds the frame when its socket dies, as if killed between the read and the re-arm.
+  defp kill_socket_under(conn, raw, release) do
+    true = :erlang.suspend_process(conn)
+    release.()
+    await_frame(conn, raw)
+    true = :erlang.port_close(raw)
+    true = :erlang.resume_process(conn)
+  end
+
+  defp await_frame(conn, raw, deadline \\ now() + 2_000) do
+    {:messages, messages} = Process.info(conn, :messages)
+
+    cond do
+      Enum.any?(messages, &(is_tuple(&1) and tuple_size(&1) > 2 and elem(&1, 1) == raw)) -> :ok
+      now() >= deadline -> flunk("no frame reached the suspended Connection")
+      true -> await_frame(conn, raw, deadline)
+    end
+  end
+
+  defp await_connector(conn, deadline \\ now() + 2_000) do
+    {_state, data} = :sys.get_state(conn)
+
+    cond do
+      data.connectors != [] -> :ok
+      now() >= deadline -> flunk("connect/2 never reached the Connection")
+      true -> await_connector(conn, deadline)
+    end
+  end
+
   describe "handshake" do
     test "the handshake writes nothing before ApiVersions, then SASL, then the request" do
       %{fake: fake, host: host} = start_fake()
@@ -229,6 +267,48 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
         assert_setup_closed(unquote(step))
         assert connection_state(conn) in [:reconnecting, :disconnected]
       end
+    end
+
+    test "a connect that completes after the setup deadline times out before writing ApiVersions" do
+      %{fake: fake, host: host} = start_fake()
+      watch_close(host)
+      FakeTransport.delay_connects(fake, 300)
+      %{conn: conn} = start_connection(fake, host, port(), :data, connect_timeout: 100)
+
+      assert ConnectionStateMachine.connect(conn, 5_000) == {:error, :setup_timeout}
+      assert_receive {:closed, %{reason: :setup_timeout}}, 1_000
+      assert FakeTransport.requests(fake) == []
+    end
+
+    for kind <- [:error_code, :truncated, :wrong_id] do
+      test "an ApiVersions reply with #{kind} fails the connect and closes the socket" do
+        %{fake: fake, host: host} = start_fake()
+        FakeTransport.subscribe(fake)
+        FakeTransport.respond(fake, :api_versions, api_versions_reply(unquote(kind)))
+        %{conn: conn} = start_connection(fake, host, port(), :data)
+
+        assert ConnectionStateMachine.connect(conn, 5_000) ==
+                 {:error, {:api_versions, api_versions_failure(unquote(kind))}}
+
+        assert_receive {:fake_transport, :closed, _id}, 1_000
+        assert connection_state(conn) == :disconnected
+      end
+    end
+
+    test "a socket that dies between ApiVersions and its re-arm fails the connect, and its exit is ignored" do
+      %{fake: fake, host: host} = start_fake()
+      FakeTransport.subscribe(fake)
+      FakeTransport.hold(fake, :api_versions)
+      %{conn: conn} = start_connection(fake, host, port(), :data)
+      test = self()
+      spawn(fn -> send(test, {:connected, ConnectionStateMachine.connect(conn, 5_000)}) end)
+      assert_receive {:fake_transport, :request, %{api: :api_versions, action: :hold}}, 2_000
+      [%{socket: %{socket: raw}}] = FakeTransport.connections(fake)
+
+      kill_socket_under(conn, raw, fn -> FakeTransport.release(fake, :api_versions) end)
+
+      assert_receive {:connected, {:error, {:connect, _reason}}}, 2_000
+      assert connection_state(conn) == :disconnected
     end
 
     test "the :connection and :auth spans come from the connection pid, never from the fake" do
@@ -345,6 +425,36 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
       assert_receive {^sibling, {:error, :timeout, _meta}}, 1_000
     end
 
+    test "a reply shorter than a correlation id closes the socket and its caller gets :timeout", %{
+      fake: fake,
+      host: host
+    } do
+      FakeTransport.respond(fake, :produce, {:frame, <<1, 2>>})
+      %{conn: conn} = start_connected(fake, host, :data)
+
+      assert {:error, :timeout, _meta} = dispatch(conn, request(:produce))
+      assert_receive {:closed, %{reason: :correlation_mismatch}}, 1_000
+    end
+
+    test "a reply read just before its socket died reaches its caller, then the connection drops", %{
+      fake: fake,
+      host: host
+    } do
+      FakeTransport.respond(fake, :produce, frame("ok"))
+      FakeTransport.hold(fake, :produce)
+      %{conn: conn} = start_connected(fake, host, :data)
+      {:connected, %{socket: %{socket: raw}}} = :sys.get_state(conn)
+      ref = async_dispatch(conn, request(:produce))
+      await_in_flight(conn, 1)
+
+      kill_socket_under(conn, raw, fn -> FakeTransport.release(fake, :produce) end)
+
+      assert_receive {^ref, {:ok, reply, _meta}}, 2_000
+      assert payload(reply) == "ok"
+      assert_receive {:closed, %{reason: :remote_closed}}, 1_000
+      assert connection_state(conn) == :disconnected
+    end
+
     test "a reply over TLS reaches its caller", %{tls: tls} do
       %{fake: fake, host: host} = start_fake(tls: tls.server)
       FakeTransport.respond(fake, :produce, frame("tls"))
@@ -431,6 +541,27 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
       assert ConnectionStateMachine.await(conn, build_dispatch(request(:produce)), 5_000) == :ok
       assert connection_state(conn) == :connected
       assert requests(fake, :produce) == []
+    end
+
+    test "connect on a connected connection answers its versions and opens nothing", %{fake: fake, conn: conn} do
+      assert {:ok, versions} = ConnectionStateMachine.connect(conn, 5_000)
+
+      assert ConnectionStateMachine.connect(conn, 5_000) == {:ok, versions}
+      assert length(FakeTransport.connects(fake)) == 1
+    end
+
+    test "a write whose deadline passed after its await is refused unwritten, and the connection stays up", %{
+      fake: fake,
+      conn: conn
+    } do
+      dispatch = build_dispatch(request(:produce))
+      assert ConnectionStateMachine.await(conn, dispatch, 5_000) == :ok
+
+      assert ConnectionStateMachine.write(conn, %{dispatch | deadline: now() - 1}, 5_000) ==
+               {:error, :timeout, %{bytes_sent: 0, bytes_received: 0}}
+
+      assert requests(fake, :produce) == []
+      assert connection_state(conn) == :connected
     end
 
     test "a write after the connection dropped is a written :closed, with no reconnect", %{
@@ -568,6 +699,16 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
       assert versions[0] == {3, 3}
       assert requests(fake, :produce) == []
     end
+
+    test "an API the broker does not advertise is refused unwritten", %{fake: fake, host: host} do
+      advertised = Map.new(%{api_versions: 0..0, produce: 3..3}, fn {api, range} -> {Wire.api_key(api), range} end)
+      FakeTransport.respond(fake, :api_versions, Wire.api_versions_fields(advertised))
+      %{conn: conn} = start_connection(fake, host, port(), :data)
+
+      assert {:error, {:unsupported_version, versions}, %{bytes_sent: 0}} = dispatch(conn, request(:heartbeat))
+      refute Map.has_key?(versions, Wire.api_key(:heartbeat))
+      assert requests(fake, :heartbeat) == []
+    end
   end
 
   describe "close initiator and transport reasons" do
@@ -650,6 +791,25 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
       refute_receive {:closed, _}, 50
       assert logged?(log, :warning, "#{host}:#{port()} closed connection: :econnreset")
       refute log =~ "Receiving data"
+    end
+
+    test "a socket whose port dies silently drops the connection and answers its caller with :closed", %{
+      fake: fake,
+      host: host
+    } do
+      FakeTransport.hold(fake, :produce)
+      %{conn: conn} = start_connected(fake, host, :data)
+      ref = async_dispatch(conn, request(:produce))
+      await_in_flight(conn, 1)
+      {:connected, %{socket: %{socket: raw}}} = :sys.get_state(conn)
+
+      with_log(fn ->
+        :erlang.port_close(raw)
+        assert_receive {^ref, {:error, :closed, _meta}}, 1_000
+      end)
+
+      assert_receive {:closed, %{reason: :recv_error}}, 1_000
+      assert connection_state(conn) == :disconnected
     end
 
     test "a stale socket's message is ignored", %{fake: fake, host: host} do
@@ -855,6 +1015,27 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
 
       assert {:error, :not_connected, _meta} = result
       assert elapsed < 700 + 600
+    end
+
+    test "in a spent outage, a waiter behind a pending connect still gets its window, and the outage stays spent",
+         %{fake: fake, host: host, gate: gate} do
+      backoff = ReconnectBackoff.new()
+
+      %{conn: conn} =
+        start_connection(fake, host, port(), :data, gate: gate, reconnect_backoff: backoff, reconnect_window: 600)
+
+      spend_outage(conn, gate)
+      # Another connection to this broker pushed the shared slot out past the window.
+      :ets.insert(backoff, {{host, port()}, now() + 3_000, 8})
+      spawn(fn -> capture_log(fn -> ConnectionStateMachine.connect(conn, 5_000) end) end)
+      await_connector(conn)
+      asked = now()
+
+      {result, _log} = with_log(fn -> dispatch(conn, request(:produce)) end)
+
+      assert {:error, :not_connected, _meta} = result
+      assert (now() - asked) in 600..1_500
+      assert {:reconnecting, %{outage: :spent, connectors: [_pending]}} = :sys.get_state(conn)
     end
 
     test "a fetch connection answered at once in a spent outage still idles out", %{fake: fake, host: host, gate: gate} do
