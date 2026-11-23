@@ -1,27 +1,30 @@
-defmodule KafkaEx.Client.InfraTest do
+defmodule KafkaEx.Client.SupervisorTest do
   use KafkaEx.TestSupport.PinCase, async: false
 
-  alias KafkaEx.Client.Connection
-  alias KafkaEx.Client.Infra
+  alias KafkaEx.Client.ConnectionStateMachine
+  alias KafkaEx.Client.Supervisor, as: ClientSupervisor
   alias KafkaEx.Messages.RecordMetadata
 
-  test "Infra restarts rest-for-one, at most 3 times in 5 seconds, with the connection supervisor first" do
-    assert {:ok, {flags, children}} = Infra.init([])
+  test "the client supervisor restarts rest-for-one, at most 3 times in 5 seconds, with the connection supervisor first" do
+    assert {:ok, {flags, children}} = ClientSupervisor.init([])
     assert %{strategy: :rest_for_one, intensity: 3, period: 5} = flags
     assert [%{id: :connections, type: :supervisor}] = children
   end
 
-  test "a stop that runs out of time leaves the process linked to Infra alive" do
-    {:ok, infra} = Infra.start_link()
-    assert %{active: 0, supervisors: 0} = DynamicSupervisor.count_children(Infra.connection_supervisor(infra))
-    start_stuck_child(infra)
-    monitor = Process.monitor(infra)
+  test "a stop that runs out of time leaves the process linked to the client supervisor alive" do
+    {:ok, supervisor} = ClientSupervisor.start_link()
 
-    assert Infra.stop(infra, :shutdown, 100) == :ok
-    assert_receive {:DOWN, ^monitor, :process, ^infra, :killed}, 1_000
+    assert %{active: 0, supervisors: 0} =
+             DynamicSupervisor.count_children(ClientSupervisor.connection_supervisor(supervisor))
+
+    start_stuck_child(supervisor)
+    monitor = Process.monitor(supervisor)
+
+    assert ClientSupervisor.stop(supervisor, :shutdown, 100) == :ok
+    assert_receive {:DOWN, ^monitor, :process, ^supervisor, :killed}, 1_000
   end
 
-  defp start_stuck_child(infra) do
+  defp start_stuck_child(supervisor) do
     test = self()
 
     stuck = fn ->
@@ -35,7 +38,7 @@ defmodule KafkaEx.Client.InfraTest do
 
     {:ok, _pid} =
       DynamicSupervisor.start_child(
-        Infra.connection_supervisor(infra),
+        ClientSupervisor.connection_supervisor(supervisor),
         %{id: :stuck, start: {Task, :start_link, [stuck]}, shutdown: 5_000}
       )
 
@@ -43,8 +46,8 @@ defmodule KafkaEx.Client.InfraTest do
   end
 
   test "a connection is a temporary child with a 2 second shutdown" do
-    assert %{restart: :temporary, shutdown: 2_000, start: {Connection, :start_link, [_]}} =
-             Supervisor.child_spec({Connection, %{}}, [])
+    assert %{restart: :temporary, shutdown: 2_000, start: {ConnectionStateMachine, :start_link, [_]}} =
+             Supervisor.child_spec({ConnectionStateMachine, %{}}, [])
   end
 
   describe "a running client" do
@@ -52,45 +55,48 @@ defmodule KafkaEx.Client.InfraTest do
       pinned = start_pinned()
       FakeTransport.respond(pinned.fake, :produce, produce_reply())
       watch_close(pinned.host)
-      Map.put(pinned, :infra, :sys.get_state(pinned.client).infra)
+      Map.put(pinned, :supervisor, :sys.get_state(pinned.client).supervisor)
     end
 
-    test "is linked to its Infra and does not trap exits", %{client: client, infra: infra} do
+    test "is linked to its supervisor and does not trap exits", %{client: client, supervisor: supervisor} do
       assert {:links, links} = Process.info(client, :links)
-      assert infra in links
+      assert supervisor in links
       assert Process.info(client, :trap_exit) == {:trap_exit, false}
     end
 
-    test "stopped, closes every connection with :shutdown and leaves no Infra or Connection alive", ctx do
+    test "stopped, closes every connection with :shutdown and leaves no supervisor or connection alive", ctx do
       assert_teardown(ctx, fn client ->
         :ok = GenServer.stop(client, :normal, 5_000)
-        refute Process.alive?(ctx.infra)
+        refute Process.alive?(ctx.supervisor)
       end)
     end
 
-    test "killed, closes every connection with :shutdown and leaves no Infra or Connection alive", ctx do
+    test "killed, closes every connection with :shutdown and leaves no supervisor or connection alive", ctx do
       assert_teardown(ctx, &Process.exit(&1, :kill))
     end
 
-    test "survives its connection supervisor being killed, which Infra restarts", %{client: client, infra: infra} do
-      supervisor = Infra.connection_supervisor(infra)
-      refs = Enum.map([supervisor | connections(infra)], &Process.monitor/1)
+    test "survives its connection supervisor being killed, which the client supervisor restarts", %{
+      client: client,
+      supervisor: supervisor
+    } do
+      connection_supervisor = ClientSupervisor.connection_supervisor(supervisor)
+      refs = Enum.map([connection_supervisor | connections(supervisor)], &Process.monitor/1)
 
-      Process.exit(supervisor, :kill)
+      Process.exit(connection_supervisor, :kill)
 
       for ref <- refs, do: assert_receive({:DOWN, ^ref, :process, _pid, _reason}, 5_000)
-      restarted = Infra.connection_supervisor(infra)
-      assert is_pid(restarted) and restarted != supervisor
+      restarted = ClientSupervisor.connection_supervisor(supervisor)
+      assert is_pid(restarted) and restarted != connection_supervisor
       assert Process.alive?(client)
       assert {:ok, %RecordMetadata{base_offset: 7}} = API.produce(client, @topic, 0, [%{value: "v"}])
     end
 
     test "answers without a connection while its connection supervisor is down, and connects once it is back", %{
       client: client,
-      infra: infra
+      supervisor: supervisor
     } do
-      :ok = Supervisor.terminate_child(infra, :connections)
-      assert Infra.connection_supervisor(infra) == nil
+      :ok = Supervisor.terminate_child(supervisor, :connections)
+      assert ClientSupervisor.connection_supervisor(supervisor) == nil
       {:ok, before} = API.correlation_id(client)
       attach_request_start()
 
@@ -101,7 +107,7 @@ defmodule KafkaEx.Client.InfraTest do
       assert API.correlation_id(client) == {:ok, before}
       refute_received {:request_start, _metadata}
 
-      {:ok, _supervisor} = Supervisor.restart_child(infra, :connections)
+      {:ok, _supervisor} = Supervisor.restart_child(supervisor, :connections)
       assert {:ok, %RecordMetadata{base_offset: 7}} = API.produce(client, @topic, 0, [%{value: "v"}])
     end
 
@@ -115,9 +121,9 @@ defmodule KafkaEx.Client.InfraTest do
       assert_receive {:DOWN, ^ref, :process, ^client, {{:case_clause, {:error, _}}, [_ | _]}}, 5_000
     end
 
-    test "crashes when its connection supervisor exits on a start", %{client: client, infra: infra} do
+    test "crashes when its connection supervisor exits on a start", %{client: client, supervisor: supervisor} do
       ref = Process.monitor(client)
-      :sys.replace_state(Infra.connection_supervisor(infra), fn _state -> :broken end)
+      :sys.replace_state(ClientSupervisor.connection_supervisor(supervisor), fn _state -> :broken end)
 
       {exit, _log} = with_log(fn -> catch_exit(API.produce(client, @topic, 0, [%{value: "v"}])) end)
 
@@ -126,11 +132,11 @@ defmodule KafkaEx.Client.InfraTest do
     end
   end
 
-  test "a failed boot leaves no Infra or Connection alive" do
+  test "a failed boot leaves no supervisor or connection alive" do
     with_env(:sleep_for_reconnect, 0)
     Process.flag(:trap_exit, true)
     %{fake: fake, host: host} = start_fake([{1, 9092}])
-    before = infra_processes()
+    before = supervisor_processes()
 
     {result, _log} =
       with_log(fn ->
@@ -147,17 +153,17 @@ defmodule KafkaEx.Client.InfraTest do
 
     assert {:error, _reason} = result
     assert [_ | _] = FakeTransport.connects(fake)
-    assert infra_processes() -- before == []
+    assert supervisor_processes() -- before == []
 
     %{client: client} = start_pinned()
-    assert client |> :sys.get_state() |> Map.fetch!(:infra) |> connections() |> length() == 1
-    assert length(infra_processes() -- before) == 3
+    assert client |> :sys.get_state() |> Map.fetch!(:supervisor) |> connections() |> length() == 1
+    assert length(supervisor_processes() -- before) == 3
   end
 
-  defp assert_teardown(%{client: client, infra: infra}, stop) do
+  defp assert_teardown(%{client: client, supervisor: supervisor}, stop) do
     {:ok, _} = API.produce(client, @topic, 0, [%{value: "v"}])
     {:ok, _} = API.produce(client, @topic, 1, [%{value: "v"}])
-    processes = [infra | connections(infra)]
+    processes = [supervisor | connections(supervisor)]
     assert length(processes) == 4
     refs = Enum.map(processes, &Process.monitor/1)
 
@@ -174,9 +180,11 @@ defmodule KafkaEx.Client.InfraTest do
     end)
   end
 
-  defp connections(infra) do
-    for {_id, pid, _type, _modules} <- DynamicSupervisor.which_children(Infra.connection_supervisor(infra)),
-        is_pid(pid),
-        do: pid
+  defp connections(supervisor) do
+    for {_id, pid, _type, _modules} <-
+          DynamicSupervisor.which_children(ClientSupervisor.connection_supervisor(supervisor)),
+        is_pid(pid) do
+      pid
+    end
   end
 end

@@ -3,7 +3,7 @@ defmodule KafkaEx.Client.State do
 
   # state struct for New.Client
 
-  alias KafkaEx.Client.Connection
+  alias KafkaEx.Client.ConnectionStateMachine
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Messages.ApiVersions
 
@@ -25,9 +25,9 @@ defmodule KafkaEx.Client.State do
     metadata_missing: MapSet.new(),
     metadata_missing_logged_at: nil,
     transport: KafkaEx.Network.NetworkClient,
-    infra: nil,
+    supervisor: nil,
     conns: %{},
-    pacing: nil,
+    reconnect_backoff: nil,
     connection_opts: [],
     connection_options: %{},
     parked: %{},
@@ -50,13 +50,16 @@ defmodule KafkaEx.Client.State do
           metadata_missing: MapSet.t(),
           metadata_missing_logged_at: integer() | nil,
           transport: module(),
-          infra: pid() | nil,
-          conns: %{optional({binary(), non_neg_integer(), Connection.role()}) => %{pid: pid(), ref: reference()}},
-          pacing: :ets.tid() | nil,
+          supervisor: pid() | nil,
+          conns: %{
+            optional({binary(), non_neg_integer(), ConnectionStateMachine.role()}) => %{pid: pid(), ref: reference()}
+          },
+          reconnect_backoff: :ets.tid() | nil,
           connection_opts: Keyword.t(),
           connection_options: map(),
           parked: %{optional(reference()) => map()},
-          parking: :first | {:resumed, {binary(), non_neg_integer(), Connection.role()}, pid(), term()} | nil
+          parking:
+            :first | {:resumed, {binary(), non_neg_integer(), ConnectionStateMachine.role()}, pid(), term()} | nil
         }
 
   @default_metadata_update_interval 30_000
@@ -130,9 +133,6 @@ defmodule KafkaEx.Client.State do
   def brokers(%__MODULE__{cluster_metadata: cluster_metadata}) do
     ClusterMetadata.brokers(cluster_metadata)
   end
-
-  def ingest_api_versions(%__MODULE__{} = state, %ApiVersions{} = api_versions),
-    do: %{state | api_versions: api_version_ranges(api_versions)}
 
   @spec api_version_ranges(ApiVersions.t()) :: %{non_neg_integer() => {non_neg_integer(), non_neg_integer()}}
   def api_version_ranges(%ApiVersions{api_versions: api_versions_map}) do

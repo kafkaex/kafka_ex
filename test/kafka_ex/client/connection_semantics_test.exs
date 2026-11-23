@@ -8,13 +8,13 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
   @moduletag capture_log: true
 
   @sasl_authentication_failed 58
-  @pacing_base_ms 100
-  @pacing_cap_ms 500
+  @backoff_base_ms 100
+  @backoff_cap_ms 500
   @idle_timeout 300
-  # Covers the ms-truncated claim clock and a Connection preempted between claim and its :start event.
+  # Covers the ms-truncated claim clock and a connection preempted between claim and its :start event.
   @gap_slack_ms 5
 
-  describe "a Connection killed mid-request" do
+  describe "a connection killed mid-request" do
     setup do
       start_pinned()
     end
@@ -22,14 +22,13 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
     for {name, api, call} <- [
           {"produce", :produce, quote(do: API.produce(var!(client), @topic, 0, [%{value: "v"}]))},
           {"JoinGroup", :join_group,
-           quote(
-             do:
-               API.join_group(var!(client), "g", "",
-                 topics: [@topic],
-                 session_timeout: 10_000,
-                 rebalance_timeout: 10_000
-               )
-           )},
+           quote do
+             API.join_group(var!(client), "g", "",
+               topics: [@topic],
+               session_timeout: 10_000,
+               rebalance_timeout: 10_000
+             )
+           end},
           {"KIP-848 heartbeat of a member", :consumer_group_heartbeat,
            quote(do: API.consumer_group_heartbeat(var!(client), "g", member_id: "m", member_epoch: 3))}
         ] do
@@ -70,36 +69,36 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
     assert count(fake, :produce) == 1
   end
 
-  describe "pacing with 100 concurrent callers" do
+  describe "reconnect backoff with 100 concurrent callers" do
     for {name, kind} <- [
           {"that fail authentication", :auth_failed},
           {"whose OAUTHBEARER token the broker refuses", :token_refused},
           {"the broker accepts and closes after ApiVersions", :handshake_closed}
         ] do
       test "spaces connect attempts #{name}" do
-        %{fake: fake, client: client, host: host} = start_paced([auth: oauthbearer()], window: 400)
+        %{fake: fake, client: client, host: host} = start_for_backoff([auth: oauthbearer()], window: 400)
         script(fake, unquote(kind))
 
-        assert_paced(client, {host, 9092}, fn _i -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
+        assert_backoff(client, {host, 9092}, fn _i -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
       end
     end
 
     test "spaces connect attempts whose handshake crashes the connection" do
       raising = :atomics.new(1, [])
       provider = fn -> if :atomics.get(raising, 1) == 1, do: raise("token provider down"), else: {:ok, "t"} end
-      %{client: client, host: host} = start_paced(auth: oauthbearer(provider))
+      %{client: client, host: host} = start_for_backoff(auth: oauthbearer(provider))
       :atomics.put(raising, 1, 1)
 
-      assert_paced(client, {host, 9092}, fn _i -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
+      assert_backoff(client, {host, 9092}, fn _i -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
     end
 
     test "spaces connect attempts of every role to an unreachable broker" do
       %{client: client, host: host, gate: gate} =
-        start_paced([], topics: %{"wide" => List.duplicate(2, 20), @topic => [2, 2]})
+        start_for_backoff([], topics: %{"wide" => List.duplicate(2, 20), @topic => [2, 2]})
 
       PinGate.close(gate)
 
-      assert_paced(client, {host, 9093}, fn i ->
+      assert_backoff(client, {host, 9093}, fn i ->
         case rem(i, 22) do
           20 -> API.produce(client, @topic, 0, [%{value: "v"}])
           21 -> API.heartbeat(client, "g", "m", 1)
@@ -120,7 +119,7 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
     PinGate.close(gate)
     {:error, _} = API.produce(client, @topic, 0, [%{value: "v"}])
     PinGate.open(gate)
-    [{_address, next_at, _failures}] = :ets.lookup(:sys.get_state(client).pacing, {host, 9092})
+    [{_address, next_at, _failures}] = :ets.lookup(:sys.get_state(client).reconnect_backoff, {host, 9092})
     refute_receive :backoff_elapsed, max(next_at - System.monotonic_time(:millisecond), 0) + 1
     watch_attempts({host, 9092})
 
@@ -227,7 +226,7 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
   defp script(fake, :handshake_closed), do: FakeTransport.respond(fake, :sasl_handshake, :close)
 
   # stable_period 0 resets boot failures at once; a window past the second backoff keeps an outage unspent.
-  defp start_paced(client_opts, opts \\ []) do
+  defp start_for_backoff(client_opts, opts \\ []) do
     {window, opts} = Keyword.pop(opts, :window, 25)
     connection = [reconnect_window: window, stable_period: 0]
     pinned = start_pinned([client: [connection: connection] ++ client_opts] ++ opts)
@@ -236,7 +235,7 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
     pinned
   end
 
-  defp assert_paced(client, address, call) do
+  defp assert_backoff(client, address, call) do
     failures = failures(client, address)
     watch_attempts(address)
 
@@ -256,13 +255,13 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
   end
 
   defp failures(client, address) do
-    case :ets.lookup(:sys.get_state(client).pacing, address) do
+    case :ets.lookup(:sys.get_state(client).reconnect_backoff, address) do
       [{^address, _next_at, failures}] -> failures
       [] -> 0
     end
   end
 
-  defp lower_bound(n), do: min(0.75 * @pacing_base_ms * Integer.pow(2, n - 1), 0.8 * @pacing_cap_ms)
+  defp lower_bound(n), do: min(0.75 * @backoff_base_ms * Integer.pow(2, n - 1), 0.8 * @backoff_cap_ms)
 
   defp fitting(duration, n, elapsed \\ 0, attempts \\ 1) do
     elapsed = elapsed + lower_bound(n)

@@ -16,8 +16,9 @@ defmodule KafkaEx.TestSupport.LeakProbe do
         {kind, secret} <- secrets,
         secret != "",
         Enum.any?(forms(secret), &String.contains?(text, &1)),
-        into: MapSet.new(),
-        do: Tuple.insert_at(label, tuple_size(label), kind)
+        into: MapSet.new() do
+      Tuple.insert_at(label, tuple_size(label), kind)
+    end
   end
 
   def render(term), do: [inspect(term, @full), to_string(:io_lib.format(~c"~p", [term]))]

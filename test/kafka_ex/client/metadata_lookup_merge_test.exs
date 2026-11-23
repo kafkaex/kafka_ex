@@ -88,7 +88,8 @@ defmodule KafkaEx.Client.MetadataLookupMergeTest do
 
   defp reconnects(fake) do
     for {address, count} <- Enum.frequencies_by(FakeTransport.connects(fake), &{&1.port, &1.role}),
-        count > 1,
-        do: address
+        count > 1 do
+      address
+    end
   end
 end

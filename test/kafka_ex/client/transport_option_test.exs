@@ -127,7 +127,7 @@ defmodule KafkaEx.Client.TransportOptionTest do
 
     on_exit(fn -> :telemetry.detach(handler) end)
 
-    existing = PinCase.infra_processes()
+    existing = PinCase.supervisor_processes()
 
     capture_log(fn ->
       assert {:error, _} =
@@ -148,6 +148,6 @@ defmodule KafkaEx.Client.TransportOptionTest do
     connections = fake |> FakeTransport.connects() |> Enum.map(& &1.owner)
     assert connections != []
     refute Enum.any?(connections, &Process.alive?/1)
-    assert PinCase.infra_processes() -- existing == []
+    assert PinCase.supervisor_processes() -- existing == []
   end
 end

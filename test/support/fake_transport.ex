@@ -115,9 +115,11 @@ defmodule KafkaEx.TestSupport.FakeTransport do
     <<_header::binary-size(8), id_size::16, _id::binary-size(id_size), size::32, bytes::binary-size(size)>> = frame
     refusal = ~s({"status":"invalid_token"})
 
-    if bytes == <<1>>,
-      do: %{error_code: 58, error_message: refusal, auth_bytes: ""},
-      else: %{error_code: 0, error_message: "", auth_bytes: refusal}
+    if bytes == <<1>> do
+      %{error_code: 58, error_message: refusal, auth_bytes: ""}
+    else
+      %{error_code: 0, error_message: "", auth_bytes: refusal}
+    end
   end
 
   def close(fake, {host, port}) do

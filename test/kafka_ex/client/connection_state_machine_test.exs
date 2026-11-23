@@ -1,7 +1,8 @@
-defmodule KafkaEx.Client.ConnectionTest do
+defmodule KafkaEx.Client.ConnectionStateMachineTest do
   use KafkaEx.TestSupport.ConnectionCase, async: false
 
   alias KafkaEx.Auth.Config, as: AuthConfig
+  alias KafkaEx.Client.ConnectionStateMachine.InFlight
   alias KafkaEx.TestSupport.LeakProbe
   alias KafkaEx.TestSupport.TLSFixtures
 
@@ -11,8 +12,9 @@ defmodule KafkaEx.Client.ConnectionTest do
     {:ok, tls: TLSFixtures.chain()}
   end
 
-  defp plain,
-    do: AuthConfig.new(%{mechanism: :plain, username: "conn-secret-user", password: "conn-secret-password"})
+  defp plain do
+    AuthConfig.new(%{mechanism: :plain, username: "conn-secret-user", password: "conn-secret-password"})
+  end
 
   defp attach_spans do
     handler = "conn-spans-#{System.unique_integer([:positive])}"
@@ -20,8 +22,9 @@ defmodule KafkaEx.Client.ConnectionTest do
     on_exit(fn -> :telemetry.detach(handler) end)
   end
 
-  def forward_span([:kafka_ex, name, phase], _measurements, metadata, test),
-    do: send(test, {:span, self(), name, phase, metadata})
+  def forward_span([:kafka_ex, name, phase], _measurements, metadata, test) do
+    send(test, {:span, self(), name, phase, metadata})
+  end
 
   defp drain_spans(acc \\ []) do
     receive do
@@ -111,8 +114,9 @@ defmodule KafkaEx.Client.ConnectionTest do
   defp failing(:error), do: fn -> :erlang.error({:badmatch, "conn-secret-password"}) end
   defp failing(:throw), do: fn -> throw({:token, "conn-secret-password"}) end
 
-  defp failing(:exit),
-    do: fn -> exit({:timeout, {GenServer, :call, [self(), {:token, "conn-secret-password"}, 5_000]}}) end
+  defp failing(:exit) do
+    fn -> exit({:timeout, {GenServer, :call, [self(), {:token, "conn-secret-password"}, 5_000]}}) end
+  end
 
   defp secrets_failing_at(call, kind) do
     calls = :counters.new(1, [])
@@ -155,7 +159,7 @@ defmodule KafkaEx.Client.ConnectionTest do
       %{conn: conn} = start_connection(fake, host, port(), :data, auth: oauthbearer())
 
       for round <- 1..3 do
-        assert {:ok, _versions} = Connection.connect(conn, 5_000)
+        assert {:ok, _versions} = ConnectionStateMachine.connect(conn, 5_000)
         if round < 3, do: drop(fake, host)
       end
 
@@ -170,7 +174,7 @@ defmodule KafkaEx.Client.ConnectionTest do
       watch_close(host)
       %{conn: conn} = start_connection(fake, host, port(), :data, auth: plain())
 
-      {result, log} = with_log(fn -> Connection.connect(conn, 5_000) end)
+      {result, log} = with_log(fn -> ConnectionStateMachine.connect(conn, 5_000) end)
 
       assert result == {:error, {:auth, :plain_requires_tls}}
       assert FakeTransport.requests(fake) == []
@@ -182,7 +186,7 @@ defmodule KafkaEx.Client.ConnectionTest do
       %{fake: fake, host: host} = start_fake()
       watch_close(host)
       FakeTransport.respond(fake, :sasl_authenticate, &FakeTransport.oauthbearer_refusal/1)
-      %{conn: conn, pacing: pacing} = start_connection(fake, host, port(), :data, auth: oauthbearer())
+      %{conn: conn, reconnect_backoff: backoff} = start_connection(fake, host, port(), :data, auth: oauthbearer())
       started = now()
 
       {result, _log} = with_log(fn -> dispatch(conn, request(:produce), wait?: false) end)
@@ -193,7 +197,7 @@ defmodule KafkaEx.Client.ConnectionTest do
       assert Enum.map(FakeTransport.requests(fake), & &1.api) ==
                [:api_versions, :sasl_handshake, :sasl_authenticate, :sasl_authenticate]
 
-      assert [{_address, next_at, 1}] = :ets.lookup(pacing, {host, port()})
+      assert [{_address, next_at, 1}] = :ets.lookup(backoff, {host, port()})
       assert next_at - started >= 75
     end
 
@@ -204,9 +208,9 @@ defmodule KafkaEx.Client.ConnectionTest do
       provider = fn -> :counters.add(calls, 1, 1) && {:ok, "token"} end
       %{conn: conn} = start_connection(fake, host, port(), :data, auth: oauthbearer(provider))
 
-      assert {:ok, _versions} = Connection.connect(conn, 5_000)
+      assert {:ok, _versions} = ConnectionStateMachine.connect(conn, 5_000)
       drop(fake, host)
-      assert {:ok, _versions} = Connection.connect(conn, 5_000)
+      assert {:ok, _versions} = ConnectionStateMachine.connect(conn, 5_000)
 
       assert :counters.get(calls, 1) == 2
     end
@@ -227,12 +231,12 @@ defmodule KafkaEx.Client.ConnectionTest do
       end
     end
 
-    test "the :connection and :auth spans come from the Connection pid, never from the fake" do
+    test "the :connection and :auth spans come from the connection pid, never from the fake" do
       %{fake: fake, host: host} = start_fake()
       attach_spans()
       %{conn: conn} = start_connection(fake, host, port(), :data, auth: oauthbearer())
 
-      assert {:ok, _versions} = Connection.connect(conn, 5_000)
+      assert {:ok, _versions} = ConnectionStateMachine.connect(conn, 5_000)
       spans = drain_spans()
 
       assert [
@@ -328,7 +332,7 @@ defmodule KafkaEx.Client.ConnectionTest do
       FakeTransport.respond(fake, :produce, fn request -> {:frame, <<request.correlation_id + 1000::32>>} end)
       FakeTransport.respond(fake, :heartbeat, frame("hb"))
       FakeTransport.hold(fake, :produce)
-      {:ok, _versions} = Connection.connect(conn, 5_000)
+      {:ok, _versions} = ConnectionStateMachine.connect(conn, 5_000)
 
       produce = async_dispatch(conn, request(:produce))
       await_in_flight(conn, 1)
@@ -404,7 +408,7 @@ defmodule KafkaEx.Client.ConnectionTest do
       opts = [idle_timeout: 200, liveness_slack: 1_000]
       %{conn: conn} = start_connection(fake, host, port(), :fetch, opts)
       monitor = Process.monitor(conn)
-      {:ok, _versions} = Connection.connect(conn, 5_000)
+      {:ok, _versions} = ConnectionStateMachine.connect(conn, 5_000)
 
       {{:error, :timeout, _meta}, _log} = with_log(fn -> dispatch(conn, request(:fetch), timeout: 100) end)
 
@@ -424,7 +428,7 @@ defmodule KafkaEx.Client.ConnectionTest do
     end
 
     test "await answers once the connection is up and writes nothing", %{fake: fake, conn: conn} do
-      assert Connection.await(conn, build_dispatch(request(:produce)), 5_000) == :ok
+      assert ConnectionStateMachine.await(conn, build_dispatch(request(:produce)), 5_000) == :ok
       assert connection_state(conn) == :connected
       assert requests(fake, :produce) == []
     end
@@ -435,11 +439,13 @@ defmodule KafkaEx.Client.ConnectionTest do
       conn: conn
     } do
       dispatch = build_dispatch(request(:produce))
-      assert Connection.await(conn, dispatch, 5_000) == :ok
+      assert ConnectionStateMachine.await(conn, dispatch, 5_000) == :ok
       watch_attempts(host)
       drop(fake, host)
 
-      assert Connection.write(conn, dispatch, 5_000) == {:error, :closed, %{bytes_sent: 0, bytes_received: 0}}
+      assert ConnectionStateMachine.write(conn, dispatch, 5_000) ==
+               {:error, :closed, %{bytes_sent: 0, bytes_received: 0}}
+
       refute_receive {:attempt, _pid, _at}, 200
       assert requests(fake, :produce) == []
     end
@@ -449,7 +455,7 @@ defmodule KafkaEx.Client.ConnectionTest do
     setup :watched_fake
 
     for transport <- [:tcp, :ssl] do
-      test "a peer that stops reading over #{transport}: the Connection closes within send_timeout and replies to every caller",
+      test "a peer that stops reading over #{transport}: the connection closes within send_timeout and replies to every caller",
            %{tls: tls} do
         %{fake: fake, host: host} = start_fake(tls: tls.server)
         watch_close(host)
@@ -543,7 +549,7 @@ defmodule KafkaEx.Client.ConnectionTest do
 
       assert bytes > 0
       {:connected, data} = :sys.get_state(conn)
-      assert Connection.InFlight.empty?(data.in_flight)
+      assert InFlight.empty?(data.in_flight)
     end
 
     test "a request whose deadline passed while it waited is never written", %{fake: fake, host: host} do
@@ -652,7 +658,7 @@ defmodule KafkaEx.Client.ConnectionTest do
       {:connected, %{socket: old}} = :sys.get_state(conn)
       FakeTransport.close(fake, {host, port()})
       assert_receive {:closed, %{reason: :remote_closed}}, 1_000
-      {:ok, _versions} = Connection.connect(conn, 5_000)
+      {:ok, _versions} = ConnectionStateMachine.connect(conn, 5_000)
 
       FakeTransport.inject(%{socket: old, owner: conn}, {:data, <<12_345::32, "stale">>})
       FakeTransport.inject(%{socket: old, owner: conn}, :closed)
@@ -670,12 +676,12 @@ defmodule KafkaEx.Client.ConnectionTest do
       FakeTransport.respond(fake, :produce, :no_reply)
       %{conn: conn} = start_connection(fake, host, port(), :coordinator)
       monitor = Process.monitor(conn)
-      {:ok, _versions} = Connection.connect(conn, 5_000)
+      {:ok, _versions} = ConnectionStateMachine.connect(conn, 5_000)
 
       commit = async_dispatch(conn, request(:offset_commit))
       produce = async_dispatch(conn, request(:produce))
       await_in_flight(conn, 2)
-      Connection.stop(conn, :metadata_update)
+      ConnectionStateMachine.stop(conn, :metadata_update)
 
       assert_receive {^commit, {:error, :timeout, _meta}}, 1_000
       assert_receive {^produce, {:error, :timeout, _meta}}, 1_000
@@ -684,7 +690,7 @@ defmodule KafkaEx.Client.ConnectionTest do
     end
   end
 
-  describe "pacing" do
+  describe "reconnect backoff" do
     setup do
       %{fake: fake, host: host} = start_fake()
       watch_attempts(host)
@@ -697,9 +703,9 @@ defmodule KafkaEx.Client.ConnectionTest do
       gate: gate
     } do
       PinGate.close(gate)
-      pacing = Pacing.new()
+      backoff = ReconnectBackoff.new()
       roles = for i <- 1..22, do: Enum.at([:metadata, :data, :coordinator, :fetch], rem(i, 4))
-      opts = [gate: gate, pacing: pacing, reconnect_window: 600]
+      opts = [gate: gate, reconnect_backoff: backoff, reconnect_window: 600]
       conns = for role <- roles, do: start_connection(fake, host, port(), role, opts).conn
 
       {refs, _log} = with_log(fn -> for conn <- conns, do: async_dispatch(conn, request(:produce)) end)
@@ -711,25 +717,28 @@ defmodule KafkaEx.Client.ConnectionTest do
 
       assert length(attempts) <= ceil(:math.log2(600 / 75)) + 2
 
-      for {gap, failures} <- Enum.with_index(gaps, 1),
-          do: assert(gap >= 0.75 * lower_bound(failures), "gap #{failures} was #{gap} ms: #{inspect(gaps)}")
+      for {gap, failures} <- Enum.with_index(gaps, 1) do
+        assert gap >= 0.75 * lower_bound(failures), "gap #{failures} was #{gap} ms: #{inspect(gaps)}"
+      end
     end
 
-    test "a connection that has attempted ignores a pacing wake and keeps its backoff", %{
+    test "a connection that has attempted ignores a backoff wake and keeps its backoff", %{
       fake: fake,
       host: host,
       gate: gate
     } do
       PinGate.close(gate)
-      pacing = Pacing.new()
-      %{conn: conn} = start_connection(fake, host, port(), :data, gate: gate, pacing: pacing, reconnect_window: 5_000)
+      backoff = ReconnectBackoff.new()
+
+      %{conn: conn} =
+        start_connection(fake, host, port(), :data, gate: gate, reconnect_backoff: backoff, reconnect_window: 5_000)
 
       {_ref, _log} = with_log(fn -> async_dispatch(conn, request(:produce)) end)
       assert_receive {:attempt, ^conn, _at}, 1_000
       assert {:reconnecting, _data} = :sys.get_state(conn)
       PinGate.open(gate)
-      Pacing.connected(pacing, {host, port()}, now())
-      send(conn, :pacing_slot)
+      ReconnectBackoff.connected(backoff, {host, port()}, now())
+      send(conn, :reconnect_slot)
 
       assert {:reconnecting, _data} = :sys.get_state(conn)
       refute_received {:attempt, ^conn, _at}
@@ -741,14 +750,14 @@ defmodule KafkaEx.Client.ConnectionTest do
       gate: gate
     } do
       PinGate.close(gate)
-      pacing = Pacing.new()
-      :ok = Pacing.claim(pacing, {host, port()}, now())
-      %{conn: conn} = start_connection(fake, host, port(), :data, gate: gate, pacing: pacing)
+      backoff = ReconnectBackoff.new()
+      :ok = ReconnectBackoff.claim(backoff, {host, port()}, now())
+      %{conn: conn} = start_connection(fake, host, port(), :data, gate: gate, reconnect_backoff: backoff)
 
-      {result, _log} = with_log(fn -> Connection.connect(conn, 5_000) end)
+      {result, _log} = with_log(fn -> ConnectionStateMachine.connect(conn, 5_000) end)
 
       assert {:error, _reason} = result
-      assert :ets.match_object(pacing, {{:first_connect, :_, :_}}) == []
+      assert :ets.match_object(backoff, {{:first_connect, :_, :_}}) == []
     end
 
     test "a request that arrives after the backoff interval attempts at once", %{fake: fake, host: host, gate: gate} do
@@ -776,9 +785,11 @@ defmodule KafkaEx.Client.ConnectionTest do
         gate: gate
       } do
         if unquote(gate_state) == :closed, do: PinGate.close(gate)
-        pacing = Pacing.new()
-        :ets.insert(pacing, {{host, port()}, now() + 5_000, 8})
-        %{conn: conn} = start_connection(fake, host, port(), :data, gate: gate, pacing: pacing, reconnect_window: 600)
+        backoff = ReconnectBackoff.new()
+        :ets.insert(backoff, {{host, port()}, now() + 5_000, 8})
+
+        %{conn: conn} =
+          start_connection(fake, host, port(), :data, gate: gate, reconnect_backoff: backoff, reconnect_window: 600)
 
         ref = async_dispatch(conn, request(:produce))
 
@@ -810,10 +821,13 @@ defmodule KafkaEx.Client.ConnectionTest do
       gate: gate
     } do
       FakeTransport.respond(fake, :produce, frame("ok"))
-      pacing = Pacing.new()
-      %{conn: conn} = start_connection(fake, host, port(), :data, gate: gate, pacing: pacing, reconnect_window: 600)
+      backoff = ReconnectBackoff.new()
+
+      %{conn: conn} =
+        start_connection(fake, host, port(), :data, gate: gate, reconnect_backoff: backoff, reconnect_window: 600)
+
       spend_outage(conn, gate)
-      [{_address, next_at, _failures}] = :ets.lookup(pacing, {host, port()})
+      [{_address, next_at, _failures}] = :ets.lookup(backoff, {host, port()})
       refute_receive :slot_is_free, max(next_at - now(), 0) + 1
       PinGate.open(gate)
 
@@ -861,10 +875,13 @@ defmodule KafkaEx.Client.ConnectionTest do
       gate: gate
     } do
       FakeTransport.respond(fake, :produce, frame("ok"))
-      pacing = Pacing.new()
-      %{conn: conn} = start_connection(fake, host, port(), :data, gate: gate, pacing: pacing, reconnect_window: 600)
+      backoff = ReconnectBackoff.new()
+
+      %{conn: conn} =
+        start_connection(fake, host, port(), :data, gate: gate, reconnect_backoff: backoff, reconnect_window: 600)
+
       spend_outage(conn, gate)
-      [{_address, next_at, _failures}] = :ets.lookup(pacing, {host, port()})
+      [{_address, next_at, _failures}] = :ets.lookup(backoff, {host, port()})
       refute_receive :slot_is_free, max(next_at - now(), 0) + 1
       PinGate.open(gate)
       {:ok, _reply, _meta} = dispatch(conn, request(:produce))
@@ -891,17 +908,17 @@ defmodule KafkaEx.Client.ConnectionTest do
     end
 
     test "a crashing handshake still paces the next connection", %{fake: fake, host: host} do
-      pacing = Pacing.new()
+      backoff = ReconnectBackoff.new()
       auth = oauthbearer(fn -> raise "token source down" end)
-      %{conn: crashing} = start_connection(fake, host, port(), :data, auth: auth, pacing: pacing)
+      %{conn: crashing} = start_connection(fake, host, port(), :data, auth: auth, reconnect_backoff: backoff)
       monitor = Process.monitor(crashing)
       asked = now()
 
-      log = capture_log(fn -> catch_exit(Connection.connect(crashing, 5_000)) end)
+      log = capture_log(fn -> catch_exit(ConnectionStateMachine.connect(crashing, 5_000)) end)
 
       assert_receive {:DOWN, ^monitor, :process, ^crashing, {:handshake_failed, RuntimeError}}, 1_000
       refute log =~ "token source down"
-      assert [{_key, next_at, 1}] = :ets.lookup(pacing, {host, port()})
+      assert [{_key, next_at, 1}] = :ets.lookup(backoff, {host, port()})
       assert next_at - asked >= 75
     end
   end
@@ -913,7 +930,7 @@ defmodule KafkaEx.Client.ConnectionTest do
       watch_connection_clock(host)
       %{conn: conn} = start_connection(fake, host, port(), :fetch, idle_timeout: 200, idle_jitter: 0.2)
       monitor = Process.monitor(conn)
-      {:ok, _versions} = Connection.connect(conn, 5_000)
+      {:ok, _versions} = ConnectionStateMachine.connect(conn, 5_000)
 
       assert_receive {:DOWN, ^monitor, :process, ^conn, :normal}, 2_000
       assert_received {:closed, %{reason: :idle}}
@@ -937,7 +954,7 @@ defmodule KafkaEx.Client.ConnectionTest do
       gate = PinGate.new()
       %{conn: conn} = start_connection(fake, host, port(), :fetch, gate: gate, idle_timeout: 200)
       monitor = Process.monitor(conn)
-      {:ok, _versions} = Connection.connect(conn, 5_000)
+      {:ok, _versions} = ConnectionStateMachine.connect(conn, 5_000)
       PinGate.close(gate)
 
       FakeTransport.close(fake, {host, port()})
@@ -947,9 +964,9 @@ defmodule KafkaEx.Client.ConnectionTest do
 
     test "terminate closes the socket with :shutdown", %{fake: fake, host: host} do
       supervisor = start_supervised!(DynamicSupervisor)
-      args = args(fake, host, port(), :data, Pacing.new(), [])
-      {:ok, conn} = DynamicSupervisor.start_child(supervisor, Connection.child_spec(args))
-      {:ok, _versions} = Connection.connect(conn, 5_000)
+      args = args(fake, host, port(), :data, ReconnectBackoff.new(), [])
+      {:ok, conn} = DynamicSupervisor.start_child(supervisor, ConnectionStateMachine.child_spec(args))
+      {:ok, _versions} = ConnectionStateMachine.connect(conn, 5_000)
 
       :ok = DynamicSupervisor.terminate_child(supervisor, conn)
 
@@ -998,7 +1015,7 @@ defmodule KafkaEx.Client.ConnectionTest do
         opts = [secrets: fn -> Map.update!(secrets.(), :ssl_options, &FakeTransport.ssl_options(fake, &1)) end]
         %{conn: conn} = start_connection(fake, host, port(), :data, opts)
 
-        capture_log(fn -> catch_exit(Connection.connect(conn, 5_000)) end)
+        capture_log(fn -> catch_exit(ConnectionStateMachine.connect(conn, 5_000)) end)
 
         spans = drain_spans()
         started = for {^conn, name, :start, _meta} <- spans, do: name
@@ -1015,19 +1032,13 @@ defmodule KafkaEx.Client.ConnectionTest do
         %{conn: conn} = start_connection(fake, host, port(), :data, secrets: failing(unquote(kind)))
         monitor = Process.monitor(conn)
 
-        log = capture_log([level: :debug], fn -> catch_exit(Connection.connect(conn, 5_000)) end)
+        log = capture_log([level: :debug], fn -> catch_exit(ConnectionStateMachine.connect(conn, 5_000)) end)
 
         assert_receive {:DOWN, ^monitor, :process, ^conn, {:handshake_failed, reason}}, 1_000
         assert reason in [RuntimeError, MatchError, :throw, :exit]
         telemetry = for {_pid, _name, _phase, meta} <- drain_spans(), do: {:telemetry, inspect(meta, limit: :infinity)}
         assert LeakProbe.exposures([{:log, log} | telemetry], ["conn-secret-password"]) == MapSet.new()
       end
-    end
-
-    test "an unknown call is answered, not left waiting", %{fake: fake, host: host} do
-      %{conn: conn} = start_connection(fake, host, port(), :data)
-
-      assert :gen_statem.call(conn, :not_a_connection_call, 1_000) == {:error, :unknown_call}
     end
   end
 end

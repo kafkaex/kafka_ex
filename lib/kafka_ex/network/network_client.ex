@@ -166,8 +166,9 @@ defmodule KafkaEx.Network.NetworkClient do
   end
 
   @impl KafkaEx.Network.Transport
-  def connect(%{host: host, port: port}, socket_options, use_ssl, timeout),
-    do: Socket.create(format_host(host), port, socket_options, use_ssl, timeout)
+  def connect(%{host: host, port: port}, socket_options, use_ssl, timeout) do
+    Socket.create(format_host(host), port, socket_options, use_ssl, timeout)
+  end
 
   @impl KafkaEx.Network.Transport
   def write(socket, data), do: Socket.send(socket, data)

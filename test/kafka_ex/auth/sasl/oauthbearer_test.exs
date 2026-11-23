@@ -109,9 +109,11 @@ defmodule KafkaEx.Auth.SASL.OAuthBearerTest do
       send_fun = fn msg ->
         send(self(), {:auth_message, msg})
 
-        if msg == "\x01",
-          do: {:error, {:auth_failed, :sasl_authentication_failed}},
-          else: {:ok, ~s({"status":"invalid_token"})}
+        if msg == "\x01" do
+          {:error, {:auth_failed, :sasl_authentication_failed}}
+        else
+          {:ok, ~s({"status":"invalid_token"})}
+        end
       end
 
       assert OAuthBearer.authenticate(config, send_fun) == {:error, {:auth_failed, :sasl_authentication_failed}}

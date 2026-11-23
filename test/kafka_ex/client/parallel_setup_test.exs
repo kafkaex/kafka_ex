@@ -1,7 +1,7 @@
 defmodule KafkaEx.Client.ParallelSetupTest do
   use KafkaEx.TestSupport.PinCase, async: false
 
-  alias KafkaEx.Client.Connection.Pacing
+  alias KafkaEx.Client.ConnectionStateMachine.ReconnectBackoff
 
   @moduletag capture_log: true
 
@@ -173,11 +173,11 @@ defmodule KafkaEx.Client.ParallelSetupTest do
   end
 
   describe "a first connect of another role to a broker whose fetch connection is connecting" do
-    test "starts when that connect succeeds, not when its pacing slot opens" do
+    test "starts when that connect succeeds, not when its backoff slot opens" do
       %{fake: fake, client: client, host: host} = start_pinned()
       FakeTransport.respond(fake, :fetch, &{:frame, fetch_frame(&1, -1)})
       FakeTransport.respond(fake, :produce, produce_reply())
-      raise_next_backoff_to_cap(:sys.get_state(client).pacing, {host, 9092})
+      raise_next_backoff_to_cap(:sys.get_state(client).reconnect_backoff, {host, 9092})
       FakeTransport.delay_connects(fake, @short_handshake_ms)
 
       started = System.monotonic_time(:millisecond)
@@ -191,10 +191,10 @@ defmodule KafkaEx.Client.ParallelSetupTest do
   end
 
   # Claims spaced past each backoff raise the failure count; connected/3 then reopens the slot at once.
-  defp raise_next_backoff_to_cap(pacing, address) do
+  defp raise_next_backoff_to_cap(backoff, address) do
     now = System.monotonic_time(:millisecond)
-    for step <- 1..4, do: :ok = Pacing.claim(pacing, address, now + step * 10_000)
-    Pacing.connected(pacing, address, now)
+    for step <- 1..4, do: :ok = ReconnectBackoff.claim(backoff, address, now + step * 10_000)
+    ReconnectBackoff.connected(backoff, address, now)
   end
 
   defp watch_fetch_stops do

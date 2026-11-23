@@ -1,7 +1,7 @@
-defmodule KafkaEx.Client.Connection.InFlightTest do
+defmodule KafkaEx.Client.ConnectionStateMachine.InFlightTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.Client.Connection.InFlight
+  alias KafkaEx.Client.ConnectionStateMachine.InFlight
 
   @max_id 2_147_483_647
 
@@ -9,7 +9,7 @@ defmodule KafkaEx.Client.Connection.InFlightTest do
 
   test "ids start at the injected start" do
     assert {41, _} = InFlight.next_id(InFlight.new(41))
-    assert {0, _} = InFlight.next_id(InFlight.new())
+    assert {0, _} = InFlight.next_id(InFlight.new(0))
   end
 
   test "ids wrap from the largest int32 to 0" do
@@ -26,7 +26,7 @@ defmodule KafkaEx.Client.Connection.InFlightTest do
   end
 
   test "pop of an unknown id and a second pop of the same id are :error" do
-    in_flight = InFlight.put(InFlight.new(), 3, entry())
+    in_flight = InFlight.put(InFlight.new(0), 3, entry())
 
     assert InFlight.pop(in_flight, 4) == :error
     assert {:ok, _entry, in_flight} = InFlight.pop(in_flight, 3)
@@ -35,7 +35,7 @@ defmodule KafkaEx.Client.Connection.InFlightTest do
   end
 
   test "abandon keeps the id registered without a caller" do
-    in_flight = InFlight.new() |> InFlight.put(3, entry()) |> InFlight.abandon(3)
+    in_flight = InFlight.new(0) |> InFlight.put(3, entry()) |> InFlight.abandon(3)
 
     refute InFlight.empty?(in_flight)
     assert [{3, %{from: nil}}] = InFlight.entries(in_flight)
@@ -43,19 +43,19 @@ defmodule KafkaEx.Client.Connection.InFlightTest do
   end
 
   test "earliest_live_until is the smallest bound, or nil when empty" do
-    in_flight = InFlight.new() |> InFlight.put(1, entry(300)) |> InFlight.put(2, entry(100))
+    in_flight = InFlight.new(0) |> InFlight.put(1, entry(300)) |> InFlight.put(2, entry(100))
 
     assert InFlight.earliest_live_until(in_flight) == 100
-    assert InFlight.earliest_live_until(InFlight.new()) == nil
+    assert InFlight.earliest_live_until(InFlight.new(0)) == nil
   end
 
   test "awaited? is true only while an entry still has a caller" do
-    in_flight = InFlight.new() |> InFlight.put(1, entry()) |> InFlight.put(2, entry())
+    in_flight = InFlight.new(0) |> InFlight.put(1, entry()) |> InFlight.put(2, entry())
 
     assert InFlight.awaited?(in_flight)
     assert InFlight.awaited?(InFlight.abandon(in_flight, 1))
     refute in_flight |> InFlight.abandon(1) |> InFlight.abandon(2) |> InFlight.awaited?()
-    refute InFlight.awaited?(InFlight.new())
+    refute InFlight.awaited?(InFlight.new(0))
   end
 
   test "drain returns every entry and leaves no entry but keeps the next id" do

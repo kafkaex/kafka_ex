@@ -14,18 +14,17 @@ defmodule KafkaEx.Client do
   alias KafkaEx.Config
   alias KafkaEx.Telemetry
 
-  alias KafkaEx.Client.Connection
-  alias KafkaEx.Client.Connection.Pacing
+  alias KafkaEx.Client.ConnectionStateMachine
+  alias KafkaEx.Client.ConnectionStateMachine.ReconnectBackoff
   alias KafkaEx.Client.Error
-  alias KafkaEx.Client.Infra
   alias KafkaEx.Client.MetadataLog
   alias KafkaEx.Client.NodeSelector
   alias KafkaEx.Client.RequestBudget
   alias KafkaEx.Client.RequestBuilder
   alias KafkaEx.Client.RequestContext
   alias KafkaEx.Client.ResponseParser
-  alias KafkaEx.Client.Routing
   alias KafkaEx.Client.State
+  alias KafkaEx.Client.Supervisor, as: ClientSupervisor
   alias KafkaEx.Cluster.Broker
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Messages.ConsumerGroupHeartbeat
@@ -122,14 +121,14 @@ defmodule KafkaEx.Client do
       |> Enum.with_index(1)
       |> Map.new(fn {{host, port}, key} -> {key, %Broker{host: host, port: port}} end)
 
-    {:ok, infra} = Infra.start_link()
+    {:ok, supervisor} = ClientSupervisor.start_link()
 
     state = %{
       state
       | cluster_metadata: %ClusterMetadata{brokers: brokers},
-        infra: infra,
-        pacing: Pacing.new(),
-        connection_options: Connection.options(state.connection_opts)
+        supervisor: supervisor,
+        reconnect_backoff: ReconnectBackoff.new(),
+        connection_options: ConnectionStateMachine.options(state.connection_opts)
     }
 
     try do
@@ -152,18 +151,18 @@ defmodule KafkaEx.Client do
       {:ok, state}
     rescue
       e ->
-        stop_infra_after_failed_boot(infra)
+        stop_supervisor_after_failed_boot(supervisor)
         reraise e, __STACKTRACE__
     end
   end
 
   # Never raises, so the boot's own exception is the one reraised.
-  defp stop_infra_after_failed_boot(infra) do
-    infra
+  defp stop_supervisor_after_failed_boot(supervisor) do
+    supervisor
     |> boot_connections()
     |> Enum.map(fn pid -> {pid, Process.monitor(pid)} end)
     |> Enum.each(fn {pid, ref} ->
-      Connection.stop(pid, :init_error)
+      ConnectionStateMachine.stop(pid, :init_error)
 
       receive do
         {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
@@ -172,18 +171,18 @@ defmodule KafkaEx.Client do
       end
     end)
 
-    Infra.stop(infra, :normal, 5_000)
+    ClientSupervisor.stop(supervisor, :normal, 5_000)
   catch
     _kind, _reason -> :ok
   end
 
-  defp boot_connections(infra) do
-    case Infra.connection_supervisor(infra) do
+  defp boot_connections(supervisor) do
+    case ClientSupervisor.connection_supervisor(supervisor) do
       nil ->
         []
 
-      supervisor ->
-        for {_id, pid, _type, _modules} <- DynamicSupervisor.which_children(supervisor), is_pid(pid), do: pid
+      connections ->
+        for {_id, pid, _type, _modules} <- DynamicSupervisor.which_children(connections), is_pid(pid), do: pid
     end
   end
 
@@ -215,10 +214,8 @@ defmodule KafkaEx.Client do
     end)
   end
 
-  defp connect_at_boot(nil, _state), do: {:error, {:connect, :noproc}}
-
   defp connect_at_boot(pid, state) do
-    Connection.connect(pid, state.connection_options.connect_timeout + 1_000)
+    ConnectionStateMachine.connect(pid, state.connection_options.connect_timeout + 1_000)
   catch
     :exit, reason -> {:error, {:connect, reason}}
   end
@@ -255,13 +252,6 @@ defmodule KafkaEx.Client do
             "This may indicate network issues, broker instability, or protocol incompatibility."
   end
 
-  defp api_versions_failed!(:no_broker) do
-    sleep_for_reconnect()
-
-    raise "ApiVersions negotiation failed: no broker available. " <>
-            "Check that brokers are reachable at the configured addresses."
-  end
-
   defp api_versions_failed!(reason) do
     sleep_for_reconnect()
 
@@ -289,8 +279,9 @@ defmodule KafkaEx.Client do
 
   defp valid_connection_opt?({key, value}) when key in @positive_connection_opts, do: is_integer(value) and value > 0
 
-  defp valid_connection_opt?({key, value}) when key in @non_negative_connection_opts,
-    do: is_integer(value) and value >= 0
+  defp valid_connection_opt?({key, value}) when key in @non_negative_connection_opts do
+    is_integer(value) and value >= 0
+  end
 
   defp valid_connection_opt?({:idle_jitter, value}), do: is_number(value) and value >= 0 and value <= 1
   defp valid_connection_opt?({:initial_correlation_id, value}), do: value in 0..2_147_483_647
@@ -512,14 +503,14 @@ defmodule KafkaEx.Client do
   end
 
   defp fetch_reply({:error, error}, state), do: {:reply, {:error, error}, %{state | parking: nil}}
-  defp fetch_reply({result, %State{parking: nil} = updated_state}, _state), do: {:reply, result, updated_state}
   defp fetch_reply({result, %State{} = updated_state}, _state), do: {:reply, result, %{updated_state | parking: nil}}
 
   @max_metadata_update_retries 3
 
   @impl true
-  def handle_info({:timeout, _timer, {:parked, tag}}, state) when is_map_key(state.parked, tag),
-    do: {:noreply, resume(tag, {:error, :timeout, @no_bytes}, state)}
+  def handle_info({:timeout, _timer, {:parked, tag}}, state) when is_map_key(state.parked, tag) do
+    {:noreply, resume(tag, {:error, :timeout, @no_bytes}, state)}
+  end
 
   def handle_info(message, %State{parked: parked} = state) when map_size(parked) > 0 do
     case Enum.find_value(parked, &answered(message, &1)) do
@@ -563,12 +554,8 @@ defmodule KafkaEx.Client do
     Logger.debug("Shutting down worker #{inspect(worker_identity())}, reason: #{inspect(reason)}")
     for {_tag, entry} <- state.parked, do: Telemetry.exception_span(entry.span, entry.metadata, :exit, reason, [])
     if state.metadata_timer_ref, do: :timer.cancel(state.metadata_timer_ref), else: nil
-    stop_infra(state.infra)
+    ClientSupervisor.stop(state.supervisor, :shutdown, 5_000)
   end
-
-  defp stop_infra(nil), do: :ok
-
-  defp stop_infra(infra), do: Infra.stop(infra, :shutdown, 5_000)
 
   defp worker_identity do
     case Process.info(self(), :registered_name) do
@@ -605,7 +592,7 @@ defmodule KafkaEx.Client do
 
     Enum.each(departed, fn {_key, %{pid: pid, ref: ref}} ->
       Process.demonitor(ref, [:flush])
-      Connection.stop(pid, :metadata_update)
+      ConnectionStateMachine.stop(pid, :metadata_update)
     end)
 
     %{state | conns: Map.new(kept)}
@@ -983,9 +970,11 @@ defmodule KafkaEx.Client do
 
   # A single attempt keeps the caller's call budget, which covers one retry cycle.
   defp after_replica_error(request, builder, selector, error, state, timeout) do
-    if Retry.data_plane_retryable?(extract_error_atom(error)),
-      do: {{:error, error}, state},
-      else: handle_fetch_request(request, builder, selector, state, timeout, 1)
+    if Retry.data_plane_retryable?(extract_error_atom(error)) do
+      {{:error, error}, state}
+    else
+      handle_fetch_request(request, builder, selector, state, timeout, 1)
+    end
   end
 
   defp forget_preferred_replica(state, %NodeSelector{topic: topic, partition: partition}) do
@@ -1726,9 +1715,6 @@ defmodule KafkaEx.Client do
     end
   end
 
-  defp rebuild(_dispatch, builder, _versions, state, _await) when builder in [nil, :as_is],
-    do: {:refused, {:error, :api_version_no_supported}, state}
-
   defp rebuild(dispatch, builder, versions, state, await) do
     case builder.(%{state | api_versions: versions}) do
       {:ok, request} -> dispatch |> carrying(client_request(request, state)) |> await.(state) |> refused_again()
@@ -1737,8 +1723,9 @@ defmodule KafkaEx.Client do
     end
   end
 
-  defp refused_again({:not_written, {:error, {:unsupported_version, _}}, state}),
-    do: {:refused, {:error, :api_version_no_supported}, state}
+  defp refused_again({:not_written, {:error, {:unsupported_version, _}}, state}) do
+    {:refused, {:error, :api_version_no_supported}, state}
+  end
 
   defp refused_again(awaited), do: awaited
 
@@ -1763,8 +1750,9 @@ defmodule KafkaEx.Client do
     {:raised, {:error, :timeout}, state}
   end
 
-  defp finish_request_span(span, {:written, result, meta, state}, broker),
-    do: stop_request_span(span, result, meta, broker, state)
+  defp finish_request_span(span, {:written, result, meta, state}, broker) do
+    stop_request_span(span, result, meta, broker, state)
+  end
 
   defp stop_request_span({metadata, span}, result, meta, broker, state) do
     stop = %{bytes_sent: meta.bytes_sent, bytes_received: meta.bytes_received, broker: broker_to_telemetry_info(broker)}
@@ -1794,14 +1782,17 @@ defmodule KafkaEx.Client do
     end
   end
 
-  defp first_available({request, _builder, _selector, _timeout}, [], state, nil),
-    do: {request, {{:error, :no_broker}, state}}
+  defp first_available({request, _builder, _selector, _timeout}, [], state, nil) do
+    {request, {{:error, :no_broker}, state}}
+  end
 
-  defp first_available({request, _builder, _selector, _timeout}, [], state, {:refused, refused}),
-    do: {request, {:refused, refused, state}}
+  defp first_available({request, _builder, _selector, _timeout}, [], state, {:refused, refused}) do
+    {request, {:refused, refused, state}}
+  end
 
-  defp first_available(_walk, [], state, {:open, span, meta, sent}),
-    do: {sent, stop_request_span(span, {:error, :broker_failed}, %{meta | bytes_received: 0}, nil, state)}
+  defp first_available(_walk, [], state, {:open, span, meta, sent}) do
+    {sent, stop_request_span(span, {:error, :broker_failed}, %{meta | bytes_received: 0}, nil, state)}
+  end
 
   defp first_available({request, builder, selector, timeout} = walk, [broker | rest], state, open) do
     dispatch = request |> connection_dispatch(timeout, false, state) |> as_is(builder)
@@ -1828,8 +1819,9 @@ defmodule KafkaEx.Client do
   defp refusal({:open, _span, _meta, _sent} = open, _refused), do: open
   defp refusal(_open, refused), do: {:refused, refused}
 
-  defp write_candidate({_key, _pid, %{request: sent}} = conn, broker, walk, state, {:open, span, _meta, _sent}),
-    do: walk_on(write(conn, state), restamp(span, sent), broker, sent, walk)
+  defp write_candidate({_key, _pid, %{request: sent}} = conn, broker, walk, state, {:open, span, _meta, _sent}) do
+    walk_on(write(conn, state), restamp(span, sent), broker, sent, walk)
+  end
 
   defp write_candidate({_key, _pid, %{request: sent}} = conn, broker, walk, state, _nothing_written) do
     span = start_request_span(sent)
@@ -1845,11 +1837,11 @@ defmodule KafkaEx.Client do
 
   defp await_connection(dispatch, selector, broker, state) do
     {operation, _version} = dispatch.info
-    key = {broker.host, broker.port, Routing.role(selector, operation)}
+    key = {broker.host, broker.port, NodeSelector.connection_role(selector, operation)}
     await(key, Map.put(dispatch, :node_id, broker.node_id), state, 1)
   end
 
-  # The Connection's deadline falls this long before the client's call gives up, so the reply always wins.
+  # The connection's deadline falls this long before the client's call gives up, so the reply always wins.
   @deadline_margin 500
 
   defp connection_dispatch(request, timeout, wait?, state) do
@@ -1878,8 +1870,9 @@ defmodule KafkaEx.Client do
 
   # Only a fetch's first :fetch await may park: a parked call runs again from its first attempt.
   defp await({_host, _port, :fetch} = key, dispatch, %State{parking: parking} = state, redispatches)
-       when parking != nil,
-       do: first_fetch_await(parking, key, dispatch, %{state | parking: nil}, redispatches)
+       when parking != nil do
+    first_fetch_await(parking, key, dispatch, %{state | parking: nil}, redispatches)
+  end
 
   defp await(key, dispatch, state, redispatches) do
     case ensure_connection(state, key) do
@@ -1889,11 +1882,13 @@ defmodule KafkaEx.Client do
   end
 
   # The park bounded only the wait; the attempt's budget starts at resume, as for a call taken from the mailbox.
-  defp first_fetch_await({:resumed, key, pid, outcome}, key, dispatch, state, redispatches),
-    do: awaited(outcome, key, pid, dispatch, state, redispatches)
+  defp first_fetch_await({:resumed, key, pid, outcome}, key, dispatch, state, redispatches) do
+    awaited(outcome, key, pid, dispatch, state, redispatches)
+  end
 
-  defp first_fetch_await({:resumed, _key, _pid, _outcome}, key, dispatch, state, redispatches),
-    do: await(key, dispatch, state, redispatches)
+  defp first_fetch_await({:resumed, _key, _pid, _outcome}, key, dispatch, state, redispatches) do
+    await(key, dispatch, state, redispatches)
+  end
 
   defp first_fetch_await(:first, key, dispatch, state, redispatches) do
     first_connect? = not Map.has_key?(state.conns, key) or parked_on?(state, key)
@@ -1905,10 +1900,9 @@ defmodule KafkaEx.Client do
     end
   end
 
-  defp parked_on?(%State{parked: parked}, _key) when map_size(parked) == 0, do: false
   defp parked_on?(state, key), do: Enum.any?(state.parked, fn {_tag, entry} -> entry.key == key end)
 
-  # The parked caller waits as one more waiter on the Connection, so its window and outage rules hold.
+  # The parked caller waits as one more waiter on the connection, so its window and outage rules hold.
   defp park(%{dispatch: dispatch, state: state} = parked, from) do
     tag = make_ref()
     request = :gen_statem.send_request(parked.pid, {:await, dispatch})
@@ -1947,7 +1941,7 @@ defmodule KafkaEx.Client do
 
   # An idle stop can race the call: an exit with :noproc or :normal means nothing was written.
   defp await_ready(key, pid, dispatch, state, redispatches) do
-    outcome = call_connection(&Connection.await/3, pid, dispatch, call_timeout(dispatch.timeout, state))
+    outcome = call_connection(&ConnectionStateMachine.await/3, pid, dispatch, call_timeout(dispatch.timeout, state))
     awaited(outcome, key, pid, dispatch, state, redispatches)
   end
 
@@ -1965,7 +1959,7 @@ defmodule KafkaEx.Client do
   defp write({key, pid, dispatch}, state) do
     left = max(dispatch.deadline + @deadline_margin - System.monotonic_time(:millisecond), 0)
 
-    case call_connection(&Connection.write/3, pid, dispatch, left) do
+    case call_connection(&ConnectionStateMachine.write/3, pid, dispatch, left) do
       :gone -> {:written, {:error, :closed}, @no_bytes, forget_connection(state, key, pid)}
       {:ok, :no_response, meta} -> {:written, {:ok, :no_response}, meta, state}
       {:ok, frame, meta} -> {:written, deserialize(frame, dispatch.request), meta, state}
@@ -1996,22 +1990,22 @@ defmodule KafkaEx.Client do
           use_ssl: state.use_ssl,
           transport: state.transport,
           secrets: secrets_fun(state),
-          pacing: state.pacing,
+          reconnect_backoff: state.reconnect_backoff,
           opts: connection_opts(state)
         }
 
-        case start_connection(state.infra, args) do
+        case start_connection(state.supervisor, args) do
           {:ok, pid} -> {pid, %{state | conns: Map.put(state.conns, key, %{pid: pid, ref: Process.monitor(pid)})}}
           :restarting -> {nil, state}
         end
     end
   end
 
-  # While Infra restarts the connection supervisor there is none, or a dying one, to start under.
-  defp start_connection(infra, args) do
-    case Infra.connection_supervisor(infra) do
+  # While the client supervisor restarts the connection supervisor there is none, or a dying one, to start under.
+  defp start_connection(supervisor, args) do
+    case ClientSupervisor.connection_supervisor(supervisor) do
       nil -> :restarting
-      supervisor -> DynamicSupervisor.start_child(supervisor, {Connection, args})
+      connections -> DynamicSupervisor.start_child(connections, {ConnectionStateMachine, args})
     end
   catch
     :exit, {reason, _call} when reason in [:noproc, :shutdown, :killed] -> :restarting
@@ -2029,7 +2023,7 @@ defmodule KafkaEx.Client do
     end
   end
 
-  # Binds the two values, not the state, so a Connection never holds the client's state.
+  # Binds the two values, not the state, so a connection never holds the client's state.
   defp secrets_fun(state) do
     ssl_options = state.ssl_options
     auth = state.auth
@@ -2037,9 +2031,7 @@ defmodule KafkaEx.Client do
   end
 
   defp connection_opts(state) do
-    [client_id: Config.client_id()]
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-    |> Keyword.merge(state.connection_opts)
+    Keyword.merge([client_id: Config.client_id()], state.connection_opts)
   end
 
   defp broker_to_telemetry_info(nil), do: %{}

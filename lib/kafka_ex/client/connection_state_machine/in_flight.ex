@@ -1,5 +1,13 @@
-defmodule KafkaEx.Client.Connection.InFlight do
-  @moduledoc false
+defmodule KafkaEx.Client.ConnectionStateMachine.InFlight do
+  @moduledoc """
+  A connection's table of requests already written and awaiting a reply, keyed by the Kafka
+  correlation id: several requests can be in flight on one TCP connection, and each reply carries
+  the id it answers.
+
+  An abandoned entry (its caller timed out) stays, so a late reply is consumed silently instead of
+  looking like a stream mismatch; the table is drained to answer every waiter when the socket
+  drops. Ids are INT32, so the counter wraps from 2_147_483_647 to 0 and skips ids still in flight.
+  """
 
   @max_id 2_147_483_647
 
@@ -8,7 +16,7 @@ defmodule KafkaEx.Client.Connection.InFlight do
   @type t :: %__MODULE__{next: non_neg_integer(), entries: %{non_neg_integer() => map()}}
 
   @spec new(non_neg_integer()) :: t()
-  def new(start \\ 0) when is_integer(start) and start >= 0 and start <= @max_id, do: %__MODULE__{next: start}
+  def new(start) when is_integer(start) and start >= 0 and start <= @max_id, do: %__MODULE__{next: start}
 
   @spec next_id(t()) :: {non_neg_integer(), t()}
   def next_id(%__MODULE__{next: id, entries: entries} = in_flight) do
@@ -48,6 +56,7 @@ defmodule KafkaEx.Client.Connection.InFlight do
   @spec earliest_live_until(t()) :: integer() | nil
   def earliest_live_until(%__MODULE__{entries: entries}) when entries == %{}, do: nil
 
-  def earliest_live_until(%__MODULE__{entries: entries}),
-    do: entries |> Map.values() |> Enum.map(& &1.live_until) |> Enum.min()
+  def earliest_live_until(%__MODULE__{entries: entries}) do
+    entries |> Map.values() |> Enum.map(& &1.live_until) |> Enum.min()
+  end
 end

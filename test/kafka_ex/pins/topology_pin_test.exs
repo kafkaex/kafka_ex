@@ -76,13 +76,13 @@ defmodule KafkaEx.Pins.TopologyPinTest do
     refute_receive {:pin_closed, %{port: 9093}}, 100
   end
 
-  defp offset_reply(offset),
-    do:
-      update_in(
-        produce_reply(),
-        [:responses, Access.at(0), :partition_responses, Access.at(0)],
-        &%{&1 | base_offset: offset}
-      )
+  defp offset_reply(offset) do
+    update_in(
+      produce_reply(),
+      [:responses, Access.at(0), :partition_responses, Access.at(0)],
+      &%{&1 | base_offset: offset}
+    )
+  end
 
   defp metadata(brokers, leaders), do: Wire.metadata_fields(brokers, %{@topic => leaders})
 end

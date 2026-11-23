@@ -30,8 +30,9 @@ defmodule KafkaEx.TestHelpers do
     on_exit(fn -> :telemetry.detach(handler) end)
   end
 
-  def oauthbearer(provider \\ fn -> {:ok, "t"} end),
-    do: AuthConfig.new(%{mechanism: :oauthbearer, mechanism_opts: %{token_provider: provider}})
+  def oauthbearer(provider \\ fn -> {:ok, "t"} end) do
+    AuthConfig.new(%{mechanism: :oauthbearer, mechanism_opts: %{token_provider: provider}})
+  end
 
   @doc """
   Returns a random string of length string_length.

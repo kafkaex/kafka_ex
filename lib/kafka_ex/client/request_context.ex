@@ -53,7 +53,7 @@ defmodule KafkaEx.Client.RequestContext do
       full request with the owned partitions (Java resets the heartbeat
       state on any disconnect and never resends a request).
 
-    * `builder` (default `nil`) - builds the request again against the versions
+    * `builder` - builds the request again against the versions
       a connection reports when it refuses the built one, so the retry loop can
       resend at a version that connection negotiated.
 
@@ -65,16 +65,16 @@ defmodule KafkaEx.Client.RequestContext do
   alias KafkaEx.Client.NodeSelector
   alias KafkaEx.Support.Retry
 
-  @enforce_keys [:request, :parser_fn, :node_selector]
+  @enforce_keys [:request, :parser_fn, :node_selector, :builder]
   defstruct [
     :request,
     :parser_fn,
     :node_selector,
+    :builder,
     retryable?: &Retry.data_plane_retryable?/1,
     network_timeout: nil,
     rediscover_coordinator?: false,
-    send_once?: &Retry.transport_timeout?/1,
-    builder: nil
+    send_once?: &Retry.transport_timeout?/1
   ]
 
   @typedoc "Projects a deserialized response into a domain result."
@@ -94,6 +94,6 @@ defmodule KafkaEx.Client.RequestContext do
           network_timeout: non_neg_integer() | nil,
           rediscover_coordinator?: boolean(),
           send_once?: (atom() -> boolean()),
-          builder: builder_fn() | nil
+          builder: builder_fn()
         }
 end

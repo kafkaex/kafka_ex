@@ -248,8 +248,9 @@ defmodule KafkaEx.TestSupport.FakeTransport.Controller do
       :close
   end
 
-  defp default_rule(%{api: :api_versions} = request, state),
-    do: Wire.api_versions_fields(node_versions(state, request.node_id))
+  defp default_rule(%{api: :api_versions} = request, state) do
+    Wire.api_versions_fields(node_versions(state, request.node_id))
+  end
 
   defp default_rule(%{api: :metadata} = request, state),
     do: Wire.metadata_fields(state.brokers || [{1, request.host, request.port}], state.topics)

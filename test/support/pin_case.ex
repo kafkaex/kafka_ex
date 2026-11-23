@@ -13,8 +13,8 @@ defmodule KafkaEx.TestSupport.PinCase do
   import ExUnit.Callbacks, only: [start_supervised!: 1, on_exit: 1]
 
   alias KafkaEx.Client
-  alias KafkaEx.Client.Connection
-  alias KafkaEx.Client.Infra
+  alias KafkaEx.Client.ConnectionStateMachine
+  alias KafkaEx.Client.Supervisor, as: ClientSupervisor
   alias KafkaEx.TestSupport.FakeTransport
   alias KafkaEx.TestSupport.PinGate
 
@@ -216,15 +216,16 @@ defmodule KafkaEx.TestSupport.PinCase do
   end
 
   # The connection supervisor runs as Supervisor.Default, as ExUnit <= 1.16's test supervisor does: diff two calls.
-  def infra_processes do
+  def supervisor_processes do
     for pid <- Process.list(),
         {:dictionary, dictionary} <- [Process.info(pid, :dictionary)],
         self() in Keyword.get(dictionary, :"$ancestors", []),
         Keyword.get(dictionary, :"$initial_call") in [
-          {Connection, :init, 1},
-          {:supervisor, Infra, 1},
+          {ConnectionStateMachine, :init, 1},
+          {:supervisor, ClientSupervisor, 1},
           {:supervisor, Supervisor.Default, 1}
-        ],
-        do: pid
+        ] do
+      pid
+    end
   end
 end

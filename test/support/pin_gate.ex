@@ -35,9 +35,11 @@ defmodule KafkaEx.TestSupport.PinGate do
   def connect(address, socket_options, use_ssl, timeout) do
     case List.keytake(socket_options, :pin_gate, 0) do
       {{:pin_gate, gate}, rest} ->
-        if closed?(gate),
-          do: {:error, :econnrefused},
-          else: FakeTransport.connect(address, rest, use_ssl, timeout)
+        if closed?(gate) do
+          {:error, :econnrefused}
+        else
+          FakeTransport.connect(address, rest, use_ssl, timeout)
+        end
 
       nil ->
         FakeTransport.connect(address, socket_options, use_ssl, timeout)

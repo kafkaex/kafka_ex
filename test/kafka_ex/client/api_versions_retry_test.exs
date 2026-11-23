@@ -115,16 +115,6 @@ defmodule KafkaEx.Client.ApiVersionsRetryTest do
       assert message =~ "protocol incompatibility"
     end
 
-    test "no_broker message mentions checking addresses" do
-      message =
-        "ApiVersions negotiation failed: no broker available. " <>
-          "Check that brokers are reachable at the configured addresses."
-
-      assert message =~ "no broker"
-      assert message =~ "reachable"
-      assert message =~ "configured addresses"
-    end
-
     test "generic error message includes inspect of reason" do
       reason = :econnrefused
 

@@ -21,15 +21,16 @@ defmodule KafkaEx.Client.RebuildTest do
 
   defp body(%{frame: frame}), do: body(frame)
 
-  defp body(<<_api::16, _version::16, _corr::32, size::16-signed, _client_id::binary-size(size), body::binary>>),
-    do: body
+  defp body(<<_api::16, _version::16, _corr::32, size::16-signed, _client_id::binary-size(size), body::binary>>) do
+    body
+  end
 
-  defp expected_body({:ok, request}),
-    do:
-      %{request | correlation_id: 0, client_id: "c"}
-      |> KayrockProtocol.serialize_request()
-      |> IO.iodata_to_binary()
-      |> body()
+  defp expected_body({:ok, request}) do
+    %{request | correlation_id: 0, client_id: "c"}
+    |> KayrockProtocol.serialize_request()
+    |> IO.iodata_to_binary()
+    |> body()
+  end
 
   defp at_versions(versions), do: %State{api_versions: versions}
 
@@ -38,8 +39,9 @@ defmodule KafkaEx.Client.RebuildTest do
     forward_telemetry(events, fn [_, _, phase], _measurements, metadata -> {:span, phase, metadata} end)
   end
 
-  defp with_error_code(reply, code),
-    do: put_in(reply, [:responses, Access.at(0), :partition_responses, Access.at(0), :error_code], code)
+  defp with_error_code(reply, code) do
+    put_in(reply, [:responses, Access.at(0), :partition_responses, Access.at(0), :error_code], code)
+  end
 
   describe "a connection that refuses the version the client built" do
     test "a target with a lower max than the boot broker gets the request rebuilt from the caller's options at its own version, at no attempt's cost" do
@@ -243,6 +245,7 @@ defmodule KafkaEx.Client.RebuildTest do
     end
   end
 
-  defp heartbeat_error_frame(%{correlation_id: corr}, error_code),
-    do: <<corr::32-signed, 0, 0::32-signed, error_code::16-signed, 0, 1, -1::32-signed, 0::32-signed, 255, 0>>
+  defp heartbeat_error_frame(%{correlation_id: corr}, error_code) do
+    <<corr::32-signed, 0, 0::32-signed, error_code::16-signed, 0, 1, -1::32-signed, 0::32-signed, 255, 0>>
+  end
 end

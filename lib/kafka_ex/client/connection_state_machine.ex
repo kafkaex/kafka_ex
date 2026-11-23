@@ -1,5 +1,17 @@
-defmodule KafkaEx.Client.Connection do
-  @moduledoc false
+defmodule KafkaEx.Client.ConnectionStateMachine do
+  @moduledoc """
+  One process per TCP/TLS connection to one broker in one role (`:data`, `:coordinator`, `:metadata`
+  or `:fetch`), started under the client's supervisor.
+
+  It owns the connection's whole life: connect, ApiVersions, optional SASL, then requests and their
+  replies, liveness, and reconnecting with backoff. Its states are `:disconnected`, `:reconnecting`,
+  `:connecting`, `:negotiating`, `:authenticating` and `:connected`.
+
+  `await/3` queues the caller for up to `reconnect_window` while not connected, `write/3` sends one
+  request on a connected socket, and `connect/2` connects and returns the negotiated API versions.
+  Its timers are liveness (each reply's deadline plus `liveness_slack`), idle (the `:fetch` role
+  only) and stable, which resets the reconnect backoff.
+  """
   @behaviour :gen_statem
 
   require Logger
@@ -7,8 +19,8 @@ defmodule KafkaEx.Client.Connection do
   alias KafkaEx.Auth.Config, as: AuthConfig
   alias KafkaEx.Auth.SASL
   alias KafkaEx.Auth.SASL.VersionSupport
-  alias KafkaEx.Client.Connection.InFlight
-  alias KafkaEx.Client.Connection.Pacing
+  alias KafkaEx.Client.ConnectionStateMachine.InFlight
+  alias KafkaEx.Client.ConnectionStateMachine.ReconnectBackoff
   alias KafkaEx.Client.ResponseParser
   alias KafkaEx.Client.State
   alias KafkaEx.Cluster.Broker
@@ -21,8 +33,8 @@ defmodule KafkaEx.Client.Connection do
 
   @type role :: :data | :coordinator | :metadata | :fetch
   @type dispatch :: %{
-          optional(:node_id) => non_neg_integer(),
           optional(:as_is?) => boolean(),
+          node_id: non_neg_integer() | nil,
           request: struct(),
           info: {atom(), non_neg_integer()},
           reply?: boolean(),
@@ -34,8 +46,9 @@ defmodule KafkaEx.Client.Connection do
   @type meta :: %{bytes_sent: non_neg_integer(), bytes_received: non_neg_integer()}
 
   @spec child_spec(map()) :: Supervisor.child_spec()
-  def child_spec(args),
-    do: %{id: __MODULE__, start: {__MODULE__, :start_link, [args]}, restart: :temporary, shutdown: 2_000}
+  def child_spec(args) do
+    %{id: __MODULE__, start: {__MODULE__, :start_link, [args]}, restart: :temporary, shutdown: 2_000}
+  end
 
   @spec start_link(map()) :: :gen_statem.start_ret()
   def start_link(args), do: :gen_statem.start_link(__MODULE__, args, [])
@@ -63,7 +76,7 @@ defmodule KafkaEx.Client.Connection do
 
     data =
       args
-      |> Map.take([:host, :port, :role, :use_ssl, :transport, :secrets, :pacing])
+      |> Map.take([:host, :port, :role, :use_ssl, :transport, :secrets, :reconnect_backoff])
       |> Map.merge(%{
         opts: opts,
         socket: nil,
@@ -104,21 +117,26 @@ defmodule KafkaEx.Client.Connection do
 
   def handle_event(:enter, _old, _state, _data), do: :keep_state_and_data
 
-  def handle_event({:call, from}, {:await, dispatch}, :connected, data),
-    do: {:keep_state, named(data, dispatch), [{:reply, from, readiness(dispatch, data)}]}
+  def handle_event({:call, from}, {:await, dispatch}, :connected, data) do
+    {:keep_state, named(data, dispatch), [{:reply, from, readiness(dispatch, data)}]}
+  end
 
-  def handle_event({:call, from}, {:await, dispatch}, state, data),
-    do: enqueue(from, dispatch, state, named(data, dispatch))
+  def handle_event({:call, from}, {:await, dispatch}, state, data) do
+    enqueue(from, dispatch, state, named(data, dispatch))
+  end
 
-  def handle_event({:call, from}, {:write, dispatch}, :connected, data),
-    do: finish(send_request(from, dispatch, data))
+  def handle_event({:call, from}, {:write, dispatch}, :connected, data) do
+    finish(send_request(from, dispatch, data))
+  end
 
   # The caller saw this connection up and committed to the write: a drop since then is a dead socket's send.
-  def handle_event({:call, from}, {:write, _dispatch}, _state, _data),
-    do: {:keep_state_and_data, [{:reply, from, {:error, :closed, @meta0}}]}
+  def handle_event({:call, from}, {:write, _dispatch}, _state, _data) do
+    {:keep_state_and_data, [{:reply, from, {:error, :closed, @meta0}}]}
+  end
 
-  def handle_event({:call, from}, :connect, :connected, data),
-    do: {:keep_state_and_data, [{:reply, from, {:ok, data.api_versions}}]}
+  def handle_event({:call, from}, :connect, :connected, data) do
+    {:keep_state_and_data, [{:reply, from, {:ok, data.api_versions}}]}
+  end
 
   def handle_event({:call, from}, :connect, state, data) do
     data = %{data | connectors: data.connectors ++ [from]}
@@ -128,28 +146,33 @@ defmodule KafkaEx.Client.Connection do
   def handle_event({:timeout, {:window, ref}}, nil, _state, data), do: window_expired(ref, data)
 
   def handle_event(event, :try_connect, state, data)
-      when state in [:disconnected, :reconnecting] and event in [:internal, :state_timeout],
-      do: try_connect(data)
+      when state in [:disconnected, :reconnecting] and event in [:internal, :state_timeout] do
+    try_connect(data)
+  end
 
-  def handle_event(:info, :pacing_slot, :reconnecting, %{attempted?: false} = data), do: try_connect(data)
+  def handle_event(:info, :reconnect_slot, :reconnecting, %{attempted?: false} = data), do: try_connect(data)
 
-  def handle_event(:info, :pacing_slot, _state, _data), do: :keep_state_and_data
+  def handle_event(:info, :reconnect_slot, _state, _data), do: :keep_state_and_data
 
-  def handle_event(:internal, :run, state, data) when state in @setup_states,
-    do: guarded(data, fn -> run(state, data) end)
+  def handle_event(:internal, :run, state, data) when state in @setup_states do
+    guarded(data, fn -> run(state, data) end)
+  end
 
   def handle_event(:internal, :flush, :connected, data), do: flush(data)
 
-  def handle_event(:info, {tag, raw, frame}, :connected, %{socket: %{socket: raw}} = data) when tag in [:tcp, :ssl],
-    do: received(frame, data)
+  def handle_event(:info, {tag, raw, frame}, :connected, %{socket: %{socket: raw}} = data) when tag in [:tcp, :ssl] do
+    received(frame, data)
+  end
 
   def handle_event(:info, {tag, raw}, :connected, %{socket: %{socket: raw}} = data)
-      when tag in [:tcp_closed, :ssl_closed],
-      do: peer_closed(data)
+      when tag in [:tcp_closed, :ssl_closed] do
+    peer_closed(data)
+  end
 
   def handle_event(:info, {tag, raw, reason}, :connected, %{socket: %{socket: raw}} = data)
-      when tag in [:tcp_error, :ssl_error],
-      do: recv_error(reason, data)
+      when tag in [:tcp_error, :ssl_error] do
+    recv_error(reason, data)
+  end
 
   def handle_event({:timeout, {:reply, id}}, nil, :connected, data), do: reply_timed_out(id, data)
 
@@ -160,16 +183,18 @@ defmodule KafkaEx.Client.Connection do
   end
 
   def handle_event({:timeout, :stable}, nil, :connected, data) do
-    Pacing.stable(data.pacing, key(data))
+    ReconnectBackoff.stable(data.reconnect_backoff, key(data))
     :keep_state_and_data
   end
 
   def handle_event(:cast, {:stop, reason}, _state, data), do: stopped(reason, data)
 
-  def handle_event(:info, {:EXIT, _pid, _reason}, _state, _data), do: :keep_state_and_data
+  # A gen_tcp port that dies without a close message leaves no :tcp_closed behind.
+  def handle_event(:info, {:EXIT, raw, _reason}, :connected, %{socket: %{socket: raw}} = data) do
+    recv_error(:closed, data)
+  end
 
-  def handle_event({:call, from}, _request, _state, _data),
-    do: {:keep_state_and_data, [{:reply, from, {:error, :unknown_call}}]}
+  def handle_event(:info, {:EXIT, _pid, _reason}, _state, _data), do: :keep_state_and_data
 
   def handle_event(type, content, _state, _data) do
     Logger.debug("#{inspect(__MODULE__)} ignoring #{inspect(type)} #{inspect(content, limit: 5)}")
@@ -183,17 +208,16 @@ defmodule KafkaEx.Client.Connection do
   end
 
   @impl :gen_statem
-  def format_status(status), do: Map.update(status, :data, nil, &redact/1)
+  def format_status(%{data: data} = status), do: %{status | data: redact(data)}
 
   defp redact(%{secrets: _, waiting: waiting} = data) do
     waiting = :queue.from_list(for waiter <- :queue.to_list(waiting), do: redact_waiter(waiter))
     %{data | secrets: :redacted, waiting: waiting}
   end
 
-  defp redact(data), do: data
-
-  defp redact_waiter(%{dispatch: %{request: %module{}} = dispatch} = waiter),
-    do: %{waiter | dispatch: %{dispatch | request: module}}
+  defp redact_waiter(%{dispatch: %{request: %module{}} = dispatch} = waiter) do
+    %{waiter | dispatch: %{dispatch | request: module}}
+  end
 
   defp enqueue(from, dispatch, state, data) do
     if expired?(dispatch) do
@@ -246,8 +270,8 @@ defmodule KafkaEx.Client.Connection do
     {overdue, data} = answer_overdue(data)
 
     with true <- demand?(data),
-         :ok <- Pacing.claim(data.pacing, key(data), now()) do
-      unless data.attempted?, do: Pacing.stop_awaiting_slot(data.pacing, key(data), self())
+         :ok <- ReconnectBackoff.claim(data.reconnect_backoff, key(data), now()) do
+      unless data.attempted?, do: ReconnectBackoff.stop_awaiting_slot(data.reconnect_backoff, key(data), self())
       {:next_state, :connecting, %{data | attempted?: true}, overdue ++ [run()]}
     else
       false -> {:next_state, :disconnected, data, overdue ++ idle_without_demand(data)}
@@ -260,7 +284,7 @@ defmodule KafkaEx.Client.Connection do
 
     # Idle is armed here too: staying :disconnected runs no state enter, and the enqueue cancelled it.
     if demand?(data) do
-      unless data.attempted?, do: Pacing.await_slot(data.pacing, key(data), self())
+      unless data.attempted?, do: ReconnectBackoff.await_slot(data.reconnect_backoff, key(data), self())
       {:next_state, :reconnecting, data, overdue ++ answers ++ [{:state_timeout, ms, :try_connect}]}
     else
       {:next_state, :disconnected, data, overdue ++ answers ++ idle_without_demand(data)}
@@ -315,8 +339,9 @@ defmodule KafkaEx.Client.Connection do
 
   defp run, do: {:next_event, :internal, :run}
 
-  defp base_options(data),
-    do: [:binary, {:packet, 4}, {:active, false}, {:send_timeout, data.opts.send_timeout}, {:send_timeout_close, true}]
+  defp base_options(data) do
+    [:binary, {:packet, 4}, {:active, false}, {:send_timeout, data.opts.send_timeout}, {:send_timeout_close, true}]
+  end
 
   defp remaining(data) do
     case data.setup_deadline - now() do
@@ -374,7 +399,7 @@ defmodule KafkaEx.Client.Connection do
   defp activate(data) do
     case data.transport.activate(data.socket) do
       :ok ->
-        Pacing.connected(data.pacing, key(data), now())
+        ReconnectBackoff.connected(data.reconnect_backoff, key(data), now())
         data = stop_span(data, :connection, %{success: true})
         replies = for from <- data.connectors, do: {:reply, from, {:ok, data.api_versions}}
         stable = {{:timeout, :stable}, data.opts.stable_period, nil}
@@ -395,7 +420,6 @@ defmodule KafkaEx.Client.Connection do
 
   defp setup_timed_out(data) do
     if data.socket, do: Telemetry.emit_connection_close(data.host, data.port, :setup_timeout)
-    data = stop_span(data, :auth, %{result: :error, error: :timeout})
     setup_failed(:setup_timeout, data)
   end
 
@@ -412,7 +436,6 @@ defmodule KafkaEx.Client.Connection do
 
   defp unwrap({step, reason}) when step in [:connect, :api_versions, :auth], do: reason
   defp unwrap(:setup_timeout), do: :timeout
-  defp unwrap(reason), do: reason
 
   defp gives_up?(waiter), do: not waiter.dispatch.wait? or expired?(waiter.dispatch)
 
@@ -468,10 +491,9 @@ defmodule KafkaEx.Client.Connection do
   defp version_refused?(%{as_is?: true}, _api_versions), do: false
   defp version_refused?(dispatch, api_versions), do: not negotiated?(dispatch.info, api_versions)
 
-  defp negotiated?({:unknown, _version}, _api_versions), do: false
-
-  defp negotiated?({operation, version}, api_versions),
-    do: in_range?(Map.get(api_versions, @protocol.api_key(operation)), version)
+  defp negotiated?({operation, version}, api_versions) do
+    in_range?(Map.get(api_versions, @protocol.api_key(operation)), version)
+  end
 
   defp in_range?({min, max}, version), do: version >= min and version <= max
   defp in_range?(nil, _version), do: false
@@ -501,8 +523,9 @@ defmodule KafkaEx.Client.Connection do
     end
   end
 
-  defp written(from, %{reply?: false}, _id, bytes, data),
-    do: {:cont, data, [{:reply, from, {:ok, :no_response, %{bytes_sent: bytes, bytes_received: 0}}}]}
+  defp written(from, %{reply?: false}, _id, bytes, data) do
+    {:cont, data, [{:reply, from, {:ok, :no_response, %{bytes_sent: bytes, bytes_received: 0}}}]}
+  end
 
   defp written(from, dispatch, id, bytes, data) do
     now = now()
@@ -592,9 +615,11 @@ defmodule KafkaEx.Client.Connection do
   defp liveness(data) do
     now = now()
 
-    if Enum.any?(InFlight.entries(data.in_flight), fn {_id, entry} -> entry.live_until <= now end),
-      do: close_client_side(:liveness, data),
-      else: {:keep_state_and_data, [liveness_timer(data)]}
+    if Enum.any?(InFlight.entries(data.in_flight), fn {_id, entry} -> entry.live_until <= now end) do
+      close_client_side(:liveness, data)
+    else
+      {:keep_state_and_data, [liveness_timer(data)]}
+    end
   end
 
   defp peer_closed(data, actions \\ []), do: dropped(:closed, :remote_closed, data, actions)
@@ -697,8 +722,9 @@ defmodule KafkaEx.Client.Connection do
     end
   end
 
-  defp enrich(%AuthConfig{mechanism_opts: opts} = auth, host, port),
-    do: %{auth | mechanism_opts: Map.merge(opts || %{}, %{broker_host: host, broker_port: port})}
+  defp enrich(%AuthConfig{mechanism_opts: opts} = auth, host, port) do
+    %{auth | mechanism_opts: Map.merge(opts || %{}, %{broker_host: host, broker_port: port})}
+  end
 
   defp expired?(dispatch), do: now() >= dispatch.deadline
   defp not_connected, do: {:error, :not_connected, @meta0}
@@ -706,9 +732,7 @@ defmodule KafkaEx.Client.Connection do
   defp key(data), do: {data.host, data.port}
   defp peer(data), do: "#{inspect(data.host)}:#{inspect(data.port)}"
 
-  defp named(%{node_id: node_id} = data, %{node_id: node_id}), do: data
   defp named(data, %{node_id: node_id}), do: %{data | node_id: node_id}
-  defp named(data, _dispatch), do: data
 
   defp describe_peer(%{node_id: nil} = data), do: "#{data.host}:#{data.port}"
   defp describe_peer(data), do: Broker.to_string(%Broker{node_id: data.node_id, host: data.host, port: data.port})

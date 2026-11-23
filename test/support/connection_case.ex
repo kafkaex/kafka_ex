@@ -1,9 +1,9 @@
 defmodule KafkaEx.TestSupport.ConnectionCase do
   @moduledoc """
-  Starts a `KafkaEx.Client.Connection` on the fake transport and builds its dispatches.
+  Starts a `KafkaEx.Client.ConnectionStateMachine` on the fake transport and builds its dispatches.
 
-  `start_connection/5` takes the `Connection` options plus `:pacing`, `:auth`, `:use_ssl`,
-  `:ssl_options`, `:gate` (a `PinGate`, which also selects it as the transport) and `:secrets`.
+  `start_connection/5` takes the `ConnectionStateMachine` options plus `:reconnect_backoff`, `:auth`,
+  `:use_ssl`, `:ssl_options`, `:gate` (a `PinGate`, which also selects it as the transport) and `:secrets`.
   """
 
   use ExUnit.CaseTemplate
@@ -13,8 +13,8 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
   import ExUnit.CaptureLog
   import KafkaEx.TestHelpers, only: [forward_telemetry: 2]
 
-  alias KafkaEx.Client.Connection
-  alias KafkaEx.Client.Connection.Pacing
+  alias KafkaEx.Client.ConnectionStateMachine
+  alias KafkaEx.Client.ConnectionStateMachine.ReconnectBackoff
   alias KafkaEx.Client.RequestBuilder
   alias KafkaEx.Client.State
   alias KafkaEx.Protocol.KayrockProtocol
@@ -23,7 +23,7 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
 
   @port 9092
   @call_timeout 10_000
-  @case_options [:pacing, :auth, :use_ssl, :ssl_options, :gate, :secrets]
+  @case_options [:reconnect_backoff, :auth, :use_ssl, :ssl_options, :gate, :secrets]
   @versions %{
     produce: 3..3,
     fetch: 0..0,
@@ -39,8 +39,8 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
       import KafkaEx.TestSupport.ConnectionCase
       import KafkaEx.TestSupport.PinCase, only: [requests: 2]
 
-      alias KafkaEx.Client.Connection
-      alias KafkaEx.Client.Connection.Pacing
+      alias KafkaEx.Client.ConnectionStateMachine
+      alias KafkaEx.Client.ConnectionStateMachine.ReconnectBackoff
       alias KafkaEx.TestSupport.FakeTransport
       alias KafkaEx.TestSupport.PinGate
     end
@@ -57,18 +57,24 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
   end
 
   def start_connection(fake, host, port, role, opts \\ []) do
-    pacing = Keyword.get_lazy(opts, :pacing, &Pacing.new/0)
-    pid = start_supervised!(%{Connection.child_spec(args(fake, host, port, role, pacing, opts)) | id: make_ref()})
-    %{conn: pid, pacing: pacing}
+    backoff = Keyword.get_lazy(opts, :reconnect_backoff, &ReconnectBackoff.new/0)
+
+    pid =
+      start_supervised!(%{
+        ConnectionStateMachine.child_spec(args(fake, host, port, role, backoff, opts))
+        | id: make_ref()
+      })
+
+    %{conn: pid, reconnect_backoff: backoff}
   end
 
   def start_connected(fake, host, role, opts \\ []) do
     %{conn: conn} = started = start_connection(fake, host, @port, role, opts)
-    {:ok, _versions} = Connection.connect(conn, 5_000)
+    {:ok, _versions} = ConnectionStateMachine.connect(conn, 5_000)
     started
   end
 
-  def args(fake, host, port, role, pacing, opts) do
+  def args(fake, host, port, role, backoff, opts) do
     {transport, ssl_options} = transport(fake, opts)
     auth = opts[:auth]
 
@@ -79,7 +85,7 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
       use_ssl: Keyword.get(opts, :use_ssl, false),
       transport: transport,
       secrets: Keyword.get(opts, :secrets, fn -> %{ssl_options: ssl_options, auth: auth} end),
-      pacing: pacing,
+      reconnect_backoff: backoff,
       opts: Keyword.drop(opts, @case_options)
     }
   end
@@ -96,8 +102,9 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
   def dispatch(conn, request, overrides \\ []) do
     dispatch = build_dispatch(request, overrides)
 
-    with :ok <- Connection.await(conn, dispatch, @call_timeout),
-         do: Connection.write(conn, dispatch, @call_timeout)
+    with :ok <- ConnectionStateMachine.await(conn, dispatch, @call_timeout) do
+      ConnectionStateMachine.write(conn, dispatch, @call_timeout)
+    end
   end
 
   def build_dispatch(request, overrides \\ []) do
@@ -105,6 +112,7 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
       %{
         request: request,
         info: KayrockProtocol.request_info(request),
+        node_id: nil,
         reply?: true,
         timeout: 1_000,
         long_poll: nil,
@@ -179,11 +187,13 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
     state
   end
 
-  def await_in_flight(conn, count),
-    do: await_data(conn, &(map_size(&1.in_flight.entries) >= count), "#{count} requests never got in flight")
+  def await_in_flight(conn, count) do
+    await_data(conn, &(map_size(&1.in_flight.entries) >= count), "#{count} requests never got in flight")
+  end
 
-  def await_waiting(conn, count),
-    do: await_data(conn, &(:queue.len(&1.waiting) >= count), "#{count} callers never queued")
+  def await_waiting(conn, count) do
+    await_data(conn, &(:queue.len(&1.waiting) >= count), "#{count} callers never queued")
+  end
 
   defp await_data(conn, ready?, failure, deadline \\ now() + 2_000) do
     {_state, data} = :sys.get_state(conn)

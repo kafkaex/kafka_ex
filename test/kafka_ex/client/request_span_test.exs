@@ -1,7 +1,7 @@
 defmodule KafkaEx.Client.RequestSpanTest do
   use KafkaEx.TestSupport.PinCase, async: false
 
-  alias KafkaEx.Client.Infra
+  alias KafkaEx.Client.Supervisor, as: ClientSupervisor
   alias KafkaEx.Messages.RecordMetadata
 
   setup do
@@ -114,7 +114,7 @@ defmodule KafkaEx.Client.RequestSpanTest do
     test "an exit ends the span with the request exception", %{fake: fake, client: client} do
       ref = Process.monitor(client)
       FakeTransport.respond(fake, :metadata, :close)
-      supervisor = Infra.connection_supervisor(:sys.get_state(client).infra)
+      supervisor = ClientSupervisor.connection_supervisor(:sys.get_state(client).supervisor)
       :sys.replace_state(supervisor, fn _state -> :broken end)
 
       {exit, _log} = with_log(fn -> catch_exit(API.topics_metadata(client, [@topic])) end)
@@ -133,8 +133,9 @@ defmodule KafkaEx.Client.RequestSpanTest do
   end
 
   # Once a test stubs KafkaEx.Client, Mimic runs the client's code under a renamed module.
-  defp client_frame?({_module, function, arity, location}, function, arity),
-    do: location[:file] == ~c"lib/kafka_ex/client/client.ex"
+  defp client_frame?({_module, function, arity, location}, function, arity) do
+    location[:file] == ~c"lib/kafka_ex/client/client.ex"
+  end
 
   defp client_frame?(_frame, _function, _arity), do: false
 end
