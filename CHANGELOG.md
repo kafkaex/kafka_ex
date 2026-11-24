@@ -32,6 +32,9 @@
   `KafkaEx.API.cluster_metadata/1`. The client still accepts the old shapes. If you
   keep your own mock client that matches these messages or asserts on recorded `opts`, accept the new
   shapes and ignore `:call_budget`.
+* **`send_request/4` with `:first_available` tries the next broker after a `:parse_error`** instead of
+  returning the error; FindCoordinator does so within one attempt. When every broker fails, the result is
+  `{:error, :broker_failed}`, as for any other broker failure.
 
 ### Removed
 

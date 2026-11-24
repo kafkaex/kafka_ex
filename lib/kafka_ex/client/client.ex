@@ -1468,7 +1468,7 @@ defmodule KafkaEx.Client do
     opened(span, fn -> walk_on(write(conn, state), span, broker, sent, walk) end)
   end
 
-  defp walk_on({:written, {:error, error}, meta, state}, span, broker, sent, {walk, rest}) when error != :parse_error do
+  defp walk_on({:written, {:error, error}, meta, state}, span, broker, sent, {walk, rest}) do
     Logger.warning("Network call to #{Broker.to_string(broker)} failed: #{inspect(error)}")
     first_available(walk, rest, state, {:open, span, meta, sent})
   end
