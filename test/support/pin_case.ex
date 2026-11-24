@@ -111,10 +111,9 @@ defmodule KafkaEx.TestSupport.PinCase do
   def failed_sends(log, host, reason), do: count_failures(log, "Sending data to", host, reason)
   def failed_async_sends(log, host, reason), do: count_failures(log, "Asynchronously sending data to", host, reason)
 
-  # A real send failure after an injected one is logged by NetworkClient, which repeats "broker".
   defp count_failures(log, verb, host, reason) do
     line =
-      ~r/#{verb} broker (broker )?#{Regex.escape(inspect(host))}:\d+ failed with #{Regex.escape(inspect(reason))}\n/
+      ~r/#{verb} broker #{Regex.escape(inspect(host))}:\d+ failed with #{Regex.escape(inspect(reason))}\n/
 
     length(Regex.scan(line, log))
   end

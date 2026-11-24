@@ -38,7 +38,9 @@
 
 ### Removed
 
-* `KafkaEx.Network.Behaviour` and the unused `KafkaEx.Network.NetworkClient` functions (`create_socket`, `close_socket/1,3`, `send_sync_request/3`, `send_async_request/2`, `format_host/1`) were removed; connections use `KafkaEx.Network.Transport`.
+* `KafkaEx.Network.Behaviour` and the unused `KafkaEx.Network.NetworkClient` functions
+  (`create_socket/2..5`, `close_socket/1,3`, `send_sync_request/3`, `send_async_request/2`, `format_host/1`)
+  were removed; connections call `NetworkClient.connect/4`, `write/2`, `read/2`, `activate/1` and `close/1`.
 * Functions of the internal client modules were removed: the `KafkaEx.Client.RequestBuilder.*_request/2` builders (now one `RequestBuilder.build/3`), the `KafkaEx.Client.ResponseParser.*_response` functions that only called the protocol's `parse_response` (use `KafkaEx.Protocol.KayrockProtocol.parse_response/2,3`), and `KafkaEx.Client.RequestContext`.
 
 ### Fixed

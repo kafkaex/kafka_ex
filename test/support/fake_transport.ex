@@ -40,8 +40,8 @@ defmodule KafkaEx.TestSupport.FakeTransport do
     * A Produce with `acks = 0` gets no reply, whatever its script or hold, and its connection reads on (`:acks0`).
     * A client closing a connection that waits on a held or unanswered request turns it
       `open?: false` in `connections/1` and sends `{:fake_transport, :closed, id}` to subscribers;
-      from then on `release/2` runs no reply function for it. `connections/1` then also has `close_reason`. A `release/2` issued before that
-      notice may still run it, so wait for the notice first.
+      from then on `release/2` runs no reply function for it. `connections/1` then also has
+      `close_reason`. A `release/2` issued before that notice may still run it, so wait for the notice first.
     * `respond/3` with `:close` and `close/2` close from the broker side. `close/2` returns once
       the peers have closed and every active tcp client socket has its `tcp_closed` in the
       owner's mailbox.
@@ -66,9 +66,9 @@ defmodule KafkaEx.TestSupport.FakeTransport do
       `fail_send/4` writes less than a whole frame and fails with the given reason.
       `release/2` disarms both. Both apply only to sends from the process that created the
       socket; a send from any other process is never faulted.
-    * The fake takes the caller's socket options and timeout and emits no telemetry, no log line and no SASL.
-      The fake rides in the socket options (`ssl_options/2`). On `write/2`, `hang_send/2` and `fail_send/4` act as above, but a failed write only closes the
-      socket and returns the reason.
+    * The fake rides in the socket options (`ssl_options/2`), takes the caller's socket options and timeout,
+      and emits no telemetry, no log line and no SASL. `write/2` applies `hang_send/2` and `fail_send/4`;
+      a failed write closes the socket and returns the reason.
     * No global state: scripts and the log live in the fake process. Reply functions run inside
       it and must not call it.
   """
@@ -89,8 +89,9 @@ defmodule KafkaEx.TestSupport.FakeTransport do
   def hold(fake, api), do: GenServer.call(fake, {:hold, Wire.api_key(api)})
   def hang_send(fake, api), do: GenServer.call(fake, {:hang_send, Wire.api_key(api)})
 
-  def fail_send(fake, api, bytes_sent, reason) when is_integer(bytes_sent) and bytes_sent >= 0,
-    do: GenServer.call(fake, {:fail_send, Wire.api_key(api), bytes_sent, reason})
+  def fail_send(fake, api, bytes_sent, reason) when is_integer(bytes_sent) and bytes_sent >= 0 do
+    GenServer.call(fake, {:fail_send, Wire.api_key(api), bytes_sent, reason})
+  end
 
   def release(fake, api), do: GenServer.call(fake, {:release, Wire.api_key(api)})
   def silence_tls(fake), do: GenServer.call(fake, :silence_tls)

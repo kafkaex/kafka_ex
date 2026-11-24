@@ -11,16 +11,14 @@ defmodule KafkaEx.Client.RequestBuilder do
 
   # First OffsetCommit / OffsetFetch versions that identify topics by id (KIP-848).
   @offset_commit_topic_id_version 10
-  # First OffsetCommit version that carries a member epoch
-  # (generation_id_or_member_epoch, KIP-848).
+  # First OffsetCommit version that carries a member epoch (KIP-848).
   @offset_commit_member_epoch_version 9
   @offset_fetch_topic_id_version 10
   # First Metadata version whose brokers honour topic-id lookups.
   @metadata_topic_id_lookup_version 12
   # First ConsumerGroupHeartbeat version with subscribed_topic_regex.
   @consumer_group_heartbeat_regex_version 1
-  # int32 wire fields (Kayrock encodes them as <<v::32-signed>>, so an
-  # out-of-range value would silently wrap rather than fail).
+  # Kayrock encodes int32 as <<v::32-signed>>, so an out-of-range value would silently wrap.
   @int32_range -2_147_483_648..2_147_483_647
 
   @consumer_group_heartbeat_fields [
@@ -135,12 +133,7 @@ defmodule KafkaEx.Client.RequestBuilder do
 
   defp check_subscribed_topic_regex(_api_version, _request_opts), do: :ok
 
-  # The request is built inside the client GenServer, so malformed input must
-  # become an error here rather than a FunctionClauseError that takes the
-  # shared client down for every caller.
-  # Every field that reaches the wire, checked against its type in the
-  # ConsumerGroupHeartbeat v0/v1 schema. Optional fields may be nil ("unchanged"
-  # under KIP-848). group_id is validated by the client before this point.
+  # Built inside the client GenServer: malformed input must be an error, not a crash that takes the client down.
   @heartbeat_field_checks [
     member_epoch: {:required, :int32},
     member_id: {:optional, :string},
@@ -197,13 +190,6 @@ defmodule KafkaEx.Client.RequestBuilder do
 
   defp valid_owned_topic_partitions?(_), do: false
 
-  # -----------------------------------------------------------------------------
-  # Requests are built inside the client GenServer, so a malformed option must
-  # become an error here rather than an exception that takes the shared client
-  # down for every caller. member_epoch / generation_id are int32 on the wire
-  # (Kayrock encodes them as <<v::32-signed>>, so an out-of-range value would
-  # silently wrap). nil means "not given" for all three.
-
   defp check_member_opts(request_opts) do
     cond do
       not valid_optional?(Keyword.get(request_opts, :member_epoch), &(is_integer(&1) and &1 in @int32_range)) ->
@@ -220,11 +206,7 @@ defmodule KafkaEx.Client.RequestBuilder do
     end
   end
 
-  # v1-v8 have no member epoch field: the epoch would be dropped and the
-  # (classic) generation id sent instead, which a KIP-848 broker rejects with
-  # UNSUPPORTED_VERSION on every commit (Kafka 4.4 ConsumerGroup
-  # .validateOffsetCommit). Refuse the combination (e.g. an :api_versions pin
-  # below 9) up front rather than silently dropping the epoch.
+  # v1-v8 would drop the epoch and send the classic generation id, which a KIP-848 broker rejects on every commit.
   defp check_member_epoch_version(request_opts, api_version) do
     if is_integer(Keyword.get(request_opts, :member_epoch)) and api_version < @offset_commit_member_epoch_version do
       Logger.error(
@@ -249,8 +231,7 @@ defmodule KafkaEx.Client.RequestBuilder do
       topic_ids == [] ->
         :ok
 
-      # The broker ignores topic names in a request that carries any topic id,
-      # so a mixed lookup would silently drop the named topics.
+      # The broker ignores topic names when any topic id is present.
       topics not in [nil, []] ->
         {:error, :mixed_topic_names_and_ids}
 
@@ -268,22 +249,10 @@ defmodule KafkaEx.Client.RequestBuilder do
   end
 
   defp valid_topic_ids?(topic_ids) when is_list(topic_ids), do: Enum.all?(topic_ids, &match?(<<_::128>>, &1))
-  # A bare 16-byte id is accepted, as build_topic_id_list/1 List.wraps it.
   defp valid_topic_ids?(<<_::128>>), do: true
   defp valid_topic_ids?(_), do: false
 
-  # -----------------------------------------------------------------------------
-  # OffsetCommit / OffsetFetch v10+ name topics by id. The ids come from cluster
-  # metadata (Metadata v10+). When an id is unknown we send the previous version
-  # (v9), which carries the same data by name and which every broker that
-  # supports v10 also supports, rather than doing network I/O here or adding a
-  # metadata round trip to the commit path. Consumer topics are tracked and
-  # refreshed, so in steady state the ids are known and v10 is used.
-  #
-  # This applies however v10 was chosen (negotiated, app config, a GenConsumer
-  # `:api_versions` pin or a per-call `:api_version`): a caller cannot supply
-  # topic ids itself, so failing would only turn a pin into a permanent error
-  # until metadata happens to carry the id.
+  # Unknown topic ids fall back to the by-name previous version, however v10 was chosen: callers cannot supply ids.
   defp resolve_topic_ids(state, request_type, api_version, topic_id_version, request_opts)
        when api_version >= topic_id_version do
     topic_names = request_opts |> Keyword.fetch!(:topics) |> Enum.map(fn {topic, _} -> topic end)
@@ -302,18 +271,10 @@ defmodule KafkaEx.Client.RequestBuilder do
     {api_version, %{}}
   end
 
-  # -----------------------------------------------------------------------------
-  # Version resolution chain:
-  # 1. request_opts[:api_version] — explicit per-call override (tier 1)
-  # 2. app config :api_versions map — deployment-wide override (tier 2)
-  # 3. negotiated max = min(broker_max, kayrock_max) (tier 3)
-  # Returns {:error, :api_not_supported_by_broker} when broker doesn't report the API.
-  # Returns {:error, :api_version_no_supported} when requested version exceeds max.
   defp get_api_version(state, request_type, request_opts) do
     case State.max_supported_api_version(state, request_type) do
       {:error, :api_not_supported_by_broker} ->
-        # If an explicit api_version was provided in request opts, honor it.
-        # This is needed for bootstrap (ApiVersions request before state is populated).
+        # Bootstrap sends ApiVersions before the state is populated.
         case Keyword.fetch(request_opts, :api_version) do
           {:ok, version} ->
             {:ok, version}

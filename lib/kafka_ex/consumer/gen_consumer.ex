@@ -1581,9 +1581,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
         retry_at = :erlang.monotonic_time(:milli_seconds) + state.commit_interval
         handle_transient_commit_error(error, %State{state | commit_retry_at: retry_at})
 
-      # A member epoch, but OffsetCommit pinned below v9 (see
-      # RequestBuilder.build/3): every commit would fail the
-      # same way, so stop instead of consuming without ever committing.
+      # Member epoch with OffsetCommit pinned below v9: every commit fails alike, so stop.
       error == :invalid_api_version ->
         handle_terminal_commit_error(error, state)
 
