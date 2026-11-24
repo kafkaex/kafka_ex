@@ -13,23 +13,23 @@ defmodule KafkaEx.Network.TLSOptionsPinTest do
     %{tls: tls, port: port}
   end
 
+  defp connect(ssl_options, port) do
+    NetworkClient.connect(
+      %{host: "localhost", port: port},
+      [:binary, {:packet, 4}, {:active, false}] ++ ssl_options,
+      true,
+      5_000
+    )
+  end
+
   test "verify_peer with the right CA connects", %{tls: tls, port: port} do
-    assert %Socket{ssl: true} =
-             socket = NetworkClient.create_socket("localhost", port, tls.client_ok, true)
+    assert {:ok, %Socket{ssl: true} = socket} = connect(tls.client_ok, port)
 
     Socket.close(socket)
   end
 
-  test "verify_peer with a wrong CA fails, so the ssl options reach the handshake", %{
-    tls: tls,
-    port: port
-  } do
-    log =
-      capture_log(fn ->
-        assert NetworkClient.create_socket("localhost", port, tls.client_wrong_ca, true) == nil
-      end)
-
-    assert log =~ "unknown_ca"
+  test "verify_peer with a wrong CA fails, so the ssl options reach the handshake", %{tls: tls, port: port} do
+    assert {:error, {:tls_alert, {:unknown_ca, _}}} = connect(tls.client_wrong_ca, port)
   end
 
   test "the client hands its ssl options to the handshake", %{tls: tls, port: port} do

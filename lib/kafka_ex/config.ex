@@ -69,7 +69,7 @@ defmodule KafkaEx.Config do
     * `:sleep_for_reconnect` (ms, default `400`) — delay before
       retrying a broker reconnect. Applied inside
       `KafkaEx.Client` after the socket has died but before the
-      next `create_socket/5` attempt. Lower values reconnect faster
+      next `connect/4` attempt. Lower values reconnect faster
       at the cost of hammering a broker that's down; higher values
       smooth out flapping brokers at the cost of longer error
       windows.

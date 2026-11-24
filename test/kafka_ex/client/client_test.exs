@@ -216,22 +216,6 @@ defmodule KafkaEx.ClientTest do
     end
   end
 
-  describe "NetworkClient nil socket handling" do
-    test "send_sync_request returns :not_connected for nil socket" do
-      broker = %{socket: nil, host: "localhost", port: 9092}
-      assert {:error, :not_connected} = KafkaEx.Network.NetworkClient.send_sync_request(broker, <<>>, 1000)
-    end
-
-    test "send_sync_request returns :no_broker for nil broker" do
-      assert {:error, :no_broker} = KafkaEx.Network.NetworkClient.send_sync_request(nil, <<>>, 1000)
-    end
-
-    test "send_async_request returns :not_connected for nil socket" do
-      broker = %{socket: nil, host: "localhost", port: 9092}
-      assert {:error, :not_connected} = KafkaEx.Network.NetworkClient.send_async_request(broker, <<>>)
-    end
-  end
-
   describe "first_broker_response with disconnected brokers" do
     test "returns error when all brokers disconnected" do
       # Create brokers with nil sockets

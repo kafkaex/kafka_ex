@@ -33,6 +33,10 @@
   keep your own mock client that matches these messages or asserts on recorded `opts`, accept the new
   shapes and ignore `:call_budget`.
 
+### Removed
+
+* `KafkaEx.Network.Behaviour` and the unused `KafkaEx.Network.NetworkClient` functions (`create_socket`, `close_socket/1,3`, `send_sync_request/3`, `send_async_request/2`, `format_host/1`) were removed; connections use `KafkaEx.Network.Transport`.
+
 ### Fixed
 
 * **`required_compression: [:zstd]` no longer requires `ezstd` on OTP 28+.** The boot check

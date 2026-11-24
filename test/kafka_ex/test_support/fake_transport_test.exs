@@ -31,16 +31,6 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
 
   defp decode(module, iodata), do: module.deserialize(IO.iodata_to_binary(iodata))
 
-  defp oauth,
-    do: AuthConfig.new(%{mechanism: :oauthbearer, mechanism_opts: %{token_provider: fn -> {:ok, "jwt"} end}})
-
-  defp sasl(:plain), do: AuthConfig.new(%{mechanism: :plain, username: "u", password: "p"})
-
-  defp sasl(algo),
-    do: AuthConfig.new(%{mechanism: :scram, username: "u", password: "p", mechanism_opts: %{algo: algo}})
-
-  defp unique_host, do: "fake-#{System.unique_integer([:positive])}"
-
   defp peer(fake, id), do: :sys.get_state(fake).connections[id].peer
 
   defp conn_apis(fake, id), do: for(%{conn: ^id, api: api} <- FakeTransport.requests(fake), do: api)
@@ -52,58 +42,29 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
   defp start_fake(opts \\ []), do: start_supervised!({FakeTransport, opts}, id: make_ref())
 
   defp connect(fake, host, port, opts \\ []) do
-    FakeTransport.create_socket(
-      host,
-      port,
-      FakeTransport.ssl_options(fake, Keyword.get(opts, :ssl_options, [])),
-      Keyword.get(opts, :use_ssl, false),
-      Keyword.get(opts, :auth)
-    )
+    case seam_connect(fake, host, port, opts) do
+      {:ok, socket} -> socket
+      {:error, _reason} -> nil
+    end
   end
+
+  defp request(socket, data, timeout) do
+    with :ok <- FakeTransport.write(socket, data), {:ok, reply} <- FakeTransport.read(socket, timeout), do: reply
+  end
+
+  defp ssl_options(opts), do: if(Keyword.get(opts, :use_ssl), do: Keyword.get(opts, :ssl_options, []), else: [])
 
   defp seam_connect(fake, host, port, opts \\ []) do
     FakeTransport.connect(
       %{host: host, port: port, role: Keyword.get(opts, :role, :data)},
       FakeTransport.ssl_options(
         fake,
-        [:binary, {:packet, 4}, {:active, false}] ++ Keyword.get(opts, :socket_options, [])
+        [:binary, {:packet, 4}, {:active, false}] ++
+          Keyword.get(opts, :socket_options, []) ++ ssl_options(opts)
       ),
       Keyword.get(opts, :use_ssl, false),
       Keyword.get(opts, :timeout, 1_000)
     )
-  end
-
-  defp attach(event, host) do
-    test_pid = self()
-    handler = "fake-transport-#{inspect(make_ref())}"
-
-    :telemetry.attach(
-      handler,
-      event,
-      fn
-        _event, _measurements, %{host: ^host} = metadata, _ -> send(test_pid, {:telemetry, event, metadata})
-        _event, _measurements, _metadata, _ -> :ok
-      end,
-      nil
-    )
-
-    on_exit(fn -> :telemetry.detach(handler) end)
-  end
-
-  defp attach_here(event) do
-    test_pid = self()
-    handler = "fake-transport-#{inspect(make_ref())}"
-
-    :telemetry.attach(
-      handler,
-      event,
-      fn event, _measurements, metadata, _ ->
-        if self() == test_pid, do: send(test_pid, {:telemetry, event, metadata})
-      end,
-      nil
-    )
-
-    on_exit(fn -> :telemetry.detach(handler) end)
   end
 
   describe "tls" do
@@ -115,21 +76,19 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       assert Broker.connected?(%Broker{host: "a", port: 1, socket: socket})
 
       assert <<1::32-signed, _::binary>> =
-               FakeTransport.send_sync_request(%{host: "a", port: 1, socket: socket}, metadata_v0(1), 1_000)
+               request(socket, metadata_v0(1), 1_000)
     end
 
     test "the client's TLS options are applied", %{tls: tls} do
       fake = start_fake(tls: tls.server)
 
-      log =
-        capture_log(fn -> assert connect(fake, "a", 1, use_ssl: true, ssl_options: tls.client_wrong_ca) == nil end)
-
-      assert log =~ "Could not connect to broker"
+      assert {:error, _reason} = seam_connect(fake, "a", 1, use_ssl: true, ssl_options: tls.client_wrong_ca)
     end
 
     test "a broker-side close arrives as ssl_closed", %{tls: tls} do
       fake = start_fake(tls: tls.server)
-      %Socket{socket: raw} = connect(fake, "a", 1, use_ssl: true, ssl_options: tls.client_ok)
+      %Socket{socket: raw} = socket = connect(fake, "a", 1, use_ssl: true, ssl_options: tls.client_ok)
+      :ok = FakeTransport.activate(socket)
 
       FakeTransport.close(fake, {"a", 1})
 
@@ -142,21 +101,12 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       assert_raise ArgumentError, ~r/:tls/, fn -> connect(fake, "a", 1, use_ssl: true) end
     end
 
-    test "use_ssl without :tls server options emits no connection exception" do
-      attach_here([:kafka_ex, :connection, :exception])
-      fake = start_fake()
-
-      assert_raise ArgumentError, fn -> connect(fake, "a", 1, use_ssl: true) end
-
-      refute_received {:telemetry, [:kafka_ex, :connection, :exception], _}
-    end
-
     test "the creating process closes an ssl socket and the broker side sees it", %{tls: tls} do
       fake = start_fake(tls: tls.server)
       socket = connect(fake, "a", 1, use_ssl: true, ssl_options: tls.client_ok)
       ref = Process.monitor(peer(fake, 1))
 
-      assert FakeTransport.close_socket(%{host: "a", port: 1}, socket, :shutdown) == :ok
+      assert FakeTransport.close(socket) == :ok
 
       assert_receive {:DOWN, ^ref, :process, _, :normal}, 1_000
     end
@@ -168,110 +118,11 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       assert %Socket{ssl: false} = socket
 
       assert <<1::32-signed, _::binary>> =
-               FakeTransport.send_sync_request(%{host: "a", port: 1, socket: socket}, metadata_v0(1), 1_000)
-    end
-
-    test "a TLS socket closed from a non-owner process raises", %{tls: tls} do
-      fake = start_fake(tls: tls.server)
-      socket = connect(fake, "a", 1, use_ssl: true, ssl_options: tls.client_ok)
-
-      task = Task.async(fn -> catch_error(FakeTransport.close_socket(%{host: "a", port: 1}, socket, :shutdown)) end)
-
-      assert %ArgumentError{message: "FakeTransport socket closed from a non-owner process"} = Task.await(task)
+               request(socket, metadata_v0(1), 1_000)
     end
   end
 
   describe "sasl" do
-    test "the handshake is answered on every connection before the socket turns active" do
-      fake = start_fake()
-      %Socket{socket: first} = connect(fake, "a", 1, auth: oauth())
-      %Socket{socket: _second} = connect(fake, "a", 1, auth: oauth())
-
-      assert :inet.getopts(first, [:active]) == {:ok, [active: true]}
-
-      assert [
-               {1, :api_versions},
-               {1, :sasl_handshake},
-               {1, :sasl_authenticate},
-               {2, :api_versions},
-               {2, :sasl_handshake},
-               {2, :sasl_authenticate}
-             ] = Enum.map(FakeTransport.requests(fake), &{&1.conn, &1.api})
-    end
-
-    test "PLAIN authenticates over TLS", %{tls: tls} do
-      fake = start_fake(tls: tls.server)
-      auth = AuthConfig.new(%{mechanism: :plain, username: "u", password: "p"})
-
-      assert %Socket{ssl: true} = connect(fake, "a", 1, use_ssl: true, ssl_options: tls.client_ok, auth: auth)
-      assert conn_apis(fake, 1) == [:api_versions, :sasl_handshake, :sasl_authenticate]
-    end
-
-    for {mechanism, auth, use_ssl} <- [
-          {"PLAIN over TLS", :plain, true},
-          {"SCRAM-SHA-256", :sha256, false},
-          {"SCRAM-SHA-512", :sha512, false}
-        ] do
-      test "a scripted SaslAuthenticate error fails #{mechanism}", %{tls: tls} do
-        host = unique_host()
-        attach([:kafka_ex, :connection, :close], host)
-        fake = start_fake(tls: tls.server)
-        FakeTransport.respond(fake, :sasl_authenticate, %{error_code: 58, error_message: "denied", auth_bytes: ""})
-        opts = [use_ssl: unquote(use_ssl), ssl_options: tls.client_ok, auth: sasl(unquote(auth))]
-
-        log = capture_log(fn -> assert connect(fake, host, 1, opts) == nil end)
-
-        assert log =~
-                 ~s(SASL authentication failed for broker "#{host}":1}: {:auth_failed, :sasl_authentication_failed})
-
-        assert_receive {:telemetry, _, %{reason: :auth_error}}
-      end
-    end
-
-    test "a scripted SaslAuthenticate error fails the connection" do
-      host = unique_host()
-      attach([:kafka_ex, :connection, :close], host)
-      fake = start_fake()
-      FakeTransport.respond(fake, :sasl_authenticate, %{error_code: 58, error_message: "denied", auth_bytes: ""})
-
-      log = capture_log(fn -> assert connect(fake, host, 1, auth: oauth()) == nil end)
-
-      assert log =~
-               ~s(SASL authentication failed for broker "#{host}":1}: {:auth_failed, :sasl_authentication_failed})
-
-      assert_receive {:telemetry, _, %{reason: :auth_error}}
-    end
-
-    test "a scripted SaslHandshake error fails the connection" do
-      host = unique_host()
-      attach([:kafka_ex, :connection, :close], host)
-      fake = start_fake()
-      FakeTransport.respond(fake, :sasl_handshake, %{error_code: 33, mechanisms: []})
-
-      log = capture_log(fn -> assert connect(fake, host, 1, auth: oauth()) == nil end)
-
-      assert log =~
-               ~s(SASL authentication failed for broker "#{host}":1}: {:handshake_failed, :unsupported_sasl_mechanism})
-
-      assert_receive {:telemetry, _, %{reason: :auth_error}}
-    end
-
-    test "connect and auth emit the NetworkClient spans" do
-      for kind <- [:connection, :auth], phase <- [:start, :stop], do: attach_here([:kafka_ex, kind, phase])
-      fake = start_fake(brokers: [{1, "a", 1}])
-
-      connect(fake, "a", 1, auth: oauth())
-
-      assert_received {:telemetry, [:kafka_ex, :connection, :start], %{port: 1, ssl: false}}
-      assert_received {:telemetry, [:kafka_ex, :auth, :start], %{mechanism: "OAUTHBEARER"}}
-      assert_received {:telemetry, [:kafka_ex, :auth, :stop], _}
-      assert_received {:telemetry, [:kafka_ex, :connection, :stop], %{success: true}}
-
-      capture_log(fn -> connect(fake, "c", 1) end)
-
-      assert_received {:telemetry, [:kafka_ex, :connection, :stop], %{success: false, error: :econnrefused}}
-    end
-
     test "a client boots over TLS with PLAIN", %{tls: tls} do
       fake = start_fake(tls: tls.server, brokers: [{1, "a", 9092}])
       auth = AuthConfig.new(%{mechanism: :plain, username: "u", password: "p"})
@@ -340,7 +191,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       capture_log(fn -> connect(fake, "c", 1) end)
 
       assert [
-               %{host: "a", port: 9092, use_ssl: false, ssl_options: [], auth: nil, owner: owner},
+               %{host: "a", port: 9092, use_ssl: false, auth: nil, owner: owner},
                %{host: "c", port: 1}
              ] = FakeTransport.connects(fake)
 
@@ -350,18 +201,15 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
     test "an address outside the broker list is refused like an unreachable broker" do
       fake = start_fake(brokers: [{1, "a", 9092}])
 
-      log = capture_log(fn -> assert connect(fake, "c", 1) == nil end)
-
-      assert log =~ ~s(Could not connect to broker "c":1 because of error :econnrefused)
+      assert seam_connect(fake, "c", 1) == {:error, :econnrefused}
     end
 
     test "the request log keeps arrival order with connection and header" do
       fake = start_fake(brokers: [{1, "a", 9092}])
       socket = connect(fake, "a", 9092)
-      broker = %{host: "a", port: 9092, socket: socket}
 
-      FakeTransport.send_sync_request(broker, metadata_v0(1), 1_000)
-      FakeTransport.send_sync_request(broker, metadata_v0(2), 1_000)
+      request(socket, metadata_v0(1), 1_000)
+      request(socket, metadata_v0(2), 1_000)
 
       assert [
                %{
@@ -392,7 +240,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       fake = start_fake(api_versions: %{metadata: 0..9})
       socket = connect(fake, "a", 1)
 
-      reply = FakeTransport.send_sync_request(%{host: "a", port: 1, socket: socket}, api_versions_v0(1), 1_000)
+      reply = request(socket, api_versions_v0(1), 1_000)
 
       assert {%Kayrock.ApiVersions.V0.Response{api_keys: api_keys}, ""} =
                decode(Kayrock.ApiVersions.V0.Response, reply)
@@ -407,7 +255,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       send(peer(fake, 1), :stray)
 
       assert <<1::32-signed, _::binary>> =
-               FakeTransport.send_sync_request(%{host: "a", port: 1, socket: socket}, metadata_v0(1), 1_000)
+               request(socket, metadata_v0(1), 1_000)
     end
 
     for bad <- [:raises, :returns_unsupported, :is_unencodable] do
@@ -418,7 +266,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
 
         log =
           capture_log(fn ->
-            assert FakeTransport.send_sync_request(%{host: "a", port: 1, socket: socket}, metadata_v0(1), 1_000) ==
+            assert request(socket, metadata_v0(1), 1_000) ==
                      {:error, :closed}
           end)
 
@@ -428,7 +276,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
         other = connect(fake, "a", 1)
 
         assert <<2::32-signed, _::binary>> =
-                 FakeTransport.send_sync_request(%{host: "a", port: 1, socket: other}, api_versions_v0(2), 1_000)
+                 request(other, api_versions_v0(2), 1_000)
       end
     end
 
@@ -447,7 +295,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
 
       log =
         capture_log(fn ->
-          assert FakeTransport.send_sync_request(%{host: "a", port: 1, socket: socket}, <<3::16>>, 1_000) ==
+          assert request(socket, <<3::16>>, 1_000) ==
                    {:error, :closed}
         end)
 
@@ -455,16 +303,14 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       other = connect(fake, "a", 1)
 
       assert <<2::32-signed, _::binary>> =
-               FakeTransport.send_sync_request(%{host: "a", port: 1, socket: other}, api_versions_v0(2), 1_000)
+               request(other, api_versions_v0(2), 1_000)
     end
 
     test "a connect after the fake stopped is refused like an unreachable broker" do
       fake = start_fake()
       GenServer.stop(fake)
 
-      log = capture_log(fn -> assert connect(fake, "a", 1) == nil end)
-
-      assert log =~ ~s(Could not connect to broker "a":1 because of error :econnrefused)
+      assert seam_connect(fake, "a", 1) == {:error, :econnrefused}
     end
 
     test "a fake that crashes during a connect exits the caller" do
@@ -478,7 +324,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       second = start_fake()
       socket = connect(first, "a", 1)
 
-      FakeTransport.send_sync_request(%{host: "a", port: 1, socket: socket}, metadata_v0(1), 1_000)
+      request(socket, metadata_v0(1), 1_000)
 
       assert [%{correlation_id: 1}] = FakeTransport.requests(first)
       assert FakeTransport.requests(second) == []
@@ -488,8 +334,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
 
   describe "sends" do
     test "a reply comes back over the socket with the request's correlation id" do
-      host = unique_host()
-      socket = FakeTransport.create_socket(host, 9)
+      socket = connect(start_fake(), "a", 9)
 
       :ok = Socket.setopts(socket, active: false)
       :ok = Socket.send(socket, metadata_v0(42))
@@ -497,31 +342,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       assert {:ok, <<42::32-signed, 1::32-signed, 1::32-signed, _::binary>>} = Socket.recv(socket, 0, 1_000)
 
       assert <<43::32-signed, _::binary>> =
-               FakeTransport.send_sync_request(%{host: host, port: 9, socket: socket}, metadata_v0(43), 1_000)
-    end
-
-    test "a send without a socket is not connected" do
-      assert FakeTransport.send_sync_request(%{host: "h", port: 1, socket: nil}, metadata_v0(1), 10) ==
-               {:error, :not_connected}
-
-      assert FakeTransport.send_async_request(%{host: "h", port: 1, socket: nil}, metadata_v0(1)) ==
-               {:error, :not_connected}
-    end
-
-    test "a send on a closed socket fails and emits the send_error close" do
-      host = unique_host()
-      attach([:kafka_ex, :connection, :close], host)
-      socket = FakeTransport.create_socket(host, 9)
-      Socket.close(socket)
-
-      log =
-        capture_log(fn ->
-          assert FakeTransport.send_sync_request(%{host: host, port: 9, socket: socket}, metadata_v0(1), 100) ==
-                   {:error, :closed}
-        end)
-
-      assert_receive {:telemetry, _, %{reason: :send_error}}
-      assert log =~ "Setting socket options for broker"
+               request(socket, metadata_v0(43), 1_000)
     end
   end
 
@@ -532,7 +353,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       socket = connect(fake, "a", 1)
 
       assert <<5::32-signed, 1::32-signed, 7::32-signed, _::binary>> =
-               FakeTransport.send_sync_request(%{host: "a", port: 1, socket: socket}, metadata_v0(5), 1_000)
+               request(socket, metadata_v0(5), 1_000)
     end
 
     test "a reply function sees the request and may return a raw frame" do
@@ -544,7 +365,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
 
       socket = connect(fake, "a", 1)
 
-      assert FakeTransport.send_sync_request(%{host: "a", port: 1, socket: socket}, metadata_v0(5), 1_000) ==
+      assert request(socket, metadata_v0(5), 1_000) ==
                <<6::32, 0::32, 0::32>>
     end
 
@@ -557,7 +378,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
 
       socket = connect(fake, "a", 1)
 
-      assert FakeTransport.send_sync_request(%{host: "a", port: 1, socket: socket}, metadata_v0(5), 1_000) ==
+      assert request(socket, metadata_v0(5), 1_000) ==
                <<5::32, 0::32, 0, 0>>
     end
 
@@ -565,10 +386,9 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       fake = start_fake()
       FakeTransport.respond(fake, :metadata, %{brokers: [], topics: []})
       socket = connect(fake, "a", 1)
-      broker = %{host: "a", port: 1, socket: socket}
 
       for id <- 1..3 do
-        assert FakeTransport.send_sync_request(broker, metadata_v0(id), 1_000) == <<id::32, 0::32, 0::32>>
+        assert request(socket, metadata_v0(id), 1_000) == <<id::32, 0::32, 0::32>>
       end
     end
 
@@ -616,7 +436,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       other = connect(fake, "a", 1)
 
       assert <<2::32-signed, _::binary>> =
-               FakeTransport.send_sync_request(%{host: "a", port: 1, socket: other}, api_versions_v0(2), 1_000)
+               request(other, api_versions_v0(2), 1_000)
 
       FakeTransport.release(fake, :metadata)
       assert {:ok, <<1::32-signed, _::binary>>} = Socket.recv(held, 0, 1_000)
@@ -718,7 +538,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       assert_receive {:fake_transport, :request, %{correlation_id: 1, action: :hold}}, 1_000
       ref = Process.monitor(peer(fake, 1))
 
-      FakeTransport.close_socket(%{host: "a", port: 1}, socket, :timeout)
+      FakeTransport.close(socket)
 
       assert_receive {:DOWN, ^ref, :process, _, :normal}, 1_000
       assert [%{id: 1, open?: false}] = FakeTransport.connections(fake)
@@ -733,7 +553,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       :ok = Socket.send(socket, metadata_v0(1))
       assert_receive {:fake_transport, :request, %{correlation_id: 1, action: :hold}}, 1_000
       ref = Process.monitor(peer(fake, 1))
-      FakeTransport.close_socket(%{host: "a", port: 1}, socket, :timeout)
+      FakeTransport.close(socket)
       assert_receive {:DOWN, ^ref, :process, _, :normal}, 1_000
 
       FakeTransport.respond(fake, :metadata, fn request ->
@@ -756,7 +576,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
         :ok = Socket.send(socket, metadata_v0(1))
         assert_receive {:fake_transport, :request, %{correlation_id: 1, action: :hold}}, 1_000
 
-        FakeTransport.close_socket(%{host: "a", port: 1}, socket, :timeout)
+        FakeTransport.close(socket)
         assert_receive {:fake_transport, :closed, 1}, 1_000
 
         FakeTransport.respond(fake, :metadata, fn request ->
@@ -829,7 +649,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       assert_receive {:fake_transport, :request, %{correlation_id: 1, action: :no_reply}}, 1_000
       ref = Process.monitor(peer(fake, 1))
 
-      FakeTransport.close_socket(%{host: "a", port: 1}, socket, :timeout)
+      FakeTransport.close(socket)
 
       assert_receive {:DOWN, ^ref, :process, _, reason}, 5_000
       assert reason == :normal, "peer stopped early: #{inspect(FakeTransport.connections(fake))}"
@@ -837,18 +657,11 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
     end
 
     test "a request that never gets a reply times out like a silent broker" do
-      host = unique_host()
-      attach([:kafka_ex, :connection, :close], host)
       fake = start_fake()
       FakeTransport.respond(fake, :metadata, :no_reply)
-      socket = connect(fake, host, 1)
+      socket = connect(fake, "a", 1)
 
-      capture_log(fn ->
-        assert FakeTransport.send_sync_request(%{host: host, port: 1, socket: socket}, metadata_v0(1), 50) ==
-                 {:error, :timeout}
-      end)
-
-      assert_receive {:telemetry, _, %{reason: :timeout}}
+      assert request(socket, metadata_v0(1), 50) == {:error, :timeout}
     end
 
     test "a client closing the socket records why the peer stopped" do
@@ -856,7 +669,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       FakeTransport.subscribe(fake)
       socket = connect(fake, "a", 1)
 
-      FakeTransport.close_socket(%{host: "a", port: 1}, socket, :timeout)
+      FakeTransport.close(socket)
 
       assert_receive {:fake_transport, :closed, 1}, 5_000
       assert [%{close_reason: {:socket_closed, :tcp_closed}}] = FakeTransport.connections(fake)
@@ -869,7 +682,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       socket = connect(fake, "a", 1)
 
       capture_log(fn ->
-        FakeTransport.send_sync_request(%{host: "a", port: 1, socket: socket}, metadata_v0(1), 1_000)
+        request(socket, metadata_v0(1), 1_000)
       end)
 
       assert_receive {:fake_transport, :closed, 1}, 5_000
@@ -882,14 +695,15 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       socket = connect(fake, "a", 1)
 
       capture_log(fn ->
-        assert FakeTransport.send_sync_request(%{host: "a", port: 1, socket: socket}, metadata_v0(1), 1_000) ==
+        assert request(socket, metadata_v0(1), 1_000) ==
                  {:error, :closed}
       end)
     end
 
     test "close/2 closes a broker's connections from the broker side" do
       fake = start_fake()
-      %Socket{socket: raw} = connect(fake, "a", 1)
+      %Socket{socket: raw} = socket = connect(fake, "a", 1)
+      :ok = FakeTransport.activate(socket)
 
       FakeTransport.close(fake, {"a", 1})
 
@@ -898,7 +712,8 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
 
     test "close/2 returns after the owner has the closed message" do
       fake = start_fake()
-      %Socket{socket: raw} = connect(fake, "a", 1)
+      %Socket{socket: raw} = socket = connect(fake, "a", 1)
+      :ok = FakeTransport.activate(socket)
 
       FakeTransport.close(fake, {"a", 1})
 
@@ -911,7 +726,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       heartbeat = <<@heartbeat::16, 0::16, 3::32, 4::16, "test">>
 
       capture_log(fn ->
-        assert FakeTransport.send_sync_request(%{host: "a", port: 1, socket: socket}, heartbeat, 1_000) ==
+        assert request(socket, heartbeat, 1_000) ==
                  {:error, :closed}
       end)
 
@@ -946,7 +761,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
     test "a stale socket's message can be injected after a reconnect" do
       fake = start_fake()
       old = connect(fake, "a", 1)
-      FakeTransport.close_socket(%{host: "a", port: 1}, old, :reconnecting)
+      FakeTransport.close(old)
       new = connect(fake, "a", 1)
 
       assert [%{socket: ^old} = stale, %{socket: ^new}] = FakeTransport.connections(fake)
@@ -959,6 +774,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       assert_receive {:tcp_closed, ^raw}
       assert_receive {:tcp, ^raw, "late"}
       new_raw = new.socket
+      :ok = Socket.setopts(new, active: true)
       :ok = Socket.send(new, metadata_v0(9))
       assert_receive {:tcp, ^new_raw, <<9::32-signed, _::binary>>}, 1_000
     end
@@ -973,7 +789,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       task =
         Task.async(fn ->
           socket = connect(fake, "a", 1)
-          FakeTransport.send_sync_request(%{host: "a", port: 1, socket: socket}, metadata_v0(1), 1_000)
+          request(socket, metadata_v0(1), 1_000)
         end)
 
       refute Task.yield(task, 100)
@@ -983,56 +799,23 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
     end
 
     test "a partial send fails like NetworkClient and leaves no complete request" do
-      host = unique_host()
-      attach([:kafka_ex, :connection, :close], host)
       fake = start_fake()
       FakeTransport.subscribe(fake)
       FakeTransport.fail_send(fake, :metadata, 3, :closed)
-      socket = connect(fake, host, 1)
+      socket = connect(fake, "a", 1)
 
-      log =
-        capture_log(fn ->
-          assert FakeTransport.send_sync_request(%{host: host, port: 1, socket: socket}, metadata_v0(1), 1_000) ==
-                   {:error, :closed}
-        end)
-
-      assert log =~ ~s(Sending data to broker "#{host}":1 failed with :closed)
-      assert_receive {:telemetry, _, %{reason: :send_error}}
+      assert request(socket, metadata_v0(1), 1_000) == {:error, :closed}
       refute Socket.open?(socket)
       refute_receive {:fake_transport, :request, _}, 100
     end
 
-    test "a partial async send fails like NetworkClient" do
-      fake = start_fake()
-      FakeTransport.fail_send(fake, :metadata, 3, :econnreset)
-      socket = connect(fake, "a", 1)
-
-      log =
-        capture_log(fn ->
-          assert FakeTransport.send_async_request(%{host: "a", port: 1, socket: socket}, metadata_v0(1)) ==
-                   {:error, :econnreset}
-        end)
-
-      assert log =~ ~s(Asynchronously sending data to broker "a":1 failed with :econnreset)
-    end
-
     test "a partial send on a connection the broker closed still fails like NetworkClient" do
-      host = unique_host()
-      attach([:kafka_ex, :connection, :close], host)
       fake = start_fake()
       FakeTransport.fail_send(fake, :metadata, 3, :closed)
-      %Socket{socket: raw} = socket = connect(fake, host, 1)
-      FakeTransport.close(fake, {host, 1})
-      assert_receive {:tcp_closed, ^raw}
+      socket = connect(fake, "a", 1)
+      FakeTransport.close(fake, {"a", 1})
 
-      log =
-        capture_log(fn ->
-          assert FakeTransport.send_sync_request(%{host: host, port: 1, socket: socket}, metadata_v0(1), 1_000) ==
-                   {:error, :closed}
-        end)
-
-      assert log =~ ~s(Sending data to broker "#{host}":1 failed with :closed)
-      assert_receive {:telemetry, _, %{reason: :send_error}}
+      assert request(socket, metadata_v0(1), 1_000) == {:error, :closed}
     end
 
     test "a partial send never writes the whole frame" do
@@ -1041,10 +824,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       FakeTransport.fail_send(fake, :metadata, 1_000, :closed)
       socket = connect(fake, "a", 1)
 
-      capture_log(fn ->
-        assert FakeTransport.send_sync_request(%{host: "a", port: 1, socket: socket}, metadata_v0(1), 1_000) ==
-                 {:error, :closed}
-      end)
+      assert request(socket, metadata_v0(1), 1_000) == {:error, :closed}
 
       refute_receive {:fake_transport, :request, _}, 100
     end
@@ -1062,19 +842,15 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       socket = connect(fake, "a", 1)
 
       assert <<1::32-signed, _::binary>> =
-               FakeTransport.send_sync_request(%{host: "a", port: 1, socket: socket}, metadata_v0(1), 1_000)
+               request(socket, metadata_v0(1), 1_000)
     end
 
     test "a send after the fake stopped behaves like NetworkClient" do
       fake = start_fake()
-      %Socket{socket: raw} = socket = connect(fake, "a", 1)
+      socket = connect(fake, "a", 1)
       GenServer.stop(fake)
-      assert_receive {:tcp_closed, ^raw}, 1_000
 
-      capture_log(fn ->
-        assert FakeTransport.send_sync_request(%{host: "a", port: 1, socket: socket}, metadata_v0(1), 1_000) ==
-                 {:error, :closed}
-      end)
+      assert request(socket, metadata_v0(1), 1_000) == {:error, :closed}
     end
   end
 

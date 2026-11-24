@@ -33,26 +33,6 @@ defmodule KafkaEx.Client.TransportOptionTest do
     assert message =~ ":transport"
   end
 
-  test "the fake accepts a missing socket as a no-op" do
-    assert FakeTransport.close_socket(%{host: "h", port: 1}, nil, :reconnecting) == :ok
-  end
-
-  test "the fake refuses to close a socket from a non-owner process" do
-    socket = FakeTransport.create_socket("localhost", 9)
-    test_pid = self()
-
-    {pid, ref} =
-      spawn_monitor(fn ->
-        send(test_pid, {:result, catch_error(FakeTransport.close_socket(%{host: "h", port: 1}, socket, :reconnecting))})
-      end)
-
-    # Signals from one process arrive in order, so its :result is in the mailbox once its :DOWN is.
-    assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 1_000
-
-    assert_received {:result, %ArgumentError{message: "FakeTransport socket closed from a non-owner process"}}
-    assert FakeTransport.close_socket(%{host: "h", port: 1}, socket, :reconnecting) == :ok
-  end
-
   test "the transport defaults to NetworkClient" do
     assert State.static_init([]).transport == NetworkClient
   end
