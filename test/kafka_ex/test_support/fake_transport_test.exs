@@ -800,7 +800,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       assert <<1::32-signed, _::binary>> = Task.await(task)
     end
 
-    test "a partial send fails like NetworkClient and leaves no complete request" do
+    test "a partial send fails with the given reason and leaves no complete request" do
       fake = start_fake()
       FakeTransport.subscribe(fake)
       FakeTransport.fail_send(fake, :metadata, 3, :closed)
@@ -811,7 +811,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
       refute_receive {:fake_transport, :request, _}, 100
     end
 
-    test "a partial send on a connection the broker closed still fails like NetworkClient" do
+    test "a partial send on a connection the broker closed still fails with the given reason" do
       fake = start_fake()
       FakeTransport.fail_send(fake, :metadata, 3, :closed)
       socket = connect(fake, "a", 1)
@@ -847,7 +847,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
                request(socket, metadata_v0(1), 1_000)
     end
 
-    test "a send after the fake stopped behaves like NetworkClient" do
+    test "a send after the fake stopped fails with :closed" do
       fake = start_fake()
       socket = connect(fake, "a", 1)
       GenServer.stop(fake)

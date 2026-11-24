@@ -2,7 +2,6 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
   use KafkaEx.TestSupport.ConnectionCase, async: false
 
   alias KafkaEx.Auth.Config, as: AuthConfig
-  alias KafkaEx.Client.ConnectionStateMachine.InFlight
   alias KafkaEx.Client.Error
   alias KafkaEx.TestSupport.FakeTransport.Wire
   alias KafkaEx.TestSupport.LeakProbe
@@ -217,7 +216,7 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
       assert result == {:error, {:auth, :plain_requires_tls}}
       assert FakeTransport.requests(fake) == []
       assert_receive {:closed, %{reason: :auth_error}}, 1_000
-      assert log =~ "SASL authentication failed for broker #{inspect(host)}:#{port()}}: :plain_requires_tls"
+      assert log =~ "SASL authentication failed for broker #{inspect(host)}:#{port()}: :plain_requires_tls"
     end
 
     test "a refused OAUTHBEARER token fails the handshake after the %x01, writes no request and keeps the backoff" do
@@ -697,7 +696,7 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
 
       assert bytes > 0
       {:connected, data} = :sys.get_state(conn)
-      assert InFlight.empty?(data.in_flight)
+      assert data.in_flight == %{}
     end
 
     test "a request whose deadline passed while it waited is never written", %{fake: fake, host: host} do

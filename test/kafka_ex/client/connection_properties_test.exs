@@ -2,8 +2,6 @@ defmodule KafkaEx.Client.ConnectionPropertiesTest do
   use KafkaEx.TestSupport.ConnectionCase, async: false
   use ExUnitProperties
 
-  alias KafkaEx.Client.ConnectionStateMachine.InFlight
-
   @moduletag capture_log: true
 
   @window 100
@@ -119,7 +117,7 @@ defmodule KafkaEx.Client.ConnectionPropertiesTest do
 
   defp step(:stale, model) do
     {_state, data} = :sys.get_state(model.conn)
-    ids = for {id, _entry} <- InFlight.entries(data.in_flight), do: id
+    ids = for {id, _entry} <- Map.to_list(data.in_flight), do: id
     stale = for socket <- [model.socket | model.old_sockets], socket && socket != data.socket, do: socket
 
     for socket <- stale do
@@ -132,13 +130,13 @@ defmodule KafkaEx.Client.ConnectionPropertiesTest do
 
   defp step(:reply_timeout, model) do
     {_state, data} = :sys.get_state(model.conn)
-    due = for {_id, %{from: {pid, _tag}} = entry} <- InFlight.entries(data.in_flight), do: {entry.reply_by, pid}
+    due = for {_id, %{from: {pid, _tag}} = entry} <- Map.to_list(data.in_flight), do: {entry.reply_by, pid}
     model |> await_first(due) |> checkpoint(:reply_timeout)
   end
 
   defp step(:window, model) do
     {_state, data} = :sys.get_state(model.conn)
-    due = for %{from: {pid, _tag}} = waiter <- :queue.to_list(data.waiting), do: {waiter.enqueued_at + @window, pid}
+    due = for %{from: {pid, _tag}} = waiter <- data.waiting, do: {waiter.enqueued_at + @window, pid}
     model |> await_first(due) |> checkpoint(:window)
   end
 
@@ -182,11 +180,11 @@ defmodule KafkaEx.Client.ConnectionPropertiesTest do
   end
 
   defp queued(data) do
-    waiters = for %{from: {pid, _tag}} <- :queue.to_list(data.waiting), do: pid
+    waiters = for %{from: {pid, _tag}} <- data.waiting, do: pid
     waiters ++ for {pid, _tag} <- data.connectors, do: pid
   end
 
-  defp in_flight(data), do: for({_id, %{from: {pid, _tag}}} <- InFlight.entries(data.in_flight), do: pid)
+  defp in_flight(data), do: for({_id, %{from: {pid, _tag}}} <- Map.to_list(data.in_flight), do: pid)
 
   defp await_down(conn, deadline \\ now() + 1_000) do
     cond do
@@ -301,8 +299,8 @@ defmodule KafkaEx.Client.ConnectionPropertiesTest do
 
   defp assert_invariants(:connected, data, timers, at) do
     assert data.socket
-    assert :queue.is_empty(data.waiting) and data.connectors == []
-    entries = InFlight.entries(data.in_flight)
+    assert data.waiting == [] and data.connectors == []
+    entries = Map.to_list(data.in_flight)
     if entries != [], do: assert({:timeout, :liveness} in timers)
 
     for {id, entry} <- entries do
@@ -312,14 +310,14 @@ defmodule KafkaEx.Client.ConnectionPropertiesTest do
   end
 
   defp assert_invariants(state, data, timers, at) when state in [:disconnected, :reconnecting] do
-    assert data.socket == nil and InFlight.empty?(data.in_flight)
+    assert data.socket == nil and data.in_flight == %{}
 
-    for waiter <- :queue.to_list(data.waiting) do
+    for waiter <- data.waiting do
       assert {:timeout, {:window, waiter.ref}} in timers
       assert waiter.enqueued_at + @window >= at - @grace, "a waiter outlived its window"
     end
 
-    if state == :disconnected, do: assert(:queue.is_empty(data.waiting) and data.connectors == [])
+    if state == :disconnected, do: assert(data.waiting == [] and data.connectors == [])
     if state == :reconnecting, do: assert(:state_timeout in timers)
   end
 
@@ -348,8 +346,8 @@ defmodule KafkaEx.Client.ConnectionPropertiesTest do
     {_state, data} = :sys.get_state(model.conn)
 
     cond do
-      InFlight.empty?(data.in_flight) -> model
-      now() >= deadline -> flunk("in-flight ids never drained: #{inspect(InFlight.entries(data.in_flight))}")
+      data.in_flight == %{} -> model
+      now() >= deadline -> flunk("in-flight ids never drained: #{inspect(Map.to_list(data.in_flight))}")
       true -> await_drained(model, deadline)
     end
   end

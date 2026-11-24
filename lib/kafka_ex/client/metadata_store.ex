@@ -99,7 +99,7 @@ defmodule KafkaEx.Client.MetadataStore do
   end
 
   @impl :gen_statem
-  def callback_mode, do: [:handle_event_function, :state_enter]
+  def callback_mode, do: :handle_event_function
 
   @impl :gen_statem
   def init(args) do
@@ -134,8 +134,6 @@ defmodule KafkaEx.Client.MetadataStore do
   end
 
   @impl :gen_statem
-  def handle_event(:enter, _old, _state, _data), do: :keep_state_and_data
-
   def handle_event(:internal, :start, :loading, data), do: start_load(data, [])
 
   def handle_event({:call, from}, :await_ready, :loading, data) do
@@ -242,10 +240,6 @@ defmodule KafkaEx.Client.MetadataStore do
     now = now()
 
     case data do
-      # Unreachable while launch/4 cancels this timer; a second round under one key would orphan the first.
-      %{in_flight: %{^key => _round}} ->
-        :keep_state_and_data
-
       %{scheduled: %{^key => entry}} ->
         at = due_at(data, entry, now)
 

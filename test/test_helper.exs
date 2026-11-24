@@ -14,9 +14,7 @@ ExUnit.configure(
   ]
 )
 
-# Prepare the seams that unit tests stub via Mimic (no-op for tests that don't stub).
-# type_check: true validates stub args + return values against the module's typespecs.
-# NetworkClient has none: connect/4 takes bare atoms its Keyword.t() callback type rejects.
+# No type_check for NetworkClient: connect/4 takes bare socket options (:binary) its Keyword.t() typespec rejects.
 Mimic.copy(KafkaEx.Network.NetworkClient)
 Mimic.copy(KafkaEx.Client, type_check: true)
 

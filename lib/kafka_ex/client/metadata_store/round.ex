@@ -45,16 +45,6 @@ defmodule KafkaEx.Client.MetadataStore.Round do
           required(:request_slack) => non_neg_integer(),
           required(:deadline) => integer()
         }
-  @type budget :: %{
-          required(:connect_slack) => non_neg_integer(),
-          required(:request_slack) => non_neg_integer(),
-          required(:kind) => kind(),
-          required(:candidates) => list(),
-          required(:ladder_delay) => non_neg_integer(),
-          required(:connect_timeout) => pos_integer(),
-          required(:request_timeout) => pos_integer(),
-          optional(atom()) => term()
-        }
   @type result ::
           {:ok, %{required(:address) => address(), optional(atom()) => term()}}
           | {:error, term()}
@@ -64,7 +54,7 @@ defmodule KafkaEx.Client.MetadataStore.Round do
   @spec api_versions_max_retries() :: pos_integer()
   def api_versions_max_retries, do: @api_versions_max_retries
 
-  @spec bound(budget()) :: pos_integer()
+  @spec bound(map()) :: pos_integer()
   def bound(spec), do: walk_cost(spec) + (Client.retry_count() - 1) * spec.ladder_delay + 1_000
 
   defp walk_cost(spec) do
@@ -90,9 +80,8 @@ defmodule KafkaEx.Client.MetadataStore.Round do
   defp coordinator(spec) do
     builder = &build(:find_coordinator, &1, spec)
 
-    case first_response(spec, builder) do
-      {:ok, response, address, _versions} -> {:ok, %{coordinator: parse_coordinator(response, spec), address: address}}
-      {:error, reason} -> {:error, reason}
+    with {:ok, response, address, _versions} <- first_response(spec, builder) do
+      {:ok, %{coordinator: parse_coordinator(response, spec), address: address}}
     end
   end
 

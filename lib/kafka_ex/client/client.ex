@@ -69,25 +69,17 @@ defmodule KafkaEx.Client do
 
   require Logger
 
-  # The request retry budget. This is the single source of truth: KafkaEx.API's
-  # fetch call_timeout budget (@fetch_max_retries) is derived from it via
-  # retry_count/0, so the two can no longer drift by hand. See #357.
+  # KafkaEx.API derives its fetch budget from this, so the two cannot drift (#357).
   @retry_count 3
   @no_bytes %{bytes_sent: 0, bytes_received: 0}
   @park :kafka_ex_park
 
-  # JoinGroup/SyncGroup are sent send-once at the client (one attempt, no
-  # transport-level socket retry): the broker legitimately holds these responses
-  # for the rebalance/session window, so retrying the same socket is pointless,
-  # and ConsumerGroup.Manager owns rejoin, retrying recoverable errors until they clear.
-  # Matches Java/kafka-python/librdkafka/brod, which all send-once + rejoin higher up.
+  # The broker holds JoinGroup/SyncGroup replies for the rebalance window; ConsumerGroup.Manager owns the rejoin.
   @coordinator_max_attempts 1
 
   @store_call_timeout 5_000
 
   @doc false
-  # The request retry budget (single source of truth for #357). KafkaEx.API
-  # derives its fetch call_timeout from this so the two cannot drift.
   @spec retry_count() :: pos_integer()
   def retry_count, do: @retry_count
 
@@ -105,10 +97,7 @@ defmodule KafkaEx.Client do
             state.consumer_group_for_auto_commit
     end
 
-    # Crash loudly at boot if the user's config implies an optional
-    # dep that isn't loaded (e.g. :msk_iam SASL without :aws_signature,
-    # or :snappy compression without :snappyer). Much friendlier than
-    # UndefinedFunctionError at first produce/auth.
+    # Crash at boot, not at first produce/auth, when the config needs an optional dep that is not loaded.
     :ok = OptionalDeps.validate!(state.auth)
 
     # One-time deprecation notice for the legacy :sync_timeout key (→ :request_timeout).
@@ -424,8 +413,7 @@ defmodule KafkaEx.Client do
     end
   end
 
-  # Defining any handle_info/2 replaces the catch-all use GenServer injects; without one an
-  # unmatched message would crash the client.
+  # Defining handle_info/2 replaces the catch-all `use GenServer` injects.
   def handle_info(message, state), do: unparked_info(message, state)
 
   defp unparked_info({:kafka_ex_metadata_store, :swapped}, state) do
@@ -501,6 +489,10 @@ defmodule KafkaEx.Client do
     %{state | store: nil}
   end
 
+  defp with_store(state, unavailable, call) do
+    with_store(state, unavailable, fn _store -> @store_call_timeout end, call)
+  end
+
   defp with_store(state, unavailable, wanted, call) do
     case ensure_store(state) do
       %State{store: nil} = state -> {unavailable, state}
@@ -524,8 +516,6 @@ defmodule KafkaEx.Client do
     :exit, {:timeout, _call} when budget == :capped -> throw({:caller_budget_spent, state})
     :exit, _reason -> {unavailable, drop_store(state)}
   end
-
-  defp short(_store), do: @store_call_timeout
 
   # A failed refresh reads as a timeout; a version refusal keeps the atom the client's request path returns.
   defp refresh(state, refresh) do
@@ -578,7 +568,7 @@ defmodule KafkaEx.Client do
   defp cluster_metadata_view(%State{store: nil} = state), do: {state.last_view, state}
 
   defp cluster_metadata_view(%State{store: %{tid: tid}} = state) do
-    case with_store(state, :unavailable, &short/1, &MetadataStore.snapshot(&1.pid, &2)) do
+    case with_store(state, :unavailable, &MetadataStore.snapshot(&1.pid, &2)) do
       {{:ok, metadata, counter}, state} -> remember_view(state, metadata, {tid, counter})
       {:unavailable, state} -> {state.last_view, state}
     end
@@ -769,9 +759,7 @@ defmodule KafkaEx.Client do
   defp topic_name_parse_opts(nil), do: [topic_name_resolver: fn _topic_id -> {:error, :no_such_topic} end]
   defp topic_name_parse_opts(tid), do: [topic_name_resolver: &MetadataTable.topic_name_by_id(tid, &1)]
 
-  # Only a member heartbeat (epoch > 0) is incremental and fenced when
-  # resent after the broker bumped the epoch. A join (0) and a leave (-1,
-  # -2) are accepted again, so the client keeps retrying them.
+  # Only a member heartbeat (epoch > 0) is fenced when resent after an epoch bump; join and leave are accepted again.
   defp heartbeat_send_once(epoch) when epoch > 0, do: &Retry.consumer_group_heartbeat_send_once?/1
   defp heartbeat_send_once(_epoch), do: &Retry.transport_timeout?/1
 
@@ -1003,7 +991,7 @@ defmodule KafkaEx.Client do
   defp metadata_request(spec, state) do
     case build(spec, state) do
       {:ok, request} ->
-        {seq, state} = with_store(state, nil, &short/1, &MetadataStore.next_seq(&1.pid, &2))
+        {seq, state} = with_store(state, nil, &MetadataStore.next_seq(&1.pid, &2))
 
         case retry(spec, request, state, @retry_count, nil) do
           {{:ok, {returned, topic_errors}}, state} ->
@@ -1041,23 +1029,19 @@ defmodule KafkaEx.Client do
 
   defp merge_cluster_metadata(state, seq, %ClusterMetadata{} = metadata, request) do
     scope = merge_scope(request, metadata)
-    state |> with_store(:ok, &short/1, &MetadataStore.merge(&1.pid, seq, metadata, scope, &2)) |> elem(1)
+    state |> with_store(:ok, &MetadataStore.merge(&1.pid, seq, metadata, scope, &2)) |> elem(1)
   end
 
-  # A full request (no topics filter) lists every topic, so it replaces the
-  # topic map (dropping deleted topics); a targeted one only adds or updates.
+  # A full request replaces the topic map (dropping deleted topics); a targeted one only adds or updates.
   defp merge_scope(request, metadata) do
     if all_topics_request?(request), do: :all, else: {:topics, Map.keys(metadata.topics)}
   end
 
-  # Matches the built request. "All topics" is a null topic list from V1 on
-  # (RequestHelpers.build_topics_list/1 sends both `nil` and `[]` as null), but
-  # an empty list in V0, whose topic array is not nullable.
+  # "All topics" is a null topic list from V1 on (`[]` is sent as null) but an empty list in V0, which is not nullable.
   defp all_topics_request?(%{topics: nil}), do: true
   defp all_topics_request?(%Kayrock.Metadata.V0.Request{topics: []}), do: true
   defp all_topics_request?(_request), do: false
 
-  # ----------------------------------------------------------------------------------------------------
   # The request is built once; a connection that refuses its version gets it rebuilt by builder/1.
   @spec run(request_spec(), State.t(), pos_integer()) :: {{:ok, term()} | {:error, term()}, State.t()}
   defp run(spec, state, attempts \\ @retry_count) do
@@ -1115,8 +1099,7 @@ defmodule KafkaEx.Client do
   end
 
   defp build_transport_error(reason) when is_atom(reason), do: Error.build(reason, %{})
-  # A non-atom reason (SSL {:tls_alert, _}) would collapse to :unknown, which the fetch loop treats
-  # as fatal; tag it retryable instead.
+  # A non-atom reason (SSL {:tls_alert, _}) would collapse to :unknown, which the fetch loop treats as fatal.
   defp build_transport_error(reason), do: Error.build(:transport_error, %{transport_reason: reason})
 
   defp handle_request_error(spec, request, state, attempts, error, request_name) do
@@ -1124,8 +1107,7 @@ defmodule KafkaEx.Client do
     Logger.warning("Request #{inspect(request_name)} failed with error #{inspect(error_atom)}")
 
     cond do
-      # Send-once only for coordinator requests (broker holds them for the rebalance/
-      # session window; rejoin/commit re-issue higher up). Data-plane retries via spec.retryable?.
+      # Send-once only for coordinator requests: the broker holds them for the rebalance window.
       spec.send_once?.(error_atom) and coordinator_request?(spec.route) ->
         Logger.info(
           "Coordinator request #{inspect(request_name)} failed with #{inspect(error_atom)}; " <>
@@ -1134,10 +1116,7 @@ defmodule KafkaEx.Client do
 
         {{:error, error}, act_on_error(error_atom, spec, state)}
 
-      # A stale topic id (OffsetCommit/OffsetFetch v10+, Metadata by id) is baked
-      # into the built request, so resending the same request cannot succeed.
-      # Refresh metadata and return: a caller that retries (e.g. GenConsumer's
-      # commit retry) rebuilds the request from the fresh ids.
+      # A stale topic id is baked into the built request, so a resend cannot succeed; the caller rebuilds it.
       error_atom == :unknown_topic_id ->
         {{:error, error}, act_on_error(error_atom, spec, state)}
 
@@ -1201,7 +1180,7 @@ defmodule KafkaEx.Client do
   end
 
   defp run_cluster_action({:drop_coordinator, group}, state) do
-    state |> with_store(:ok, &short/1, &MetadataStore.forget_coordinator(&1.pid, group, &2)) |> elem(1)
+    state |> with_store(:ok, &MetadataStore.forget_coordinator(&1.pid, group, &2)) |> elem(1)
   end
 
   defp coordinator_request?(%NodeSelector{strategy: :consumer_group}), do: true
@@ -1240,21 +1219,18 @@ defmodule KafkaEx.Client do
   end
 
   defp describe_selector(%NodeSelector{strategy: topic_partition_strategy, topic: topic, partition: partition})
-       when topic_partition_strategy in [:topic_partition, :topic_partition_replica],
-       do: "#{topic}/#{partition}"
+       when topic_partition_strategy in [:topic_partition, :topic_partition_replica] do
+    "#{topic}/#{partition}"
+  end
 
-  defp describe_selector(%NodeSelector{strategy: :consumer_group, consumer_group_name: group}),
-    do: "consumer group #{group}"
+  defp describe_selector(%NodeSelector{strategy: :consumer_group, consumer_group_name: group}) do
+    "consumer group #{group}"
+  end
 
-  # send_request/4 is send-once; budget from :request_timeout, never the implicit
-  # 5000 default (a larger :request_timeout would exit the caller; #357).
+  # Never the implicit 5000 default: a larger :request_timeout would exit the caller (#357).
   defp timeout_val(nil), do: RequestBudget.call_budget(Config.request_timeout())
   defp timeout_val(timeout) when is_integer(timeout), do: timeout
 
-  # The per-attempt socket-recv deadline for synchronous requests that do not
-  # set their own `network_timeout` (metadata, offset, heartbeat, produce ack,
-  # …). Resolves via `Config.request_timeout/0` (`:request_timeout` > deprecated
-  # `:sync_timeout` > default). JoinGroup/SyncGroup pass an explicit timeout.
   defp config_request_timeout(timeout) do
     timeout || Config.request_timeout()
   end
@@ -1397,7 +1373,7 @@ defmodule KafkaEx.Client do
   defp select_known(state, selector), do: select(state, selector)
 
   defp metadata_candidates(state) do
-    {addresses, state} = with_store(state, [], &short/1, &MetadataStore.candidates(&1.pid, &2))
+    {addresses, state} = with_store(state, [], &MetadataStore.candidates(&1.pid, &2))
     known = Map.new(brokers(state), &{{&1.host, &1.port}, &1})
     {:first_available, Enum.map(addresses, &Map.get_lazy(known, &1, fn -> bootstrap_broker(&1) end)), state}
   end
@@ -1626,7 +1602,7 @@ defmodule KafkaEx.Client do
   end
 
   defp ensure_connection(state, {host, port, :metadata}) do
-    with_store(state, nil, &short/1, fn store, timeout ->
+    with_store(state, nil, fn store, timeout ->
       {:ok, pid} = MetadataStore.connection(store.pid, {host, port}, timeout)
       pid
     end)

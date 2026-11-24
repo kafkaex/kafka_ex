@@ -134,8 +134,9 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
 
   def now, do: System.monotonic_time(:millisecond)
 
-  def correlate_from(conn, id),
-    do: :sys.replace_state(conn, fn {state, data} -> {state, put_in(data.in_flight.next, id)} end)
+  def correlate_from(conn, id) do
+    :sys.replace_state(conn, fn {state, data} -> {state, %{data | next_id: id}} end)
+  end
 
   def request(api, opts \\ []), do: build(api, opts, Map.new(@versions, fn {api, range} -> {key(api), range} end))
 
@@ -187,11 +188,11 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
   end
 
   def await_in_flight(conn, count) do
-    await_data(conn, &(map_size(&1.in_flight.entries) >= count), "#{count} requests never got in flight")
+    await_data(conn, &(map_size(&1.in_flight) >= count), "#{count} requests never got in flight")
   end
 
   def await_waiting(conn, count) do
-    await_data(conn, &(:queue.len(&1.waiting) >= count), "#{count} callers never queued")
+    await_data(conn, &(length(&1.waiting) >= count), "#{count} callers never queued")
   end
 
   defp await_data(conn, ready?, failure, deadline \\ now() + 2_000) do

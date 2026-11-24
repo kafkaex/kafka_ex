@@ -54,9 +54,8 @@ defmodule KafkaEx.TestSupport.FakeTransport do
     * `delay_connects/2` answers every later connect attempt that many ms late, each on its own
       clock, so attempts from different processes overlap as real handshakes do.
     * Scripted SASL success and failure. SCRAM supports failure only: the default
-      SaslAuthenticate reply cannot complete its exchange. The handshake uses passive `recv`
-      before the socket turns active. `oauthbearer_refusal/1` is a SaslAuthenticate reply
-      function with Kafka's answer to a refused OAUTHBEARER token.
+      SaslAuthenticate reply cannot complete its exchange.
+      `oauthbearer_refusal/1` is a SaslAuthenticate reply function with Kafka's answer to a refused OAUTHBEARER token.
     * tcp and ssl message families from real sockets; `use_ssl` needs the `:tls` server options.
       After `silence_tls/1`, peers accepted for `use_ssl` never complete the TLS handshake.
     * A stalled or TLS-silenced peer no longer watches its socket, so a client close leaves it
@@ -64,13 +63,11 @@ defmodule KafkaEx.TestSupport.FakeTransport do
     * Messages are tagged with the socket they came from; `inject/2` replays one for a stale socket.
     * At most one message per `active: :once` re-arm.
     * `hang_send/2` blocks the sender until `release/2`, ignoring the send's timeout;
-      `fail_send/4` writes less than a whole frame and fails like `KafkaEx.Network.NetworkClient`.
+      `fail_send/4` writes less than a whole frame and fails with the given reason.
       `release/2` disarms both. Both apply only to sends from the process that created the
       socket; a send from any other process is never faulted.
-    * The fake behaves like `KafkaEx.Network.NetworkClient`: it takes the caller's socket options and timeout
-      and emits no telemetry,
-      no log line and no SASL. The fake rides in the socket options (`ssl_options/2`). On
-      `write/2`, `hang_send/2` and `fail_send/4` act as above, but a failed write only closes the
+    * The fake takes the caller's socket options and timeout and emits no telemetry, no log line and no SASL.
+      The fake rides in the socket options (`ssl_options/2`). On `write/2`, `hang_send/2` and `fail_send/4` act as above, but a failed write only closes the
       socket and returns the reason.
     * No global state: scripts and the log live in the fake process. Reply functions run inside
       it and must not call it.
