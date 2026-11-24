@@ -14,7 +14,6 @@ defmodule KafkaEx.Client do
   alias KafkaEx.Config
   alias KafkaEx.Telemetry
 
-  alias KafkaEx.Client.Admission
   alias KafkaEx.Client.ConnectionStateMachine
   alias KafkaEx.Client.ConnectionStateMachine.ReconnectBackoff
   alias KafkaEx.Client.Error
@@ -41,6 +40,7 @@ defmodule KafkaEx.Client do
   use GenServer
 
   @type args :: [KafkaEx.worker_setting() | {:allow_auto_topic_creation, boolean}]
+  @type call_budget :: {non_neg_integer(), integer()}
 
   @doc """
   Start the server in a supervision tree
@@ -266,7 +266,7 @@ defmodule KafkaEx.Client do
   @impl true
   def handle_call(message, {pid, _tag} = from, state) do
     fallback = RequestBudget.deadline_budget(caller_budget(message))
-    {message, deadline} = Admission.admit(message, node(pid) == node(), System.monotonic_time(:millisecond), fallback)
+    {message, deadline} = admit(message, node(pid) == node(), System.monotonic_time(:millisecond), fallback)
     serve(message, from, %{state | deadline: deadline})
   end
 
@@ -282,6 +282,50 @@ defmodule KafkaEx.Client do
   # Each call keeps the timeout shape it has on its own path: the retry loop builds an %Error{}.
   defp budget_spent_reply({:network_request, _, _, _}), do: {:error, :timeout}
   defp budget_spent_reply(_message), do: {:error, Error.build(:timeout, %{})}
+
+  @doc false
+  @spec admit(term(), boolean(), integer(), non_neg_integer()) :: {term(), integer()}
+  def admit({:metadata, topics, opts, api_version}, local?, now, default) when is_list(opts) do
+    {budget, opts} = pop_budget(opts)
+    {{:metadata, topics, opts, api_version}, deadline(budget, local?, now, default)}
+  end
+
+  # The old shape took any term as the creation flag and passed it on as given.
+  def admit({:topic_metadata, topics, allow}, local?, now, default) when not is_list(allow) do
+    admit({:topic_metadata, topics, [allow_topic_creation: allow]}, local?, now, default)
+  end
+
+  def admit({:network_request, request, selector}, local?, now, default) do
+    admit({:network_request, request, selector, []}, local?, now, default)
+  end
+
+  def admit(message, local?, now, default) when is_tuple(message) and tuple_size(message) > 1 do
+    last = tuple_size(message) - 1
+    opts = elem(message, last)
+
+    if is_list(opts) do
+      {budget, opts} = pop_budget(opts)
+      {put_elem(message, last, opts), deadline(budget, local?, now, default)}
+    else
+      {message, now + default}
+    end
+  end
+
+  def admit(message, _local?, now, default), do: {message, now + default}
+
+  defp pop_budget(opts) do
+    case Enum.split_with(opts, &match?({:call_budget, _}, &1)) do
+      {[{:call_budget, budget} | _], rest} -> {budget, rest}
+      {[], rest} -> {nil, rest}
+    end
+  end
+
+  # A send time is comparable only on the caller's own node, where every process shares one monotonic clock.
+  @doc false
+  @spec deadline(call_budget() | term(), boolean(), integer(), non_neg_integer()) :: integer()
+  def deadline({ms, sent_at}, true, _now, _default) when is_integer(ms) and is_integer(sent_at), do: sent_at + ms
+  def deadline({ms, sent_at}, false, now, _default) when is_integer(ms) and is_integer(sent_at), do: now + ms
+  def deadline(_unusable, _local?, now, default), do: now + default
 
   # A spent budget ends the operation's span with the timeout error a timed-out request reports, not an exception.
   defp within_budget(stop_metadata, operation) do
