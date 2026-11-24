@@ -40,6 +40,7 @@ defmodule KafkaEx.Client do
   use GenServer
 
   @type args :: [KafkaEx.worker_setting() | {:allow_auto_topic_creation, boolean}]
+  @type call_budget :: {non_neg_integer(), integer()}
 
   @doc """
   Start the server in a supervision tree
@@ -62,7 +63,9 @@ defmodule KafkaEx.Client do
   @spec send_request(KafkaEx.API.client(), map, KafkaEx.Client.NodeSelector.t(), pos_integer | nil) ::
           {:ok, term} | {:error, term}
   def send_request(server, request, node_selector, timeout \\ nil) do
-    GenServer.call(server, {:network_request, request, node_selector}, timeout_val(timeout))
+    call_timeout = timeout_val(timeout)
+    opts = RequestBudget.put_call_budget([], call_timeout)
+    GenServer.call(server, {:network_request, request, node_selector, opts}, call_timeout)
   end
 
   require Logger
@@ -260,13 +263,15 @@ defmodule KafkaEx.Client do
   defp valid_connection_opt?(_other), do: true
 
   # The caller's GenServer.call gives up after its budget, so the client stops waiting on the store before that.
-  @caller_budget_margin 1_000
-
   @impl true
-  def handle_call(message, from, state) do
-    deadline = System.monotonic_time(:millisecond) + caller_budget(message) - @caller_budget_margin
+  def handle_call(message, {pid, _tag} = from, state) do
+    fallback = RequestBudget.deadline_budget(caller_budget(message))
+    {message, deadline} = admit(message, node(pid) == node(), System.monotonic_time(:millisecond), fallback)
+    serve(message, from, %{state | deadline: deadline})
+  end
 
-    case handle_client_call(message, from, %{state | deadline: deadline}) do
+  defp serve(message, from, state) do
+    case handle_client_call(message, from, state) do
       {:reply, reply, state} -> {:reply, reply, %{state | deadline: nil}}
       {:noreply, state} -> {:noreply, %{state | deadline: nil}}
     end
@@ -275,8 +280,52 @@ defmodule KafkaEx.Client do
   end
 
   # Each call keeps the timeout shape it has on its own path: the retry loop builds an %Error{}.
-  defp budget_spent_reply({:network_request, _, _}), do: {:error, :timeout}
+  defp budget_spent_reply({:network_request, _, _, _}), do: {:error, :timeout}
   defp budget_spent_reply(_message), do: {:error, Error.build(:timeout, %{})}
+
+  @doc false
+  @spec admit(term(), boolean(), integer(), non_neg_integer()) :: {term(), integer()}
+  def admit({:metadata, topics, opts, api_version}, local?, now, default) when is_list(opts) do
+    {budget, opts} = pop_budget(opts)
+    {{:metadata, topics, opts, api_version}, deadline(budget, local?, now, default)}
+  end
+
+  # The old shape took any term as the creation flag and passed it on as given.
+  def admit({:topic_metadata, topics, allow}, local?, now, default) when not is_list(allow) do
+    admit({:topic_metadata, topics, [allow_topic_creation: allow]}, local?, now, default)
+  end
+
+  def admit({:network_request, request, selector}, local?, now, default) do
+    admit({:network_request, request, selector, []}, local?, now, default)
+  end
+
+  def admit(message, local?, now, default) when is_tuple(message) and tuple_size(message) > 1 do
+    last = tuple_size(message) - 1
+    opts = elem(message, last)
+
+    if is_list(opts) do
+      {budget, opts} = pop_budget(opts)
+      {put_elem(message, last, opts), deadline(budget, local?, now, default)}
+    else
+      {message, now + default}
+    end
+  end
+
+  def admit(message, _local?, now, default), do: {message, now + default}
+
+  defp pop_budget(opts) do
+    case Enum.split_with(opts, &match?({:call_budget, _}, &1)) do
+      {[{:call_budget, budget} | _], rest} -> {budget, rest}
+      {[], rest} -> {nil, rest}
+    end
+  end
+
+  # A send time is comparable only on the caller's own node, where every process shares one monotonic clock.
+  @doc false
+  @spec deadline(call_budget() | term(), boolean(), integer(), non_neg_integer()) :: integer()
+  def deadline({ms, sent_at}, true, _now, _default) when is_integer(ms) and is_integer(sent_at), do: sent_at + ms
+  def deadline({ms, sent_at}, false, now, _default) when is_integer(ms) and is_integer(sent_at), do: now + ms
+  def deadline(_unusable, _local?, now, default), do: now + default
 
   # A spent budget ends the operation's span with the timeout error a timed-out request reports, not an exception.
   defp within_budget(stop_metadata, operation) do
@@ -285,8 +334,10 @@ defmodule KafkaEx.Client do
     :throw, {:caller_budget_spent, state} -> {{{:error, Error.build(:timeout, %{})}, state}, stop_metadata}
   end
 
-  # Mirrors the budgets KafkaEx.API and send_request/4 give; an explicit send_request timeout is not seen here.
-  defp caller_budget({:network_request, _request, _selector}), do: RequestBudget.call_budget(Config.request_timeout())
+  # Mirrors the budgets KafkaEx.API and send_request/4 give, for a message that carries none.
+  defp caller_budget(message) when is_tuple(message) and elem(message, 0) == :network_request do
+    RequestBudget.call_budget(Config.request_timeout())
+  end
 
   defp caller_budget(message) do
     per_attempt = message_network_timeout(message) || Config.request_timeout()
@@ -326,6 +377,10 @@ defmodule KafkaEx.Client do
   defp budget_attempts({:sync_group, _group, _generation, _member, _opts}), do: @coordinator_max_attempts
   defp budget_attempts(_message), do: @retry_count
 
+  defp handle_client_call({:cluster_metadata, _opts}, from, state) do
+    handle_client_call(:cluster_metadata, from, state)
+  end
+
   defp handle_client_call(:cluster_metadata, _from, state) do
     {view, state} = state |> ensure_store() |> cluster_metadata_view()
     {:reply, {:ok, view}, state}
@@ -357,7 +412,8 @@ defmodule KafkaEx.Client do
     end
   end
 
-  defp handle_client_call({:topic_metadata, topics, allow_topic_creation}, _from, state) do
+  defp handle_client_call({:topic_metadata, topics, opts}, _from, state) do
+    allow_topic_creation = Keyword.get(opts, :allow_topic_creation, false)
     {result, state} = refresh(state, %{topics: topics, allow_auto_topic_creation: allow_topic_creation})
     {:reply, topics_reply(result, topics, cached_topics(state, topics)), state}
   catch
@@ -537,7 +593,7 @@ defmodule KafkaEx.Client do
     end
   end
 
-  defp handle_client_call({:network_request, request, node_selector}, _from, state) do
+  defp handle_client_call({:network_request, request, node_selector, _opts}, _from, state) do
     {response, updated_state} = network_request(request, node_selector, state, :as_is)
 
     {:reply, response, updated_state}
