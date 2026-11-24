@@ -2,20 +2,20 @@ defmodule KafkaEx.APIFindCoordinatorTest do
   use ExUnit.Case, async: true
 
   alias KafkaEx.Client.RequestBuilder
-  alias KafkaEx.Client.ResponseParser
   alias KafkaEx.Client.State
+  alias KafkaEx.Protocol.KayrockProtocol
   alias KafkaEx.Test.KayrockFixtures, as: Fixtures
 
   # FindCoordinator API key is 10
   @find_coordinator_api_key 10
 
-  describe "RequestBuilder.find_coordinator_request/2" do
+  describe "RequestBuilder.build(:find_coordinator, ...)" do
     test "builds V0 request with group_id" do
       state = %State{api_versions: %{@find_coordinator_api_key => {0, 1}}}
 
       opts = [group_id: "test-group", api_version: 0]
 
-      assert {:ok, request} = RequestBuilder.find_coordinator_request(opts, state)
+      assert {:ok, request} = RequestBuilder.build(:find_coordinator, opts, state)
       assert request.key == "test-group"
     end
 
@@ -24,7 +24,7 @@ defmodule KafkaEx.APIFindCoordinatorTest do
 
       opts = [group_id: "test-group", api_version: 1]
 
-      assert {:ok, request} = RequestBuilder.find_coordinator_request(opts, state)
+      assert {:ok, request} = RequestBuilder.build(:find_coordinator, opts, state)
       assert request.key == "test-group"
       assert request.key_type == 0
     end
@@ -34,7 +34,7 @@ defmodule KafkaEx.APIFindCoordinatorTest do
 
       opts = [group_id: "tx-id", coordinator_type: :transaction, api_version: 1]
 
-      assert {:ok, request} = RequestBuilder.find_coordinator_request(opts, state)
+      assert {:ok, request} = RequestBuilder.build(:find_coordinator, opts, state)
       assert request.key == "tx-id"
       assert request.key_type == 1
     end
@@ -44,11 +44,11 @@ defmodule KafkaEx.APIFindCoordinatorTest do
 
       opts = [group_id: "test-group", api_version: 1]
 
-      assert {:error, :api_version_no_supported} = RequestBuilder.find_coordinator_request(opts, state)
+      assert {:error, :api_version_no_supported} = RequestBuilder.build(:find_coordinator, opts, state)
     end
   end
 
-  describe "ResponseParser.find_coordinator_response/1" do
+  describe "KayrockProtocol.parse_response(:find_coordinator, _)" do
     test "parses successful V0 response" do
       response =
         Fixtures.build_response(:find_coordinator, 0,
@@ -58,7 +58,7 @@ defmodule KafkaEx.APIFindCoordinatorTest do
           port: 9092
         )
 
-      assert {:ok, result} = ResponseParser.find_coordinator_response(response)
+      assert {:ok, result} = KayrockProtocol.parse_response(:find_coordinator, response)
       assert result.error_code == :no_error
       assert result.coordinator.node_id == 1
     end
@@ -74,7 +74,7 @@ defmodule KafkaEx.APIFindCoordinatorTest do
           port: 9093
         )
 
-      assert {:ok, result} = ResponseParser.find_coordinator_response(response)
+      assert {:ok, result} = KayrockProtocol.parse_response(:find_coordinator, response)
       assert result.error_code == :no_error
       assert result.throttle_time_ms == 50
       assert result.coordinator.node_id == 2
@@ -91,7 +91,7 @@ defmodule KafkaEx.APIFindCoordinatorTest do
           port: nil
         )
 
-      assert {:error, error} = ResponseParser.find_coordinator_response(response)
+      assert {:error, error} = KayrockProtocol.parse_response(:find_coordinator, response)
       assert error.error == :coordinator_not_available
     end
   end

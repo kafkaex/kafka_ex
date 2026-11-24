@@ -1582,7 +1582,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
         handle_transient_commit_error(error, %State{state | commit_retry_at: retry_at})
 
       # A member epoch, but OffsetCommit pinned below v9 (see
-      # RequestBuilder.offset_commit_request/2): every commit would fail the
+      # RequestBuilder.build/3): every commit would fail the
       # same way, so stop instead of consuming without ever committing.
       error == :invalid_api_version ->
         handle_terminal_commit_error(error, state)

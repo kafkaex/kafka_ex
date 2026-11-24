@@ -1,26 +1,9 @@
 defmodule KafkaEx.Client.ResponseParser do
   @moduledoc """
-  This module is used to parse response from KafkaEx.Client.
-  It's main decision point which protocol to use for parsing response
+  Reads a broker's response frame for `KafkaEx.Client`; parsing it into a result is
+  `parse_response/2,3` of the protocol.
   """
   require Logger
-
-  alias KafkaEx.Client.Error
-  alias KafkaEx.Cluster.ClusterMetadata
-  alias KafkaEx.Messages.ApiVersions
-  alias KafkaEx.Messages.ConsumerGroupDescription
-  alias KafkaEx.Messages.ConsumerGroupHeartbeat
-  alias KafkaEx.Messages.ConsumerGroupListing
-  alias KafkaEx.Messages.CreateTopics
-  alias KafkaEx.Messages.DeleteTopics
-  alias KafkaEx.Messages.Fetch
-  alias KafkaEx.Messages.FindCoordinator
-  alias KafkaEx.Messages.Heartbeat
-  alias KafkaEx.Messages.JoinGroup
-  alias KafkaEx.Messages.LeaveGroup
-  alias KafkaEx.Messages.Offset
-  alias KafkaEx.Messages.RecordMetadata
-  alias KafkaEx.Messages.SyncGroup
 
   @protocol Application.compile_env(:kafka_ex, :protocol, KafkaEx.Protocol.KayrockProtocol)
 
@@ -42,164 +25,10 @@ defmodule KafkaEx.Client.ResponseParser do
   end
 
   @doc """
-  Parses response for ApiVersions API
-  """
-  @spec api_versions_response(term) :: {:ok, ApiVersions.t()} | {:error, Error.t()}
-  def api_versions_response(response) do
-    @protocol.parse_response(:api_versions, response)
-  end
-
-  @doc """
-  Parses response for ConsumerGroupHeartbeat API (KIP-848).
-
-  `opts` may carry `:topic_name_resolver` to fill in assignment topic names
-  (see `KafkaEx.Protocol.KayrockProtocol.parse_response/3`).
-  """
-  @spec consumer_group_heartbeat_response(term, Keyword.t()) :: {:ok, ConsumerGroupHeartbeat.t()} | {:error, Error.t()}
-  def consumer_group_heartbeat_response(response, opts \\ []) do
-    @protocol.parse_response(:consumer_group_heartbeat, response, opts)
-  end
-
-  @doc """
-  Parses response for ConsumerGroupDescribe API (KIP-848).
-  """
-  @spec consumer_group_describe_response(term) ::
-          {:ok, [ConsumerGroupDescription.t()]} | {:error, [{String.t(), atom()}]}
-  def consumer_group_describe_response(response) do
-    @protocol.parse_response(:consumer_group_describe, response)
-  end
-
-  @doc """
-  Parses response for Describe Groups API
-  """
-  @spec describe_groups_response(term) :: {:ok, [ConsumerGroupDescription.t()]} | {:error, term}
-  def describe_groups_response(response) do
-    @protocol.parse_response(:describe_groups, response)
-  end
-
-  @doc """
-  Parses response for List Groups API
-  """
-  @spec list_groups_response(term) :: {:ok, [ConsumerGroupListing.t()]} | {:error, Error.t()}
-  def list_groups_response(response) do
-    @protocol.parse_response(:list_groups, response)
-  end
-
-  @doc """
-  Parses response for List Offsets API
-  """
-  @spec list_offsets_response(term) :: {:ok, [Offset.t()]} | {:error, Error.t()}
-  def list_offsets_response(response) do
-    @protocol.parse_response(:list_offsets, response)
-  end
-
-  @doc """
-  Parses response for Offset Fetch API.
-
-  `opts` may carry `:topic_name_resolver` for v10+ responses, which name
-  topics by id (see `KafkaEx.Protocol.KayrockProtocol.parse_response/3`).
-  """
-  @spec offset_fetch_response(term, Keyword.t()) :: {:ok, [Offset.t()]} | {:error, Error.t()}
-  def offset_fetch_response(response, opts \\ []) do
-    @protocol.parse_response(:offset_fetch, response, opts)
-  end
-
-  @doc """
-  Parses response for Offset Commit API.
-
-  `opts` may carry `:topic_name_resolver` for v10+ responses, which name
-  topics by id (see `KafkaEx.Protocol.KayrockProtocol.parse_response/3`).
-  """
-  @spec offset_commit_response(term, Keyword.t()) :: {:ok, [Offset.t()]} | {:error, Error.t()}
-  def offset_commit_response(response, opts \\ []) do
-    @protocol.parse_response(:offset_commit, response, opts)
-  end
-
-  @doc """
-  Parses response for Heartbeat API
-  """
-  @spec heartbeat_response(term) :: {:ok, :no_error | Heartbeat.t()} | {:error, Error.t()}
-  def heartbeat_response(response) do
-    @protocol.parse_response(:heartbeat, response)
-  end
-
-  @doc """
-  Parses response for JoinGroup API
-  """
-  @spec join_group_response(term) :: {:ok, JoinGroup.t()} | {:error, Error.t()}
-  def join_group_response(response) do
-    @protocol.parse_response(:join_group, response)
-  end
-
-  @doc """
-  Parses response for LeaveGroup API
-  """
-  @spec leave_group_response(term) :: {:ok, :no_error | LeaveGroup.t()} | {:error, Error.t()}
-  def leave_group_response(response) do
-    @protocol.parse_response(:leave_group, response)
-  end
-
-  @doc """
-  Parses response for SyncGroup API
-  """
-  @spec sync_group_response(term) :: {:ok, SyncGroup.t()} | {:error, Error.t()}
-  def sync_group_response(response) do
-    @protocol.parse_response(:sync_group, response)
-  end
-
-  @doc """
-  Parses response for Metadata API
-  """
-  @spec metadata_response(term) :: {:ok, ClusterMetadata.t()} | {:error, Error.t()}
-  def metadata_response(response) do
-    @protocol.parse_response(:metadata, response)
-  end
-
-  @doc """
   Per-topic errors of a Metadata response, by topic name
   """
   @spec metadata_topic_errors(term) :: %{String.t() => atom()}
   def metadata_topic_errors(response) do
     @protocol.metadata_topic_errors(response)
-  end
-
-  @doc """
-  Parses response for Produce API
-  """
-  @spec produce_response(term) :: {:ok, RecordMetadata.t()} | {:error, Error.t()}
-  def produce_response(response) do
-    @protocol.parse_response(:produce, response)
-  end
-
-  @doc """
-  Parses response for Fetch API
-  """
-  @spec fetch_response(term) :: {:ok, Fetch.t()} | {:error, Error.t()}
-  def fetch_response(response) do
-    @protocol.parse_response(:fetch, response)
-  end
-
-  @doc """
-  Parses response for FindCoordinator API
-  """
-  @spec find_coordinator_response(term) :: {:ok, FindCoordinator.t()} | {:error, Error.t()}
-  def find_coordinator_response(response) do
-    @protocol.parse_response(:find_coordinator, response)
-  end
-
-  @doc """
-  Parses response for CreateTopics API
-  """
-  @spec create_topics_response(term) :: {:ok, CreateTopics.t()} | {:error, Error.t()}
-  def create_topics_response(response) do
-    @protocol.parse_response(:create_topics, response)
-  end
-
-  @doc """
-  Parses response for DeleteTopics API
-  """
-  @spec delete_topics_response(term) :: {:ok, DeleteTopics.t()} | {:error, Error.t()}
-  def delete_topics_response(response) do
-    @protocol.parse_response(:delete_topics, response)
   end
 end

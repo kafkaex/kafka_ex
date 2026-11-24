@@ -4,7 +4,7 @@ defmodule KafkaEx.Client.TransportErrorTest do
   socket closed, ...) must surface its REAL error atom through the client retry
   loop, not be collapsed to `:unknown`.
 
-  Pre-fix, `handle_request_with_retry/4` caught the network result with a
+  Pre-fix, the client retry loop caught the network result with a
   `{_, _state_out}` wildcard and substituted `Error.build(:unknown, %{})`,
   destroying the real reason before any `retryable?` predicate or the
   consumer-group manager could see it. That relabeling is what turned a

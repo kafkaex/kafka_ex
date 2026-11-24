@@ -62,10 +62,6 @@ defmodule KafkaEx.Pins.ContractRequestsPinTest do
   end
 
   describe "the JoinGroup / SyncGroup cap" do
-    test "coordinator_max_attempts/0 is 1" do
-      assert Client.coordinator_max_attempts() == 1
-    end
-
     test "JoinGroup is written once when the peer closes", %{fake: fake, client: client} do
       FakeTransport.respond(fake, :join_group, :close)
 

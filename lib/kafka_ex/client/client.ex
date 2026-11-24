@@ -23,7 +23,6 @@ defmodule KafkaEx.Client do
   alias KafkaEx.Client.NodeSelector
   alias KafkaEx.Client.RequestBudget
   alias KafkaEx.Client.RequestBuilder
-  alias KafkaEx.Client.RequestContext
   alias KafkaEx.Client.ResponseParser
   alias KafkaEx.Client.State
   alias KafkaEx.Client.Supervisor, as: ClientSupervisor
@@ -386,178 +385,6 @@ defmodule KafkaEx.Client do
       {:reply, topics_reply({:error, :timeout}, topics, cached_topics(state, topics)), state}
   end
 
-  defp handle_client_call({:api_versions, opts}, _from, state) do
-    case api_versions_request(opts, state) do
-      {:error, error} -> {:reply, {:error, error}, state}
-      {result, updated_state} -> {:reply, result, updated_state}
-    end
-  end
-
-  defp handle_client_call({:metadata, topics, opts, _api_version}, _from, state) do
-    case metadata_request(topics, opts, state) do
-      {:error, error} -> {:reply, {:error, error}, state}
-      {result, updated_state} -> {:reply, result, updated_state}
-    end
-  end
-
-  defp handle_client_call({:list_offsets, [{topic, partitions_data}], opts}, _from, state) do
-    case list_offset_request({topic, partitions_data}, opts, state) do
-      {:error, error} -> {:reply, {:error, error}, state}
-      {result, updated_state} -> {:reply, result, updated_state}
-    end
-  end
-
-  # Backward compatibility, to be deleted once we delete legacy code
-  defp handle_client_call({:offset, topic, partition, timestamp}, _from, state) do
-    partition_data = %{partition_num: partition, timestamp: timestamp}
-
-    case list_offset_request({topic, [partition_data]}, [], state) do
-      {:error, error} -> {:reply, {:error, error}, state}
-      {result, updated_state} -> {:reply, result, updated_state}
-    end
-  end
-
-  defp handle_client_call({:describe_groups, [consumer_group_name], opts}, _from, state) do
-    if KafkaEx.valid_consumer_group?(consumer_group_name) do
-      case describe_group_request(consumer_group_name, opts, state) do
-        {:error, error} -> {:reply, {:error, error}, state}
-        {result, updated_state} -> {:reply, result, updated_state}
-      end
-    else
-      {:reply, {:error, :invalid_consumer_group}, state}
-    end
-  end
-
-  defp handle_client_call({:list_groups, node_id, opts}, _from, state) do
-    case list_groups_request(node_id, opts, state) do
-      {:error, error} -> {:reply, {:error, error}, state}
-      {result, updated_state} -> {:reply, result, updated_state}
-    end
-  end
-
-  defp handle_client_call({:offset_fetch, consumer_group, [{topic, partitions_data}], opts}, _from, state) do
-    if KafkaEx.valid_consumer_group?(consumer_group) and is_binary(consumer_group) do
-      case offset_fetch_request(consumer_group, {topic, partitions_data}, opts, state) do
-        {:error, error} -> {:reply, {:error, error}, state}
-        {result, updated_state} -> {:reply, result, updated_state}
-      end
-    else
-      {:reply, {:error, :invalid_consumer_group}, state}
-    end
-  end
-
-  defp handle_client_call({:offset_commit, consumer_group, [{topic, partitions_data}], opts}, _from, state) do
-    if KafkaEx.valid_consumer_group?(consumer_group) and is_binary(consumer_group) do
-      case offset_commit_request(consumer_group, {topic, partitions_data}, opts, state) do
-        {:error, error} -> {:reply, {:error, error}, state}
-        {result, updated_state} -> {:reply, result, updated_state}
-      end
-    else
-      {:reply, {:error, :invalid_consumer_group}, state}
-    end
-  end
-
-  defp handle_client_call({:heartbeat, consumer_group, member_id, generation_id, opts}, _from, state) do
-    if KafkaEx.valid_consumer_group?(consumer_group) and is_binary(consumer_group) do
-      case heartbeat_request(consumer_group, member_id, generation_id, opts, state) do
-        {:error, error} -> {:reply, {:error, error}, state}
-        {result, updated_state} -> {:reply, result, updated_state}
-      end
-    else
-      {:reply, {:error, :invalid_consumer_group}, state}
-    end
-  end
-
-  defp handle_client_call({:join_group, consumer_group, member_id, opts}, _from, state) do
-    if KafkaEx.valid_consumer_group?(consumer_group) and is_binary(consumer_group) do
-      case join_group_request(consumer_group, member_id, opts, state) do
-        {:error, error} -> {:reply, {:error, error}, state}
-        {result, updated_state} -> {:reply, result, updated_state}
-      end
-    else
-      {:reply, {:error, :invalid_consumer_group}, state}
-    end
-  end
-
-  defp handle_client_call({:leave_group, consumer_group, member_id, opts}, _from, state) do
-    if KafkaEx.valid_consumer_group?(consumer_group) and is_binary(consumer_group) do
-      case leave_group_request(consumer_group, member_id, opts, state) do
-        {:error, error} -> {:reply, {:error, error}, state}
-        {result, updated_state} -> {:reply, result, updated_state}
-      end
-    else
-      {:reply, {:error, :invalid_consumer_group}, state}
-    end
-  end
-
-  defp handle_client_call({:sync_group, consumer_group, generation_id, member_id, opts}, _from, state) do
-    if KafkaEx.valid_consumer_group?(consumer_group) and is_binary(consumer_group) do
-      case sync_group_request(consumer_group, generation_id, member_id, opts, state) do
-        {:error, error} -> {:reply, {:error, error}, state}
-        {result, updated_state} -> {:reply, result, updated_state}
-      end
-    else
-      {:reply, {:error, :invalid_consumer_group}, state}
-    end
-  end
-
-  defp handle_client_call({:consumer_group_heartbeat, consumer_group, opts}, _from, state) do
-    if KafkaEx.valid_consumer_group?(consumer_group) and is_binary(consumer_group) do
-      case consumer_group_heartbeat_request(consumer_group, opts, state) do
-        {:error, error} -> {:reply, {:error, error}, state}
-        {result, updated_state} -> {:reply, result, updated_state}
-      end
-    else
-      {:reply, {:error, :invalid_consumer_group}, state}
-    end
-  end
-
-  defp handle_client_call({:consumer_group_describe, [consumer_group], opts}, _from, state) do
-    if KafkaEx.valid_consumer_group?(consumer_group) and is_binary(consumer_group) do
-      case consumer_group_describe_request(consumer_group, opts, state) do
-        {:error, error} -> {:reply, {:error, error}, state}
-        {result, updated_state} -> {:reply, result, updated_state}
-      end
-    else
-      {:reply, {:error, :invalid_consumer_group}, state}
-    end
-  end
-
-  defp handle_client_call({:produce, topic, partition, messages, opts}, _from, state) do
-    case produce_request(topic, partition, messages, opts, state) do
-      {:error, error} -> {:reply, {:error, error}, state}
-      {result, updated_state} -> {:reply, result, updated_state}
-    end
-  end
-
-  defp handle_client_call({:fetch, topic, partition, offset, opts}, from, state) do
-    case fetch_request(topic, partition, offset, opts, state) do
-      {:parked, parked} -> {:noreply, park(parked, from)}
-      outcome -> fetch_reply(outcome, state)
-    end
-  end
-
-  defp handle_client_call({:find_coordinator, group_id, opts}, _from, state) do
-    case find_coordinator_request(group_id, opts, state) do
-      {:error, error} -> {:reply, {:error, error}, state}
-      {result, updated_state} -> {:reply, result, updated_state}
-    end
-  end
-
-  defp handle_client_call({:create_topics, topics, timeout, opts}, _from, state) do
-    case create_topics_request(topics, timeout, opts, state) do
-      {:error, error} -> {:reply, {:error, error}, state}
-      {result, updated_state} -> {:reply, result, updated_state}
-    end
-  end
-
-  defp handle_client_call({:delete_topics, topics, timeout, opts}, _from, state) do
-    case delete_topics_request(topics, timeout, opts, state) do
-      {:error, error} -> {:reply, {:error, error}, state}
-      {result, updated_state} -> {:reply, result, updated_state}
-    end
-  end
-
   defp handle_client_call({:network_request, request, node_selector, _opts}, _from, state) do
     {response, updated_state} = network_request(request, node_selector, state, :as_is)
 
@@ -568,8 +395,22 @@ defmodule KafkaEx.Client do
     {:reply, state.consumer_group_for_auto_commit, state}
   end
 
-  defp fetch_reply({:error, error}, state), do: {:reply, {:error, error}, %{state | parking: nil}}
-  defp fetch_reply({result, %State{} = updated_state}, _state), do: {:reply, result, %{updated_state | parking: nil}}
+  defp handle_client_call(message, from, state) do
+    case request_spec(message) do
+      {:error, _reason} = error ->
+        {:reply, error, state}
+
+      %{api: :fetch} = spec ->
+        fetch_reply(fetch(spec, message, state), from)
+
+      spec ->
+        {result, state} = perform(message, spec, state)
+        {:reply, result, state}
+    end
+  end
+
+  defp fetch_reply({:parked, parked}, from), do: {:noreply, park(parked, from)}
+  defp fetch_reply({result, %State{} = state}, _from), do: {:reply, result, %{state | parking: nil}}
 
   @impl true
   def handle_info({:timeout, _timer, {:parked, tag}}, state) when is_map_key(state.parked, tag) do
@@ -774,312 +615,165 @@ defmodule KafkaEx.Client do
   defp with_topic_view(state, nil, _topics), do: %{state | cluster_metadata: %ClusterMetadata{}}
   defp with_topic_view(state, tid, topics), do: %{state | cluster_metadata: MetadataTable.topic_view(tid, topics)}
 
-  # ----------------------------------------------------------------------------------------------------
-  defp describe_group_request(consumer_group_name, opts, state) do
-    node_selector = NodeSelector.consumer_group(consumer_group_name)
-    req_data = [{:group_names, [consumer_group_name]} | opts]
+  @typep request_spec :: %{
+           api: atom(),
+           route: NodeSelector.t(),
+           opts: Keyword.t(),
+           parse: (term() -> {:ok, term()} | {:error, term()}),
+           retryable?: (atom() -> boolean()),
+           send_once?: (atom() -> boolean()),
+           rediscover_coordinator?: boolean(),
+           network_timeout: pos_integer() | nil,
+           store_tid: :ets.tid() | nil
+         }
 
-    builder = &RequestBuilder.describe_groups_request(req_data, &1)
+  @group_requests [
+    :offset_fetch,
+    :offset_commit,
+    :heartbeat,
+    :join_group,
+    :leave_group,
+    :sync_group,
+    :consumer_group_heartbeat
+  ]
 
-    case builder.(state) do
-      {:ok, request} -> handle_describe_group_request(request, builder, node_selector, state)
-      {:error, error} -> {:error, error}
-    end
+  @spec request_spec(tuple()) :: request_spec() | {:error, atom()}
+  defp request_spec(message) do
+    if valid_group?(message), do: spec_for(message), else: {:error, :invalid_consumer_group}
   end
 
-  defp list_groups_request(node_id, opts, state) do
-    node_selector = NodeSelector.node_id(node_id)
+  defp valid_group?({:describe_groups, [group], _opts}), do: KafkaEx.valid_consumer_group?(group)
+  defp valid_group?({:consumer_group_describe, [group], _opts}), do: valid_group_id?(group)
+  defp valid_group?(message) when elem(message, 0) in @group_requests, do: valid_group_id?(elem(message, 1))
+  defp valid_group?(_message), do: true
 
-    builder = &RequestBuilder.list_groups_request(opts, &1)
+  defp valid_group_id?(group), do: KafkaEx.valid_consumer_group?(group) and is_binary(group)
 
-    case builder.(state) do
-      {:ok, request} -> handle_list_groups_request(request, builder, node_selector, state)
-      {:error, error} -> {:error, error}
-    end
+  defp spec_for({:api_versions, opts}), do: spec(:api_versions, NodeSelector.random(), opts)
+
+  defp spec_for({:metadata, topics, opts, _api_version}) do
+    spec(:metadata, NodeSelector.random(), [{:topics, topics} | opts], parse: &metadata_with_topic_errors/1)
   end
 
-  defp list_offset_request({topic, partitions_data}, opts, state) do
-    [%{partition_num: partition_num}] = partitions_data
-    node_selector = NodeSelector.topic_partition(topic, partition_num)
-    req_data = [{:topics, [{topic, partitions_data}]} | opts]
-
-    builder = &RequestBuilder.lists_offset_request(req_data, &1)
-
-    case builder.(state) do
-      {:ok, request} -> handle_lists_offsets_request(request, builder, node_selector, state)
-      {:error, error} -> {:error, error}
-    end
+  defp spec_for({:list_offsets, [{topic, [%{partition_num: partition}] = partitions}], opts}) do
+    spec(:list_offsets, NodeSelector.topic_partition(topic, partition), [{:topics, [{topic, partitions}]} | opts])
   end
 
-  defp offset_fetch_request(consumer_group, {topic, partitions_data}, opts, state) do
-    node_selector = NodeSelector.consumer_group(consumer_group)
-    req_data = [{:group_id, consumer_group}, {:topics, [{topic, partitions_data}]} | opts]
-
-    state = ensure_store(state)
-    tid = store_tid(state)
-    builder = &RequestBuilder.offset_fetch_request(req_data, with_topic_view(&1, tid, [topic]))
-
-    case builder.(state) do
-      {:ok, request} -> handle_offset_fetch_request(request, builder, node_selector, state)
-      {:error, error} -> {:error, error}
-    end
+  # Backward compatibility, to be deleted once we delete legacy code
+  defp spec_for({:offset, topic, partition, timestamp}) do
+    spec_for({:list_offsets, [{topic, [%{partition_num: partition, timestamp: timestamp}]}], []})
   end
 
-  defp offset_commit_request(consumer_group, {topic, partitions_data}, opts, state) do
-    client_id = Config.client_id()
-    partition_count = length(partitions_data)
-    metadata = Telemetry.commit_metadata(consumer_group, client_id, topic, partition_count)
-
-    Telemetry.span([:kafka_ex, :consumer, :commit], metadata, fn ->
-      within_budget(metadata, fn ->
-        do_offset_commit_request(consumer_group, {topic, partitions_data}, opts, state, metadata)
-      end)
-    end)
+  defp spec_for({:describe_groups, [group], opts}) do
+    spec(:describe_groups, NodeSelector.consumer_group(group), [{:group_names, [group]} | opts])
   end
 
-  defp do_offset_commit_request(consumer_group, {topic, partitions_data}, opts, state, metadata) do
-    node_selector = NodeSelector.consumer_group(consumer_group)
-    req_data = [{:group_id, consumer_group}, {:topics, [{topic, partitions_data}]} | opts]
+  defp spec_for({:list_groups, node_id, opts}), do: spec(:list_groups, NodeSelector.node_id(node_id), opts)
 
-    state = ensure_store(state)
-    tid = store_tid(state)
-    builder = &RequestBuilder.offset_commit_request(req_data, with_topic_view(&1, tid, [topic]))
-
-    with {:ok, request} <- builder.(state),
-         {result, updated_state} <- handle_offset_commit_request(request, builder, node_selector, state) do
-      {{result, updated_state}, metadata}
-    else
-      {:error, error} -> {{:error, error}, metadata}
-    end
+  defp spec_for({:offset_fetch, group, [{topic, partitions}], opts}) do
+    opts = [{:group_id, group}, {:topics, [{topic, partitions}]} | opts]
+    spec(:offset_fetch, NodeSelector.consumer_group(group), opts)
   end
 
-  defp heartbeat_request(consumer_group, member_id, generation_id, opts, state) do
-    metadata = Telemetry.heartbeat_metadata(consumer_group, member_id, generation_id)
-
-    Telemetry.span([:kafka_ex, :consumer, :heartbeat], metadata, fn ->
-      within_budget(metadata, fn ->
-        do_heartbeat_request(consumer_group, member_id, generation_id, opts, state, metadata)
-      end)
-    end)
+  defp spec_for({:offset_commit, group, [{topic, partitions}], opts}) do
+    opts = [{:group_id, group}, {:topics, [{topic, partitions}]} | opts]
+    spec(:offset_commit, NodeSelector.consumer_group(group), opts, retryable?: &Retry.commit_retryable?/1)
   end
 
-  defp do_heartbeat_request(consumer_group, member_id, generation_id, opts, state, metadata) do
-    node_selector = NodeSelector.consumer_group(consumer_group)
-    {network_timeout, req_opts} = Keyword.pop(opts, :network_timeout)
-    req_data = [{:group_id, consumer_group}, {:member_id, member_id}, {:generation_id, generation_id} | req_opts]
-
-    builder = &RequestBuilder.heartbeat_request(req_data, &1)
-
-    with {:ok, request} <- builder.(state),
-         {result, updated_state} <- handle_heartbeat_request(request, builder, node_selector, state, network_timeout) do
-      {{result, updated_state}, metadata}
-    else
-      {:error, error} -> {{:error, error}, metadata}
-    end
+  defp spec_for({:heartbeat, group, member_id, generation_id, opts}) do
+    opts = [{:group_id, group}, {:member_id, member_id}, {:generation_id, generation_id} | opts]
+    spec(:heartbeat, NodeSelector.consumer_group(group), opts, retryable?: &Retry.heartbeat_retryable?/1)
   end
 
-  defp join_group_request(consumer_group, member_id, opts, state) do
-    topics = Keyword.get(opts, :topics, [])
-    metadata = Telemetry.join_group_metadata(consumer_group, member_id || "", topics)
-
-    Telemetry.span([:kafka_ex, :consumer, :join], metadata, fn ->
-      within_budget(metadata, fn -> do_join_group_request(consumer_group, member_id, opts, state, metadata) end)
-    end)
+  defp spec_for({:join_group, group, member_id, opts}) do
+    opts = [{:group_id, group}, {:member_id, member_id} | opts]
+    spec(:join_group, NodeSelector.consumer_group(group), opts, retryable?: &Retry.join_group_retryable?/1)
   end
 
-  defp do_join_group_request(consumer_group, member_id, opts, state, metadata) do
-    node_selector = NodeSelector.consumer_group(consumer_group)
-    # :network_timeout is a control opt (derived in KafkaEx.API.join_group from
-    # rebalance_timeout), not a protocol field — pop it before building req_data.
-    {network_timeout, req_opts} = Keyword.pop(opts, :network_timeout)
-    req_data = [{:group_id, consumer_group}, {:member_id, member_id} | req_opts]
-
-    builder = &RequestBuilder.join_group_request(req_data, &1)
-
-    with {:ok, request} <- builder.(state),
-         {{:ok, result}, updated_state} <-
-           handle_join_group_request(request, builder, node_selector, state, network_timeout) do
-      stop_metadata = add_join_group_result_metadata(metadata, result)
-      {{{:ok, result}, updated_state}, stop_metadata}
-    else
-      # KIP-394: JoinGroup V4+ requires two-step join.
-      # First attempt with empty member_id returns :member_id_required
-      # with an assigned member_id. Retry with that member_id.
-      {{:error, %Error{error: :member_id_required, metadata: %{member_id: assigned_id}}}, updated_state} ->
-        Logger.info("JoinGroup returned member_id_required (KIP-394), retrying with assigned member_id")
-        do_join_group_request(consumer_group, assigned_id, opts, updated_state, metadata)
-
-      {:error, error} ->
-        {{:error, error}, metadata}
-
-      error_result ->
-        {error_result, metadata}
-    end
+  defp spec_for({:leave_group, group, member_id, opts}) do
+    spec(:leave_group, NodeSelector.consumer_group(group), [{:group_id, group}, {:member_id, member_id} | opts])
   end
 
-  defp add_join_group_result_metadata(metadata, result) do
-    is_leader = result.leader_id == result.member_id
-
-    metadata
-    |> Map.put(:generation_id, result.generation_id)
-    |> Map.put(:is_leader, is_leader)
+  defp spec_for({:sync_group, group, generation_id, member_id, opts}) do
+    opts = [{:group_id, group}, {:generation_id, generation_id}, {:member_id, member_id} | opts]
+    spec(:sync_group, NodeSelector.consumer_group(group), opts, retryable?: &Retry.sync_group_retryable?/1)
   end
 
-  defp leave_group_request(consumer_group, member_id, opts, state) do
-    metadata = Telemetry.leave_group_metadata(consumer_group, member_id)
-
-    Telemetry.span([:kafka_ex, :consumer, :leave], metadata, fn ->
-      within_budget(metadata, fn -> do_leave_group_request(consumer_group, member_id, opts, state, metadata) end)
-    end)
-  end
-
-  defp do_leave_group_request(consumer_group, member_id, opts, state, metadata) do
-    node_selector = NodeSelector.consumer_group(consumer_group)
-    req_data = [{:group_id, consumer_group}, {:member_id, member_id} | opts]
-
-    builder = &RequestBuilder.leave_group_request(req_data, &1)
-
-    with {:ok, request} <- builder.(state),
-         {result, updated_state} <- handle_leave_group_request(request, builder, node_selector, state) do
-      {{result, updated_state}, metadata}
-    else
-      {:error, error} -> {{:error, error}, metadata}
-    end
-  end
-
-  defp sync_group_request(consumer_group, generation_id, member_id, opts, state) do
-    # Leader sends non-empty group_assignment, followers send empty
-    group_assignment = Keyword.get(opts, :group_assignment, [])
-    is_leader = group_assignment != []
-    metadata = Telemetry.sync_group_metadata(consumer_group, member_id, generation_id, is_leader)
-
-    Telemetry.span([:kafka_ex, :consumer, :sync], metadata, fn ->
-      within_budget(metadata, fn ->
-        do_sync_group_request(consumer_group, generation_id, member_id, opts, state, metadata)
-      end)
-    end)
-  end
-
-  defp do_sync_group_request(consumer_group, generation_id, member_id, opts, state, metadata) do
-    node_selector = NodeSelector.consumer_group(consumer_group)
-    # :network_timeout is a control opt (derived in KafkaEx.API.sync_group), not a
-    # protocol field — pop it before building req_data.
-    {network_timeout, req_opts} = Keyword.pop(opts, :network_timeout)
-    req_data = [{:group_id, consumer_group}, {:generation_id, generation_id}, {:member_id, member_id} | req_opts]
-
-    builder = &RequestBuilder.sync_group_request(req_data, &1)
-
-    with {:ok, request} <- builder.(state),
-         {{:ok, result}, updated_state} <-
-           handle_sync_group_request(request, builder, node_selector, state, network_timeout) do
-      assigned_partitions = count_assigned_partitions(result.partition_assignments)
-      stop_metadata = Map.put(metadata, :assigned_partitions, assigned_partitions)
-      {{{:ok, result}, updated_state}, stop_metadata}
-    else
-      {:error, error} -> {{:error, error}, metadata}
-      error_result -> {error_result, metadata}
-    end
-  end
-
-  defp count_assigned_partitions(partition_assignments) do
-    Enum.reduce(partition_assignments, 0, fn assignment, acc ->
-      acc + length(assignment.partitions)
-    end)
-  end
-
-  defp consumer_group_heartbeat_request(consumer_group, opts, state) do
-    # Validate before touching opts: a missing or malformed field must be an
-    # error, not an exception in this shared process (and not a telemetry
-    # event for a request that is never sent).
+  # Validated before the telemetry span opens, so a malformed field is an error with no event.
+  defp spec_for({:consumer_group_heartbeat, group, opts}) do
     with :ok <- RequestBuilder.validate_consumer_group_heartbeat_opts(opts) do
-      member_epoch = Keyword.fetch!(opts, :member_epoch)
-
-      metadata =
-        Telemetry.consumer_group_heartbeat_metadata(consumer_group, Keyword.get(opts, :member_id) || "", member_epoch)
-
-      Telemetry.span([:kafka_ex, :consumer, :consumer_group_heartbeat], metadata, fn ->
-        within_budget(metadata, fn -> do_consumer_group_heartbeat_request(consumer_group, opts, state, metadata) end)
-      end)
+      spec(:consumer_group_heartbeat, NodeSelector.consumer_group(group), [{:group_id, group} | opts],
+        retryable?: &Retry.consumer_group_heartbeat_retryable?/1,
+        send_once?: heartbeat_send_once(Keyword.fetch!(opts, :member_epoch)),
+        rediscover_coordinator?: true
+      )
     end
   end
 
-  defp do_consumer_group_heartbeat_request(consumer_group, opts, state, metadata) do
-    state = ensure_store(state)
-    node_selector = NodeSelector.consumer_group(consumer_group)
-    {network_timeout, req_opts} = Keyword.pop(opts, :network_timeout)
-    req_data = [{:group_id, consumer_group} | req_opts]
-
-    case RequestBuilder.consumer_group_heartbeat_request(req_data, state) do
-      {:ok, request} ->
-        # A v1+ join without :member_id gets a generated id while the request is
-        # built (KIP-1082). Report the id actually sent, also on failure, so a
-        # caller whose join timed out can retry with the same id instead of
-        # registering a second member.
-        metadata = %{metadata | member_id: request.member_id}
-
-        builder =
-          &RequestBuilder.consumer_group_heartbeat_request(Keyword.put(req_data, :member_id, request.member_id), &1)
-
-        case handle_consumer_group_heartbeat_request(request, builder, node_selector, state, network_timeout) do
-          {{:ok, result}, updated_state} ->
-            stop_metadata =
-              Map.merge(metadata, %{
-                member_id: result.member_id,
-                new_member_epoch: result.member_epoch,
-                assigned_partitions: ConsumerGroupHeartbeat.assigned_partition_count(result)
-              })
-
-            {{{:ok, result}, updated_state}, stop_metadata}
-
-          error_result ->
-            {error_result, metadata}
-        end
-
-      {:error, error} ->
-        {{:error, error}, metadata}
-    end
+  defp spec_for({:consumer_group_describe, [group], opts}) do
+    spec(:consumer_group_describe, NodeSelector.consumer_group(group), [{:group_ids, [group]} | opts])
   end
 
-  defp consumer_group_describe_request(consumer_group, opts, state) do
-    node_selector = NodeSelector.consumer_group(consumer_group)
-    req_data = [{:group_ids, [consumer_group]} | opts]
-
-    builder = &RequestBuilder.consumer_group_describe_request(req_data, &1)
-
-    case builder.(state) do
-      {:ok, request} -> handle_consumer_group_describe_request(request, builder, node_selector, state)
-      {:error, error} -> {:error, error}
-    end
-  end
-
-  defp produce_request(topic, partition, messages, opts, state) do
+  defp spec_for({:produce, topic, partition, messages, opts}) do
     with {:ok, acks} <- resolve_acks(opts) do
-      metadata = Telemetry.produce_metadata(topic, partition, Config.client_id(), acks)
-      start_measurements = %{message_count: length(messages)}
-
-      Telemetry.span([:kafka_ex, :produce], Map.merge(metadata, start_measurements), fn ->
-        within_budget(metadata, fn ->
-          do_produce_request(topic, partition, messages, Keyword.put(opts, :acks, acks), state, metadata)
-        end)
-      end)
+      opts = [{:topic, topic}, {:partition, partition}, {:messages, messages} | Keyword.put(opts, :acks, acks)]
+      spec(:produce, NodeSelector.topic_partition(topic, partition), opts, retryable?: &Retry.produce_retryable?/1)
     end
   end
 
-  defp do_produce_request(topic, partition, messages, opts, state, metadata) do
-    node_selector = NodeSelector.topic_partition(topic, partition)
-    req_data = [{:topic, topic}, {:partition, partition}, {:messages, messages} | opts]
-
-    builder = &RequestBuilder.produce_request(req_data, &1)
-
-    with {:ok, request} <- builder.(state),
-         {{:ok, result}, updated_state} <- handle_produce_request(request, builder, node_selector, state) do
-      stop_metadata = add_offset_to_metadata(metadata, result)
-      {{{:ok, result}, updated_state}, stop_metadata}
-    else
-      {:error, error} -> {{:error, error}, metadata}
-      error_result -> {error_result, metadata}
-    end
+  defp spec_for({:fetch, topic, partition, offset, opts}) do
+    opts = [{:topic, topic}, {:partition, partition}, {:offset, offset} | opts]
+    spec(:fetch, NodeSelector.topic_partition_replica(topic, partition), opts)
   end
+
+  defp spec_for({:find_coordinator, group_id, opts}) do
+    spec(:find_coordinator, NodeSelector.first_available(), [{:group_id, group_id} | opts])
+  end
+
+  defp spec_for({api, topics, timeout, opts}) when api in [:create_topics, :delete_topics] do
+    spec(api, NodeSelector.controller(), [{:topics, topics}, {:timeout, timeout} | opts])
+  end
+
+  # :network_timeout is the per-attempt socket deadline, not a protocol field, for the calls budgeted by it.
+  defp spec(api, route, opts, overrides \\ []) do
+    {network_timeout, opts} =
+      if api in @budgeted_by_network_timeout, do: Keyword.pop(opts, :network_timeout), else: {nil, opts}
+
+    Map.merge(
+      %{
+        api: api,
+        route: route,
+        opts: opts,
+        parse: &@protocol.parse_response(api, &1),
+        retryable?: &Retry.data_plane_retryable?/1,
+        send_once?: &Retry.transport_timeout?/1,
+        rediscover_coordinator?: false,
+        network_timeout: network_timeout,
+        store_tid: nil
+      },
+      Map.new(overrides)
+    )
+  end
+
+  @topic_id_requests [:offset_fetch, :offset_commit, :consumer_group_heartbeat]
+
+  # After validation, inside the span; one table gives the request its topic ids and the response its topic names.
+  defp attach_store(%{api: api} = spec, state) when api in @topic_id_requests do
+    state = ensure_store(state)
+    resolver = topic_name_parse_opts(store_tid(state))
+    {%{spec | store_tid: store_tid(state), parse: &@protocol.parse_response(api, &1, resolver)}, state}
+  end
+
+  defp attach_store(spec, state), do: {spec, state}
+
+  defp topic_name_parse_opts(nil), do: [topic_name_resolver: fn _topic_id -> {:error, :no_such_topic} end]
+  defp topic_name_parse_opts(tid), do: [topic_name_resolver: &MetadataTable.topic_name_by_id(tid, &1)]
+
+  # Only a member heartbeat (epoch > 0) is incremental and fenced when
+  # resent after the broker bumped the epoch. A join (0) and a leave (-1,
+  # -2) are accepted again, so the client keeps retrying them.
+  defp heartbeat_send_once(epoch) when epoch > 0, do: &Retry.consumer_group_heartbeat_send_once?/1
+  defp heartbeat_send_once(_epoch), do: &Retry.transport_timeout?/1
 
   # Reject a bad acks value here; unvalidated it reaches Kayrock's int16 encoder and crashes the client.
   defp resolve_acks(opts) do
@@ -1091,22 +785,144 @@ defmodule KafkaEx.Client do
     end
   end
 
-  defp add_offset_to_metadata(metadata, result) do
-    case Map.get(result, :base_offset) do
-      nil -> metadata
-      offset -> Map.put(metadata, :offset, offset)
+  defp perform({:offset_commit, group, [{topic, partitions}], _opts}, spec, state) do
+    metadata = Telemetry.commit_metadata(group, Config.client_id(), topic, length(partitions))
+    in_span([:kafka_ex, :consumer, :commit], metadata, fn -> {run(spec, state), metadata} end)
+  end
+
+  defp perform({:heartbeat, group, member_id, generation_id, _opts}, spec, state) do
+    metadata = Telemetry.heartbeat_metadata(group, member_id, generation_id)
+    in_span([:kafka_ex, :consumer, :heartbeat], metadata, fn -> {run(spec, state), metadata} end)
+  end
+
+  defp perform({:leave_group, group, member_id, _opts}, spec, state) do
+    metadata = Telemetry.leave_group_metadata(group, member_id)
+    in_span([:kafka_ex, :consumer, :leave], metadata, fn -> {run(spec, state), metadata} end)
+  end
+
+  defp perform({:join_group, group, member_id, opts}, spec, state) do
+    metadata = Telemetry.join_group_metadata(group, member_id || "", Keyword.get(opts, :topics, []))
+    in_span([:kafka_ex, :consumer, :join], metadata, fn -> join(spec, state, metadata) end)
+  end
+
+  defp perform({:sync_group, group, generation_id, member_id, opts}, spec, state) do
+    # Leader sends non-empty group_assignment, followers send empty
+    is_leader = Keyword.get(opts, :group_assignment, []) != []
+    metadata = Telemetry.sync_group_metadata(group, member_id, generation_id, is_leader)
+
+    in_span([:kafka_ex, :consumer, :sync], metadata, fn ->
+      case run(spec, state, @coordinator_max_attempts) do
+        {{:ok, result}, _state} = ok -> {ok, Map.put(metadata, :assigned_partitions, assigned_partitions(result))}
+        error_result -> {error_result, metadata}
+      end
+    end)
+  end
+
+  defp perform({:consumer_group_heartbeat, group, opts}, spec, state) do
+    member_id = Keyword.get(opts, :member_id) || ""
+    metadata = Telemetry.consumer_group_heartbeat_metadata(group, member_id, Keyword.fetch!(opts, :member_epoch))
+
+    in_span([:kafka_ex, :consumer, :consumer_group_heartbeat], metadata, fn ->
+      member_heartbeat(spec, state, metadata)
+    end)
+  end
+
+  defp perform({:produce, topic, partition, messages, _opts}, spec, state) do
+    metadata = Telemetry.produce_metadata(topic, partition, Config.client_id(), Keyword.fetch!(spec.opts, :acks))
+
+    Telemetry.span([:kafka_ex, :produce], Map.put(metadata, :message_count, length(messages)), fn ->
+      within_budget(metadata, fn -> produce(spec, state, metadata) end)
+    end)
+  end
+
+  defp perform({:metadata, topics, _opts, _api_version}, spec, state) do
+    topic_list = if is_list(topics), do: topics, else: [topics]
+    metadata = Telemetry.metadata_update_metadata(Config.client_id(), topic_list)
+
+    Telemetry.span([:kafka_ex, :metadata, :update], metadata, fn ->
+      within_budget(%{}, fn -> metadata_request(spec, state) end)
+    end)
+  end
+
+  defp perform(_message, spec, state), do: run(spec, state)
+
+  defp in_span(event, metadata, run), do: Telemetry.span(event, metadata, fn -> within_budget(metadata, run) end)
+
+  defp join(spec, state, metadata) do
+    case run(spec, state, @coordinator_max_attempts) do
+      {{:ok, result}, _state} = ok ->
+        {ok,
+         Map.merge(metadata, %{generation_id: result.generation_id, is_leader: result.leader_id == result.member_id})}
+
+      # KIP-394: a v4+ join without a member id is answered with one to join again with.
+      {{:error, %Error{error: :member_id_required, metadata: %{member_id: assigned_id}}}, state} ->
+        Logger.info("JoinGroup returned member_id_required (KIP-394), retrying with assigned member_id")
+        join(%{spec | opts: Keyword.put(spec.opts, :member_id, assigned_id)}, state, metadata)
+
+      error_result ->
+        {error_result, metadata}
     end
   end
 
-  defp fetch_request(topic, partition, offset, opts, state) do
-    client_id = Config.client_id()
-    metadata = Telemetry.fetch_metadata(topic, partition, offset, client_id)
-    span = Telemetry.start_span([:kafka_ex, :fetch], metadata)
+  defp assigned_partitions(result), do: Enum.reduce(result.partition_assignments, 0, &(length(&1.partitions) + &2))
 
-    run = fn state ->
-      within_budget(metadata, fn -> do_fetch_request(topic, partition, offset, opts, state, metadata) end)
+  defp member_heartbeat(spec, state, metadata) do
+    {spec, state} = attach_store(spec, state)
+
+    case build(spec, state) do
+      {:ok, request} ->
+        # KIP-1082: a v1+ join gets its member id at build; report and rebuild with it, so a retry keeps one member.
+        metadata = %{metadata | member_id: request.member_id}
+        spec = %{spec | opts: Keyword.put(spec.opts, :member_id, request.member_id)}
+
+        case retry(spec, request, state, @retry_count, nil) do
+          {{:ok, result}, _state} = ok -> {ok, Map.merge(metadata, heartbeat_result_metadata(result))}
+          error_result -> {error_result, metadata}
+        end
+
+      error ->
+        {{error, state}, metadata}
     end
+  end
 
+  defp heartbeat_result_metadata(result) do
+    %{
+      member_id: result.member_id,
+      new_member_epoch: result.member_epoch,
+      assigned_partitions: ConsumerGroupHeartbeat.assigned_partition_count(result)
+    }
+  end
+
+  defp produce(spec, state, metadata) do
+    case build(spec, state) do
+      {:ok, %{acks: 0} = request} -> {fire_and_forget(request, spec, state), metadata}
+      {:ok, request} -> spec |> retry(request, state, @retry_count, nil) |> with_offset(metadata)
+      error -> {{error, state}, metadata}
+    end
+  end
+
+  defp with_offset({{:ok, %{base_offset: offset}}, _state} = ok, metadata) when offset != nil do
+    {ok, Map.put(metadata, :offset, offset)}
+  end
+
+  defp with_offset(result, metadata), do: {result, metadata}
+
+  # acks=0: the broker sends no response, and a resend would duplicate records.
+  defp fire_and_forget(request, %{route: %NodeSelector{topic: topic, partition: partition}} = spec, state) do
+    case network_request(request, spec.route, state, builder(spec)) do
+      {{:ok, :no_response}, state} ->
+        {{:ok, RecordMetadata.build(topic: topic, partition: partition, base_offset: nil)}, state}
+
+      {{:error, reason}, state} ->
+        Logger.warning("Fire-and-forget produce to #{topic}/#{partition} failed with #{inspect(reason)}")
+        {{:error, build_transport_error(reason)}, state}
+    end
+  end
+
+  defp fetch(spec, {:fetch, topic, partition, offset, _opts}, state) do
+    metadata = Telemetry.fetch_metadata(topic, partition, offset, Config.client_id())
+    span = Telemetry.start_span([:kafka_ex, :fetch], metadata)
+    run = fn state -> within_budget(metadata, fn -> fetched(spec, offset, state, metadata) end) end
     spanned(span, metadata, %{state | parking: :first}, run)
   end
 
@@ -1125,37 +941,24 @@ defmodule KafkaEx.Client do
       :erlang.raise(kind, reason, __STACKTRACE__)
   end
 
-  defp do_fetch_request(topic, partition, offset, opts, state, metadata) do
-    node_selector = NodeSelector.topic_partition_replica(topic, partition)
-    {network_timeout, req_opts} = Keyword.pop(opts, :network_timeout)
-    req_data = [{:topic, topic}, {:partition, partition}, {:offset, offset} | req_opts]
-
-    builder = &RequestBuilder.fetch_request(req_data, &1)
-
-    with {:ok, request} <- builder.(state),
-         {{:ok, result}, updated_state} <-
-           fetch_with_leader_fallback(request, builder, node_selector, state, network_timeout) do
+  defp fetched(spec, offset, state, metadata) do
+    with {:ok, request} <- build(spec, state),
+         {{:ok, result}, state} <- fetch_with_leader_fallback(spec, request, state) do
       filtered_result = Fetch.filter_from_offset(result, offset)
-      message_count = length(Map.get(filtered_result, :records, []))
-      stop_metadata = Map.put(metadata, :message_count, message_count)
-
-      updated_state =
-        cache_preferred_replica(updated_state, topic, partition, filtered_result, updated_state.dispatch_stamp)
-
-      {{{:ok, filtered_result}, updated_state}, stop_metadata}
+      stop_metadata = Map.put(metadata, :message_count, length(Map.get(filtered_result, :records, [])))
+      {{{:ok, filtered_result}, cache_preferred_replica(state, spec.route, filtered_result)}, stop_metadata}
     else
-      {:error, error} -> {{:error, error}, metadata}
+      {:error, _reason} = error -> {{error, state}, metadata}
       error_result -> {error_result, metadata}
     end
   end
 
   # KIP-392: a replica's error is not authoritative (it may lag the leader), so the leader decides.
-  defp fetch_with_leader_fallback(request, builder, selector, state, timeout) do
-    case handle_fetch_request(request, builder, selector, state, timeout) do
+  defp fetch_with_leader_fallback(spec, request, state) do
+    case retry(spec, request, state, @retry_count, nil) do
       {{:error, error}, state_out} = result ->
-        if reading_from_replica?(state_out, selector) do
-          state_out = forget_preferred_replica(state_out, selector)
-          after_replica_error(request, builder, selector, error, state_out, timeout)
+        if reading_from_replica?(state_out, spec.route) do
+          after_replica_error(spec, request, error, forget_preferred_replica(state_out, spec.route))
         else
           result
         end
@@ -1166,11 +969,11 @@ defmodule KafkaEx.Client do
   end
 
   # A single attempt keeps the caller's call budget, which covers one retry cycle.
-  defp after_replica_error(request, builder, selector, error, state, timeout) do
+  defp after_replica_error(spec, request, error, state) do
     if Retry.data_plane_retryable?(extract_error_atom(error)) do
       {{:error, error}, state}
     else
-      handle_fetch_request(request, builder, selector, state, timeout, 1)
+      retry(spec, request, state, 1, nil)
     end
   end
 
@@ -1184,364 +987,41 @@ defmodule KafkaEx.Client do
     MetadataTable.select(tid, selector, hints) != MetadataTable.select(tid, selector, %{})
   end
 
-  # `-1` means "stay where you are" (Java client semantics). Clearing the
-  # cache here would ping-pong subsequent fetches back to the leader.
-  defp cache_preferred_replica(state, _topic, _partition, %Fetch{preferred_read_replica: node_id}, _stamp)
-       when node_id in [nil, -1] do
-    state
-  end
-
-  # The stamp is read after routing and before the send, so a swap during the fetch already invalidates the hint.
+  # A -1 replica means "stay" (Java); the stamp, read before the send, lets a later swap invalidate the hint.
   defp cache_preferred_replica(
-         state,
-         topic,
-         partition,
-         %Fetch{preferred_read_replica: node_id},
-         {_tid, _counter} = stamp
+         %State{dispatch_stamp: {_tid, _counter} = stamp} = state,
+         %NodeSelector{topic: topic, partition: partition},
+         %Fetch{preferred_read_replica: node_id}
        )
-       when is_integer(node_id) do
+       when is_integer(node_id) and node_id != -1 do
     %{state | hints: Map.put(state.hints, {topic, partition}, {node_id, stamp})}
   end
 
-  defp cache_preferred_replica(state, _topic, _partition, _other, _stamp), do: state
+  defp cache_preferred_replica(state, _route, _result), do: state
 
-  defp find_coordinator_request(group_id, opts, state) do
-    # FindCoordinator can be sent to any broker
-    node_selector = NodeSelector.first_available()
-    req_data = [{:group_id, group_id} | opts]
-
-    builder = &RequestBuilder.find_coordinator_request(req_data, &1)
-
-    case builder.(state) do
-      {:ok, request} -> handle_find_coordinator_request(request, builder, node_selector, state)
-      {:error, error} -> {:error, error}
-    end
-  end
-
-  defp create_topics_request(topics, timeout, opts, state) do
-    # CreateTopics must be sent to the controller broker
-    node_selector = NodeSelector.controller()
-    {network_timeout, req_opts} = Keyword.pop(opts, :network_timeout)
-    req_data = [{:topics, topics}, {:timeout, timeout} | req_opts]
-
-    builder = &RequestBuilder.create_topics_request(req_data, &1)
-
-    case builder.(state) do
-      {:ok, request} -> handle_create_topics_request(request, builder, node_selector, state, network_timeout)
-      {:error, error} -> {:error, error}
-    end
-  end
-
-  defp delete_topics_request(topics, timeout, opts, state) do
-    # DeleteTopics must be sent to the controller broker
-    node_selector = NodeSelector.controller()
-    {network_timeout, req_opts} = Keyword.pop(opts, :network_timeout)
-    req_data = [{:topics, topics}, {:timeout, timeout} | req_opts]
-
-    builder = &RequestBuilder.delete_topics_request(req_data, &1)
-
-    case builder.(state) do
-      {:ok, request} -> handle_delete_topics_request(request, builder, node_selector, state, network_timeout)
-      {:error, error} -> {:error, error}
-    end
-  end
-
-  defp api_versions_request(opts, state) do
-    node_selector = NodeSelector.random()
-
-    builder = &RequestBuilder.api_versions_request(opts, &1)
-
-    case builder.(state) do
-      {:ok, request} -> handle_api_versions_request(request, builder, node_selector, state)
-      {:error, error} -> {:error, error}
-    end
-  end
-
-  defp metadata_request(topics, opts, state) do
-    client_id = Config.client_id()
-    topic_list = if is_list(topics), do: topics, else: [topics]
-    metadata = Telemetry.metadata_update_metadata(client_id, topic_list)
-
-    Telemetry.span([:kafka_ex, :metadata, :update], metadata, fn ->
-      within_budget(%{}, fn -> do_metadata_request(topics, opts, state) end)
-    end)
-  end
-
-  defp do_metadata_request(topics, opts, state) do
-    # Metadata can be fetched from any broker, use random selection
-    node_selector = NodeSelector.random()
-    req_data = [{:topics, topics} | opts]
-
-    builder = &RequestBuilder.metadata_request(req_data, &1)
-
-    case builder.(state) do
+  # The seq is taken before the request, so a refresh issued after it wins over this answer.
+  defp metadata_request(spec, state) do
+    case build(spec, state) do
       {:ok, request} ->
-        case handle_metadata_request(request, builder, node_selector, state) do
-          {{:ok, {returned, topic_errors}}, updated_state} ->
-            broker_count = map_size(returned.brokers)
-            topic_count = map_size(returned.topics)
-            reply = named_topics_reply(request, returned, topic_errors)
-            {{reply, updated_state}, %{broker_count: broker_count, topic_count: topic_count}}
+        {seq, state} = with_store(state, nil, &short/1, &MetadataStore.next_seq(&1.pid, &2))
+
+        case retry(spec, request, state, @retry_count, nil) do
+          {{:ok, {returned, topic_errors}}, state} ->
+            state = merge_cluster_metadata(state, seq, returned, request)
+            stop_metadata = %{broker_count: map_size(returned.brokers), topic_count: map_size(returned.topics)}
+            {{named_topics_reply(request, returned, topic_errors), state}, stop_metadata}
 
           error_result ->
             {error_result, %{}}
         end
 
-      {:error, error} ->
-        {{:error, error}, %{}}
-    end
-  end
-
-  # ----------------------------------------------------------------------------------------------------
-  defp handle_api_versions_request(request, builder, node_selector, state) do
-    %RequestContext{
-      request: request,
-      builder: builder,
-      parser_fn: &ResponseParser.api_versions_response/1,
-      node_selector: node_selector
-    }
-    |> handle_request_with_retry(state)
-  end
-
-  defp handle_describe_group_request(request, builder, node_selector, state) do
-    %RequestContext{
-      request: request,
-      builder: builder,
-      parser_fn: &ResponseParser.describe_groups_response/1,
-      node_selector: node_selector
-    }
-    |> handle_request_with_retry(state)
-  end
-
-  defp handle_list_groups_request(request, builder, node_selector, state) do
-    %RequestContext{
-      request: request,
-      builder: builder,
-      parser_fn: &ResponseParser.list_groups_response/1,
-      node_selector: node_selector
-    }
-    |> handle_request_with_retry(state)
-  end
-
-  defp handle_lists_offsets_request(request, builder, node_selector, state) do
-    %RequestContext{
-      request: request,
-      builder: builder,
-      parser_fn: &ResponseParser.list_offsets_response/1,
-      node_selector: node_selector
-    }
-    |> handle_request_with_retry(state)
-  end
-
-  defp handle_offset_fetch_request(request, builder, node_selector, state) do
-    parse_opts = topic_name_parse_opts(state)
-
-    %RequestContext{
-      request: request,
-      builder: builder,
-      parser_fn: &ResponseParser.offset_fetch_response(&1, parse_opts),
-      node_selector: node_selector
-    }
-    |> handle_request_with_retry(state)
-  end
-
-  defp handle_offset_commit_request(request, builder, node_selector, state) do
-    parse_opts = topic_name_parse_opts(state)
-
-    %RequestContext{
-      request: request,
-      builder: builder,
-      parser_fn: &ResponseParser.offset_commit_response(&1, parse_opts),
-      node_selector: node_selector,
-      retryable?: &Retry.commit_retryable?/1
-    }
-    |> handle_request_with_retry(state)
-  end
-
-  # OffsetCommit/OffsetFetch v10+ responses name topics by id; resolve them
-  # against the metadata the request's topic ids were taken from.
-  defp topic_name_parse_opts(state) do
-    case store_tid(state) do
-      nil -> [topic_name_resolver: fn _topic_id -> {:error, :no_such_topic} end]
-      tid -> [topic_name_resolver: &MetadataTable.topic_name_by_id(tid, &1)]
-    end
-  end
-
-  defp handle_heartbeat_request(request, builder, node_selector, state, network_timeout) do
-    %RequestContext{
-      request: request,
-      builder: builder,
-      parser_fn: &ResponseParser.heartbeat_response/1,
-      node_selector: node_selector,
-      retryable?: &Retry.heartbeat_retryable?/1,
-      network_timeout: network_timeout
-    }
-    |> handle_request_with_retry(state)
-  end
-
-  defp handle_consumer_group_heartbeat_request(request, builder, node_selector, state, network_timeout) do
-    # ConsumerGroupHeartbeat responses name assigned topics by id; resolve them
-    # against cluster metadata like OffsetCommit/OffsetFetch v10+.
-    parse_opts = topic_name_parse_opts(state)
-
-    %RequestContext{
-      request: request,
-      builder: builder,
-      parser_fn: &ResponseParser.consumer_group_heartbeat_response(&1, parse_opts),
-      node_selector: node_selector,
-      retryable?: &Retry.consumer_group_heartbeat_retryable?/1,
-      send_once?: heartbeat_send_once(request),
-      network_timeout: network_timeout,
-      rediscover_coordinator?: true
-    }
-    |> handle_request_with_retry(state)
-  end
-
-  # Only a member heartbeat (epoch > 0) is incremental and fenced when
-  # resent after the broker bumped the epoch. A join (0) and a leave (-1,
-  # -2) are accepted again, so the client keeps retrying them.
-  defp heartbeat_send_once(%{member_epoch: epoch}) when is_integer(epoch) and epoch > 0,
-    do: &Retry.consumer_group_heartbeat_send_once?/1
-
-  defp heartbeat_send_once(_request), do: &Retry.transport_timeout?/1
-
-  defp handle_consumer_group_describe_request(request, builder, node_selector, state) do
-    %RequestContext{
-      request: request,
-      builder: builder,
-      parser_fn: &ResponseParser.consumer_group_describe_response/1,
-      node_selector: node_selector
-    }
-    |> handle_request_with_retry(state)
-  end
-
-  defp handle_join_group_request(request, builder, node_selector, state, network_timeout) do
-    %RequestContext{
-      request: request,
-      builder: builder,
-      parser_fn: &ResponseParser.join_group_response/1,
-      node_selector: node_selector,
-      retryable?: &Retry.join_group_retryable?/1,
-      network_timeout: network_timeout
-    }
-    |> handle_request_with_retry(state, @coordinator_max_attempts)
-  end
-
-  defp handle_leave_group_request(request, builder, node_selector, state) do
-    %RequestContext{
-      request: request,
-      builder: builder,
-      parser_fn: &ResponseParser.leave_group_response/1,
-      node_selector: node_selector
-    }
-    |> handle_request_with_retry(state)
-  end
-
-  defp handle_sync_group_request(request, builder, node_selector, state, network_timeout) do
-    %RequestContext{
-      request: request,
-      builder: builder,
-      parser_fn: &ResponseParser.sync_group_response/1,
-      node_selector: node_selector,
-      retryable?: &Retry.sync_group_retryable?/1,
-      network_timeout: network_timeout
-    }
-    |> handle_request_with_retry(state, @coordinator_max_attempts)
-  end
-
-  # acks=0: the broker sends no response, and a resend would duplicate records.
-  defp handle_produce_request(%{acks: 0} = request, builder, node_selector, state) do
-    %NodeSelector{topic: topic, partition: partition} = node_selector
-
-    case network_request(request, node_selector, state, builder) do
-      {{:ok, :no_response}, updated_state} ->
-        {{:ok, RecordMetadata.build(topic: topic, partition: partition, base_offset: nil)}, updated_state}
-
-      {{:error, reason}, updated_state} ->
-        Logger.warning("Fire-and-forget produce to #{topic}/#{partition} failed with #{inspect(reason)}")
-        {{:error, build_transport_error(reason)}, updated_state}
-    end
-  end
-
-  defp handle_produce_request(request, builder, node_selector, state) do
-    # Produce requests should only retry on leadership errors to avoid duplicates.
-    # Timeout errors are NOT safe to retry because the message may have been written
-    # but the response was lost. Use Kafka's idempotent producer for true exactly-once.
-    %RequestContext{
-      request: request,
-      builder: builder,
-      parser_fn: &ResponseParser.produce_response/1,
-      node_selector: node_selector,
-      retryable?: &Retry.produce_retryable?/1
-    }
-    |> handle_request_with_retry(state)
-  end
-
-  defp handle_fetch_request(request, builder, node_selector, state, network_timeout, attempts \\ @retry_count) do
-    %RequestContext{
-      request: request,
-      builder: builder,
-      parser_fn: &ResponseParser.fetch_response/1,
-      node_selector: node_selector,
-      network_timeout: network_timeout
-    }
-    |> handle_request_with_retry(state, attempts)
-  end
-
-  defp handle_find_coordinator_request(request, builder, node_selector, state) do
-    %RequestContext{
-      request: request,
-      builder: builder,
-      parser_fn: &ResponseParser.find_coordinator_response/1,
-      node_selector: node_selector
-    }
-    |> handle_request_with_retry(state)
-  end
-
-  defp handle_create_topics_request(request, builder, node_selector, state, network_timeout) do
-    %RequestContext{
-      request: request,
-      builder: builder,
-      parser_fn: &ResponseParser.create_topics_response/1,
-      node_selector: node_selector,
-      network_timeout: network_timeout
-    }
-    |> handle_request_with_retry(state)
-  end
-
-  defp handle_delete_topics_request(request, builder, node_selector, state, network_timeout) do
-    %RequestContext{
-      request: request,
-      builder: builder,
-      parser_fn: &ResponseParser.delete_topics_response/1,
-      node_selector: node_selector,
-      network_timeout: network_timeout
-    }
-    |> handle_request_with_retry(state)
-  end
-
-  # The seq is taken before the request, so a refresh issued after it wins over this answer.
-  defp handle_metadata_request(request, builder, node_selector, state) do
-    {seq, state} = with_store(state, nil, &short/1, &MetadataStore.next_seq(&1.pid, &2))
-
-    ctx = %RequestContext{
-      request: request,
-      builder: builder,
-      parser_fn: &metadata_with_topic_errors/1,
-      node_selector: node_selector
-    }
-
-    case handle_request_with_retry(ctx, state) do
-      {{:ok, {cluster_metadata, _topic_errors}} = ok, updated_state} ->
-        {ok, merge_cluster_metadata(updated_state, seq, cluster_metadata, request)}
-
-      error_result ->
-        error_result
+      error ->
+        {{error, state}, %{}}
     end
   end
 
   defp metadata_with_topic_errors(response) do
-    with {:ok, metadata} <- ResponseParser.metadata_response(response) do
+    with {:ok, metadata} <- @protocol.parse_response(:metadata, response) do
       {:ok, {metadata, ResponseParser.metadata_topic_errors(response)}}
     end
   end
@@ -1578,42 +1058,51 @@ defmodule KafkaEx.Client do
   defp all_topics_request?(_request), do: false
 
   # ----------------------------------------------------------------------------------------------------
-  # Request retry logic with optional retryable filter
-  #
-  # The `retryable?` field on the `%RequestContext{}` lets callers specify which
-  # errors should trigger a retry. This is important for produce requests where
-  # blind retries can cause duplicate messages. By default
-  # (`Retry.data_plane_retryable?/1`), all errors are retried.
-  #
-  # For produce requests, the context sets `&Retry.produce_retryable?/1` to only retry leadership errors.
-  # ----------------------------------------------------------------------------------------------------
-  defp handle_request_with_retry(ctx, state, retry_count \\ @retry_count, last_error \\ nil)
+  # The request is built once; a connection that refuses its version gets it rebuilt by builder/1.
+  @spec run(request_spec(), State.t(), pos_integer()) :: {{:ok, term()} | {:error, term()}, State.t()}
+  defp run(spec, state, attempts \\ @retry_count) do
+    {spec, state} = attach_store(spec, state)
 
-  defp handle_request_with_retry(%RequestContext{}, state, 0, last_error) do
-    {{:error, last_error}, state}
+    case build(spec, state) do
+      {:ok, request} -> retry(spec, request, state, attempts, nil)
+      error -> {error, state}
+    end
   end
 
-  defp handle_request_with_retry(%RequestContext{} = ctx, state, retry_count, _last_error) do
-    {%sent{}, outcome} = attempt_request(ctx.request, ctx.builder, ctx.node_selector, state, ctx.network_timeout)
+  defp build(spec, state), do: RequestBuilder.build(spec.api, spec.opts, topic_view(spec, state))
+
+  defp builder(spec), do: &build(spec, &1)
+
+  defp topic_view(%{api: api, opts: opts, store_tid: tid}, state) when api in [:offset_fetch, :offset_commit] do
+    topics = for {topic, _partitions} <- Keyword.fetch!(opts, :topics), do: topic
+    with_topic_view(state, tid, topics)
+  end
+
+  defp topic_view(_spec, state), do: state
+
+  defp retry(_spec, _request, state, 0, last_error), do: {{:error, last_error}, state}
+
+  defp retry(spec, request, state, attempts, _last_error) do
+    {%sent{}, outcome} = attempt_request(request, builder(spec), spec.route, state, spec.network_timeout)
 
     case outcome do
       {:refused, refused, state_out} ->
         {refused, state_out}
 
       {:raised, {:error, reason}, state_out} ->
-        final = %{ctx | retryable?: fn _error -> false end, send_once?: fn _error -> false end}
-        handle_request_error(final, state_out, retry_count, build_transport_error(reason), sent)
+        final = %{spec | retryable?: fn _error -> false end, send_once?: fn _error -> false end}
+        handle_request_error(final, request, state_out, attempts, build_transport_error(reason), sent)
 
       {{:ok, response}, state_out} ->
-        case ctx.parser_fn.(response) do
+        case spec.parse.(response) do
           {:ok, result} ->
             {{:ok, result}, state_out}
 
           {:error, [error | _]} ->
-            handle_request_error(ctx, state_out, retry_count, error, sent)
+            handle_request_error(spec, request, state_out, attempts, error, sent)
 
           {:error, %Error{} = error} ->
-            handle_request_error(ctx, state_out, retry_count, error, sent)
+            handle_request_error(spec, request, state_out, attempts, error, sent)
         end
 
       # The same refusal as an unwritten one, met when a reconnect lands between the await and the write.
@@ -1621,7 +1110,7 @@ defmodule KafkaEx.Client do
         refused
 
       {{:error, reason}, state_out} ->
-        handle_request_error(ctx, state_out, retry_count, build_transport_error(reason), sent)
+        handle_request_error(spec, request, state_out, attempts, build_transport_error(reason), sent)
     end
   end
 
@@ -1630,32 +1119,32 @@ defmodule KafkaEx.Client do
   # as fatal; tag it retryable instead.
   defp build_transport_error(reason), do: Error.build(:transport_error, %{transport_reason: reason})
 
-  defp handle_request_error(%RequestContext{} = ctx, state, retry_count, error, request_name) do
+  defp handle_request_error(spec, request, state, attempts, error, request_name) do
     error_atom = extract_error_atom(error)
     Logger.warning("Request #{inspect(request_name)} failed with error #{inspect(error_atom)}")
 
     cond do
       # Send-once only for coordinator requests (broker holds them for the rebalance/
-      # session window; rejoin/commit re-issue higher up). Data-plane retries via ctx.retryable?.
-      ctx.send_once?.(error_atom) and coordinator_request?(ctx.node_selector) ->
+      # session window; rejoin/commit re-issue higher up). Data-plane retries via spec.retryable?.
+      spec.send_once?.(error_atom) and coordinator_request?(spec.route) ->
         Logger.info(
           "Coordinator request #{inspect(request_name)} failed with #{inspect(error_atom)}; " <>
             "not retrying at the client (send-once)"
         )
 
-        {{:error, error}, act_on_error(error_atom, ctx, state)}
+        {{:error, error}, act_on_error(error_atom, spec, state)}
 
       # A stale topic id (OffsetCommit/OffsetFetch v10+, Metadata by id) is baked
-      # into the built request, so resending `ctx.request` cannot succeed.
+      # into the built request, so resending the same request cannot succeed.
       # Refresh metadata and return: a caller that retries (e.g. GenConsumer's
       # commit retry) rebuilds the request from the fresh ids.
       error_atom == :unknown_topic_id ->
-        {{:error, error}, act_on_error(error_atom, ctx, state)}
+        {{:error, error}, act_on_error(error_atom, spec, state)}
 
-      ctx.retryable?.(error_atom) ->
+      spec.retryable?.(error_atom) ->
         # A retry has written or failed an attempt, so it never parks.
-        state = %{act_on_error(error_atom, ctx, state) | parking: nil}
-        handle_request_with_retry(ctx, state, retry_count - 1, error)
+        state = %{act_on_error(error_atom, spec, state) | parking: nil}
+        retry(spec, request, state, attempts - 1, error)
 
       true ->
         Logger.info("Error #{inspect(error_atom)} is not retryable for #{inspect(request_name)}, failing immediately")
@@ -1668,10 +1157,10 @@ defmodule KafkaEx.Client do
   defp extract_error_atom({_group_id, error}) when is_atom(error), do: error
   defp extract_error_atom(_), do: :unknown
 
-  defp act_on_error(error_atom, %RequestContext{} = ctx, state) do
+  defp act_on_error(error_atom, spec, state) do
     actions =
-      ClusterMetadata.error_actions(error_atom, ctx.node_selector,
-        rediscover_coordinator?: ctx.rediscover_coordinator?,
+      ClusterMetadata.error_actions(error_atom, spec.route,
+        rediscover_coordinator?: spec.rediscover_coordinator?,
         allow_auto_topic_creation: state.allow_auto_topic_creation
       )
 
@@ -2083,7 +1572,7 @@ defmodule KafkaEx.Client do
     {entry, parked} = Map.pop!(state.parked, tag)
     cancel_parked_timer(entry.timer)
     state = %{state | parked: parked, parking: {:resumed, entry.key, entry.pid, outcome}, deadline: entry.deadline}
-    {:reply, reply, state} = fetch_reply(entry.run.(state), state)
+    {:reply, reply, state} = fetch_reply(entry.run.(state), entry.from)
     GenServer.reply(entry.from, reply)
     %{state | deadline: nil}
   end

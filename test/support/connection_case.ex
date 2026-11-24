@@ -143,15 +143,9 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
 
   defp build(api, opts, versions) do
     state = %State{api_versions: Map.new(versions, fn {key, first..last//_} -> {key, {first, last}} end)}
-    {:ok, request} = builder(api).(Keyword.merge(defaults(api), opts), state)
+    {:ok, request} = RequestBuilder.build(api, Keyword.merge(defaults(api), opts), state)
     %{request | client_id: "conn-test"}
   end
-
-  defp builder(:produce), do: &RequestBuilder.produce_request/2
-  defp builder(:fetch), do: &RequestBuilder.fetch_request/2
-  defp builder(:heartbeat), do: &RequestBuilder.heartbeat_request/2
-  defp builder(:offset_commit), do: &RequestBuilder.offset_commit_request/2
-  defp builder(:list_groups), do: &RequestBuilder.list_groups_request/2
 
   defp defaults(:produce), do: [topic: "t", partition: 0, messages: [%{value: "v"}]]
   defp defaults(:fetch), do: [topic: "t", partition: 0, offset: 0]

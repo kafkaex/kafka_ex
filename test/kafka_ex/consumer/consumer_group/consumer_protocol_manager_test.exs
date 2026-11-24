@@ -482,7 +482,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
   defp build_wire_request(opts) do
     state = %ClientState{api_versions: %{68 => {0, 1}}, correlation_id: 1}
     builder_opts = Keyword.drop(opts, [:call_budget, :network_timeout])
-    RequestBuilder.consumer_group_heartbeat_request([{:group_id, @group} | builder_opts], state)
+    RequestBuilder.build(:consumer_group_heartbeat, [{:group_id, @group} | builder_opts], state)
   end
 
   describe "rack awareness is optional" do

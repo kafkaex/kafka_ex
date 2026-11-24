@@ -2,11 +2,11 @@ defmodule KafkaEx.Client.ListGroupsDispatchTest do
   @moduledoc """
   Regression for the ListGroups final-review Critical finding: a non-zero
   top-level `error_code` in a REAL ListGroups response must flow through
-  `handle_request_with_retry/4` as a `%KafkaEx.Client.Error{}`, not a bare
+  the client retry loop as a `%KafkaEx.Client.Error{}`, not a bare
   atom.
 
   Pre-fix, `ResponseHelpers.parse_response/1` returned `{:error, error_atom}`
-  for a non-zero `error_code`. `handle_request_with_retry/4` only matches
+  for a non-zero `error_code`. The retry loop only matches
   `{:error, [error | _]}` or `{:error, %Error{} = error}`, so a bare atom hit
   no clause and raised `CaseClauseError`, crashing the client `GenServer`.
 

@@ -88,7 +88,7 @@ defmodule KafkaEx.Client.MetadataStore.Round do
   end
 
   defp coordinator(spec) do
-    builder = fn versions -> build(:find_coordinator, &RequestBuilder.find_coordinator_request/2, versions, spec) end
+    builder = &build(:find_coordinator, &1, spec)
 
     case first_response(spec, builder) do
       {:ok, response, address, _versions} -> {:ok, %{coordinator: parse_coordinator(response, spec), address: address}}
@@ -99,7 +99,7 @@ defmodule KafkaEx.Client.MetadataStore.Round do
   defp metadata(spec, attempts_left) do
     started = now()
 
-    builder = fn versions -> build(:metadata, &RequestBuilder.metadata_request/2, versions, spec) end
+    builder = &build(:metadata, &1, spec)
 
     case first_response(spec, builder) do
       {:ok, response, address, versions} -> parsed(spec, response, address, versions, attempts_left, now() - started)
@@ -109,7 +109,7 @@ defmodule KafkaEx.Client.MetadataStore.Round do
   end
 
   defp parsed(spec, response, address, versions, attempts_left, walked) do
-    case ResponseParser.metadata_response(response) do
+    case @protocol.parse_response(:metadata, response) do
       {:ok, metadata} ->
         missing = MetadataLog.missing_topics(Keyword.get(spec.request_opts, :topics, []), metadata)
 
@@ -418,14 +418,14 @@ defmodule KafkaEx.Client.MetadataStore.Round do
   end
 
   # The builder logs a missing API on every call, and a round builds per candidate and per attempt.
-  defp build(api, builder, versions, spec) do
+  defp build(api, versions, spec) do
     state = struct(State, api_versions: versions)
 
     if Process.get(@unsupported_logged, false) and
          State.max_supported_api_version(state, api) == {:error, :api_not_supported_by_broker} do
       {:error, :api_not_supported_by_broker}
     else
-      result = builder.(spec.request_opts, state)
+      result = RequestBuilder.build(api, spec.request_opts, state)
       if result == {:error, :api_not_supported_by_broker}, do: Process.put(@unsupported_logged, true)
       result
     end
@@ -441,7 +441,7 @@ defmodule KafkaEx.Client.MetadataStore.Round do
   defp log_build_failure(_spec, _reason), do: Logger.error("Unable to build metadata request.")
 
   defp parse_coordinator(response, spec) do
-    case ResponseParser.find_coordinator_response(response) do
+    case @protocol.parse_response(:find_coordinator, response) do
       {:ok, %FindCoordinator{} = coordinator} ->
         coordinator
 

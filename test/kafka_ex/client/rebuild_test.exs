@@ -58,7 +58,7 @@ defmodule KafkaEx.Client.RebuildTest do
       assert_receive {:span, :stop, %{operation: :produce, api_version: 2}}, 1_000
 
       req_data = [topic: @topic, partition: 1, messages: messages, acks: 1, timeout: 1_234]
-      expected = req_data |> RequestBuilder.produce_request(at_versions(%{@produce_key => {2, 2}})) |> expected_body()
+      expected = :produce |> RequestBuilder.build(req_data, at_versions(%{@produce_key => {2, 2}})) |> expected_body()
       assert [written] = requests(fake, :produce)
       assert body(written) == expected
     end
@@ -105,7 +105,7 @@ defmodule KafkaEx.Client.RebuildTest do
       assert {:ok, _} = API.fetch(client, @topic, 1, 3, max_wait_time: 123, max_bytes: 4_567)
 
       req_data = [topic: @topic, partition: 1, offset: 3, max_wait_time: 123, max_bytes: 4_567]
-      expected = req_data |> RequestBuilder.fetch_request(at_versions(%{@fetch_key => {0, 0}})) |> expected_body()
+      expected = :fetch |> RequestBuilder.build(req_data, at_versions(%{@fetch_key => {0, 0}})) |> expected_body()
       assert [{2, 0}] = writes(fake, :fetch)
       assert [written] = requests(fake, :fetch)
       assert body(written) == expected

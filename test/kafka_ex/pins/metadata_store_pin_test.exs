@@ -2,8 +2,8 @@ defmodule KafkaEx.Pins.MetadataStorePinTest do
   use KafkaEx.TestSupport.PinCase, async: false
 
   alias KafkaEx.Client.MetadataStore
-  alias KafkaEx.Client.ResponseParser
   alias KafkaEx.Client.Supervisor, as: ClientSupervisor
+  alias KafkaEx.Protocol.KayrockProtocol
   alias KafkaEx.TestSupport.StoreCase
   alias KafkaEx.TestSupport.FakeTransport.Wire
 
@@ -226,7 +226,7 @@ defmodule KafkaEx.Pins.MetadataStorePinTest do
     {response, _rest} = Kayrock.Metadata.V12.Response.deserialize(frame)
 
     try do
-      ResponseParser.metadata_response(response)
+      KayrockProtocol.parse_response(:metadata, response)
       :no_raise
     rescue
       exception -> exception

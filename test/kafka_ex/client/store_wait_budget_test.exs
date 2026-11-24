@@ -15,7 +15,7 @@ defmodule KafkaEx.Client.StoreWaitBudgetTest do
 
   test "a send_request timeout below the default budget answers :timeout instead of exiting the caller" do
     %{client: client} = start_pinned()
-    {:ok, request} = RequestBuilder.metadata_request([topics: [@topic]], %State{api_versions: versions(client)})
+    {:ok, request} = RequestBuilder.build(:metadata, [topics: [@topic]], %State{api_versions: versions(client)})
     store = suspend_store(client)
 
     {result, _log} = with_log(fn -> Client.send_request(client, request, NodeSelector.first_available(), 1_500) end)
@@ -94,6 +94,25 @@ defmodule KafkaEx.Client.StoreWaitBudgetTest do
     assert resumed == {:error, Error.build(:timeout, %{})}
     assert resumed == from_mailbox
     assert count(fake, :metadata) == refreshes
+  end
+
+  test "an offset_commit whose budget is spent while the store is detached still ends its commit span with the error" do
+    %{client: client} = start_pinned()
+    events = for phase <- [:start, :stop], do: [:kafka_ex, :consumer, :commit, phase]
+    forward_telemetry(events, fn [_, _, _, phase], _measurements, metadata -> {:commit, phase, metadata} end)
+    %{store: %{pid: store}} = :sys.get_state(client)
+    :ok = :sys.suspend(client)
+    ref = Process.monitor(store)
+    Process.exit(store, :kill)
+    assert_receive {:DOWN, ^ref, :process, ^store, :killed}, 1_000
+
+    spent = [call_budget: {1, System.monotonic_time(:millisecond) - 1_000}]
+    call = :gen_server.send_request(client, {:offset_commit, "g", [{@topic, [%{partition_num: 0, offset: 5}]}], spent})
+    :ok = :sys.resume(client)
+
+    assert {:reply, {:error, %Error{error: :timeout}}} = :gen_server.receive_response(call, 5_000)
+    assert_receive {:commit, :start, _metadata}, 1_000
+    assert_receive {:commit, :stop, %{result: :error}}, 1_000
   end
 
   defp versions(client), do: :sys.get_state(client).api_versions

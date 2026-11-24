@@ -194,7 +194,7 @@ defmodule KafkaEx.Client.RequestSpanTest do
   defp produce_request do
     opts = [topic: @topic, partition: 0, messages: [%{value: "v"}], acks: 1, timeout: 1_000]
 
-    {:ok, request} = RequestBuilder.produce_request(opts, %State{api_versions: %{0 => {3, 3}}})
+    {:ok, request} = RequestBuilder.build(:produce, opts, %State{api_versions: %{0 => {3, 3}}})
     request
   end
 

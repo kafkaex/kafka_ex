@@ -21,7 +21,6 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   alias KafkaEx.Auth.SASL.VersionSupport
   alias KafkaEx.Client.ConnectionStateMachine.InFlight
   alias KafkaEx.Client.ConnectionStateMachine.ReconnectBackoff
-  alias KafkaEx.Client.ResponseParser
   alias KafkaEx.Client.State
   alias KafkaEx.Cluster.Broker
   alias KafkaEx.Network.NetworkClient
@@ -397,7 +396,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   defp parse_api_versions(<<id::32-signed, _::binary>> = frame, id, request) do
     {response, _rest} = @protocol.response_deserializer(request).(frame)
 
-    case ResponseParser.api_versions_response(response) do
+    case @protocol.parse_response(:api_versions, response) do
       {:ok, api_versions} -> {:ok, State.api_version_ranges(api_versions)}
       {:error, error} -> {:error, error}
     end
