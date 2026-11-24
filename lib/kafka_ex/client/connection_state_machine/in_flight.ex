@@ -15,8 +15,8 @@ defmodule KafkaEx.Client.ConnectionStateMachine.InFlight do
 
   @type t :: %__MODULE__{next: non_neg_integer(), entries: %{non_neg_integer() => map()}}
 
-  @spec new(non_neg_integer()) :: t()
-  def new(start) when is_integer(start) and start >= 0 and start <= @max_id, do: %__MODULE__{next: start}
+  @spec new() :: t()
+  def new, do: %__MODULE__{}
 
   @spec next_id(t()) :: {non_neg_integer(), t()}
   def next_id(%__MODULE__{next: id, entries: entries} = in_flight) do

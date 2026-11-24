@@ -53,8 +53,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine.ReconnectBackoff do
   @spec stable(:ets.tid(), term()) :: boolean()
   def stable(table, key), do: :ets.update_element(table, key, {3, 0})
 
-  @spec delay(pos_integer()) :: pos_integer()
-  def delay(failures) when is_integer(failures) and failures > 0 do
+  defp delay(failures) when is_integer(failures) and failures > 0 do
     Retry.backoff_delay_jittered(failures - 1, @base_ms, @cap_ms)
   end
 end

@@ -59,7 +59,7 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
   end
 
   test "a produce held past its request deadline gets :timeout, then liveness closes its connection, without a resend" do
-    %{fake: fake, client: client, host: host} = start_pinned(client: [connection: [liveness_slack: 100]])
+    %{fake: fake, client: client, host: host} = start_pinned(connection: [liveness_slack: 100])
     with_request_timeout(100)
     watch_close(host)
     FakeTransport.respond(fake, :produce, produce_reply())
@@ -113,7 +113,7 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
   end
 
   test "a request after the backoff interval connects with exactly one attempt" do
-    %{fake: fake, client: client, host: host, gate: gate} = start_pinned(client: [connection: [reconnect_window: 200]])
+    %{fake: fake, client: client, host: host, gate: gate} = start_pinned(connection: [reconnect_window: 200])
     FakeTransport.respond(fake, :produce, produce_reply())
     watch_close(host)
     drop_connection(fake, host)
@@ -131,7 +131,7 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
   describe "after a leader move, the old fetch connection stops within the idle timeout" do
     test "when the old leader is dead" do
       %{fake: fake, client: client, host: host, gate: gate} =
-        start_pinned(client: [connection: [idle_timeout: @idle_timeout]])
+        start_pinned(connection: [idle_timeout: @idle_timeout])
 
       FakeTransport.respond(fake, :fetch, &{:frame, fetch_frame(&1, -1)})
       assert {:ok, _} = API.fetch(client, @topic, 0, 0, max_wait_time: 10)
@@ -148,7 +148,7 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
 
     test "when the old connection holds an abandoned id" do
       %{fake: fake, client: client, host: host} =
-        start_pinned(client: [connection: [idle_timeout: @idle_timeout, liveness_slack: 200]])
+        start_pinned(connection: [idle_timeout: @idle_timeout, liveness_slack: 200])
 
       FakeTransport.respond(fake, :fetch, &{:frame, fetch_frame(&1, -1)})
       assert {:ok, _} = API.fetch(client, @topic, 0, 0, max_wait_time: 10)
@@ -230,7 +230,7 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
   defp start_for_backoff(client_opts, opts \\ []) do
     {window, opts} = Keyword.pop(opts, :window, 25)
     connection = [reconnect_window: window, stable_period: 0]
-    pinned = start_pinned([client: [connection: connection] ++ client_opts] ++ opts)
+    pinned = start_pinned([client: client_opts, connection: connection] ++ opts)
     _ = :sys.get_state(metadata_connection(pinned.client, pinned.host))
     pinned
   end

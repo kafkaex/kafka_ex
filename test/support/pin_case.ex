@@ -15,6 +15,7 @@ defmodule KafkaEx.TestSupport.PinCase do
   alias KafkaEx.Client
   alias KafkaEx.Client.ConnectionStateMachine
   alias KafkaEx.Client.Supervisor, as: ClientSupervisor
+  alias KafkaEx.Network.NetworkClient
   alias KafkaEx.TestSupport.FakeTransport
   alias KafkaEx.TestSupport.PinGate
 
@@ -48,7 +49,18 @@ defmodule KafkaEx.TestSupport.PinCase do
     end
   end
 
+  def stub_transport(transport \\ PinGate) do
+    Mimic.set_mimic_global()
+    Mimic.stub(NetworkClient, :connect, &transport.connect/4)
+    Mimic.stub(NetworkClient, :write, &transport.write/2)
+    Mimic.stub(NetworkClient, :read, &transport.read/2)
+    Mimic.stub(NetworkClient, :activate, &transport.activate/1)
+    Mimic.stub(NetworkClient, :close, &transport.close/1)
+  end
+
   def start_pinned(opts \\ []) do
+    with_connection(Keyword.get(opts, :connection, []))
+    with_store(Keyword.get(opts, :store, []))
     versions = @versions |> Map.merge(Keyword.get(opts, :api_versions, %{})) |> Map.reject(&is_nil(elem(&1, 1)))
     topics = Keyword.get(opts, :topics, %{@topic => [1, 2]})
     fake_opts = [topics: topics, api_versions: versions] ++ Keyword.get(opts, :fake, [])
@@ -62,7 +74,6 @@ defmodule KafkaEx.TestSupport.PinCase do
       [
         uris: Enum.map(Keyword.get(opts, :bootstrap, [9092]), &{host, &1}),
         consumer_group: :no_consumer_group,
-        transport: PinGate,
         ssl_options: PinGate.ssl_options(gate, fake),
         metadata_update_interval: 3_600_000
       ]
@@ -79,6 +90,7 @@ defmodule KafkaEx.TestSupport.PinCase do
   end
 
   def start_fake(brokers, opts \\ []) do
+    stub_transport()
     host = "pin-#{System.unique_integer([:positive])}"
     brokers = Enum.map(brokers, fn {node_id, port} -> {node_id, host, port} end)
     fake = start_supervised!(Supervisor.child_spec({FakeTransport, [brokers: brokers] ++ opts}, id: make_ref()))
@@ -209,7 +221,17 @@ defmodule KafkaEx.TestSupport.PinCase do
     assert_receive {:pin_closed, %{port: 9092}}, 5_000
   end
 
+  def fail_connection_start, do: with_env(:connection, :invalid)
+
   def with_request_timeout(ms), do: with_env(:request_timeout, ms)
+
+  def with_connection(opts) do
+    {connect_timeout, settings} = Keyword.pop(opts, :connect_timeout)
+    if connect_timeout, do: with_env(:connect_timeout, connect_timeout)
+    with_env(:connection, settings)
+  end
+
+  def with_store(opts), do: with_env(:metadata_store, opts)
 
   def with_env(key, value) do
     previous = Application.fetch_env(:kafka_ex, key)

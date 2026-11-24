@@ -34,7 +34,7 @@ defmodule KafkaEx.Client.MetadataStoreOutageTest do
 
   test "a store wait longer than the caller's budget answers :timeout instead of exiting the caller" do
     with_request_timeout(100)
-    %{fake: fake, client: client, host: host} = start_pinned(client: [store: [ladder_delay: 4_500]])
+    %{fake: fake, client: client, host: host} = start_pinned(store: [ladder_delay: 4_500])
     FakeTransport.respond(fake, :metadata, metadata_reply(host, %{@topic => [1, 2]}))
 
     {result, _log} = with_log(fn -> API.topics_metadata(client, ["ghost"]) end)
@@ -45,7 +45,7 @@ defmodule KafkaEx.Client.MetadataStoreOutageTest do
 
   test "a budget cut inside produce stops its span with the timeout error and emits no exception" do
     with_request_timeout(100)
-    %{fake: fake, client: client, host: host} = start_pinned(client: [store: [ladder_delay: 4_500]])
+    %{fake: fake, client: client, host: host} = start_pinned(store: [ladder_delay: 4_500])
     FakeTransport.respond(fake, :metadata, metadata_reply(host, %{@topic => [1, 2]}))
     test = self()
     handler = "budget-span-#{host}"
@@ -257,7 +257,7 @@ defmodule KafkaEx.Client.MetadataStoreOutageTest do
   end
 
   defp start_outage_client do
-    pinned = start_pinned(client: [metadata_update_interval: 100, connection: [connect_timeout: 300]])
+    pinned = start_pinned(client: [metadata_update_interval: 100], connection: [connect_timeout: 300])
     FakeTransport.respond(pinned.fake, :produce, produce_reply())
     %{supervisor: supervisor, store: %{pid: store}} = :sys.get_state(pinned.client)
     Map.merge(pinned, %{supervisor: supervisor, store: store})

@@ -1,5 +1,5 @@
 defmodule KafkaEx.TestSupport.FakeTransportTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
 
@@ -10,6 +10,7 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
   alias KafkaEx.Network.Socket
   alias KafkaEx.TestSupport.FakeTransport
   alias KafkaEx.TestSupport.FakeTransport.Wire
+  alias KafkaEx.TestSupport.PinCase
   alias KafkaEx.TestSupport.TLSFixtures
 
   @heartbeat 12
@@ -39,7 +40,10 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
   defp bad_script(:returns_unsupported), do: fn _request -> :maybe end
   defp bad_script(:is_unencodable), do: %{brokers: [%{node_id: "seven", host: "x", port: 1}], topics: []}
 
-  defp start_fake(opts \\ []), do: start_supervised!({FakeTransport, opts}, id: make_ref())
+  defp start_fake(opts \\ []) do
+    PinCase.stub_transport(FakeTransport)
+    start_supervised!({FakeTransport, opts}, id: make_ref())
+  end
 
   defp connect(fake, host, port, opts \\ []) do
     case seam_connect(fake, host, port, opts) do
@@ -132,7 +136,6 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
           [
             uris: [{"a", 9092}],
             consumer_group: :no_consumer_group,
-            transport: FakeTransport,
             use_ssl: true,
             ssl_options: FakeTransport.ssl_options(fake, tls.client_ok),
             auth: auth
@@ -171,7 +174,6 @@ defmodule KafkaEx.TestSupport.FakeTransportTest do
           [
             uris: [{"a", 9092}],
             consumer_group: :no_consumer_group,
-            transport: FakeTransport,
             ssl_options: FakeTransport.ssl_options(fake)
           ],
           :no_name

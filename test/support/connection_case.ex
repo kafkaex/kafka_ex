@@ -3,7 +3,7 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
   Starts a `KafkaEx.Client.ConnectionStateMachine` on the fake transport and builds its dispatches.
 
   `start_connection/5` takes the `ConnectionStateMachine` options plus `:reconnect_backoff`, `:auth`,
-  `:use_ssl`, `:ssl_options`, `:gate` (a `PinGate`, which also selects it as the transport) and `:secrets`.
+  `:use_ssl`, `:ssl_options`, `:gate` (a `PinGate`) and `:secrets`.
   """
 
   use ExUnit.CaseTemplate
@@ -19,6 +19,7 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
   alias KafkaEx.Client.State
   alias KafkaEx.Protocol.KayrockProtocol
   alias KafkaEx.TestSupport.FakeTransport
+  alias KafkaEx.TestSupport.PinCase
   alias KafkaEx.TestSupport.PinGate
 
   @port 9092
@@ -49,6 +50,7 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
   def port, do: @port
 
   def start_fake(opts \\ []) do
+    PinCase.stub_transport()
     host = "conn-#{System.unique_integer([:positive])}"
     versions = Map.merge(@versions, Keyword.get(opts, :api_versions, %{}))
     fake_opts = [brokers: [{1, host, @port}], api_versions: versions] ++ Keyword.drop(opts, [:api_versions])
@@ -57,6 +59,7 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
   end
 
   def start_connection(fake, host, port, role, opts \\ []) do
+    PinCase.with_connection(Keyword.drop(opts, @case_options))
     backoff = Keyword.get_lazy(opts, :reconnect_backoff, &ReconnectBackoff.new/0)
 
     pid =
@@ -75,7 +78,7 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
   end
 
   def args(fake, host, port, role, backoff, opts) do
-    {transport, ssl_options} = transport(fake, opts)
+    ssl_options = ssl_options(fake, opts)
     auth = opts[:auth]
 
     %{
@@ -84,19 +87,17 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
       port: port,
       role: role,
       use_ssl: Keyword.get(opts, :use_ssl, false),
-      transport: transport,
       secrets: Keyword.get(opts, :secrets, fn -> %{ssl_options: ssl_options, auth: auth} end),
-      reconnect_backoff: backoff,
-      opts: Keyword.drop(opts, @case_options)
+      reconnect_backoff: backoff
     }
   end
 
-  defp transport(fake, opts) do
+  defp ssl_options(fake, opts) do
     extra = Keyword.get(opts, :ssl_options, [])
 
     case opts[:gate] do
-      nil -> {FakeTransport, FakeTransport.ssl_options(fake, extra)}
-      gate -> {PinGate, PinGate.ssl_options(gate, fake) ++ extra}
+      nil -> FakeTransport.ssl_options(fake, extra)
+      gate -> PinGate.ssl_options(gate, fake) ++ extra
     end
   end
 
@@ -132,6 +133,9 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
   end
 
   def now, do: System.monotonic_time(:millisecond)
+
+  def correlate_from(conn, id),
+    do: :sys.replace_state(conn, fn {state, data} -> {state, put_in(data.in_flight.next, id)} end)
 
   def request(api, opts \\ []), do: build(api, opts, Map.new(@versions, fn {api, range} -> {key(api), range} end))
 

@@ -240,12 +240,6 @@ defmodule KafkaEx.Client.MetadataStoreTest do
       assert MetadataTable.topics(tid, ["gone"]) == {:ok, []}
     end
 
-    test "freshness entries older than every live seq are pruned, newer ones kept" do
-      freshness = %{topics: %{"old" => 2, "edge" => 3, "new" => 4}, brokers: 4}
-
-      assert MetadataStore.prune(freshness, 3) == %{topics: %{"edge" => 3, "new" => 4}, brokers: 4}
-    end
-
     test "routing after several refresh rounds equals the ClusterMetadata merge and select_node" do
       ctx =
         start_fake([{1, 9092}, {2, 9093}, {2, 9094}], topics: %{"pin" => [1, 2]}, api_versions: versions())
@@ -344,9 +338,7 @@ defmodule KafkaEx.Client.MetadataStoreTest do
       await!(store)
       monitor = Process.monitor(store)
 
-      :sys.replace_state(store, fn {state, data} ->
-        {state, put_in(data.connection.opts, initial_correlation_id: -1)}
-      end)
+      fail_connection_start()
 
       {exit, _log} = with_log(fn -> catch_exit(MetadataStore.connection(store, {ctx.host, 9093}, 1_000)) end)
 

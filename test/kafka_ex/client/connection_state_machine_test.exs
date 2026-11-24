@@ -387,7 +387,8 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
       fake: fake,
       host: host
     } do
-      %{conn: conn} = start_connection(fake, host, port(), :data, initial_correlation_id: 41)
+      %{conn: conn} = start_connection(fake, host, port(), :data)
+      correlate_from(conn, 41)
       FakeTransport.respond(fake, :produce, frame("ok"))
 
       assert {:ok, _reply, %{correlation_id: answered}} = dispatch(conn, request(:produce))
@@ -403,15 +404,15 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
       fake: fake,
       host: host
     } do
-      %{conn: conn} = start_connection(fake, host, port(), :data, initial_correlation_id: 2_147_483_646)
+      %{conn: conn} = start_connection(fake, host, port(), :data)
+      correlate_from(conn, 2_147_483_646)
       FakeTransport.respond(fake, :produce, frame("ok"))
       FakeTransport.hold(fake, :produce)
 
       {{:error, :timeout, _meta}, _log} = with_log(fn -> dispatch(conn, request(:produce), timeout: 100) end)
       later = for _ <- 1..2, do: async_dispatch(conn, request(:produce))
       await_in_flight(conn, 3)
-      # Stands in for 2^31 requests: the counter comes round to the ids still registered.
-      :sys.replace_state(conn, fn {state, data} -> {state, put_in(data.in_flight.next, 2_147_483_646)} end)
+      correlate_from(conn, 2_147_483_646)
       wrapped = async_dispatch(conn, request(:produce))
       await_in_flight(conn, 4)
       FakeTransport.release(fake, :produce)
@@ -1055,7 +1056,7 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
     end
 
     test "a fetch connection answered at once in a spent outage still idles out", %{fake: fake, host: host, gate: gate} do
-      opts = [gate: gate, reconnect_window: 600, idle_timeout: 300, idle_jitter: 0.2]
+      opts = [gate: gate, reconnect_window: 600, idle_timeout: 300]
       %{conn: conn} = start_connection(fake, host, port(), :fetch, opts)
       monitor = Process.monitor(conn)
       spend_outage(conn, gate)
@@ -1125,7 +1126,7 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
 
     test "fetch idle close is jittered and stops the process", %{fake: fake, host: host} do
       watch_connection_clock(host)
-      %{conn: conn} = start_connection(fake, host, port(), :fetch, idle_timeout: 200, idle_jitter: 0.2)
+      %{conn: conn} = start_connection(fake, host, port(), :fetch, idle_timeout: 200)
       monitor = Process.monitor(conn)
       {:ok, _versions} = ConnectionStateMachine.connect(conn, 5_000)
 

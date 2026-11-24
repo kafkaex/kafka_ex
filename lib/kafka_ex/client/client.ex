@@ -100,8 +100,6 @@ defmodule KafkaEx.Client do
   @impl true
   def init([args, _name]) do
     state = State.static_init(args)
-    :ok = validate_transport!(state.transport)
-    :ok = validate_connection_opts!(state.connection_opts)
 
     unless KafkaEx.valid_consumer_group?(state.consumer_group_for_auto_commit) do
       raise KafkaEx.InvalidConsumerGroupError,
@@ -120,8 +118,7 @@ defmodule KafkaEx.Client do
     state = %{
       state
       | reconnect_backoff: ReconnectBackoff.new(),
-        store_opts: Keyword.get(args, :store, []),
-        connection_options: ConnectionStateMachine.options(state.connection_opts)
+        connection_options: ConnectionStateMachine.options()
     }
 
     {:ok, supervisor} = ClientSupervisor.start_link(%{store: store_args(state, args)})
@@ -147,19 +144,16 @@ defmodule KafkaEx.Client do
       allow_auto_topic_creation: state.allow_auto_topic_creation,
       connection: %{
         use_ssl: state.use_ssl,
-        transport: state.transport,
         secrets: secrets_fun(state),
-        reconnect_backoff: state.reconnect_backoff,
-        opts: connection_opts(state)
-      },
-      opts: state.store_opts
+        reconnect_backoff: state.reconnect_backoff
+      }
     }
   end
 
   defp await_boot(nil, _state), do: {:error, :no_store}
 
   defp await_boot(store, state) do
-    timeout = MetadataStore.call_timeout(length(state.bootstrap_uris), connection_opts(state), state.store_opts, :load)
+    timeout = MetadataStore.call_timeout(length(state.bootstrap_uris), :load)
 
     case MetadataStore.await_ready(store, timeout) do
       {:ok, ready} -> {:ok, ready}
@@ -232,35 +226,6 @@ defmodule KafkaEx.Client do
     raise "ApiVersions negotiation failed: #{inspect(reason)}. " <>
             "Check broker connectivity and network configuration."
   end
-
-  @transport_functions [connect: 4, write: 2, read: 2, activate: 1, close: 1]
-
-  defp validate_transport!(transport) do
-    valid? =
-      is_atom(transport) and Code.ensure_loaded?(transport) and
-        Enum.all?(@transport_functions, fn {name, arity} -> function_exported?(transport, name, arity) end)
-
-    if valid?, do: :ok, else: raise(ArgumentError, "invalid :transport #{inspect(transport)}")
-  end
-
-  defp validate_connection_opts!(opts) do
-    valid? = Keyword.keyword?(opts) and Enum.all?(opts, &valid_connection_opt?/1)
-    if valid?, do: :ok, else: raise(ArgumentError, "invalid :connection #{inspect(opts)}")
-  end
-
-  @positive_connection_opts [:connect_timeout, :idle_timeout, :send_timeout]
-  @non_negative_connection_opts [:reconnect_window, :liveness_slack, :stable_period]
-
-  defp valid_connection_opt?({key, value}) when key in @positive_connection_opts, do: is_integer(value) and value > 0
-
-  defp valid_connection_opt?({key, value}) when key in @non_negative_connection_opts do
-    is_integer(value) and value >= 0
-  end
-
-  defp valid_connection_opt?({:idle_jitter, value}), do: is_number(value) and value >= 0 and value <= 1
-  defp valid_connection_opt?({:initial_correlation_id, value}), do: value in 0..2_147_483_647
-  defp valid_connection_opt?({:client_id, value}), do: is_binary(value)
-  defp valid_connection_opt?(_other), do: true
 
   # The caller's GenServer.call gives up after its budget, so the client stops waiting on the store before that.
   @impl true
@@ -749,8 +714,8 @@ defmodule KafkaEx.Client do
   # An empty snapshot means the store is loading, and a refresh then waits for its load round.
   defp round_call_timeout(state, store) do
     case MetadataTable.brokers(store.tid) do
-      [] -> MetadataStore.call_timeout(length(state.bootstrap_uris), connection_opts(state), state.store_opts, :load)
-      brokers -> MetadataStore.call_timeout(length(brokers), connection_opts(state), state.store_opts)
+      [] -> MetadataStore.call_timeout(length(state.bootstrap_uris), :load)
+      brokers -> MetadataStore.call_timeout(length(brokers))
     end
   end
 
@@ -2190,10 +2155,8 @@ defmodule KafkaEx.Client do
           port: port,
           role: role,
           use_ssl: state.use_ssl,
-          transport: state.transport,
           secrets: secrets_fun(state),
-          reconnect_backoff: state.reconnect_backoff,
-          opts: connection_opts(state)
+          reconnect_backoff: state.reconnect_backoff
         }
 
         case start_connection(state.supervisor, args) do
@@ -2232,10 +2195,6 @@ defmodule KafkaEx.Client do
     ssl_options = state.ssl_options
     auth = state.auth
     fn -> %{ssl_options: ssl_options, auth: auth} end
-  end
-
-  defp connection_opts(state) do
-    Keyword.merge([client_id: Config.client_id()], state.connection_opts)
   end
 
   defp broker_to_telemetry_info(nil), do: %{}

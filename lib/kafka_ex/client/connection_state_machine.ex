@@ -24,9 +24,11 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   alias KafkaEx.Client.ResponseParser
   alias KafkaEx.Client.State
   alias KafkaEx.Cluster.Broker
+  alias KafkaEx.Network.NetworkClient
   alias KafkaEx.Telemetry
 
   @protocol Application.compile_env(:kafka_ex, :protocol, KafkaEx.Protocol.KayrockProtocol)
+  @idle_jitter 0.2
 
   @meta0 %{bytes_sent: 0, bytes_received: 0}
   @setup_states [:connecting, :negotiating, :authenticating]
@@ -76,18 +78,18 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   @impl :gen_statem
   def init(args) do
     Process.flag(:trap_exit, true)
-    opts = options(args.opts)
+    opts = options()
 
     data =
       args
-      |> Map.take([:host, :port, :role, :use_ssl, :transport, :secrets, :reconnect_backoff])
+      |> Map.take([:host, :port, :role, :use_ssl, :secrets, :reconnect_backoff])
       |> Map.merge(%{
         opts: opts,
         owner_ref: Process.monitor(args.client),
         socket: nil,
         node_id: nil,
         api_versions: nil,
-        in_flight: InFlight.new(opts.initial_correlation_id),
+        in_flight: InFlight.new(),
         waiting: :queue.new(),
         connectors: [],
         setup_deadline: nil,
@@ -100,18 +102,18 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   end
 
   @doc false
-  @spec options(Keyword.t()) :: map()
-  def options(opts) do
+  @spec options() :: map()
+  def options do
+    settings = Application.get_env(:kafka_ex, :connection, [])
+
     %{
-      connect_timeout: Keyword.get_lazy(opts, :connect_timeout, &KafkaEx.Config.connect_timeout/0),
-      reconnect_window: Keyword.get(opts, :reconnect_window, 1_500),
-      liveness_slack: Keyword.get(opts, :liveness_slack, 5_000),
-      idle_timeout: Keyword.get(opts, :idle_timeout, 60_000),
-      idle_jitter: Keyword.get(opts, :idle_jitter, 0.2),
-      stable_period: Keyword.get(opts, :stable_period, 10_000),
-      send_timeout: Keyword.get_lazy(opts, :send_timeout, &KafkaEx.Config.request_timeout/0),
-      initial_correlation_id: Keyword.get(opts, :initial_correlation_id, 0),
-      client_id: Keyword.get(opts, :client_id)
+      connect_timeout: KafkaEx.Config.connect_timeout(),
+      reconnect_window: Keyword.get(settings, :reconnect_window, 1_500),
+      liveness_slack: Keyword.get(settings, :liveness_slack, 5_000),
+      idle_timeout: Keyword.get(settings, :idle_timeout, 60_000),
+      stable_period: Keyword.get(settings, :stable_period, 10_000),
+      send_timeout: Keyword.get_lazy(settings, :send_timeout, &KafkaEx.Config.request_timeout/0),
+      client_id: KafkaEx.Config.client_id()
     }
   end
 
@@ -336,7 +338,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
     %{ssl_options: ssl_options} = data.secrets.()
     address = %{host: data.host, port: data.port, role: data.role}
 
-    case data.transport.connect(address, base_options(data) ++ ssl_options, data.use_ssl, data.opts.connect_timeout) do
+    case NetworkClient.connect(address, base_options(data) ++ ssl_options, data.use_ssl, data.opts.connect_timeout) do
       {:ok, socket} ->
         {:next_state, :negotiating, %{data | socket: socket}, [run()]}
 
@@ -386,8 +388,8 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
     {id, _} = InFlight.next_id(data.in_flight)
     request = %{@protocol.build_request(:api_versions, 0, []) | correlation_id: id, client_id: data.opts.client_id}
 
-    with :ok <- data.transport.write(data.socket, @protocol.serialize_request(request)),
-         {:ok, frame} <- data.transport.read(data.socket, remaining) do
+    with :ok <- NetworkClient.write(data.socket, @protocol.serialize_request(request)),
+         {:ok, frame} <- NetworkClient.read(data.socket, remaining) do
       parse_api_versions(frame, id, request)
     end
   end
@@ -406,7 +408,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   defp parse_api_versions(_frame, _id, _request), do: {:error, :parse_error}
 
   defp activate(data) do
-    case data.transport.activate(data.socket) do
+    case NetworkClient.activate(data.socket) do
       :ok ->
         ReconnectBackoff.connected(data.reconnect_backoff, key(data), now())
         data = stop_span(data, :connection, %{success: true})
@@ -526,7 +528,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   defp write_wire(from, dispatch, id, wire, data) do
     bytes = IO.iodata_length(wire)
 
-    case data.transport.write(data.socket, wire) do
+    case NetworkClient.write(data.socket, wire) do
       :ok -> written(from, dispatch, id, bytes, data)
       {:error, reason} -> send_failed(from, dispatch, reason, {id, bytes}, data)
     end
@@ -584,7 +586,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   defp received(_frame, data), do: close_client_side(:correlation_mismatch, data)
 
   defp rearm(data, actions) do
-    case data.transport.activate(data.socket) do
+    case NetworkClient.activate(data.socket) do
       :ok -> {:keep_state, data, actions ++ [liveness_timer(data) | idle_when_empty(data)]}
       {:error, _reason} -> peer_closed(data, actions)
     end
@@ -602,7 +604,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   defp idle_when_empty(data), do: if(fetch?(data) and InFlight.empty?(data.in_flight), do: [idle(data)], else: [])
 
   defp idle(data) do
-    jitter = data.opts.idle_jitter * (2 * :rand.uniform() - 1)
+    jitter = @idle_jitter * (2 * :rand.uniform() - 1)
     {{:timeout, :idle}, round(data.opts.idle_timeout * (1 + jitter)), nil}
   end
 
@@ -694,7 +696,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
 
   defp close_socket(data, reason) do
     if reason, do: Telemetry.emit_connection_close(data.host, data.port, reason)
-    data.transport.close(data.socket)
+    NetworkClient.close(data.socket)
     %{data | socket: nil}
   end
 

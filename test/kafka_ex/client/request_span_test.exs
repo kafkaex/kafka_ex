@@ -8,7 +8,7 @@ defmodule KafkaEx.Client.RequestSpanTest do
   alias KafkaEx.Messages.RecordMetadata
 
   setup do
-    pinned = start_pinned(client: [connection: [reconnect_window: 200]])
+    pinned = start_pinned(connection: [reconnect_window: 200])
     events = for phase <- [:start, :stop, :exception], do: [:kafka_ex, :request, phase]
     forward_telemetry(events, fn [_, _, phase], _measurements, metadata -> {:request_span, phase, metadata} end)
     pinned
@@ -140,7 +140,7 @@ defmodule KafkaEx.Client.RequestSpanTest do
       ref = Process.monitor(client)
       warm_data_connection(fake, client)
       FakeTransport.respond(fake, :produce, :close)
-      :sys.replace_state(client, &%{&1 | connection_opts: [initial_correlation_id: -1]})
+      fail_connection_start()
 
       {exit, _log} =
         with_log(fn -> catch_exit(Client.send_request(client, produce_request(), NodeSelector.first_available())) end)

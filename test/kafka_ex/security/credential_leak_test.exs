@@ -10,6 +10,7 @@ defmodule KafkaEx.Security.CredentialLeakTest do
   alias KafkaEx.Telemetry
   alias KafkaEx.TestSupport.FakeTransport
   alias KafkaEx.TestSupport.LeakProbe
+  alias KafkaEx.TestSupport.PinCase
   alias KafkaEx.TestSupport.TLSFixtures
 
   @moduletag :leak
@@ -83,6 +84,7 @@ defmodule KafkaEx.Security.CredentialLeakTest do
   end
 
   setup do
+    PinCase.stub_transport()
     sleep = Application.get_env(:kafka_ex, :sleep_for_reconnect)
     Application.put_env(:kafka_ex, :sleep_for_reconnect, 0)
 
@@ -144,6 +146,7 @@ defmodule KafkaEx.Security.CredentialLeakTest do
   end
 
   defp measure(mechanism, kase, tls) do
+    if kase == :recv_silence, do: PinCase.with_env(:connect_timeout, 300)
     host = "leak-#{mechanism}-#{kase}"
     fake = start_supervised!({FakeTransport, brokers: [{1, host, @port}], tls: tls.server}, id: make_ref())
     :ok = FakeTransport.subscribe(fake)
@@ -167,18 +170,15 @@ defmodule KafkaEx.Security.CredentialLeakTest do
 
   defp client_opts(%{mechanism: mechanism, kase: kase, host: host, fake: fake}, tls) do
     tls_opts = if mechanism == :plain, do: [use_ssl: true, ssl_options: FakeTransport.ssl_options(fake, tls.client_ok)]
-    deadline = if kase == :recv_silence, do: [connection: [connect_timeout: 300]]
 
     [
       uris: [{host, @port}],
       consumer_group: :no_consumer_group,
-      transport: FakeTransport,
       ssl_options: FakeTransport.ssl_options(fake),
       metadata_update_interval: 3_600_000,
       auth: auth(mechanism, kase)
     ]
     |> Keyword.merge(tls_opts || [])
-    |> Keyword.merge(deadline || [])
   end
 
   defp drive(%{kase: kase} = run, opts) do

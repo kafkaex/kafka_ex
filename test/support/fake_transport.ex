@@ -1,14 +1,15 @@
 defmodule KafkaEx.TestSupport.FakeTransport do
   @moduledoc """
   Loopback fake broker behind `KafkaEx.Network.Transport`,
-  selected with the internal `:transport` client option.
+  that `PinCase.stub_transport/1` stubs in for `KafkaEx.Network.NetworkClient`.
 
   Every connection is a real socket pair: the connecting process owns the client side, a peer
   process owns the server side and answers like a broker. Start a fake per test and hand it to
   the client inside `ssl_options`, the one option the client forwards to `connect/4`:
 
+      PinCase.stub_transport(FakeTransport)
       fake = start_supervised!({FakeTransport, brokers: [{1, "a", 9092}]})
-      opts = [uris: [{"a", 9092}], transport: FakeTransport, ssl_options: FakeTransport.ssl_options(fake)]
+      opts = [uris: [{"a", 9092}], ssl_options: FakeTransport.ssl_options(fake)]
       {:ok, client} = KafkaEx.Client.start_link(opts, :no_name)
 
   Without a fake in `ssl_options` the connecting process starts its own, which answers

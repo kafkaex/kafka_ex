@@ -40,7 +40,6 @@ defmodule KafkaEx.Pins.ContractSurfacePinTest do
       opts = [
         uris: [{host, 9092}],
         consumer_group: :no_consumer_group,
-        transport: FakeTransport,
         ssl_options: FakeTransport.ssl_options(fake)
       ]
 
