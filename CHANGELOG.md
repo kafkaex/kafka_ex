@@ -4,6 +4,10 @@
 
 ### Added
 
+* **`:connection` and `:metadata_store` application settings** are now documented. They
+  control connection liveness, idle and reconnect timing and the pacing of metadata-store refreshes.
+  Defaults are unchanged. See `KafkaEx.Config.connection/0` and `KafkaEx.Config.metadata_store/0`.
+
 * **`:max_records` for `GenConsumer`** (Java's `max.poll.records`). With `max_records: n`, each
   `handle_message_set/2` call receives at most `n` records. The rest of a larger fetch is buffered
   in the consumer and handed out in later calls before the next fetch. Each call's

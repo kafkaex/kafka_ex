@@ -104,17 +104,10 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   @doc false
   @spec options() :: map()
   def options do
-    settings = Application.get_env(:kafka_ex, :connection, [])
-
-    %{
+    Map.merge(KafkaEx.Config.connection(), %{
       connect_timeout: KafkaEx.Config.connect_timeout(),
-      reconnect_window: Keyword.get(settings, :reconnect_window, 1_500),
-      liveness_slack: Keyword.get(settings, :liveness_slack, 5_000),
-      idle_timeout: Keyword.get(settings, :idle_timeout, 60_000),
-      stable_period: Keyword.get(settings, :stable_period, 10_000),
-      send_timeout: Keyword.get_lazy(settings, :send_timeout, &KafkaEx.Config.request_timeout/0),
       client_id: KafkaEx.Config.client_id()
-    }
+    })
   end
 
   @impl :gen_statem

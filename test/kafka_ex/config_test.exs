@@ -383,6 +383,47 @@ defmodule KafkaEx.ConfigTest do
     end
   end
 
+  describe "connection/0 and metadata_store/0" do
+    setup do
+      on_exit(fn ->
+        Application.delete_env(:kafka_ex, :connection)
+        Application.delete_env(:kafka_ex, :metadata_store)
+      end)
+    end
+
+    test "return the defaults, send_timeout following request_timeout" do
+      Application.delete_env(:kafka_ex, :connection)
+      Application.delete_env(:kafka_ex, :metadata_store)
+
+      assert Config.connection() == %{
+               reconnect_window: 1_500,
+               liveness_slack: 5_000,
+               idle_timeout: 60_000,
+               stable_period: 10_000,
+               send_timeout: Config.request_timeout()
+             }
+
+      assert Config.metadata_store() == %{
+               min_interval: 100,
+               backoff_base: 100,
+               backoff_cap: 1_000,
+               coordinator_base: 500,
+               coordinator_cap: 1_000,
+               ladder_delay: 300,
+               connect_slack: 1_500,
+               request_slack: 1_000
+             }
+    end
+
+    test "a configured value overrides only its own default" do
+      Application.put_env(:kafka_ex, :connection, idle_timeout: 5_000)
+      Application.put_env(:kafka_ex, :metadata_store, min_interval: 7)
+
+      assert %{idle_timeout: 5_000, reconnect_window: 1_500} = Config.connection()
+      assert %{min_interval: 7, backoff_cap: 1_000} = Config.metadata_store()
+    end
+  end
+
   def get_brokers(opts) do
     port = Keyword.get(opts, :port)
 

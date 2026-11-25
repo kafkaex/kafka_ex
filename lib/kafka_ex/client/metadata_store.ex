@@ -16,16 +16,6 @@ defmodule KafkaEx.Client.MetadataStore do
   alias KafkaEx.Support.Retry
   alias KafkaEx.Telemetry
 
-  @defaults [
-    min_interval: 100,
-    backoff_base: 100,
-    backoff_cap: 1_000,
-    coordinator_base: 500,
-    coordinator_cap: 1_000,
-    ladder_delay: 300,
-    connect_slack: 1_500,
-    request_slack: 1_000
-  ]
   @call_timeout 5_000
 
   @type address :: {binary(), :inet.port_number()}
@@ -86,17 +76,13 @@ defmodule KafkaEx.Client.MetadataStore do
   # A trigger can wait for the in-flight round of its key, then its own, plus the longest pacing delay (cap x 1.2).
   @spec call_timeout(non_neg_integer(), Round.kind()) :: pos_integer()
   def call_timeout(brokers, kind \\ :metadata) do
-    opts = store_options()
+    opts = Config.metadata_store()
     budget = budget(kind, List.duplicate(nil, max(brokers, 1)), opts)
 
     2 * Round.bound(budget) + div(max(opts.backoff_cap, opts.coordinator_cap) * 6, 5)
   end
 
   defp prune(freshness, floor), do: %{freshness | topics: Map.filter(freshness.topics, fn {_, seq} -> seq >= floor end)}
-
-  defp store_options do
-    Map.new(Keyword.merge(@defaults, Application.get_env(:kafka_ex, :metadata_store, [])))
-  end
 
   @impl :gen_statem
   def callback_mode, do: :handle_event_function
@@ -110,7 +96,7 @@ defmodule KafkaEx.Client.MetadataStore do
       interval: args.interval,
       allow_default: args.allow_auto_topic_creation,
       connection: args.connection,
-      opts: store_options(),
+      opts: Config.metadata_store(),
       table: MetadataTable.new(),
       freshness: %{topics: %{}, brokers: 0},
       seq: 0,
