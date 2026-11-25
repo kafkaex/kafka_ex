@@ -77,6 +77,54 @@ defmodule KafkaEx.Client.StoreWaitBudgetTest do
     assert waited >= RequestBudget.deadline_budget(call_timeout)
   end
 
+  test "an unusable call_budget waits on the store like a message without one" do
+    with_request_timeout(100)
+    %{client: client} = start_pinned()
+    call_timeout = RequestBudget.call_budget(Config.request_timeout(), Client.retry_count())
+    store = suspend_store(client)
+    started = System.monotonic_time(:millisecond)
+
+    {result, _log} =
+      with_log(fn -> GenServer.call(client, {:topic_metadata, ["ghost"], [call_budget: 5]}, call_timeout) end)
+
+    waited = System.monotonic_time(:millisecond) - started
+    :sys.resume(store)
+    assert result == {:error, :timeout}
+    assert waited >= RequestBudget.deadline_budget(call_timeout)
+  end
+
+  test "a spent call_budget among opts that are not a keyword list still ends the store wait at once" do
+    with_request_timeout(2_000)
+    %{client: client} = start_pinned()
+    store = suspend_store(client)
+    spent = {1, System.monotonic_time(:millisecond) - 1_000}
+    started = System.monotonic_time(:millisecond)
+
+    {result, _log} =
+      with_log(fn -> GenServer.call(client, {:topic_metadata, ["ghost"], [:x, call_budget: spent]}, 10_000) end)
+
+    waited = System.monotonic_time(:millisecond) - started
+    :sys.resume(store)
+    assert result == {:error, :timeout}
+    assert waited < 1_000
+  end
+
+  test "a spent call_budget inside a metadata message ends the store wait at once" do
+    with_request_timeout(2_000)
+    %{client: client} = start_pinned()
+    store = suspend_store(client)
+    spent = {1, System.monotonic_time(:millisecond) - 1_000}
+    started = System.monotonic_time(:millisecond)
+
+    {result, _log} =
+      with_log(fn -> GenServer.call(client, {:metadata, ["ghost"], [call_budget: spent], 1}, 10_000) end)
+
+    waited = System.monotonic_time(:millisecond) - started
+    :sys.resume(store)
+    assert result == {:error, Error.build(:timeout, %{})}
+    assert waited < 1_000
+  end
+
   test "a parked first fetch resumes under its caller's send-time budget, as a call taken from the mailbox would" do
     %{fake: fake, client: client} = start_pinned()
     FakeTransport.respond(fake, :fetch, &{:frame, not_leader_fetch_frame(&1)})
