@@ -19,14 +19,15 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   alias KafkaEx.Auth.Config, as: AuthConfig
   alias KafkaEx.Auth.SASL
   alias KafkaEx.Auth.SASL.VersionSupport
-  alias KafkaEx.Client.ConnectionStateMachine.InFlight
   alias KafkaEx.Client.ConnectionStateMachine.ReconnectBackoff
-  alias KafkaEx.Client.ResponseParser
   alias KafkaEx.Client.State
   alias KafkaEx.Cluster.Broker
+  alias KafkaEx.Network.NetworkClient
   alias KafkaEx.Telemetry
 
   @protocol Application.compile_env(:kafka_ex, :protocol, KafkaEx.Protocol.KayrockProtocol)
+  @idle_jitter 0.2
+  @max_correlation_id 2_147_483_647
 
   @meta0 %{bytes_sent: 0, bytes_received: 0}
   @setup_states [:connecting, :negotiating, :authenticating]
@@ -76,19 +77,20 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   @impl :gen_statem
   def init(args) do
     Process.flag(:trap_exit, true)
-    opts = options(args.opts)
+    opts = options()
 
     data =
       args
-      |> Map.take([:host, :port, :role, :use_ssl, :transport, :secrets, :reconnect_backoff])
+      |> Map.take([:host, :port, :role, :use_ssl, :secrets, :reconnect_backoff])
       |> Map.merge(%{
         opts: opts,
         owner_ref: Process.monitor(args.client),
         socket: nil,
         node_id: nil,
         api_versions: nil,
-        in_flight: InFlight.new(opts.initial_correlation_id),
-        waiting: :queue.new(),
+        in_flight: %{},
+        next_id: 0,
+        waiting: [],
         connectors: [],
         setup_deadline: nil,
         outage: nil,
@@ -100,19 +102,12 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   end
 
   @doc false
-  @spec options(Keyword.t()) :: map()
-  def options(opts) do
-    %{
-      connect_timeout: Keyword.get_lazy(opts, :connect_timeout, &KafkaEx.Config.connect_timeout/0),
-      reconnect_window: Keyword.get(opts, :reconnect_window, 1_500),
-      liveness_slack: Keyword.get(opts, :liveness_slack, 5_000),
-      idle_timeout: Keyword.get(opts, :idle_timeout, 60_000),
-      idle_jitter: Keyword.get(opts, :idle_jitter, 0.2),
-      stable_period: Keyword.get(opts, :stable_period, 10_000),
-      send_timeout: Keyword.get_lazy(opts, :send_timeout, &KafkaEx.Config.request_timeout/0),
-      initial_correlation_id: Keyword.get(opts, :initial_correlation_id, 0),
-      client_id: Keyword.get(opts, :client_id)
-    }
+  @spec options() :: map()
+  def options do
+    Map.merge(KafkaEx.Config.connection(), %{
+      connect_timeout: KafkaEx.Config.connect_timeout(),
+      client_id: KafkaEx.Config.client_id()
+    })
   end
 
   @impl :gen_statem
@@ -131,7 +126,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   end
 
   def handle_event({:call, from}, {:write, dispatch}, :connected, data) do
-    finish(send_request(from, dispatch, data))
+    send_request(from, dispatch, data)
   end
 
   # The caller saw this connection up and committed to the write: a drop since then is a dead socket's send.
@@ -220,8 +215,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   def format_status(%{data: data} = status), do: %{status | data: redact(data)}
 
   defp redact(%{secrets: _, waiting: waiting} = data) do
-    waiting = :queue.from_list(for waiter <- :queue.to_list(waiting), do: redact_waiter(waiter))
-    %{data | secrets: :redacted, waiting: waiting}
+    %{data | secrets: :redacted, waiting: Enum.map(waiting, &redact_waiter/1)}
   end
 
   defp redact_waiter(%{dispatch: %{request: %module{}} = dispatch} = waiter) do
@@ -234,7 +228,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
     else
       ref = make_ref()
       waiter = %{ref: ref, from: from, dispatch: dispatch, enqueued_at: now()}
-      data = %{data | waiting: :queue.in(waiter, data.waiting)}
+      data = %{data | waiting: data.waiting ++ [waiter]}
       window = {{:timeout, {:window, ref}}, data.opts.reconnect_window, nil}
       {:keep_state, data, [window, cancel(:idle) | try_connect_when(state)]}
     end
@@ -248,11 +242,11 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   defp try_connect_when(_state), do: []
 
   defp window_expired(ref, data) do
-    case take_waiter(data.waiting, &(&1.ref == ref)) do
-      {nil, _} ->
+    case Enum.split_with(data.waiting, &(&1.ref == ref)) do
+      {[], _} ->
         :keep_state_and_data
 
-      {waiter, waiting} ->
+      {[waiter], waiting} ->
         {:keep_state, window_ran_out(%{data | waiting: waiting}), [{:reply, waiter.from, not_connected()}]}
     end
   end
@@ -268,11 +262,6 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
       {[], _data} -> {[], data}
       {answers, data} -> {answers, window_ran_out(data)}
     end
-  end
-
-  defp take_waiter(queue, fun) do
-    {taken, kept} = queue |> :queue.to_list() |> Enum.split_with(fun)
-    {List.first(taken), :queue.from_list(kept)}
   end
 
   defp try_connect(data) do
@@ -301,12 +290,12 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   end
 
   defp answer_waiters(data, answer?) do
-    {answered, waiting} = data.waiting |> :queue.to_list() |> Enum.split_with(answer?)
+    {answered, waiting} = Enum.split_with(data.waiting, answer?)
     actions = Enum.flat_map(answered, &[{:reply, &1.from, not_connected()}, cancel({:window, &1.ref})])
-    {actions, %{data | waiting: :queue.from_list(waiting)}}
+    {actions, %{data | waiting: waiting}}
   end
 
-  defp demand?(data), do: not :queue.is_empty(data.waiting) or data.connectors != []
+  defp demand?(data), do: data.waiting != [] or data.connectors != []
 
   defp run(:connecting, data) do
     data = %{data | setup_deadline: now() + data.opts.connect_timeout}
@@ -336,7 +325,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
     %{ssl_options: ssl_options} = data.secrets.()
     address = %{host: data.host, port: data.port, role: data.role}
 
-    case data.transport.connect(address, base_options(data) ++ ssl_options, data.use_ssl, data.opts.connect_timeout) do
+    case NetworkClient.connect(address, base_options(data) ++ ssl_options, data.use_ssl, data.opts.connect_timeout) do
       {:ok, socket} ->
         {:next_state, :negotiating, %{data | socket: socket}, [run()]}
 
@@ -383,11 +372,11 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   end
 
   defp exchange_api_versions(data, remaining) do
-    {id, _} = InFlight.next_id(data.in_flight)
+    {id, _data} = next_id(data)
     request = %{@protocol.build_request(:api_versions, 0, []) | correlation_id: id, client_id: data.opts.client_id}
 
-    with :ok <- data.transport.write(data.socket, @protocol.serialize_request(request)),
-         {:ok, frame} <- data.transport.read(data.socket, remaining) do
+    with :ok <- NetworkClient.write(data.socket, @protocol.serialize_request(request)),
+         {:ok, frame} <- NetworkClient.read(data.socket, remaining) do
       parse_api_versions(frame, id, request)
     end
   end
@@ -395,7 +384,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   defp parse_api_versions(<<id::32-signed, _::binary>> = frame, id, request) do
     {response, _rest} = @protocol.response_deserializer(request).(frame)
 
-    case ResponseParser.api_versions_response(response) do
+    case @protocol.parse_response(:api_versions, response) do
       {:ok, api_versions} -> {:ok, State.api_version_ranges(api_versions)}
       {:error, error} -> {:error, error}
     end
@@ -406,7 +395,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   defp parse_api_versions(_frame, _id, _request), do: {:error, :parse_error}
 
   defp activate(data) do
-    case data.transport.activate(data.socket) do
+    case NetworkClient.activate(data.socket) do
       :ok ->
         ReconnectBackoff.connected(data.reconnect_backoff, key(data), now())
         data = stop_span(data, :connection, %{success: true})
@@ -423,7 +412,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   defp auth_failed(reason, data) do
     data = stop_span(data, :auth, %{result: :error, error: reason})
     data = close_socket(data, :auth_error)
-    Logger.error("SASL authentication failed for broker #{peer(data)}}: #{inspect(reason)}")
+    Logger.error("SASL authentication failed for broker #{peer(data)}: #{inspect(reason)}")
     setup_failed({:auth, reason}, data)
   end
 
@@ -466,21 +455,15 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
 
   defp flush(data) do
     answers =
-      Enum.flat_map(
-        :queue.to_list(data.waiting),
-        &[cancel({:window, &1.ref}), {:reply, &1.from, readiness(&1.dispatch, data)}]
-      )
+      Enum.flat_map(data.waiting, &[cancel({:window, &1.ref}), {:reply, &1.from, readiness(&1.dispatch, data)}])
 
-    {:keep_state, %{data | waiting: :queue.new()}, answers}
+    {:keep_state, %{data | waiting: []}, answers}
   end
-
-  defp finish({:cont, data, actions}), do: {:keep_state, data, actions}
-  defp finish({:down, data, actions}), do: disconnect(data, actions)
 
   defp send_request(from, dispatch, data) do
     case readiness(dispatch, data) do
       :ok -> write_request(from, dispatch, data)
-      refused -> {:cont, data, [{:reply, from, refused}]}
+      refused -> {:keep_state, data, [{:reply, from, refused}]}
     end
   end
 
@@ -508,12 +491,21 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   defp in_range?(nil, _version), do: false
 
   defp write_request(from, dispatch, data) do
-    {id, in_flight} = InFlight.next_id(data.in_flight)
+    {id, advanced} = next_id(data)
 
     case serialize(%{dispatch.request | correlation_id: id}) do
-      {:ok, wire} -> write_wire(from, dispatch, id, wire, %{data | in_flight: in_flight})
-      {:exception, _kind, _reason, _stacktrace} = raised -> {:cont, data, [{:reply, from, {:error, raised, @meta0}}]}
+      {:ok, wire} ->
+        write_wire(from, dispatch, id, wire, advanced)
+
+      {:exception, _kind, _reason, _stacktrace} = raised ->
+        {:keep_state, data, [{:reply, from, {:error, raised, @meta0}}]}
     end
+  end
+
+  # Ids wrap at INT32 and skip any still in flight: an abandoned request awaits its late reply under its id.
+  defp next_id(%{next_id: id, in_flight: in_flight} = data) do
+    data = %{data | next_id: if(id == @max_correlation_id, do: 0, else: id + 1)}
+    if is_map_key(in_flight, id), do: next_id(data), else: {id, data}
   end
 
   # A request that cannot be encoded is the caller's fault, not the socket's: nothing is written or closed.
@@ -526,7 +518,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   defp write_wire(from, dispatch, id, wire, data) do
     bytes = IO.iodata_length(wire)
 
-    case data.transport.write(data.socket, wire) do
+    case NetworkClient.write(data.socket, wire) do
       :ok -> written(from, dispatch, id, bytes, data)
       {:error, reason} -> send_failed(from, dispatch, reason, {id, bytes}, data)
     end
@@ -534,7 +526,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
 
   defp written(from, %{reply?: false}, id, bytes, data) do
     meta = %{bytes_sent: bytes, bytes_received: 0, correlation_id: id}
-    {:cont, data, [{:reply, from, {:ok, :no_response, meta}}]}
+    {:keep_state, data, [{:reply, from, {:ok, :no_response, meta}}]}
   end
 
   defp written(from, dispatch, id, bytes, data) do
@@ -551,8 +543,8 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
       api: operation
     }
 
-    data = %{data | in_flight: InFlight.put(data.in_flight, id, entry)}
-    {:cont, data, [{{:timeout, {:reply, id}}, dispatch.timeout, nil}, liveness_timer(data), cancel(:idle)]}
+    data = %{data | in_flight: Map.put(data.in_flight, id, entry)}
+    {:keep_state, data, [{{:timeout, {:reply, id}}, dispatch.timeout, nil}, liveness_timer(data), cancel(:idle)]}
   end
 
   defp send_failed(from, dispatch, reason, {id, bytes}, data) do
@@ -563,20 +555,20 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
     # Siblings share the send's reason: a :timeout is send_timeout_close, a client-side close.
     {data, replies} = answer_outstanding(data, reason)
     meta = %{bytes_sent: bytes, bytes_received: 0, correlation_id: id}
-    {:down, data, [{:reply, from, {:error, reason, meta}} | replies]}
+    disconnect(data, [{:reply, from, {:error, reason, meta}} | replies])
   end
 
   defp received(<<id::32-signed, _::binary>> = frame, data) do
-    case InFlight.pop(data.in_flight, id) do
-      {:ok, %{from: nil}, in_flight} ->
+    case Map.pop(data.in_flight, id) do
+      {%{from: nil}, in_flight} ->
         Logger.debug("Dropped a late reply with correlation id #{id} from broker #{peer(data)}")
         rearm(%{data | in_flight: in_flight}, [])
 
-      {:ok, entry, in_flight} ->
+      {entry, in_flight} when entry != nil ->
         meta = %{bytes_sent: entry.bytes_sent, bytes_received: byte_size(frame), correlation_id: id}
         rearm(%{data | in_flight: in_flight}, [cancel({:reply, id}), {:reply, entry.from, {:ok, frame, meta}}])
 
-      :error ->
+      {nil, _in_flight} ->
         close_client_side(:correlation_mismatch, data)
     end
   end
@@ -584,14 +576,14 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   defp received(_frame, data), do: close_client_side(:correlation_mismatch, data)
 
   defp rearm(data, actions) do
-    case data.transport.activate(data.socket) do
+    case NetworkClient.activate(data.socket) do
       :ok -> {:keep_state, data, actions ++ [liveness_timer(data) | idle_when_empty(data)]}
       {:error, _reason} -> peer_closed(data, actions)
     end
   end
 
   defp liveness_timer(data) do
-    case InFlight.earliest_live_until(data.in_flight) do
+    case data.in_flight |> Enum.map(fn {_id, entry} -> entry.live_until end) |> Enum.min(fn -> nil end) do
       nil -> cancel(:liveness)
       at -> {{:timeout, :liveness}, at, nil, [abs: true]}
     end
@@ -599,10 +591,10 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
 
   defp idle_without_demand(data), do: if(fetch?(data) and not demand?(data), do: [idle(data)], else: [])
 
-  defp idle_when_empty(data), do: if(fetch?(data) and InFlight.empty?(data.in_flight), do: [idle(data)], else: [])
+  defp idle_when_empty(data), do: if(fetch?(data) and data.in_flight == %{}, do: [idle(data)], else: [])
 
   defp idle(data) do
-    jitter = data.opts.idle_jitter * (2 * :rand.uniform() - 1)
+    jitter = @idle_jitter * (2 * :rand.uniform() - 1)
     {{:timeout, :idle}, round(data.opts.idle_timeout * (1 + jitter)), nil}
   end
 
@@ -610,13 +602,11 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   defp fetch?(_data), do: false
 
   defp reply_timed_out(id, data) do
-    case List.keyfind(InFlight.entries(data.in_flight), id, 0) do
-      {^id, %{from: from} = entry} when from != nil ->
+    case data.in_flight do
+      %{^id => %{from: from} = entry} when from != nil ->
         Logger.error("Receiving data from broker #{peer(data)} timed out")
-        meta = meta(id, entry)
-
-        {:keep_state, %{data | in_flight: InFlight.abandon(data.in_flight, id)},
-         [{:reply, from, {:error, :timeout, meta}}]}
+        in_flight = Map.put(data.in_flight, id, %{entry | from: nil})
+        {:keep_state, %{data | in_flight: in_flight}, [{:reply, from, {:error, :timeout, meta(id, entry)}}]}
 
       _ ->
         :keep_state_and_data
@@ -626,7 +616,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   defp liveness(data) do
     now = now()
 
-    if Enum.any?(InFlight.entries(data.in_flight), fn {_id, entry} -> entry.live_until <= now end) do
+    if Enum.any?(data.in_flight, fn {_id, entry} -> entry.live_until <= now end) do
       close_client_side(:liveness, data)
     else
       {:keep_state_and_data, [liveness_timer(data)]}
@@ -638,7 +628,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   defp recv_error(reason, data), do: dropped(reason, :recv_error, data, [])
 
   defp dropped(reason, idle_reason, data, actions) do
-    log_drop(InFlight.awaited?(data.in_flight), reason, idle_reason, data)
+    log_drop(Enum.any?(data.in_flight, fn {_id, entry} -> entry.from != nil end), reason, idle_reason, data)
     {data, replies} = data |> close_socket(nil) |> answer_outstanding(reason)
     disconnect(data, actions ++ replies)
   end
@@ -666,20 +656,18 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
 
   defp stopped(reason, data) do
     {data, replies} = data |> close_socket(reason) |> answer_outstanding(:timeout)
-    waiters = for waiter <- :queue.to_list(data.waiting), do: {:reply, waiter.from, not_connected()}
+    waiters = for waiter <- data.waiting, do: {:reply, waiter.from, not_connected()}
     connectors = for from <- data.connectors, do: {:reply, from, {:error, :not_connected}}
     replies = for {:reply, _from, _reply} = reply <- replies, do: reply
-    {:stop_and_reply, :normal, replies ++ waiters ++ connectors, %{data | waiting: :queue.new(), connectors: []}}
+    {:stop_and_reply, :normal, replies ++ waiters ++ connectors, %{data | waiting: [], connectors: []}}
   end
 
   defp answer_outstanding(data, reason) do
-    {entries, in_flight} = InFlight.drain(data.in_flight)
-
     replies =
-      for {id, %{from: from} = entry} <- entries, from != nil, do: {:reply, from, {:error, reason, meta(id, entry)}}
+      for {id, %{from: from} = entry} <- data.in_flight, from, do: {:reply, from, {:error, reason, meta(id, entry)}}
 
-    cancels = for {id, _entry} <- entries, do: cancel({:reply, id})
-    {%{data | in_flight: in_flight}, replies ++ cancels}
+    cancels = for {id, _entry} <- data.in_flight, do: cancel({:reply, id})
+    {%{data | in_flight: %{}}, replies ++ cancels}
   end
 
   defp meta(id, entry), do: %{bytes_sent: entry.bytes_sent, bytes_received: 0, correlation_id: id}
@@ -694,7 +682,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
 
   defp close_socket(data, reason) do
     if reason, do: Telemetry.emit_connection_close(data.host, data.port, reason)
-    data.transport.close(data.socket)
+    NetworkClient.close(data.socket)
     %{data | socket: nil}
   end
 

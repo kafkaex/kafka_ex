@@ -1,17 +1,17 @@
 defmodule KafkaEx.Client.MetadataIntegrationTest do
   use ExUnit.Case, async: true
 
-  alias KafkaEx.Client.{RequestBuilder, ResponseParser}
+  alias KafkaEx.Client.RequestBuilder
   alias KafkaEx.Client.State
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Protocol.KayrockProtocol
   alias KafkaEx.Test.KayrockFixtures, as: Fixtures
 
-  describe "RequestBuilder.metadata_request/2" do
+  describe "RequestBuilder.build(:metadata, ...)" do
     test "builds request for all topics (nil)" do
       state = build_test_state()
 
-      {:ok, request} = RequestBuilder.metadata_request([topics: nil], state)
+      {:ok, request} = RequestBuilder.build(:metadata, [topics: nil], state)
 
       # Uses negotiated max (broker max=5)
       assert Fixtures.request_type?(request, :metadata, 5)
@@ -21,7 +21,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
     test "builds request for all topics (empty list)" do
       state = build_test_state()
 
-      {:ok, request} = RequestBuilder.metadata_request([topics: []], state)
+      {:ok, request} = RequestBuilder.build(:metadata, [topics: []], state)
 
       # Uses negotiated max (broker max=5)
       assert Fixtures.request_type?(request, :metadata, 5)
@@ -31,7 +31,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
     test "builds request for specific topics" do
       state = build_test_state()
 
-      {:ok, request} = RequestBuilder.metadata_request([topics: ["topic1", "topic2"]], state)
+      {:ok, request} = RequestBuilder.build(:metadata, [topics: ["topic1", "topic2"]], state)
 
       # Uses negotiated max (broker max=5)
       assert Fixtures.request_type?(request, :metadata, 5)
@@ -41,7 +41,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
     test "builds request with custom API version" do
       state = build_test_state()
 
-      {:ok, request} = RequestBuilder.metadata_request([topics: nil, api_version: 0], state)
+      {:ok, request} = RequestBuilder.build(:metadata, [topics: nil, api_version: 0], state)
 
       assert Fixtures.request_type?(request, :metadata, 0)
       assert request.topics == []
@@ -51,7 +51,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
       # Default state already supports V0-V5
       state = build_test_state()
 
-      {:ok, request} = RequestBuilder.metadata_request([topics: ["test"], api_version: 2], state)
+      {:ok, request} = RequestBuilder.build(:metadata, [topics: ["test"], api_version: 2], state)
 
       assert Fixtures.request_type?(request, :metadata, 2)
       assert request.topics == [%{name: "test"}]
@@ -60,13 +60,13 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
     test "returns error for unsupported API version" do
       state = build_test_state(%{3 => {0, 1}})
 
-      result = RequestBuilder.metadata_request([topics: nil, api_version: 5], state)
+      result = RequestBuilder.build(:metadata, [topics: nil, api_version: 5], state)
 
       assert {:error, :api_version_no_supported} = result
     end
   end
 
-  describe "ResponseParser.metadata_response/1" do
+  describe "KayrockProtocol.parse_response(:metadata, _)" do
     test "parses V0 response with single broker and topic" do
       response =
         Fixtures.build_response(:metadata, 0,
@@ -90,7 +90,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
           ]
         )
 
-      {:ok, cluster_metadata} = ResponseParser.metadata_response(response)
+      {:ok, cluster_metadata} = KayrockProtocol.parse_response(:metadata, response)
 
       assert %ClusterMetadata{} = cluster_metadata
       assert map_size(cluster_metadata.brokers) == 1
@@ -119,7 +119,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
           ]
         )
 
-      {:ok, cluster_metadata} = ResponseParser.metadata_response(response)
+      {:ok, cluster_metadata} = KayrockProtocol.parse_response(:metadata, response)
 
       assert cluster_metadata.controller_id == 2
       assert cluster_metadata.brokers[1].rack == "rack-1"
@@ -138,7 +138,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
           topics: []
         )
 
-      {:ok, cluster_metadata} = ResponseParser.metadata_response(response)
+      {:ok, cluster_metadata} = KayrockProtocol.parse_response(:metadata, response)
 
       assert %ClusterMetadata{} = cluster_metadata
       assert cluster_metadata.controller_id == 1
@@ -170,7 +170,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
           ]
         )
 
-      {:ok, cluster_metadata} = ResponseParser.metadata_response(response)
+      {:ok, cluster_metadata} = KayrockProtocol.parse_response(:metadata, response)
 
       assert map_size(cluster_metadata.topics) == 1
       assert cluster_metadata.topics["good-topic"]
@@ -185,7 +185,7 @@ defmodule KafkaEx.Client.MetadataIntegrationTest do
           topics: []
         )
 
-      {:ok, cluster_metadata} = ResponseParser.metadata_response(response)
+      {:ok, cluster_metadata} = KayrockProtocol.parse_response(:metadata, response)
 
       assert map_size(cluster_metadata.brokers) == 0
       assert map_size(cluster_metadata.topics) == 0

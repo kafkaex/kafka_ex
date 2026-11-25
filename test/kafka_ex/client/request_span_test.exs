@@ -8,7 +8,7 @@ defmodule KafkaEx.Client.RequestSpanTest do
   alias KafkaEx.Messages.RecordMetadata
 
   setup do
-    pinned = start_pinned(client: [connection: [reconnect_window: 200]])
+    pinned = start_pinned(connection: [reconnect_window: 200])
     events = for phase <- [:start, :stop, :exception], do: [:kafka_ex, :request, phase]
     forward_telemetry(events, fn [_, _, phase], _measurements, metadata -> {:request_span, phase, metadata} end)
     pinned
@@ -51,6 +51,46 @@ defmodule KafkaEx.Client.RequestSpanTest do
     assert_receive {:request_span, :stop, %{result: :ok, broker: %{port: 9093}}}, 1_000
     refute_receive {:request_span, _, _}, 100
     assert API.correlation_id(client) == {:ok, before + 1}
+  end
+
+  test "a :first_available walk moves past a candidate's unparsable reply, under one span", %{
+    fake: fake,
+    client: client,
+    host: host
+  } do
+    unparsable = &{:frame, <<&1.correlation_id::32, 0xFF>>}
+
+    FakeTransport.respond(fake, :metadata, fn request ->
+      if request.port == 9092, do: unparsable.(request), else: metadata_reply(host, [{@topic, [1, 2]}])
+    end)
+
+    {:ok, before} = API.correlation_id(client)
+    request = %Kayrock.Metadata.V0.Request{topics: [%{name: @topic}]}
+
+    {result, _log} = with_log(fn -> Client.send_request(client, request, NodeSelector.first_available()) end)
+
+    assert {:ok, %Kayrock.Metadata.V0.Response{}} = result
+    assert nodes(fake, :metadata) |> Enum.take(-2) == [1, 2]
+    assert_receive {:request_span, :start, %{operation: :metadata, correlation_id: ^before}}, 1_000
+    assert_receive {:request_span, :stop, %{result: :ok, broker: %{port: 9093}}}, 1_000
+    refute_receive {:request_span, _, _}, 100
+  end
+
+  test "a :first_available walk where every candidate answers an unparsable frame is :broker_failed, under one span", %{
+    fake: fake,
+    client: client
+  } do
+    FakeTransport.respond(fake, :metadata, &{:frame, <<&1.correlation_id::32, 0xFF>>})
+
+    request = %Kayrock.Metadata.V0.Request{topics: [%{name: @topic}]}
+
+    {result, _log} = with_log(fn -> Client.send_request(client, request, NodeSelector.first_available()) end)
+
+    assert result == {:error, :broker_failed}
+    assert nodes(fake, :metadata) |> Enum.take(-2) == [1, 2]
+    assert_receive {:request_span, :start, %{operation: :metadata}}, 1_000
+    assert_receive {:request_span, :stop, %{result: :error, error: :broker_failed}}, 1_000
+    refute_receive {:request_span, _, _}, 100
   end
 
   test "a store walk whose first candidate fails is one span from the store and spends no client correlation id", %{
@@ -140,7 +180,7 @@ defmodule KafkaEx.Client.RequestSpanTest do
       ref = Process.monitor(client)
       warm_data_connection(fake, client)
       FakeTransport.respond(fake, :produce, :close)
-      :sys.replace_state(client, &%{&1 | connection_opts: [initial_correlation_id: -1]})
+      fail_connection_start()
 
       {exit, _log} =
         with_log(fn -> catch_exit(Client.send_request(client, produce_request(), NodeSelector.first_available())) end)
@@ -194,7 +234,7 @@ defmodule KafkaEx.Client.RequestSpanTest do
   defp produce_request do
     opts = [topic: @topic, partition: 0, messages: [%{value: "v"}], acks: 1, timeout: 1_000]
 
-    {:ok, request} = RequestBuilder.produce_request(opts, %State{api_versions: %{0 => {3, 3}}})
+    {:ok, request} = RequestBuilder.build(:produce, opts, %State{api_versions: %{0 => {3, 3}}})
     request
   end
 

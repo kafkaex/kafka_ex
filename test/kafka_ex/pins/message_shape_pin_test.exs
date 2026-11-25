@@ -25,7 +25,7 @@ defmodule KafkaEx.Pins.MessageShapePinTest do
 
     test "{:network_request, request, node_selector}" do
       %{client: client} = start_pinned()
-      {:ok, request} = RequestBuilder.metadata_request([topics: [@topic]], %State{api_versions: versions(client)})
+      {:ok, request} = RequestBuilder.build(:metadata, [topics: [@topic]], %State{api_versions: versions(client)})
 
       assert {:ok, %response{}} = GenServer.call(client, {:network_request, request, NodeSelector.first_available()})
       assert ["Kayrock", "Metadata", _version, "Response"] = Module.split(response)
@@ -42,7 +42,7 @@ defmodule KafkaEx.Pins.MessageShapePinTest do
 
     test "{:network_request, request, node_selector, opts}" do
       %{client: client} = start_pinned()
-      {:ok, request} = RequestBuilder.metadata_request([topics: [@topic]], %State{api_versions: versions(client)})
+      {:ok, request} = RequestBuilder.build(:metadata, [topics: [@topic]], %State{api_versions: versions(client)})
 
       assert {:ok, %response{}} =
                GenServer.call(client, {:network_request, request, NodeSelector.first_available(), []})

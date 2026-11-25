@@ -220,7 +220,30 @@ config :kafka_ex,
   # supervisor shuts down. Tuning these trades "restart spam on flaps"
   # against "tolerance for broker brownouts".
   max_restarts: 10,
-  max_seconds: 60
+  max_seconds: 60,
+
+# Connection liveness and reconnect timing (ms). Most users do not need
+# this; see KafkaEx.Config.connection/0 for what each key controls.
+# send_timeout defaults to request_timeout.
+# connection: [
+#   reconnect_window: 1_500,
+#   liveness_slack: 5_000,
+#   idle_timeout: 60_000,
+#   stable_period: 10_000
+# ],
+
+# Metadata refresh pacing and backoff (ms). Most users do not need this;
+# see KafkaEx.Config.metadata_store/0 for what each key controls.
+# metadata_store: [
+#   min_interval: 100,
+#   backoff_base: 100,
+#   backoff_cap: 1_000,
+#   coordinator_base: 500,
+#   coordinator_cap: 1_000,
+#   ladder_delay: 300,
+#   connect_slack: 1_500,
+#   request_slack: 1_000
+# ]
 ```
 
 ### Compression Configuration

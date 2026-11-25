@@ -19,6 +19,10 @@ defmodule KafkaEx.Config do
         client_id: "kafka_ex",
         request_timeout: 15000,  # per-attempt request socket-recv timeout (was :sync_timeout, now deprecated)
 
+        # Optional tuning, for example, with the defaults (see `connection/0` and `metadata_store/0`)
+        # connection: [reconnect_window: 1_500, liveness_slack: 5_000, idle_timeout: 60_000, stable_period: 10_000],
+        # metadata_store: [min_interval: 100, backoff_base: 100, backoff_cap: 1_000],
+
         # Consumer group (used for offset storage)
         default_consumer_group: "kafka_ex",
 
@@ -69,7 +73,7 @@ defmodule KafkaEx.Config do
     * `:sleep_for_reconnect` (ms, default `400`) — delay before
       retrying a broker reconnect. Applied inside
       `KafkaEx.Client` after the socket has died but before the
-      next `create_socket/5` attempt. Lower values reconnect faster
+      next `connect/4` attempt. Lower values reconnect faster
       at the cost of hammering a broker that's down; higher values
       smooth out flapping brokers at the cost of longer error
       windows.
@@ -256,6 +260,83 @@ defmodule KafkaEx.Config do
   @spec auth_config() :: AuthConfig.t() | nil
   def auth_config do
     AuthConfig.from_env()
+  end
+
+  @connection_defaults [reconnect_window: 1_500, liveness_slack: 5_000, idle_timeout: 60_000, stable_period: 10_000]
+
+  @doc """
+  Connection settings read from `config :kafka_ex, connection: [...]`, as a map. All values are in
+  milliseconds; most users never need to change them.
+
+    * `:reconnect_window` (default `1_500`) - how long a request waits for a broken connection to be
+      re-established before it fails with a connection error.
+    * `:liveness_slack` (default `5_000`) - extra time on top of a request's own timeout (and long poll)
+      before an unanswered connection is declared dead and closed.
+    * `:idle_timeout` (default `60_000`) - how long a fetch connection with nothing to do stays open
+      before it is closed (varied by up to 20% so connections do not close in lockstep).
+    * `:stable_period` (default `10_000`) - how long a connection must stay up before its earlier
+      reconnect failures are forgotten and the reconnect backoff starts over.
+    * `:send_timeout` (default `request_timeout/0`) - socket send timeout; a send that takes longer
+      closes the connection.
+  """
+  @spec connection() :: %{
+          reconnect_window: non_neg_integer(),
+          liveness_slack: non_neg_integer(),
+          idle_timeout: pos_integer(),
+          stable_period: non_neg_integer(),
+          send_timeout: timeout()
+        }
+  def connection do
+    settings = Application.get_env(:kafka_ex, :connection, [])
+
+    @connection_defaults
+    |> Keyword.merge(settings)
+    |> Keyword.put_new_lazy(:send_timeout, &request_timeout/0)
+    |> Map.new()
+  end
+
+  @metadata_store_defaults [
+    min_interval: 100,
+    backoff_base: 100,
+    backoff_cap: 1_000,
+    coordinator_base: 500,
+    coordinator_cap: 1_000,
+    ladder_delay: 300,
+    connect_slack: 1_500,
+    request_slack: 1_000
+  ]
+
+  @doc """
+  Metadata store settings read from `config :kafka_ex, metadata_store: [...]`, as a map. All values are
+  in milliseconds; most users never need to change them.
+
+    * `:min_interval` (default `100`) - minimum gap between two refreshes of the same metadata key.
+    * `:backoff_base` (default `100`) - first delay, doubled after each failure, before a failed metadata
+      refresh is tried again.
+    * `:backoff_cap` (default `1_000`) - upper bound of the metadata refresh backoff delay.
+    * `:coordinator_base` (default `500`) - the same as `:backoff_base`, for group coordinator lookups.
+    * `:coordinator_cap` (default `1_000`) - the same as `:backoff_cap`, for group coordinator lookups.
+    * `:ladder_delay` (default `300`) - pause before asking again when a metadata response does not yet
+      list a requested topic.
+    * `:connect_slack` (default `1_500`) - extra time on top of `:connect_timeout` that a metadata round
+      waits for a broker connection.
+    * `:request_slack` (default `1_000`) - extra time on top of `request_timeout/0` that a metadata round
+      waits for a broker response.
+  """
+  @spec metadata_store() :: %{
+          min_interval: non_neg_integer(),
+          backoff_base: non_neg_integer(),
+          backoff_cap: non_neg_integer(),
+          coordinator_base: non_neg_integer(),
+          coordinator_cap: non_neg_integer(),
+          ladder_delay: non_neg_integer(),
+          connect_slack: non_neg_integer(),
+          request_slack: non_neg_integer()
+        }
+  def metadata_store do
+    @metadata_store_defaults
+    |> Keyword.merge(Application.get_env(:kafka_ex, :metadata_store, []))
+    |> Map.new()
   end
 
   @valid_auto_offset_reset [:none, :earliest, :latest]

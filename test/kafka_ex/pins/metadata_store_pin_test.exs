@@ -2,8 +2,8 @@ defmodule KafkaEx.Pins.MetadataStorePinTest do
   use KafkaEx.TestSupport.PinCase, async: false
 
   alias KafkaEx.Client.MetadataStore
-  alias KafkaEx.Client.ResponseParser
   alias KafkaEx.Client.Supervisor, as: ClientSupervisor
+  alias KafkaEx.Protocol.KayrockProtocol
   alias KafkaEx.TestSupport.StoreCase
   alias KafkaEx.TestSupport.FakeTransport.Wire
 
@@ -96,7 +96,6 @@ defmodule KafkaEx.Pins.MetadataStorePinTest do
           [
             uris: [{host, 9092}],
             consumer_group: :no_consumer_group,
-            transport: FakeTransport,
             ssl_options: FakeTransport.ssl_options(fake)
           ],
           :no_name
@@ -130,7 +129,7 @@ defmodule KafkaEx.Pins.MetadataStorePinTest do
     store = [ladder_delay: 700, connect_slack: 40, request_slack: 40, backoff_cap: 10, coordinator_cap: 10]
 
     %{fake: fake, client: client, host: host} =
-      start_pinned(client: [metadata_update_interval: 100, connection: [connect_timeout: 100], store: store])
+      start_pinned(client: [metadata_update_interval: 100], connection: [connect_timeout: 100], store: store)
 
     one_broker = fn topics -> %{metadata_reply(host, topics) | brokers: [%{node_id: 1, host: host, port: 9092}]} end
     FakeTransport.respond(fake, :metadata, one_broker.(%{@topic => [1], "gone" => [1]}))
@@ -227,7 +226,7 @@ defmodule KafkaEx.Pins.MetadataStorePinTest do
     {response, _rest} = Kayrock.Metadata.V12.Response.deserialize(frame)
 
     try do
-      ResponseParser.metadata_response(response)
+      KayrockProtocol.parse_response(:metadata, response)
       :no_raise
     rescue
       exception -> exception

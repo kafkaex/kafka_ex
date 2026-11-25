@@ -17,6 +17,7 @@ defmodule KafkaEx.TestSupport.StoreCase do
   alias KafkaEx.Client.ConnectionStateMachine.ReconnectBackoff
   alias KafkaEx.Client.MetadataStore
   alias KafkaEx.Client.Supervisor, as: ClientSupervisor
+  alias KafkaEx.TestSupport.PinCase
   alias KafkaEx.TestSupport.PinGate
 
   @versions %{find_coordinator: 1..1}
@@ -40,6 +41,9 @@ defmodule KafkaEx.TestSupport.StoreCase do
   def versions, do: @versions
 
   def start_store(%{fake: fake, host: host}, opts \\ []) do
+    PinCase.stub_transport()
+    PinCase.with_connection(Keyword.get(opts, :connection, []))
+    PinCase.with_store(Keyword.get(opts, :store, []))
     gate = Keyword.get_lazy(opts, :gate, &PinGate.new/0)
 
     backoff =
@@ -55,12 +59,9 @@ defmodule KafkaEx.TestSupport.StoreCase do
       allow_auto_topic_creation: Keyword.get(opts, :allow_auto_topic_creation, true),
       connection: %{
         use_ssl: false,
-        transport: PinGate,
         secrets: fn -> %{ssl_options: ssl_options, auth: nil} end,
-        reconnect_backoff: backoff,
-        opts: Keyword.get(opts, :connection, [])
-      },
-      opts: Keyword.get(opts, :store, [])
+        reconnect_backoff: backoff
+      }
     }
 
     supervisor =

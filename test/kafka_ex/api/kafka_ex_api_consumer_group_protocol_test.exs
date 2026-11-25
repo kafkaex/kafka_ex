@@ -98,7 +98,7 @@ defmodule KafkaEx.APIConsumerGroupProtocolTest do
     end
   end
 
-  describe "RequestBuilder.consumer_group_heartbeat_request/2" do
+  describe "RequestBuilder.build(:consumer_group_heartbeat, ...)" do
     setup do
       {:ok, state: %State{api_versions: %{@heartbeat_api_key => {0, 1}}}}
     end
@@ -118,7 +118,7 @@ defmodule KafkaEx.APIConsumerGroupProtocolTest do
         network_timeout: 1
       ]
 
-      assert {:ok, request} = RequestBuilder.consumer_group_heartbeat_request(opts, state)
+      assert {:ok, request} = RequestBuilder.build(:consumer_group_heartbeat, opts, state)
       assert request.__struct__.api_vsn() == 1
       assert request.member_id == "m"
       assert request.instance_id == "i"
@@ -132,7 +132,7 @@ defmodule KafkaEx.APIConsumerGroupProtocolTest do
 
     test "honours an explicit api_version", %{state: state} do
       assert {:ok, request} =
-               RequestBuilder.consumer_group_heartbeat_request([group_id: "g", member_epoch: 0, api_version: 0], state)
+               RequestBuilder.build(:consumer_group_heartbeat, [group_id: "g", member_epoch: 0, api_version: 0], state)
 
       assert request.__struct__.api_vsn() == 0
       assert request.member_id == ""
@@ -140,23 +140,24 @@ defmodule KafkaEx.APIConsumerGroupProtocolTest do
 
     test "rejects subscribed_topic_regex on v0", %{state: state} do
       opts = [group_id: "g", member_epoch: 0, subscribed_topic_regex: "t.*", api_version: 0]
-      assert {:error, :api_version_no_supported} = RequestBuilder.consumer_group_heartbeat_request(opts, state)
+      assert {:error, :api_version_no_supported} = RequestBuilder.build(:consumer_group_heartbeat, opts, state)
     end
 
     test "errors when the broker lacks the API" do
       assert {:error, :api_not_supported_by_broker} =
-               RequestBuilder.consumer_group_heartbeat_request([group_id: "g", member_epoch: 0], %State{
+               RequestBuilder.build(:consumer_group_heartbeat, [group_id: "g", member_epoch: 0], %State{
                  api_versions: %{}
                })
     end
   end
 
-  describe "RequestBuilder.consumer_group_describe_request/2" do
+  describe "RequestBuilder.build(:consumer_group_describe, ...)" do
     test "builds the negotiated version" do
       state = %State{api_versions: %{@describe_api_key => {0, 1}}}
 
       assert {:ok, request} =
-               RequestBuilder.consumer_group_describe_request(
+               RequestBuilder.build(
+                 :consumer_group_describe,
                  [group_ids: ["g"], include_authorized_operations: true],
                  state
                )
@@ -168,7 +169,7 @@ defmodule KafkaEx.APIConsumerGroupProtocolTest do
 
     test "is capped at the implemented maximum even if the broker reports more" do
       state = %State{api_versions: %{@describe_api_key => {0, 9}}}
-      assert {:ok, request} = RequestBuilder.consumer_group_describe_request([group_ids: ["g"]], state)
+      assert {:ok, request} = RequestBuilder.build(:consumer_group_describe, [group_ids: ["g"]], state)
       assert request.__struct__.api_vsn() == 1
     end
   end

@@ -7,7 +7,7 @@ defmodule KafkaEx.IntegrationHelpers do
   alias KafkaEx.Client
   alias KafkaEx.Client.Error
   alias KafkaEx.Client.NodeSelector
-  alias KafkaEx.Client.ResponseParser
+  alias KafkaEx.Protocol.KayrockProtocol
   alias KafkaEx.Test.KayrockFixtures, as: Fixtures
 
   @doc """
@@ -40,7 +40,7 @@ defmodule KafkaEx.IntegrationHelpers do
     request = %Kayrock.Metadata.V4.Request{topics: [%{name: topic_name}], allow_auto_topic_creation: false}
 
     with {:ok, response} <- Client.send_request(client, request, NodeSelector.node_id(node_id)),
-         {:ok, %{topics: %{^topic_name => _}}} <- ResponseParser.metadata_response(response) do
+         {:ok, %{topics: %{^topic_name => _}}} <- KayrockProtocol.parse_response(:metadata, response) do
       :ok
     else
       _ ->

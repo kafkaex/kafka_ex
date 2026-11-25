@@ -16,16 +16,6 @@ defmodule KafkaEx.Client.MetadataStore do
   alias KafkaEx.Support.Retry
   alias KafkaEx.Telemetry
 
-  @defaults [
-    min_interval: 100,
-    backoff_base: 100,
-    backoff_cap: 1_000,
-    coordinator_base: 500,
-    coordinator_cap: 1_000,
-    ladder_delay: 300,
-    connect_slack: 1_500,
-    request_slack: 1_000
-  ]
   @call_timeout 5_000
 
   @type address :: {binary(), :inet.port_number()}
@@ -38,12 +28,9 @@ defmodule KafkaEx.Client.MetadataStore do
           allow_auto_topic_creation: boolean(),
           connection: %{
             use_ssl: boolean(),
-            transport: module(),
             secrets: (-> map()),
-            reconnect_backoff: :ets.tid(),
-            opts: Keyword.t()
-          },
-          opts: Keyword.t()
+            reconnect_backoff: :ets.tid()
+          }
         }
   @type refresh :: %{topics: [binary()], allow_auto_topic_creation: boolean()}
 
@@ -87,20 +74,18 @@ defmodule KafkaEx.Client.MetadataStore do
   def stop(store, reason), do: :gen_statem.stop(store, reason, @call_timeout)
 
   # A trigger can wait for the in-flight round of its key, then its own, plus the longest pacing delay (cap x 1.2).
-  @spec call_timeout(non_neg_integer(), Keyword.t(), Keyword.t(), Round.kind()) :: pos_integer()
-  def call_timeout(brokers, connection_opts, store_opts, kind \\ :metadata) do
-    opts = Map.new(Keyword.merge(@defaults, store_opts))
-    budget = budget(kind, List.duplicate(nil, max(brokers, 1)), opts, connection_opts)
+  @spec call_timeout(non_neg_integer(), Round.kind()) :: pos_integer()
+  def call_timeout(brokers, kind \\ :metadata) do
+    opts = Config.metadata_store()
+    budget = budget(kind, List.duplicate(nil, max(brokers, 1)), opts)
 
     2 * Round.bound(budget) + div(max(opts.backoff_cap, opts.coordinator_cap) * 6, 5)
   end
 
-  @doc false
-  @spec prune(MetadataTable.freshness(), pos_integer()) :: MetadataTable.freshness()
-  def prune(freshness, floor), do: %{freshness | topics: Map.filter(freshness.topics, fn {_, seq} -> seq >= floor end)}
+  defp prune(freshness, floor), do: %{freshness | topics: Map.filter(freshness.topics, fn {_, seq} -> seq >= floor end)}
 
   @impl :gen_statem
-  def callback_mode, do: [:handle_event_function, :state_enter]
+  def callback_mode, do: :handle_event_function
 
   @impl :gen_statem
   def init(args) do
@@ -111,7 +96,7 @@ defmodule KafkaEx.Client.MetadataStore do
       interval: args.interval,
       allow_default: args.allow_auto_topic_creation,
       connection: args.connection,
-      opts: Map.new(Keyword.merge(@defaults, args.opts)),
+      opts: Config.metadata_store(),
       table: MetadataTable.new(),
       freshness: %{topics: %{}, brokers: 0},
       seq: 0,
@@ -135,8 +120,6 @@ defmodule KafkaEx.Client.MetadataStore do
   end
 
   @impl :gen_statem
-  def handle_event(:enter, _old, _state, _data), do: :keep_state_and_data
-
   def handle_event(:internal, :start, :loading, data), do: start_load(data, [])
 
   def handle_event({:call, from}, :await_ready, :loading, data) do
@@ -243,10 +226,6 @@ defmodule KafkaEx.Client.MetadataStore do
     now = now()
 
     case data do
-      # Unreachable while launch/4 cancels this timer; a second round under one key would orphan the first.
-      %{in_flight: %{^key => _round}} ->
-        :keep_state_and_data
-
       %{scheduled: %{^key => entry}} ->
         at = due_at(data, entry, now)
 
@@ -457,7 +436,7 @@ defmodule KafkaEx.Client.MetadataStore do
   end
 
   defp round_spec(data, kind, request_opts, candidates) do
-    budget = budget(kind, candidates, data.opts, data.connection.opts)
+    budget = budget(kind, candidates, data.opts)
     bound = Round.bound(budget)
 
     spec =
@@ -471,14 +450,14 @@ defmodule KafkaEx.Client.MetadataStore do
     {spec, bound}
   end
 
-  defp budget(kind, candidates, opts, connection_opts) do
+  defp budget(kind, candidates, opts) do
     %{
       kind: kind,
       candidates: candidates,
       ladder_delay: opts.ladder_delay,
       connect_slack: opts.connect_slack,
       request_slack: opts.request_slack,
-      connect_timeout: connect_timeout(connection_opts),
+      connect_timeout: Config.connect_timeout(),
       request_timeout: Config.request_timeout()
     }
   end
@@ -631,14 +610,10 @@ defmodule KafkaEx.Client.MetadataStore do
 
   defp ticket_ttl(data) do
     per_attempt =
-      connect_timeout(data.connection.opts) + data.opts.connect_slack + Config.request_timeout() +
+      Config.connect_timeout() + data.opts.connect_slack + Config.request_timeout() +
         data.opts.request_slack
 
     Client.retry_count() * per_attempt + @call_timeout
-  end
-
-  defp connect_timeout(connection_opts) do
-    Keyword.get_lazy(connection_opts, :connect_timeout, &Config.connect_timeout/0)
   end
 
   defp note_missing(data, []) do
@@ -691,7 +666,7 @@ defmodule KafkaEx.Client.MetadataStore do
 
   defp connection_args(data, {host, port}) do
     data.connection
-    |> Map.take([:use_ssl, :transport, :secrets, :reconnect_backoff, :opts])
+    |> Map.take([:use_ssl, :secrets, :reconnect_backoff])
     |> Map.merge(%{client: self(), host: host, port: port, role: :metadata})
   end
 

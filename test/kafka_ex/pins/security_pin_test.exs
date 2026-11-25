@@ -57,7 +57,6 @@ defmodule KafkaEx.Pins.SecurityPinTest do
     opts = [
       uris: [{host, 9092}],
       consumer_group: :no_consumer_group,
-      transport: FakeTransport,
       ssl_options: FakeTransport.ssl_options(fake),
       use_ssl: false,
       auth: auth

@@ -17,6 +17,69 @@ defmodule KafkaEx.Client.SupervisorTest do
     assert %{id: :metadata_store, restart: :transient, shutdown: 5_000} = store
   end
 
+  test "a client boots without closing the bootstrap sockets and closes them with :shutdown on stop" do
+    %{fake: fake, host: host} = start_fake([{1, 9092}])
+    watch_close(host)
+
+    {:ok, client} =
+      Client.start_link(
+        [uris: [{host, 9092}], consumer_group: :no_consumer_group, ssl_options: FakeTransport.ssl_options(fake)],
+        :no_name
+      )
+
+    assert {:ok, %{brokers: %{1 => %{socket: nil}}}} = API.cluster_metadata(client)
+    refute_receive {:pin_closed, _}, 100
+
+    GenServer.stop(client)
+    assert_receive {:pin_closed, %{reason: :shutdown}}, 1_000
+  end
+
+  test "a boot that fails closes every connection it opened, once, and leaves no process behind" do
+    Process.flag(:trap_exit, true)
+    %{fake: fake, host: host} = start_fake([{1, 9092}, {2, 9093}], api_versions: %{metadata: 12..12})
+    FakeTransport.respond(fake, :metadata, &{:frame, null_topics_metadata_frame(&1)})
+    watch_close(host)
+    existing = supervisor_processes()
+
+    {result, _log} =
+      with_log(fn ->
+        Client.start_link(
+          [
+            uris: [{host, 9092}, {host, 9093}],
+            consumer_group: :no_consumer_group,
+            ssl_options: FakeTransport.ssl_options(fake)
+          ],
+          :no_name
+        )
+      end)
+
+    assert {:error, _} = result
+    assert_receive {:pin_closed, %{port: 9092, reason: :init_error}}, 5_000
+    refute_receive {:pin_closed, _}, 100
+
+    connections = fake |> FakeTransport.connects() |> Enum.map(& &1.owner)
+    assert connections != []
+    refute Enum.any?(connections, &Process.alive?/1)
+    assert supervisor_processes() -- existing == []
+  end
+
+  test "a request reads no connection setting from the application environment" do
+    %{fake: fake, client: client} = start_pinned()
+    FakeTransport.respond(fake, :produce, produce_reply())
+    {:ok, _} = API.produce_one(client, "pin", 0, "v")
+    :erlang.trace_pattern({:application, :get_env, 3}, true, [:global])
+    :erlang.trace(client, true, [:call, {:tracer, self()}])
+    on_exit(fn -> :erlang.trace_pattern({:application, :get_env, 3}, false, [:global]) end)
+
+    {:ok, _} = API.produce_one(client, "pin", 0, "v")
+
+    ref = :erlang.trace_delivered(client)
+    assert_receive {:trace_delivered, ^client, ^ref}, 1_000
+
+    refute_received {:trace, ^client, :call, {:application, :get_env, [:kafka_ex, :connect_timeout, _]}}
+    refute_received {:trace, ^client, :call, {:application, :get_env, [:kafka_ex, :connection, _]}}
+  end
+
   test "a stop that runs out of time leaves the process linked to the client supervisor alive" do
     {:ok, supervisor} = ClientSupervisor.start_link()
 
@@ -145,7 +208,7 @@ defmodule KafkaEx.Client.SupervisorTest do
 
     test "crashes when a connection fails to start", %{client: client} do
       ref = Process.monitor(client)
-      :sys.replace_state(client, &%{&1 | connection_opts: [initial_correlation_id: -1]})
+      fail_connection_start()
 
       {exit, _log} = with_log(fn -> catch_exit(API.produce(client, @topic, 0, [%{value: "v"}])) end)
 
@@ -176,7 +239,6 @@ defmodule KafkaEx.Client.SupervisorTest do
           [
             uris: [{host, 9999}],
             consumer_group: :no_consumer_group,
-            transport: FakeTransport,
             ssl_options: FakeTransport.ssl_options(fake)
           ],
           :no_name
@@ -207,7 +269,6 @@ defmodule KafkaEx.Client.SupervisorTest do
     opts = [
       uris: [{host, 9092}],
       consumer_group: :no_consumer_group,
-      transport: PinGate,
       ssl_options: PinGate.ssl_options(gate, fake)
     ]
 

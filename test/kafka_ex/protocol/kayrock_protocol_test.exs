@@ -166,6 +166,17 @@ defmodule KafkaEx.Protocol.KayrockProtocolTest do
       assert {:ok, [%KafkaEx.Messages.ConsumerGroupListing{group_id: "g1", protocol_type: "consumer"}]} =
                KayrockProtocol.parse_response(:list_groups, response)
     end
+
+    test "dispatches leave_group, create_topics and delete_topics to their response impls" do
+      created = %Kayrock.CreateTopics.V0.Response{topics: [%{name: "t", error_code: 0}]}
+      deleted = %Kayrock.DeleteTopics.V0.Response{responses: [%{name: "t", error_code: 0}]}
+
+      assert {:ok, :no_error} =
+               KayrockProtocol.parse_response(:leave_group, %Kayrock.LeaveGroup.V0.Response{error_code: 0})
+
+      assert {:ok, %KafkaEx.Messages.CreateTopics{}} = KayrockProtocol.parse_response(:create_topics, created)
+      assert {:ok, %KafkaEx.Messages.DeleteTopics{}} = KayrockProtocol.parse_response(:delete_topics, deleted)
+    end
   end
 
   describe "request_info/1" do

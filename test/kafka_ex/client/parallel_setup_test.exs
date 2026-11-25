@@ -82,7 +82,7 @@ defmodule KafkaEx.Client.ParallelSetupTest do
     # Scaled-down 10 s long-polls: the third resume starts after two answered long-polls.
     test "each get a full attempt budget from their resume, so none is written then retried" do
       connection = [connect_timeout: 500, reconnect_window: 100]
-      %{fake: fake, client: client} = start_pinned(topics: %{@topic => [1, 1, 1]}, client: [connection: connection])
+      %{fake: fake, client: client} = start_pinned(topics: %{@topic => [1, 1, 1]}, connection: connection)
       FakeTransport.respond(fake, :fetch, {:after, @long_poll_ms, &{:frame, fetch_frame(&1, -1)}})
       FakeTransport.hold(fake, :api_versions)
       opts = [max_wait_time: @long_poll_ms, network_timeout: @long_poll_ms + 500]
@@ -96,7 +96,7 @@ defmodule KafkaEx.Client.ParallelSetupTest do
     end
 
     test "whose connect outlasts the parked deadline end that attempt :timeout and retry" do
-      %{fake: fake, client: client} = start_pinned(client: [connection: [connect_timeout: 50, reconnect_window: 0]])
+      %{fake: fake, client: client} = start_pinned(connection: [connect_timeout: 50, reconnect_window: 0])
       FakeTransport.delay_connects(fake, @blocked_connect_ms)
 
       started = System.monotonic_time(:millisecond)
@@ -162,7 +162,7 @@ defmodule KafkaEx.Client.ParallelSetupTest do
 
   describe "a first fetch to an unreachable broker" do
     test "errors in under two reconnect windows, as a call waiting in the client did" do
-      %{client: client, gate: gate} = start_pinned(client: [connection: [reconnect_window: @window_ms]])
+      %{client: client, gate: gate} = start_pinned(connection: [reconnect_window: @window_ms])
       PinGate.close(gate)
 
       started = System.monotonic_time(:millisecond)

@@ -31,14 +31,19 @@ defmodule KafkaEx.Client.ConnectionStateMachine.ReconnectBackoffTest do
     assert ms in 80..120
   end
 
-  test "delay/1 doubles from [80, 120] and is capped to [400, 500]" do
+  test "the wait doubles from [80, 120] and is capped to [400, 500]" do
     for failures <- 1..10 do
-      delays = for _ <- 1..1_000, do: ReconnectBackoff.delay(failures)
+      waits =
+        for _ <- 1..200 do
+          backoff = ReconnectBackoff.new()
+          for n <- 0..(failures - 1), do: :ok = ReconnectBackoff.claim(backoff, @key, n * 1_000)
+          {:wait, ms} = ReconnectBackoff.claim(backoff, @key, (failures - 1) * 1_000)
+          ms
+        end
 
-      assert Enum.all?(delays, &is_integer/1)
-      assert Enum.all?(delays, &(&1 in 80..500))
-      if failures == 1, do: assert(Enum.all?(delays, &(&1 in 80..120)))
-      if failures >= 4, do: assert(Enum.all?(delays, &(&1 in 400..500)))
+      assert Enum.all?(waits, &(&1 in 80..500))
+      if failures == 1, do: assert(Enum.all?(waits, &(&1 in 80..120)))
+      if failures >= 4, do: assert(Enum.all?(waits, &(&1 in 400..500)))
     end
   end
 

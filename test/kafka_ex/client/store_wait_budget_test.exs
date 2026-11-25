@@ -15,7 +15,7 @@ defmodule KafkaEx.Client.StoreWaitBudgetTest do
 
   test "a send_request timeout below the default budget answers :timeout instead of exiting the caller" do
     %{client: client} = start_pinned()
-    {:ok, request} = RequestBuilder.metadata_request([topics: [@topic]], %State{api_versions: versions(client)})
+    {:ok, request} = RequestBuilder.build(:metadata, [topics: [@topic]], %State{api_versions: versions(client)})
     store = suspend_store(client)
 
     {result, _log} = with_log(fn -> Client.send_request(client, request, NodeSelector.first_available(), 1_500) end)
@@ -77,6 +77,54 @@ defmodule KafkaEx.Client.StoreWaitBudgetTest do
     assert waited >= RequestBudget.deadline_budget(call_timeout)
   end
 
+  test "an unusable call_budget waits on the store like a message without one" do
+    with_request_timeout(100)
+    %{client: client} = start_pinned()
+    call_timeout = RequestBudget.call_budget(Config.request_timeout(), Client.retry_count())
+    store = suspend_store(client)
+    started = System.monotonic_time(:millisecond)
+
+    {result, _log} =
+      with_log(fn -> GenServer.call(client, {:topic_metadata, ["ghost"], [call_budget: 5]}, call_timeout) end)
+
+    waited = System.monotonic_time(:millisecond) - started
+    :sys.resume(store)
+    assert result == {:error, :timeout}
+    assert waited >= RequestBudget.deadline_budget(call_timeout)
+  end
+
+  test "a spent call_budget among opts that are not a keyword list still ends the store wait at once" do
+    with_request_timeout(2_000)
+    %{client: client} = start_pinned()
+    store = suspend_store(client)
+    spent = {1, System.monotonic_time(:millisecond) - 1_000}
+    started = System.monotonic_time(:millisecond)
+
+    {result, _log} =
+      with_log(fn -> GenServer.call(client, {:topic_metadata, ["ghost"], [:x, call_budget: spent]}, 10_000) end)
+
+    waited = System.monotonic_time(:millisecond) - started
+    :sys.resume(store)
+    assert result == {:error, :timeout}
+    assert waited < 1_000
+  end
+
+  test "a spent call_budget inside a metadata message ends the store wait at once" do
+    with_request_timeout(2_000)
+    %{client: client} = start_pinned()
+    store = suspend_store(client)
+    spent = {1, System.monotonic_time(:millisecond) - 1_000}
+    started = System.monotonic_time(:millisecond)
+
+    {result, _log} =
+      with_log(fn -> GenServer.call(client, {:metadata, ["ghost"], [call_budget: spent], 1}, 10_000) end)
+
+    waited = System.monotonic_time(:millisecond) - started
+    :sys.resume(store)
+    assert result == {:error, Error.build(:timeout, %{})}
+    assert waited < 1_000
+  end
+
   test "a parked first fetch resumes under its caller's send-time budget, as a call taken from the mailbox would" do
     %{fake: fake, client: client} = start_pinned()
     FakeTransport.respond(fake, :fetch, &{:frame, not_leader_fetch_frame(&1)})
@@ -94,6 +142,25 @@ defmodule KafkaEx.Client.StoreWaitBudgetTest do
     assert resumed == {:error, Error.build(:timeout, %{})}
     assert resumed == from_mailbox
     assert count(fake, :metadata) == refreshes
+  end
+
+  test "an offset_commit whose budget is spent while the store is detached still ends its commit span with the error" do
+    %{client: client} = start_pinned()
+    events = for phase <- [:start, :stop], do: [:kafka_ex, :consumer, :commit, phase]
+    forward_telemetry(events, fn [_, _, _, phase], _measurements, metadata -> {:commit, phase, metadata} end)
+    %{store: %{pid: store}} = :sys.get_state(client)
+    :ok = :sys.suspend(client)
+    ref = Process.monitor(store)
+    Process.exit(store, :kill)
+    assert_receive {:DOWN, ^ref, :process, ^store, :killed}, 1_000
+
+    spent = [call_budget: {1, System.monotonic_time(:millisecond) - 1_000}]
+    call = :gen_server.send_request(client, {:offset_commit, "g", [{@topic, [%{partition_num: 0, offset: 5}]}], spent})
+    :ok = :sys.resume(client)
+
+    assert {:reply, {:error, %Error{error: :timeout}}} = :gen_server.receive_response(call, 5_000)
+    assert_receive {:commit, :start, _metadata}, 1_000
+    assert_receive {:commit, :stop, %{result: :error}}, 1_000
   end
 
   defp versions(client), do: :sys.get_state(client).api_versions
