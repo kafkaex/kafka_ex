@@ -107,7 +107,7 @@ defmodule KafkaEx.TestSupport.PinCase do
 
   def apis_after(fake, mark), do: fake |> FakeTransport.requests() |> Enum.drop(mark) |> Enum.map(& &1.api)
 
-  # A failed send never reaches the fake; its transport log line is the only trace of the attempt.
+  # A failed send never reaches the fake; the log line from ConnectionStateMachine is the only trace of the attempt.
   def failed_sends(log, host, reason), do: count_failures(log, "Sending data to", host, reason)
   def failed_async_sends(log, host, reason), do: count_failures(log, "Asynchronously sending data to", host, reason)
 

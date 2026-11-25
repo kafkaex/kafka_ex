@@ -1,7 +1,6 @@
 defmodule KafkaEx.TestSupport.FakeTransport do
   @moduledoc """
-  Loopback fake broker behind `KafkaEx.Network.Transport`,
-  that `PinCase.stub_transport/1` stubs in for `KafkaEx.Network.NetworkClient`.
+  Loopback fake broker that `PinCase.stub_transport/1` stubs in for `KafkaEx.Network.NetworkClient`.
 
   Every connection is a real socket pair: the connecting process owns the client side, a peer
   process owns the server side and answers like a broker. Start a fake per test and hand it to
@@ -72,7 +71,6 @@ defmodule KafkaEx.TestSupport.FakeTransport do
     * No global state: scripts and the log live in the fake process. Reply functions run inside
       it and must not call it.
   """
-  @behaviour KafkaEx.Network.Transport
 
   alias KafkaEx.Network.Socket
   alias KafkaEx.TestSupport.FakeTransport.Controller
@@ -131,7 +129,6 @@ defmodule KafkaEx.TestSupport.FakeTransport do
   defp message(false, raw, {:data, data}), do: {:tcp, raw, data}
   defp message(true, raw, {:data, data}), do: {:ssl, raw, data}
 
-  @impl KafkaEx.Network.Transport
   def connect(%{host: host, port: port, role: role}, socket_options, use_ssl, timeout) do
     {fake, socket_options} = controller(socket_options)
 
@@ -161,7 +158,6 @@ defmodule KafkaEx.TestSupport.FakeTransport do
     end
   end
 
-  @impl KafkaEx.Network.Transport
   def write(%Socket{} = socket, data) do
     case send_fault(socket, data) do
       :none -> Socket.send(socket, data)
@@ -169,13 +165,10 @@ defmodule KafkaEx.TestSupport.FakeTransport do
     end
   end
 
-  @impl KafkaEx.Network.Transport
   def read(socket, timeout), do: Socket.recv(socket, 0, timeout)
 
-  @impl KafkaEx.Network.Transport
   def activate(socket), do: Socket.setopts(socket, [:binary, {:packet, 4}, {:active, :once}])
 
-  @impl KafkaEx.Network.Transport
   def close(socket) do
     close_owned(socket)
     :ok

@@ -111,9 +111,11 @@ defmodule KafkaEx.Network.Socket do
 
   defp extract_port(socket), do: socket.socket
 
-  defp create_socket(host, port, true, socket_options, timeout),
-    do: :ssl.connect(host, port, socket_options, timeout)
+  defp create_socket(host, port, true, socket_options, timeout) do
+    :ssl.connect(host, port, socket_options, timeout)
+  end
 
-  defp create_socket(host, port, false, socket_options, timeout),
-    do: :gen_tcp.connect(host, port, socket_options, timeout)
+  defp create_socket(host, port, false, socket_options, timeout) do
+    :gen_tcp.connect(host, port, socket_options, timeout)
+  end
 end

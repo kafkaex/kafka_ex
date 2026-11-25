@@ -36,16 +36,23 @@
   `KafkaEx.API.cluster_metadata/1`. The client still accepts the old shapes. If you
   keep your own mock client that matches these messages or asserts on recorded `opts`, accept the new
   shapes and ignore `:call_budget`.
-* **`send_request/4` with `:first_available` tries the next broker after a `:parse_error`** instead of
-  returning the error; FindCoordinator does so within one attempt. When every broker fails, the result is
-  `{:error, :broker_failed}`, as for any other broker failure.
+* **`KafkaEx.Client.send_request/4` with `:first_available` tries the next broker after a `:parse_error`.**
+  When a broker answered unparsably and no later broker answers correctly, the result is
+  `{:error, :broker_failed}` instead of `{:error, :parse_error}`. `:broker_failed` is not retried, so
+  `KafkaEx.API.find_coordinator/3` makes one attempt across all brokers instead of up to three, and on a
+  single-broker cluster one unparsable reply fails the call at once. Consumer-group coordinator
+  discovery (through the metadata store) is unaffected.
 
 ### Removed
 
-* `KafkaEx.Network.Behaviour` and the unused `KafkaEx.Network.NetworkClient` functions
-  (`create_socket/2..5`, `close_socket/1,3`, `send_sync_request/3`, `send_async_request/2`, `format_host/1`)
-  were removed; connections call `NetworkClient.connect/4`, `write/2`, `read/2`, `activate/1` and `close/1`.
-* Functions of the internal client modules were removed: the `KafkaEx.Client.RequestBuilder.*_request/2` builders (now one `RequestBuilder.build/3`), the `KafkaEx.Client.ResponseParser.*_response` functions that only called the protocol's `parse_response` (use `KafkaEx.Protocol.KayrockProtocol.parse_response/2,3`), and `KafkaEx.Client.RequestContext`.
+* `KafkaEx.Network.Behaviour`, the internal `KafkaEx.Network.Transport` behaviour and the unused
+  `KafkaEx.Network.NetworkClient` functions (`create_socket/2,3,4,5`, `close_socket/1,3`,
+  `send_sync_request/3`, `send_async_request/2`, `format_host/1`) were removed; connections call
+  `NetworkClient.connect/4`, `write/2`, `read/2`, `activate/1` and `close/1`.
+* Functions of the internal client modules were removed: the `KafkaEx.Client.RequestBuilder.*_request/2`
+  builders (now one `RequestBuilder.build/3`), the `KafkaEx.Client.ResponseParser.*_response` functions that
+  only called the protocol's `parse_response` (use `KafkaEx.Protocol.KayrockProtocol.parse_response/2,3`),
+  and `KafkaEx.Client.RequestContext`.
 
 ### Fixed
 

@@ -1572,11 +1572,7 @@ defmodule KafkaEx.Consumer.GenConsumer do
   # so operators can observe commit failures without parsing logs.
   defp handle_commit_error(error, %State{} = state) do
     cond do
-      # KIP-848: the epoch this commit was built with is no longer accepted
-      # for the partition (e.g. it moved on while the commit was in flight).
-      # Not a reason to give the partition up: the offsets stay acked and the
-      # next commit carries the current epoch. The group manager drives
-      # revocation and fencing through its heartbeat. Classic: stays fatal.
+      # KIP-848: a stale epoch is not a reason to drop the partition; the next commit carries the current one.
       error == :stale_member_epoch and is_integer(state.member_epoch) ->
         retry_at = :erlang.monotonic_time(:milli_seconds) + state.commit_interval
         handle_transient_commit_error(error, %State{state | commit_retry_at: retry_at})

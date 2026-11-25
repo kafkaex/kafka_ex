@@ -1,4 +1,4 @@
-defmodule KafkaEx.Network.TransportTest do
+defmodule KafkaEx.Network.NetworkClientTransportTest do
   use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
