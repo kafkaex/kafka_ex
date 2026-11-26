@@ -3,6 +3,8 @@ defmodule KafkaEx.Client.ConnectionRoutingTest do
 
   alias KafkaEx.Messages.RecordMetadata
 
+  @slow_fetch_ms 2_000
+
   setup do
     start_pinned(api_versions: %{describe_groups: 0..0})
   end
@@ -49,7 +51,7 @@ defmodule KafkaEx.Client.ConnectionRoutingTest do
     refute log =~ ~r/\] #{Regex.escape(host)}:9093 closed connection/
   end
 
-  test "fetches of every partition a broker leads share one :fetch connection to it, never :data", %{
+  test "each partition a broker leads fetches on its own :fetch connection to it, never :data", %{
     fake: fake,
     client: client,
     host: host
@@ -61,8 +63,36 @@ defmodule KafkaEx.Client.ConnectionRoutingTest do
     assert {:ok, _} = API.fetch(client, @topic, 0, 0, max_wait_time: 10)
     assert {:ok, _} = API.fetch(client, @topic, 1, 0, max_wait_time: 10)
 
-    assert connects(fake, :fetch) == [%{role: :fetch, port: 9092}]
+    for partition <- [0, 1] do
+      assert connects(fake, {:fetch, @topic, partition}) == [%{role: {:fetch, @topic, partition}, port: 9092}]
+    end
+
     assert connects(fake, :data) == []
+  end
+
+  test "a slow fetch of one partition does not delay a fetch of another partition on the same broker", %{
+    fake: fake,
+    client: client,
+    host: host
+  } do
+    FakeTransport.respond(fake, :metadata, metadata_reply(host, [{@topic, [1, 1]}]))
+    assert {:ok, _} = API.topics_metadata(client, [@topic])
+    seen = :counters.new(1, [])
+
+    FakeTransport.respond(fake, :fetch, fn request ->
+      :counters.add(seen, 1, 1)
+      frame = {:frame, fetch_frame(request, -1)}
+      if :counters.get(seen, 1) == 1, do: {:after, @slow_fetch_ms, frame}, else: frame
+    end)
+
+    :ok = FakeTransport.subscribe(fake)
+    slow = Task.async(fn -> API.fetch(client, @topic, 0, 0) end)
+    assert_receive {:fake_transport, :request, %{api: :fetch}}, 5_000
+
+    started = System.monotonic_time(:millisecond)
+    assert {:ok, _} = API.fetch(client, @topic, 1, 0)
+    assert System.monotonic_time(:millisecond) - started < @slow_fetch_ms / 2
+    assert {:ok, _} = Task.await(slow, 10_000)
   end
 
   test "group operations share one :coordinator connection to the coordinator", %{fake: fake, client: client} do

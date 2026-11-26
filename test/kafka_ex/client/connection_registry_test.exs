@@ -60,7 +60,7 @@ defmodule KafkaEx.Client.ConnectionRegistryTest do
   test "a fetch left in an idle connection's mailbox succeeds on a new connection without a retry", ctx do
     FakeTransport.respond(ctx.fake, :fetch, &{:frame, fetch_frame(&1, -1)})
     {:ok, _} = API.fetch(ctx.client, @topic, 0, 0, max_wait_time: 10)
-    key = {ctx.host, 9092, :fetch}
+    key = {ctx.host, 9092, {:fetch, @topic, 0}}
     [{^key, conn}] = :ets.lookup(ctx.table, key)
     ref = Process.monitor(conn)
 

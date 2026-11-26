@@ -16,7 +16,6 @@ defmodule KafkaEx.Client do
 
   alias KafkaEx.Client.ConnectionRegistry
   alias KafkaEx.Client.ConnectionStateMachine
-  alias KafkaEx.Client.ConnectionStateMachine.ReconnectBackoff
   alias KafkaEx.Client.Error
   alias KafkaEx.Client.MetadataStore
   alias KafkaEx.Client.MetadataStore.MetadataTable
@@ -228,7 +227,7 @@ defmodule KafkaEx.Client do
 
     state = %{
       state
-      | reconnect_backoff: ReconnectBackoff.new(),
+      | reconnect_backoff: ConnectionStateMachine.reconnect_backoff_table(),
         correlation: :atomics.new(1, []),
         hints: :ets.new(:kafka_ex_replica_hints, [:public]),
         connection_options: ConnectionStateMachine.options()

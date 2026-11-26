@@ -104,9 +104,9 @@ defmodule KafkaEx.Client.NodeSelector do
   def connection_role(_selector, op) when op in @metadata_ops, do: :metadata
   def connection_role(%__MODULE__{strategy: :consumer_group}, _op), do: :coordinator
 
-  def connection_role(%__MODULE__{strategy: strategy}, :fetch)
+  def connection_role(%__MODULE__{strategy: strategy, topic: topic, partition: partition}, :fetch)
       when strategy in [:topic_partition, :topic_partition_replica] do
-    :fetch
+    {:fetch, topic, partition}
   end
 
   def connection_role(_selector, _op), do: :data

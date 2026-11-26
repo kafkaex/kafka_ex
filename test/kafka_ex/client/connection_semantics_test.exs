@@ -113,7 +113,7 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
     assert_backoff(client, {host, 9093}, call, 22)
 
     roles = for {{^host, 9093, role}, _pid} <- :ets.tab2list(:sys.get_state(client).conns), do: role
-    assert Enum.sort(roles) == [:coordinator, :data, :fetch]
+    assert Enum.sort(roles) == [:coordinator, :data | for(partition <- 0..19, do: {:fetch, "wide", partition})]
   end
 
   test "a request after the backoff interval connects with exactly one attempt" do
@@ -289,7 +289,7 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
   end
 
   defp watch_old_connections(client, host) do
-    [{_key, old}] = :ets.lookup(:sys.get_state(client).conns, {host, 9092, :fetch})
+    [{_key, old}] = :ets.lookup(:sys.get_state(client).conns, {host, 9092, {:fetch, @topic, 0}})
     metadata = metadata_connection(client, host)
     {{old, Process.monitor(old)}, {metadata, Process.monitor(metadata)}}
   end
@@ -307,7 +307,10 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
 
   defp assert_new_fetch_connection(fake) do
     assert %{port: 9093} =
-             fake |> FakeTransport.connects() |> Enum.filter(&(&1.role == :fetch)) |> List.last()
+             fake
+             |> FakeTransport.connects()
+             |> Enum.filter(&match?({:fetch, _topic, _partition}, &1.role))
+             |> List.last()
   end
 
   # The metadata connection on the same broker must outlive it: idling out is for fetch roles only.

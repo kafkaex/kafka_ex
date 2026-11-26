@@ -105,9 +105,11 @@ defmodule KafkaEx.Client.NodeSelectorTest do
       end
     end
 
-    test "a fetch by topic and partition goes to :fetch, one role per broker whatever the partition" do
-      assert NodeSelector.connection_role(NodeSelector.topic_partition_replica("orders", 3), :fetch) == :fetch
-      assert NodeSelector.connection_role(NodeSelector.topic_partition("orders", 0), :fetch) == :fetch
+    test "a fetch by topic and partition goes to its own {:fetch, topic, partition} role" do
+      assert NodeSelector.connection_role(NodeSelector.topic_partition_replica("orders", 3), :fetch) ==
+               {:fetch, "orders", 3}
+
+      assert NodeSelector.connection_role(NodeSelector.topic_partition("orders", 0), :fetch) == {:fetch, "orders", 0}
     end
 
     test "a fetch with no partition in its selector goes to :data" do

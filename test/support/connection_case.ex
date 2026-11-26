@@ -15,7 +15,6 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
 
   alias KafkaEx.Client.ConnectionRegistry
   alias KafkaEx.Client.ConnectionStateMachine
-  alias KafkaEx.Client.ConnectionStateMachine.ReconnectBackoff
   alias KafkaEx.Client.RequestBuilder
   alias KafkaEx.Client.State
   alias KafkaEx.Protocol.KayrockProtocol
@@ -42,7 +41,6 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
       import KafkaEx.TestSupport.PinCase, only: [requests: 2]
 
       alias KafkaEx.Client.ConnectionStateMachine
-      alias KafkaEx.Client.ConnectionStateMachine.ReconnectBackoff
       alias KafkaEx.TestSupport.FakeTransport
       alias KafkaEx.TestSupport.PinGate
     end
@@ -61,7 +59,7 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
 
   def start_connection(fake, host, port, role, opts \\ []) do
     PinCase.with_connection(Keyword.drop(opts, @case_options))
-    backoff = Keyword.get_lazy(opts, :reconnect_backoff, &ReconnectBackoff.new/0)
+    backoff = Keyword.get_lazy(opts, :reconnect_backoff, &ConnectionStateMachine.reconnect_backoff_table/0)
 
     pid =
       start_supervised!(%{

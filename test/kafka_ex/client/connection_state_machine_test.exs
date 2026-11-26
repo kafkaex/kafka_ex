@@ -7,6 +7,10 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
   alias KafkaEx.TestSupport.LeakProbe
   alias KafkaEx.TestSupport.TLSFixtures
 
+  # Claims and attempt events read the ms clock at different points; a slot's timer fires late under load.
+  @clock_slack_ms 5
+  @timer_slack_ms 50
+  @slow_connect_ms 150
   @span_events for name <- [:connection, :auth], phase <- [:start, :stop, :exception], do: [:kafka_ex, name, phase]
 
   setup_all do
@@ -77,6 +81,9 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
   end
 
   defp lower_bound(failures), do: min(80 * Integer.pow(2, failures - 1), 400)
+  defp upper_bound(failures), do: min(120 * Integer.pow(2, failures - 1), 500)
+
+  defp gaps(attempts), do: attempts |> Enum.zip(tl(attempts)) |> Enum.map(fn {a, b} -> b - a end)
 
   # Every attempt runs into the 700 ms setup deadline, longer than any backoff, so attempts follow back to back.
   defp start_never_completing(tls, window) do
@@ -546,7 +553,7 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
     test "abandoned ids count as outstanding and pause the idle clock", %{fake: fake, host: host} do
       FakeTransport.hold(fake, :fetch)
       opts = [idle_timeout: 200, liveness_slack: 1_000]
-      %{conn: conn} = start_connection(fake, host, port(), :fetch, opts)
+      %{conn: conn} = start_connection(fake, host, port(), {:fetch, "t", 0}, opts)
       monitor = Process.monitor(conn)
       {:ok, _versions} = ConnectionStateMachine.connect(conn, 5_000)
 
@@ -893,7 +900,7 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
       gate: gate
     } do
       PinGate.close(gate)
-      backoff = ReconnectBackoff.new()
+      backoff = ConnectionStateMachine.reconnect_backoff_table()
       roles = for i <- 1..22, do: Enum.at([:metadata, :data, :coordinator, :fetch], rem(i, 4))
       opts = [gate: gate, reconnect_backoff: backoff, reconnect_window: 600]
       conns = for role <- roles, do: start_connection(fake, host, port(), role, opts).conn
@@ -912,13 +919,124 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
       end
     end
 
+    test "a lone connection to a dead broker retries at gaps doubling from about 100 ms up to about 500 ms", %{
+      fake: fake,
+      host: host,
+      gate: gate
+    } do
+      PinGate.close(gate)
+      %{conn: conn} = start_connection(fake, host, port(), :data, gate: gate, reconnect_window: 2_000)
+
+      {result, _log} = with_log(fn -> dispatch(conn, request(:produce)) end)
+
+      assert {:error, :not_connected, _meta} = result
+      assert [_, _, _, _ | _] = gaps = gaps(drain_attempts())
+
+      for {gap, failures} <- Enum.with_index(gaps, 1) do
+        assert gap in (lower_bound(failures) - @clock_slack_ms)..(upper_bound(failures) + @timer_slack_ms),
+               "gaps #{inspect(gaps)}"
+      end
+    end
+
+    test "once a connection connects, another one to that broker connects at once", %{fake: fake, host: host} do
+      backoff = ConnectionStateMachine.reconnect_backoff_table()
+
+      for role <- [:data, :coordinator] do
+        %{conn: conn} = start_connection(fake, host, port(), role, reconnect_backoff: backoff)
+        assert {:ok, _versions} = ConnectionStateMachine.connect(conn, 5_000)
+      end
+
+      assert [first, second] = drain_attempts()
+      assert second - first < lower_bound(1)
+    end
+
+    test "connections dropped together close the gate once, so the next attempt waits one first-failure gap", %{
+      fake: fake,
+      host: host,
+      gate: gate
+    } do
+      backoff = ConnectionStateMachine.reconnect_backoff_table()
+      opts = [gate: gate, reconnect_backoff: backoff, reconnect_window: 700, stable_period: 0]
+      roles = [:data, :coordinator, :metadata, {:fetch, "t", 0}, {:fetch, "t", 1}]
+      conns = for role <- roles, do: start_connected(fake, host, role, opts).conn
+      PinGate.close(gate)
+      FakeTransport.close(fake, {host, port()})
+      drain_attempts()
+
+      {refs, _log} = with_log(fn -> for conn <- conns, do: async_dispatch(conn, request(:produce)) end)
+
+      for ref <- refs, do: assert_receive({^ref, {:error, :not_connected, _meta}}, 1_500)
+      [first | _] = attempts = drain_attempts()
+      {burst, [next | _] = paced} = Enum.split_with(attempts, &(&1 - first < lower_bound(1)))
+      assert burst != []
+      assert next - first <= upper_bound(1) + @timer_slack_ms
+      for {gap, failures} <- Enum.with_index(gaps(paced), 2), do: assert(gap >= lower_bound(failures) - @clock_slack_ms)
+    end
+
+    test "a connection stable for stable_period resets the failure count", %{fake: fake, host: host, gate: gate} do
+      watch_close(host)
+      %{conn: conn} = start_connection(fake, host, port(), :data, gate: gate, reconnect_window: 600, stable_period: 50)
+      PinGate.close(gate)
+      {{:error, :not_connected, _meta}, _log} = with_log(fn -> dispatch(conn, request(:produce)) end)
+      assert [_, _, _ | _] = drain_attempts()
+      PinGate.open(gate)
+      {:ok, _versions} = ConnectionStateMachine.connect(conn, 5_000)
+      refute_receive :stable_period_elapses, 150
+      PinGate.close(gate)
+      drop(fake, host)
+      drain_attempts()
+
+      {{:error, :not_connected, _meta}, _log} = with_log(fn -> dispatch(conn, request(:produce)) end)
+
+      assert [first, second | _] = drain_attempts()
+      assert second - first <= upper_bound(1) + @timer_slack_ms
+    end
+
+    test "a first connect waits on another connection's reservation only until that one connects", %{
+      fake: fake,
+      host: host,
+      gate: gate
+    } do
+      backoff = ConnectionStateMachine.reconnect_backoff_table()
+      opts = [gate: gate, reconnect_backoff: backoff, reconnect_window: 600]
+      %{conn: holder} = start_connection(fake, host, port(), :data, opts)
+      PinGate.close(gate)
+      {{:error, :not_connected, _meta}, _log} = with_log(fn -> dispatch(holder, request(:produce)) end)
+      assert [_, _, _ | _] = drain_attempts()
+      PinGate.open(gate)
+      FakeTransport.delay_connects(fake, @slow_connect_ms)
+      holding = Task.async(fn -> ConnectionStateMachine.connect(holder, 5_000) end)
+      assert_receive {:attempt, ^holder, reserved_at}, 1_000
+
+      %{conn: waiter} = start_connection(fake, host, port(), :coordinator, reconnect_backoff: backoff)
+
+      assert {:ok, _versions} = ConnectionStateMachine.connect(waiter, 5_000)
+      assert {:ok, _versions} = Task.await(holding)
+      assert_received {:attempt, ^waiter, attempted_at}
+      assert (attempted_at - reserved_at) in @slow_connect_ms..(lower_bound(4) - @timer_slack_ms)
+    end
+
+    test "a broker in backoff does not delay a first connect to another broker", %{fake: fake, host: host, gate: gate} do
+      PinGate.close(gate)
+      backoff = ConnectionStateMachine.reconnect_backoff_table()
+      %{conn: dead} = start_connection(fake, host, port(), :data, gate: gate, reconnect_backoff: backoff)
+      {{:error, _reason}, _log} = with_log(fn -> ConnectionStateMachine.connect(dead, 5_000) end)
+      %{conn: other} = start_connection(fake, host, port() + 1, :data, gate: gate, reconnect_backoff: backoff)
+      asked = now()
+
+      {{:error, _reason}, _log} = with_log(fn -> ConnectionStateMachine.connect(other, 5_000) end)
+
+      assert_received {:attempt, ^other, attempted_at}
+      assert attempted_at - asked < lower_bound(1)
+    end
+
     test "a connection that has attempted ignores a backoff wake and keeps its backoff", %{
       fake: fake,
       host: host,
       gate: gate
     } do
       PinGate.close(gate)
-      backoff = ReconnectBackoff.new()
+      backoff = ConnectionStateMachine.reconnect_backoff_table()
 
       %{conn: conn} =
         start_connection(fake, host, port(), :data, gate: gate, reconnect_backoff: backoff, reconnect_window: 5_000)
@@ -927,7 +1045,8 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
       assert_receive {:attempt, ^conn, _at}, 1_000
       assert {:reconnecting, _data} = :sys.get_state(conn)
       PinGate.open(gate)
-      ReconnectBackoff.connected(backoff, {host, port()}, now())
+      # An open gate makes a mishandled wake attempt at once; no connection can open it while this one holds the slot.
+      :ets.insert(backoff, {{host, port()}, :open, 1})
       send(conn, :reconnect_slot)
 
       assert {:reconnecting, _data} = :sys.get_state(conn)
@@ -940,13 +1059,15 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
       gate: gate
     } do
       PinGate.close(gate)
-      backoff = ReconnectBackoff.new()
-      :ok = ReconnectBackoff.claim(backoff, {host, port()}, now())
-      %{conn: conn} = start_connection(fake, host, port(), :data, gate: gate, reconnect_backoff: backoff)
+      backoff = ConnectionStateMachine.reconnect_backoff_table()
+      %{conn: holder} = start_connection(fake, host, port(), :data, gate: gate, reconnect_backoff: backoff)
+      {{:error, _reason}, _log} = with_log(fn -> ConnectionStateMachine.connect(holder, 5_000) end)
+      %{conn: conn} = start_connection(fake, host, port(), :coordinator, gate: gate, reconnect_backoff: backoff)
 
       {result, _log} = with_log(fn -> ConnectionStateMachine.connect(conn, 5_000) end)
 
       assert {:error, _reason} = result
+      assert [_holder, _conn] = drain_attempts()
       assert :ets.match_object(backoff, {{:first_connect, :_, :_}}) == []
     end
 
@@ -975,7 +1096,7 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
         gate: gate
       } do
         if unquote(gate_state) == :closed, do: PinGate.close(gate)
-        backoff = ReconnectBackoff.new()
+        backoff = ConnectionStateMachine.reconnect_backoff_table()
         :ets.insert(backoff, {{host, port()}, now() + 5_000, 8})
 
         %{conn: conn} =
@@ -1011,7 +1132,7 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
       gate: gate
     } do
       FakeTransport.respond(fake, :produce, frame("ok"))
-      backoff = ReconnectBackoff.new()
+      backoff = ConnectionStateMachine.reconnect_backoff_table()
 
       %{conn: conn} =
         start_connection(fake, host, port(), :data, gate: gate, reconnect_backoff: backoff, reconnect_window: 600)
@@ -1049,7 +1170,7 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
 
     test "in a spent outage, a waiter behind a pending connect still gets its window, and the outage stays spent",
          %{fake: fake, host: host, gate: gate} do
-      backoff = ReconnectBackoff.new()
+      backoff = ConnectionStateMachine.reconnect_backoff_table()
 
       %{conn: conn} =
         start_connection(fake, host, port(), :data, gate: gate, reconnect_backoff: backoff, reconnect_window: 600)
@@ -1070,7 +1191,7 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
 
     test "a fetch connection answered at once in a spent outage still idles out", %{fake: fake, host: host, gate: gate} do
       opts = [gate: gate, reconnect_window: 600, idle_timeout: 300]
-      %{conn: conn} = start_connection(fake, host, port(), :fetch, opts)
+      %{conn: conn} = start_connection(fake, host, port(), {:fetch, "t", 0}, opts)
       monitor = Process.monitor(conn)
       spend_outage(conn, gate)
 
@@ -1086,7 +1207,7 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
       gate: gate
     } do
       FakeTransport.respond(fake, :produce, frame("ok"))
-      backoff = ReconnectBackoff.new()
+      backoff = ConnectionStateMachine.reconnect_backoff_table()
 
       %{conn: conn} =
         start_connection(fake, host, port(), :data, gate: gate, reconnect_backoff: backoff, reconnect_window: 600)
@@ -1119,7 +1240,7 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
     end
 
     test "a crashing handshake still paces the next connection", %{fake: fake, host: host} do
-      backoff = ReconnectBackoff.new()
+      backoff = ConnectionStateMachine.reconnect_backoff_table()
       auth = oauthbearer(fn -> raise "token source down" end)
       %{conn: crashing} = start_connection(fake, host, port(), :data, auth: auth, reconnect_backoff: backoff)
       monitor = Process.monitor(crashing)
@@ -1139,7 +1260,7 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
 
     test "fetch idle close is jittered and stops the process", %{fake: fake, host: host} do
       watch_connection_clock(host)
-      %{conn: conn} = start_connection(fake, host, port(), :fetch, idle_timeout: 200)
+      %{conn: conn} = start_connection(fake, host, port(), {:fetch, "t", 0}, idle_timeout: 200)
       monitor = Process.monitor(conn)
       {:ok, _versions} = ConnectionStateMachine.connect(conn, 5_000)
 
@@ -1163,7 +1284,7 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
 
     test "a dead old leader's fetch connection stops within the idle timeout", %{fake: fake, host: host} do
       gate = PinGate.new()
-      %{conn: conn} = start_connection(fake, host, port(), :fetch, gate: gate, idle_timeout: 200)
+      %{conn: conn} = start_connection(fake, host, port(), {:fetch, "t", 0}, gate: gate, idle_timeout: 200)
       monitor = Process.monitor(conn)
       {:ok, _versions} = ConnectionStateMachine.connect(conn, 5_000)
       PinGate.close(gate)
@@ -1192,7 +1313,7 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
 
     test "terminate closes the socket with :shutdown", %{fake: fake, host: host} do
       supervisor = start_supervised!(DynamicSupervisor)
-      args = args(fake, host, port(), :data, ReconnectBackoff.new(), [])
+      args = args(fake, host, port(), :data, ConnectionStateMachine.reconnect_backoff_table(), [])
       {:ok, conn} = DynamicSupervisor.start_child(supervisor, ConnectionStateMachine.child_spec(args))
       {:ok, _versions} = ConnectionStateMachine.connect(conn, 5_000)
 
@@ -1205,7 +1326,12 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
          %{fake: fake, host: host} do
       for {exit_reason, close} <- [{:kill, :shutdown}, {{:shutdown, :init_error}, :init_error}] do
         owner = spawn(fn -> receive do: (:never -> :ok) end)
-        args = %{args(fake, host, port(), :metadata, ReconnectBackoff.new(), []) | client: owner}
+
+        args = %{
+          args(fake, host, port(), :metadata, ConnectionStateMachine.reconnect_backoff_table(), [])
+          | client: owner
+        }
+
         conn = start_supervised!(%{ConnectionStateMachine.child_spec(args) | id: make_ref()})
         monitor = Process.monitor(conn)
         {:ok, _versions} = ConnectionStateMachine.connect(conn, 5_000)

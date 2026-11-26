@@ -76,6 +76,10 @@
   After any error from the replica, the client forgets the replica and asks the leader at once,
   without a delay and without using up an attempt. A retryable replica error such as `:closed` used
   to be returned to the caller, with the leader asked only on the next fetch.
+* **Every fetched partition has its own connection to its broker.** A long-poll on one partition no
+  longer holds up a fetch of another partition on the same broker. A consumer of many partitions
+  opens more sockets and runs more handshakes (one per partition, not one per broker); a fetch
+  connection that sits idle is closed, as before.
 
 ### Removed
 
