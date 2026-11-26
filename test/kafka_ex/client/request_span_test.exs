@@ -184,47 +184,33 @@ defmodule KafkaEx.Client.RequestSpanTest do
     assert count(fake, :fetch) == fetches_before
   end
 
-  describe "a crash after the span opens" do
-    test "a raise in the connection registry ends the span with the request exception", %{fake: fake, client: client} do
+  # A walk takes every candidate's connection before it writes (decision 4682), so the crash precedes any span.
+  describe "a registry crash while a walk takes its connections" do
+    test "a raise in the connection registry exits the caller before any span opens", %{fake: fake, client: client} do
       warm_data_connection(fake, client)
-      FakeTransport.respond(fake, :produce, :close)
       fail_connection_start()
 
-      {exit, _log} =
-        with_log(fn -> catch_exit(Client.send_request(client, produce_request(), NodeSelector.first_available())) end)
+      {{reason, stacktrace}, _log} = with_log(fn -> walk_exit(client) end)
 
       assert {{{:case_clause, {:error, _}}, [_ | _]}, {GenServer, :call, [_registry, {:connect, _key}, _timeout]}} =
-               reason = exit
+               reason
 
       assert Process.alive?(client)
-      assert_received {:request_span, :start, %{operation: :produce}}
-
-      assert_received {:request_span, :exception,
-                       %{operation: :produce, kind: :exit, reason: ^reason, stacktrace: stacktrace}}
-
       assert Enum.any?(stacktrace, &client_frame?(&1, :connect, 2))
-
       refute_received {:request_span, _, _}
     end
 
-    test "an exit in the connection registry ends the span with the request exception", %{fake: fake, client: client} do
+    test "an exit in the connection registry exits the caller before any span opens", %{fake: fake, client: client} do
       warm_data_connection(fake, client)
-      FakeTransport.respond(fake, :produce, :close)
       supervisor = ClientSupervisor.connection_supervisor(:sys.get_state(client).supervisor)
       :sys.replace_state(supervisor, fn _state -> :broken end)
 
-      {exit, _log} =
-        with_log(fn -> catch_exit(Client.send_request(client, produce_request(), NodeSelector.first_available())) end)
+      {{reason, stacktrace}, _log} = with_log(fn -> walk_exit(client) end)
 
       assert {{_crash, {GenServer, :call, [^supervisor, {:start_child, _child}, :infinity]}},
-              {GenServer, :call, [_registry, {:connect, _key}, _timeout]}} = reason = exit
+              {GenServer, :call, [_registry, {:connect, _key}, _timeout]}} = reason
 
       assert Process.alive?(client)
-      assert_received {:request_span, :start, %{operation: :produce}}
-
-      assert_received {:request_span, :exception,
-                       %{operation: :produce, kind: :exit, reason: ^reason, stacktrace: stacktrace}}
-
       assert Enum.any?(stacktrace, &client_frame?(&1, :connect, 2))
 
       # The registry's crash restarts the metadata store, whose boot opens a metadata span of its own.
@@ -232,7 +218,14 @@ defmodule KafkaEx.Client.RequestSpanTest do
     end
   end
 
-  # A walk tries connected brokers first, so the fault meets the second candidate's connection start.
+  defp walk_exit(client) do
+    Client.send_request(client, produce_request(), NodeSelector.first_available())
+    flunk("the walk did not exit")
+  catch
+    :exit, reason -> {reason, __STACKTRACE__}
+  end
+
+  # One broker is connected, so the fault meets the other broker's connection start.
   defp warm_data_connection(fake, client) do
     FakeTransport.respond(fake, :produce, produce_reply())
     {:ok, _} = API.produce(client, @topic, 0, [%{value: "v"}])

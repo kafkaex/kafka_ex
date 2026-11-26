@@ -91,6 +91,15 @@
   to the new controller, with the same attempts and delays as other retries. When every attempt gets
   `:not_controller`, the result is `{:error, :not_controller}` instead of `{:ok, result}` with
   `:not_controller` on each topic. A `:not_controller` on only some topics is returned as before.
+* **Broker walks wait for a broker that is still connecting.** `KafkaEx.API.find_coordinator/3`,
+  `KafkaEx.API.metadata/2,3`, `KafkaEx.API.api_versions/2` and `KafkaEx.Client.send_request/4` with
+  `:first_available` wait for each broker's connection, up to `connect_timeout` and never past the
+  request's deadline, instead of skipping a broker that is not connected yet. A broker that cannot be
+  reached can therefore cost up to `connect_timeout` before the next one is tried. The client and the
+  metadata store now walk the brokers with the same code. The client takes a connection to every
+  candidate broker before the walk, so `send_request/4` with `:first_available` for a request outside
+  the metadata role opens a connection to each broker. A broker's unparsable answer no longer logs a
+  warning; the walk still moves on to the next broker and the result is unchanged.
 
 ### Removed
 

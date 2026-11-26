@@ -889,7 +889,7 @@ defmodule KafkaEx.Client do
 
   # acks=0: the broker sends no response, and a resend would duplicate records.
   defp fire_and_forget(request, %{route: %NodeSelector{topic: topic, partition: partition}} = spec, context) do
-    case network_request(request, spec.route, context, builder(spec)) do
+    case network_request(request, spec.route, context, spec) do
       {:ok, :no_response} ->
         {:ok, RecordMetadata.build(topic: topic, partition: partition, base_offset: nil)}
 
@@ -1023,6 +1023,7 @@ defmodule KafkaEx.Client do
 
   defp build(spec, context), do: RequestBuilder.build(spec.api, spec.opts, topic_view(spec, context))
 
+  defp builder(:as_is), do: :as_is
   defp builder(spec), do: &build(spec, &1)
 
   defp topic_view(%{api: api, opts: opts, store_tid: tid}, context) when api in [:offset_fetch, :offset_commit] do
@@ -1041,7 +1042,7 @@ defmodule KafkaEx.Client do
 
       _left ->
         request
-        |> attempt_request(builder(spec), spec.route, context, spec.network_timeout)
+        |> attempt_request(spec, spec.route, context, spec.network_timeout)
         |> attempted(spec, request, context, attempts, last_error)
     end
   end
@@ -1241,8 +1242,8 @@ defmodule KafkaEx.Client do
   defp timeout_val(nil), do: RequestBudget.call_budget(Config.request_timeout())
   defp timeout_val(timeout) when is_integer(timeout), do: timeout
 
-  defp network_request(request, node_selector, context, builder) do
-    case attempt_request(request, builder, node_selector, context, nil) do
+  defp network_request(request, node_selector, context, built_by) do
+    case attempt_request(request, built_by, node_selector, context, nil) do
       :stale_context -> :stale_context
       {_sent, {tag, result}, _stamp} when tag in [:raised, :refused] -> result
       {_sent, outcome, _stamp} -> outcome
@@ -1250,7 +1251,7 @@ defmodule KafkaEx.Client do
   end
 
   # The outcome comes with the request last sent and the table stamp read before it; no retry fixes :raised or :refused.
-  defp attempt_request(request, builder, node_selector, context, network_timeout) do
+  defp attempt_request(request, built_by, node_selector, context, network_timeout) do
     timeout = network_timeout || Config.request_timeout()
 
     case targets(node_selector, request, context) do
@@ -1264,11 +1265,11 @@ defmodule KafkaEx.Client do
         {request, error, nil}
 
       {:first_available, brokers} ->
-        stamped(first_available({client_request(request), builder, node_selector, timeout}, brokers, context, nil), nil)
+        stamped(first_response(request, built_by, node_selector, brokers, timeout, context), nil)
 
       {:one, broker} ->
         stamp = snapshot_stamp(context)
-        stamped(send_to(client_request(request), builder, node_selector, broker, timeout, context), stamp)
+        stamped(send_to(client_request(request), builder(built_by), node_selector, broker, timeout, context), stamp)
     end
   end
 
@@ -1276,7 +1277,7 @@ defmodule KafkaEx.Client do
   defp stamped({sent, outcome}, stamp), do: {sent, outcome, stamp}
 
   defp send_to(request, builder, selector, broker, timeout, context) do
-    dispatch = request |> connection_dispatch(timeout, true, context) |> as_is(builder)
+    dispatch = request |> connection_dispatch(timeout, context) |> as_is(builder)
 
     case await_negotiated(dispatch, builder, context, &await_connection(&1, selector, broker, &2)) do
       {:ready, conn} ->
@@ -1308,7 +1309,7 @@ defmodule KafkaEx.Client do
 
   defp rebuild(dispatch, builder, versions, context, await) do
     case builder.(%{context | api_versions: versions}) do
-      {:ok, request} -> dispatch |> carrying(client_request(request)) |> await.(context) |> refused_again()
+      {:ok, request} -> dispatch |> Round.carrying(client_request(request)) |> await.(context) |> refused_again()
       # An explicit version pin above this connection's max ends here, unwritten and never downgraded.
       {:error, _} = build_error -> {:refused, build_error}
     end
@@ -1333,8 +1334,6 @@ defmodule KafkaEx.Client do
     metadata = Telemetry.request_metadata(request, %{})
     {metadata, Telemetry.start_span([:kafka_ex, :request], metadata)}
   end
-
-  defp restamp({_metadata, span}, request), do: {Telemetry.request_metadata(request, %{}), span}
 
   defp finish_request_span({metadata, span}, {:raised, {kind, reason, stacktrace}}, _broker) do
     Telemetry.exception_span(span, metadata, kind, reason, stacktrace)
@@ -1404,69 +1403,43 @@ defmodule KafkaEx.Client do
     {:first_available, Enum.shuffle(connected) ++ Enum.shuffle(rest)}
   end
 
-  defp first_available({request, _builder, _selector, _timeout}, [], _context, nil) do
-    {request, {:error, :no_broker}}
-  end
+  # The caller waits this long past the connection's deadline, so its own timeout reply usually arrives first.
+  @deadline_margin 500
 
-  defp first_available({request, _builder, _selector, _timeout}, [], _context, {:refused, refused}) do
-    {request, {:refused, refused}}
-  end
+  # Every candidate's connection is taken before the walk, as a store round takes the store's.
+  defp first_response(request, built_by, selector, brokers, timeout, context) do
+    {operation, _version} = @protocol.request_info(request)
+    role = NodeSelector.connection_role(selector, operation)
 
-  # A walk the deadline cut short, or one whose every written candidate timed out, ends on :timeout.
-  defp first_available(_walk, [], context, {:open, span, meta, sent, timed_out?}) do
-    error = if timed_out? or time_left(context.deadline) == 0, do: :timeout, else: :broker_failed
-    {sent, stop_request_span(span, {:error, error}, %{meta | bytes_received: 0}, nil)}
-  end
+    walk =
+      Map.merge(walk_build(built_by), %{
+        kind: :request,
+        candidates: connections(context, brokers, role),
+        brokers: Map.new(brokers, &{{&1.host, &1.port}, &1}),
+        connect_timeout: context.connection_options.connect_timeout,
+        connect_slack: @deadline_margin,
+        request_timeout: timeout,
+        request_slack: @deadline_margin,
+        deadline: context.deadline,
+        request: request,
+        correlation: context.correlation
+      })
 
-  defp first_available({request, builder, selector, timeout} = walk, [broker | rest], context, open) do
-    dispatch = request |> connection_dispatch(timeout, false, context) |> as_is(builder)
-
-    case await_negotiated(dispatch, builder, context, &await_connection(&1, selector, broker, &2)) do
-      {:ready, conn} ->
-        write_candidate(conn, broker, {walk, rest}, context, open)
-
-      {:not_written, {:error, :no_broker}} ->
-        Logger.debug("#{Broker.to_string(broker)} not connected, skipping")
-        first_available(walk, rest, context, open)
-
-      # A registry restarting under the walk skips the broker, as an unconnected one is skipped.
-      :stale_context ->
-        first_available(walk, rest, context, open)
-
-      {:refused, {:error, error} = refused} ->
-        Logger.warning("Network call to #{Broker.to_string(broker)} failed: #{inspect(error)}")
-        first_available(walk, rest, context, refusal(open, refused))
-
-      {:not_written, {:error, error}} ->
-        Logger.warning("Network call to #{Broker.to_string(broker)} failed: #{inspect(error)}")
-        first_available(walk, rest, context, open)
+    case Round.first_response(walk, operation) do
+      {:ok, response, _address, _versions, sent} -> {sent, {:ok, response}}
+      outcome -> {request, outcome}
     end
   end
 
-  # A walk that writes nothing ends on the refusal, not on a missing broker.
-  defp refusal({:open, _span, _meta, _sent, _timed_out?} = open, _refused), do: open
-  defp refusal(_open, refused), do: {:refused, refused}
-
-  # Every candidate of one walk writes under the walk's one span and correlation id.
-  defp write_candidate(conn, broker, walk, context, {:open, span, _meta, %{correlation_id: id}, timed_out?}) do
-    {_key, _pid, %{request: sent}} = conn = with_correlation_id(conn, id)
-    walk_on(write(conn), restamp(span, sent), broker, sent, walk, context, timed_out?)
+  # A broker without a connection is skipped, as a candidate that fails to connect is.
+  defp connections(context, brokers, role) do
+    for broker <- brokers, pid = ensure_connection(context, {broker.host, broker.port, role}), is_pid(pid) do
+      {{broker.host, broker.port}, pid}
+    end
   end
 
-  defp write_candidate(conn, broker, walk, context, _nothing_written) do
-    {_key, _pid, %{request: sent}} = conn = with_correlation_id(conn, next_correlation_id(context))
-    span = start_request_span(sent)
-    opened(span, fn -> walk_on(write(conn), span, broker, sent, walk, context, true) end)
-  end
-
-  defp walk_on({:written, {:error, error}, meta}, span, broker, sent, {walk, rest}, context, timed_out?) do
-    Logger.warning("Network call to #{Broker.to_string(broker)} failed: #{inspect(error)}")
-    first_available(walk, rest, context, {:open, span, meta, sent, timed_out? and error == :timeout})
-  end
-
-  defp walk_on(outcome, span, broker, sent, _walk, _context, _timed_out?) do
-    {sent, finish_request_span(span, outcome, broker)}
-  end
+  defp walk_build(:as_is), do: %{request_opts: [], as_is?: true}
+  defp walk_build(spec), do: %{request_opts: spec.opts}
 
   defp await_connection(dispatch, selector, broker, context) do
     {operation, _version} = dispatch.info
@@ -1474,20 +1447,10 @@ defmodule KafkaEx.Client do
     await(key, Map.put(dispatch, :node_id, broker.node_id), context, 1)
   end
 
-  # The caller waits this long past the connection's deadline, so its own timeout reply usually arrives first.
-  @deadline_margin 500
-
   # Capped by the request's deadline, never shortened by the margin, so a short budget can still write.
-  defp connection_dispatch(request, timeout, wait?, context) do
+  defp connection_dispatch(request, timeout, context) do
     own = System.monotonic_time(:millisecond) + call_timeout(timeout, context) - @deadline_margin
-    carrying(%{timeout: timeout, wait?: wait?, deadline: min(own, context.deadline)}, request)
-  end
-
-  # A rebuilt request keeps its dispatch's deadline, so the rebuild never opens a second reconnect window.
-  defp carrying(dispatch, request) do
-    info = @protocol.request_info(request)
-    reply? = Map.get(request, :acks) != 0
-    Map.merge(dispatch, %{request: request, info: info, reply?: reply?, long_poll: fetch_max_wait(info, request)})
+    Round.carrying(%{timeout: timeout, wait?: true, deadline: min(own, context.deadline)}, request)
   end
 
   # A raw send_request/4 struct is written as built, whatever the broker advertised.
@@ -1501,9 +1464,6 @@ defmodule KafkaEx.Client do
 
   # Await and write share the dispatch's deadline, so the write never opens a second reconnect window.
   defp dispatch_time_left(dispatch), do: time_left(dispatch.deadline + @deadline_margin)
-
-  defp fetch_max_wait({:fetch, _version}, request), do: request.max_wait_time
-  defp fetch_max_wait(_info, _request), do: nil
 
   defp await(key, dispatch, context, redispatches) do
     case ensure_connection(context, key) do
@@ -1601,8 +1561,6 @@ defmodule KafkaEx.Client do
     auth = state.auth
     fn -> %{ssl_options: ssl_options, auth: auth} end
   end
-
-  defp broker_to_telemetry_info(nil), do: %{}
 
   defp broker_to_telemetry_info(%Broker{} = broker) do
     %{node_id: broker.node_id, host: broker.host, port: broker.port, rack: broker.rack}
