@@ -14,6 +14,7 @@ defmodule KafkaEx.Client do
   alias KafkaEx.Config
   alias KafkaEx.Telemetry
 
+  alias KafkaEx.Client.ConnectionRegistry
   alias KafkaEx.Client.ConnectionStateMachine
   alias KafkaEx.Client.ConnectionStateMachine.ReconnectBackoff
   alias KafkaEx.Client.Error
@@ -126,7 +127,10 @@ defmodule KafkaEx.Client do
 
     case await_boot(store, state) do
       {:ok, %{table: tid, api_versions: api_versions}} ->
-        {:ok, %{state | api_versions: api_versions, store: %{pid: store, ref: Process.monitor(store), tid: tid}}}
+        registry = ClientSupervisor.connection_registry(supervisor)
+        conns = ConnectionRegistry.table(registry, @store_call_timeout)
+        store = %{pid: store, ref: Process.monitor(store), tid: tid}
+        {:ok, %{state | api_versions: api_versions, store: store, registry: registry, conns: conns}}
 
       {:error, reason} ->
         stop_supervisor_after_failed_boot(supervisor, store)
@@ -418,12 +422,9 @@ defmodule KafkaEx.Client do
     {:noreply, state |> ensure_store() |> stop_departed_connections()}
   end
 
+  # A restarted registry always restarts the store too, so the store's :DOWN also stands for the registry's.
   defp unparked_info({:DOWN, ref, :process, _pid, _reason}, %State{store: %{ref: ref}} = state) do
-    {:noreply, %{state | store: nil, hints: %{}}}
-  end
-
-  defp unparked_info({:DOWN, ref, :process, _pid, _reason}, state) do
-    {:noreply, %{state | conns: Map.reject(state.conns, fn {_key, entry} -> entry.ref == ref end)}}
+    {:noreply, %{state | store: nil, hints: %{}, registry: nil, conns: nil}}
   end
 
   defp unparked_info(message, state) do
@@ -453,24 +454,26 @@ defmodule KafkaEx.Client do
     end
   end
 
+  # The registry deletes each row on the connection's :DOWN.
   defp stop_unadvertised(state, advertised) do
-    {departed, kept} =
-      Enum.split_with(state.conns, fn {{host, port, _role}, _entry} -> not MapSet.member?(advertised, {host, port}) end)
-
-    Enum.each(departed, fn {_key, %{pid: pid, ref: ref}} ->
-      Process.demonitor(ref, [:flush])
+    for {{host, port, _role}, pid} <- :ets.tab2list(state.conns), not MapSet.member?(advertised, {host, port}) do
       ConnectionStateMachine.stop(pid, :metadata_update)
-    end)
+    end
 
-    %{state | conns: Map.new(kept)}
+    state
+  rescue
+    # A restarted registry took its table and connections with it before the client saw the store's :DOWN.
+    ArgumentError -> state
   end
 
   defp ensure_store(%State{store: nil} = state) do
     {_budget, timeout} = budgeted(state, @store_call_timeout)
 
-    with store when is_pid(store) <- ClientSupervisor.metadata_store(state.supervisor),
+    with registry when is_pid(registry) <- ClientSupervisor.connection_registry(state.supervisor),
+         conns = ConnectionRegistry.table(registry, timeout),
+         store when is_pid(store) <- ClientSupervisor.metadata_store(state.supervisor),
          {:ok, tid} <- MetadataStore.table(store, timeout) do
-      %{state | store: %{pid: store, ref: Process.monitor(store), tid: tid}}
+      %{state | store: %{pid: store, ref: Process.monitor(store), tid: tid}, registry: registry, conns: conns}
     else
       _none -> state
     end
@@ -1379,7 +1382,7 @@ defmodule KafkaEx.Client do
   defp bootstrap_broker({host, port}), do: %Broker{host: host, port: port}
 
   defp connected_first(state, role) do
-    {connected, rest} = state |> brokers() |> Enum.split_with(&Map.has_key?(state.conns, {&1.host, &1.port, role}))
+    {connected, rest} = state |> brokers() |> Enum.split_with(&registered(state.conns, {&1.host, &1.port, role}))
     Enum.shuffle(connected) ++ Enum.shuffle(rest)
   end
 
@@ -1505,7 +1508,7 @@ defmodule KafkaEx.Client do
   end
 
   defp first_fetch_await(:first, key, dispatch, state, redispatches) do
-    first_connect? = not Map.has_key?(state.conns, key) or parked_on?(state, key)
+    first_connect? = registered(state.conns, key) == nil or parked_on?(state, key)
 
     case ensure_connection(state, key) do
       {nil, state} -> {:not_written, {:error, :no_broker}, state}
@@ -1570,19 +1573,19 @@ defmodule KafkaEx.Client do
   defp awaited(outcome, key, pid, dispatch, state, redispatches) do
     case outcome do
       :ok -> {:ready, {key, pid, dispatch}, state}
-      :gone when redispatches > 0 -> await(key, dispatch, forget_connection(state, key, pid), redispatches - 1)
-      :gone -> {:not_written, {:error, :no_broker}, forget_connection(state, key, pid)}
+      :gone when redispatches > 0 -> await(key, dispatch, state, redispatches - 1)
+      :gone -> {:not_written, {:error, :no_broker}, state}
       {:error, :not_connected, _meta} -> {:not_written, {:error, :no_broker}, state}
       {:error, reason, _meta} -> {:not_written, {:error, reason}, state}
     end
   end
 
   # Same dispatch, so the same deadline: the write never opens a second reconnect window.
-  defp write({key, pid, dispatch}, state) do
+  defp write({_key, pid, dispatch}, state) do
     left = max(dispatch.deadline + @deadline_margin - System.monotonic_time(:millisecond), 0)
 
     case call_connection(&ConnectionStateMachine.write/3, pid, dispatch, left) do
-      :gone -> {:written, {:error, :closed}, @no_bytes, forget_connection(state, key, pid)}
+      :gone -> {:written, {:error, :closed}, @no_bytes, state}
       {:ok, :no_response, meta} -> {:written, {:ok, :no_response}, meta, state}
       {:ok, frame, meta} -> {:written, ResponseParser.deserialize(frame, dispatch.request), meta, state}
       {:error, {:exception, kind, reason, stacktrace}, _meta} -> {:raised, {kind, reason, stacktrace}, state}
@@ -1606,27 +1609,33 @@ defmodule KafkaEx.Client do
     end)
   end
 
-  defp ensure_connection(state, {host, port, role} = key) do
-    case Map.fetch(state.conns, key) do
-      {:ok, %{pid: pid}} ->
-        {pid, state}
-
-      :error ->
-        args = %{
-          client: self(),
-          host: host,
-          port: port,
-          role: role,
-          use_ssl: state.use_ssl,
-          secrets: secrets_fun(state),
-          reconnect_backoff: state.reconnect_backoff
-        }
-
-        case start_connection(state.supervisor, args) do
-          {:ok, pid} -> {pid, %{state | conns: Map.put(state.conns, key, %{pid: pid, ref: Process.monitor(pid)})}}
-          :restarting -> {nil, state}
-        end
+  defp ensure_connection(state, key) do
+    case registered(state.conns, key) do
+      nil -> {connect(state, key), state}
+      pid -> {pid, state}
     end
+  end
+
+  # A dead pid is a miss: its row stays until the registry handles the :DOWN, and an idle stop can race the lookup.
+  defp registered(conns, key) do
+    case :ets.lookup(conns, key) do
+      [{^key, pid}] -> if(Process.alive?(pid), do: pid)
+      [] -> nil
+    end
+  rescue
+    # The table dies with a restarting registry before the client sees the store's :DOWN.
+    ArgumentError -> nil
+  end
+
+  defp connect(state, key) do
+    {_budget, timeout} = budgeted(state, @store_call_timeout)
+
+    case ConnectionRegistry.connect(state.registry, key, timeout) do
+      {:ok, pid} -> pid
+      :restarting -> nil
+    end
+  catch
+    :exit, {reason, _call} when reason in [:noproc, :shutdown, :killed] -> nil
   end
 
   @doc false
@@ -1639,18 +1648,6 @@ defmodule KafkaEx.Client do
     end
   catch
     :exit, {reason, _call} when reason in [:noproc, :shutdown, :killed] -> :restarting
-  end
-
-  # A parked call can learn of a dead pid after a retry has replaced it under the same key.
-  defp forget_connection(state, key, pid) do
-    case Map.pop(state.conns, key) do
-      {%{pid: ^pid, ref: ref}, conns} ->
-        Process.demonitor(ref, [:flush])
-        %{state | conns: conns}
-
-      _other ->
-        state
-    end
   end
 
   # Binds the two values, not the state, so a connection never holds the client's state.

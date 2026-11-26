@@ -176,7 +176,7 @@ defmodule KafkaEx.Client.RequestSpanTest do
   end
 
   describe "a crash after the span opens" do
-    test "a raise ends the span with the request exception", %{fake: fake, client: client} do
+    test "a raise in the connection registry ends the span with the request exception", %{fake: fake, client: client} do
       ref = Process.monitor(client)
       warm_data_connection(fake, client)
       FakeTransport.respond(fake, :produce, :close)
@@ -185,22 +185,21 @@ defmodule KafkaEx.Client.RequestSpanTest do
       {exit, _log} =
         with_log(fn -> catch_exit(Client.send_request(client, produce_request(), NodeSelector.first_available())) end)
 
-      assert {{{:case_clause, {:error, _}}, [_ | _] = stacktrace} = reason, _call} = exit
+      assert {{{{:case_clause, {:error, _}}, [_ | _]}, {GenServer, :call, [_registry, {:connect, _key}, _timeout]}} =
+                reason, _call} = exit
+
       assert_receive {:DOWN, ^ref, :process, ^client, ^reason}, 5_000
       assert_received {:request_span, :start, %{operation: :produce}}
 
       assert_received {:request_span, :exception,
-                       %{
-                         operation: :produce,
-                         kind: :error,
-                         reason: {:case_clause, {:error, _}},
-                         stacktrace: ^stacktrace
-                       }}
+                       %{operation: :produce, kind: :exit, reason: ^reason, stacktrace: stacktrace}}
+
+      assert Enum.any?(stacktrace, &client_frame?(&1, :connect, 2))
 
       refute_received {:request_span, _, _}
     end
 
-    test "an exit ends the span with the request exception", %{fake: fake, client: client} do
+    test "an exit in the connection registry ends the span with the request exception", %{fake: fake, client: client} do
       ref = Process.monitor(client)
       warm_data_connection(fake, client)
       FakeTransport.respond(fake, :produce, :close)
@@ -210,16 +209,19 @@ defmodule KafkaEx.Client.RequestSpanTest do
       {exit, _log} =
         with_log(fn -> catch_exit(Client.send_request(client, produce_request(), NodeSelector.first_available())) end)
 
-      assert {{_crash, {GenServer, :call, [^supervisor, {:start_child, _child}, :infinity]}} = reason, _call} = exit
+      assert {{{_crash, {GenServer, :call, [^supervisor, {:start_child, _child}, :infinity]}},
+               {GenServer, :call, [_registry, {:connect, _key}, _timeout]}} = reason, _call} = exit
+
       assert_receive {:DOWN, ^ref, :process, ^client, ^reason}, 5_000
       assert_received {:request_span, :start, %{operation: :produce}}
 
       assert_received {:request_span, :exception,
                        %{operation: :produce, kind: :exit, reason: ^reason, stacktrace: stacktrace}}
 
-      assert Enum.any?(stacktrace, &client_frame?(&1, :start_connection, 2))
+      assert Enum.any?(stacktrace, &client_frame?(&1, :connect, 2))
 
-      refute_received {:request_span, _, _}
+      # The registry's crash restarts the metadata store, whose boot opens a metadata span of its own.
+      refute_received {:request_span, _, %{operation: :produce}}
     end
   end
 

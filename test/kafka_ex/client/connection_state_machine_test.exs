@@ -1159,6 +1159,23 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
       assert_receive {:DOWN, ^monitor, :process, ^conn, :normal}, round(200 * 1.2) + 200
     end
 
+    test "a write whose caller died while it waited in the mailbox is not sent", %{fake: fake, host: host} do
+      FakeTransport.respond(fake, :produce, frame("ok"))
+      %{conn: conn} = start_connected(fake, host, :data)
+      dispatch = build_dispatch(request(:produce))
+      :ok = ConnectionStateMachine.await(conn, dispatch, 1_000)
+
+      :ok = :sys.suspend(conn)
+      caller = spawn(fn -> ConnectionStateMachine.write(conn, dispatch, 5_000) end)
+      KafkaEx.TestHelpers.wait_for(fn -> Process.info(conn, :message_queue_len) == {:message_queue_len, 1} end, 10)
+      Process.exit(caller, :kill)
+      refute Process.alive?(caller)
+      :ok = :sys.resume(conn)
+
+      assert {:ok, _reply, _meta} = dispatch(conn, request(:produce))
+      assert length(requests(fake, :produce)) == 1
+    end
+
     test "terminate closes the socket with :shutdown", %{fake: fake, host: host} do
       supervisor = start_supervised!(DynamicSupervisor)
       args = args(fake, host, port(), :data, ReconnectBackoff.new(), [])

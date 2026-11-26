@@ -23,7 +23,7 @@ defmodule KafkaEx.Client.MetadataStoreOutageTest do
     supervisor = :sys.get_state(client).supervisor
     PinGate.close(gate)
     kill_store(client)
-    assert %{active: 2} = Supervisor.count_children(supervisor)
+    assert %{active: 3} = Supervisor.count_children(supervisor)
 
     {:ok, during} = API.cluster_metadata(client)
     {:ok, again} = API.cluster_metadata(client)
@@ -276,7 +276,7 @@ defmodule KafkaEx.Client.MetadataStoreOutageTest do
     assert {:error, :no_broker} = during
     assert Process.alive?(client)
     assert %{supervisor: ^supervisor} = :sys.get_state(client)
-    assert Supervisor.count_children(supervisor).active == 2
+    assert Supervisor.count_children(supervisor).active == 3
   end
 
   defp assert_recovered(client, supervisor, store) do

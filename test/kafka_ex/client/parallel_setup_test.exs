@@ -132,7 +132,7 @@ defmodule KafkaEx.Client.ParallelSetupTest do
       first = Task.async(fn -> API.fetch(client, @topic, 0, 0) end)
       assert_receive {:fake_transport, :request, %{api: :api_versions, port: 9092}}, 2_000
       wait_for(fn -> map_size(:sys.get_state(client).parked) == 1 end)
-      %{pid: dead} = :sys.get_state(client).conns[{host, 9092, :fetch}]
+      [{_key, dead}] = :ets.lookup(:sys.get_state(client).conns, {host, 9092, :fetch})
 
       :ok = :sys.suspend(client)
       second = Task.async(fn -> API.fetch(client, @topic, 0, 0) end)

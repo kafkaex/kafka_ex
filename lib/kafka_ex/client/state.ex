@@ -22,7 +22,8 @@ defmodule KafkaEx.Client.State do
     api_versions: %{},
     allow_auto_topic_creation: true,
     supervisor: nil,
-    conns: %{},
+    registry: nil,
+    conns: nil,
     reconnect_backoff: nil,
     connection_options: %{},
     parked: %{},
@@ -46,9 +47,8 @@ defmodule KafkaEx.Client.State do
           api_versions: map(),
           allow_auto_topic_creation: boolean(),
           supervisor: pid() | nil,
-          conns: %{
-            optional({binary(), non_neg_integer(), ConnectionStateMachine.role()}) => %{pid: pid(), ref: reference()}
-          },
+          registry: pid() | nil,
+          conns: :ets.tid() | nil,
           reconnect_backoff: :ets.tid() | nil,
           connection_options: map(),
           parked: %{optional(reference()) => map()},

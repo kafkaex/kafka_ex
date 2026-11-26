@@ -13,6 +13,7 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
   import ExUnit.CaptureLog
   import KafkaEx.TestHelpers, only: [forward_telemetry: 2]
 
+  alias KafkaEx.Client.ConnectionRegistry
   alias KafkaEx.Client.ConnectionStateMachine
   alias KafkaEx.Client.ConnectionStateMachine.ReconnectBackoff
   alias KafkaEx.Client.RequestBuilder
@@ -83,6 +84,7 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
 
     %{
       client: self(),
+      registry: start_registry(),
       host: host,
       port: port,
       role: role,
@@ -90,6 +92,12 @@ defmodule KafkaEx.TestSupport.ConnectionCase do
       secrets: Keyword.get(opts, :secrets, fn -> %{ssl_options: ssl_options, auth: auth} end),
       reconnect_backoff: backoff
     }
+  end
+
+  # An idle fetch connection unregisters before it stops, so each connection gets a registry of its own.
+  defp start_registry do
+    args = %{client: self(), supervisor: nil, connection: %{}}
+    start_supervised!(Supervisor.child_spec({ConnectionRegistry, args}, id: make_ref()))
   end
 
   defp ssl_options(fake, opts) do

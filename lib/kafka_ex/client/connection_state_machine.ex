@@ -19,6 +19,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   alias KafkaEx.Auth.Config, as: AuthConfig
   alias KafkaEx.Auth.SASL
   alias KafkaEx.Auth.SASL.VersionSupport
+  alias KafkaEx.Client.ConnectionRegistry
   alias KafkaEx.Client.ConnectionStateMachine.ReconnectBackoff
   alias KafkaEx.Client.State
   alias KafkaEx.Cluster.Broker
@@ -81,7 +82,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
 
     data =
       args
-      |> Map.take([:host, :port, :role, :use_ssl, :secrets, :reconnect_backoff])
+      |> Map.take([:host, :port, :role, :use_ssl, :secrets, :reconnect_backoff, :registry])
       |> Map.merge(%{
         opts: opts,
         owner_ref: Process.monitor(args.client),
@@ -125,8 +126,9 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
     enqueue(from, dispatch, state, named(data, dispatch))
   end
 
-  def handle_event({:call, from}, {:write, dispatch}, :connected, data) do
-    send_request(from, dispatch, data)
+  # A caller that died while its write waited, such as a consumer closing mid-join, must not have it sent (KIP-848).
+  def handle_event({:call, {caller, _tag} = from}, {:write, dispatch}, :connected, data) do
+    if Process.alive?(caller), do: send_request(from, dispatch, data), else: :keep_state_and_data
   end
 
   # The caller saw this connection up and committed to the write: a drop since then is a dead socket's send.
@@ -178,7 +180,9 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
 
   def handle_event({:timeout, :liveness}, nil, :connected, data), do: liveness(data)
 
+  # Unregistered first, so a call left in the mailbox exits :normal and its caller reconnects through the registry.
   def handle_event({:timeout, :idle}, nil, _state, data) do
+    :ok = ConnectionRegistry.unregister(data.registry, {data.host, data.port, data.role})
     {:stop, :normal, close_socket(data, :idle)}
   end
 

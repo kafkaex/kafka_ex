@@ -107,7 +107,7 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
         end
       end)
 
-      roles = for {{^host, 9093, role}, _entry} <- :sys.get_state(client).conns, do: role
+      roles = for {{^host, 9093, role}, _pid} <- :ets.tab2list(:sys.get_state(client).conns), do: role
       assert Enum.sort(roles) == [:coordinator, :data, :fetch]
     end
   end
@@ -177,7 +177,7 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
     {:ok, _} = API.fetch(client, @topic, 1, 0, max_wait_time: 10)
     {:ok, _} = API.heartbeat(client, "g", "m", 1)
 
-    departing = for {{_host, 9093, _role}, %{pid: pid}} <- :sys.get_state(client).conns, do: pid
+    departing = for {{_host, 9093, _role}, pid} <- :ets.tab2list(:sys.get_state(client).conns), do: pid
     assert length(departing) == 3
     monitored = Enum.map(departing, &{&1, Process.monitor(&1)})
 
@@ -285,8 +285,7 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
   end
 
   defp watch_old_connections(client, host) do
-    conns = :sys.get_state(client).conns
-    old = conns |> Map.fetch!({host, 9092, :fetch}) |> Map.fetch!(:pid)
+    [{_key, old}] = :ets.lookup(:sys.get_state(client).conns, {host, 9092, :fetch})
     metadata = metadata_connection(client, host)
     {{old, Process.monitor(old)}, {metadata, Process.monitor(metadata)}}
   end
