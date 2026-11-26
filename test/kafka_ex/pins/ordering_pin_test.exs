@@ -54,9 +54,11 @@ defmodule KafkaEx.Pins.OrderingPinTest do
   end
 
   describe "Goal 1: requests behind a long fetch" do
-    @describetag pin_set: :target_state
+    @describetag pin_set: :invariant
 
     for {name, request, call} <- @others do
+      # One fetch connection per broker until task 7 gives each partition its own.
+      @tag pin_set: if(name =~ "fetch of another partition", do: :target_state, else: :invariant)
       test "#{name} is received while the fetch is held", %{fake: fake, client: client} = ctx do
         held = hold_long_fetch(ctx)
         var!(client) = client

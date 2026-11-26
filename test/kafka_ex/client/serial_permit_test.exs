@@ -40,9 +40,9 @@ defmodule KafkaEx.Client.SerialPermitTest do
   test "a waiter whose wait timed out leaves the queue", %{client: client} do
     :ok = GenServer.call(client, :permit)
     produce = {:produce, @topic, 0, [%{value: "v"}], []}
-    waiter = Task.async(fn -> catch_exit(Client.request(client, produce, 200)) end)
+    waiter = Task.async(fn -> Client.request(client, produce, 200) end)
 
-    assert {:timeout, {GenServer, :call, [^client, :permit, _timeout]}} = Task.await(waiter)
+    assert {:error, %KafkaEx.Client.Error{error: :timeout}} = Task.await(waiter)
     assert :queue.is_empty(:sys.get_state(client).waiting)
 
     GenServer.cast(client, {:release, self()})

@@ -62,48 +62,140 @@ defmodule KafkaEx.Client do
   @spec send_request(KafkaEx.API.client(), map, KafkaEx.Client.NodeSelector.t(), pos_integer | nil) ::
           {:ok, term} | {:error, term}
   def send_request(server, request, node_selector, timeout \\ nil) do
-    call_timeout = timeout_val(timeout)
-    opts = RequestBudget.put_call_budget([], call_timeout)
-    request(server, {:network_request, request, node_selector, opts}, call_timeout)
+    request(server, {:network_request, request, node_selector, []}, timeout_val(timeout))
   end
 
   @doc """
-  Sends a request message to the client and waits up to `timeout` ms for its reply.
+  Runs a request message in the calling process and answers within `timeout` ms.
 
   The single entry point for `KafkaEx.API` and `send_request/4`; calling the client
-  with `GenServer.call/3` directly is not supported.
+  with `GenServer.call/3` directly is not supported. A client on another node runs
+  the request there.
   """
   @spec request(KafkaEx.API.client(), message :: tuple(), timeout :: pos_integer()) ::
           {:ok, term()} | {:error, term()}
   def request(client, message, timeout) do
-    deadline = System.monotonic_time(:millisecond) + timeout
-    context = GenServer.call(client, :context, timeout)
-    call_in_turn(context.request_concurrency, client, message, deadline)
+    case GenServer.whereis(client) do
+      pid when is_pid(pid) and node(pid) != node() -> remote_request(node(pid), client, message, timeout)
+      {_name, node} -> remote_request(node, client, message, timeout)
+      _local -> local_request(client, message, timeout)
+    end
   end
 
-  defp call_in_turn(:multiplexed, client, message, deadline), do: GenServer.call(client, message, time_left(deadline))
+  # The remote request ends on its own deadline; the margin covers the trip back.
+  defp remote_request(node, client, message, timeout) do
+    :erpc.call(node, __MODULE__, :request, [client, message, timeout], timeout + 1_000)
+  catch
+    :error, {:erpc, :timeout} -> deadline_reply(message)
+    # An unreachable node exits the caller, as the GenServer.call to it always did.
+    :error, {:erpc, reason} -> exit({reason, {__MODULE__, :request, [client, message, timeout]}})
+  end
+
+  defp local_request(client, message, timeout) do
+    deadline = System.monotonic_time(:millisecond) + timeout
+    context = %{GenServer.call(client, :context, timeout) | deadline: deadline}
+    serve_in_turn(context.request_concurrency, client, message, context)
+  catch
+    :exit, {:timeout, _call} -> deadline_reply(message)
+  end
+
+  defp serve_in_turn(:multiplexed, client, message, context), do: serve(message, client, context)
 
   # A release after a timed-out wait takes the caller off the queue, so a late permit never goes to it.
-  defp call_in_turn(:serial, client, message, deadline) do
-    :ok = GenServer.call(client, :permit, time_left(deadline))
-    GenServer.call(client, message, time_left(deadline))
+  defp serve_in_turn(:serial, client, message, context) do
+    :ok = GenServer.call(client, :permit, time_left(context.deadline))
+    serve(message, client, context)
   after
     GenServer.cast(client, {:release, self()})
   end
 
+  # Served without a request spec: no operation span, and a bare :timeout as these calls always answered.
+  @specless_messages [:network_request, :topic_metadata, :cluster_metadata]
+
+  # The operation's span opens before the wait for a table, so a request that times out waiting still ends it.
+  defp serve(message, client, context) when elem(message, 0) in @specless_messages do
+    message |> served(nil, client, await_table(client, context), %{}) |> elem(0)
+  end
+
+  defp serve(message, client, context) do
+    with %{} = spec <- request_spec(message) do
+      case span_of(message, spec) do
+        nil ->
+          message |> served(spec, client, await_table(client, context), %{}) |> elem(0)
+
+        {event, metadata} ->
+          Telemetry.span(event, metadata, fn ->
+            served(message, spec, client, await_table(client, context), metadata)
+          end)
+      end
+    end
+  end
+
+  # Only a request's first attempt, before anything is written, comes back stale, so serving again sends nothing twice.
+  defp served(message, spec, client, {:ok, context}, metadata) do
+    case operate(message, spec, context, metadata) do
+      {:stale_context, _stop_metadata} -> served(message, spec, client, next_context(client, context), metadata)
+      done -> done
+    end
+  end
+
+  defp served(message, _spec, _client, :timeout, metadata), do: {deadline_reply(message), metadata}
+
+  # The counter stays 0 until the first metadata lands, so a fresh table belongs to a store still loading.
+  defp await_table(client, %State{store: %{pid: store, tid: tid}} = context) do
+    case MetadataTable.counter(tid) do
+      {:ok, 0} ->
+        # A failed load round leaves the store loading again, so the request waits for its next round.
+        case MetadataStore.await_ready(store, time_left(context.deadline)) do
+          {:ok, _ready} -> {:ok, context}
+          {:error, {:boot, _reason}} -> await_table(client, context)
+        end
+
+      {:ok, _counter} ->
+        {:ok, context}
+
+      {:error, :unavailable} ->
+        next_context(client, context)
+    end
+  catch
+    :exit, {_reason, {:gen_statem, :call, [^store, :await_ready, _timeout]}} -> next_context(client, context)
+  end
+
+  defp await_table(client, context), do: next_context(client, context)
+
+  # A client that does not hand out a context in time ends the request as its deadline would.
+  defp next_context(client, %State{deadline: deadline}) do
+    case time_left(deadline) do
+      0 ->
+        :timeout
+
+      left ->
+        Process.sleep(Retry.backoff_delay_jittered(0, 100, left))
+        await_table(client, %{GenServer.call(client, :context, time_left(deadline)) | deadline: deadline})
+    end
+  catch
+    :exit, {:timeout, _call} -> :timeout
+  end
+
   defp time_left(deadline), do: max(deadline - System.monotonic_time(:millisecond), 0)
+
+  # The operation loop has always answered a timeout as an %Error{}.
+  defp deadline_reply(message) when elem(message, 0) in @specless_messages, do: {:error, :timeout}
+  defp deadline_reply(_message), do: {:error, Error.build(:timeout, %{})}
 
   require Logger
 
   # KafkaEx.API derives its fetch budget from this, so the two cannot drift (#357).
   @retry_count 3
   @no_bytes %{bytes_sent: 0, bytes_received: 0}
-  @park :kafka_ex_park
 
   # The broker holds JoinGroup/SyncGroup replies for the rebalance window; ConsumerGroup.Manager owns the rejoin.
   @coordinator_max_attempts 1
 
   @store_call_timeout 5_000
+
+  # Bounds ensure_store's calls to the store and registry; its supervisor lookup has no timeout, as before.
+  @lookup_timeout 1_000
 
   @doc false
   @spec retry_count() :: pos_integer()
@@ -137,7 +229,7 @@ defmodule KafkaEx.Client do
     state = %{
       state
       | reconnect_backoff: ReconnectBackoff.new(),
-        correlation: :counters.new(1, []),
+        correlation: :atomics.new(1, []),
         hints: :ets.new(:kafka_ex_replica_hints, [:public]),
         connection_options: ConnectionStateMachine.options()
     }
@@ -253,141 +345,17 @@ defmodule KafkaEx.Client do
 
   @impl true
   def handle_call(:context, _from, state) do
-    {:reply, %{state | ssl_options: [], auth: nil, supervisor: nil}, state}
+    {:reply, %{state | ssl_options: [], auth: nil, supervisor: nil, permit: nil, waiting: :queue.new()}, state}
   end
 
   def handle_call(:permit, {pid, _tag}, %State{permit: nil} = state), do: {:reply, :ok, grant_permit(state, pid)}
   def handle_call(:permit, from, state), do: {:noreply, %{state | waiting: :queue.in(from, state.waiting)}}
 
-  # The caller's GenServer.call gives up after its budget, so the client stops waiting on the store before that.
-  def handle_call(message, {pid, _tag} = from, state) do
-    fallback = RequestBudget.deadline_budget(caller_budget(message))
-    {message, deadline} = admit(message, node(pid) == node(), System.monotonic_time(:millisecond), fallback)
-    serve(message, from, %{state | deadline: deadline})
-  end
+  def handle_call(:correlation_id, _from, state), do: {:reply, {:ok, :atomics.get(state.correlation, 1)}, state}
 
-  defp serve(message, from, state) do
-    case handle_client_call(message, from, state) do
-      {:reply, reply, state} -> {:reply, reply, %{state | deadline: nil}}
-      {:noreply, state} -> {:noreply, %{state | deadline: nil}}
-    end
-  catch
-    :throw, {:caller_budget_spent, state} -> {:reply, budget_spent_reply(message), %{state | deadline: nil}}
-  end
+  def handle_call(:consumer_group, _from, state), do: {:reply, state.consumer_group_for_auto_commit, state}
 
-  # Each call keeps the timeout shape it has on its own path: the retry loop builds an %Error{}.
-  defp budget_spent_reply({:network_request, _, _, _}), do: {:error, :timeout}
-  defp budget_spent_reply(_message), do: {:error, Error.build(:timeout, %{})}
-
-  defp admit({:metadata, topics, opts, api_version}, local?, now, default) when is_list(opts) do
-    {budget, opts} = pop_budget(opts)
-    {{:metadata, topics, opts, api_version}, deadline(budget, local?, now, default)}
-  end
-
-  defp admit(message, local?, now, default) when is_tuple(message) and tuple_size(message) > 1 do
-    last = tuple_size(message) - 1
-    opts = elem(message, last)
-
-    if is_list(opts) do
-      {budget, opts} = pop_budget(opts)
-      {put_elem(message, last, opts), deadline(budget, local?, now, default)}
-    else
-      {message, now + default}
-    end
-  end
-
-  defp admit(message, _local?, now, default), do: {message, now + default}
-
-  defp pop_budget(opts) do
-    case Enum.split_with(opts, &match?({:call_budget, _}, &1)) do
-      {[{:call_budget, budget} | _], rest} -> {budget, rest}
-      {[], rest} -> {nil, rest}
-    end
-  end
-
-  # A send time is comparable only on the caller's own node, where every process shares one monotonic clock.
-  defp deadline({ms, sent_at}, true, _now, _default) when is_integer(ms) and is_integer(sent_at), do: sent_at + ms
-  defp deadline({ms, sent_at}, false, now, _default) when is_integer(ms) and is_integer(sent_at), do: now + ms
-  defp deadline(_unusable, _local?, now, default), do: now + default
-
-  # A spent budget ends the operation's span with the timeout error a timed-out request reports, not an exception.
-  defp within_budget(stop_metadata, operation) do
-    operation.()
-  catch
-    :throw, {:caller_budget_spent, state} -> {{{:error, Error.build(:timeout, %{})}, state}, stop_metadata}
-  end
-
-  # Mirrors the budgets KafkaEx.API and send_request/4 give, for a message that carries none.
-  defp caller_budget(message) when is_tuple(message) and elem(message, 0) == :network_request do
-    RequestBudget.call_budget(Config.request_timeout())
-  end
-
-  defp caller_budget(message) do
-    per_attempt = message_network_timeout(message) || Config.request_timeout()
-    RequestBudget.call_budget(per_attempt, budget_attempts(message))
-  end
-
-  @budgeted_by_network_timeout [
-    :fetch,
-    :heartbeat,
-    :consumer_group_heartbeat,
-    :join_group,
-    :sync_group,
-    :create_topics,
-    :delete_topics
-  ]
-
-  defp message_network_timeout(message)
-       when is_tuple(message) and elem(message, 0) in @budgeted_by_network_timeout do
-    opts = elem(message, tuple_size(message) - 1)
-
-    case Keyword.keyword?(opts) and Keyword.get(opts, :network_timeout) do
-      timeout when is_integer(timeout) and timeout > 0 ->
-        timeout
-
-      absent when absent in [false, nil] ->
-        nil
-
-      invalid ->
-        Logger.debug("Sizing the call budget from :request_timeout; :network_timeout is #{inspect(invalid)}")
-        nil
-    end
-  end
-
-  defp message_network_timeout(_message), do: nil
-
-  defp budget_attempts({:join_group, _group, _member, _opts}), do: @coordinator_max_attempts
-  defp budget_attempts({:sync_group, _group, _generation, _member, _opts}), do: @coordinator_max_attempts
-  defp budget_attempts(_message), do: @retry_count
-
-  defp handle_client_call({:cluster_metadata, _opts}, from, state) do
-    handle_client_call(:cluster_metadata, from, state)
-  end
-
-  defp handle_client_call(:cluster_metadata, _from, state) do
-    {view, state} = state |> ensure_store() |> cluster_metadata_view()
-    {:reply, {:ok, view}, state}
-  catch
-    :throw, {:caller_budget_spent, state} -> {:reply, {:ok, state.last_view}, state}
-  end
-
-  defp handle_client_call(:correlation_id, _from, state) do
-    {:reply, {:ok, :counters.get(state.correlation, 1)}, state}
-  end
-
-  defp handle_client_call(:update_metadata, _from, state) do
-    {_result, state} = refresh(state, %{topics: [], allow_auto_topic_creation: state.allow_auto_topic_creation})
-    {view, state} = cluster_metadata_view(state)
-    {:reply, {:ok, view}, state}
-  catch
-    :throw, {:caller_budget_spent, state} -> {:reply, {:ok, state.last_view}, state}
-  end
-
-  defp handle_client_call(
-         {:set_consumer_group_for_auto_commit, consumer_group},
-         _from,
-         state
-       ) do
+  def handle_call({:set_consumer_group_for_auto_commit, consumer_group}, _from, state) do
     if KafkaEx.valid_consumer_group?(consumer_group) do
       {:reply, :ok, %{state | consumer_group_for_auto_commit: consumer_group}}
     else
@@ -395,41 +363,11 @@ defmodule KafkaEx.Client do
     end
   end
 
-  defp handle_client_call({:topic_metadata, topics, opts}, _from, state) do
-    allow_topic_creation = Keyword.get(opts, :allow_topic_creation, false)
-    {result, state} = refresh(state, %{topics: topics, allow_auto_topic_creation: allow_topic_creation})
-    {:reply, topics_reply(result, topics, cached_topics(state, topics)), state}
-  catch
-    :throw, {:caller_budget_spent, state} ->
-      {:reply, topics_reply({:error, :timeout}, topics, cached_topics(state, topics)), state}
+  # Requests run in the caller through request/3; an old direct call gets an error, not a crash of the shared client.
+  def handle_call(message, _from, state) do
+    Logger.warning("#{inspect(__MODULE__)} does not serve #{inspect(message, limit: 5)}; use KafkaEx.API")
+    {:reply, {:error, :unsupported_call}, state}
   end
-
-  defp handle_client_call({:network_request, request, node_selector, _opts}, _from, state) do
-    {response, updated_state} = network_request(request, node_selector, state, :as_is)
-
-    {:reply, response, updated_state}
-  end
-
-  defp handle_client_call(:consumer_group, _from, state) do
-    {:reply, state.consumer_group_for_auto_commit, state}
-  end
-
-  defp handle_client_call(message, from, state) do
-    case request_spec(message) do
-      {:error, _reason} = error ->
-        {:reply, error, state}
-
-      %{api: :fetch} = spec ->
-        fetch_reply(fetch(spec, message, state), from)
-
-      spec ->
-        {result, state} = perform(message, spec, state)
-        {:reply, result, state}
-    end
-  end
-
-  defp fetch_reply({:parked, parked}, from), do: {:noreply, park(parked, from)}
-  defp fetch_reply({result, %State{} = state}, _from), do: {:reply, result, %{state | parking: nil}}
 
   @impl true
   def handle_cast({:release, pid}, %State{permit: {pid, ref}} = state) do
@@ -456,35 +394,21 @@ defmodule KafkaEx.Client do
   end
 
   @impl true
-  def handle_info({:timeout, _timer, {:parked, tag}}, state) when is_map_key(state.parked, tag) do
-    {:noreply, resume(tag, {:error, :timeout, @no_bytes}, state)}
-  end
-
-  def handle_info(message, %State{parked: parked} = state) when map_size(parked) > 0 do
-    case Enum.find_value(parked, &answered(message, &1)) do
-      nil -> unparked_info(message, state)
-      {tag, outcome} -> {:noreply, resume(tag, outcome, state)}
-    end
-  end
-
-  # Defining handle_info/2 replaces the catch-all `use GenServer` injects.
-  def handle_info(message, state), do: unparked_info(message, state)
-
-  defp unparked_info({:kafka_ex_metadata_store, :swapped}, state) do
+  def handle_info({:kafka_ex_metadata_store, :swapped}, state) do
     {:noreply, state |> ensure_store() |> stop_departed_connections()}
   end
 
-  defp unparked_info({:DOWN, ref, :process, _pid, _reason}, %State{permit: {_holder, ref}} = state) do
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %State{permit: {_holder, ref}} = state) do
     {:noreply, pass_permit(state)}
   end
 
   # A restarted registry always restarts the store too, so the store's :DOWN also stands for the registry's.
-  defp unparked_info({:DOWN, ref, :process, _pid, _reason}, %State{store: %{ref: ref}} = state) do
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %State{store: %{ref: ref}} = state) do
     :ets.delete_all_objects(state.hints)
-    {:noreply, %{state | store: nil, registry: nil, conns: nil}}
+    {:noreply, ensure_store(%{state | store: nil, registry: nil, conns: nil})}
   end
 
-  defp unparked_info(message, state) do
+  def handle_info(message, state) do
     Logger.warning("#{inspect(__MODULE__)} ignoring unexpected message: #{inspect(message)}")
     {:noreply, state}
   end
@@ -492,7 +416,6 @@ defmodule KafkaEx.Client do
   @impl true
   def terminate(reason, state) do
     Logger.debug("Shutting down worker #{inspect(worker_identity())}, reason: #{inspect(reason)}")
-    for {_tag, entry} <- state.parked, do: Telemetry.exception_span(entry.span, entry.metadata, :exit, reason, [])
     ClientSupervisor.stop(state.supervisor, :shutdown, 5_000)
   end
 
@@ -523,13 +446,12 @@ defmodule KafkaEx.Client do
     ArgumentError -> state
   end
 
+  # Until a store and its registry answer, the client keeps store: nil and callers wait for the table.
   defp ensure_store(%State{store: nil} = state) do
-    {_budget, timeout} = budgeted(state, @store_call_timeout)
-
     with registry when is_pid(registry) <- ClientSupervisor.connection_registry(state.supervisor),
-         conns = ConnectionRegistry.table(registry, timeout),
+         conns = ConnectionRegistry.table(registry, @lookup_timeout),
          store when is_pid(store) <- ClientSupervisor.metadata_store(state.supervisor),
-         {:ok, tid} <- MetadataStore.table(store, timeout) do
+         {:ok, tid} <- MetadataStore.table(store, @lookup_timeout) do
       %{state | store: %{pid: store, ref: Process.monitor(store), tid: tid}, registry: registry, conns: conns}
     else
       _none -> state
@@ -540,44 +462,57 @@ defmodule KafkaEx.Client do
 
   defp ensure_store(state), do: state
 
-  defp drop_store(%State{store: nil} = state), do: state
+  defp operate({:cluster_metadata, _opts}, _spec, context, metadata), do: {cluster_metadata(context), metadata}
 
-  defp drop_store(%State{store: %{ref: ref}} = state) do
-    Process.demonitor(ref, [:flush])
-    %{state | store: nil}
+  defp operate({:topic_metadata, topics, opts}, _spec, context, metadata) do
+    allow_topic_creation = Keyword.get(opts, :allow_topic_creation, false)
+    result = refresh(context, %{topics: topics, allow_auto_topic_creation: allow_topic_creation})
+    {topics_reply(result, topics, cached_topics(context, topics)), metadata}
   end
 
-  defp with_store(state, unavailable, call) do
-    with_store(state, unavailable, fn _store -> @store_call_timeout end, call)
+  defp operate({:network_request, request, node_selector, _opts}, _spec, context, metadata) do
+    {network_request(request, node_selector, context, :as_is), metadata}
   end
 
-  defp with_store(state, unavailable, wanted, call) do
-    case ensure_store(state) do
-      %State{store: nil} = state -> {unavailable, state}
-      %State{store: store} = state -> call_store(state, store, unavailable, budgeted(state, wanted.(store)), call)
+  defp operate({:join_group, _group, _member_id, _opts}, spec, context, metadata), do: join(spec, context, metadata)
+
+  defp operate({:sync_group, _group, _generation_id, _member_id, _opts}, spec, context, metadata) do
+    case run(spec, context, @coordinator_max_attempts) do
+      {:ok, result} = ok -> {ok, Map.put(metadata, :assigned_partitions, assigned_partitions(result))}
+      error_result -> {error_result, metadata}
     end
   end
 
-  defp budgeted(%State{deadline: nil}, wanted), do: {:full, wanted}
-
-  defp budgeted(%State{deadline: deadline} = state, wanted) do
-    case deadline - System.monotonic_time(:millisecond) do
-      left when left <= 0 -> throw({:caller_budget_spent, state})
-      left when left < wanted -> {:capped, left}
-      _left -> {:full, wanted}
-    end
+  defp operate({:consumer_group_heartbeat, _group, _opts}, spec, context, metadata) do
+    member_heartbeat(spec, context, metadata)
   end
 
-  defp call_store(state, store, unavailable, {budget, timeout}, call) do
-    {call.(store, timeout), state}
+  # The produce stop event has always carried the offset, not the message count of its start.
+  defp operate({:produce, _topic, _partition, _messages, _opts}, spec, context, metadata) do
+    produce(spec, context, Map.delete(metadata, :message_count))
+  end
+
+  defp operate({:metadata, _topics, _opts, _api_version}, spec, context, _metadata), do: metadata_request(spec, context)
+
+  defp operate({:fetch, _topic, _partition, offset, _opts}, spec, context, metadata) do
+    fetched(spec, offset, context, metadata)
+  end
+
+  defp operate(_message, spec, context, metadata), do: {run(spec, context), metadata}
+
+  defp with_store(context, unavailable, call) do
+    with_store(context, unavailable, fn _store -> @store_call_timeout end, call)
+  end
+
+  defp with_store(%State{store: store} = context, unavailable, wanted, call) do
+    call.(store, min(wanted.(store), time_left(context.deadline)))
   catch
-    :exit, {:timeout, _call} when budget == :capped -> throw({:caller_budget_spent, state})
-    :exit, _reason -> {unavailable, drop_store(state)}
+    :exit, _reason -> unavailable
   end
 
   # A failed refresh reads as a timeout; a version refusal keeps the atom the client's request path returns.
-  defp refresh(state, refresh) do
-    with_store(state, {:error, :timeout}, &round_call_timeout(state, &1), fn store, timeout ->
+  defp refresh(context, refresh) do
+    with_store(context, {:error, :timeout}, &round_call_timeout(context, &1), fn store, timeout ->
       case MetadataStore.refresh(store.pid, refresh, timeout) do
         {:ok, _result} = ok -> ok
         {:error, :api_version_no_supported} = refused -> refused
@@ -594,30 +529,26 @@ defmodule KafkaEx.Client do
     if length(cached) == length(Enum.uniq(topics)), do: {:ok, cached}, else: error
   end
 
-  defp rediscover_coordinator(state, group) do
-    with_store(state, {:error, :timeout}, &round_call_timeout(state, &1), fn store, timeout ->
+  defp rediscover_coordinator(context, group) do
+    with_store(context, {:error, :timeout}, &round_call_timeout(context, &1), fn store, timeout ->
       MetadataStore.coordinator(store.pid, group, timeout)
     end)
   end
 
   # An empty snapshot means the store is loading, and a refresh then waits for its load round.
-  defp round_call_timeout(state, store) do
+  defp round_call_timeout(context, store) do
     case MetadataTable.brokers(store.tid) do
-      [] -> MetadataStore.call_timeout(length(state.bootstrap_uris), :load)
+      [] -> MetadataStore.call_timeout(length(context.bootstrap_uris), :load)
       brokers -> MetadataStore.call_timeout(length(brokers))
     end
   end
 
-  defp select(%State{store: nil}, _selector), do: {:error, :unavailable}
-
-  defp select(%State{store: %{tid: tid}} = state, selector) do
-    MetadataTable.select(tid, selector, hints_for(state, selector))
+  defp select(%State{store: %{tid: tid}} = context, selector) do
+    MetadataTable.select(tid, selector, hints_for(context, selector))
   end
 
   defp brokers(%State{store: nil}), do: []
   defp brokers(%State{store: %{tid: tid}}), do: MetadataTable.brokers(tid)
-
-  defp cached_topics(%State{store: nil}, _topics), do: []
 
   defp cached_topics(%State{store: %{tid: tid}}, topics) do
     case MetadataTable.topics(tid, topics) do
@@ -626,23 +557,13 @@ defmodule KafkaEx.Client do
     end
   end
 
-  defp cluster_metadata_view(%State{store: nil} = state), do: {state.last_view, state}
-
-  defp cluster_metadata_view(%State{store: %{tid: tid}} = state) do
-    case with_store(state, :unavailable, &MetadataStore.snapshot(&1.pid, &2)) do
-      {{:ok, metadata, counter}, state} -> remember_view(state, metadata, {tid, counter})
-      {:unavailable, state} -> {state.last_view, state}
-    end
-  end
-
   # A booted snapshot always has a broker, so an empty one is a restarted store still loading.
-  defp remember_view(state, %ClusterMetadata{brokers: brokers}, _stamp) when map_size(brokers) == 0 do
-    {state.last_view, state}
-  end
-
-  defp remember_view(state, metadata, stamp) do
-    view = with_hints(metadata, Map.new(:ets.tab2list(state.hints)), stamp)
-    {view, %{state | last_view: view}}
+  defp cluster_metadata(%State{store: %{tid: tid}} = context) do
+    case with_store(context, :stale_context, &MetadataStore.snapshot(&1.pid, &2)) do
+      {:ok, %ClusterMetadata{brokers: brokers}, _counter} when map_size(brokers) == 0 -> :stale_context
+      {:ok, metadata, counter} -> {:ok, with_hints(metadata, hints_for(context), {tid, counter})}
+      :stale_context -> :stale_context
+    end
   end
 
   defp with_hints(metadata, hints, stamp), do: %{metadata | preferred_replicas: valid_hints(hints, stamp)}
@@ -651,20 +572,12 @@ defmodule KafkaEx.Client do
     for {partition, {node_id, ^stamp}} <- hints, into: %{}, do: {partition, node_id}
   end
 
-  defp snapshot_stamp(%State{store: nil}), do: nil
-
   defp snapshot_stamp(%State{store: %{tid: tid}}) do
     case MetadataTable.counter(tid) do
       {:ok, counter} -> {tid, counter}
       {:error, :unavailable} -> nil
     end
   end
-
-  defp store_tid(%State{store: nil}), do: nil
-  defp store_tid(%State{store: %{tid: tid}}), do: tid
-
-  defp with_topic_view(state, nil, _topics), do: %{state | cluster_metadata: %ClusterMetadata{}}
-  defp with_topic_view(state, tid, topics), do: %{state | cluster_metadata: MetadataTable.topic_view(tid, topics)}
 
   @typep request_spec :: %{
            api: atom(),
@@ -686,6 +599,16 @@ defmodule KafkaEx.Client do
     :leave_group,
     :sync_group,
     :consumer_group_heartbeat
+  ]
+
+  @budgeted_by_network_timeout [
+    :fetch,
+    :heartbeat,
+    :consumer_group_heartbeat,
+    :join_group,
+    :sync_group,
+    :create_topics,
+    :delete_topics
   ]
 
   @spec request_spec(tuple()) :: request_spec() | {:error, atom()}
@@ -809,15 +732,14 @@ defmodule KafkaEx.Client do
   @topic_id_requests [:offset_fetch, :offset_commit, :consumer_group_heartbeat]
 
   # After validation, inside the span; one table gives the request its topic ids and the response its topic names.
-  defp attach_store(%{api: api} = spec, state) when api in @topic_id_requests do
-    state = ensure_store(state)
-    resolver = topic_name_parse_opts(store_tid(state))
-    {%{spec | store_tid: store_tid(state), parse: &@protocol.parse_response(api, &1, resolver)}, state}
+  defp attach_store(%{api: api} = spec, context) when api in @topic_id_requests do
+    %State{store: %{tid: tid}} = context
+    resolver = topic_name_parse_opts(tid)
+    %{spec | store_tid: tid, parse: &@protocol.parse_response(api, &1, resolver)}
   end
 
-  defp attach_store(spec, state), do: {spec, state}
+  defp attach_store(spec, _context), do: spec
 
-  defp topic_name_parse_opts(nil), do: [topic_name_resolver: fn _topic_id -> {:error, :no_such_topic} end]
   defp topic_name_parse_opts(tid), do: [topic_name_resolver: &MetadataTable.topic_name_by_id(tid, &1)]
 
   # Only a member heartbeat (epoch > 0) is fenced when resent after an epoch bump; join and leave are accepted again.
@@ -834,79 +756,61 @@ defmodule KafkaEx.Client do
     end
   end
 
-  defp perform({:offset_commit, group, [{topic, partitions}], _opts}, spec, state) do
-    metadata = Telemetry.commit_metadata(group, Config.client_id(), topic, length(partitions))
-    in_span([:kafka_ex, :consumer, :commit], metadata, fn -> {run(spec, state), metadata} end)
+  defp span_of({:offset_commit, group, [{topic, partitions}], _opts}, _spec) do
+    {[:kafka_ex, :consumer, :commit], Telemetry.commit_metadata(group, Config.client_id(), topic, length(partitions))}
   end
 
-  defp perform({:heartbeat, group, member_id, generation_id, _opts}, spec, state) do
-    metadata = Telemetry.heartbeat_metadata(group, member_id, generation_id)
-    in_span([:kafka_ex, :consumer, :heartbeat], metadata, fn -> {run(spec, state), metadata} end)
+  defp span_of({:heartbeat, group, member_id, generation_id, _opts}, _spec) do
+    {[:kafka_ex, :consumer, :heartbeat], Telemetry.heartbeat_metadata(group, member_id, generation_id)}
   end
 
-  defp perform({:leave_group, group, member_id, _opts}, spec, state) do
-    metadata = Telemetry.leave_group_metadata(group, member_id)
-    in_span([:kafka_ex, :consumer, :leave], metadata, fn -> {run(spec, state), metadata} end)
+  defp span_of({:leave_group, group, member_id, _opts}, _spec) do
+    {[:kafka_ex, :consumer, :leave], Telemetry.leave_group_metadata(group, member_id)}
   end
 
-  defp perform({:join_group, group, member_id, opts}, spec, state) do
-    metadata = Telemetry.join_group_metadata(group, member_id || "", Keyword.get(opts, :topics, []))
-    in_span([:kafka_ex, :consumer, :join], metadata, fn -> join(spec, state, metadata) end)
+  defp span_of({:join_group, group, member_id, opts}, _spec) do
+    {[:kafka_ex, :consumer, :join],
+     Telemetry.join_group_metadata(group, member_id || "", Keyword.get(opts, :topics, []))}
   end
 
-  defp perform({:sync_group, group, generation_id, member_id, opts}, spec, state) do
+  defp span_of({:sync_group, group, generation_id, member_id, opts}, _spec) do
     # Leader sends non-empty group_assignment, followers send empty
     is_leader = Keyword.get(opts, :group_assignment, []) != []
-    metadata = Telemetry.sync_group_metadata(group, member_id, generation_id, is_leader)
-
-    in_span([:kafka_ex, :consumer, :sync], metadata, fn ->
-      case run(spec, state, @coordinator_max_attempts) do
-        {{:ok, result}, _state} = ok -> {ok, Map.put(metadata, :assigned_partitions, assigned_partitions(result))}
-        error_result -> {error_result, metadata}
-      end
-    end)
+    {[:kafka_ex, :consumer, :sync], Telemetry.sync_group_metadata(group, member_id, generation_id, is_leader)}
   end
 
-  defp perform({:consumer_group_heartbeat, group, opts}, spec, state) do
+  defp span_of({:consumer_group_heartbeat, group, opts}, _spec) do
     member_id = Keyword.get(opts, :member_id) || ""
     metadata = Telemetry.consumer_group_heartbeat_metadata(group, member_id, Keyword.fetch!(opts, :member_epoch))
-
-    in_span([:kafka_ex, :consumer, :consumer_group_heartbeat], metadata, fn ->
-      member_heartbeat(spec, state, metadata)
-    end)
+    {[:kafka_ex, :consumer, :consumer_group_heartbeat], metadata}
   end
 
-  defp perform({:produce, topic, partition, messages, _opts}, spec, state) do
+  defp span_of({:produce, topic, partition, messages, _opts}, spec) do
     metadata = Telemetry.produce_metadata(topic, partition, Config.client_id(), Keyword.fetch!(spec.opts, :acks))
-
-    Telemetry.span([:kafka_ex, :produce], Map.put(metadata, :message_count, length(messages)), fn ->
-      within_budget(metadata, fn -> produce(spec, state, metadata) end)
-    end)
+    {[:kafka_ex, :produce], Map.put(metadata, :message_count, length(messages))}
   end
 
-  defp perform({:metadata, topics, _opts, _api_version}, spec, state) do
+  defp span_of({:metadata, topics, _opts, _api_version}, _spec) do
     topic_list = if is_list(topics), do: topics, else: [topics]
-    metadata = Telemetry.metadata_update_metadata(Config.client_id(), topic_list)
-
-    Telemetry.span([:kafka_ex, :metadata, :update], metadata, fn ->
-      within_budget(%{}, fn -> metadata_request(spec, state) end)
-    end)
+    {[:kafka_ex, :metadata, :update], Telemetry.metadata_update_metadata(Config.client_id(), topic_list)}
   end
 
-  defp perform(_message, spec, state), do: run(spec, state)
+  defp span_of({:fetch, topic, partition, offset, _opts}, _spec) do
+    {[:kafka_ex, :fetch], Telemetry.fetch_metadata(topic, partition, offset, Config.client_id())}
+  end
 
-  defp in_span(event, metadata, run), do: Telemetry.span(event, metadata, fn -> within_budget(metadata, run) end)
+  defp span_of(_message, _spec), do: nil
 
-  defp join(spec, state, metadata) do
-    case run(spec, state, @coordinator_max_attempts) do
-      {{:ok, result}, _state} = ok ->
+  defp join(spec, context, metadata, last_error \\ nil) do
+    case run(spec, context, @coordinator_max_attempts, last_error) do
+      {:ok, result} = ok ->
         {ok,
          Map.merge(metadata, %{generation_id: result.generation_id, is_leader: result.leader_id == result.member_id})}
 
       # KIP-394: a v4+ join without a member id is answered with one to join again with.
-      {{:error, %Error{error: :member_id_required, metadata: %{member_id: assigned_id}}}, state} ->
+      {:error, %Error{error: :member_id_required, metadata: %{member_id: assigned_id}} = error} ->
         Logger.info("JoinGroup returned member_id_required (KIP-394), retrying with assigned member_id")
-        join(%{spec | opts: Keyword.put(spec.opts, :member_id, assigned_id)}, state, metadata)
+        join(%{spec | opts: Keyword.put(spec.opts, :member_id, assigned_id)}, context, metadata, error)
 
       error_result ->
         {error_result, metadata}
@@ -915,22 +819,22 @@ defmodule KafkaEx.Client do
 
   defp assigned_partitions(result), do: Enum.reduce(result.partition_assignments, 0, &(length(&1.partitions) + &2))
 
-  defp member_heartbeat(spec, state, metadata) do
-    {spec, state} = attach_store(spec, state)
+  defp member_heartbeat(spec, context, metadata) do
+    spec = attach_store(spec, context)
 
-    case build(spec, state) do
+    case build(spec, context) do
       {:ok, request} ->
         # KIP-1082: a v1+ join gets its member id at build; report and rebuild with it, so a retry keeps one member.
         metadata = %{metadata | member_id: request.member_id}
         spec = %{spec | opts: Keyword.put(spec.opts, :member_id, request.member_id)}
 
-        case retry(spec, request, state, @retry_count, nil) do
-          {{:ok, result}, _state} = ok -> {ok, Map.merge(metadata, heartbeat_result_metadata(result))}
+        case retry(spec, request, context, @retry_count, nil) do
+          {:ok, result} = ok -> {ok, Map.merge(metadata, heartbeat_result_metadata(result))}
           error_result -> {error_result, metadata}
         end
 
       error ->
-        {{error, state}, metadata}
+        {error, metadata}
     end
   end
 
@@ -942,72 +846,52 @@ defmodule KafkaEx.Client do
     }
   end
 
-  defp produce(spec, state, metadata) do
-    case build(spec, state) do
-      {:ok, %{acks: 0} = request} -> {fire_and_forget(request, spec, state), metadata}
-      {:ok, request} -> spec |> retry(request, state, @retry_count, nil) |> with_offset(metadata)
-      error -> {{error, state}, metadata}
+  defp produce(spec, context, metadata) do
+    case build(spec, context) do
+      {:ok, %{acks: 0} = request} -> {fire_and_forget(request, spec, context), metadata}
+      {:ok, request} -> spec |> retry(request, context, @retry_count, nil) |> with_offset(metadata)
+      error -> {error, metadata}
     end
   end
 
-  defp with_offset({{:ok, %{base_offset: offset}}, _state} = ok, metadata) when offset != nil do
+  defp with_offset({:ok, %{base_offset: offset}} = ok, metadata) when offset != nil do
     {ok, Map.put(metadata, :offset, offset)}
   end
 
   defp with_offset(result, metadata), do: {result, metadata}
 
   # acks=0: the broker sends no response, and a resend would duplicate records.
-  defp fire_and_forget(request, %{route: %NodeSelector{topic: topic, partition: partition}} = spec, state) do
-    case network_request(request, spec.route, state, builder(spec)) do
-      {{:ok, :no_response}, state} ->
-        {{:ok, RecordMetadata.build(topic: topic, partition: partition, base_offset: nil)}, state}
+  defp fire_and_forget(request, %{route: %NodeSelector{topic: topic, partition: partition}} = spec, context) do
+    case network_request(request, spec.route, context, builder(spec)) do
+      {:ok, :no_response} ->
+        {:ok, RecordMetadata.build(topic: topic, partition: partition, base_offset: nil)}
 
-      {{:error, reason}, state} ->
+      {:error, reason} ->
         Logger.warning("Fire-and-forget produce to #{topic}/#{partition} failed with #{inspect(reason)}")
-        {{:error, build_transport_error(reason)}, state}
+        {:error, build_transport_error(reason)}
+
+      :stale_context ->
+        :stale_context
     end
   end
 
-  defp fetch(spec, {:fetch, topic, partition, offset, _opts}, state) do
-    metadata = Telemetry.fetch_metadata(topic, partition, offset, Config.client_id())
-    span = Telemetry.start_span([:kafka_ex, :fetch], metadata)
-    run = fn state -> within_budget(metadata, fn -> fetched(spec, offset, state, metadata) end) end
-    spanned(span, metadata, %{state | parking: :first}, run)
-  end
-
-  # :telemetry.span/3 split, so a call parked on its connection's first connect keeps one open span.
-  defp spanned(span, metadata, state, run) do
-    Telemetry.stop_span(span, run.(state))
-  catch
-    :throw, {@park, key, pid, dispatch, parked_state} ->
-      resume = &spanned(span, metadata, &1, run)
-
-      {:parked,
-       %{key: key, pid: pid, dispatch: dispatch, state: parked_state, run: resume, span: span, metadata: metadata}}
-
-    kind, reason ->
-      Telemetry.exception_span(span, metadata, kind, reason, __STACKTRACE__)
-      :erlang.raise(kind, reason, __STACKTRACE__)
-  end
-
-  defp fetched(spec, offset, state, metadata) do
-    with {:ok, request} <- build(spec, state),
-         {{:ok, result}, state} <- fetch_with_leader_fallback(spec, request, state) do
+  defp fetched(spec, offset, context, metadata) do
+    with {:ok, request} <- build(spec, context),
+         {:ok, result} <- fetch_with_leader_fallback(spec, request, context) do
       filtered_result = Fetch.filter_from_offset(result, offset)
-      stop_metadata = Map.put(metadata, :message_count, length(Map.get(filtered_result, :records, [])))
-      {{{:ok, filtered_result}, cache_preferred_replica(state, spec.route, filtered_result)}, stop_metadata}
+      {{:ok, filtered_result}, Map.put(metadata, :message_count, length(Map.get(filtered_result, :records, [])))}
     else
-      {:error, _reason} = error -> {{error, state}, metadata}
       error_result -> {error_result, metadata}
     end
   end
 
   # KIP-392: a replica's error is not authoritative (it may lag the leader), so the leader decides.
-  defp fetch_with_leader_fallback(spec, request, state) do
-    case retry(spec, request, state, @retry_count, nil) do
-      {{:error, error}, state_out} = result ->
-        if reading_from_replica?(state_out, spec.route) do
-          after_replica_error(spec, request, error, forget_preferred_replica(state_out, spec.route))
+  defp fetch_with_leader_fallback(spec, request, context) do
+    case retry(spec, request, context, @retry_count, nil) do
+      {:error, error} = result ->
+        if reading_from_replica?(context, spec.route) do
+          forget_preferred_replica(context, spec.route)
+          after_replica_error(spec, request, error, context)
         else
           result
         end
@@ -1018,60 +902,70 @@ defmodule KafkaEx.Client do
   end
 
   # A single attempt keeps the caller's call budget, which covers one retry cycle.
-  defp after_replica_error(spec, request, error, state) do
+  defp after_replica_error(spec, request, error, context) do
     if Retry.data_plane_retryable?(extract_error_atom(error)) do
-      {{:error, error}, state}
+      {:error, error}
     else
-      retry(spec, request, state, 1, nil)
+      retry(spec, request, context, 1, error)
     end
   end
 
-  defp forget_preferred_replica(state, %NodeSelector{topic: topic, partition: partition}) do
-    :ets.delete(state.hints, {topic, partition})
-    state
+  # The hint table dies with the client; a request that outlives it reads and writes no hint.
+  defp forget_preferred_replica(context, %NodeSelector{topic: topic, partition: partition}) do
+    :ets.delete(context.hints, {topic, partition})
+  rescue
+    ArgumentError -> true
   end
 
-  defp reading_from_replica?(%State{store: nil}, _selector), do: false
-
-  defp reading_from_replica?(%State{store: %{tid: tid}} = state, selector) do
-    MetadataTable.select(tid, selector, hints_for(state, selector)) != MetadataTable.select(tid, selector, %{})
+  defp reading_from_replica?(%State{store: %{tid: tid}} = context, selector) do
+    MetadataTable.select(tid, selector, hints_for(context, selector)) != MetadataTable.select(tid, selector, %{})
   end
 
   defp hints_for(%State{hints: table}, %NodeSelector{topic: topic, partition: partition}) do
     Map.new(:ets.lookup(table, {topic, partition}))
+  rescue
+    ArgumentError -> %{}
   end
 
-  # A -1 replica means "stay" (Java); the stamp, read before the send, lets a later swap invalidate the hint.
+  defp hints_for(%State{hints: table}) do
+    Map.new(:ets.tab2list(table))
+  rescue
+    ArgumentError -> %{}
+  end
+
+  # A -1 replica means "stay" (Java); the stamp lets a later swap invalidate the hint.
   defp cache_preferred_replica(
-         %State{dispatch_stamp: {_tid, _counter} = stamp} = state,
+         context,
+         {_tid, _counter} = stamp,
          %NodeSelector{topic: topic, partition: partition},
          %Fetch{preferred_read_replica: node_id}
        )
        when is_integer(node_id) and node_id != -1 do
-    :ets.insert(state.hints, {{topic, partition}, {node_id, stamp}})
-    state
+    :ets.insert(context.hints, {{topic, partition}, {node_id, stamp}})
+  rescue
+    ArgumentError -> true
   end
 
-  defp cache_preferred_replica(state, _route, _result), do: state
+  defp cache_preferred_replica(_context, _stamp, _route, _result), do: true
 
   # The seq is taken before the request, so a refresh issued after it wins over this answer.
-  defp metadata_request(spec, state) do
-    case build(spec, state) do
+  defp metadata_request(spec, context) do
+    case build(spec, context) do
       {:ok, request} ->
-        {seq, state} = with_store(state, nil, &MetadataStore.next_seq(&1.pid, &2))
+        seq = with_store(context, nil, &MetadataStore.next_seq(&1.pid, &2))
 
-        case retry(spec, request, state, @retry_count, nil) do
-          {{:ok, {returned, topic_errors}}, state} ->
-            state = merge_cluster_metadata(state, seq, returned, request)
+        case retry(spec, request, context, @retry_count, nil) do
+          {:ok, {returned, topic_errors}} ->
+            merge_cluster_metadata(context, seq, returned, request)
             stop_metadata = %{broker_count: map_size(returned.brokers), topic_count: map_size(returned.topics)}
-            {{named_topics_reply(request, returned, topic_errors), state}, stop_metadata}
+            {named_topics_reply(request, returned, topic_errors), stop_metadata}
 
           error_result ->
             {error_result, %{}}
         end
 
       error ->
-        {{error, state}, %{}}
+        {error, %{}}
     end
   end
 
@@ -1092,11 +986,11 @@ defmodule KafkaEx.Client do
     end
   end
 
-  defp merge_cluster_metadata(state, nil, _metadata, _request), do: state
+  defp merge_cluster_metadata(_context, nil, _metadata, _request), do: :ok
 
-  defp merge_cluster_metadata(state, seq, %ClusterMetadata{} = metadata, request) do
+  defp merge_cluster_metadata(context, seq, %ClusterMetadata{} = metadata, request) do
     scope = merge_scope(request, metadata)
-    state |> with_store(:ok, &MetadataStore.merge(&1.pid, seq, metadata, scope, &2)) |> elem(1)
+    with_store(context, :ok, &MetadataStore.merge(&1.pid, seq, metadata, scope, &2))
   end
 
   # A full request replaces the topic map (dropping deleted topics); a targeted one only adds or updates.
@@ -1110,66 +1004,91 @@ defmodule KafkaEx.Client do
   defp all_topics_request?(_request), do: false
 
   # The request is built once; a connection that refuses its version gets it rebuilt by builder/1.
-  @spec run(request_spec(), State.t(), pos_integer()) :: {{:ok, term()} | {:error, term()}, State.t()}
-  defp run(spec, state, attempts \\ @retry_count) do
-    {spec, state} = attach_store(spec, state)
+  @spec run(request_spec(), State.t(), pos_integer(), term()) :: {:ok, term()} | {:error, term()} | :stale_context
+  defp run(spec, context, attempts \\ @retry_count, last_error \\ nil) do
+    spec = attach_store(spec, context)
 
-    case build(spec, state) do
-      {:ok, request} -> retry(spec, request, state, attempts, nil)
-      error -> {error, state}
+    case build(spec, context) do
+      {:ok, request} -> retry(spec, request, context, attempts, last_error)
+      error -> error
     end
   end
 
-  defp build(spec, state), do: RequestBuilder.build(spec.api, spec.opts, topic_view(spec, state))
+  defp build(spec, context), do: RequestBuilder.build(spec.api, spec.opts, topic_view(spec, context))
 
   defp builder(spec), do: &build(spec, &1)
 
-  defp topic_view(%{api: api, opts: opts, store_tid: tid}, state) when api in [:offset_fetch, :offset_commit] do
+  defp topic_view(%{api: api, opts: opts, store_tid: tid}, context) when api in [:offset_fetch, :offset_commit] do
     topics = for {topic, _partitions} <- Keyword.fetch!(opts, :topics), do: topic
-    with_topic_view(state, tid, topics)
+    %{context | cluster_metadata: MetadataTable.topic_view(tid, topics)}
   end
 
-  defp topic_view(_spec, state), do: state
+  defp topic_view(_spec, context), do: context
 
-  defp retry(_spec, _request, state, 0, last_error), do: {{:error, last_error}, state}
+  defp retry(_spec, _request, _context, 0, last_error), do: {:error, last_error}
 
-  defp retry(spec, request, state, attempts, _last_error) do
-    {%sent{}, outcome} = attempt_request(request, builder(spec), spec.route, state, spec.network_timeout)
+  defp retry(spec, request, context, attempts, last_error) do
+    case time_left(context.deadline) do
+      0 ->
+        {:error, Error.build(:timeout, %{})}
 
-    case outcome do
-      {:refused, refused, state_out} ->
-        {refused, state_out}
-
-      {:raised, {:error, reason}, state_out} ->
-        final = %{spec | retryable?: fn _error -> false end, send_once?: fn _error -> false end}
-        handle_request_error(final, request, state_out, attempts, build_transport_error(reason), sent)
-
-      {{:ok, response}, state_out} ->
-        case spec.parse.(response) do
-          {:ok, result} ->
-            {{:ok, result}, state_out}
-
-          {:error, [error | _]} ->
-            handle_request_error(spec, request, state_out, attempts, error, sent)
-
-          {:error, %Error{} = error} ->
-            handle_request_error(spec, request, state_out, attempts, error, sent)
-        end
-
-      # The same refusal as an unwritten one, met when a reconnect lands between the await and the write.
-      {{:error, :api_version_no_supported}, _state_out} = refused ->
-        refused
-
-      {{:error, reason}, state_out} ->
-        handle_request_error(spec, request, state_out, attempts, build_transport_error(reason), sent)
+      _left ->
+        request
+        |> attempt_request(builder(spec), spec.route, context, spec.network_timeout)
+        |> attempted(spec, request, context, attempts, last_error)
     end
+  end
+
+  # Not rebuilt: the failed attempt may have reached the broker, and a join with a new member id leaves a ghost member.
+  defp attempted(:stale_context, _spec, _request, _context, _attempts, nil), do: :stale_context
+
+  defp attempted(:stale_context, spec, %sent{} = request, context, attempts, _last_error) do
+    handle_request_error(spec, request, context, attempts, Error.build(:no_broker, %{}), sent)
+  end
+
+  defp attempted({_sent, {:refused, refused}, _stamp}, _spec, _request, _context, _attempts, _last_error), do: refused
+
+  defp attempted({%sent{}, {:raised, {:error, reason}}, _stamp}, spec, request, context, attempts, _last_error) do
+    final = %{spec | retryable?: fn _error -> false end, send_once?: fn _error -> false end}
+    handle_request_error(final, request, context, attempts, build_transport_error(reason), sent)
+  end
+
+  # The hint is written as its answer arrives, against the table the request was routed by.
+  defp attempted({%sent{}, {:ok, response}, stamp}, spec, request, context, attempts, _last_error) do
+    case spec.parse.(response) do
+      {:ok, result} ->
+        cache_preferred_replica(context, stamp, spec.route, result)
+        {:ok, result}
+
+      {:error, [error | _]} ->
+        handle_request_error(spec, request, context, attempts, error, sent)
+
+      {:error, %Error{} = error} ->
+        handle_request_error(spec, request, context, attempts, error, sent)
+    end
+  end
+
+  # The same refusal as an unwritten one, met when a reconnect lands between the await and the write.
+  defp attempted(
+         {_sent, {:error, :api_version_no_supported} = refused, _stamp},
+         _spec,
+         _request,
+         _context,
+         _attempts,
+         _
+       ) do
+    refused
+  end
+
+  defp attempted({%sent{}, {:error, reason}, _stamp}, spec, request, context, attempts, _last_error) do
+    handle_request_error(spec, request, context, attempts, build_transport_error(reason), sent)
   end
 
   defp build_transport_error(reason) when is_atom(reason), do: Error.build(reason, %{})
   # A non-atom reason (SSL {:tls_alert, _}) would collapse to :unknown, which the fetch loop treats as fatal.
   defp build_transport_error(reason), do: Error.build(:transport_error, %{transport_reason: reason})
 
-  defp handle_request_error(spec, request, state, attempts, error, request_name) do
+  defp handle_request_error(spec, request, context, attempts, error, request_name) do
     error_atom = extract_error_atom(error)
     Logger.warning("Request #{inspect(request_name)} failed with error #{inspect(error_atom)}")
 
@@ -1181,20 +1100,21 @@ defmodule KafkaEx.Client do
             "not retrying at the client (send-once)"
         )
 
-        {{:error, error}, act_on_error(error_atom, spec, state)}
+        act_on_error(error_atom, spec, context)
+        {:error, error}
 
       # A stale topic id is baked into the built request, so a resend cannot succeed; the caller rebuilds it.
       error_atom == :unknown_topic_id ->
-        {{:error, error}, act_on_error(error_atom, spec, state)}
+        act_on_error(error_atom, spec, context)
+        {:error, error}
 
       spec.retryable?.(error_atom) ->
-        # A retry has written or failed an attempt, so it never parks.
-        state = %{act_on_error(error_atom, spec, state) | parking: nil}
-        retry(spec, request, state, attempts - 1, error)
+        act_on_error(error_atom, spec, context)
+        retry(spec, request, context, attempts - 1, error)
 
       true ->
         Logger.info("Error #{inspect(error_atom)} is not retryable for #{inspect(request_name)}, failing immediately")
-        {{:error, error}, state}
+        {:error, error}
     end
   end
 
@@ -1203,15 +1123,15 @@ defmodule KafkaEx.Client do
   defp extract_error_atom({_group_id, error}) when is_atom(error), do: error
   defp extract_error_atom(_), do: :unknown
 
-  defp act_on_error(error_atom, spec, state) do
+  defp act_on_error(error_atom, spec, context) do
     actions =
       ClusterMetadata.error_actions(error_atom, spec.route,
         rediscover_coordinator?: spec.rediscover_coordinator?,
-        allow_auto_topic_creation: state.allow_auto_topic_creation
+        allow_auto_topic_creation: context.allow_auto_topic_creation
       )
 
     log_error_actions(error_atom, actions)
-    run_cluster_actions(actions, state)
+    run_cluster_actions(actions, context)
   end
 
   defp log_error_actions(_error_atom, []), do: :ok
@@ -1231,23 +1151,16 @@ defmodule KafkaEx.Client do
     log_error_actions(error_atom, rest)
   end
 
-  defp log_error_actions(error_atom, [{:rediscover_coordinator, _group} | rest]) do
-    Logger.info("Re-discovering group coordinator due to #{inspect(error_atom)} error")
-    log_error_actions(error_atom, rest)
+  defp run_cluster_actions(actions, context), do: Enum.each(actions, &run_cluster_action(&1, context))
+
+  defp run_cluster_action({:refresh_metadata, %{api_version: nil} = refresh}, context) do
+    refresh(context, Map.take(refresh, [:topics, :allow_auto_topic_creation]))
   end
 
-  defp run_cluster_actions(actions, state), do: Enum.reduce(actions, state, &run_cluster_action/2)
+  defp run_cluster_action({:rediscover_coordinator, group}, context), do: rediscover_coordinator(context, group)
 
-  defp run_cluster_action({:refresh_metadata, %{api_version: nil} = refresh}, state) do
-    state |> refresh(Map.take(refresh, [:topics, :allow_auto_topic_creation])) |> elem(1)
-  end
-
-  defp run_cluster_action({:rediscover_coordinator, group}, state) do
-    state |> rediscover_coordinator(group) |> elem(1)
-  end
-
-  defp run_cluster_action({:drop_coordinator, group}, state) do
-    state |> with_store(:ok, &MetadataStore.forget_coordinator(&1.pid, group, &2)) |> elem(1)
+  defp run_cluster_action({:drop_coordinator, group}, context) do
+    with_store(context, :ok, &MetadataStore.forget_coordinator(&1.pid, group, &2))
   end
 
   defp coordinator_request?(%NodeSelector{strategy: :consumer_group}), do: true
@@ -1257,31 +1170,41 @@ defmodule KafkaEx.Client do
     Process.sleep(Application.get_env(:kafka_ex, :sleep_for_reconnect, 400))
   end
 
-  defp client_request(request, state) do
-    %{request | client_id: Config.client_id(), correlation_id: :counters.get(state.correlation, 1)}
+  defp client_request(request), do: %{request | client_id: Config.client_id()}
+
+  # Taken as a request span opens, one per span, so concurrent callers never report the same id.
+  defp next_correlation_id(context), do: :atomics.add_get(context.correlation, 1, 1) - 1
+
+  defp with_correlation_id({key, pid, dispatch}, id) do
+    {key, pid, %{dispatch | request: %{dispatch.request | correlation_id: id}}}
   end
 
-  defp select_broker_with_update(state, selector) do
-    case select(state, selector) do
-      {:error, reason} ->
-        updated_state =
-          selector
-          |> ClusterMetadata.selection_miss_actions(allow_auto_topic_creation: state.allow_auto_topic_creation)
-          |> run_cluster_actions(if(reason == :unavailable, do: drop_store(state), else: state))
+  # A missing table answers :stale_context, so the caller waits for one instead of failing the route.
+  defp select_broker_with_update(context, selector) do
+    case select(context, selector) do
+      {:error, :unavailable} ->
+        :stale_context
 
-        case select(updated_state, selector) do
+      {:error, _reason} ->
+        selector
+        |> ClusterMetadata.selection_miss_actions(allow_auto_topic_creation: context.allow_auto_topic_creation)
+        |> run_cluster_actions(context)
+
+        case select(context, selector) do
+          {:error, :unavailable} ->
+            :stale_context
+
           {:error, reason} ->
             # Debug, not warning: the consumer's fetch loop retries this lookup and owns the throttled log.
             Logger.debug("No broker for #{describe_selector(selector)} after metadata refresh: #{inspect(reason)}")
-
-            {nil, updated_state}
+            nil
 
           {:ok, _node_id, broker} ->
-            {broker, updated_state}
+            broker
         end
 
       {:ok, _node_id, broker} ->
-        {broker, state}
+        broker
     end
   end
 
@@ -1298,76 +1221,81 @@ defmodule KafkaEx.Client do
   defp timeout_val(nil), do: RequestBudget.call_budget(Config.request_timeout())
   defp timeout_val(timeout) when is_integer(timeout), do: timeout
 
-  defp config_request_timeout(timeout) do
-    timeout || Config.request_timeout()
-  end
-
-  defp network_request(request, node_selector, state, builder) do
-    case attempt_request(request, builder, node_selector, state, nil) do
-      {_sent, {tag, result, state}} when tag in [:raised, :refused] -> {result, state}
-      {_sent, outcome} -> outcome
+  defp network_request(request, node_selector, context, builder) do
+    case attempt_request(request, builder, node_selector, context, nil) do
+      :stale_context -> :stale_context
+      {_sent, {tag, result}, _stamp} when tag in [:raised, :refused] -> result
+      {_sent, outcome, _stamp} -> outcome
     end
   end
 
-  # Pairs the outcome with the request last dispatched; no retry fixes a :raised or :refused outcome.
-  defp attempt_request(request, builder, node_selector, state, network_timeout) do
-    timeout = config_request_timeout(network_timeout)
+  # The outcome comes with the request last sent and the table stamp read before it; no retry fixes :raised or :refused.
+  defp attempt_request(request, builder, node_selector, context, network_timeout) do
+    timeout = network_timeout || Config.request_timeout()
 
-    case targets(node_selector, request, ensure_store(state)) do
-      {:no_broker, state} ->
-        {request, {{:error, :no_broker}, state}}
+    case targets(node_selector, request, context) do
+      :stale_context ->
+        :stale_context
 
-      {{:error, _} = error, state} ->
-        {request, {error, state}}
+      :no_broker ->
+        {request, {:error, :no_broker}, nil}
 
-      {:first_available, brokers, state} ->
-        first_available({client_request(request, state), builder, node_selector, timeout}, brokers, state, nil)
+      {:error, _} = error ->
+        {request, error, nil}
 
-      {:one, broker, state} ->
-        send_to(client_request(request, state), builder, node_selector, broker, timeout, %{
-          state
-          | dispatch_stamp: snapshot_stamp(state)
-        })
+      {:first_available, brokers} ->
+        stamped(first_available({client_request(request), builder, node_selector, timeout}, brokers, context, nil), nil)
+
+      {:one, broker} ->
+        stamp = snapshot_stamp(context)
+        stamped(send_to(client_request(request), builder, node_selector, broker, timeout, context), stamp)
     end
   end
 
-  defp send_to(request, builder, selector, broker, timeout, state) do
-    dispatch = request |> connection_dispatch(timeout, true, state) |> as_is(builder)
+  defp stamped(:stale_context, _stamp), do: :stale_context
+  defp stamped({sent, outcome}, stamp), do: {sent, outcome, stamp}
 
-    case await_negotiated(dispatch, builder, state, &await_connection(&1, selector, broker, &2)) do
-      {:ready, {_key, _pid, %{request: sent}} = conn, state} ->
+  defp send_to(request, builder, selector, broker, timeout, context) do
+    dispatch = request |> connection_dispatch(timeout, true, context) |> as_is(builder)
+
+    case await_negotiated(dispatch, builder, context, &await_connection(&1, selector, broker, &2)) do
+      {:ready, conn} ->
+        {_key, _pid, %{request: sent}} = conn = with_correlation_id(conn, next_correlation_id(context))
         span = start_request_span(sent)
-        {sent, opened(span, fn -> finish_request_span(span, write(conn, state), broker) end)}
+        {sent, opened(span, fn -> finish_request_span(span, write(conn), broker) end)}
 
-      {:not_written, result, state} ->
-        {request, {result, state}}
+      {:not_written, result} ->
+        {request, result}
 
-      {:refused, _result, _state} = refused ->
+      {:refused, _result} = refused ->
         {request, refused}
+
+      :stale_context ->
+        :stale_context
     end
   end
 
   # A refused request was never written, so rebuilding it at the connection's versions costs no attempt.
-  defp await_negotiated(dispatch, builder, state, await) do
-    case await.(dispatch, state) do
-      {:not_written, {:error, {:unsupported_version, versions}}, state} ->
-        rebuild(dispatch, builder, versions, state, await)
+  defp await_negotiated(dispatch, builder, context, await) do
+    case await.(dispatch, context) do
+      {:not_written, {:error, {:unsupported_version, versions}}} ->
+        rebuild(dispatch, builder, versions, context, await)
 
       awaited ->
         awaited
     end
   end
 
-  defp rebuild(dispatch, builder, versions, state, await) do
-    case builder.(%{state | api_versions: versions}) do
-      {:ok, request} -> dispatch |> carrying(client_request(request, state)) |> await.(state) |> refused_again()
+  defp rebuild(dispatch, builder, versions, context, await) do
+    case builder.(%{context | api_versions: versions}) do
+      {:ok, request} -> dispatch |> carrying(client_request(request)) |> await.(context) |> refused_again()
       # An explicit version pin above this connection's max ends here, unwritten and never downgraded.
-      {:error, _} = build_error -> {:refused, build_error, state}
+      {:error, _} = build_error -> {:refused, build_error}
     end
   end
 
-  defp refused_again({:not_written, {:error, {:unsupported_version, _}}, state}) do
-    {:refused, {:error, :api_version_no_supported}, state}
+  defp refused_again({:not_written, {:error, {:unsupported_version, _}}}) do
+    {:refused, {:error, :api_version_no_supported}}
   end
 
   defp refused_again(awaited), do: awaited
@@ -1376,10 +1304,6 @@ defmodule KafkaEx.Client do
   defp opened({metadata, span}, rest_of_call) do
     rest_of_call.()
   catch
-    # A spent caller budget is control flow, and the walk that threw it has already stopped the span.
-    :throw, {:caller_budget_spent, _state} = spent ->
-      throw(spent)
-
     kind, reason ->
       Telemetry.exception_span(span, metadata, kind, reason, __STACKTRACE__)
       :erlang.raise(kind, reason, __STACKTRACE__)
@@ -1392,97 +1316,109 @@ defmodule KafkaEx.Client do
 
   defp restamp({_metadata, span}, request), do: {Telemetry.request_metadata(request, %{}), span}
 
-  defp finish_request_span({metadata, span}, {:raised, {kind, reason, stacktrace}, state}, _broker) do
+  defp finish_request_span({metadata, span}, {:raised, {kind, reason, stacktrace}}, _broker) do
     Telemetry.exception_span(span, metadata, kind, reason, stacktrace)
-    {:raised, {:error, :timeout}, state}
+    {:raised, {:error, :timeout}}
   end
 
-  defp finish_request_span(span, {:written, result, meta, state}, broker) do
-    stop_request_span(span, result, meta, broker, state)
-  end
+  defp finish_request_span(span, {:written, result, meta}, broker), do: stop_request_span(span, result, meta, broker)
 
-  defp stop_request_span({metadata, span}, result, meta, broker, state) do
+  defp stop_request_span({metadata, span}, result, meta, broker) do
     stop = %{bytes_sent: meta.bytes_sent, bytes_received: meta.bytes_received, broker: broker_to_telemetry_info(broker)}
     Telemetry.stop_span(span, {result, Map.merge(metadata, stop)})
-    :counters.add(state.correlation, 1, 1)
-    {result, state}
   end
 
-  defp targets(%NodeSelector{strategy: :first_available} = selector, request, state) do
+  defp targets(%NodeSelector{strategy: :first_available} = selector, request, context) do
     {operation, _version} = @protocol.request_info(request)
 
     case NodeSelector.connection_role(selector, operation) do
-      :metadata -> metadata_candidates(state)
-      role -> {:first_available, connected_first(state, role), state}
+      :metadata -> metadata_candidates(context)
+      role -> context |> brokers() |> connected_first(context.conns, role)
     end
   end
 
-  defp targets(%NodeSelector{strategy: strategy} = selector, _request, state)
+  defp targets(%NodeSelector{strategy: strategy} = selector, _request, context)
        when strategy in [:topic_partition, :topic_partition_replica, :consumer_group] do
-    case select_broker_with_update(state, selector) do
-      {nil, state} -> {:no_broker, state}
-      {broker, state} -> {:one, broker, state}
+    case select_broker_with_update(context, selector) do
+      # A refresh the deadline cut short found no route because of that deadline.
+      nil -> if time_left(context.deadline) == 0, do: {:error, :timeout}, else: :no_broker
+      :stale_context -> :stale_context
+      broker -> {:one, broker}
     end
   end
 
-  defp targets(selector, _request, state) do
-    case select_known(state, selector) do
-      {:ok, _node_id, broker} -> {:one, broker, state}
-      {:error, :unavailable} -> {{:error, :no_broker}, drop_store(state)}
-      {:error, _} = error -> {error, state}
+  defp targets(selector, _request, context) do
+    case select_known(context, selector) do
+      {:ok, _node_id, broker} -> {:one, broker}
+      {:error, :unavailable} -> :stale_context
+      {:error, _} = error -> error
     end
   end
 
-  # A restarted store answers from an empty snapshot until its load round lands.
-  defp select_known(state, %NodeSelector{strategy: strategy} = selector) when strategy in [:random, :controller] do
-    if brokers(state) == [], do: {:error, :no_broker}, else: select(state, selector)
+  # A booted table always lists a broker, so an empty one belongs to a store still loading or gone.
+  defp select_known(context, %NodeSelector{strategy: strategy} = selector) when strategy in [:random, :controller] do
+    if brokers(context) == [], do: {:error, :unavailable}, else: select(context, selector)
   end
 
-  defp select_known(state, selector), do: select(state, selector)
+  defp select_known(context, selector), do: select(context, selector)
 
-  defp metadata_candidates(state) do
-    {addresses, state} = with_store(state, [], &MetadataStore.candidates(&1.pid, &2))
-    known = Map.new(brokers(state), &{{&1.host, &1.port}, &1})
-    {:first_available, Enum.map(addresses, &Map.get_lazy(known, &1, fn -> bootstrap_broker(&1) end)), state}
+  defp metadata_candidates(context) do
+    case with_store(context, :stale_context, &MetadataStore.candidates(&1.pid, &2)) do
+      :stale_context ->
+        :stale_context
+
+      addresses ->
+        known = Map.new(brokers(context), &{{&1.host, &1.port}, &1})
+        {:first_available, Enum.map(addresses, &Map.get_lazy(known, &1, fn -> bootstrap_broker(&1) end))}
+    end
   end
 
   defp bootstrap_broker({host, port}), do: %Broker{host: host, port: port}
 
-  defp connected_first(state, role) do
-    {connected, rest} = state |> brokers() |> Enum.split_with(&registered(state.conns, {&1.host, &1.port, role}))
-    Enum.shuffle(connected) ++ Enum.shuffle(rest)
+  # A booted table always lists a broker, so an empty list means the table went away.
+  defp connected_first([], _conns, _role), do: :stale_context
+
+  defp connected_first(brokers, conns, role) do
+    {connected, rest} = Enum.split_with(brokers, &registered(conns, {&1.host, &1.port, role}))
+    {:first_available, Enum.shuffle(connected) ++ Enum.shuffle(rest)}
   end
 
-  defp first_available({request, _builder, _selector, _timeout}, [], state, nil) do
-    {request, {{:error, :no_broker}, state}}
+  defp first_available({request, _builder, _selector, _timeout}, [], _context, nil) do
+    {request, {:error, :no_broker}}
   end
 
-  defp first_available({request, _builder, _selector, _timeout}, [], state, {:refused, refused}) do
-    {request, {:refused, refused, state}}
+  defp first_available({request, _builder, _selector, _timeout}, [], _context, {:refused, refused}) do
+    {request, {:refused, refused}}
   end
 
-  defp first_available(_walk, [], state, {:open, span, meta, sent}) do
-    {sent, stop_request_span(span, {:error, :broker_failed}, %{meta | bytes_received: 0}, nil, state)}
+  # A walk the request's deadline cut short ends on the :timeout its spent budget stands for.
+  defp first_available(_walk, [], context, {:open, span, meta, sent}) do
+    error = if time_left(context.deadline) == 0, do: :timeout, else: :broker_failed
+    {sent, stop_request_span(span, {:error, error}, %{meta | bytes_received: 0}, nil)}
   end
 
-  defp first_available({request, builder, selector, timeout} = walk, [broker | rest], state, open) do
-    dispatch = request |> connection_dispatch(timeout, false, state) |> as_is(builder)
+  defp first_available({request, builder, selector, timeout} = walk, [broker | rest], context, open) do
+    dispatch = request |> connection_dispatch(timeout, false, context) |> as_is(builder)
 
-    case await_candidate(dispatch, builder, selector, broker, state, open) do
-      {:ready, conn, state} ->
-        write_candidate(conn, broker, {walk, rest}, state, open)
+    case await_negotiated(dispatch, builder, context, &await_connection(&1, selector, broker, &2)) do
+      {:ready, conn} ->
+        write_candidate(conn, broker, {walk, rest}, context, open)
 
-      {:not_written, {:error, :no_broker}, state} ->
+      {:not_written, {:error, :no_broker}} ->
         Logger.debug("#{Broker.to_string(broker)} not connected, skipping")
-        first_available(walk, rest, state, open)
+        first_available(walk, rest, context, open)
 
-      {:refused, {:error, error} = refused, state} ->
-        Logger.warning("Network call to #{Broker.to_string(broker)} failed: #{inspect(error)}")
-        first_available(walk, rest, state, refusal(open, refused))
+      # A registry restarting under the walk skips the broker, as an unconnected one is skipped.
+      :stale_context ->
+        first_available(walk, rest, context, open)
 
-      {:not_written, {:error, error}, state} ->
+      {:refused, {:error, error} = refused} ->
         Logger.warning("Network call to #{Broker.to_string(broker)} failed: #{inspect(error)}")
-        first_available(walk, rest, state, open)
+        first_available(walk, rest, context, refusal(open, refused))
+
+      {:not_written, {:error, error}} ->
+        Logger.warning("Network call to #{Broker.to_string(broker)} failed: #{inspect(error)}")
+        first_available(walk, rest, context, open)
     end
   end
 
@@ -1490,47 +1426,38 @@ defmodule KafkaEx.Client do
   defp refusal({:open, _span, _meta, _sent} = open, _refused), do: open
   defp refusal(_open, refused), do: {:refused, refused}
 
-  # A spent budget at a later candidate still closes the walk's span before the call ends.
-  defp await_candidate(dispatch, builder, selector, broker, state, {:open, span, meta, _sent}) do
-    await_negotiated(dispatch, builder, state, &await_connection(&1, selector, broker, &2))
-  catch
-    :throw, {:caller_budget_spent, state} ->
-      {_result, state} = stop_request_span(span, {:error, :timeout}, %{meta | bytes_received: 0}, nil, state)
-      throw({:caller_budget_spent, state})
+  # Every candidate of one walk writes under the walk's one span and correlation id.
+  defp write_candidate(conn, broker, walk, context, {:open, span, _meta, %{correlation_id: id}}) do
+    {_key, _pid, %{request: sent}} = conn = with_correlation_id(conn, id)
+    walk_on(write(conn), restamp(span, sent), broker, sent, walk, context)
   end
 
-  defp await_candidate(dispatch, builder, selector, broker, state, _nothing_written) do
-    await_negotiated(dispatch, builder, state, &await_connection(&1, selector, broker, &2))
-  end
-
-  defp write_candidate({_key, _pid, %{request: sent}} = conn, broker, walk, state, {:open, span, _meta, _sent}) do
-    walk_on(write(conn, state), restamp(span, sent), broker, sent, walk)
-  end
-
-  defp write_candidate({_key, _pid, %{request: sent}} = conn, broker, walk, state, _nothing_written) do
+  defp write_candidate(conn, broker, walk, context, _nothing_written) do
+    {_key, _pid, %{request: sent}} = conn = with_correlation_id(conn, next_correlation_id(context))
     span = start_request_span(sent)
-    opened(span, fn -> walk_on(write(conn, state), span, broker, sent, walk) end)
+    opened(span, fn -> walk_on(write(conn), span, broker, sent, walk, context) end)
   end
 
-  defp walk_on({:written, {:error, error}, meta, state}, span, broker, sent, {walk, rest}) do
+  defp walk_on({:written, {:error, error}, meta}, span, broker, sent, {walk, rest}, context) do
     Logger.warning("Network call to #{Broker.to_string(broker)} failed: #{inspect(error)}")
-    first_available(walk, rest, state, {:open, span, meta, sent})
+    first_available(walk, rest, context, {:open, span, meta, sent})
   end
 
-  defp walk_on(outcome, span, broker, sent, _walk), do: {sent, finish_request_span(span, outcome, broker)}
+  defp walk_on(outcome, span, broker, sent, _walk, _context), do: {sent, finish_request_span(span, outcome, broker)}
 
-  defp await_connection(dispatch, selector, broker, state) do
+  defp await_connection(dispatch, selector, broker, context) do
     {operation, _version} = dispatch.info
     key = {broker.host, broker.port, NodeSelector.connection_role(selector, operation)}
-    await(key, Map.put(dispatch, :node_id, broker.node_id), state, 1)
+    await(key, Map.put(dispatch, :node_id, broker.node_id), context, 1)
   end
 
-  # The connection's deadline falls this long before the client's call gives up, so the reply always wins.
+  # The caller waits this long past the connection's deadline, so its own timeout reply usually arrives first.
   @deadline_margin 500
 
-  defp connection_dispatch(request, timeout, wait?, state) do
-    deadline = System.monotonic_time(:millisecond) + call_timeout(timeout, state) - @deadline_margin
-    carrying(%{timeout: timeout, wait?: wait?, deadline: deadline}, request)
+  # Capped by the request's deadline, never shortened by the margin, so a short budget can still write.
+  defp connection_dispatch(request, timeout, wait?, context) do
+    own = System.monotonic_time(:millisecond) + call_timeout(timeout, context) - @deadline_margin
+    carrying(%{timeout: timeout, wait?: wait?, deadline: min(own, context.deadline)}, request)
   end
 
   # A rebuilt request keeps its dispatch's deadline, so the rebuild never opens a second reconnect window.
@@ -1544,121 +1471,46 @@ defmodule KafkaEx.Client do
   defp as_is(dispatch, :as_is), do: Map.put(dispatch, :as_is?, true)
   defp as_is(dispatch, _builder), do: dispatch
 
-  defp call_timeout(timeout, state) do
-    %{connect_timeout: connect_timeout, reconnect_window: reconnect_window} = state.connection_options
+  defp call_timeout(timeout, context) do
+    %{connect_timeout: connect_timeout, reconnect_window: reconnect_window} = context.connection_options
     connect_timeout + reconnect_window + timeout + 1_000
   end
+
+  # Await and write share the dispatch's deadline, so the write never opens a second reconnect window.
+  defp dispatch_time_left(dispatch), do: time_left(dispatch.deadline + @deadline_margin)
 
   defp fetch_max_wait({:fetch, _version}, request), do: request.max_wait_time
   defp fetch_max_wait(_info, _request), do: nil
 
-  # Only a fetch's first :fetch await may park: a parked call runs again from its first attempt.
-  defp await({_host, _port, :fetch} = key, dispatch, %State{parking: parking} = state, redispatches)
-       when parking != nil do
-    first_fetch_await(parking, key, dispatch, %{state | parking: nil}, redispatches)
-  end
-
-  defp await(key, dispatch, state, redispatches) do
-    case ensure_connection(state, key) do
-      {nil, state} -> {:not_written, {:error, :no_broker}, state}
-      {pid, state} -> await_ready(key, pid, dispatch, state, redispatches)
-    end
-  end
-
-  # The park bounded only the wait; the attempt's budget starts at resume, as for a call taken from the mailbox.
-  defp first_fetch_await({:resumed, key, pid, outcome}, key, dispatch, state, redispatches) do
-    awaited(outcome, key, pid, dispatch, state, redispatches)
-  end
-
-  defp first_fetch_await({:resumed, _key, _pid, _outcome}, key, dispatch, state, redispatches) do
-    await(key, dispatch, state, redispatches)
-  end
-
-  defp first_fetch_await(:first, key, dispatch, state, redispatches) do
-    first_connect? = registered(state.conns, key) == nil or parked_on?(state, key)
-
-    case ensure_connection(state, key) do
-      {nil, state} -> {:not_written, {:error, :no_broker}, state}
-      {pid, state} when first_connect? -> throw({@park, key, pid, dispatch, state})
-      {pid, state} -> await_ready(key, pid, dispatch, state, redispatches)
-    end
-  end
-
-  defp parked_on?(state, key), do: Enum.any?(state.parked, fn {_tag, entry} -> entry.key == key end)
-
-  # The parked caller waits as one more waiter on the connection, so its window and outage rules hold.
-  defp park(%{dispatch: dispatch, state: state} = parked, from) do
-    tag = make_ref()
-    request = :gen_statem.send_request(parked.pid, {:await, dispatch})
-    timer = :erlang.start_timer(dispatch.deadline + @deadline_margin, self(), {:parked, tag}, abs: true)
-
-    entry =
-      Map.merge(Map.drop(parked, [:dispatch, :state]), %{
-        from: from,
-        request: request,
-        timer: timer,
-        deadline: state.deadline
-      })
-
-    %{state | parked: Map.put(state.parked, tag, entry)}
-  end
-
-  defp answered(message, {tag, %{request: request}}) do
-    case :gen_statem.check_response(message, request) do
-      :no_reply -> nil
-      {:reply, outcome} -> {tag, outcome}
-      {:error, {reason, _pid}} when reason in [:noproc, :normal] -> {tag, :gone}
-      {:error, _down} -> {tag, {:error, :timeout, @no_bytes}}
-    end
-  end
-
-  defp resume(tag, outcome, state) do
-    {entry, parked} = Map.pop!(state.parked, tag)
-    cancel_parked_timer(entry.timer)
-    state = %{state | parked: parked, parking: {:resumed, entry.key, entry.pid, outcome}, deadline: entry.deadline}
-    {:reply, reply, state} = fetch_reply(entry.run.(state), entry.from)
-    GenServer.reply(entry.from, reply)
-    %{state | deadline: nil}
-  end
-
-  defp cancel_parked_timer(timer) do
-    if :erlang.cancel_timer(timer) == false do
-      receive do
-        {:timeout, ^timer, _} -> :ok
-      after
-        0 -> :ok
-      end
+  defp await(key, dispatch, context, redispatches) do
+    case ensure_connection(context, key) do
+      nil -> {:not_written, {:error, :no_broker}}
+      :stale_context -> :stale_context
+      {:error, :timeout} = timeout -> {:not_written, timeout}
+      pid -> await_ready(key, pid, dispatch, context, redispatches)
     end
   end
 
   # An idle stop can race the call: an exit with :noproc or :normal means nothing was written.
-  defp await_ready(key, pid, dispatch, state, redispatches) do
-    outcome = call_connection(&ConnectionStateMachine.await/3, pid, dispatch, call_timeout(dispatch.timeout, state))
-    awaited(outcome, key, pid, dispatch, state, redispatches)
-  end
-
-  defp awaited(outcome, key, pid, dispatch, state, redispatches) do
-    case outcome do
-      :ok -> {:ready, {key, pid, dispatch}, state}
-      :gone when redispatches > 0 -> await(key, dispatch, state, redispatches - 1)
-      :gone -> {:not_written, {:error, :no_broker}, state}
-      {:error, :not_connected, _meta} -> {:not_written, {:error, :no_broker}, state}
-      {:error, reason, _meta} -> {:not_written, {:error, reason}, state}
+  defp await_ready(key, pid, dispatch, context, redispatches) do
+    case call_connection(&ConnectionStateMachine.await/3, pid, dispatch, dispatch_time_left(dispatch)) do
+      :ok -> {:ready, {key, pid, dispatch}}
+      :gone when redispatches > 0 -> await(key, dispatch, context, redispatches - 1)
+      :gone -> {:not_written, {:error, :no_broker}}
+      {:error, :not_connected, _meta} -> {:not_written, {:error, :no_broker}}
+      {:error, reason, _meta} -> {:not_written, {:error, reason}}
     end
   end
 
-  # Same dispatch, so the same deadline: the write never opens a second reconnect window.
-  defp write({_key, pid, dispatch}, state) do
-    left = max(dispatch.deadline + @deadline_margin - System.monotonic_time(:millisecond), 0)
-
-    case call_connection(&ConnectionStateMachine.write/3, pid, dispatch, left) do
-      :gone -> {:written, {:error, :closed}, @no_bytes, state}
-      {:ok, :no_response, meta} -> {:written, {:ok, :no_response}, meta, state}
-      {:ok, frame, meta} -> {:written, ResponseParser.deserialize(frame, dispatch.request), meta, state}
-      {:error, {:exception, kind, reason, stacktrace}, _meta} -> {:raised, {kind, reason, stacktrace}, state}
+  defp write({_key, pid, dispatch}) do
+    case call_connection(&ConnectionStateMachine.write/3, pid, dispatch, dispatch_time_left(dispatch)) do
+      :gone -> {:written, {:error, :closed}, @no_bytes}
+      {:ok, :no_response, meta} -> {:written, {:ok, :no_response}, meta}
+      {:ok, frame, meta} -> {:written, ResponseParser.deserialize(frame, dispatch.request), meta}
+      {:error, {:exception, kind, reason, stacktrace}, _meta} -> {:raised, {kind, reason, stacktrace}}
       # A reconnect between the await and the write can land on a broker with other versions.
-      {:error, {:unsupported_version, _}, meta} -> {:written, {:error, :api_version_no_supported}, meta, state}
-      {:error, reason, meta} -> {:written, {:error, reason}, meta, state}
+      {:error, {:unsupported_version, _}, meta} -> {:written, {:error, :api_version_no_supported}, meta}
+      {:error, reason, meta} -> {:written, {:error, reason}, meta}
     end
   end
 
@@ -1669,17 +1521,19 @@ defmodule KafkaEx.Client do
     :exit, _reason -> {:error, :timeout, @no_bytes}
   end
 
-  defp ensure_connection(state, {host, port, :metadata}) do
-    with_store(state, nil, fn store, timeout ->
-      {:ok, pid} = MetadataStore.connection(store.pid, {host, port}, timeout)
-      pid
-    end)
+  # The store answers nil while its connection supervisor restarts, and that restart takes the store along.
+  defp ensure_connection(context, {host, port, :metadata}) do
+    case with_store(context, :stale_context, &MetadataStore.connection(&1.pid, {host, port}, &2)) do
+      {:ok, nil} -> :stale_context
+      {:ok, pid} -> pid
+      :stale_context -> :stale_context
+    end
   end
 
-  defp ensure_connection(state, key) do
-    case registered(state.conns, key) do
-      nil -> {connect(state, key), state}
-      pid -> {pid, state}
+  defp ensure_connection(context, key) do
+    case registered(context.conns, key) do
+      nil -> connect(context, key)
+      pid -> pid
     end
   end
 
@@ -1694,15 +1548,16 @@ defmodule KafkaEx.Client do
     ArgumentError -> nil
   end
 
-  defp connect(state, key) do
-    {_budget, timeout} = budgeted(state, @store_call_timeout)
-
-    case ConnectionRegistry.connect(state.registry, key, timeout) do
+  # A missing registry means a stale context; one restarting connections leaves the broker unconnected.
+  defp connect(context, key) do
+    case ConnectionRegistry.connect(context.registry, key, min(@store_call_timeout, time_left(context.deadline))) do
       {:ok, pid} -> pid
       :restarting -> nil
     end
   catch
-    :exit, {reason, _call} when reason in [:noproc, :shutdown, :killed] -> nil
+    # A wait the deadline cut short ends on :timeout, as a route the deadline cut short does.
+    :exit, {:timeout, _call} -> if time_left(context.deadline) == 0, do: {:error, :timeout}, else: nil
+    :exit, {reason, _call} when reason in [:noproc, :shutdown, :killed] -> :stale_context
   end
 
   @doc false

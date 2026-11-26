@@ -49,22 +49,6 @@ defmodule KafkaEx.API.CallBudgetContractTest do
     message
   end
 
-  defp budget_of(message) do
-    opts =
-      case message do
-        {:metadata, _topics, opts, _api_version} -> opts
-        _other -> elem(message, tuple_size(message) - 1)
-      end
-
-    Keyword.fetch!(opts, :call_budget)
-  end
-
-  defp assert_budget(message, call_timeout) do
-    assert {ms, sent_at} = budget_of(message)
-    assert ms == RequestBudget.deadline_budget(call_timeout)
-    assert sent_at <= System.monotonic_time(:millisecond)
-  end
-
   defp generic, do: RequestBudget.call_budget(Config.request_timeout(), Client.retry_count())
 
   # The original still reaches the Recorder, so a test sees both the message and the timeout it was sent with.
@@ -136,15 +120,15 @@ defmodule KafkaEx.API.CallBudgetContractTest do
     assert timeout == generic()
   end
 
-  test "send_request sends the four-tuple shape with its own timeout's budget", %{recorder: rec} do
+  # The recorder's context has no metadata table, so the request waits out its whole timeout.
+  test "send_request answers :timeout once its own timeout runs out", %{recorder: rec} do
     request = %Kayrock.Metadata.V0.Request{topics: []}
+    started = System.monotonic_time(:millisecond)
 
-    message = recorded(fn -> Client.send_request(rec, request, NodeSelector.first_available()) end)
-    assert {:network_request, ^request, %NodeSelector{}, _opts} = message
-    assert_budget(message, RequestBudget.call_budget(Config.request_timeout()))
+    assert {:error, :timeout} = Client.send_request(rec, request, NodeSelector.first_available(), 300)
 
-    message = recorded(fn -> Client.send_request(rec, request, NodeSelector.first_available(), 1_500) end)
-    assert {750, _sent_at} = budget_of(message)
+    elapsed = System.monotonic_time(:millisecond) - started
+    assert elapsed >= 300 and elapsed < 1_000
   end
 
   test "calls that never wait send their messages unchanged", %{recorder: rec} do

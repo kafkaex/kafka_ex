@@ -63,7 +63,7 @@ defmodule KafkaEx.Pins.MetadataContractPinTest do
     {:ok, [_]} = API.topics_metadata(client, [@topic])
     FakeTransport.respond(fake, :metadata, metadata_reply(host, %{}))
 
-    {{:ok, _}, _log} = with_log(fn -> GenServer.call(client, :update_metadata) end)
+    {{:ok, _}, _log} = with_log(fn -> refresh_tracked(client) end)
     {:ok, metadata} = API.cluster_metadata(client)
 
     refute Map.has_key?(metadata.topics, @topic)

@@ -5,8 +5,9 @@
 ### Added
 
 * **`KafkaEx.Client.request(client, message, timeout)`** is the single entry point to the client:
-  `KafkaEx.API` and `KafkaEx.Client.send_request/4` both go through it, and it waits up to
-  `timeout` ms for the client's reply.
+  `KafkaEx.API` and `KafkaEx.Client.send_request/4` both go through it. It runs the request in the
+  calling process and answers within `timeout` ms; a client on another node runs it there, through
+  one `:erpc` call.
 
 * **`request_concurrency: :serial | :multiplexed`** client start option, default `:multiplexed`.
   A `:serial` client runs one request at a time, first come first served: each caller waits for
@@ -38,18 +39,29 @@
 * **Elixir 1.17 is the minimum supported version** (`elixir: "~> 1.17"` in `mix.exs`).
   Elixir 1.14, 1.15 and 1.16 are no longer supported or tested. Unit tests run on Elixir 1.17 /
   OTP 25, 1.18 / OTP 27, 1.19 / OTP 28 and 1.20 / OTP 29. The OTP minimum stays at 25.
-* **Client messages carry a call budget.** Every `KafkaEx.API` call that reaches the network now puts
-  `call_budget: {ms, sent_at}` into the request's `opts`, and three messages change shape:
+* **Three client messages change shape:**
   `{:topic_metadata, topics, opts}` (with `allow_topic_creation:` in `opts`), sent by
   `KafkaEx.API.topics_metadata/3`; `{:network_request, request, node_selector, opts}`, which
   `KafkaEx.Client.send_request/4` now sends; and `{:cluster_metadata, opts}`, sent by
   `KafkaEx.API.cluster_metadata/1`. The old shapes `{:topic_metadata, topics, allow_topic_creation}`
-  and `{:network_request, request, node_selector}` are no longer accepted: the client process
-  crashes on them. If you
-  keep your own mock client that matches these messages or asserts on recorded `opts`, accept the new
-  shapes and ignore `:call_budget`.
-* **Calling the client with `GenServer.call(client, {op, …})` is not supported.** Use `KafkaEx.API`,
-  or `KafkaEx.Client.request/3` for a raw client message.
+  and `{:network_request, request, node_selector}` are no longer accepted. If you keep your own mock
+  client that matches these messages, accept the new shapes.
+* **Requests run in the calling process, not in the client process.** A slow or silent broker no
+  longer holds up requests to other brokers or other partitions. Requests keep their order only
+  within one caller; for one global order start the client with `request_concurrency: :serial`.
+  Request logs now carry the caller's pid.
+* **A request that runs out of time answers `{:error, :timeout}` instead of exiting the caller.**
+  Operations answer `{:error, %KafkaEx.Client.Error{error: :timeout}}` where they answered an
+  `%Error{}` before, and `KafkaEx.API` turns it into `{:error, :timeout}` as for other errors. A last
+  attempt that started just before the deadline may answer up to 0.5 s after it.
+* **Calling the client with `GenServer.call(client, {op, …})` or `GenServer.call(client, :update_metadata)`
+  is not supported**: the client logs a warning and answers `{:error, :unsupported_call}`. Use
+  `KafkaEx.API`, or `KafkaEx.Client.request/3` for a raw client message. In place of `:update_metadata`,
+  call `KafkaEx.API.metadata/3` with the topics you use.
+* **`KafkaEx.API.cluster_metadata/1` waits for a metadata table.** While the client has none (its
+  metadata store restarting or still loading), it waits up to its budget and then answers
+  `{:error, :timeout}` instead of the last metadata it saw. `KafkaEx.API.list_groups/2` passes that
+  error on. Every other request waits for the table the same way.
 * **`KafkaEx.Client.send_request/4` with `:first_available` tries the next broker after a `:parse_error`.**
   When a broker answered unparsably and no later broker answers correctly, the result is
   `{:error, :broker_failed}` instead of `{:error, :parse_error}`. `:broker_failed` is not retried, so

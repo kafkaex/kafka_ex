@@ -14,7 +14,7 @@ defmodule KafkaEx.Client.ConnectionRegistry do
   @spec start_link(map()) :: GenServer.on_start()
   def start_link(args), do: GenServer.start_link(__MODULE__, args)
 
-  @spec connect(pid() | nil, key(), timeout()) :: {:ok, pid()} | :restarting
+  @spec connect(pid(), key(), timeout()) :: {:ok, pid()} | :restarting
   def connect(registry, key, timeout), do: GenServer.call(registry, {:connect, key}, timeout)
 
   @spec unregister(pid(), key()) :: :ok
@@ -26,7 +26,7 @@ defmodule KafkaEx.Client.ConnectionRegistry do
   @impl true
   def init(args) do
     table = :ets.new(:conns, [:set, :protected, read_concurrency: true])
-    {:ok, args |> Map.take([:client, :supervisor, :connection]) |> Map.put(:table, table)}
+    {:ok, Map.put(args, :table, table)}
   end
 
   @impl true

@@ -216,14 +216,13 @@ defmodule KafkaEx.Client.SupervisorTest do
     test "crashes its connection registry when a connection fails to start", %{client: client, supervisor: supervisor} do
       registry = ClientSupervisor.connection_registry(supervisor)
       registry_ref = Process.monitor(registry)
-      ref = Process.monitor(client)
       fail_connection_start()
 
       {exit, _log} = with_log(fn -> catch_exit(API.produce(client, @topic, 0, [%{value: "v"}])) end)
 
       assert_receive {:DOWN, ^registry_ref, :process, ^registry, {{:case_clause, {:error, _}}, [_ | _]} = crash}, 5_000
-      assert {{^crash, {GenServer, :call, [^registry, {:connect, _key}, _timeout]}} = reason, _call} = exit
-      assert_receive {:DOWN, ^ref, :process, ^client, ^reason}, 5_000
+      assert {^crash, {GenServer, :call, [^registry, {:connect, _key}, _timeout]}} = exit
+      assert Process.alive?(client)
     end
 
     test "crashes its connection registry when its connection supervisor exits on a start", %{
@@ -232,7 +231,6 @@ defmodule KafkaEx.Client.SupervisorTest do
     } do
       registry = ClientSupervisor.connection_registry(supervisor)
       registry_ref = Process.monitor(registry)
-      ref = Process.monitor(client)
       :sys.replace_state(ClientSupervisor.connection_supervisor(supervisor), fn _state -> :broken end)
 
       {exit, _log} = with_log(fn -> catch_exit(API.produce(client, @topic, 0, [%{value: "v"}])) end)
@@ -241,8 +239,8 @@ defmodule KafkaEx.Client.SupervisorTest do
                       {_crash, {GenServer, :call, [_supervisor, {:start_child, _child}, :infinity]}} = crash},
                      5_000
 
-      assert {{^crash, {GenServer, :call, [^registry, {:connect, _key}, _timeout]}} = reason, _call} = exit
-      assert_receive {:DOWN, ^ref, :process, ^client, ^reason}, 5_000
+      assert {^crash, {GenServer, :call, [^registry, {:connect, _key}, _timeout]}} = exit
+      assert Process.alive?(client)
     end
   end
 

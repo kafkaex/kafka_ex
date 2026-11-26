@@ -474,13 +474,15 @@ defmodule KafkaEx.API do
 
   This returns the cluster metadata currently cached in the client's state.
   It does not make a network request to Kafka. If you need fresh metadata,
-  use `metadata/2` or `metadata/3` instead.
+  use `metadata/2` or `metadata/3` instead. While the client has no metadata
+  table (its metadata store restarting or loading), the call waits for one and
+  returns `{:error, :timeout}` if none arrives within its budget.
 
   ## Examples
 
       {:ok, cluster_metadata} = KafkaEx.API.cluster_metadata(client)
   """
-  @spec cluster_metadata(client) :: {:ok, ClusterMetadata.t()}
+  @spec cluster_metadata(client) :: {:ok, ClusterMetadata.t()} | {:error, :timeout}
   def cluster_metadata(client) do
     call_client(client, &{:cluster_metadata, &1}, [], generic_call_budget())
   end
@@ -638,7 +640,7 @@ defmodule KafkaEx.API do
   This is all-or-nothing: if any broker is unreachable or returns an error, the
   call returns `{:error, {:node_error, node_id, reason}}` rather than a silently
   partial list. Returns `{:error, :no_brokers_available}` if the client knows of
-  no brokers.
+  no brokers, and the error of `cluster_metadata/1` if it fails.
 
   ## Examples
 
@@ -646,16 +648,16 @@ defmodule KafkaEx.API do
   """
   @spec list_groups(client) ::
           {:ok, [ConsumerGroupListing.t()]}
-          | {:error, {:node_error, node_id, term} | :no_brokers_available}
+          | {:error, {:node_error, node_id, term} | :no_brokers_available | :timeout}
   @spec list_groups(client, opts) ::
           {:ok, [ConsumerGroupListing.t()]}
-          | {:error, {:node_error, node_id, term} | :no_brokers_available}
+          | {:error, {:node_error, node_id, term} | :no_brokers_available | :timeout}
   def list_groups(client, opts \\ []) do
-    {:ok, %ClusterMetadata{} = cluster_metadata} = cluster_metadata(client)
-
-    case ClusterMetadata.brokers(cluster_metadata) do
-      [] -> {:error, :no_brokers_available}
-      brokers -> list_groups_across_brokers(client, brokers, opts)
+    with {:ok, %ClusterMetadata{} = cluster_metadata} <- cluster_metadata(client) do
+      case ClusterMetadata.brokers(cluster_metadata) do
+        [] -> {:error, :no_brokers_available}
+        brokers -> list_groups_across_brokers(client, brokers, opts)
+      end
     end
   end
 
@@ -1254,7 +1256,7 @@ defmodule KafkaEx.API do
   defp generic_call_budget, do: RequestBudget.call_budget(Config.request_timeout(), @fetch_max_retries)
 
   defp call_client(client, message, opts, call_timeout) do
-    Client.request(client, message.(RequestBudget.put_call_budget(opts, call_timeout)), call_timeout)
+    Client.request(client, message.(opts), call_timeout)
   end
 
   # join/sync share this: inject the per-attempt network_timeout as a control opt,

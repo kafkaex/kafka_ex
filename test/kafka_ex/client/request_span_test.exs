@@ -177,7 +177,6 @@ defmodule KafkaEx.Client.RequestSpanTest do
 
   describe "a crash after the span opens" do
     test "a raise in the connection registry ends the span with the request exception", %{fake: fake, client: client} do
-      ref = Process.monitor(client)
       warm_data_connection(fake, client)
       FakeTransport.respond(fake, :produce, :close)
       fail_connection_start()
@@ -185,10 +184,10 @@ defmodule KafkaEx.Client.RequestSpanTest do
       {exit, _log} =
         with_log(fn -> catch_exit(Client.send_request(client, produce_request(), NodeSelector.first_available())) end)
 
-      assert {{{{:case_clause, {:error, _}}, [_ | _]}, {GenServer, :call, [_registry, {:connect, _key}, _timeout]}} =
-                reason, _call} = exit
+      assert {{{:case_clause, {:error, _}}, [_ | _]}, {GenServer, :call, [_registry, {:connect, _key}, _timeout]}} =
+               reason = exit
 
-      assert_receive {:DOWN, ^ref, :process, ^client, ^reason}, 5_000
+      assert Process.alive?(client)
       assert_received {:request_span, :start, %{operation: :produce}}
 
       assert_received {:request_span, :exception,
@@ -200,7 +199,6 @@ defmodule KafkaEx.Client.RequestSpanTest do
     end
 
     test "an exit in the connection registry ends the span with the request exception", %{fake: fake, client: client} do
-      ref = Process.monitor(client)
       warm_data_connection(fake, client)
       FakeTransport.respond(fake, :produce, :close)
       supervisor = ClientSupervisor.connection_supervisor(:sys.get_state(client).supervisor)
@@ -209,10 +207,10 @@ defmodule KafkaEx.Client.RequestSpanTest do
       {exit, _log} =
         with_log(fn -> catch_exit(Client.send_request(client, produce_request(), NodeSelector.first_available())) end)
 
-      assert {{{_crash, {GenServer, :call, [^supervisor, {:start_child, _child}, :infinity]}},
-               {GenServer, :call, [_registry, {:connect, _key}, _timeout]}} = reason, _call} = exit
+      assert {{_crash, {GenServer, :call, [^supervisor, {:start_child, _child}, :infinity]}},
+              {GenServer, :call, [_registry, {:connect, _key}, _timeout]}} = reason = exit
 
-      assert_receive {:DOWN, ^ref, :process, ^client, ^reason}, 5_000
+      assert Process.alive?(client)
       assert_received {:request_span, :start, %{operation: :produce}}
 
       assert_received {:request_span, :exception,

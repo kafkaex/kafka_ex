@@ -7,6 +7,21 @@ no longer supported or tested. Upgrade Elixir before upgrading KafkaEx. The
 OTP minimum is unchanged at 25. Tested combinations: Elixir 1.17 / OTP 25,
 1.18 / OTP 27, 1.19 / OTP 28 and 1.20 / OTP 29.
 
+## Direct calls to the client process are not supported
+
+Requests now run in the calling process. A `GenServer.call(client, {op, …})`
+or `GenServer.call(client, :update_metadata)` is answered with
+`{:error, :unsupported_call}` and a logged warning. Use `KafkaEx.API`, or
+`KafkaEx.Client.request/3` for a raw client message. In place of
+`:update_metadata`, call `KafkaEx.API.metadata/3` with the topics you use.
+
+## Clients on other nodes
+
+`KafkaEx.API` called with a client on another node runs the request on that
+node with one `:erpc` call to `KafkaEx.Client.request/3`. During a node-by-node
+upgrade, a node still on an older KafkaEx does not have that function, so calls
+from an upgraded node to a client there fail until it is upgraded too.
+
 # Upgrading to KafkaEx 1.2.0
 
 This section covers changes since the 1.1 release. The 1.0 → 1.1 changes are

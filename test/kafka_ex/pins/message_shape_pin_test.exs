@@ -34,20 +34,6 @@ defmodule KafkaEx.Pins.MessageShapePinTest do
 
       assert ["Kayrock", "Metadata", _version, "Response"] = Module.split(response)
     end
-
-    test "a call budget never reaches the request the client writes" do
-      %{fake: fake, client: client} = start_pinned()
-      FakeTransport.respond(fake, :produce, produce_reply())
-      budget = {10_000, System.monotonic_time(:millisecond)}
-
-      assert {:ok, %RecordMetadata{}} = Client.request(client, {:produce, @topic, 0, [%{value: "v"}], []}, 5_000)
-
-      assert {:ok, %RecordMetadata{}} =
-               Client.request(client, {:produce, @topic, 0, [%{value: "v"}], [call_budget: budget]}, 5_000)
-
-      assert [plain, budgeted] = Enum.map(requests(fake, :produce), &without_correlation_id(&1.frame))
-      assert budgeted == plain
-    end
   end
 
   test "a build error returns before any I/O, even when the leader is unreachable" do
@@ -69,8 +55,6 @@ defmodule KafkaEx.Pins.MessageShapePinTest do
   end
 
   defp versions(client), do: :sys.get_state(client).api_versions
-
-  defp without_correlation_id(<<header::binary-size(4), _correlation_id::32, rest::binary>>), do: header <> rest
 
   # A gated connect never reaches the fake's log; the connection span still starts.
   defp watch_connects(host) do

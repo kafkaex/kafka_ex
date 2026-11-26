@@ -3,15 +3,8 @@ defmodule KafkaEx.Client.StoreWaitBudgetTest do
 
   alias KafkaEx.Client.Error
   alias KafkaEx.Client.NodeSelector
-  alias KafkaEx.Client.RequestBudget
   alias KafkaEx.Client.RequestBuilder
   alias KafkaEx.Client.State
-  alias KafkaEx.Cluster.ClusterMetadata
-  alias KafkaEx.Config
-
-  @not_leader_for_partition 6
-  # Spent while the fetch waits on its connection's first connect, so only the resume can observe it.
-  @budget_spent_while_parked_ms 300
 
   test "a send_request timeout below the default budget answers :timeout instead of exiting the caller" do
     %{client: client} = start_pinned()
@@ -42,167 +35,38 @@ defmodule KafkaEx.Client.StoreWaitBudgetTest do
     assert Process.alive?(client)
   end
 
-  test "a cluster_metadata queued behind another call answers its last consistent snapshot instead of exiting the caller" do
+  test "a cluster_metadata whose store does not answer within its budget answers :timeout instead of exiting the caller" do
     with_request_timeout(100)
     %{client: client} = start_pinned()
-    {:ok, %ClusterMetadata{brokers: brokers} = last} = API.cluster_metadata(client)
-    assert map_size(brokers) == 2
     store = suspend_store(client)
 
-    blocking = Task.async(fn -> with_log(fn -> API.topics_metadata(client, ["ghost"]) end) end)
-    await_store_call(store, 100)
-    queued = Task.async(fn -> API.cluster_metadata(client) end)
-
-    {blocked, _log} = Task.await(blocking, 15_000)
-    view = Task.await(queued, 15_000)
+    {view, _log} = with_log(fn -> API.cluster_metadata(client) end)
 
     :sys.resume(store)
-    assert blocked == {:error, :timeout}
-    assert view == {:ok, last}
+    assert view == {:error, :timeout}
     assert Process.alive?(client)
   end
 
-  test "a call without a call_budget waits on the store until one reply margin before the budget KafkaEx.API would give it" do
-    with_request_timeout(100)
-    %{client: client} = start_pinned()
-    call_timeout = RequestBudget.call_budget(Config.request_timeout(), Client.retry_count())
-    store = suspend_store(client)
-    started = System.monotonic_time(:millisecond)
-
-    {result, _log} = with_log(fn -> Client.request(client, {:topic_metadata, ["ghost"], []}, call_timeout) end)
-
-    waited = System.monotonic_time(:millisecond) - started
-    :sys.resume(store)
-    assert result == {:error, :timeout}
-    assert waited >= RequestBudget.deadline_budget(call_timeout)
-  end
-
-  test "an unusable call_budget waits on the store like a message without one" do
-    with_request_timeout(100)
-    %{client: client} = start_pinned()
-    call_timeout = RequestBudget.call_budget(Config.request_timeout(), Client.retry_count())
-    store = suspend_store(client)
-    started = System.monotonic_time(:millisecond)
-
-    {result, _log} =
-      with_log(fn -> Client.request(client, {:topic_metadata, ["ghost"], [call_budget: 5]}, call_timeout) end)
-
-    waited = System.monotonic_time(:millisecond) - started
-    :sys.resume(store)
-    assert result == {:error, :timeout}
-    assert waited >= RequestBudget.deadline_budget(call_timeout)
-  end
-
-  test "a spent call_budget among opts that are not a keyword list still ends the store wait at once" do
-    with_request_timeout(2_000)
-    %{client: client} = start_pinned()
-    store = suspend_store(client)
-    spent = {1, System.monotonic_time(:millisecond) - 1_000}
-    started = System.monotonic_time(:millisecond)
-
-    {result, _log} =
-      with_log(fn -> Client.request(client, {:topic_metadata, ["ghost"], [:x, call_budget: spent]}, 10_000) end)
-
-    waited = System.monotonic_time(:millisecond) - started
-    :sys.resume(store)
-    assert result == {:error, :timeout}
-    assert waited < 1_000
-  end
-
-  test "a spent call_budget inside a metadata message ends the store wait at once" do
-    with_request_timeout(2_000)
-    %{client: client} = start_pinned()
-    store = suspend_store(client)
-    spent = {1, System.monotonic_time(:millisecond) - 1_000}
-    started = System.monotonic_time(:millisecond)
-
-    {result, _log} =
-      with_log(fn -> Client.request(client, {:metadata, ["ghost"], [call_budget: spent], 1}, 10_000) end)
-
-    waited = System.monotonic_time(:millisecond) - started
-    :sys.resume(store)
-    assert result == {:error, Error.build(:timeout, %{})}
-    assert waited < 1_000
-  end
-
-  test "a parked first fetch resumes under its caller's send-time budget, as a call taken from the mailbox would" do
-    %{fake: fake, client: client} = start_pinned()
-    FakeTransport.respond(fake, :fetch, &{:frame, not_leader_fetch_frame(&1)})
-    FakeTransport.hold(fake, :api_versions)
-    budget = {@budget_spent_while_parked_ms, System.monotonic_time(:millisecond)}
-
-    parked = Task.async(fn -> with_log(fn -> fetch_with_budget(client, budget) end) end)
-    wait_until(fn -> map_size(:sys.get_state(client).parked) == 1 end, 200)
-    refute_receive :never, @budget_spent_while_parked_ms + 100
-    refreshes = count(fake, :metadata)
-    FakeTransport.release(fake, :api_versions)
-    {resumed, _log} = Task.await(parked, 15_000)
-
-    {from_mailbox, _log} = with_log(fn -> fetch_with_budget(client, budget) end)
-    assert resumed == {:error, Error.build(:timeout, %{})}
-    assert resumed == from_mailbox
-    assert count(fake, :metadata) == refreshes
-  end
-
-  test "an offset_commit whose budget is spent while the store is detached still ends its commit span with the error" do
+  test "an offset_commit whose budget runs out while the store does not answer still ends its commit span with the error" do
     %{client: client} = start_pinned()
     events = for phase <- [:start, :stop], do: [:kafka_ex, :consumer, :commit, phase]
     forward_telemetry(events, fn [_, _, _, phase], _measurements, metadata -> {:commit, phase, metadata} end)
-    %{store: %{pid: store}} = :sys.get_state(client)
-    :ok = :sys.suspend(client)
-    ref = Process.monitor(store)
-    Process.exit(store, :kill)
-    assert_receive {:DOWN, ^ref, :process, ^store, :killed}, 1_000
+    store = suspend_store(client)
+    commit = {:offset_commit, "g", [{@topic, [%{partition_num: 0, offset: 5}]}], []}
 
-    spent = [call_budget: {1, System.monotonic_time(:millisecond) - 1_000}]
-    call = :gen_server.send_request(client, {:offset_commit, "g", [{@topic, [%{partition_num: 0, offset: 5}]}], spent})
-    :ok = :sys.resume(client)
+    {result, _log} = with_log(fn -> Client.request(client, commit, 300) end)
 
-    assert {:reply, {:error, %Error{error: :timeout}}} = :gen_server.receive_response(call, 5_000)
+    :sys.resume(store)
+    assert {:error, %Error{error: :timeout}} = result
     assert_receive {:commit, :start, _metadata}, 1_000
     assert_receive {:commit, :stop, %{result: :error}}, 1_000
   end
 
   defp versions(client), do: :sys.get_state(client).api_versions
 
-  # The blocking call has reached the client only once its request waits in the suspended store's mailbox.
-  defp await_store_call(store, tries) do
-    case Process.info(store, :message_queue_len) do
-      {:message_queue_len, 0} when tries > 0 ->
-        refute_receive :never, 10
-        await_store_call(store, tries - 1)
-
-      {:message_queue_len, waiting} ->
-        assert waiting > 0
-    end
-  end
-
   defp suspend_store(client) do
     store = :sys.get_state(client).store.pid
     :ok = :sys.suspend(store)
     store
-  end
-
-  defp fetch_with_budget(client, budget) do
-    Client.request(client, {:fetch, @topic, 0, 0, [call_budget: budget]}, 10_000)
-  end
-
-  defp not_leader_fetch_frame(%{api_version: 0, correlation_id: corr}) do
-    <<corr::32-signed, 1::32-signed, byte_size(@topic)::16-signed, @topic::binary, 1::32-signed, 0::32-signed,
-      @not_leader_for_partition::16-signed, -1::64-signed, 0::32-signed>>
-  end
-
-  defp wait_until(condition, tries) do
-    cond do
-      condition.() ->
-        :ok
-
-      tries > 0 ->
-        refute_receive :never, 10
-        wait_until(condition, tries - 1)
-
-      true ->
-        flunk("condition not met")
-    end
   end
 end

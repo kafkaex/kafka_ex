@@ -14,6 +14,7 @@ defmodule KafkaEx.TestSupport.PinCase do
 
   alias KafkaEx.Client
   alias KafkaEx.Client.ConnectionStateMachine
+  alias KafkaEx.Client.MetadataStore
   alias KafkaEx.Client.Supervisor, as: ClientSupervisor
   alias KafkaEx.Network.NetworkClient
   alias KafkaEx.TestSupport.FakeTransport
@@ -95,6 +96,13 @@ defmodule KafkaEx.TestSupport.PinCase do
     brokers = Enum.map(brokers, fn {node_id, port} -> {node_id, host, port} end)
     fake = start_supervised!(Supervisor.child_spec({FakeTransport, [brokers: brokers] ++ opts}, id: make_ref()))
     %{fake: fake, host: host}
+  end
+
+  # Asks the store now for the tracked-topics refresh it runs on its own interval.
+  def refresh_tracked(client) do
+    %{store: %{pid: store}, allow_auto_topic_creation: allow} = :sys.get_state(client)
+    _refreshed = MetadataStore.refresh(store, %{topics: [], allow_auto_topic_creation: allow}, 10_000)
+    KafkaEx.API.cluster_metadata(client)
   end
 
   def requests(fake, api), do: fake |> FakeTransport.requests() |> Enum.filter(&(&1.api == api))

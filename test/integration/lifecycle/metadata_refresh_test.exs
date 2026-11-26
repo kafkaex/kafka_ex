@@ -14,6 +14,7 @@ defmodule KafkaEx.Integration.Lifecycle.MetadataRefreshTest do
 
   alias KafkaEx.API
   alias KafkaEx.Client
+  alias KafkaEx.Client.MetadataStore
 
   setup do
     {:ok, args} = KafkaEx.build_worker_options([])
@@ -43,7 +44,7 @@ defmodule KafkaEx.Integration.Lifecycle.MetadataRefreshTest do
       log =
         capture_log(fn ->
           for _ <- 1..5 do
-            GenServer.call(client, :update_metadata, 15_000)
+            refresh_tracked(client)
           end
         end)
 
@@ -101,13 +102,20 @@ defmodule KafkaEx.Integration.Lifecycle.MetadataRefreshTest do
       assert tracked_topics(client) == MapSet.new([topic1, topic2])
 
       {:ok, _} = API.metadata(client)
-      {:ok, _} = GenServer.call(client, :update_metadata, 15_000)
+      {:ok, _} = refresh_tracked(client)
 
       # Monotonic tracked_topics: topic1/topic2 survive the tracked-only refresh, no thrashing.
       {:ok, final_metadata} = API.cluster_metadata(client)
       assert Map.has_key?(final_metadata.topics, topic1)
       assert Map.has_key?(final_metadata.topics, topic2)
     end
+  end
+
+  # Asks the store now for the tracked-topics refresh it runs on its own interval.
+  defp refresh_tracked(client) do
+    %{store: %{pid: store}, allow_auto_topic_creation: allow} = :sys.get_state(client)
+    _refreshed = MetadataStore.refresh(store, %{topics: [], allow_auto_topic_creation: allow}, 15_000)
+    API.cluster_metadata(client)
   end
 
   defp tracked_topics(client) do

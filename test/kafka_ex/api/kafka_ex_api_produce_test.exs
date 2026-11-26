@@ -25,7 +25,7 @@ defmodule KafkaEx.APIProduceTest do
         topic: topic,
         partition: partition,
         messages: messages,
-        opts: Keyword.delete(opts, :call_budget)
+        opts: opts
       }
 
       new_state = Map.put(state, :last_call, call_info)

@@ -84,10 +84,11 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
       end
     end
 
+    # One request at a time, so each caller meets its own connect attempt as when the client served them in turn.
     test "spaces connect attempts whose handshake crashes the connection" do
       raising = :atomics.new(1, [])
       provider = fn -> if :atomics.get(raising, 1) == 1, do: raise("token provider down"), else: {:ok, "t"} end
-      %{client: client, host: host} = start_for_backoff(auth: oauthbearer(provider))
+      %{client: client, host: host} = start_for_backoff(auth: oauthbearer(provider), request_concurrency: :serial)
       :atomics.put(raising, 1, 1)
 
       assert_backoff(client, {host, 9092}, fn _i -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
@@ -95,7 +96,7 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
 
     test "spaces connect attempts of every role to an unreachable broker" do
       %{client: client, host: host, gate: gate} =
-        start_for_backoff([], topics: %{"wide" => List.duplicate(2, 20), @topic => [2, 2]})
+        start_for_backoff([request_concurrency: :serial], topics: %{"wide" => List.duplicate(2, 20), @topic => [2, 2]})
 
       PinGate.close(gate)
 

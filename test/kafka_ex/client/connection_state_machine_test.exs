@@ -499,6 +499,20 @@ defmodule KafkaEx.Client.ConnectionStateMachineTest do
       end
     end
 
+    test "a later request with an earlier liveness bound closes the socket at that bound", %{fake: fake, host: host} do
+      FakeTransport.respond(fake, :fetch, :no_reply)
+      %{conn: conn} = start_connected(fake, host, :fetch, liveness_slack: 100)
+      _long = async_dispatch(conn, request(:fetch), long_poll: 1_000, timeout: 1_000)
+      KafkaEx.TestHelpers.wait_for(fn -> length(requests(fake, :fetch)) == 1 end, 10)
+      started = now()
+
+      {result, _log} = with_log(fn -> dispatch(conn, request(:fetch), timeout: 100) end)
+
+      assert {:error, :timeout, _meta} = result
+      assert_receive {:closed, %{reason: :liveness}}, 1_000
+      assert (now() - started) in 200..1_000
+    end
+
     test "a healthy long-poll is never closed", %{fake: fake, host: host} do
       FakeTransport.respond(fake, :fetch, frame("records"))
       FakeTransport.hold(fake, :fetch)

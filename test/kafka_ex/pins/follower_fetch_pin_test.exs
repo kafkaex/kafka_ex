@@ -59,17 +59,6 @@ defmodule KafkaEx.Pins.FollowerFetchPinTest do
     assert nodes(fake, :fetch) == [1, 2, 1]
   end
 
-  test "the :update_metadata call drops the hint", %{fake: fake, client: client} do
-    leader_names_replica(fake)
-    {:ok, _} = fetch(client)
-    {:ok, _} = fetch(client)
-
-    {:ok, _} = GenServer.call(client, :update_metadata)
-    {:ok, _} = fetch(client)
-
-    assert nodes(fake, :fetch) == [1, 2, 1]
-  end
-
   @tag pin_set: :target_state
   test "after the replica closes the connection, the leader answers within the same call", %{
     fake: fake,

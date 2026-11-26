@@ -9,10 +9,8 @@ defmodule KafkaEx.Client.ParallelSetupTest do
   @short_handshake_ms 100
   @min_capped_backoff_ms 400
   @window_ms 1_500
-  # Far below the parked call's own deadline, so only the crash, not that deadline, can answer it.
+  # Far below the call's own deadline, so only the crash, not that deadline, can answer it.
   @crash_answered_within_ms 5_000
-  @long_poll_ms 1_500
-  @blocked_connect_ms 4_500
 
   describe "first fetch connections" do
     test "to different brokers run their handshakes at the same time" do
@@ -52,7 +50,6 @@ defmodule KafkaEx.Client.ParallelSetupTest do
       first = Task.async(fn -> API.fetch(client, @topic, 0, 0) end)
       assert_receive {:fake_transport, :request, %{api: :api_versions}}, 2_000
       second = Task.async(fn -> API.fetch(client, @topic, 1, 0) end)
-      wait_for(fn -> map_size(:sys.get_state(client).parked) == 2 end)
 
       FakeTransport.release(fake, :api_versions)
       assert [{:ok, _}, {:ok, _}] = Task.await_many([first, second], 10_000)
@@ -78,88 +75,6 @@ defmodule KafkaEx.Client.ParallelSetupTest do
     end
   end
 
-  describe "parked first fetches" do
-    # Scaled-down 10 s long-polls: the third resume starts after two answered long-polls.
-    test "each get a full attempt budget from their resume, so none is written then retried" do
-      connection = [connect_timeout: 500, reconnect_window: 100]
-      %{fake: fake, client: client} = start_pinned(topics: %{@topic => [1, 1, 1]}, connection: connection)
-      FakeTransport.respond(fake, :fetch, {:after, @long_poll_ms, &{:frame, fetch_frame(&1, -1)}})
-      FakeTransport.hold(fake, :api_versions)
-      opts = [max_wait_time: @long_poll_ms, network_timeout: @long_poll_ms + 500]
-
-      fetches = for partition <- 0..2, do: Task.async(fn -> API.fetch(client, @topic, partition, 0, opts) end)
-      wait_for(fn -> map_size(:sys.get_state(client).parked) == 3 end)
-      FakeTransport.release(fake, :api_versions)
-
-      assert [{:ok, _}, {:ok, _}, {:ok, _}] = Task.await_many(fetches, 15_000)
-      assert count(fake, :fetch) == 3
-    end
-
-    test "whose connect outlasts the parked deadline end that attempt :timeout and retry" do
-      %{fake: fake, client: client} = start_pinned(connection: [connect_timeout: 50, reconnect_window: 0])
-      FakeTransport.delay_connects(fake, @blocked_connect_ms)
-
-      started = System.monotonic_time(:millisecond)
-      assert {:error, _timeout} = API.fetch(client, @topic, 0, 0, max_wait_time: 1, network_timeout: 1)
-
-      assert System.monotonic_time(:millisecond) - started < @blocked_connect_ms
-      assert Process.alive?(client)
-    end
-
-    test "resume on the new leader after a leader move" do
-      %{fake: fake, client: client, host: host} = start_pinned()
-      FakeTransport.respond(fake, :fetch, &{:frame, fetch_frame(&1, -1)})
-      :ok = FakeTransport.subscribe(fake)
-      FakeTransport.hold(fake, :api_versions)
-
-      fetch = Task.async(fn -> API.fetch(client, @topic, 0, 0) end)
-      assert_receive {:fake_transport, :request, %{api: :api_versions, port: 9092}}, 2_000
-      wait_for(fn -> map_size(:sys.get_state(client).parked) == 1 end)
-      FakeTransport.respond(fake, :metadata, metadata_reply(host, [{@topic, [2, 2]}]))
-      assert {:ok, _} = API.topics_metadata(client, [@topic])
-      FakeTransport.release(fake, :api_versions)
-
-      assert {:ok, _} = Task.await(fetch, 10_000)
-      assert [%{port: 9093}] = requests(fake, :fetch)
-    end
-
-    test "on a connection that died before its park keep the connection a retry started" do
-      %{fake: fake, client: client, host: host} = start_pinned()
-      FakeTransport.respond(fake, :fetch, &{:frame, fetch_frame(&1, -1)})
-      :ok = FakeTransport.subscribe(fake)
-      FakeTransport.hold(fake, :api_versions)
-
-      first = Task.async(fn -> API.fetch(client, @topic, 0, 0) end)
-      assert_receive {:fake_transport, :request, %{api: :api_versions, port: 9092}}, 2_000
-      wait_for(fn -> map_size(:sys.get_state(client).parked) == 1 end)
-      [{_key, dead}] = :ets.lookup(:sys.get_state(client).conns, {host, 9092, :fetch})
-
-      :ok = :sys.suspend(client)
-      second = Task.async(fn -> API.fetch(client, @topic, 0, 0) end)
-      wait_for(fn -> Process.info(client, :message_queue_len) == {:message_queue_len, 1} end)
-      Process.exit(dead, :kill)
-      wait_for(fn -> not Process.alive?(dead) end)
-      FakeTransport.release(fake, :api_versions)
-      :ok = :sys.resume(client)
-
-      assert [{:ok, _}, {:ok, _}] = Task.await_many([first, second], 10_000)
-      assert fake |> FakeTransport.connects() |> Enum.count(&(&1.role == :fetch)) == 2
-    end
-
-    test "end their fetch span with an exception when the client stops, and their callers exit" do
-      %{fake: fake, client: client} = start_pinned()
-      FakeTransport.hold(fake, :api_versions)
-      watch_fetch_exceptions()
-
-      fetch = Task.async(fn -> catch_exit(API.fetch(client, @topic, 0, 0)) end)
-      wait_for(fn -> map_size(:sys.get_state(client).parked) == 1 end)
-      GenServer.stop(client)
-
-      assert_receive {:fetch_exception, :exit, :normal}
-      assert {:normal, {GenServer, :call, _}} = Task.await(fetch, 10_000)
-    end
-  end
-
   describe "a first fetch to an unreachable broker" do
     test "errors in under two reconnect windows, as a call waiting in the client did" do
       %{client: client, gate: gate} = start_pinned(connection: [reconnect_window: @window_ms])
@@ -182,7 +97,7 @@ defmodule KafkaEx.Client.ParallelSetupTest do
 
       started = System.monotonic_time(:millisecond)
       fetch = Task.async(fn -> API.fetch(client, @topic, 0, 0) end)
-      wait_for(fn -> map_size(:sys.get_state(client).parked) == 1 end)
+      wait_for(fn -> :ets.member(:sys.get_state(client).conns, {host, 9092, :fetch}) end)
       assert {:ok, _} = API.produce(client, @topic, 0, [%{value: "v"}])
       assert {:ok, _} = Task.await(fetch, 10_000)
 
@@ -197,19 +112,13 @@ defmodule KafkaEx.Client.ParallelSetupTest do
     ReconnectBackoff.connected(backoff, address, now)
   end
 
+  defp wait_for(condition) do
+    KafkaEx.TestHelpers.wait_for_value(condition, & &1, 10, 300)
+  end
+
   defp watch_fetch_stops do
     forward_telemetry([[:kafka_ex, :fetch, :stop]], fn _event, _measurements, metadata ->
       {:fetch_stop, metadata.partition}
     end)
-  end
-
-  defp watch_fetch_exceptions do
-    forward_telemetry([[:kafka_ex, :fetch, :exception]], fn _event, _measurements, metadata ->
-      {:fetch_exception, metadata.kind, metadata.reason}
-    end)
-  end
-
-  defp wait_for(condition) do
-    KafkaEx.TestHelpers.wait_for_value(condition, & &1, 10, 300)
   end
 end

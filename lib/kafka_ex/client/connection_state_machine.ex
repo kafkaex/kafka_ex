@@ -96,7 +96,9 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
         setup_deadline: nil,
         outage: nil,
         attempted?: false,
-        spans: %{}
+        spans: %{},
+        # The armed liveness deadline, kept so a request costs O(1) however many others are in flight.
+        liveness_at: nil
       })
 
     {:ok, :disconnected, data}
@@ -547,8 +549,8 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
       api: operation
     }
 
-    data = %{data | in_flight: Map.put(data.in_flight, id, entry)}
-    {:keep_state, data, [{{:timeout, {:reply, id}}, dispatch.timeout, nil}, liveness_timer(data), cancel(:idle)]}
+    {data, liveness} = arm_liveness(%{data | in_flight: Map.put(data.in_flight, id, entry)}, live_until)
+    {:keep_state, data, [{{:timeout, {:reply, id}}, dispatch.timeout, nil}, cancel(:idle) | liveness]}
   end
 
   defp send_failed(from, dispatch, reason, {id, bytes}, data) do
@@ -581,17 +583,22 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
 
   defp rearm(data, actions) do
     case NetworkClient.activate(data.socket) do
-      :ok -> {:keep_state, data, actions ++ [liveness_timer(data) | idle_when_empty(data)]}
+      :ok -> keep_reading(data, actions)
       {:error, _reason} -> peer_closed(data, actions)
     end
   end
 
-  defp liveness_timer(data) do
-    case data.in_flight |> Enum.map(fn {_id, entry} -> entry.live_until end) |> Enum.min(fn -> nil end) do
-      nil -> cancel(:liveness)
-      at -> {{:timeout, :liveness}, at, nil, [abs: true]}
-    end
+  defp keep_reading(%{in_flight: in_flight} = data, actions) when in_flight == %{} do
+    {:keep_state, %{data | liveness_at: nil}, actions ++ [cancel(:liveness) | idle_when_empty(data)]}
   end
+
+  defp keep_reading(data, actions), do: {:keep_state, data, actions}
+
+  defp arm_liveness(%{liveness_at: at} = data, live_until) when is_integer(at) and at <= live_until, do: {data, []}
+  defp arm_liveness(data, live_until), do: {%{data | liveness_at: live_until}, [liveness_timer(live_until)]}
+
+  defp liveness_timer(nil), do: cancel(:liveness)
+  defp liveness_timer(at), do: {{:timeout, :liveness}, at, nil, [abs: true]}
 
   defp idle_without_demand(data), do: if(fetch?(data) and not demand?(data), do: [idle(data)], else: [])
 
@@ -623,7 +630,8 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
     if Enum.any?(data.in_flight, fn {_id, entry} -> entry.live_until <= now end) do
       close_client_side(:liveness, data)
     else
-      {:keep_state_and_data, [liveness_timer(data)]}
+      at = data.in_flight |> Enum.map(fn {_id, entry} -> entry.live_until end) |> Enum.min(fn -> nil end)
+      {:keep_state, %{data | liveness_at: at}, [liveness_timer(at)]}
     end
   end
 
@@ -677,7 +685,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   defp meta(id, entry), do: %{bytes_sent: entry.bytes_sent, bytes_received: 0, correlation_id: id}
 
   defp disconnect(data, actions) do
-    data = %{data | socket: nil}
+    data = %{data | socket: nil, liveness_at: nil}
     timers = [cancel(:liveness), cancel(:stable)]
     {:next_state, :disconnected, data, actions ++ timers ++ try_connect_if_waiting(data)}
   end

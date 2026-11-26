@@ -3,7 +3,6 @@ defmodule KafkaEx.Client.State do
 
   # state struct for New.Client
 
-  alias KafkaEx.Client.ConnectionStateMachine
   alias KafkaEx.Client.MetadataStore.MetadataTable
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Messages.ApiVersions
@@ -26,13 +25,9 @@ defmodule KafkaEx.Client.State do
     conns: nil,
     reconnect_backoff: nil,
     connection_options: %{},
-    parked: %{},
-    parking: nil,
     store: nil,
     hints: nil,
     deadline: nil,
-    dispatch_stamp: nil,
-    last_view: %ClusterMetadata{},
     request_concurrency: :multiplexed,
     permit: nil,
     waiting: :queue.new()
@@ -41,7 +36,7 @@ defmodule KafkaEx.Client.State do
   @type t :: %__MODULE__{
           bootstrap_uris: [{binary(), pos_integer()}],
           cluster_metadata: ClusterMetadata.t(),
-          correlation: :counters.counters_ref() | nil,
+          correlation: :atomics.atomics_ref() | nil,
           consumer_group_for_auto_commit: binary() | nil,
           metadata_update_interval: pos_integer() | nil,
           ssl_options: Keyword.t(),
@@ -54,14 +49,9 @@ defmodule KafkaEx.Client.State do
           conns: :ets.tid() | nil,
           reconnect_backoff: :ets.tid() | nil,
           connection_options: map(),
-          parked: %{optional(reference()) => map()},
-          parking:
-            :first | {:resumed, {binary(), non_neg_integer(), ConnectionStateMachine.role()}, pid(), term()} | nil,
           store: %{pid: pid(), ref: reference(), tid: MetadataTable.t()} | nil,
           deadline: integer() | nil,
-          dispatch_stamp: MetadataTable.stamp() | nil,
           hints: :ets.tid() | nil,
-          last_view: ClusterMetadata.t(),
           request_concurrency: :serial | :multiplexed,
           permit: {pid(), reference()} | nil,
           waiting: :queue.queue(GenServer.from())
