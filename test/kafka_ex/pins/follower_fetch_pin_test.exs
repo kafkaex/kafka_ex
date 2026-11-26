@@ -28,6 +28,18 @@ defmodule KafkaEx.Pins.FollowerFetchPinTest do
     assert fake |> requests(:fetch) |> Enum.all?(&(:binary.match(&1.frame, @rack) != :nomatch))
   end
 
+  test "a hint stored after one process's fetch routes another process's fetch to the replica", %{
+    fake: fake,
+    client: client
+  } do
+    leader_names_replica(fake)
+
+    {:ok, _} = Task.async(fn -> fetch(client) end) |> Task.await()
+    {:ok, _} = Task.async(fn -> fetch(client) end) |> Task.await()
+
+    assert nodes(fake, :fetch) == [1, 2]
+  end
+
   test "a replica's answer of -1 keeps the hint", %{fake: fake, client: client} do
     leader_names_replica(fake)
 

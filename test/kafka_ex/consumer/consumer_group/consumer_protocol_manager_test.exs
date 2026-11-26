@@ -480,7 +480,7 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ConsumerProtocolManagerTest do
   # The request the real client builds from these options (the RequestBuilder
   # call KafkaEx.Client makes), at ConsumerGroupHeartbeat v1.
   defp build_wire_request(opts) do
-    state = %ClientState{api_versions: %{68 => {0, 1}}, correlation_id: 1}
+    state = %ClientState{api_versions: %{68 => {0, 1}}}
     builder_opts = Keyword.drop(opts, [:call_budget, :network_timeout])
     RequestBuilder.build(:consumer_group_heartbeat, [{:group_id, @group} | builder_opts], state)
   end

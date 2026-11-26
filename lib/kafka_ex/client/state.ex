@@ -13,7 +13,7 @@ defmodule KafkaEx.Client.State do
   defstruct(
     bootstrap_uris: [],
     cluster_metadata: %ClusterMetadata{},
-    correlation_id: 0,
+    correlation: nil,
     consumer_group_for_auto_commit: nil,
     metadata_update_interval: nil,
     ssl_options: [],
@@ -29,7 +29,7 @@ defmodule KafkaEx.Client.State do
     parked: %{},
     parking: nil,
     store: nil,
-    hints: %{},
+    hints: nil,
     deadline: nil,
     dispatch_stamp: nil,
     last_view: %ClusterMetadata{}
@@ -38,7 +38,7 @@ defmodule KafkaEx.Client.State do
   @type t :: %__MODULE__{
           bootstrap_uris: [{binary(), pos_integer()}],
           cluster_metadata: ClusterMetadata.t(),
-          correlation_id: non_neg_integer(),
+          correlation: :counters.counters_ref() | nil,
           consumer_group_for_auto_commit: binary() | nil,
           metadata_update_interval: pos_integer() | nil,
           ssl_options: Keyword.t(),
@@ -57,7 +57,7 @@ defmodule KafkaEx.Client.State do
           store: %{pid: pid(), ref: reference(), tid: MetadataTable.t()} | nil,
           deadline: integer() | nil,
           dispatch_stamp: MetadataTable.stamp() | nil,
-          hints: MetadataTable.hints(),
+          hints: :ets.tid() | nil,
           last_view: ClusterMetadata.t()
         }
 
@@ -79,10 +79,6 @@ defmodule KafkaEx.Client.State do
       # that invariant if you ever add an implicit default off this field.
       consumer_group_for_auto_commit: Keyword.get(args, :consumer_group)
     }
-  end
-
-  def increment_correlation_id(%__MODULE__{correlation_id: cid} = state) do
-    %{state | correlation_id: cid + 1}
   end
 
   @spec api_version_ranges(ApiVersions.t()) :: %{non_neg_integer() => {non_neg_integer(), non_neg_integer()}}

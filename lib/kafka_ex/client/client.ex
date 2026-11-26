@@ -118,6 +118,8 @@ defmodule KafkaEx.Client do
     state = %{
       state
       | reconnect_backoff: ReconnectBackoff.new(),
+        correlation: :counters.new(1, []),
+        hints: :ets.new(:kafka_ex_replica_hints, [:public]),
         connection_options: ConnectionStateMachine.options()
     }
 
@@ -344,7 +346,7 @@ defmodule KafkaEx.Client do
   end
 
   defp handle_client_call(:correlation_id, _from, state) do
-    {:reply, {:ok, state.correlation_id}, state}
+    {:reply, {:ok, :counters.get(state.correlation, 1)}, state}
   end
 
   defp handle_client_call(:update_metadata, _from, state) do
@@ -424,7 +426,8 @@ defmodule KafkaEx.Client do
 
   # A restarted registry always restarts the store too, so the store's :DOWN also stands for the registry's.
   defp unparked_info({:DOWN, ref, :process, _pid, _reason}, %State{store: %{ref: ref}} = state) do
-    {:noreply, %{state | store: nil, hints: %{}, registry: nil, conns: nil}}
+    :ets.delete_all_objects(state.hints)
+    {:noreply, %{state | store: nil, registry: nil, conns: nil}}
   end
 
   defp unparked_info(message, state) do
@@ -552,7 +555,10 @@ defmodule KafkaEx.Client do
   end
 
   defp select(%State{store: nil}, _selector), do: {:error, :unavailable}
-  defp select(%State{store: %{tid: tid}, hints: hints}, selector), do: MetadataTable.select(tid, selector, hints)
+
+  defp select(%State{store: %{tid: tid}} = state, selector) do
+    MetadataTable.select(tid, selector, hints_for(state, selector))
+  end
 
   defp brokers(%State{store: nil}), do: []
   defp brokers(%State{store: %{tid: tid}}), do: MetadataTable.brokers(tid)
@@ -581,7 +587,7 @@ defmodule KafkaEx.Client do
   end
 
   defp remember_view(state, metadata, stamp) do
-    view = with_hints(metadata, state.hints, stamp)
+    view = with_hints(metadata, Map.new(:ets.tab2list(state.hints)), stamp)
     {view, %{state | last_view: view}}
   end
 
@@ -967,13 +973,18 @@ defmodule KafkaEx.Client do
   end
 
   defp forget_preferred_replica(state, %NodeSelector{topic: topic, partition: partition}) do
-    %{state | hints: Map.delete(state.hints, {topic, partition})}
+    :ets.delete(state.hints, {topic, partition})
+    state
   end
 
   defp reading_from_replica?(%State{store: nil}, _selector), do: false
 
-  defp reading_from_replica?(%State{store: %{tid: tid}, hints: hints}, selector) do
-    MetadataTable.select(tid, selector, hints) != MetadataTable.select(tid, selector, %{})
+  defp reading_from_replica?(%State{store: %{tid: tid}} = state, selector) do
+    MetadataTable.select(tid, selector, hints_for(state, selector)) != MetadataTable.select(tid, selector, %{})
+  end
+
+  defp hints_for(%State{hints: table}, %NodeSelector{topic: topic, partition: partition}) do
+    Map.new(:ets.lookup(table, {topic, partition}))
   end
 
   # A -1 replica means "stay" (Java); the stamp, read before the send, lets a later swap invalidate the hint.
@@ -983,7 +994,8 @@ defmodule KafkaEx.Client do
          %Fetch{preferred_read_replica: node_id}
        )
        when is_integer(node_id) and node_id != -1 do
-    %{state | hints: Map.put(state.hints, {topic, partition}, {node_id, stamp})}
+    :ets.insert(state.hints, {{topic, partition}, {node_id, stamp}})
+    state
   end
 
   defp cache_preferred_replica(state, _route, _result), do: state
@@ -1192,7 +1204,7 @@ defmodule KafkaEx.Client do
   end
 
   defp client_request(request, state) do
-    %{request | client_id: Config.client_id(), correlation_id: state.correlation_id}
+    %{request | client_id: Config.client_id(), correlation_id: :counters.get(state.correlation, 1)}
   end
 
   defp select_broker_with_update(state, selector) do
@@ -1338,7 +1350,8 @@ defmodule KafkaEx.Client do
   defp stop_request_span({metadata, span}, result, meta, broker, state) do
     stop = %{bytes_sent: meta.bytes_sent, bytes_received: meta.bytes_received, broker: broker_to_telemetry_info(broker)}
     Telemetry.stop_span(span, {result, Map.merge(metadata, stop)})
-    {result, State.increment_correlation_id(state)}
+    :counters.add(state.correlation, 1, 1)
+    {result, state}
   end
 
   defp targets(%NodeSelector{strategy: :first_available} = selector, request, state) do
