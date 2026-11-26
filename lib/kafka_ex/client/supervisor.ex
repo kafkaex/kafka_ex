@@ -2,7 +2,8 @@ defmodule KafkaEx.Client.Supervisor do
   @moduledoc """
   One per client, started by and linked to it, so stopping or crashing the client takes all its
   processes with it. Its children, in start order: the client's `ConnectionRegistry`, `:connections`,
-  a `DynamicSupervisor` of connection processes, one per broker and role, and the metadata store.
+  a `DynamicSupervisor` of connection processes (one per broker and role, per partition for fetch),
+  and the metadata store.
   `rest_for_one` restarts the connections and the store when the registry restarts, and the store
   when the connection supervisor restarts.
 

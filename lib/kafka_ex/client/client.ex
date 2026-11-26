@@ -1,14 +1,13 @@
 defmodule KafkaEx.Client do
   @moduledoc """
-  Kayrock-compatible KafkaEx.Server implementation
+  A Kafka client process and its request loop.
 
-  This implementation attempts to keep as much Kafka 'business logic' as possible
-  out of the server implementation, with the motivation that this should make
-  the client easier to maintain as the Kafka protocol evolves.
-
-  This implementation does, however, include implementations of all of the
-  legacy KafkaEx.Server `handle_call` clauses so that it can be compatible with
-  the legacy KafkaEx API.
+  `request/3` runs each request in the calling process, on a read-only context the client hands
+  out: the metadata table, the connection table, the correlation counter and the replica hints.
+  The client process does no I/O on a request's path. It holds the credentials its connections log
+  in with, hands out the context and, under `request_concurrency: :serial`, grants one permit at a
+  time. Its connection registry, connections and metadata store run under a
+  `KafkaEx.Client.Supervisor`.
   """
 
   alias KafkaEx.Config
@@ -1238,7 +1237,7 @@ defmodule KafkaEx.Client do
     "consumer group #{group}"
   end
 
-  # Never the implicit 5000 default: a larger :request_timeout would exit the caller (#357).
+  # Sized from :request_timeout, so the budget covers every attempt (#357).
   defp timeout_val(nil), do: RequestBudget.call_budget(Config.request_timeout())
   defp timeout_val(timeout) when is_integer(timeout), do: timeout
 

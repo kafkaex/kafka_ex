@@ -177,15 +177,15 @@ Metrics whose direction is known (declared by the gates or the job's `metrics`) 
 
 - `client_reductions_per_op`: reductions of the client process per operation. The RFC 0001 refactor moves work between processes by design, so this number is expected to change.
 - `vm_cpu_us_per_op`: CPU time of the whole VM per operation. Includes the harness, the sockets and the schedulers' own overhead, so it is noisy. `vm_reductions_per_op` is whole-VM as well; it is gated only in `basic` and `one_broker`, where the load is uniform.
-- `p99_us`: at 10 and 100 callers p99 is roughly queue depth multiplied by service time of the single client process, so it follows throughput, not tail behaviour.
-- `max_mailbox`: peak mailbox length of the client process (equals the number of callers when the client is the bottleneck).
+- `p99_us`: on a 1.2.0 side, where one client process serves every request, p99 at 10 and 100 callers is roughly queue depth multiplied by its service time, so it follows throughput, not tail behaviour.
+- `max_mailbox`: peak mailbox length of the client process (on a 1.2.0 side it equals the number of callers when the client is the bottleneck; since 1.3.0 requests run in the callers).
 - `background_ops`: operations done by background workers (large fetches in `large_fetch`); a large change means the background load differed between sides.
 - `rejoin_ms` (`restart_recovery`): time until the restarted broker is back, a property of Kafka and Docker.
 - On `direct`, every metric is informational.
 
 ## Known limits
 
-- One client process serializes all requests, so a long-poll that the broker answers early (data arrived) is hidden behind earlier requests. The harness cannot show that benefit until the client stops serializing.
+- On a 1.2.0 side one client process serializes all requests, so a long-poll that the broker answers early (data arrived) is hidden behind earlier requests there.
 - `restart_recovery` polls cluster readiness with the measured client, so a client defect can stretch the readiness waits.
 - VM metrics cover the whole Erlang VM, including the harness itself.
 - Results are machine-specific. Never compare stored numbers across machines, Docker settings or even sessions with different background load; always run both sides in one `bench.compare`.
