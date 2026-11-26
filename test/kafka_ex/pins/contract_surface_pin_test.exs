@@ -140,7 +140,7 @@ defmodule KafkaEx.Pins.ContractSurfacePinTest do
       })
 
       assert {:ok, [%Offset{topic: @topic, partition_offsets: [partition_offset]}]} =
-               GenServer.call(client, {:offset, @topic, 0, -1})
+               Client.request(client, {:offset, @topic, 0, -1}, 5_000)
 
       assert partition_offset.offset == 42
     end

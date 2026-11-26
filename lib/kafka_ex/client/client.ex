@@ -63,7 +63,19 @@ defmodule KafkaEx.Client do
   def send_request(server, request, node_selector, timeout \\ nil) do
     call_timeout = timeout_val(timeout)
     opts = RequestBudget.put_call_budget([], call_timeout)
-    GenServer.call(server, {:network_request, request, node_selector, opts}, call_timeout)
+    request(server, {:network_request, request, node_selector, opts}, call_timeout)
+  end
+
+  @doc """
+  Sends a request message to the client and waits up to `timeout` ms for its reply.
+
+  The single entry point for `KafkaEx.API` and `send_request/4`; calling the client
+  with `GenServer.call/3` directly is not supported.
+  """
+  @spec request(KafkaEx.API.client(), message :: tuple(), timeout :: pos_integer()) ::
+          {:ok, term()} | {:error, term()}
+  def request(client, message, timeout) do
+    GenServer.call(client, message, timeout)
   end
 
   require Logger
@@ -238,15 +250,6 @@ defmodule KafkaEx.Client do
   defp admit({:metadata, topics, opts, api_version}, local?, now, default) when is_list(opts) do
     {budget, opts} = pop_budget(opts)
     {{:metadata, topics, opts, api_version}, deadline(budget, local?, now, default)}
-  end
-
-  # The old shape took any term as the creation flag and passed it on as given.
-  defp admit({:topic_metadata, topics, allow}, local?, now, default) when not is_list(allow) do
-    admit({:topic_metadata, topics, [allow_topic_creation: allow]}, local?, now, default)
-  end
-
-  defp admit({:network_request, request, selector}, local?, now, default) do
-    admit({:network_request, request, selector, []}, local?, now, default)
   end
 
   defp admit(message, local?, now, default) when is_tuple(message) and tuple_size(message) > 1 do

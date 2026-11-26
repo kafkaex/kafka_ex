@@ -46,7 +46,9 @@ defmodule KafkaEx.Client.MetadataNarrowingTest do
     {{:ok, _}, _log} = with_log(fn -> GenServer.call(client, :update_metadata) end)
 
     FakeTransport.respond(fake, :metadata, metadata_reply(host, %{"t1" => [1], "t2" => [1]}))
-    {{:ok, _topic_metadata}, _log} = with_log(fn -> GenServer.call(client, {:topic_metadata, ["t2"], false}) end)
+
+    {{:ok, _topic_metadata}, _log} =
+      with_log(fn -> Client.request(client, {:topic_metadata, ["t2"], [allow_topic_creation: false]}, 5_000) end)
 
     {:ok, recovered} = API.cluster_metadata(client)
     assert recovered.topics["t1"]
@@ -63,7 +65,9 @@ defmodule KafkaEx.Client.MetadataNarrowingTest do
     {{:ok, _}, _log} = with_log(fn -> GenServer.call(client, :update_metadata) end)
 
     FakeTransport.respond(fake, :metadata, metadata_reply(host, %{"t1" => [1], "t2" => [1]}))
-    {{:ok, _}, _log} = with_log(fn -> GenServer.call(client, {:topic_metadata, ["t2"], false}) end)
+
+    {{:ok, _}, _log} =
+      with_log(fn -> Client.request(client, {:topic_metadata, ["t2"], [allow_topic_creation: false]}, 5_000) end)
 
     {{:ok, cluster_metadata}, _log} = with_log(fn -> GenServer.call(client, :update_metadata) end)
 

@@ -137,7 +137,7 @@ defmodule KafkaEx.Client.MetadataStoreOutageTest do
     %{fake: fake, client: client} = start_pinned()
     FakeTransport.respond(fake, :produce, produce_reply())
 
-    assert {:ok, _} = GenServer.call(client, {:produce, @topic, 0, [%{value: "v"}], [network_timeout: 0]}, 10_000)
+    assert {:ok, _} = Client.request(client, {:produce, @topic, 0, [%{value: "v"}], [network_timeout: 0]}, 10_000)
     assert Process.alive?(client)
   end
 

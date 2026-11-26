@@ -83,7 +83,6 @@ defmodule KafkaEx.Pins.OrderingPinTest do
       end)
 
       FakeTransport.hold(fake, :find_coordinator)
-      test = self()
 
       join =
         {:consumer_group_heartbeat, "g",
@@ -96,14 +95,7 @@ defmodule KafkaEx.Pins.OrderingPinTest do
            network_timeout: 10_000
          ]}
 
-      joiner =
-        spawn(fn ->
-          send(client, {:"$gen_call", {self(), make_ref()}, join})
-          send(test, :join_sent)
-          receive do: (:never -> :ok)
-        end)
-
-      assert_receive :join_sent, 5_000
+      joiner = spawn(fn -> Client.request(client, join, 10_000) end)
       assert_receive {:fake_transport, :request, %{api: :find_coordinator}}, 5_000
       joiner_ref = Process.monitor(joiner)
       Process.exit(joiner, :kill)

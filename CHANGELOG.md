@@ -4,6 +4,10 @@
 
 ### Added
 
+* **`KafkaEx.Client.request(client, message, timeout)`** is the single entry point to the client:
+  `KafkaEx.API` and `KafkaEx.Client.send_request/4` both go through it, and it waits up to
+  `timeout` ms for the client's reply.
+
 * **`:connection` and `:metadata_store` application settings** are now documented. They
   control connection liveness, idle and reconnect timing and the pacing of metadata-store refreshes.
   Defaults are unchanged. See `KafkaEx.Config.connection/0` and `KafkaEx.Config.metadata_store/0`.
@@ -33,9 +37,13 @@
   `{:topic_metadata, topics, opts}` (with `allow_topic_creation:` in `opts`), sent by
   `KafkaEx.API.topics_metadata/3`; `{:network_request, request, node_selector, opts}`, which
   `KafkaEx.Client.send_request/4` now sends; and `{:cluster_metadata, opts}`, sent by
-  `KafkaEx.API.cluster_metadata/1`. The client still accepts the old shapes. If you
+  `KafkaEx.API.cluster_metadata/1`. The old shapes `{:topic_metadata, topics, allow_topic_creation}`
+  and `{:network_request, request, node_selector}` are no longer accepted: the client process
+  crashes on them. If you
   keep your own mock client that matches these messages or asserts on recorded `opts`, accept the new
   shapes and ignore `:call_budget`.
+* **Calling the client with `GenServer.call(client, {op, …})` is not supported.** Use `KafkaEx.API`,
+  or `KafkaEx.Client.request/3` for a raw client message.
 * **`KafkaEx.Client.send_request/4` with `:first_available` tries the next broker after a `:parse_error`.**
   When a broker answered unparsably and no later broker answers correctly, the result is
   `{:error, :broker_failed}` instead of `{:error, :parse_error}`. `:broker_failed` is not retried, so

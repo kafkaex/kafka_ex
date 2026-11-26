@@ -69,12 +69,12 @@ defmodule KafkaEx.Client.PreferredReplicaFetchTest do
     assert fetched_from(fake, 0) == [@leader]
   end
 
-  defp fetch(client), do: GenServer.call(client, {:fetch, @topic, 0, 5, [api_version: 0]})
+  defp fetch(client), do: Client.request(client, {:fetch, @topic, 0, 5, [api_version: 0]}, 5_000)
 
   # The leader names the replica in a v11 answer; the client caches it for the next fetch.
   defp with_preferred_replica(fake, client, node_id) do
     FakeTransport.respond(fake, :fetch, &{:frame, fetch_frame(&1, node_id)})
-    {:ok, _} = GenServer.call(client, {:fetch, @topic, 0, 5, [api_version: 11]})
+    {:ok, _} = Client.request(client, {:fetch, @topic, 0, 5, [api_version: 11]}, 5_000)
     count(fake, :fetch)
   end
 

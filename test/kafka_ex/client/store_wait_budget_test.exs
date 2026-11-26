@@ -62,14 +62,14 @@ defmodule KafkaEx.Client.StoreWaitBudgetTest do
     assert Process.alive?(client)
   end
 
-  test "an old-shape call waits on the store until one reply margin before the budget KafkaEx.API would give it" do
+  test "a call without a call_budget waits on the store until one reply margin before the budget KafkaEx.API would give it" do
     with_request_timeout(100)
     %{client: client} = start_pinned()
     call_timeout = RequestBudget.call_budget(Config.request_timeout(), Client.retry_count())
     store = suspend_store(client)
     started = System.monotonic_time(:millisecond)
 
-    {result, _log} = with_log(fn -> GenServer.call(client, {:topic_metadata, ["ghost"], false}, call_timeout) end)
+    {result, _log} = with_log(fn -> Client.request(client, {:topic_metadata, ["ghost"], []}, call_timeout) end)
 
     waited = System.monotonic_time(:millisecond) - started
     :sys.resume(store)
@@ -85,7 +85,7 @@ defmodule KafkaEx.Client.StoreWaitBudgetTest do
     started = System.monotonic_time(:millisecond)
 
     {result, _log} =
-      with_log(fn -> GenServer.call(client, {:topic_metadata, ["ghost"], [call_budget: 5]}, call_timeout) end)
+      with_log(fn -> Client.request(client, {:topic_metadata, ["ghost"], [call_budget: 5]}, call_timeout) end)
 
     waited = System.monotonic_time(:millisecond) - started
     :sys.resume(store)
@@ -101,7 +101,7 @@ defmodule KafkaEx.Client.StoreWaitBudgetTest do
     started = System.monotonic_time(:millisecond)
 
     {result, _log} =
-      with_log(fn -> GenServer.call(client, {:topic_metadata, ["ghost"], [:x, call_budget: spent]}, 10_000) end)
+      with_log(fn -> Client.request(client, {:topic_metadata, ["ghost"], [:x, call_budget: spent]}, 10_000) end)
 
     waited = System.monotonic_time(:millisecond) - started
     :sys.resume(store)
@@ -117,7 +117,7 @@ defmodule KafkaEx.Client.StoreWaitBudgetTest do
     started = System.monotonic_time(:millisecond)
 
     {result, _log} =
-      with_log(fn -> GenServer.call(client, {:metadata, ["ghost"], [call_budget: spent], 1}, 10_000) end)
+      with_log(fn -> Client.request(client, {:metadata, ["ghost"], [call_budget: spent], 1}, 10_000) end)
 
     waited = System.monotonic_time(:millisecond) - started
     :sys.resume(store)
@@ -184,7 +184,7 @@ defmodule KafkaEx.Client.StoreWaitBudgetTest do
   end
 
   defp fetch_with_budget(client, budget) do
-    GenServer.call(client, {:fetch, @topic, 0, 0, [call_budget: budget]}, 10_000)
+    Client.request(client, {:fetch, @topic, 0, 0, [call_budget: budget]}, 10_000)
   end
 
   defp not_leader_fetch_frame(%{api_version: 0, correlation_id: corr}) do

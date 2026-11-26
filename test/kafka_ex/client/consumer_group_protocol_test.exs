@@ -81,7 +81,9 @@ defmodule KafkaEx.Client.ConsumerGroupProtocolTest do
   defp respond_heartbeat(fake, opts),
     do: FakeTransport.respond(fake, :consumer_group_heartbeat, &{:frame, heartbeat_response(&1.correlation_id, opts)})
 
-  defp heartbeat(client, group \\ "g", opts), do: GenServer.call(client, {:consumer_group_heartbeat, group, opts})
+  defp heartbeat(client, group \\ "g", opts) do
+    Client.request(client, {:consumer_group_heartbeat, group, opts}, 5_000)
+  end
 
   # The first request of the API needs a FindCoordinator first; one after it is a re-discovery.
   defp apis_after_first(fake, api) do
@@ -283,7 +285,7 @@ defmodule KafkaEx.Client.ConsumerGroupProtocolTest do
     test "a failed v1 join without :member_id reports the generated id that was sent", %{fake: fake, client: client} do
       # The short timeout must cover only the muted heartbeat, not the coordinator lookup.
       FakeTransport.respond(fake, :consumer_group_describe, &{:frame, describe_response(&1.correlation_id, "g", 0)})
-      assert {:ok, _} = GenServer.call(client, {:consumer_group_describe, ["g"], []})
+      assert {:ok, _} = Client.request(client, {:consumer_group_describe, ["g"], []}, 5_000)
       with_request_timeout(200)
       FakeTransport.respond(fake, :consumer_group_heartbeat, :no_reply)
 
@@ -350,20 +352,20 @@ defmodule KafkaEx.Client.ConsumerGroupProtocolTest do
       FakeTransport.respond(fake, :consumer_group_describe, &{:frame, describe_response(&1.correlation_id, "g", 69)})
 
       # same shape as DescribeGroups: {group_id, error}; KafkaEx.API unwraps it
-      assert {:error, {"g", :group_id_not_found}} = GenServer.call(client, {:consumer_group_describe, ["g"], []})
+      assert {:error, {"g", :group_id_not_found}} = Client.request(client, {:consumer_group_describe, ["g"], []}, 5_000)
     end
 
     test "parses a described group", %{fake: fake, client: client} do
       FakeTransport.respond(fake, :consumer_group_describe, &{:frame, describe_response(&1.correlation_id, "g", 0)})
 
       assert {:ok, [%ConsumerGroupDescription{group_id: "g", type: :consumer, members: []}]} =
-               GenServer.call(client, {:consumer_group_describe, ["g"], []})
+               Client.request(client, {:consumer_group_describe, ["g"], []}, 5_000)
     end
 
     test "a group-level :not_coordinator re-discovers the coordinator", %{fake: fake, client: client} do
       FakeTransport.respond(fake, :consumer_group_describe, &{:frame, describe_response(&1.correlation_id, "g", 16)})
 
-      with_log(fn -> GenServer.call(client, {:consumer_group_describe, ["g"], []}) end)
+      with_log(fn -> Client.request(client, {:consumer_group_describe, ["g"], []}, 5_000) end)
 
       assert :find_coordinator in apis_after_first(fake, :consumer_group_describe)
     end

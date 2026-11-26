@@ -1254,7 +1254,7 @@ defmodule KafkaEx.API do
   defp generic_call_budget, do: RequestBudget.call_budget(Config.request_timeout(), @fetch_max_retries)
 
   defp call_client(client, message, opts, call_timeout) do
-    GenServer.call(client, message.(RequestBudget.put_call_budget(opts, call_timeout)), call_timeout)
+    Client.request(client, message.(RequestBudget.put_call_budget(opts, call_timeout)), call_timeout)
   end
 
   # join/sync share this: inject the per-attempt network_timeout as a control opt,

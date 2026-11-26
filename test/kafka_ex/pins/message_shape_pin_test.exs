@@ -10,26 +10,11 @@ defmodule KafkaEx.Pins.MessageShapePinTest do
 
   @moduletag pin_set: :invariant
 
-  describe "old message shapes keep working" do
-    test "{:topic_metadata, topics, allow_topic_creation}" do
-      %{client: client} = start_pinned()
+  test "Client.request/3 sends a message to the client and returns its reply" do
+    %{fake: fake, client: client} = start_pinned()
+    FakeTransport.respond(fake, :produce, produce_reply())
 
-      assert {:ok, [%Topic{name: "pin"}]} = GenServer.call(client, {:topic_metadata, [@topic], false})
-    end
-
-    test "{:topic_metadata, topics, flag} with a flag that is not a boolean" do
-      %{client: client} = start_pinned()
-
-      assert {:ok, [%Topic{name: "pin"}]} = GenServer.call(client, {:topic_metadata, [@topic], nil})
-    end
-
-    test "{:network_request, request, node_selector}" do
-      %{client: client} = start_pinned()
-      {:ok, request} = RequestBuilder.build(:metadata, [topics: [@topic]], %State{api_versions: versions(client)})
-
-      assert {:ok, %response{}} = GenServer.call(client, {:network_request, request, NodeSelector.first_available()})
-      assert ["Kayrock", "Metadata", _version, "Response"] = Module.split(response)
-    end
+    assert {:ok, %RecordMetadata{}} = Client.request(client, {:produce, @topic, 0, [%{value: "v"}], []}, 10_000)
   end
 
   describe "new message shapes" do
@@ -37,7 +22,7 @@ defmodule KafkaEx.Pins.MessageShapePinTest do
       %{client: client} = start_pinned()
 
       assert {:ok, [%Topic{name: "pin"}]} =
-               GenServer.call(client, {:topic_metadata, [@topic], [allow_topic_creation: false]})
+               Client.request(client, {:topic_metadata, [@topic], [allow_topic_creation: false]}, 5_000)
     end
 
     test "{:network_request, request, node_selector, opts}" do
@@ -45,7 +30,7 @@ defmodule KafkaEx.Pins.MessageShapePinTest do
       {:ok, request} = RequestBuilder.build(:metadata, [topics: [@topic]], %State{api_versions: versions(client)})
 
       assert {:ok, %response{}} =
-               GenServer.call(client, {:network_request, request, NodeSelector.first_available(), []})
+               Client.request(client, {:network_request, request, NodeSelector.first_available(), []}, 5_000)
 
       assert ["Kayrock", "Metadata", _version, "Response"] = Module.split(response)
     end
@@ -55,10 +40,10 @@ defmodule KafkaEx.Pins.MessageShapePinTest do
       FakeTransport.respond(fake, :produce, produce_reply())
       budget = {10_000, System.monotonic_time(:millisecond)}
 
-      assert {:ok, %RecordMetadata{}} = GenServer.call(client, {:produce, @topic, 0, [%{value: "v"}], []})
+      assert {:ok, %RecordMetadata{}} = Client.request(client, {:produce, @topic, 0, [%{value: "v"}], []}, 5_000)
 
       assert {:ok, %RecordMetadata{}} =
-               GenServer.call(client, {:produce, @topic, 0, [%{value: "v"}], [call_budget: budget]})
+               Client.request(client, {:produce, @topic, 0, [%{value: "v"}], [call_budget: budget]}, 5_000)
 
       assert [plain, budgeted] = Enum.map(requests(fake, :produce), &without_correlation_id(&1.frame))
       assert budgeted == plain

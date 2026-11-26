@@ -24,7 +24,11 @@ defmodule KafkaEx.ClientTest do
       sent_before = non_handshake(fake)
 
       assert {:error, :invalid_consumer_group} =
-               GenServer.call(client, {:offset_fetch, :no_consumer_group, [{"test-topic", [%{partition_num: 0}]}], []})
+               Client.request(
+                 client,
+                 {:offset_fetch, :no_consumer_group, [{"test-topic", [%{partition_num: 0}]}], []},
+                 5_000
+               )
 
       assert non_handshake(fake) == sent_before
     end
@@ -32,7 +36,7 @@ defmodule KafkaEx.ClientTest do
     test "handles valid consumer group", %{client: client} do
       {result, _log} =
         with_log(fn ->
-          GenServer.call(client, {:offset_fetch, "test-group", [{"test-topic", [%{partition_num: 0}]}], []})
+          Client.request(client, {:offset_fetch, "test-group", [{"test-topic", [%{partition_num: 0}]}], []}, 5_000)
         end)
 
       assert {_ok_or_error, _} = result
@@ -51,9 +55,10 @@ defmodule KafkaEx.ClientTest do
       sent_before = non_handshake(fake)
 
       assert {:error, :invalid_consumer_group} =
-               GenServer.call(
+               Client.request(
                  client,
-                 {:offset_commit, :no_consumer_group, [{"test-topic", [%{partition_num: 0, offset: 100}]}], []}
+                 {:offset_commit, :no_consumer_group, [{"test-topic", [%{partition_num: 0, offset: 100}]}], []},
+                 5_000
                )
 
       assert non_handshake(fake) == sent_before
@@ -62,9 +67,10 @@ defmodule KafkaEx.ClientTest do
     test "handles valid consumer group", %{client: client} do
       {result, _log} =
         with_log(fn ->
-          GenServer.call(
+          Client.request(
             client,
-            {:offset_commit, "test-group", [{"test-topic", [%{partition_num: 0, offset: 100}]}], []}
+            {:offset_commit, "test-group", [{"test-topic", [%{partition_num: 0, offset: 100}]}], []},
+            5_000
           )
         end)
 
@@ -301,7 +307,7 @@ defmodule KafkaEx.ClientTest do
     end
   end
 
-  defp produce(client, opts), do: GenServer.call(client, {:produce, "t", 0, [%{value: "v"}], opts})
+  defp produce(client, opts), do: Client.request(client, {:produce, "t", 0, [%{value: "v"}], opts}, 5_000)
 
   defp attach_produce_start_handler do
     handler_id = "produce-acks-#{System.unique_integer([:positive])}"

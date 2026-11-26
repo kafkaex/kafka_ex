@@ -30,7 +30,7 @@ defmodule KafkaEx.Client.MetadataLookupMergeTest do
   end
 
   test "a by-name lookup returns only the requested topic", %{client: client} do
-    {:ok, %ClusterMetadata{topics: topics}} = GenServer.call(client, {:metadata, ["b"], [topics: ["b"]], 0})
+    {:ok, %ClusterMetadata{topics: topics}} = Client.request(client, {:metadata, ["b"], [topics: ["b"]], 0}, 5_000)
 
     assert Map.keys(topics) == ["b"]
   end
@@ -42,14 +42,14 @@ defmodule KafkaEx.Client.MetadataLookupMergeTest do
   } do
     watch_close(host)
 
-    {:ok, _} = GenServer.call(client, {:metadata, ["b"], [topics: ["b"]], 0})
+    {:ok, _} = Client.request(client, {:metadata, ["b"], [topics: ["b"]], 0}, 5_000)
 
     {:ok, cached} = API.cluster_metadata(client)
     assert cached.topics |> Map.keys() |> Enum.sort() == ["a", "b"]
     assert_coordinator_cached(fake, client)
     # Uses node 1 too, so a lost node 1 socket shows up even if reconnects become lazy.
     FakeTransport.respond(fake, :produce, produce_reply("a"))
-    {:ok, _} = GenServer.call(client, {:produce, "a", 0, [%{value: "v"}], []})
+    {:ok, _} = Client.request(client, {:produce, "a", 0, [%{value: "v"}], []}, 5_000)
     assert nodes(fake, :produce) == [1]
     # Before the fix the broker came back with `socket: nil` and the old socket leaked.
     assert reconnects(fake) == []
@@ -57,7 +57,7 @@ defmodule KafkaEx.Client.MetadataLookupMergeTest do
   end
 
   test "a full lookup (no topics filter) replaces the topic map", %{fake: fake, client: client} do
-    {:ok, _} = GenServer.call(client, {:metadata, nil, [], 0})
+    {:ok, _} = Client.request(client, {:metadata, nil, [], 0}, 5_000)
 
     # The response listed every topic ("b" only), so "a" is gone, as on a refresh.
     {:ok, cached} = API.cluster_metadata(client)
@@ -76,7 +76,7 @@ defmodule KafkaEx.Client.MetadataLookupMergeTest do
     assert [%{name: "b"}] = v1_named.topics
   end
 
-  defp offset_fetch(client), do: GenServer.call(client, {:offset_fetch, "g", [{"a", [%{partition_num: 0}]}], []})
+  defp offset_fetch(client), do: Client.request(client, {:offset_fetch, "g", [{"a", [%{partition_num: 0}]}], []}, 5_000)
 
   # A cached coordinator serves the next group request without a FindCoordinator.
   defp assert_coordinator_cached(fake, client) do

@@ -28,7 +28,7 @@ defmodule KafkaEx.Client.ListGroupsDispatchTest do
     FakeTransport.respond(fake, :list_groups, &{:frame, <<&1.correlation_id::32-signed, 15::16-signed, 0::32-signed>>})
 
     # Pre-fix the bare atom crashed the client with a CaseClauseError, exiting this call.
-    {result, _log} = with_log(fn -> GenServer.call(client, {:list_groups, 1, [api_version: 0]}) end)
+    {result, _log} = with_log(fn -> Client.request(client, {:list_groups, 1, [api_version: 0]}, 5_000) end)
 
     assert {:error, %Error{error: :coordinator_not_available}} = result
     assert Process.alive?(client)

@@ -48,5 +48,7 @@ defmodule KafkaEx.Client.OffsetCommitRetryTest do
     assert failed_sends(log, host, :request_timed_out) >= 1
   end
 
-  defp commit(client), do: GenServer.call(client, {:offset_commit, "g", [{"t", [%{partition_num: 0, offset: 5}]}], []})
+  defp commit(client) do
+    Client.request(client, {:offset_commit, "g", [{"t", [%{partition_num: 0, offset: 5}]}], []}, 5_000)
+  end
 end

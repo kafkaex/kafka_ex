@@ -20,10 +20,10 @@ defmodule KafkaEx.Pins.TopicIdVersionPinTest do
   defp versions(fake, api), do: fake |> requests(api) |> Enum.map(& &1.api_version) |> Enum.uniq()
 
   defp commit(client) do
-    GenServer.call(client, {:offset_commit, "g", [{@topic, [%{partition_num: 0, offset: 5}]}], []})
+    Client.request(client, {:offset_commit, "g", [{@topic, [%{partition_num: 0, offset: 5}]}], []}, 5_000)
   end
 
-  defp fetch(client), do: GenServer.call(client, {:offset_fetch, "g", [{@topic, [%{partition_num: 0}]}], []})
+  defp fetch(client), do: Client.request(client, {:offset_fetch, "g", [{@topic, [%{partition_num: 0}]}], []}, 5_000)
 
   for {name, call, api} <- [{"OffsetCommit", :commit, :offset_commit}, {"OffsetFetch", :fetch, :offset_fetch}] do
     test "#{name} v10 is sent as v10 when the topic id is in metadata" do
