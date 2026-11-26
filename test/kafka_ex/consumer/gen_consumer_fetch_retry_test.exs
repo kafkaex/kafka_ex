@@ -12,6 +12,8 @@ defmodule KafkaEx.Consumer.GenConsumerFetchRetryTest do
   """
   use ExUnit.Case, async: false
 
+  setup {KafkaEx.Test.MockClient, :stub_request_globally}
+
   import KafkaEx.TestSupport.ProcessHelpers
 
   alias KafkaEx.Client.Error

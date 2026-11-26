@@ -8,6 +8,12 @@
   `KafkaEx.API` and `KafkaEx.Client.send_request/4` both go through it, and it waits up to
   `timeout` ms for the client's reply.
 
+* **`request_concurrency: :serial | :multiplexed`** client start option, default `:multiplexed`.
+  A `:serial` client runs one request at a time, first come first served: each caller waits for
+  the one before it to finish, and a caller that dies hands its turn to the next. The wait counts
+  against the call's timeout. It guarantees only one request at a time; it does not change how
+  requests are retried.
+
 * **`:connection` and `:metadata_store` application settings** are now documented. They
   control connection liveness, idle and reconnect timing and the pacing of metadata-store refreshes.
   Defaults are unchanged. See `KafkaEx.Config.connection/0` and `KafkaEx.Config.metadata_store/0`.

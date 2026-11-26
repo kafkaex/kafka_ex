@@ -187,6 +187,21 @@ defmodule KafkaEx.Test.MockClient do
   def put_response(pid, operation, response), do: GenServer.call(pid, {:put_response, operation, response})
 
   @doc """
+  Sends each `KafkaEx.Client.request/3` straight to the client process, so a mock gets the API's own message.
+  Use as `setup {MockClient, :stub_request}`.
+  """
+  def stub_request(_context) do
+    Mimic.stub(KafkaEx.Client, :request, &GenServer.call/3)
+    :ok
+  end
+
+  @doc "`stub_request/1` for every process, for tests whose API calls come from a consumer, manager or heartbeat."
+  def stub_request_globally(context) do
+    Mimic.set_mimic_global()
+    stub_request(context)
+  end
+
+  @doc """
   Polls until at least `expected_count` calls have been recorded, then returns them.
   Raises if the deadline is exceeded.
   """

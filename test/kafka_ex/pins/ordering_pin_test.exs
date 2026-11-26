@@ -4,8 +4,9 @@ defmodule KafkaEx.Pins.OrderingPinTest do
   @serial_window 200
   @concurrent_window 5_000
 
-  setup do
-    pinned = start_pinned(topics: %{@topic => [1, 1, 2]})
+  setup tags do
+    client = if tags[:serial_mode], do: [request_concurrency: :serial], else: []
+    pinned = start_pinned(topics: %{@topic => [1, 1, 2]}, client: client)
     FakeTransport.respond(pinned.fake, :produce, produce_reply())
     FakeTransport.respond(pinned.fake, :heartbeat, %{error_code: 0})
     FakeTransport.respond(pinned.fake, :fetch, &{:frame, fetch_frame(&1, -1)})
@@ -32,9 +33,8 @@ defmodule KafkaEx.Pins.OrderingPinTest do
      quote(do: API.heartbeat(var!(client), "g", "m", 1))}
   ]
 
-  describe "requests behind a long fetch, today" do
-    @describetag pin_set: :today_only
-    @describetag retired_by: 1497
+  describe "requests behind a long fetch on a :serial client" do
+    @describetag pin_set: :invariant
     @describetag serial_mode: true
 
     for {name, request, call} <- @others do

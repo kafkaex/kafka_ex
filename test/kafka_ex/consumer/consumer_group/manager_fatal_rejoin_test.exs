@@ -21,6 +21,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerFatalRejoinTest do
   """
   use ExUnit.Case, async: false
 
+  setup {KafkaEx.Test.MockClient, :stub_request_globally}
+
   alias KafkaEx.Consumer.ConsumerGroup.Manager
   alias KafkaEx.Consumer.ConsumerGroup.Manager.State
   alias KafkaEx.Consumer.GenConsumer

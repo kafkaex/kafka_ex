@@ -3,6 +3,8 @@ defmodule KafkaEx.ConfigTest do
 
   use ExUnit.Case
 
+  setup {KafkaEx.Test.MockClient, :stub_request}
+
   setup do
     # reset application env after each test
     env_before = Application.get_all_env(:kafka_ex)

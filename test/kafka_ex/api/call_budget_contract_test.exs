@@ -19,6 +19,8 @@ defmodule KafkaEx.API.CallBudgetContractTest do
     def init(test), do: {:ok, test}
 
     @impl true
+    def handle_call(:context, _from, test), do: {:reply, %KafkaEx.Client.State{}, test}
+
     def handle_call({:cluster_metadata, _opts} = message, _from, test) do
       send(test, {:recorded, message})
       {:reply, {:ok, %ClusterMetadata{brokers: %{1 => %Broker{node_id: 1, host: "h", port: 9092}}}}, test}
@@ -71,7 +73,7 @@ defmodule KafkaEx.API.CallBudgetContractTest do
 
     stub(Client, :request, fn client, message, timeout ->
       send(test, {:requested, message, timeout})
-      call_original(Client, :request, [client, message, timeout])
+      GenServer.call(client, message, timeout)
     end)
   end
 

@@ -1,6 +1,8 @@
 defmodule KafkaEx.Consumer.GenConsumerApiVersionsTest do
   use ExUnit.Case
 
+  setup {KafkaEx.Test.MockClient, :stub_request_globally}
+
   alias KafkaEx.Consumer.GenConsumer
   alias KafkaEx.Messages.Fetch
   alias KafkaEx.Messages.Fetch.Record

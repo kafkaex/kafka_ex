@@ -16,6 +16,8 @@ defmodule KafkaEx.Consumer.GenConsumerLoadOffsetsTest do
   """
   use ExUnit.Case, async: false
 
+  setup {KafkaEx.Test.MockClient, :stub_request}
+
   import ExUnit.CaptureLog
 
   alias __MODULE__.NoopConsumer

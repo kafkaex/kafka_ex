@@ -76,8 +76,22 @@ defmodule KafkaEx.Client do
   @spec request(KafkaEx.API.client(), message :: tuple(), timeout :: pos_integer()) ::
           {:ok, term()} | {:error, term()}
   def request(client, message, timeout) do
-    GenServer.call(client, message, timeout)
+    deadline = System.monotonic_time(:millisecond) + timeout
+    context = GenServer.call(client, :context, timeout)
+    call_in_turn(context.request_concurrency, client, message, deadline)
   end
+
+  defp call_in_turn(:multiplexed, client, message, deadline), do: GenServer.call(client, message, time_left(deadline))
+
+  # A release after a timed-out wait takes the caller off the queue, so a late permit never goes to it.
+  defp call_in_turn(:serial, client, message, deadline) do
+    :ok = GenServer.call(client, :permit, time_left(deadline))
+    GenServer.call(client, message, time_left(deadline))
+  after
+    GenServer.cast(client, {:release, self()})
+  end
+
+  defp time_left(deadline), do: max(deadline - System.monotonic_time(:millisecond), 0)
 
   require Logger
 
@@ -107,6 +121,11 @@ defmodule KafkaEx.Client do
     unless KafkaEx.valid_consumer_group?(state.consumer_group_for_auto_commit) do
       raise KafkaEx.InvalidConsumerGroupError,
             state.consumer_group_for_auto_commit
+    end
+
+    unless state.request_concurrency in [:serial, :multiplexed] do
+      raise ArgumentError,
+            "invalid request_concurrency #{inspect(state.request_concurrency)}; expected :serial or :multiplexed"
     end
 
     # Crash at boot, not at first produce/auth, when the config needs an optional dep that is not loaded.
@@ -232,8 +251,15 @@ defmodule KafkaEx.Client do
             "Check broker connectivity and network configuration."
   end
 
-  # The caller's GenServer.call gives up after its budget, so the client stops waiting on the store before that.
   @impl true
+  def handle_call(:context, _from, state) do
+    {:reply, %{state | ssl_options: [], auth: nil, supervisor: nil}, state}
+  end
+
+  def handle_call(:permit, {pid, _tag}, %State{permit: nil} = state), do: {:reply, :ok, grant_permit(state, pid)}
+  def handle_call(:permit, from, state), do: {:noreply, %{state | waiting: :queue.in(from, state.waiting)}}
+
+  # The caller's GenServer.call gives up after its budget, so the client stops waiting on the store before that.
   def handle_call(message, {pid, _tag} = from, state) do
     fallback = RequestBudget.deadline_budget(caller_budget(message))
     {message, deadline} = admit(message, node(pid) == node(), System.monotonic_time(:millisecond), fallback)
@@ -406,6 +432,30 @@ defmodule KafkaEx.Client do
   defp fetch_reply({result, %State{} = state}, _from), do: {:reply, result, %{state | parking: nil}}
 
   @impl true
+  def handle_cast({:release, pid}, %State{permit: {pid, ref}} = state) do
+    Process.demonitor(ref, [:flush])
+    {:noreply, pass_permit(state)}
+  end
+
+  def handle_cast({:release, pid}, state) do
+    {:noreply, %{state | waiting: :queue.filter(fn {waiter, _tag} -> waiter != pid end, state.waiting)}}
+  end
+
+  defp grant_permit(state, pid), do: %{state | permit: {pid, Process.monitor(pid)}}
+
+  # A waiter that died in the queue still gets the permit and loses it at once to its monitor's :DOWN.
+  defp pass_permit(state) do
+    case :queue.out(state.waiting) do
+      {{:value, {pid, _tag} = from}, waiting} ->
+        GenServer.reply(from, :ok)
+        grant_permit(%{state | waiting: waiting}, pid)
+
+      {:empty, _waiting} ->
+        %{state | permit: nil}
+    end
+  end
+
+  @impl true
   def handle_info({:timeout, _timer, {:parked, tag}}, state) when is_map_key(state.parked, tag) do
     {:noreply, resume(tag, {:error, :timeout, @no_bytes}, state)}
   end
@@ -422,6 +472,10 @@ defmodule KafkaEx.Client do
 
   defp unparked_info({:kafka_ex_metadata_store, :swapped}, state) do
     {:noreply, state |> ensure_store() |> stop_departed_connections()}
+  end
+
+  defp unparked_info({:DOWN, ref, :process, _pid, _reason}, %State{permit: {_holder, ref}} = state) do
+    {:noreply, pass_permit(state)}
   end
 
   # A restarted registry always restarts the store too, so the store's :DOWN also stands for the registry's.

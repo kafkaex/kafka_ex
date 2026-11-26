@@ -32,7 +32,10 @@ defmodule KafkaEx.Client.State do
     hints: nil,
     deadline: nil,
     dispatch_stamp: nil,
-    last_view: %ClusterMetadata{}
+    last_view: %ClusterMetadata{},
+    request_concurrency: :multiplexed,
+    permit: nil,
+    waiting: :queue.new()
   )
 
   @type t :: %__MODULE__{
@@ -58,7 +61,10 @@ defmodule KafkaEx.Client.State do
           deadline: integer() | nil,
           dispatch_stamp: MetadataTable.stamp() | nil,
           hints: :ets.tid() | nil,
-          last_view: ClusterMetadata.t()
+          last_view: ClusterMetadata.t(),
+          request_concurrency: :serial | :multiplexed,
+          permit: {pid(), reference()} | nil,
+          waiting: :queue.queue(GenServer.from())
         }
 
   @default_metadata_update_interval 30_000
@@ -71,6 +77,7 @@ defmodule KafkaEx.Client.State do
       use_ssl: Keyword.get(args, :use_ssl, false),
       ssl_options: Keyword.get(args, :ssl_options, []),
       auth: Keyword.get(args, :auth, nil),
+      request_concurrency: Keyword.get(args, :request_concurrency, :multiplexed),
       # Inert unless used: group-coordination calls (offset_commit/fetch,
       # join/sync/leave/heartbeat, describe_groups) and the stream auto-commit
       # path all take the group as an explicit argument — none fall back to

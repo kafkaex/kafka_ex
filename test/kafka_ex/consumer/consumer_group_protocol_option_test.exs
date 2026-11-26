@@ -10,6 +10,8 @@ defmodule KafkaEx.Consumer.ConsumerGroupProtocolOptionTest do
   """
   use ExUnit.Case, async: false
 
+  setup {KafkaEx.Test.MockClient, :stub_request_globally}
+
   import ExUnit.CaptureLog
 
   alias KafkaEx.Consumer.ConsumerGroup

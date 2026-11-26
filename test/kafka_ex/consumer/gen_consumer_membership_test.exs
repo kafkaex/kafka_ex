@@ -12,6 +12,8 @@ defmodule KafkaEx.Consumer.GenConsumerMembershipTest do
   """
   use ExUnit.Case, async: false
 
+  setup {KafkaEx.Test.MockClient, :stub_request_globally}
+
   import ExUnit.CaptureLog
   import KafkaEx.TestSupport.ProcessHelpers
 

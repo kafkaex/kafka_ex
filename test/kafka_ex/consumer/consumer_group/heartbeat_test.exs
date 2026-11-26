@@ -1,6 +1,8 @@
 defmodule KafkaEx.Consumer.ConsumerGroup.HeartbeatTest do
   use ExUnit.Case, async: true
 
+  setup {KafkaEx.Test.MockClient, :stub_request}
+
   alias KafkaEx.Consumer.ConsumerGroup.Heartbeat
   alias KafkaEx.Messages.Heartbeat, as: HeartbeatResponse
   alias KafkaEx.Test.MockClient
@@ -176,8 +178,11 @@ defmodule KafkaEx.Consumer.ConsumerGroup.HeartbeatTest do
         heartbeat_interval: 1000
       }
 
-      assert {:stop, {:shutdown, {:terminal, {:crashed, FunctionClauseError}}}, ^state} =
+      assert {:stop, {:shutdown, {:terminal, {:crashed, crash}}}, ^state} =
                Heartbeat.handle_info(:timeout, state)
+
+      # Mimic's type_check on the stubbed Client.request/3 rejects the garbage reply before the API sees it.
+      assert crash in [FunctionClauseError, Mimic.TypeCheckError]
     end
 
     test "a client-call exit is caught and converted to a structured {:error, _} stop" do
