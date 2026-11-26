@@ -64,10 +64,10 @@
   error on. Every other request waits for the table the same way.
 * **`KafkaEx.Client.send_request/4` with `:first_available` tries the next broker after a `:parse_error`.**
   When a broker answered unparsably and no later broker answers correctly, the result is
-  `{:error, :broker_failed}` instead of `{:error, :parse_error}`. `:broker_failed` is not retried, so
-  `KafkaEx.API.find_coordinator/3` makes one attempt across all brokers instead of up to three, and on a
-  single-broker cluster one unparsable reply fails the call at once. Consumer-group coordinator
-  discovery (through the metadata store) is unaffected.
+  `{:error, :broker_failed}` instead of `{:error, :parse_error}`. A raw `send_request/4` makes one walk;
+  `KafkaEx.API.find_coordinator/3` repeats the walk, up to three attempts with the usual delays between
+  them, so a single-broker cluster still gets three tries. Consumer-group coordinator discovery (through
+  the metadata store) is unaffected.
 * **Retried requests wait between attempts.** After a retryable error the client waits a growing,
   jittered delay before the next attempt: about 100 ms after the first, about 200 ms after the
   second, never more than 1 s and never past the request's deadline. The number of attempts is
@@ -80,6 +80,17 @@
   longer holds up a fetch of another partition on the same broker. A consumer of many partitions
   opens more sockets and runs more handshakes (one per partition, not one per broker); a fetch
   connection that sits idle is closed, as before.
+* **`KafkaEx.API.metadata/2,3` and `KafkaEx.API.api_versions/2` try the next broker.** Each call walks
+  the known brokers in random order until one answers, instead of asking one random broker. A walk in which
+  no broker answers is repeated, up to three attempts with the usual delays between them. When every
+  attempt fails, the result is `{:error, :broker_failed}` (an `%KafkaEx.Client.Error{error: :broker_failed}`
+  from `metadata/2,3`) instead of the last broker's error. A walk in which every broker that was sent the
+  request timed out ends on `:timeout`, as does one the deadline cuts short.
+* **`KafkaEx.API.create_topics/4` and `KafkaEx.API.delete_topics/4` follow a controller move.** When the
+  broker answers `:not_controller` for every topic, the client refreshes metadata and sends the request
+  to the new controller, with the same attempts and delays as other retries. When every attempt gets
+  `:not_controller`, the result is `{:error, :not_controller}` instead of `{:ok, result}` with
+  `:not_controller` on each topic. A `:not_controller` on only some topics is returned as before.
 
 ### Removed
 

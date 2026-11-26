@@ -622,10 +622,15 @@ defmodule KafkaEx.Client do
 
   defp valid_group_id?(group), do: KafkaEx.valid_consumer_group?(group) and is_binary(group)
 
-  defp spec_for({:api_versions, opts}), do: spec(:api_versions, NodeSelector.random(), opts)
+  defp spec_for({:api_versions, opts}) do
+    spec(:api_versions, NodeSelector.first_available(), opts, retryable?: &walk_retryable?/1)
+  end
 
   defp spec_for({:metadata, topics, opts, _api_version}) do
-    spec(:metadata, NodeSelector.random(), [{:topics, topics} | opts], parse: &metadata_with_topic_errors/1)
+    spec(:metadata, NodeSelector.first_available(), [{:topics, topics} | opts],
+      parse: &metadata_with_topic_errors/1,
+      retryable?: &walk_retryable?/1
+    )
   end
 
   defp spec_for({:list_offsets, [{topic, [%{partition_num: partition}] = partitions}], opts}) do
@@ -700,11 +705,16 @@ defmodule KafkaEx.Client do
   end
 
   defp spec_for({:find_coordinator, group_id, opts}) do
-    spec(:find_coordinator, NodeSelector.first_available(), [{:group_id, group_id} | opts])
+    spec(:find_coordinator, NodeSelector.first_available(), [{:group_id, group_id} | opts],
+      retryable?: &walk_retryable?/1
+    )
   end
 
   defp spec_for({api, topics, timeout, opts}) when api in [:create_topics, :delete_topics] do
-    spec(api, NodeSelector.controller(), [{:topics, topics}, {:timeout, timeout} | opts])
+    spec(api, NodeSelector.controller(), [{:topics, topics}, {:timeout, timeout} | opts],
+      parse: &controller_answer(api, &1),
+      retryable?: &(&1 == :not_controller or Retry.data_plane_retryable?(&1))
+    )
   end
 
   # :network_timeout is the per-attempt socket deadline, not a protocol field, for the calls budgeted by it.
@@ -744,6 +754,24 @@ defmodule KafkaEx.Client do
   # Only a member heartbeat (epoch > 0) is fenced when resent after an epoch bump; join and leave are accepted again.
   defp heartbeat_send_once(epoch) when epoch > 0, do: &Retry.consumer_group_heartbeat_send_once?/1
   defp heartbeat_send_once(_epoch), do: &Retry.transport_timeout?/1
+
+  # A walk every broker failed is retried like one broker's transient error; a single-broker cluster has no other.
+  defp walk_retryable?(error), do: error == :broker_failed or Retry.data_plane_retryable?(error)
+
+  # A broker that is not the controller refuses every topic; a refusal of only some is the broker's per-topic answer.
+  defp controller_answer(api, response) do
+    case @protocol.parse_response(api, response) do
+      {:ok, %{topic_results: [_ | _] = results}} = parsed ->
+        if Enum.all?(results, &(&1.error == :not_controller)) do
+          {:error, Error.build(:not_controller, %{})}
+        else
+          parsed
+        end
+
+      parsed ->
+        parsed
+    end
+  end
 
   # Reject a bad acks value here; unvalidated it reaches Kayrock's int16 encoder and crashes the client.
   defp resolve_acks(opts) do
@@ -1361,7 +1389,8 @@ defmodule KafkaEx.Client do
 
       addresses ->
         known = Map.new(brokers(context), &{{&1.host, &1.port}, &1})
-        {:first_available, Enum.map(addresses, &Map.get_lazy(known, &1, fn -> bootstrap_broker(&1) end))}
+        # The store lists its own current broker first; callers start their walks on any broker instead.
+        {:first_available, Enum.shuffle(Enum.map(addresses, &Map.get_lazy(known, &1, fn -> bootstrap_broker(&1) end)))}
     end
   end
 
@@ -1383,9 +1412,9 @@ defmodule KafkaEx.Client do
     {request, {:refused, refused}}
   end
 
-  # A walk the request's deadline cut short ends on the :timeout its spent budget stands for.
-  defp first_available(_walk, [], context, {:open, span, meta, sent}) do
-    error = if time_left(context.deadline) == 0, do: :timeout, else: :broker_failed
+  # A walk the deadline cut short, or one whose every written candidate timed out, ends on :timeout.
+  defp first_available(_walk, [], context, {:open, span, meta, sent, timed_out?}) do
+    error = if timed_out? or time_left(context.deadline) == 0, do: :timeout, else: :broker_failed
     {sent, stop_request_span(span, {:error, error}, %{meta | bytes_received: 0}, nil)}
   end
 
@@ -1415,27 +1444,29 @@ defmodule KafkaEx.Client do
   end
 
   # A walk that writes nothing ends on the refusal, not on a missing broker.
-  defp refusal({:open, _span, _meta, _sent} = open, _refused), do: open
+  defp refusal({:open, _span, _meta, _sent, _timed_out?} = open, _refused), do: open
   defp refusal(_open, refused), do: {:refused, refused}
 
   # Every candidate of one walk writes under the walk's one span and correlation id.
-  defp write_candidate(conn, broker, walk, context, {:open, span, _meta, %{correlation_id: id}}) do
+  defp write_candidate(conn, broker, walk, context, {:open, span, _meta, %{correlation_id: id}, timed_out?}) do
     {_key, _pid, %{request: sent}} = conn = with_correlation_id(conn, id)
-    walk_on(write(conn), restamp(span, sent), broker, sent, walk, context)
+    walk_on(write(conn), restamp(span, sent), broker, sent, walk, context, timed_out?)
   end
 
   defp write_candidate(conn, broker, walk, context, _nothing_written) do
     {_key, _pid, %{request: sent}} = conn = with_correlation_id(conn, next_correlation_id(context))
     span = start_request_span(sent)
-    opened(span, fn -> walk_on(write(conn), span, broker, sent, walk, context) end)
+    opened(span, fn -> walk_on(write(conn), span, broker, sent, walk, context, true) end)
   end
 
-  defp walk_on({:written, {:error, error}, meta}, span, broker, sent, {walk, rest}, context) do
+  defp walk_on({:written, {:error, error}, meta}, span, broker, sent, {walk, rest}, context, timed_out?) do
     Logger.warning("Network call to #{Broker.to_string(broker)} failed: #{inspect(error)}")
-    first_available(walk, rest, context, {:open, span, meta, sent})
+    first_available(walk, rest, context, {:open, span, meta, sent, timed_out? and error == :timeout})
   end
 
-  defp walk_on(outcome, span, broker, sent, _walk, _context), do: {sent, finish_request_span(span, outcome, broker)}
+  defp walk_on(outcome, span, broker, sent, _walk, _context, _timed_out?) do
+    {sent, finish_request_span(span, outcome, broker)}
+  end
 
   defp await_connection(dispatch, selector, broker, context) do
     {operation, _version} = dispatch.info

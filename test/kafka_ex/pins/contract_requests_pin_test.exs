@@ -1,7 +1,9 @@
 defmodule KafkaEx.Pins.ContractRequestsPinTest do
   use KafkaEx.TestSupport.PinCase, async: false
 
+  alias KafkaEx.Client.Error
   alias KafkaEx.Client.NodeSelector
+  alias KafkaEx.Messages.ApiVersions
   alias KafkaEx.Messages.JoinGroup
   alias KafkaEx.Messages.RecordMetadata
   alias KafkaEx.TestSupport.FakeTransport.Wire
@@ -27,6 +29,13 @@ defmodule KafkaEx.Pins.ContractRequestsPinTest do
 
   defp join(client, member_id),
     do: API.join_group(client, "g", member_id, topics: [@topic], session_timeout: 10_000, rebalance_timeout: 10_000)
+
+  # Every connection opens with its own ApiVersions handshake; only a later one on it is the caller's request.
+  defp after_handshake(fake, versions, reply) do
+    handshaken = :ets.new(:handshaken, [:public])
+    for %{conn: conn} <- requests(fake, :api_versions), do: :ets.insert(handshaken, {conn})
+    fn request -> if :ets.insert_new(handshaken, {request.conn}), do: versions, else: reply.(request) end
+  end
 
   describe "send_request/4" do
     test "is written once and returns the transport error when the peer closes", %{fake: fake, client: client} do
@@ -58,6 +67,109 @@ defmodule KafkaEx.Pins.ContractRequestsPinTest do
       assert tried != []
       assert Enum.sort(tried) == brokers |> Map.keys() |> Enum.sort()
       assert tried == Enum.uniq(tried)
+    end
+  end
+
+  describe "metadata/2 and api_versions/2 walk the brokers" do
+    test "metadata/2 answers from the next broker when the first closes", %{fake: fake, client: client, host: host} do
+      closed = :atomics.new(1, [])
+
+      FakeTransport.respond(fake, :metadata, fn _request ->
+        if :atomics.exchange(closed, 1, 1) == 0, do: :close, else: metadata_reply(host, %{@topic => [1, 2]})
+      end)
+
+      mark = count(fake, :metadata)
+
+      {result, log} = with_log(fn -> API.metadata(client) end)
+
+      assert {:ok, %{brokers: %{1 => _, 2 => _}}} = result
+      assert log =~ ~r/Network call to broker \d .* failed: :closed\n/
+      assert fake |> nodes(:metadata) |> Enum.drop(mark) |> Enum.sort() == [1, 2]
+    end
+
+    test "api_versions/2 answers from the next broker when the first closes", %{fake: fake, client: client} do
+      closed = :atomics.new(1, [])
+      versions = Wire.api_versions_fields(:sys.get_state(fake).versions)
+
+      FakeTransport.respond(
+        fake,
+        :api_versions,
+        after_handshake(fake, versions, fn _request ->
+          if :atomics.exchange(closed, 1, 1) == 0, do: :close, else: versions
+        end)
+      )
+
+      {result, log} = with_log(fn -> API.api_versions(client) end)
+
+      assert {:ok, %ApiVersions{}} = result
+      assert log =~ ~r/Network call to broker \d .* failed: :closed\n/
+    end
+
+    test "every broker answering an unparsable frame ends on :broker_failed, one write per broker per attempt", %{
+      fake: fake,
+      client: client
+    } do
+      unparsable = &{:frame, <<&1.correlation_id::32, 0xFF>>}
+      versions = Wire.api_versions_fields(:sys.get_state(fake).versions)
+      FakeTransport.respond(fake, :metadata, unparsable)
+      FakeTransport.respond(fake, :api_versions, after_handshake(fake, versions, unparsable))
+      mark = count(fake, :metadata)
+
+      {{metadata, api_versions}, _log} = with_log(fn -> {API.metadata(client), API.api_versions(client)} end)
+
+      assert {:error, %Error{error: :broker_failed}} = metadata
+      assert api_versions == {:error, :broker_failed}
+      attempts = Client.retry_count()
+      assert fake |> nodes(:metadata) |> Enum.drop(mark) |> Enum.frequencies() == %{1 => attempts, 2 => attempts}
+    end
+
+    test "a walk in which every broker timed out ends on :timeout", %{fake: fake, client: client} do
+      with_request_timeout(200)
+      FakeTransport.respond(fake, :metadata, :no_reply)
+
+      {result, _log} = with_log(fn -> API.metadata(client) end)
+
+      assert {:error, %Error{error: :timeout}} = result
+    end
+
+    test "a walk in which one broker timed out and another closed ends on :broker_failed", %{
+      fake: fake,
+      client: client
+    } do
+      with_request_timeout(200)
+      FakeTransport.respond(fake, :metadata, fn request -> if request.node_id == 1, do: :no_reply, else: :close end)
+
+      {result, _log} = with_log(fn -> API.metadata(client) end)
+
+      assert {:error, %Error{error: :broker_failed}} = result
+    end
+
+    test "find_coordinator/3 walks every broker on each attempt", %{fake: fake, client: client} do
+      FakeTransport.respond(fake, :find_coordinator, :close)
+
+      {result, _log} = with_log(fn -> API.find_coordinator(client, "g") end)
+
+      attempts = Client.retry_count()
+      assert result == {:error, :broker_failed}
+      assert fake |> nodes(:find_coordinator) |> Enum.frequencies() == %{1 => attempts, 2 => attempts}
+    end
+
+    test "a walk every broker failed is retried: a single broker that closes once answers the next walk" do
+      single = fn request -> Wire.metadata_fields([{1, request.host, 9092}], %{@topic => [1]}) end
+      %{fake: fake, client: client} = start_pinned(before_boot: &FakeTransport.respond(&1, :metadata, single))
+      closed = :atomics.new(1, [])
+
+      FakeTransport.respond(fake, :metadata, fn request ->
+        if :atomics.exchange(closed, 1, 1) == 0, do: :close, else: single.(request)
+      end)
+
+      mark = count(fake, :metadata)
+
+      {result, _log} = with_log(fn -> API.metadata(client) end)
+
+      assert {:ok, %{brokers: brokers}} = result
+      assert Map.keys(brokers) == [1]
+      assert fake |> nodes(:metadata) |> Enum.drop(mark) == [1, 1]
     end
   end
 

@@ -36,8 +36,14 @@ defmodule KafkaEx.Client.RequestSpanTest do
     client: client,
     host: host
   } do
-    FakeTransport.respond(fake, :find_coordinator, fn request ->
-      if request.port == 9092, do: :close, else: %{node_id: 2, host: host, port: 9093, error_message: nil}
+    first = :atomics.new(1, [])
+
+    FakeTransport.respond(fake, :find_coordinator, fn _request ->
+      if :atomics.exchange(first, 1, 1) == 0 do
+        :close
+      else
+        %{node_id: 2, host: host, port: 9093, error_message: nil}
+      end
     end)
 
     {:ok, before} = API.correlation_id(client)
@@ -45,10 +51,11 @@ defmodule KafkaEx.Client.RequestSpanTest do
     {result, log} = with_log(fn -> API.find_coordinator(client, "g") end)
 
     assert {:ok, %{coordinator: %{node_id: 2}}} = result
-    assert log =~ "Network call to broker 1 (#{host}:9092) failed: :closed\n"
-    assert nodes(fake, :find_coordinator) |> Enum.take(-2) == [1, 2]
+    [failed, answered] = nodes(fake, :find_coordinator) |> Enum.take(-2)
+    assert Enum.sort([failed, answered]) == [1, 2]
+    assert log =~ ~r/Network call to broker #{failed} \(#{host}:\d+\) failed: :closed\n/
     assert_receive {:request_span, :start, %{operation: :find_coordinator, correlation_id: ^before}}, 1_000
-    assert_receive {:request_span, :stop, %{result: :ok, broker: %{port: 9093}}}, 1_000
+    assert_receive {:request_span, :stop, %{result: :ok, broker: %{node_id: ^answered}}}, 1_000
     refute_receive {:request_span, _, _}, 100
     assert API.correlation_id(client) == {:ok, before + 1}
   end
@@ -59,9 +66,10 @@ defmodule KafkaEx.Client.RequestSpanTest do
     host: host
   } do
     unparsable = &{:frame, <<&1.correlation_id::32, 0xFF>>}
+    first = :atomics.new(1, [])
 
     FakeTransport.respond(fake, :metadata, fn request ->
-      if request.port == 9092, do: unparsable.(request), else: metadata_reply(host, [{@topic, [1, 2]}])
+      if :atomics.exchange(first, 1, 1) == 0, do: unparsable.(request), else: metadata_reply(host, [{@topic, [1, 2]}])
     end)
 
     {:ok, before} = API.correlation_id(client)
@@ -70,9 +78,10 @@ defmodule KafkaEx.Client.RequestSpanTest do
     {result, _log} = with_log(fn -> Client.send_request(client, request, NodeSelector.first_available()) end)
 
     assert {:ok, %Kayrock.Metadata.V0.Response{}} = result
-    assert nodes(fake, :metadata) |> Enum.take(-2) == [1, 2]
+    [failed, answered] = nodes(fake, :metadata) |> Enum.take(-2)
+    assert Enum.sort([failed, answered]) == [1, 2]
     assert_receive {:request_span, :start, %{operation: :metadata, correlation_id: ^before}}, 1_000
-    assert_receive {:request_span, :stop, %{result: :ok, broker: %{port: 9093}}}, 1_000
+    assert_receive {:request_span, :stop, %{result: :ok, broker: %{node_id: ^answered}}}, 1_000
     refute_receive {:request_span, _, _}, 100
   end
 
@@ -87,7 +96,7 @@ defmodule KafkaEx.Client.RequestSpanTest do
     {result, _log} = with_log(fn -> Client.send_request(client, request, NodeSelector.first_available()) end)
 
     assert result == {:error, :broker_failed}
-    assert nodes(fake, :metadata) |> Enum.take(-2) == [1, 2]
+    assert nodes(fake, :metadata) |> Enum.take(-2) |> Enum.sort() == [1, 2]
     assert_receive {:request_span, :start, %{operation: :metadata}}, 1_000
     assert_receive {:request_span, :stop, %{result: :error, error: :broker_failed}}, 1_000
     refute_receive {:request_span, _, _}, 100

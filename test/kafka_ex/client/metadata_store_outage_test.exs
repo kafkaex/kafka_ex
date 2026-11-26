@@ -129,7 +129,7 @@ defmodule KafkaEx.Client.MetadataStoreOutageTest do
     store = :sys.get_state(client).store.pid
 
     call = Task.async(fn -> with_log(fn -> Client.request(client, {:find_coordinator, "g", []}, 1_000) end) end)
-    assert_receive {:fake_transport, :request, %{api: :find_coordinator, port: 9092}}, 5_000
+    assert_receive {:fake_transport, :request, %{api: :find_coordinator}}, 5_000
     :ok = :sys.suspend(store)
 
     {result, _log} = Task.await(call, 10_000)

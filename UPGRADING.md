@@ -15,6 +15,16 @@ or `GenServer.call(client, :update_metadata)` is answered with
 `KafkaEx.Client.request/3` for a raw client message. In place of
 `:update_metadata`, call `KafkaEx.API.metadata/3` with the topics you use.
 
+## `create_topics/4` and `delete_topics/4` can answer `{:error, :not_controller}`
+
+When the broker answers `:not_controller` for every topic, the client now
+refreshes metadata and retries against the new controller. If every attempt
+gets `:not_controller`, the call answers `{:error, :not_controller}`; before,
+it answered `{:ok, result}` with `:not_controller` on each topic. Code that
+looked for `:not_controller` in the per-topic results should match the error
+instead. A `:not_controller` on only some topics still comes back in
+`{:ok, result}`.
+
 ## Clients on other nodes
 
 `KafkaEx.API` called with a client on another node runs the request on that
