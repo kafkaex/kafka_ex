@@ -68,6 +68,14 @@
   `KafkaEx.API.find_coordinator/3` makes one attempt across all brokers instead of up to three, and on a
   single-broker cluster one unparsable reply fails the call at once. Consumer-group coordinator
   discovery (through the metadata store) is unaffected.
+* **Retried requests wait between attempts.** After a retryable error the client waits a growing,
+  jittered delay before the next attempt: about 100 ms after the first, about 200 ms after the
+  second, never more than 1 s and never past the request's deadline. The number of attempts is
+  unchanged (3), and the last error is still returned when they run out.
+* **A fetch from a preferred read replica (KIP-392) falls back to the leader within the same call.**
+  After any error from the replica, the client forgets the replica and asks the leader at once,
+  without a delay and without using up an attempt. A retryable replica error such as `:closed` used
+  to be returned to the caller, with the leader asked only on the next fetch.
 
 ### Removed
 

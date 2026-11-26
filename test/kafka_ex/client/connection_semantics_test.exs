@@ -93,24 +93,27 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
 
       assert_backoff(client, {host, 9092}, fn _i -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
     end
+  end
 
-    test "spaces connect attempts of every role to an unreachable broker" do
-      %{client: client, host: host, gate: gate} =
-        start_for_backoff([request_concurrency: :serial], topics: %{"wide" => List.duplicate(2, 20), @topic => [2, 2]})
+  # Serial callers wait out each other's retry backoff, so one caller per partition, produce and heartbeat suffices.
+  test "reconnect backoff spaces connect attempts of every role to an unreachable broker" do
+    %{client: client, host: host, gate: gate} =
+      start_for_backoff([request_concurrency: :serial], topics: %{"wide" => List.duplicate(2, 20), @topic => [2, 2]})
 
-      PinGate.close(gate)
+    PinGate.close(gate)
 
-      assert_backoff(client, {host, 9093}, fn i ->
-        case rem(i, 22) do
-          20 -> API.produce(client, @topic, 0, [%{value: "v"}])
-          21 -> API.heartbeat(client, "g", "m", 1)
-          partition -> API.fetch(client, "wide", partition, 0, max_wait_time: 10)
-        end
-      end)
-
-      roles = for {{^host, 9093, role}, _pid} <- :ets.tab2list(:sys.get_state(client).conns), do: role
-      assert Enum.sort(roles) == [:coordinator, :data, :fetch]
+    call = fn i ->
+      case rem(i, 22) do
+        20 -> API.produce(client, @topic, 0, [%{value: "v"}])
+        21 -> API.heartbeat(client, "g", "m", 1)
+        partition -> API.fetch(client, "wide", partition, 0, max_wait_time: 10)
+      end
     end
+
+    assert_backoff(client, {host, 9093}, call, 22)
+
+    roles = for {{^host, 9093, role}, _pid} <- :ets.tab2list(:sys.get_state(client).conns), do: role
+    assert Enum.sort(roles) == [:coordinator, :data, :fetch]
   end
 
   test "a request after the backoff interval connects with exactly one attempt" do
@@ -236,11 +239,11 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
     pinned
   end
 
-  defp assert_backoff(client, address, call) do
+  defp assert_backoff(client, address, call, callers \\ 100) do
     failures = failures(client, address)
     watch_attempts(address)
 
-    1..100 |> Enum.map(fn i -> Task.async(fn -> call.(i) end) end) |> Enum.each(&Task.await(&1, 30_000))
+    1..callers |> Enum.map(fn i -> Task.async(fn -> call.(i) end) end) |> Enum.each(&Task.await(&1, 30_000))
     finished = System.monotonic_time()
 
     assert [first, _, _ | _] = attempts = attempts()

@@ -90,7 +90,6 @@ defmodule KafkaEx.ClientTest do
       {:ok, pinned}
     end
 
-    @tag pin_set: :today_only, retired_by: 1497
     test "acks: 0 is sent fire-and-forget, exactly once, and returns no offset", %{fake: fake, client: client} do
       FakeTransport.respond(fake, :produce, produce_reply("t"))
       {:ok, correlation_id} = API.correlation_id(client)
@@ -105,7 +104,6 @@ defmodule KafkaEx.ClientTest do
       assert count(fake, :produce) == 2
     end
 
-    @tag pin_set: :today_only, retired_by: 1497
     test "a failed fire-and-forget send is reported as an error, not a crash, and is sent once", %{
       fake: fake,
       client: client,

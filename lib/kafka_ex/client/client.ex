@@ -877,36 +877,11 @@ defmodule KafkaEx.Client do
 
   defp fetched(spec, offset, context, metadata) do
     with {:ok, request} <- build(spec, context),
-         {:ok, result} <- fetch_with_leader_fallback(spec, request, context) do
+         {:ok, result} <- retry(spec, request, context, @retry_count, nil) do
       filtered_result = Fetch.filter_from_offset(result, offset)
       {{:ok, filtered_result}, Map.put(metadata, :message_count, length(Map.get(filtered_result, :records, [])))}
     else
       error_result -> {error_result, metadata}
-    end
-  end
-
-  # KIP-392: a replica's error is not authoritative (it may lag the leader), so the leader decides.
-  defp fetch_with_leader_fallback(spec, request, context) do
-    case retry(spec, request, context, @retry_count, nil) do
-      {:error, error} = result ->
-        if reading_from_replica?(context, spec.route) do
-          forget_preferred_replica(context, spec.route)
-          after_replica_error(spec, request, error, context)
-        else
-          result
-        end
-
-      result ->
-        result
-    end
-  end
-
-  # A single attempt keeps the caller's call budget, which covers one retry cycle.
-  defp after_replica_error(spec, request, error, context) do
-    if Retry.data_plane_retryable?(extract_error_atom(error)) do
-      {:error, error}
-    else
-      retry(spec, request, context, 1, error)
     end
   end
 
@@ -917,9 +892,14 @@ defmodule KafkaEx.Client do
     ArgumentError -> true
   end
 
-  defp reading_from_replica?(%State{store: %{tid: tid}} = context, selector) do
+  defp reading_from_replica?(
+         %State{store: %{tid: tid}} = context,
+         %NodeSelector{strategy: :topic_partition_replica} = selector
+       ) do
     MetadataTable.select(tid, selector, hints_for(context, selector)) != MetadataTable.select(tid, selector, %{})
   end
+
+  defp reading_from_replica?(_context, _selector), do: false
 
   defp hints_for(%State{hints: table}, %NodeSelector{topic: topic, partition: partition}) do
     Map.new(:ets.lookup(table, {topic, partition}))
@@ -1093,6 +1073,11 @@ defmodule KafkaEx.Client do
     Logger.warning("Request #{inspect(request_name)} failed with error #{inspect(error_atom)}")
 
     cond do
+      # KIP-392: a replica's error is not authoritative (it may lag the leader), so the leader decides.
+      reading_from_replica?(context, spec.route) ->
+        forget_preferred_replica(context, spec.route)
+        retry(spec, request, context, attempts, error)
+
       # Send-once only for coordinator requests: the broker holds them for the rebalance window.
       spec.send_once?.(error_atom) and coordinator_request?(spec.route) ->
         Logger.info(
@@ -1110,12 +1095,20 @@ defmodule KafkaEx.Client do
 
       spec.retryable?.(error_atom) ->
         act_on_error(error_atom, spec, context)
+        back_off(attempts, context)
         retry(spec, request, context, attempts - 1, error)
 
       true ->
         Logger.info("Error #{inspect(error_atom)} is not retryable for #{inspect(request_name)}, failing immediately")
         {:error, error}
     end
+  end
+
+  # The last attempt has no next one to wait for; the deadline caps the wait, so a spent budget ends on :timeout.
+  defp back_off(1, _context), do: :ok
+
+  defp back_off(attempts, context) do
+    Process.sleep(min(Retry.backoff_delay_jittered(@retry_count - attempts, 100, 1_000), time_left(context.deadline)))
   end
 
   defp extract_error_atom(%Error{error: error}), do: error

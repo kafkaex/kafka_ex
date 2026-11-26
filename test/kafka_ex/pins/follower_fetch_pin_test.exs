@@ -59,7 +59,6 @@ defmodule KafkaEx.Pins.FollowerFetchPinTest do
     assert nodes(fake, :fetch) == [1, 2, 1]
   end
 
-  @tag pin_set: :target_state
   test "after the replica closes the connection, the leader answers within the same call", %{
     fake: fake,
     client: client

@@ -122,6 +122,22 @@ defmodule KafkaEx.Pins.ContractRequestsPinTest do
       assert Enum.uniq(nodes(fake, :produce)) == [1]
     end
 
+    test "a retried fetch waits a growing backoff between its attempts", %{fake: fake, client: client} do
+      test_pid = self()
+
+      FakeTransport.respond(fake, :fetch, fn _request ->
+        send(test_pid, {:fetch_sent, System.monotonic_time(:millisecond)})
+        :close
+      end)
+
+      {result, _log} = with_log(fn -> API.fetch(client, @topic, 0, 0, max_wait_time: 10) end)
+
+      assert result == {:error, :closed}
+      assert [first, second, third] = for(_ <- 1..3, do: receive(do: ({:fetch_sent, at} -> at)))
+      assert second - first >= 80
+      assert third - second >= 160
+    end
+
     test "a request with no answer within its budget returns :timeout", %{fake: fake, client: client} do
       with_request_timeout(200)
       FakeTransport.respond(fake, :produce, :no_reply)
