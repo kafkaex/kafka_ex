@@ -37,6 +37,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerAbnormalExitTest do
   """
   use ExUnit.Case, async: false
 
+  setup {KafkaEx.Test.MockClient, :stub_request}
+
   import KafkaEx.TestSupport.ProcessHelpers
 
   alias KafkaEx.Consumer.ConsumerGroup.Manager

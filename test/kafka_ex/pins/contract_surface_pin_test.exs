@@ -71,15 +71,6 @@ defmodule KafkaEx.Pins.ContractSurfacePinTest do
       assert leader(returned, @topic, 0) == 2
       assert leader(cached, @topic, 0) == 2
     end
-
-    test "the :update_metadata call", %{fake: fake, client: client, host: host} do
-      FakeTransport.respond(fake, :metadata, metadata_reply(host, %{@topic => [2, 1]}))
-
-      assert {:ok, returned} = GenServer.call(client, :update_metadata)
-      assert {:ok, cached} = API.cluster_metadata(client)
-      assert leader(returned, @topic, 0) == 2
-      assert leader(cached, @topic, 0) == 2
-    end
   end
 
   test "topics_metadata/3 sends its allow_auto_topic_creation once and does not leak it into later refreshes" do
@@ -89,7 +80,7 @@ defmodule KafkaEx.Pins.ContractSurfacePinTest do
     booted = count(fake, :metadata)
 
     assert {:ok, [_topic]} = API.topics_metadata(client, [@topic], true)
-    assert {:ok, _} = GenServer.call(client, :update_metadata)
+    assert {:ok, _} = refresh_tracked(client)
 
     flags = fake |> requests(:metadata) |> Enum.drop(booted) |> Enum.map(&:binary.last(&1.frame))
     assert flags == [1, 0]
@@ -140,7 +131,7 @@ defmodule KafkaEx.Pins.ContractSurfacePinTest do
       })
 
       assert {:ok, [%Offset{topic: @topic, partition_offsets: [partition_offset]}]} =
-               GenServer.call(client, {:offset, @topic, 0, -1})
+               Client.request(client, {:offset, @topic, 0, -1}, 5_000)
 
       assert partition_offset.offset == 42
     end

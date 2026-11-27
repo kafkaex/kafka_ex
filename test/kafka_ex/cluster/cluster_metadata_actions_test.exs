@@ -122,6 +122,14 @@ defmodule KafkaEx.Cluster.ClusterMetadataActionsTest do
       end
     end
 
+    test ":not_controller refreshes the tracked topics on a controller request only" do
+      assert ClusterMetadata.error_actions(:not_controller, NodeSelector.controller(), @opts) == [refresh([])]
+
+      for selector <- [group() | other_selectors()] -- [NodeSelector.controller()] do
+        assert ClusterMetadata.error_actions(:not_controller, selector, @opts) == []
+      end
+    end
+
     test "a connection error drops the coordinator only when the request asks for re-discovery" do
       rediscover = Keyword.put(@opts, :rediscover_coordinator?, true)
 

@@ -3,9 +3,8 @@ defmodule KafkaEx.Pins.TodayOnlyPinTest do
 
   alias KafkaEx.Config
 
-  @moduletag pin_set: :today_only
+  @moduletag pin_set: :invariant
 
-  @tag retired_by: 1497
   test ":no_broker is returned well before the request deadline" do
     %{client: client} = start_pinned()
     started = System.monotonic_time(:millisecond)
@@ -16,7 +15,6 @@ defmodule KafkaEx.Pins.TodayOnlyPinTest do
     assert System.monotonic_time(:millisecond) - started < div(Config.request_timeout(), 10)
   end
 
-  @tag retired_by: 1497
   test "a known leader whose broker is unreachable returns :no_broker after the reconnect window" do
     with_request_timeout(10_000)
     %{fake: fake, client: client, host: host, gate: gate} = start_pinned()
@@ -33,7 +31,6 @@ defmodule KafkaEx.Pins.TodayOnlyPinTest do
     assert count(fake, :metadata) == refreshes
   end
 
-  @tag retired_by: 1497
   test "correlation_id/1 counts network attempts" do
     %{fake: fake, client: client} = start_pinned()
     FakeTransport.respond(fake, :produce, produce_reply())

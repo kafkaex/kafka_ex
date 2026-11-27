@@ -26,7 +26,8 @@ defmodule KafkaEx.Client.MetadataNarrowingTest do
   } do
     FakeTransport.respond(fake, :metadata, metadata_reply(host, %{"t1" => [1]}))
 
-    {{:ok, cluster_metadata}, _log} = with_log(fn -> GenServer.call(client, :update_metadata) end)
+    {{:ok, _}, _log} = with_log(fn -> refresh_tracked(client) end)
+    {:ok, cluster_metadata} = API.cluster_metadata(client)
 
     assert cluster_metadata.topics["t1"]
     refute cluster_metadata.topics["t2"]
@@ -43,10 +44,12 @@ defmodule KafkaEx.Client.MetadataNarrowingTest do
     host: host
   } do
     FakeTransport.respond(fake, :metadata, metadata_reply(host, %{"t1" => [1]}))
-    {{:ok, _}, _log} = with_log(fn -> GenServer.call(client, :update_metadata) end)
+    {{:ok, _}, _log} = with_log(fn -> refresh_tracked(client) end)
 
     FakeTransport.respond(fake, :metadata, metadata_reply(host, %{"t1" => [1], "t2" => [1]}))
-    {{:ok, _topic_metadata}, _log} = with_log(fn -> GenServer.call(client, {:topic_metadata, ["t2"], false}) end)
+
+    {{:ok, _topic_metadata}, _log} =
+      with_log(fn -> Client.request(client, {:topic_metadata, ["t2"], [allow_topic_creation: false]}, 5_000) end)
 
     {:ok, recovered} = API.cluster_metadata(client)
     assert recovered.topics["t1"]
@@ -60,12 +63,15 @@ defmodule KafkaEx.Client.MetadataNarrowingTest do
     host: host
   } do
     FakeTransport.respond(fake, :metadata, metadata_reply(host, %{"t1" => [1]}))
-    {{:ok, _}, _log} = with_log(fn -> GenServer.call(client, :update_metadata) end)
+    {{:ok, _}, _log} = with_log(fn -> refresh_tracked(client) end)
 
     FakeTransport.respond(fake, :metadata, metadata_reply(host, %{"t1" => [1], "t2" => [1]}))
-    {{:ok, _}, _log} = with_log(fn -> GenServer.call(client, {:topic_metadata, ["t2"], false}) end)
 
-    {{:ok, cluster_metadata}, _log} = with_log(fn -> GenServer.call(client, :update_metadata) end)
+    {{:ok, _}, _log} =
+      with_log(fn -> Client.request(client, {:topic_metadata, ["t2"], [allow_topic_creation: false]}, 5_000) end)
+
+    {{:ok, _}, _log} = with_log(fn -> refresh_tracked(client) end)
+    {:ok, cluster_metadata} = API.cluster_metadata(client)
 
     assert cluster_metadata.topics["t1"]
     assert cluster_metadata.topics["t2"]
@@ -74,7 +80,7 @@ defmodule KafkaEx.Client.MetadataNarrowingTest do
 
   # A refresh asks for exactly the tracked topics.
   defp tracked_topics(fake, client) do
-    with_log(fn -> GenServer.call(client, :update_metadata) end)
+    with_log(fn -> refresh_tracked(client) end)
     fake |> requests(:metadata) |> List.last() |> requested_topics()
   end
 

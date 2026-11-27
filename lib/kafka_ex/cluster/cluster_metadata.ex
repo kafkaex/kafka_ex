@@ -288,6 +288,9 @@ defmodule KafkaEx.Cluster.ClusterMetadata do
       Retry.leadership_error?(error) ->
         [refresh_action([], opts)]
 
+      strategy == :controller and error == :not_controller ->
+        [refresh_action([], opts)]
+
       strategy == :consumer_group and Retry.coordinator_refresh_error?(error) ->
         [{:drop_coordinator, group}, {:rediscover_coordinator, group}]
 

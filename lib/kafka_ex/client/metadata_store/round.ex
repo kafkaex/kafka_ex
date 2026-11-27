@@ -1,10 +1,11 @@
 defmodule KafkaEx.Client.MetadataStore.Round do
   @moduledoc """
-  One metadata or FindCoordinator request, walked across the candidate brokers in order. The store runs `run/1`
-  in a separate monitored process that sends the result back to the store. A candidate that fails to connect,
-  cannot take the request at its versions, times out or answers with an unparsable response passes the walk to
-  the next one. The walk opens one request span, at its first write, and closes it with the result. A metadata
-  answer that misses a newly requested topic is retried after a delay while the round's bound allows.
+  One request walked across the candidate brokers in order: the store's metadata and FindCoordinator rounds, and
+  the client's `:first_available` requests (`first_response/2`, kind `:request`). The store runs `run/1` in a
+  separate monitored process that sends the result back to the store. A candidate that fails to connect, cannot
+  take the request at its versions, times out or answers with an unparsable response passes the walk to the next
+  one. The walk opens one request span, at its first write, and closes it with the result. A metadata answer that
+  misses a newly requested topic is retried after a delay while the round's bound allows.
   """
 
   require Logger
@@ -31,20 +32,28 @@ defmodule KafkaEx.Client.MetadataStore.Round do
   @unsupported_logged {__MODULE__, :unsupported_logged}
 
   @type address :: {binary(), :inet.port_number()}
-  @type kind :: :load | :metadata | :find_coordinator
+  @type kind :: :load | :metadata | :find_coordinator | :request
   @type spec :: %{
           required(:kind) => kind(),
           required(:candidates) => [{address(), pid()}],
           required(:brokers) => %{optional(address()) => Broker.t()},
           required(:request_opts) => Keyword.t(),
-          required(:known_missing) => MapSet.t(),
-          required(:ladder_delay) => non_neg_integer(),
           required(:connect_timeout) => pos_integer(),
           required(:connect_slack) => non_neg_integer(),
           required(:request_timeout) => pos_integer(),
           required(:request_slack) => non_neg_integer(),
-          required(:deadline) => integer()
+          required(:deadline) => integer(),
+          optional(:known_missing) => MapSet.t(),
+          optional(:ladder_delay) => non_neg_integer(),
+          optional(:request) => struct(),
+          optional(:as_is?) => boolean(),
+          optional(:correlation) => :atomics.atomics_ref()
         }
+  @type walk_result ::
+          {:ok, struct(), address(), map(), struct()}
+          | {:error, term()}
+          | {:refused, {:error, term()}}
+          | {:raised, {:error, :timeout}}
   @type result ::
           {:ok, %{required(:address) => address(), optional(atom()) => term()}}
           | {:error, term()}
@@ -77,10 +86,17 @@ defmodule KafkaEx.Client.MetadataStore.Round do
     exception -> {:raised, {:error, exception, __STACKTRACE__}}
   end
 
+  @spec first_response(spec(), atom()) :: walk_result()
+  def first_response(spec, api) do
+    walk(spec, &build(api, &1, spec))
+  after
+    Process.delete(@unsupported_logged)
+  end
+
   defp coordinator(spec) do
     builder = &build(:find_coordinator, &1, spec)
 
-    with {:ok, response, address, _versions} <- first_response(spec, builder) do
+    with {:ok, response, address, _versions, _sent} <- walk(spec, builder) do
       {:ok, %{coordinator: parse_coordinator(response, spec), address: address}}
     end
   end
@@ -90,10 +106,15 @@ defmodule KafkaEx.Client.MetadataStore.Round do
 
     builder = &build(:metadata, &1, spec)
 
-    case first_response(spec, builder) do
-      {:ok, response, address, versions} -> parsed(spec, response, address, versions, attempts_left, now() - started)
-      {:bootstrap, address, versions} -> bootstrap_only(spec, address, versions)
-      {:error, reason} -> {:error, reason}
+    case walk(spec, builder) do
+      {:ok, response, address, versions, _sent} ->
+        parsed(spec, response, address, versions, attempts_left, now() - started)
+
+      {:bootstrap, address, versions} ->
+        bootstrap_only(spec, address, versions)
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -134,21 +155,26 @@ defmodule KafkaEx.Client.MetadataStore.Round do
     {:ok, %{metadata: metadata, unknown: [], missing: [], address: address, versions: versions}}
   end
 
-  defp first_response(spec, build) do
+  defp walk(spec, build) do
     start = %{failures: [], span: nil}
 
     case Enum.reduce_while(spec.candidates, start, &visit(&1, spec, build, &2)) do
-      {:answered, response, address, versions} ->
-        {:ok, response, address, versions}
+      {:answered, response, address, versions, sent} ->
+        {:ok, response, address, versions, sent}
 
       walk ->
+        result = give_up(spec, Enum.reverse(walk.failures))
+
         if walk.span do
-          stop_span(%{walk.span | meta: %{walk.span.meta | bytes_received: 0}}, {:error, :broker_failed}, %{})
+          stop_span(spec, %{walk.span | meta: %{walk.span.meta | bytes_received: 0}}, failed(result), %{})
         end
 
-        give_up(spec, Enum.reverse(walk.failures))
+        result
     end
   end
+
+  defp failed({:error, _reason} = error), do: error
+  defp failed(_bootstrap), do: {:error, :broker_failed}
 
   defp visit({address, pid}, spec, build, walk) do
     case under_span(walk, fn -> prepare(spec, build, address, pid) end) do
@@ -156,7 +182,7 @@ defmodule KafkaEx.Client.MetadataStore.Round do
         {:cont, record(spec, walk, failure)}
 
       {:ready, dispatch, versions} ->
-        walk = begin_request(walk, dispatch.request, {address, versions})
+        walk = begin_request(spec, walk, dispatch.request, {address, versions})
         under_span(walk, fn -> exchange(spec, walk, {address, pid, versions}, dispatch) end)
     end
   end
@@ -167,7 +193,7 @@ defmodule KafkaEx.Client.MetadataStore.Round do
         {:skip, {:not_connected, reason}}
 
       {:ok, versions} ->
-        case build.(versions) do
+        case first_request(spec, build, versions) do
           {:error, reason} ->
             {:skip, {:not_built, {address, versions}, reason}}
 
@@ -176,6 +202,9 @@ defmodule KafkaEx.Client.MetadataStore.Round do
         end
     end
   end
+
+  defp first_request(%{request: request}, _build, _versions), do: {:ok, request}
+  defp first_request(_spec, build, versions), do: build.(versions)
 
   defp ready(spec, build, {address, pid, versions}, dispatch) do
     case negotiated(spec, build, pid, versions, dispatch) do
@@ -224,43 +253,63 @@ defmodule KafkaEx.Client.MetadataStore.Round do
 
     case call_connection(fn -> ConnectionStateMachine.write(pid, dispatch, left) end, :closed) do
       {:ok, frame, meta} ->
-        case ResponseParser.deserialize(frame, dispatch.request) do
+        case deserialize(frame, dispatch.request) do
           {:ok, response} ->
-            stop_span(%{walk.span | meta: meta}, {:ok, response}, broker_info(spec, address))
-            {:halt, {:answered, response, address, versions}}
+            stop_span(spec, %{walk.span | meta: meta}, {:ok, response}, broker_info(spec, address))
+            {:halt, {:answered, response, address, versions, dispatch.request}}
 
           {:error, :parse_error} ->
-            {:cont, put_meta(walk, meta)}
+            {:cont, write_failed(walk, meta, :parse_error)}
         end
 
       # Encoding is deterministic: no other candidate can do better.
       {:error, {:exception, kind, reason, stacktrace}, _meta} ->
         Logger.warning("Network call to #{describe(spec, address)} failed: #{inspect({:exception, kind, reason})}")
         Telemetry.exception_span(walk.span.handle, walk.span.metadata, kind, reason, stacktrace)
-        {:halt, %{walk | span: nil}}
+        {:halt, %{walk | span: nil, failures: [{:raised, {address, versions}} | walk.failures]}}
 
       {:error, reason, meta} ->
         log_failed(spec, address, reason)
-        {:cont, put_meta(walk, meta)}
+        {:cont, write_failed(walk, meta, reason)}
     end
   end
 
-  defp begin_request(%{span: nil} = walk, request, written_at) do
-    metadata = Telemetry.request_metadata(request, %{})
+  defp deserialize(:no_response, _request), do: {:ok, :no_response}
+  defp deserialize(frame, request), do: ResponseParser.deserialize(frame, request)
+
+  defp begin_request(spec, %{span: nil} = walk, request, written_at) do
+    metadata = request_metadata(request, correlation_id(spec))
     handle = Telemetry.start_span([:kafka_ex, :request], metadata)
     span = %{handle: handle, start_metadata: metadata, metadata: metadata, meta: @no_bytes}
     %{walk | span: span, failures: [{:written, written_at} | walk.failures]}
   end
 
-  defp begin_request(%{span: span} = walk, request, _written_at) do
-    %{walk | span: %{span | metadata: Telemetry.request_metadata(request, %{})}}
+  defp begin_request(_spec, %{span: span} = walk, request, _written_at) do
+    %{walk | span: %{span | metadata: request_metadata(request, span.metadata.correlation_id)}}
   end
 
-  defp put_meta(walk, meta), do: %{walk | span: %{walk.span | meta: meta}}
-
-  defp stop_span(%{handle: handle, metadata: metadata, meta: meta}, result, broker) do
-    Telemetry.stop_span(handle, {result, Map.merge(metadata, Map.put(meta, :broker, broker))})
+  defp request_metadata(request, correlation_id) do
+    %{Telemetry.request_metadata(request, %{}) | correlation_id: correlation_id}
   end
+
+  # Taken as the client's span opens, so concurrent callers never report the same id; a store walk reports none.
+  defp correlation_id(%{correlation: counter}), do: :atomics.add_get(counter, 1, 1) - 1
+  defp correlation_id(_spec), do: nil
+
+  defp write_failed(walk, meta, reason) do
+    %{walk | span: %{walk.span | meta: meta}, failures: [{:write_failed, reason} | walk.failures]}
+  end
+
+  defp stop_span(spec, %{handle: handle} = span, result, broker) do
+    Telemetry.stop_span(handle, {result, stop_metadata(spec, span, broker)})
+  end
+
+  # A client span reports its own correlation id; a store span reports the connection's.
+  defp stop_metadata(%{kind: :request}, span, broker) do
+    span.meta |> Map.merge(span.metadata) |> Map.put(:broker, broker)
+  end
+
+  defp stop_metadata(_spec, span, broker), do: Map.merge(span.metadata, Map.put(span.meta, :broker, broker))
 
   # A crash while a span is open still ends it.
   defp under_span(%{span: nil}, fun), do: fun.()
@@ -280,6 +329,15 @@ defmodule KafkaEx.Client.MetadataStore.Round do
   end
 
   defp record(_spec, walk, failure), do: %{walk | failures: [failure | walk.failures]}
+
+  defp give_up(%{kind: :request} = spec, failures) do
+    cond do
+      first_of(failures, :raised) -> {:raised, {:error, :timeout}}
+      first_of(failures, :written) -> {:error, written_error(spec, failures)}
+      refused = first_of(Enum.reverse(failures), :refused) -> {:refused, {:error, elem(refused, 2)}}
+      true -> {:error, :no_broker}
+    end
+  end
 
   defp give_up(spec, failures) do
     case culprit(failures) do
@@ -309,6 +367,12 @@ defmodule KafkaEx.Client.MetadataStore.Round do
 
   defp first_of(failures, kind), do: Enum.find(failures, &(elem(&1, 0) == kind))
 
+  # A walk the deadline cut short, or one whose every written candidate timed out, ends on :timeout.
+  defp written_error(spec, failures) do
+    timed_out? = Enum.all?(for({:write_failed, reason} <- failures, do: reason), &(&1 == :timeout))
+    if timed_out? or now() >= spec.deadline, do: :timeout, else: :broker_failed
+  end
+
   defp connect_failure(failures) do
     reasons = for {:not_connected, reason} <- failures, do: reason
     {:not_connected, Enum.find(reasons, &match?({:api_versions, _}, &1)) || List.last(reasons) || :no_broker}
@@ -324,7 +388,9 @@ defmodule KafkaEx.Client.MetadataStore.Round do
   end
 
   defp connect(spec, address, pid, retries_left) do
-    case call(fn -> ConnectionStateMachine.connect(pid, spec.connect_timeout + spec.connect_slack) end) do
+    wait = min(spec.connect_timeout + spec.connect_slack, max(spec.deadline - now(), 0))
+
+    case call(fn -> ConnectionStateMachine.connect(pid, wait) end) do
       {:ok, versions} ->
         {:ok, versions}
 
@@ -367,17 +433,25 @@ defmodule KafkaEx.Client.MetadataStore.Round do
   defp new_dispatch(spec, request, address) do
     %{
       node_id: broker_info(spec, address).node_id,
-      request: request,
-      info: @protocol.request_info(request),
-      reply?: true,
       timeout: spec.request_timeout,
-      long_poll: nil,
       wait?: false,
-      deadline: now() + spec.request_timeout
+      deadline: min(now() + spec.request_timeout, spec.deadline)
     }
+    |> Map.merge(Map.take(spec, [:as_is?]))
+    |> carrying(request)
   end
 
-  defp carrying(dispatch, request), do: %{dispatch | request: request, info: @protocol.request_info(request)}
+  @doc false
+  # A rebuilt request keeps its dispatch's deadline, so the rebuild never opens a second reconnect window.
+  @spec carrying(map(), struct()) :: ConnectionStateMachine.dispatch()
+  def carrying(dispatch, request) do
+    info = @protocol.request_info(request)
+    reply? = Map.get(request, :acks) != 0
+    Map.merge(dispatch, %{request: request, info: info, reply?: reply?, long_poll: fetch_max_wait(info, request)})
+  end
+
+  defp fetch_max_wait({:fetch, _version}, request), do: request.max_wait_time
+  defp fetch_max_wait(_info, _request), do: nil
 
   defp not_written(spec, address, :not_connected) do
     Logger.debug("#{describe(spec, address)} not connected, skipping")

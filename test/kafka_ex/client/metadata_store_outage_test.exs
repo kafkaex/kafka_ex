@@ -5,31 +5,41 @@ defmodule KafkaEx.Client.MetadataStoreOutageTest do
   alias KafkaEx.Client.Supervisor, as: ClientSupervisor
   alias KafkaEx.Cluster.Broker
 
-  test "while a restarted store loads, :random selections answer :no_broker and the client stays up" do
+  test "while a restarted store loads, :random selections wait for its table and answer :timeout at the deadline" do
+    with_request_timeout(100)
     %{client: client, gate: gate} = start_pinned()
     PinGate.close(gate)
     kill_store(client)
 
     {{metadata, api_versions}, _log} = with_log(fn -> {API.metadata(client), API.api_versions(client)} end)
 
-    assert {:error, %Error{error: :no_broker}} = metadata
-    assert {:error, :no_broker} = api_versions
+    assert {:error, %Error{error: :timeout}} = metadata
+    assert {:error, :timeout} = api_versions
     assert Process.alive?(client)
   end
 
-  test "while a restarted store loads, cluster_metadata/1 keeps answering the last snapshot" do
+  test "while a restarted store loads, a request waits for its table and succeeds once it loads" do
     %{client: client, gate: gate} = start_pinned()
-    {:ok, before} = API.cluster_metadata(client)
+    PinGate.close(gate)
+    kill_store(client)
+
+    waiting = Task.async(fn -> API.cluster_metadata(client) end)
+    refute Task.yield(waiting, 300)
+    PinGate.open(gate)
+
+    assert {:ok, %{brokers: brokers}} = Task.await(waiting, 15_000)
+    assert map_size(brokers) == 2
+  end
+
+  test "while a restarted store loads, cluster_metadata/1 waits for its table and answers :timeout at the deadline" do
+    with_request_timeout(100)
+    %{client: client, gate: gate} = start_pinned()
     supervisor = :sys.get_state(client).supervisor
     PinGate.close(gate)
     kill_store(client)
-    assert %{active: 2} = Supervisor.count_children(supervisor)
+    assert %{active: 3} = Supervisor.count_children(supervisor)
 
-    {:ok, during} = API.cluster_metadata(client)
-    {:ok, again} = API.cluster_metadata(client)
-
-    assert {during.brokers, during.topics} == {before.brokers, before.topics}
-    assert {again.brokers, again.topics} == {before.brokers, before.topics}
+    assert {:error, :timeout} = API.cluster_metadata(client)
   end
 
   test "a store wait longer than the caller's budget answers :timeout instead of exiting the caller" do
@@ -96,12 +106,11 @@ defmodule KafkaEx.Client.MetadataStoreOutageTest do
   end
 
   test "a budget cut inside the metadata span stops it with the timeout error and emits no exception" do
-    with_request_timeout(100)
     %{client: client, host: host} = start_pinned()
     watch_span([:kafka_ex, :metadata, :update], host)
     store = suspend_store(client)
 
-    {result, _log} = with_log(fn -> API.metadata(client, ["x"], []) end)
+    {result, _log} = with_log(fn -> Client.request(client, {:metadata, ["x"], [], 1}, 300) end)
 
     :sys.resume(store)
     assert {:error, %Error{error: :timeout}} = result
@@ -113,21 +122,20 @@ defmodule KafkaEx.Client.MetadataStoreOutageTest do
   end
 
   test "a budget cut at a later candidate of a walk still stops the walk's request span" do
-    with_request_timeout(100)
     %{fake: fake, client: client, host: host} = start_pinned()
     watch_span([:kafka_ex, :request], host)
     FakeTransport.hold(fake, :find_coordinator)
     :ok = FakeTransport.subscribe(fake)
     store = :sys.get_state(client).store.pid
 
-    call = Task.async(fn -> with_log(fn -> API.find_coordinator(client, "g") end) end)
-    assert_receive {:fake_transport, :request, %{api: :find_coordinator, port: 9092}}, 5_000
+    call = Task.async(fn -> with_log(fn -> Client.request(client, {:find_coordinator, "g", []}, 1_000) end) end)
+    assert_receive {:fake_transport, :request, %{api: :find_coordinator}}, 5_000
     :ok = :sys.suspend(store)
 
     {result, _log} = Task.await(call, 10_000)
     :sys.resume(store)
 
-    assert result == {:error, :timeout}
+    assert {:error, %Error{error: :timeout}} = result
     assert_receive {:span, [:kafka_ex, :request, :start], %{operation: :find_coordinator}}, 1_000
     assert_receive {:span, [:kafka_ex, :request, :stop], %{operation: :find_coordinator, error: :timeout}}, 1_000
     refute_received {:span, [:kafka_ex, :request, _], %{operation: :find_coordinator}}
@@ -137,7 +145,7 @@ defmodule KafkaEx.Client.MetadataStoreOutageTest do
     %{fake: fake, client: client} = start_pinned()
     FakeTransport.respond(fake, :produce, produce_reply())
 
-    assert {:ok, _} = GenServer.call(client, {:produce, @topic, 0, [%{value: "v"}], [network_timeout: 0]}, 10_000)
+    assert {:ok, _} = Client.request(client, {:produce, @topic, 0, [%{value: "v"}], [network_timeout: 0]}, 10_000)
     assert Process.alive?(client)
   end
 
@@ -167,49 +175,31 @@ defmodule KafkaEx.Client.MetadataStoreOutageTest do
     assert requests(fake, :metadata) == []
   end
 
-  test "a cut budget answers cluster_metadata/1 and the internal refresh with the last consistent snapshot" do
+  test "a store that does not answer within the budget: cluster_metadata/1 and metadata/2 answer :timeout" do
     with_request_timeout(100)
     %{client: client} = start_pinned()
-    {:ok, before} = API.cluster_metadata(client)
     store = suspend_store(client)
 
-    {{view, refreshed}, _log} =
-      with_log(fn -> {API.cluster_metadata(client), GenServer.call(client, :update_metadata, 10_000)} end)
+    {{view, refreshed}, _log} = with_log(fn -> {API.cluster_metadata(client), API.metadata(client)} end)
 
     :sys.resume(store)
-    assert {:ok, %{brokers: brokers, topics: topics}} = view
-    assert {brokers, topics} == {before.brokers, before.topics}
-    assert map_size(brokers) == 2
-    assert {:ok, %{brokers: ^brokers, topics: ^topics}} = refreshed
+    assert view == {:error, :timeout}
+    # Metadata requests go out on the store's own connections, which it hands out only when it answers.
+    assert {:error, %Error{error: :timeout}} = refreshed
   end
 
-  test "a store call that times out answers cluster_metadata/1 with the last consistent snapshot" do
+  test "with the store gone, cluster_metadata/1, metadata/2 and list_groups/2 answer :timeout at the deadline" do
+    with_request_timeout(100)
     %{client: client} = start_pinned()
-    {:ok, before} = API.cluster_metadata(client)
-    store = suspend_store(client)
-
-    {result, _log} = with_log(fn -> API.cluster_metadata(client) end)
-
-    :sys.resume(store)
-    assert {:ok, %{brokers: brokers, topics: topics}} = result
-    assert {brokers, topics} == {before.brokers, before.topics}
-  end
-
-  test "with the store gone, cluster_metadata/1, the internal refresh and list_groups/2 answer from the last snapshot" do
-    %{client: client} = start_pinned()
-    {:ok, before} = API.cluster_metadata(client)
     supervisor = :sys.get_state(client).supervisor
     :ok = Supervisor.terminate_child(supervisor, :metadata_store)
 
     {{view, refreshed, groups}, _log} =
-      with_log(fn ->
-        {API.cluster_metadata(client), GenServer.call(client, :update_metadata), API.list_groups(client)}
-      end)
+      with_log(fn -> {API.cluster_metadata(client), API.metadata(client), API.list_groups(client)} end)
 
-    assert {:ok, %{brokers: brokers, topics: topics}} = view
-    assert {brokers, topics} == {before.brokers, before.topics}
-    assert {:ok, %{brokers: ^brokers}} = refreshed
-    assert {:error, {:node_error, 1, _reason}} = groups
+    assert view == {:error, :timeout}
+    assert {:error, %Error{error: :timeout}} = refreshed
+    assert groups == {:error, :timeout}
   end
 
   describe "outages and restarts at client level" do
@@ -244,14 +234,16 @@ defmodule KafkaEx.Client.MetadataStoreOutageTest do
     test "a store killed between the client's resolve and its read: the next produce succeeds, the client stays up" do
       %{client: client, supervisor: supervisor, store: store} = start_outage_client()
       :ok = :sys.suspend(client)
-      request = :gen_server.send_request(client, {:produce, @topic, 0, [%{value: "v"}], []})
+      produce = Task.async(fn -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
+      await_queued(client, 200)
 
       kill(store)
       restarted = ClientSupervisor.metadata_store(supervisor)
       assert is_pid(restarted) and restarted != store
       :ok = :sys.resume(client)
 
-      assert {:reply, {:ok, _}} = :gen_server.receive_response(request, 10_000)
+      assert {:ok, _} = Task.await(produce, 10_000)
+      assert {:ok, _} = API.produce(client, @topic, 0, [%{value: "v"}])
       assert Process.alive?(client)
     end
   end
@@ -263,6 +255,18 @@ defmodule KafkaEx.Client.MetadataStoreOutageTest do
     Map.merge(pinned, %{supervisor: supervisor, store: store})
   end
 
+  # The produce reached the suspended client once its :context call waits in the client's mailbox.
+  defp await_queued(client, tries) do
+    case Process.info(client, :message_queue_len) do
+      {:message_queue_len, 0} when tries > 0 ->
+        refute_receive :never, 10
+        await_queued(client, tries - 1)
+
+      {:message_queue_len, queued} ->
+        assert queued > 0
+    end
+  end
+
   defp kill(pid) do
     ref = Process.monitor(pid)
     Process.exit(pid, :kill)
@@ -271,12 +275,14 @@ defmodule KafkaEx.Client.MetadataStoreOutageTest do
 
   defp assert_outage_survived(client, supervisor) do
     with_request_timeout(200)
-    {during, _log} = with_log(fn -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
+    produce = {:produce, @topic, 0, [%{value: "v"}], []}
+    {during, _log} = with_log(fn -> Client.request(client, produce, 300) end)
 
-    assert {:error, :no_broker} = during
+    # A restarted store that cannot load has no table, so the request waits for one to its deadline.
+    assert {:error, %Error{error: :timeout}} = during
     assert Process.alive?(client)
     assert %{supervisor: ^supervisor} = :sys.get_state(client)
-    assert Supervisor.count_children(supervisor).active == 2
+    assert Supervisor.count_children(supervisor).active == 3
   end
 
   defp assert_recovered(client, supervisor, store) do

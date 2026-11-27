@@ -187,11 +187,12 @@ defmodule KafkaEx.Client.CoordinatorRefreshTest do
     length(FakeTransport.requests(fake))
   end
 
-  defp offset_fetch(client, opts),
-    do: GenServer.call(client, {:offset_fetch, @group, [{"t", [%{partition_num: 0}]}], opts})
+  defp offset_fetch(client, opts) do
+    Client.request(client, {:offset_fetch, @group, [{"t", [%{partition_num: 0}]}], opts}, 5_000)
+  end
 
-  defp describe(client), do: GenServer.call(client, {:describe_groups, [@group], [api_version: 0]})
-  defp heartbeat(client, opts), do: GenServer.call(client, {:consumer_group_heartbeat, @group, opts})
+  defp describe(client), do: Client.request(client, {:describe_groups, [@group], [api_version: 0]}, 5_000)
+  defp heartbeat(client, opts), do: Client.request(client, {:consumer_group_heartbeat, @group, opts}, 5_000)
 
   # correlation_id, one group: error_code, group_id, empty state/protocol_type/protocol,
   # no members.

@@ -52,6 +52,7 @@ defmodule KafkaEx do
           | {:auth, KafkaEx.Auth.Config.t() | nil}
           | {:allow_auto_topic_creation, boolean}
           | {:initial_topics, [binary]}
+          | {:request_concurrency, :serial | :multiplexed}
 
   @doc """
   Creates a KafkaEx worker under the application supervisor.
@@ -68,6 +69,9 @@ defmodule KafkaEx do
   - `allow_auto_topic_creation`: Allow brokers to auto-create topics (default: true;
     a typo'd topic name can silently create a topic on permissive clusters)
   - `initial_topics`: Topics to fetch metadata for at startup (default: [])
+  - `request_concurrency`: `:multiplexed` (default) or `:serial`. A `:serial` worker
+    runs one request at a time, in the order the callers asked; a caller that dies
+    while its request runs lets the next one through
   - `uris`: **Deprecated** alias for `brokers`; still accepted
 
   ## Example

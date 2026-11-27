@@ -39,18 +39,6 @@ defmodule KafkaEx.Client.StateTest do
     end
   end
 
-  describe "increment_correlation_id/1" do
-    test "increments correlation_id by 1" do
-      state = %State{correlation_id: 0}
-
-      state = State.increment_correlation_id(state)
-      assert state.correlation_id == 1
-
-      state = State.increment_correlation_id(state)
-      assert state.correlation_id == 2
-    end
-  end
-
   describe "api_version_ranges/1" do
     alias KafkaEx.Messages.ApiVersions
 

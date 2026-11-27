@@ -1,7 +1,7 @@
 defmodule KafkaEx.Client.ConnectionStateMachine do
   @moduledoc """
   One process per TCP/TLS connection to one broker in one role (`:data`, `:coordinator`, `:metadata`
-  or `:fetch`), started under the client's supervisor.
+  or `{:fetch, topic, partition}`), started under the client's supervisor.
 
   It owns the connection's whole life: connect, ApiVersions, optional SASL, then requests and their
   replies, liveness, and reconnecting with backoff. Its states are `:disconnected`, `:reconnecting`,
@@ -9,8 +9,13 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
 
   `await/3` queues the caller for up to `reconnect_window` while not connected, `write/3` sends one
   request on a connected socket, and `connect/2` connects and returns the negotiated API versions.
-  Its timers are liveness (each reply's deadline plus `liveness_slack`), idle (the `:fetch` role
+  Its timers are liveness (each reply's deadline plus `liveness_slack`), idle (the fetch role
   only) and stable, which resets the reconnect backoff.
+
+  Every connection to one broker address shares one reconnect gate in the client's table
+  (`reconnect_backoff_table/0`): a connect opens it, a failed attempt closes it, and a closed gate
+  grants one attempt per interval (100 ms doubling with jitter to about 500 ms), as Kafka's
+  `reconnect.backoff.ms` spaces only attempts after a failure.
   """
   @behaviour :gen_statem
 
@@ -19,20 +24,23 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   alias KafkaEx.Auth.Config, as: AuthConfig
   alias KafkaEx.Auth.SASL
   alias KafkaEx.Auth.SASL.VersionSupport
-  alias KafkaEx.Client.ConnectionStateMachine.ReconnectBackoff
+  alias KafkaEx.Client.ConnectionRegistry
   alias KafkaEx.Client.State
   alias KafkaEx.Cluster.Broker
   alias KafkaEx.Network.NetworkClient
+  alias KafkaEx.Support.Retry
   alias KafkaEx.Telemetry
 
   @protocol Application.compile_env(:kafka_ex, :protocol, KafkaEx.Protocol.KayrockProtocol)
   @idle_jitter 0.2
   @max_correlation_id 2_147_483_647
+  @reconnect_base_ms 100
+  @reconnect_cap_ms 500
 
   @meta0 %{bytes_sent: 0, bytes_received: 0}
   @setup_states [:connecting, :negotiating, :authenticating]
 
-  @type role :: :data | :coordinator | :metadata | :fetch
+  @type role :: :data | :coordinator | :metadata | {:fetch, topic :: String.t(), partition :: non_neg_integer()}
   @type dispatch :: %{
           optional(:as_is?) => boolean(),
           node_id: non_neg_integer() | nil,
@@ -71,6 +79,11 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   @spec stop(pid(), atom()) :: :ok
   def stop(pid, reason), do: :gen_statem.cast(pid, {:stop, reason})
 
+  @spec reconnect_backoff_table() :: :ets.tid()
+  def reconnect_backoff_table do
+    :ets.new(:reconnect_backoff, [:set, :public, read_concurrency: true, write_concurrency: true])
+  end
+
   @impl :gen_statem
   def callback_mode, do: [:handle_event_function, :state_enter]
 
@@ -81,7 +94,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
 
     data =
       args
-      |> Map.take([:host, :port, :role, :use_ssl, :secrets, :reconnect_backoff])
+      |> Map.take([:host, :port, :role, :use_ssl, :secrets, :reconnect_backoff, :registry])
       |> Map.merge(%{
         opts: opts,
         owner_ref: Process.monitor(args.client),
@@ -95,7 +108,9 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
         setup_deadline: nil,
         outage: nil,
         attempted?: false,
-        spans: %{}
+        spans: %{},
+        # The armed liveness deadline, kept so a request costs O(1) however many others are in flight.
+        liveness_at: nil
       })
 
     {:ok, :disconnected, data}
@@ -125,8 +140,9 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
     enqueue(from, dispatch, state, named(data, dispatch))
   end
 
-  def handle_event({:call, from}, {:write, dispatch}, :connected, data) do
-    send_request(from, dispatch, data)
+  # A caller that died while its write waited, such as a consumer closing mid-join, must not have it sent (KIP-848).
+  def handle_event({:call, {caller, _tag} = from}, {:write, dispatch}, :connected, data) do
+    if Process.alive?(caller), do: send_request(from, dispatch, data), else: :keep_state_and_data
   end
 
   # The caller saw this connection up and committed to the write: a drop since then is a dead socket's send.
@@ -178,12 +194,14 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
 
   def handle_event({:timeout, :liveness}, nil, :connected, data), do: liveness(data)
 
+  # Unregistered first, so a call left in the mailbox exits :normal and its caller reconnects through the registry.
   def handle_event({:timeout, :idle}, nil, _state, data) do
+    :ok = ConnectionRegistry.unregister(data.registry, {data.host, data.port, data.role})
     {:stop, :normal, close_socket(data, :idle)}
   end
 
   def handle_event({:timeout, :stable}, nil, :connected, data) do
-    ReconnectBackoff.stable(data.reconnect_backoff, key(data))
+    :ets.update_element(data.reconnect_backoff, key(data), {3, 0})
     :keep_state_and_data
   end
 
@@ -268,8 +286,8 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
     {overdue, data} = answer_overdue(data)
 
     with true <- demand?(data),
-         :ok <- ReconnectBackoff.claim(data.reconnect_backoff, key(data), now()) do
-      unless data.attempted?, do: ReconnectBackoff.stop_awaiting_slot(data.reconnect_backoff, key(data), self())
+         :ok <- claim_slot(data.reconnect_backoff, key(data), now()) do
+      unless data.attempted?, do: :ets.delete(data.reconnect_backoff, {:first_connect, key(data), self()})
       {:next_state, :connecting, %{data | attempted?: true}, overdue ++ [run()]}
     else
       false -> {:next_state, :disconnected, data, overdue ++ idle_without_demand(data)}
@@ -282,7 +300,8 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
 
     # Idle is armed here too: staying :disconnected runs no state enter, and the enqueue cancelled it.
     if demand?(data) do
-      unless data.attempted?, do: ReconnectBackoff.await_slot(data.reconnect_backoff, key(data), self())
+      # A connection that has not attempted yet waits on another's reservation only until that one connects.
+      unless data.attempted?, do: :ets.insert(data.reconnect_backoff, {{:first_connect, key(data), self()}})
       {:next_state, :reconnecting, data, overdue ++ answers ++ [{:state_timeout, ms, :try_connect}]}
     else
       {:next_state, :disconnected, data, overdue ++ answers ++ idle_without_demand(data)}
@@ -397,7 +416,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   defp activate(data) do
     case NetworkClient.activate(data.socket) do
       :ok ->
-        ReconnectBackoff.connected(data.reconnect_backoff, key(data), now())
+        open_gate(data.reconnect_backoff, key(data))
         data = stop_span(data, :connection, %{success: true})
         replies = for from <- data.connectors, do: {:reply, from, {:ok, data.api_versions}}
         stable = {{:timeout, :stable}, data.opts.stable_period, nil}
@@ -422,6 +441,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   end
 
   defp setup_failed(reason, data) do
+    close_gate(data.reconnect_backoff, key(data), now())
     data = data |> close_socket(nil) |> stop_span(:auth, %{result: :error, error: unwrap(reason)})
     data = stop_span(data, :connection, %{success: false, error: unwrap(reason)})
     data = %{data | outage: outage_after_failure(data)}
@@ -447,8 +467,41 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   # Only the exception's module or the kind leaves the process: any term may hold a credential.
   defp handshake_failed(kind, reason, data) do
     summary = if kind == :error, do: Exception.normalize(:error, reason, []).__struct__, else: kind
+    close_gate(data.reconnect_backoff, key(data), now())
     data = data |> span_exception(:auth, summary) |> span_exception(:connection, summary) |> close_socket(nil)
     {:stop, {:handshake_failed, summary}, data}
+  end
+
+  defp claim_slot(table, key, now) do
+    :ets.insert_new(table, {key, now, 0})
+
+    case :ets.lookup(table, key) do
+      [{^key, :open, _failures}] -> :ok
+      [{^key, next_at, _failures}] when next_at > now -> {:wait, next_at - now}
+      [row] -> if reserve_next_slot(table, row, now), do: :ok, else: claim_slot(table, key, now)
+    end
+  end
+
+  defp close_gate(table, key, now) do
+    case :ets.lookup(table, key) do
+      [{^key, :open, _failures} = row] -> reserve_next_slot(table, row, now) or close_gate(table, key, now)
+      _closed -> false
+    end
+  end
+
+  defp open_gate(table, key) do
+    :ets.update_element(table, key, {2, :open})
+
+    for [pid] <- :ets.match(table, {{:first_connect, key, :"$1"}}) do
+      :ets.delete(table, {:first_connect, key, pid})
+      send(pid, :reconnect_slot)
+    end
+  end
+
+  # One winner among concurrent callers: the swap applies only to the row each of them read.
+  defp reserve_next_slot(table, {key, _gate, failures} = row, now) do
+    delay = Retry.backoff_delay_jittered(failures, @reconnect_base_ms, @reconnect_cap_ms)
+    :ets.select_replace(table, [{row, [], [{:const, {key, now + delay, failures + 1}}]}]) == 1
   end
 
   defp try_connect_if_waiting(data), do: if(demand?(data), do: [{:next_event, :internal, :try_connect}], else: [])
@@ -543,8 +596,8 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
       api: operation
     }
 
-    data = %{data | in_flight: Map.put(data.in_flight, id, entry)}
-    {:keep_state, data, [{{:timeout, {:reply, id}}, dispatch.timeout, nil}, liveness_timer(data), cancel(:idle)]}
+    {data, liveness} = arm_liveness(%{data | in_flight: Map.put(data.in_flight, id, entry)}, live_until)
+    {:keep_state, data, [{{:timeout, {:reply, id}}, dispatch.timeout, nil}, cancel(:idle) | liveness]}
   end
 
   defp send_failed(from, dispatch, reason, {id, bytes}, data) do
@@ -577,17 +630,22 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
 
   defp rearm(data, actions) do
     case NetworkClient.activate(data.socket) do
-      :ok -> {:keep_state, data, actions ++ [liveness_timer(data) | idle_when_empty(data)]}
+      :ok -> keep_reading(data, actions)
       {:error, _reason} -> peer_closed(data, actions)
     end
   end
 
-  defp liveness_timer(data) do
-    case data.in_flight |> Enum.map(fn {_id, entry} -> entry.live_until end) |> Enum.min(fn -> nil end) do
-      nil -> cancel(:liveness)
-      at -> {{:timeout, :liveness}, at, nil, [abs: true]}
-    end
+  defp keep_reading(%{in_flight: in_flight} = data, actions) when in_flight == %{} do
+    {:keep_state, %{data | liveness_at: nil}, actions ++ [cancel(:liveness) | idle_when_empty(data)]}
   end
+
+  defp keep_reading(data, actions), do: {:keep_state, data, actions}
+
+  defp arm_liveness(%{liveness_at: at} = data, live_until) when is_integer(at) and at <= live_until, do: {data, []}
+  defp arm_liveness(data, live_until), do: {%{data | liveness_at: live_until}, [liveness_timer(live_until)]}
+
+  defp liveness_timer(nil), do: cancel(:liveness)
+  defp liveness_timer(at), do: {{:timeout, :liveness}, at, nil, [abs: true]}
 
   defp idle_without_demand(data), do: if(fetch?(data) and not demand?(data), do: [idle(data)], else: [])
 
@@ -598,7 +656,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
     {{:timeout, :idle}, round(data.opts.idle_timeout * (1 + jitter)), nil}
   end
 
-  defp fetch?(%{role: :fetch}), do: true
+  defp fetch?(%{role: {:fetch, _topic, _partition}}), do: true
   defp fetch?(_data), do: false
 
   defp reply_timed_out(id, data) do
@@ -619,7 +677,8 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
     if Enum.any?(data.in_flight, fn {_id, entry} -> entry.live_until <= now end) do
       close_client_side(:liveness, data)
     else
-      {:keep_state_and_data, [liveness_timer(data)]}
+      at = data.in_flight |> Enum.map(fn {_id, entry} -> entry.live_until end) |> Enum.min(fn -> nil end)
+      {:keep_state, %{data | liveness_at: at}, [liveness_timer(at)]}
     end
   end
 
@@ -673,7 +732,7 @@ defmodule KafkaEx.Client.ConnectionStateMachine do
   defp meta(id, entry), do: %{bytes_sent: entry.bytes_sent, bytes_received: 0, correlation_id: id}
 
   defp disconnect(data, actions) do
-    data = %{data | socket: nil}
+    data = %{data | socket: nil, liveness_at: nil}
     timers = [cancel(:liveness), cancel(:stable)]
     {:next_state, :disconnected, data, actions ++ timers ++ try_connect_if_waiting(data)}
   end

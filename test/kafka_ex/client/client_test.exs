@@ -24,7 +24,11 @@ defmodule KafkaEx.ClientTest do
       sent_before = non_handshake(fake)
 
       assert {:error, :invalid_consumer_group} =
-               GenServer.call(client, {:offset_fetch, :no_consumer_group, [{"test-topic", [%{partition_num: 0}]}], []})
+               Client.request(
+                 client,
+                 {:offset_fetch, :no_consumer_group, [{"test-topic", [%{partition_num: 0}]}], []},
+                 5_000
+               )
 
       assert non_handshake(fake) == sent_before
     end
@@ -32,7 +36,7 @@ defmodule KafkaEx.ClientTest do
     test "handles valid consumer group", %{client: client} do
       {result, _log} =
         with_log(fn ->
-          GenServer.call(client, {:offset_fetch, "test-group", [{"test-topic", [%{partition_num: 0}]}], []})
+          Client.request(client, {:offset_fetch, "test-group", [{"test-topic", [%{partition_num: 0}]}], []}, 5_000)
         end)
 
       assert {_ok_or_error, _} = result
@@ -51,9 +55,10 @@ defmodule KafkaEx.ClientTest do
       sent_before = non_handshake(fake)
 
       assert {:error, :invalid_consumer_group} =
-               GenServer.call(
+               Client.request(
                  client,
-                 {:offset_commit, :no_consumer_group, [{"test-topic", [%{partition_num: 0, offset: 100}]}], []}
+                 {:offset_commit, :no_consumer_group, [{"test-topic", [%{partition_num: 0, offset: 100}]}], []},
+                 5_000
                )
 
       assert non_handshake(fake) == sent_before
@@ -62,9 +67,10 @@ defmodule KafkaEx.ClientTest do
     test "handles valid consumer group", %{client: client} do
       {result, _log} =
         with_log(fn ->
-          GenServer.call(
+          Client.request(
             client,
-            {:offset_commit, "test-group", [{"test-topic", [%{partition_num: 0, offset: 100}]}], []}
+            {:offset_commit, "test-group", [{"test-topic", [%{partition_num: 0, offset: 100}]}], []},
+            5_000
           )
         end)
 
@@ -84,7 +90,6 @@ defmodule KafkaEx.ClientTest do
       {:ok, pinned}
     end
 
-    @tag pin_set: :today_only, retired_by: 1497
     test "acks: 0 is sent fire-and-forget, exactly once, and returns no offset", %{fake: fake, client: client} do
       FakeTransport.respond(fake, :produce, produce_reply("t"))
       {:ok, correlation_id} = API.correlation_id(client)
@@ -99,7 +104,6 @@ defmodule KafkaEx.ClientTest do
       assert count(fake, :produce) == 2
     end
 
-    @tag pin_set: :today_only, retired_by: 1497
     test "a failed fire-and-forget send is reported as an error, not a crash, and is sent once", %{
       fake: fake,
       client: client,
@@ -301,7 +305,7 @@ defmodule KafkaEx.ClientTest do
     end
   end
 
-  defp produce(client, opts), do: GenServer.call(client, {:produce, "t", 0, [%{value: "v"}], opts})
+  defp produce(client, opts), do: Client.request(client, {:produce, "t", 0, [%{value: "v"}], opts}, 5_000)
 
   defp attach_produce_start_handler do
     handler_id = "produce-acks-#{System.unique_integer([:positive])}"

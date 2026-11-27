@@ -3,7 +3,6 @@ defmodule KafkaEx.Client.State do
 
   # state struct for New.Client
 
-  alias KafkaEx.Client.ConnectionStateMachine
   alias KafkaEx.Client.MetadataStore.MetadataTable
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Messages.ApiVersions
@@ -13,7 +12,7 @@ defmodule KafkaEx.Client.State do
   defstruct(
     bootstrap_uris: [],
     cluster_metadata: %ClusterMetadata{},
-    correlation_id: 0,
+    correlation: nil,
     consumer_group_for_auto_commit: nil,
     metadata_update_interval: nil,
     ssl_options: [],
@@ -22,22 +21,22 @@ defmodule KafkaEx.Client.State do
     api_versions: %{},
     allow_auto_topic_creation: true,
     supervisor: nil,
-    conns: %{},
+    registry: nil,
+    conns: nil,
     reconnect_backoff: nil,
     connection_options: %{},
-    parked: %{},
-    parking: nil,
     store: nil,
-    hints: %{},
+    hints: nil,
     deadline: nil,
-    dispatch_stamp: nil,
-    last_view: %ClusterMetadata{}
+    request_concurrency: :multiplexed,
+    permit: nil,
+    waiting: :queue.new()
   )
 
   @type t :: %__MODULE__{
           bootstrap_uris: [{binary(), pos_integer()}],
           cluster_metadata: ClusterMetadata.t(),
-          correlation_id: non_neg_integer(),
+          correlation: :atomics.atomics_ref() | nil,
           consumer_group_for_auto_commit: binary() | nil,
           metadata_update_interval: pos_integer() | nil,
           ssl_options: Keyword.t(),
@@ -46,19 +45,16 @@ defmodule KafkaEx.Client.State do
           api_versions: map(),
           allow_auto_topic_creation: boolean(),
           supervisor: pid() | nil,
-          conns: %{
-            optional({binary(), non_neg_integer(), ConnectionStateMachine.role()}) => %{pid: pid(), ref: reference()}
-          },
+          registry: pid() | nil,
+          conns: :ets.tid() | nil,
           reconnect_backoff: :ets.tid() | nil,
           connection_options: map(),
-          parked: %{optional(reference()) => map()},
-          parking:
-            :first | {:resumed, {binary(), non_neg_integer(), ConnectionStateMachine.role()}, pid(), term()} | nil,
           store: %{pid: pid(), ref: reference(), tid: MetadataTable.t()} | nil,
           deadline: integer() | nil,
-          dispatch_stamp: MetadataTable.stamp() | nil,
-          hints: MetadataTable.hints(),
-          last_view: ClusterMetadata.t()
+          hints: :ets.tid() | nil,
+          request_concurrency: :serial | :multiplexed,
+          permit: {pid(), reference()} | nil,
+          waiting: :queue.queue(GenServer.from())
         }
 
   @default_metadata_update_interval 30_000
@@ -71,6 +67,7 @@ defmodule KafkaEx.Client.State do
       use_ssl: Keyword.get(args, :use_ssl, false),
       ssl_options: Keyword.get(args, :ssl_options, []),
       auth: Keyword.get(args, :auth, nil),
+      request_concurrency: Keyword.get(args, :request_concurrency, :multiplexed),
       # Inert unless used: group-coordination calls (offset_commit/fetch,
       # join/sync/leave/heartbeat, describe_groups) and the stream auto-commit
       # path all take the group as an explicit argument — none fall back to
@@ -79,10 +76,6 @@ defmodule KafkaEx.Client.State do
       # that invariant if you ever add an implicit default off this field.
       consumer_group_for_auto_commit: Keyword.get(args, :consumer_group)
     }
-  end
-
-  def increment_correlation_id(%__MODULE__{correlation_id: cid} = state) do
-    %{state | correlation_id: cid + 1}
   end
 
   @spec api_version_ranges(ApiVersions.t()) :: %{non_neg_integer() => {non_neg_integer(), non_neg_integer()}}

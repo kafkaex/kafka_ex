@@ -1,6 +1,8 @@
 defmodule KafkaEx.APITest do
   use ExUnit.Case, async: true
 
+  setup {KafkaEx.Test.MockClient, :stub_request}
+
   alias KafkaEx.Cluster.ClusterMetadata
   alias KafkaEx.Cluster.Broker
   alias KafkaEx.Cluster.Topic

@@ -36,8 +36,14 @@ defmodule KafkaEx.Client.RequestSpanTest do
     client: client,
     host: host
   } do
-    FakeTransport.respond(fake, :find_coordinator, fn request ->
-      if request.port == 9092, do: :close, else: %{node_id: 2, host: host, port: 9093, error_message: nil}
+    first = :atomics.new(1, [])
+
+    FakeTransport.respond(fake, :find_coordinator, fn _request ->
+      if :atomics.exchange(first, 1, 1) == 0 do
+        :close
+      else
+        %{node_id: 2, host: host, port: 9093, error_message: nil}
+      end
     end)
 
     {:ok, before} = API.correlation_id(client)
@@ -45,10 +51,11 @@ defmodule KafkaEx.Client.RequestSpanTest do
     {result, log} = with_log(fn -> API.find_coordinator(client, "g") end)
 
     assert {:ok, %{coordinator: %{node_id: 2}}} = result
-    assert log =~ "Network call to broker 1 (#{host}:9092) failed: :closed\n"
-    assert nodes(fake, :find_coordinator) |> Enum.take(-2) == [1, 2]
+    [failed, answered] = nodes(fake, :find_coordinator) |> Enum.take(-2)
+    assert Enum.sort([failed, answered]) == [1, 2]
+    assert log =~ ~r/Network call to broker #{failed} \(#{host}:\d+\) failed: :closed\n/
     assert_receive {:request_span, :start, %{operation: :find_coordinator, correlation_id: ^before}}, 1_000
-    assert_receive {:request_span, :stop, %{result: :ok, broker: %{port: 9093}}}, 1_000
+    assert_receive {:request_span, :stop, %{result: :ok, broker: %{node_id: ^answered}}}, 1_000
     refute_receive {:request_span, _, _}, 100
     assert API.correlation_id(client) == {:ok, before + 1}
   end
@@ -59,9 +66,10 @@ defmodule KafkaEx.Client.RequestSpanTest do
     host: host
   } do
     unparsable = &{:frame, <<&1.correlation_id::32, 0xFF>>}
+    first = :atomics.new(1, [])
 
     FakeTransport.respond(fake, :metadata, fn request ->
-      if request.port == 9092, do: unparsable.(request), else: metadata_reply(host, [{@topic, [1, 2]}])
+      if :atomics.exchange(first, 1, 1) == 0, do: unparsable.(request), else: metadata_reply(host, [{@topic, [1, 2]}])
     end)
 
     {:ok, before} = API.correlation_id(client)
@@ -70,9 +78,10 @@ defmodule KafkaEx.Client.RequestSpanTest do
     {result, _log} = with_log(fn -> Client.send_request(client, request, NodeSelector.first_available()) end)
 
     assert {:ok, %Kayrock.Metadata.V0.Response{}} = result
-    assert nodes(fake, :metadata) |> Enum.take(-2) == [1, 2]
+    [failed, answered] = nodes(fake, :metadata) |> Enum.take(-2)
+    assert Enum.sort([failed, answered]) == [1, 2]
     assert_receive {:request_span, :start, %{operation: :metadata, correlation_id: ^before}}, 1_000
-    assert_receive {:request_span, :stop, %{result: :ok, broker: %{port: 9093}}}, 1_000
+    assert_receive {:request_span, :stop, %{result: :ok, broker: %{node_id: ^answered}}}, 1_000
     refute_receive {:request_span, _, _}, 100
   end
 
@@ -87,7 +96,7 @@ defmodule KafkaEx.Client.RequestSpanTest do
     {result, _log} = with_log(fn -> Client.send_request(client, request, NodeSelector.first_available()) end)
 
     assert result == {:error, :broker_failed}
-    assert nodes(fake, :metadata) |> Enum.take(-2) == [1, 2]
+    assert nodes(fake, :metadata) |> Enum.take(-2) |> Enum.sort() == [1, 2]
     assert_receive {:request_span, :start, %{operation: :metadata}}, 1_000
     assert_receive {:request_span, :stop, %{result: :error, error: :broker_failed}}, 1_000
     refute_receive {:request_span, _, _}, 100
@@ -175,55 +184,48 @@ defmodule KafkaEx.Client.RequestSpanTest do
     assert count(fake, :fetch) == fetches_before
   end
 
-  describe "a crash after the span opens" do
-    test "a raise ends the span with the request exception", %{fake: fake, client: client} do
-      ref = Process.monitor(client)
+  # A walk takes every candidate's connection before it writes (decision 4682), so the crash precedes any span.
+  describe "a registry crash while a walk takes its connections" do
+    test "a raise in the connection registry exits the caller before any span opens", %{fake: fake, client: client} do
       warm_data_connection(fake, client)
-      FakeTransport.respond(fake, :produce, :close)
       fail_connection_start()
 
-      {exit, _log} =
-        with_log(fn -> catch_exit(Client.send_request(client, produce_request(), NodeSelector.first_available())) end)
+      {{reason, stacktrace}, _log} = with_log(fn -> walk_exit(client) end)
 
-      assert {{{:case_clause, {:error, _}}, [_ | _] = stacktrace} = reason, _call} = exit
-      assert_receive {:DOWN, ^ref, :process, ^client, ^reason}, 5_000
-      assert_received {:request_span, :start, %{operation: :produce}}
+      assert {{{:case_clause, {:error, _}}, [_ | _]}, {GenServer, :call, [_registry, {:connect, _key}, _timeout]}} =
+               reason
 
-      assert_received {:request_span, :exception,
-                       %{
-                         operation: :produce,
-                         kind: :error,
-                         reason: {:case_clause, {:error, _}},
-                         stacktrace: ^stacktrace
-                       }}
-
+      assert Process.alive?(client)
+      assert Enum.any?(stacktrace, &client_frame?(&1, :connect, 2))
       refute_received {:request_span, _, _}
     end
 
-    test "an exit ends the span with the request exception", %{fake: fake, client: client} do
-      ref = Process.monitor(client)
+    test "an exit in the connection registry exits the caller before any span opens", %{fake: fake, client: client} do
       warm_data_connection(fake, client)
-      FakeTransport.respond(fake, :produce, :close)
       supervisor = ClientSupervisor.connection_supervisor(:sys.get_state(client).supervisor)
       :sys.replace_state(supervisor, fn _state -> :broken end)
 
-      {exit, _log} =
-        with_log(fn -> catch_exit(Client.send_request(client, produce_request(), NodeSelector.first_available())) end)
+      {{reason, stacktrace}, _log} = with_log(fn -> walk_exit(client) end)
 
-      assert {{_crash, {GenServer, :call, [^supervisor, {:start_child, _child}, :infinity]}} = reason, _call} = exit
-      assert_receive {:DOWN, ^ref, :process, ^client, ^reason}, 5_000
-      assert_received {:request_span, :start, %{operation: :produce}}
+      assert {{_crash, {GenServer, :call, [^supervisor, {:start_child, _child}, :infinity]}},
+              {GenServer, :call, [_registry, {:connect, _key}, _timeout]}} = reason
 
-      assert_received {:request_span, :exception,
-                       %{operation: :produce, kind: :exit, reason: ^reason, stacktrace: stacktrace}}
+      assert Process.alive?(client)
+      assert Enum.any?(stacktrace, &client_frame?(&1, :connect, 2))
 
-      assert Enum.any?(stacktrace, &client_frame?(&1, :start_connection, 2))
-
-      refute_received {:request_span, _, _}
+      # The registry's crash restarts the metadata store, whose boot opens a metadata span of its own.
+      refute_received {:request_span, _, %{operation: :produce}}
     end
   end
 
-  # A walk tries connected brokers first, so the fault meets the second candidate's connection start.
+  defp walk_exit(client) do
+    Client.send_request(client, produce_request(), NodeSelector.first_available())
+    flunk("the walk did not exit")
+  catch
+    :exit, reason -> {reason, __STACKTRACE__}
+  end
+
+  # One broker is connected, so the fault meets the other broker's connection start.
   defp warm_data_connection(fake, client) do
     FakeTransport.respond(fake, :produce, produce_reply())
     {:ok, _} = API.produce(client, @topic, 0, [%{value: "v"}])

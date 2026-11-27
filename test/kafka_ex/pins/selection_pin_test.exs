@@ -15,7 +15,7 @@ defmodule KafkaEx.Pins.SelectionPinTest do
 
   defp consumer_group_heartbeat(client), do: API.consumer_group_heartbeat(client, "g", member_id: "m", member_epoch: 0)
 
-  defp refresh(client), do: GenServer.call(client, :update_metadata)
+  defp refresh(client), do: refresh_tracked(client)
 
   defp metadata_topics(%{frame: frame}) do
     <<_api::16, _version::16, _corr::32, client_id_size::16-signed, _client_id::binary-size(client_id_size),

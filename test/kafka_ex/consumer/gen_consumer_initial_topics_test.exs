@@ -5,6 +5,8 @@ defmodule KafkaEx.Consumer.GenConsumerInitialTopicsTest do
   refresh is scoped to this consumer's topic instead of the whole cluster catalog.
   """
   use ExUnit.Case
+
+  setup {KafkaEx.Test.MockClient, :stub_request}
   use Mimic
 
   alias KafkaEx.Client

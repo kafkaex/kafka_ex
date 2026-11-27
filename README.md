@@ -753,6 +753,20 @@ KafkaEx v1.0 includes smart error handling and retry logic for production resili
 - **Offset commits** - Retry transient errors (timeout, coordinator not available) with exponential backoff
 - **API version negotiation** - Retry parse errors during initial connection
 
+Between attempts the client waits a growing, jittered delay (about 100 ms, then 200 ms), never past the call's timeout.
+
+### Timeouts and Request Order
+
+Each request runs in the process that calls `KafkaEx.API`, so a slow broker or a long-poll fetch does not hold up other callers. A request that runs out of time returns `{:error, :timeout}`; it does not exit the caller.
+
+Requests keep their order only within one caller. For one request at a time across all callers, start the client with `request_concurrency: :serial`:
+
+```elixir
+{:ok, client} = KafkaEx.API.start_client(brokers: [{"localhost", 9092}], request_concurrency: :serial)
+```
+
+In `:serial`, a request whose caller timed out may still be in flight at the broker when the next one is sent.
+
 ### Consumer Group Resilience
 
 Consumer groups handle transient errors gracefully following the Java client pattern (KAFKA-6829):

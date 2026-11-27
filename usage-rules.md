@@ -59,8 +59,8 @@ messages = [%{value: "msg1", key: "k1"}, %{value: "msg2", key: "k2"}]
 
 # CAUTION - acks: 0 is fire-and-forget: {:ok, _} only means "handed to the socket",
 # metadata.base_offset is nil, nothing is retried, and a broker-side rejection shows up
-# as a closed connection, so records can be lost silently. The call still round-trips
-# through the client process, so it is not a latency escape hatch.
+# as a closed connection, so records can be lost silently. The call still waits until
+# the connection has written the request, so it is not a latency escape hatch.
 {:ok, %{base_offset: nil}} = KafkaEx.API.produce(client, "topic", 0, messages, acks: 0)
 
 # DEPRECATED - :required_acks is an alias for :acks, removed in 2.0
@@ -349,14 +349,27 @@ def handle_message_set(messages, state) do
 end
 ```
 
+### ❌ Calling the client process directly
+
+```elixir
+# WRONG - answered {:error, :unsupported_call}; requests run in the caller
+GenServer.call(client, :update_metadata)
+GenServer.call(client, {:fetch, "topic", 0, 0, []})
+
+# CORRECT
+{:ok, metadata} = KafkaEx.API.metadata(client, ["topic"], [])
+{:ok, result} = KafkaEx.API.fetch(client, "topic", 0, 0)
+```
+
 ## Configuration Best Practices
 
 1. **Always use SSL/TLS in production**
 2. **Use environment variables for credentials** - Never hardcode
 3. **SCRAM is preferred over PLAIN** when both available
 4. **Set reasonable timeouts** - Default `sync_timeout` is 3000ms (governs metadata, find_coordinator, etc.). Fetch requests derive their timeouts from `:max_wait_time` automatically — see `KafkaEx.API.fetch/5`.
-5. **Configure consumer commit settings** - `commit_interval` (5000ms) and `commit_threshold` (100 messages)
-6. **Bound per-call batch size with `max_records`** - to cap how many records one `handle_message_set/2` call gets (and so how many are replayed after a crash), pass `max_records: n` to `GenConsumer`/`ConsumerGroup`. Do NOT fork `GenConsumer` or split the message set yourself; each chunk is committed on its own.
+5. **Need one global request order?** Start the client with `request_concurrency: :serial` (one request at a time, first come first served). By default requests keep their order only within one calling process.
+6. **Configure consumer commit settings** - `commit_interval` (5000ms) and `commit_threshold` (100 messages)
+7. **Bound per-call batch size with `max_records`** - to cap how many records one `handle_message_set/2` call gets (and so how many are replayed after a crash), pass `max_records: n` to `GenConsumer`/`ConsumerGroup`. Do NOT fork `GenConsumer` or split the message set yourself; each chunk is committed on its own.
 
 ## Testing Patterns
 

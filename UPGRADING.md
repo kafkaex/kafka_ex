@@ -7,6 +7,95 @@ no longer supported or tested. Upgrade Elixir before upgrading KafkaEx. The
 OTP minimum is unchanged at 25. Tested combinations: Elixir 1.17 / OTP 25,
 1.18 / OTP 27, 1.19 / OTP 28 and 1.20 / OTP 29.
 
+## Requests keep their order only within one caller
+
+Requests now run in the calling process, so requests from different processes
+can reach the broker in any order. If you relied on one global order, start the
+client with `request_concurrency: :serial`: it runs one request at a time,
+first come first served. In `:serial`, a request whose caller timed out may
+still be in flight at the broker when the next one is sent.
+
+## A request that runs out of time answers `{:error, :timeout}`
+
+It no longer exits the caller, so a `catch :exit` kept only for timeouts can
+go; match `{:error, :timeout}` instead. A dead client, or a client on a node
+that cannot be reached, still exits the caller. A last attempt that started
+just before the deadline may answer up to 0.5 s after it.
+
+## Direct calls to the client process are not supported
+
+A `GenServer.call(client, {op, …})` or `GenServer.call(client, :update_metadata)`
+is answered with `{:error, :unsupported_call}` and a logged warning. Use
+`KafkaEx.API`, or `KafkaEx.Client.request/3` for a raw client message. In place
+of `:update_metadata`, call `KafkaEx.API.metadata/3` with the topics you use.
+
+## Retries wait between attempts
+
+After a retryable error the client waits a growing, jittered delay (about
+100 ms, then 200 ms, never past the deadline) instead of retrying at once. The
+number of attempts is unchanged, so a call that fails every attempt takes a
+little longer to return.
+
+## Every fetched partition has its own connection
+
+A consumer opens one fetch connection per partition instead of one per broker,
+so it uses more sockets and runs more TLS/SASL handshakes. For consumers of
+many partitions, check the brokers' `max.connections.per.ip` and the client
+host's file descriptor limit.
+
+## `metadata/2,3` and `api_versions/2` try every broker; `:not_controller` is retried
+
+Each call walks the known brokers in random order until one answers, and
+repeats the walk up to three times. When no broker answers, the result is
+`:broker_failed` instead of the last broker's error. `create_topics/4` and
+`delete_topics/4` answered `:not_controller` for every topic now refresh
+metadata and retry against the new controller.
+
+## Request logs carry the caller's pid
+
+Log lines about a request are written by the calling process, so their `pid`
+metadata is the caller's, not the client's. Update log filters or alerts that
+keyed on the client's pid.
+
+## `create_topics/4` and `delete_topics/4` can answer `{:error, :not_controller}`
+
+If every attempt gets `:not_controller` for every topic, the call answers
+`{:error, :not_controller}` instead of `{:ok, result}` with `:not_controller`
+on each topic. Match the error instead of the per-topic code. A
+`:not_controller` on only some topics still comes back in `{:ok, result}`.
+
+## A preferred read replica's error falls back to the leader in the same call
+
+After any error from a preferred read replica (KIP-392), the fetch asks the
+leader within the same call instead of returning the replica's error. A retry
+you added around such errors is no longer needed.
+
+## `cluster_metadata/1` waits for a metadata table
+
+While the client has no metadata table (its metadata store restarting or still
+loading), `KafkaEx.API.cluster_metadata/1` waits up to its budget and then
+answers `{:error, :timeout}` instead of `{:ok, metadata}` with the last
+metadata it saw. Handle the error where you matched only `{:ok, _}`;
+`KafkaEx.API.list_groups/2` passes it on.
+
+## Broker walks wait for a broker that is still connecting
+
+`find_coordinator/3`, `metadata/2,3`, `api_versions/2` and `send_request/4`
+with `:first_available` wait for each broker's connection, up to
+`:connect_timeout` (default 10 s) and never past the deadline, instead of
+skipping a broker that is not connected yet. A broker that cannot be reached
+can cost up to `:connect_timeout` before the next one is tried.
+
+## Clients on other nodes
+
+`KafkaEx.API` called with a client on another node runs the request on that
+node with one `:erpc` call to `KafkaEx.Client.request/3`. During a node-by-node
+upgrade, a node still on an older KafkaEx has no `KafkaEx.Client.request/3`, so
+calls from an upgraded node to a client there raise `{:exception, :undef, _}`.
+An older node calling a client on an upgraded node gets
+`{:error, :unsupported_call}`. Both last until every node that calls another
+node's client is upgraded.
+
 # Upgrading to KafkaEx 1.2.0
 
 This section covers changes since the 1.1 release. The 1.0 → 1.1 changes are

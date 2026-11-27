@@ -15,17 +15,11 @@ defmodule KafkaEx.Pins.ConnectionInvariantsPinTest do
       start_pinned()
     end
 
-    test "coordinator requests are written in the order they reach the client", %{fake: fake, client: client} do
+    test "coordinator requests from one caller are written in the order it made them", %{fake: fake, client: client} do
       FakeTransport.respond(fake, :heartbeat, %{error_code: 0})
 
-      refs =
-        for generation <- 1..3 do
-          ref = make_ref()
-          send(client, {:"$gen_call", {self(), ref}, {:heartbeat, "g", "m", generation, []}})
-          ref
-        end
+      for generation <- 1..3, do: assert({:ok, :no_error} = API.heartbeat(client, "g", "m", generation))
 
-      for ref <- refs, do: assert_receive({^ref, {:ok, :no_error}}, 5_000)
       assert fake |> requests(:heartbeat) |> Enum.map(&generation/1) == [1, 2, 3]
     end
 

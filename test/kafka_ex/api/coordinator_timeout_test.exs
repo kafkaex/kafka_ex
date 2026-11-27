@@ -9,6 +9,8 @@ defmodule KafkaEx.API.CoordinatorTimeoutTest do
   """
   use ExUnit.Case, async: true
 
+  setup {KafkaEx.Test.MockClient, :stub_request}
+
   alias KafkaEx.Test.CapturingMockClient
 
   describe "join_group/4" do

@@ -1,6 +1,8 @@
 defmodule KafkaEx.APIProduceTest do
   use ExUnit.Case, async: false
 
+  setup {KafkaEx.Test.MockClient, :stub_request}
+
   alias KafkaEx.API, as: KafkaExAPI
   alias KafkaEx.Messages.Header
   alias KafkaEx.Messages.RecordMetadata
@@ -23,7 +25,7 @@ defmodule KafkaEx.APIProduceTest do
         topic: topic,
         partition: partition,
         messages: messages,
-        opts: Keyword.delete(opts, :call_budget)
+        opts: opts
       }
 
       new_state = Map.put(state, :last_call, call_info)

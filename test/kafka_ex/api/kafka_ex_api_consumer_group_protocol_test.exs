@@ -1,6 +1,8 @@
 defmodule KafkaEx.APIConsumerGroupProtocolTest do
   use ExUnit.Case, async: true
 
+  setup {KafkaEx.Test.MockClient, :stub_request}
+
   alias KafkaEx.Client.RequestBuilder
   alias KafkaEx.Client.State
   alias KafkaEx.Messages.ConsumerGroupDescription

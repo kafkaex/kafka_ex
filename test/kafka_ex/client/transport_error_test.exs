@@ -26,7 +26,7 @@ defmodule KafkaEx.Client.TransportErrorTest do
 
     {result, log} =
       with_log(fn ->
-        GenServer.call(client, {:offset_fetch, "test-group", [{"t", [%{partition_num: 0}]}], []})
+        Client.request(client, {:offset_fetch, "test-group", [{"t", [%{partition_num: 0}]}], []}, 5_000)
       end)
 
     assert {:error, %Error{error: :timeout}} = result

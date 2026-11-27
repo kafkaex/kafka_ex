@@ -84,32 +84,36 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
       end
     end
 
+    # One request at a time, so each caller meets its own connect attempt as when the client served them in turn.
     test "spaces connect attempts whose handshake crashes the connection" do
       raising = :atomics.new(1, [])
       provider = fn -> if :atomics.get(raising, 1) == 1, do: raise("token provider down"), else: {:ok, "t"} end
-      %{client: client, host: host} = start_for_backoff(auth: oauthbearer(provider))
+      %{client: client, host: host} = start_for_backoff(auth: oauthbearer(provider), request_concurrency: :serial)
       :atomics.put(raising, 1, 1)
 
       assert_backoff(client, {host, 9092}, fn _i -> API.produce(client, @topic, 0, [%{value: "v"}]) end)
     end
+  end
 
-    test "spaces connect attempts of every role to an unreachable broker" do
-      %{client: client, host: host, gate: gate} =
-        start_for_backoff([], topics: %{"wide" => List.duplicate(2, 20), @topic => [2, 2]})
+  # Serial callers wait out each other's retry backoff, so one caller per partition, produce and heartbeat suffices.
+  test "reconnect backoff spaces connect attempts of every role to an unreachable broker" do
+    %{client: client, host: host, gate: gate} =
+      start_for_backoff([request_concurrency: :serial], topics: %{"wide" => List.duplicate(2, 20), @topic => [2, 2]})
 
-      PinGate.close(gate)
+    PinGate.close(gate)
 
-      assert_backoff(client, {host, 9093}, fn i ->
-        case rem(i, 22) do
-          20 -> API.produce(client, @topic, 0, [%{value: "v"}])
-          21 -> API.heartbeat(client, "g", "m", 1)
-          partition -> API.fetch(client, "wide", partition, 0, max_wait_time: 10)
-        end
-      end)
-
-      roles = for {{^host, 9093, role}, _entry} <- :sys.get_state(client).conns, do: role
-      assert Enum.sort(roles) == [:coordinator, :data, :fetch]
+    call = fn i ->
+      case rem(i, 22) do
+        20 -> API.produce(client, @topic, 0, [%{value: "v"}])
+        21 -> API.heartbeat(client, "g", "m", 1)
+        partition -> API.fetch(client, "wide", partition, 0, max_wait_time: 10)
+      end
     end
+
+    assert_backoff(client, {host, 9093}, call, 22)
+
+    roles = for {{^host, 9093, role}, _pid} <- :ets.tab2list(:sys.get_state(client).conns), do: role
+    assert Enum.sort(roles) == [:coordinator, :data | for(partition <- 0..19, do: {:fetch, "wide", partition})]
   end
 
   test "a request after the backoff interval connects with exactly one attempt" do
@@ -177,7 +181,7 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
     {:ok, _} = API.fetch(client, @topic, 1, 0, max_wait_time: 10)
     {:ok, _} = API.heartbeat(client, "g", "m", 1)
 
-    departing = for {{_host, 9093, _role}, %{pid: pid}} <- :sys.get_state(client).conns, do: pid
+    departing = for {{_host, 9093, _role}, pid} <- :ets.tab2list(:sys.get_state(client).conns), do: pid
     assert length(departing) == 3
     monitored = Enum.map(departing, &{&1, Process.monitor(&1)})
 
@@ -235,11 +239,11 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
     pinned
   end
 
-  defp assert_backoff(client, address, call) do
+  defp assert_backoff(client, address, call, callers \\ 100) do
     failures = failures(client, address)
     watch_attempts(address)
 
-    1..100 |> Enum.map(fn i -> Task.async(fn -> call.(i) end) end) |> Enum.each(&Task.await(&1, 30_000))
+    1..callers |> Enum.map(fn i -> Task.async(fn -> call.(i) end) end) |> Enum.each(&Task.await(&1, 30_000))
     finished = System.monotonic_time()
 
     assert [first, _, _ | _] = attempts = attempts()
@@ -285,8 +289,7 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
   end
 
   defp watch_old_connections(client, host) do
-    conns = :sys.get_state(client).conns
-    old = conns |> Map.fetch!({host, 9092, :fetch}) |> Map.fetch!(:pid)
+    [{_key, old}] = :ets.lookup(:sys.get_state(client).conns, {host, 9092, {:fetch, @topic, 0}})
     metadata = metadata_connection(client, host)
     {{old, Process.monitor(old)}, {metadata, Process.monitor(metadata)}}
   end
@@ -304,7 +307,10 @@ defmodule KafkaEx.Client.ConnectionSemanticsTest do
 
   defp assert_new_fetch_connection(fake) do
     assert %{port: 9093} =
-             fake |> FakeTransport.connects() |> Enum.filter(&(&1.role == :fetch)) |> List.last()
+             fake
+             |> FakeTransport.connects()
+             |> Enum.filter(&match?({:fetch, _topic, _partition}, &1.role))
+             |> List.last()
   end
 
   # The metadata connection on the same broker must outlive it: idling out is for fetch roles only.

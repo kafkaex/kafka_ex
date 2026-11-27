@@ -6,14 +6,16 @@ defmodule KafkaEx.Client.SupervisorTest do
   alias KafkaEx.Client.Supervisor, as: ClientSupervisor
   alias KafkaEx.Messages.RecordMetadata
 
-  test "the client supervisor restarts rest-for-one, at most 3 times in 5 seconds, with the connection supervisor first" do
+  test "the client supervisor restarts rest-for-one, at most 3 times in 5 seconds, with the connection registry first" do
     assert {:ok, {flags, children}} = ClientSupervisor.init(%{store: %{}})
     assert %{strategy: :rest_for_one, intensity: 3, period: 5} = flags
-    assert [%{id: :connections, type: :supervisor}, %{id: :metadata_store}] = children
+
+    assert [%{id: :connection_registry}, %{id: :connections, type: :supervisor}, %{id: :metadata_store}] =
+             children
   end
 
   test "the metadata store is a transient child with a 5 second shutdown" do
-    assert {:ok, {_flags, [_connections, store]}} = ClientSupervisor.init(%{store: %{}})
+    assert {:ok, {_flags, [_registry, _connections, store]}} = ClientSupervisor.init(%{store: %{}})
     assert %{id: :metadata_store, restart: :transient, shutdown: 5_000} = store
   end
 
@@ -144,11 +146,16 @@ defmodule KafkaEx.Client.SupervisorTest do
       assert_teardown(ctx, &Process.exit(&1, :kill))
     end
 
-    test "lists its metadata store before its connection supervisor, in reverse start order", %{supervisor: supervisor} do
-      assert [{:metadata_store, store, :worker, _}, {:connections, connections, :supervisor, _}] =
-               Supervisor.which_children(supervisor)
+    test "lists its metadata store, connection supervisor and connection registry, in reverse start order", %{
+      supervisor: supervisor
+    } do
+      assert [
+               {:metadata_store, store, :worker, _},
+               {:connections, connections, :supervisor, _},
+               {:connection_registry, registry, :worker, _}
+             ] = Supervisor.which_children(supervisor)
 
-      assert is_pid(store) and is_pid(connections)
+      assert is_pid(store) and is_pid(connections) and is_pid(registry)
     end
 
     test "stopped, takes its metadata store down and closes the store's metadata connection with :shutdown", %{
@@ -206,24 +213,34 @@ defmodule KafkaEx.Client.SupervisorTest do
       assert {:ok, %RecordMetadata{base_offset: 7}} = API.produce(client, @topic, 0, [%{value: "v"}])
     end
 
-    test "crashes when a connection fails to start", %{client: client} do
-      ref = Process.monitor(client)
+    test "crashes its connection registry when a connection fails to start", %{client: client, supervisor: supervisor} do
+      registry = ClientSupervisor.connection_registry(supervisor)
+      registry_ref = Process.monitor(registry)
       fail_connection_start()
 
       {exit, _log} = with_log(fn -> catch_exit(API.produce(client, @topic, 0, [%{value: "v"}])) end)
 
-      assert {{{:case_clause, {:error, _}}, [_ | _]}, _call} = exit
-      assert_receive {:DOWN, ^ref, :process, ^client, {{:case_clause, {:error, _}}, [_ | _]}}, 5_000
+      assert_receive {:DOWN, ^registry_ref, :process, ^registry, {{:case_clause, {:error, _}}, [_ | _]} = crash}, 5_000
+      assert {^crash, {GenServer, :call, [^registry, {:connect, _key}, _timeout]}} = exit
+      assert Process.alive?(client)
     end
 
-    test "crashes when its connection supervisor exits on a start", %{client: client, supervisor: supervisor} do
-      ref = Process.monitor(client)
+    test "crashes its connection registry when its connection supervisor exits on a start", %{
+      client: client,
+      supervisor: supervisor
+    } do
+      registry = ClientSupervisor.connection_registry(supervisor)
+      registry_ref = Process.monitor(registry)
       :sys.replace_state(ClientSupervisor.connection_supervisor(supervisor), fn _state -> :broken end)
 
       {exit, _log} = with_log(fn -> catch_exit(API.produce(client, @topic, 0, [%{value: "v"}])) end)
 
-      assert {{_crash, {GenServer, :call, [_supervisor, {:start_child, _child}, :infinity]}} = reason, _call} = exit
-      assert_receive {:DOWN, ^ref, :process, ^client, ^reason}, 5_000
+      assert_receive {:DOWN, ^registry_ref, :process, ^registry,
+                      {_crash, {GenServer, :call, [_supervisor, {:start_child, _child}, :infinity]}} = crash},
+                     5_000
+
+      assert {^crash, {GenServer, :call, [^registry, {:connect, _key}, _timeout]}} = exit
+      assert Process.alive?(client)
     end
   end
 

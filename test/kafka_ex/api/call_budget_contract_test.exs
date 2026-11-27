@@ -1,5 +1,6 @@
 defmodule KafkaEx.API.CallBudgetContractTest do
   use ExUnit.Case, async: false
+  use Mimic
 
   alias KafkaEx.API
   alias KafkaEx.Client
@@ -18,6 +19,8 @@ defmodule KafkaEx.API.CallBudgetContractTest do
     def init(test), do: {:ok, test}
 
     @impl true
+    def handle_call(:context, _from, test), do: {:reply, %KafkaEx.Client.State{}, test}
+
     def handle_call({:cluster_metadata, _opts} = message, _from, test) do
       send(test, {:recorded, message})
       {:reply, {:ok, %ClusterMetadata{brokers: %{1 => %Broker{node_id: 1, host: "h", port: 9092}}}}, test}
@@ -46,25 +49,28 @@ defmodule KafkaEx.API.CallBudgetContractTest do
     message
   end
 
-  defp budget_of(message) do
-    opts =
-      case message do
-        {:metadata, _topics, opts, _api_version} -> opts
-        _other -> elem(message, tuple_size(message) - 1)
-      end
-
-    Keyword.fetch!(opts, :call_budget)
-  end
-
-  defp assert_budget(message, call_timeout) do
-    assert {ms, sent_at} = budget_of(message)
-    assert ms == RequestBudget.deadline_budget(call_timeout)
-    assert sent_at <= System.monotonic_time(:millisecond)
-  end
-
   defp generic, do: RequestBudget.call_budget(Config.request_timeout(), Client.retry_count())
 
-  test "every KafkaEx.API call that reaches the network carries its call budget", %{recorder: rec} do
+  # The original still reaches the Recorder, so a test sees both the message and the timeout it was sent with.
+  defp stub_request do
+    test = self()
+
+    stub(Client, :request, fn client, message, timeout ->
+      send(test, {:requested, message, timeout})
+      GenServer.call(client, message, timeout)
+    end)
+  end
+
+  defp requested_timeout(call) do
+    message = recorded(call)
+    assert_receive {:requested, ^message, timeout}, 1_000
+    timeout
+  end
+
+  test "every KafkaEx.API call that reaches the network passes its call budget as the request timeout", %{
+    recorder: rec
+  } do
+    stub_request()
     n = Client.retry_count()
     coordinator = Client.coordinator_max_attempts()
 
@@ -91,34 +97,38 @@ defmodule KafkaEx.API.CallBudgetContractTest do
     ]
 
     for {call, call_timeout} <- rows do
-      call |> recorded() |> assert_budget(call_timeout)
+      assert requested_timeout(call) == call_timeout
     end
   end
 
-  test "list_groups asks each node with a call budget", %{recorder: rec} do
-    assert {:cluster_metadata, opts} = recorded(fn -> API.list_groups(rec) end)
-    assert_budget({:cluster_metadata, opts}, generic())
-    assert_receive {:recorded, {:list_groups, 1, _opts} = message}, 1_000
-    assert_budget(message, generic())
+  test "list_groups asks each node with the generic timeout", %{recorder: rec} do
+    stub_request()
+    generic = generic()
+
+    assert {:cluster_metadata, _opts} = recorded(fn -> API.list_groups(rec) end)
+    assert_receive {:requested, {:cluster_metadata, _opts}, ^generic}, 1_000
+    assert_receive {:requested, {:list_groups, 1, _opts}, ^generic}, 1_000
   end
 
   test "topics_metadata sends the keyword shape", %{recorder: rec} do
+    stub_request()
     message = recorded(fn -> API.topics_metadata(rec, ["t"]) end)
 
     assert {:topic_metadata, ["t"], opts} = message
     assert opts[:allow_topic_creation] == false
-    assert_budget(message, generic())
+    assert_receive {:requested, ^message, timeout}, 1_000
+    assert timeout == generic()
   end
 
-  test "send_request sends the four-tuple shape with its own timeout's budget", %{recorder: rec} do
+  # The recorder's context has no metadata table, so the request waits out its whole timeout.
+  test "send_request answers :timeout once its own timeout runs out", %{recorder: rec} do
     request = %Kayrock.Metadata.V0.Request{topics: []}
+    started = System.monotonic_time(:millisecond)
 
-    message = recorded(fn -> Client.send_request(rec, request, NodeSelector.first_available()) end)
-    assert {:network_request, ^request, %NodeSelector{}, _opts} = message
-    assert_budget(message, RequestBudget.call_budget(Config.request_timeout()))
+    assert {:error, :timeout} = Client.send_request(rec, request, NodeSelector.first_available(), 300)
 
-    message = recorded(fn -> Client.send_request(rec, request, NodeSelector.first_available(), 1_500) end)
-    assert {750, _sent_at} = budget_of(message)
+    elapsed = System.monotonic_time(:millisecond) - started
+    assert elapsed >= 300 and elapsed < 1_000
   end
 
   test "calls that never wait send their messages unchanged", %{recorder: rec} do

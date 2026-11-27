@@ -272,39 +272,33 @@ defmodule KafkaEx.Kafka4.ConsumerProtocolManagerTest do
     for %{partition_offsets: [po]} <- offsets, into: %{}, do: {po.partition, max(po.offset, 0)}
   end
 
-  # A client in front of a real one that forwards every call, except that it
-  # holds back the broker's answer to the first join (member_epoch 0): the
-  # broker has registered the member, the manager never learns it (a lost or
-  # timed-out join response). The test is told {:join_held, response}.
-  defmodule HoldJoinClient do
-    @moduledoc false
-    use GenServer
+  # Holds back the broker's answer to the first join (member_epoch 0) sent
+  # through `client`: the broker has registered the member, the manager never
+  # learns it (a lost or timed-out join response). The test is told
+  # {:join_held, response}.
+  defp hold_first_join(client) do
+    test = self()
+    held = :atomics.new(1, [])
+    Mimic.set_mimic_global()
 
-    def start(client, test_pid), do: GenServer.start(__MODULE__, {client, test_pid})
-    def init({client, test_pid}), do: {:ok, %{client: client, test: test_pid, held: false}}
-
-    def handle_call({:consumer_group_heartbeat, _group, opts} = request, from, %{held: false} = state) do
-      if opts[:member_epoch] == 0 do
-        %{client: client, test: test} = state
-
-        spawn(fn ->
-          result = GenServer.call(client, request, 60_000)
-          send(test, {:join_held, from, result})
-        end)
-
-        {:noreply, %{state | held: true}}
+    Mimic.stub(KafkaEx.Client, :request, fn target, message, timeout ->
+      if target == client and join?(message) and :atomics.compare_exchange(held, 1, 0, 1) == :ok do
+        hold(test, [target, message, timeout])
       else
-        forward(request, from, state)
+        Mimic.call_original(KafkaEx.Client, :request, [target, message, timeout])
       end
-    end
-
-    def handle_call(request, from, state), do: forward(request, from, state)
-
-    defp forward(request, from, %{client: client} = state) do
-      spawn(fn -> GenServer.reply(from, GenServer.call(client, request, 60_000)) end)
-      {:noreply, state}
-    end
+    end)
   end
+
+  # An early error would have the manager resend the join, unheld.
+  defp hold(test, [_client, _message, timeout] = args) do
+    spawn(fn -> send(test, {:join_held, Mimic.call_original(KafkaEx.Client, :request, args)}) end)
+    Process.sleep(timeout)
+    {:error, :timeout}
+  end
+
+  defp join?({:consumer_group_heartbeat, _group, opts}), do: opts[:member_epoch] == 0
+  defp join?(_message), do: false
 
   # --- tests ------------------------------------------------------------------
 
@@ -450,16 +444,12 @@ defmodule KafkaEx.Kafka4.ConsumerProtocolManagerTest do
     m1 = start_member(ctx, :m1)
     wait_until(fn -> balanced?([m1]) end)
 
-    {:ok, real} = Kafka4TestHelpers.start_client(ctx)
-    {:ok, proxy} = HoldJoinClient.start(real, self())
+    {:ok, m2_client} = Kafka4TestHelpers.start_client(ctx)
+    on_exit(fn -> KafkaEx.TestSupport.ProcessHelpers.stop_safely(m2_client) end)
+    hold_first_join(m2_client)
 
-    on_exit(fn ->
-      Process.exit(proxy, :kill)
-      KafkaEx.TestSupport.ProcessHelpers.stop_safely(real)
-    end)
-
-    m2 = start_member(ctx, :m2, client: proxy)
-    assert_receive {:join_held, _from, {:ok, joined}}, 30_000
+    m2 = start_member(ctx, :m2, client: m2_client)
+    assert_receive {:join_held, {:ok, joined}}, 30_000
     member_id = joined.member_id
 
     # The broker knows m2 and is moving partitions to it.

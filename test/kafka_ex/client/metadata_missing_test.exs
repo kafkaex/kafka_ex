@@ -21,7 +21,7 @@ defmodule KafkaEx.Client.MetadataMissingTest do
   defp answer_with(%{fake: fake, host: host}, topic_names),
     do: FakeTransport.respond(fake, :metadata, metadata_reply(host, Map.new(topic_names, &{&1, [1]})))
 
-  defp refresh(client), do: with_log(fn -> GenServer.call(client, :update_metadata) end)
+  defp refresh(client), do: with_log(fn -> refresh_tracked(client) end)
 
   # A repeat refresh that is one request and logs no warning means the known-missing set is unchanged.
   defp assert_known_missing(fake, client) do

@@ -14,7 +14,7 @@ defmodule KafkaEx.TestSupport.StoreCase do
   import ExUnit.Assertions
   import ExUnit.Callbacks, only: [start_supervised!: 1]
 
-  alias KafkaEx.Client.ConnectionStateMachine.ReconnectBackoff
+  alias KafkaEx.Client.ConnectionStateMachine
   alias KafkaEx.Client.MetadataStore
   alias KafkaEx.Client.Supervisor, as: ClientSupervisor
   alias KafkaEx.TestSupport.PinCase
@@ -46,8 +46,8 @@ defmodule KafkaEx.TestSupport.StoreCase do
     PinCase.with_store(Keyword.get(opts, :store, []))
     gate = Keyword.get_lazy(opts, :gate, &PinGate.new/0)
 
-    backoff =
-      Agent.get(start_supervised!(%{id: make_ref(), start: {Agent, :start_link, [&ReconnectBackoff.new/0]}}), & &1)
+    table = &ConnectionStateMachine.reconnect_backoff_table/0
+    backoff = Agent.get(start_supervised!(%{id: make_ref(), start: {Agent, :start_link, [table]}}), & &1)
 
     ssl_options = PinGate.ssl_options(gate, fake)
 

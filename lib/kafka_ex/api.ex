@@ -97,7 +97,7 @@ defmodule KafkaEx.API do
   @type member_id :: binary
   @type generation_id :: non_neg_integer
 
-  # Per-attempt Socket.recv deadline per op; the outer GenServer.call budget is
+  # Per-attempt Socket.recv deadline per op; the outer call budget is
   # derived from it via RequestBudget so the two can't mismatch (#357):
   #   fetch = max_wait_time + grace · join = rebalance_timeout + lapse
   #   sync = session window · create/delete = broker op timeout + grace · else = :request_timeout
@@ -474,13 +474,15 @@ defmodule KafkaEx.API do
 
   This returns the cluster metadata currently cached in the client's state.
   It does not make a network request to Kafka. If you need fresh metadata,
-  use `metadata/2` or `metadata/3` instead.
+  use `metadata/2` or `metadata/3` instead. While the client has no metadata
+  table (its metadata store restarting or loading), the call waits for one and
+  returns `{:error, :timeout}` if none arrives within its budget.
 
   ## Examples
 
       {:ok, cluster_metadata} = KafkaEx.API.cluster_metadata(client)
   """
-  @spec cluster_metadata(client) :: {:ok, ClusterMetadata.t()}
+  @spec cluster_metadata(client) :: {:ok, ClusterMetadata.t()} | {:error, :timeout}
   def cluster_metadata(client) do
     call_client(client, &{:cluster_metadata, &1}, [], generic_call_budget())
   end
@@ -638,7 +640,7 @@ defmodule KafkaEx.API do
   This is all-or-nothing: if any broker is unreachable or returns an error, the
   call returns `{:error, {:node_error, node_id, reason}}` rather than a silently
   partial list. Returns `{:error, :no_brokers_available}` if the client knows of
-  no brokers.
+  no brokers, and the error of `cluster_metadata/1` if it fails.
 
   ## Examples
 
@@ -646,16 +648,16 @@ defmodule KafkaEx.API do
   """
   @spec list_groups(client) ::
           {:ok, [ConsumerGroupListing.t()]}
-          | {:error, {:node_error, node_id, term} | :no_brokers_available}
+          | {:error, {:node_error, node_id, term} | :no_brokers_available | :timeout}
   @spec list_groups(client, opts) ::
           {:ok, [ConsumerGroupListing.t()]}
-          | {:error, {:node_error, node_id, term} | :no_brokers_available}
+          | {:error, {:node_error, node_id, term} | :no_brokers_available | :timeout}
   def list_groups(client, opts \\ []) do
-    {:ok, %ClusterMetadata{} = cluster_metadata} = cluster_metadata(client)
-
-    case ClusterMetadata.brokers(cluster_metadata) do
-      [] -> {:error, :no_brokers_available}
-      brokers -> list_groups_across_brokers(client, brokers, opts)
+    with {:ok, %ClusterMetadata{} = cluster_metadata} <- cluster_metadata(client) do
+      case ClusterMetadata.brokers(cluster_metadata) do
+        [] -> {:error, :no_brokers_available}
+        brokers -> list_groups_across_brokers(client, brokers, opts)
+      end
     end
   end
 
@@ -1217,12 +1219,12 @@ defmodule KafkaEx.API do
 
     * `:max_bytes` - Maximum bytes to fetch per partition (default: 1,000,000)
     * `:max_wait_time` - Maximum time to wait for records in ms (default: 10,000).
-      Also drives the derived `:network_timeout` and the `GenServer.call`
-      timeout so the broker's long-poll completes before either fires.
+      Also drives the derived `:network_timeout` and the call's timeout so
+      the broker's long-poll completes before either fires.
     * `:network_timeout` - Socket.recv timeout in ms. If omitted, derived as
       `:max_wait_time + 5_000`. Rarely overridden; exists so the
-      `GenServer.call` and `Socket.recv` timeouts stay aligned with the
-      broker's long-poll.
+      call's and `Socket.recv` timeouts stay aligned with the broker's
+      long-poll.
     * `:min_bytes` - Minimum bytes to accumulate before returning (default: 1)
     * `:isolation_level` - 0 for READ_UNCOMMITTED, 1 for READ_COMMITTED (V4+, default: 0)
     * `:api_version` - API version to use. If omitted, resolved via `:api_versions` app-config or broker-negotiated max (`min(broker_max, kayrock_max)`). See CHANGELOG § 3-tier API version resolution.
@@ -1249,12 +1251,11 @@ defmodule KafkaEx.API do
     {call_timeout, Keyword.put_new(opts, :network_timeout, network_timeout)}
   end
 
-  # Derived, never the implicit 5000 GenServer.call default: a >5000 :request_timeout
-  # would otherwise exit the caller before the client replies (#357).
+  # Sized from :request_timeout, so the budget covers every attempt (#357).
   defp generic_call_budget, do: RequestBudget.call_budget(Config.request_timeout(), @fetch_max_retries)
 
   defp call_client(client, message, opts, call_timeout) do
-    GenServer.call(client, message.(RequestBudget.put_call_budget(opts, call_timeout)), call_timeout)
+    Client.request(client, message.(opts), call_timeout)
   end
 
   # join/sync share this: inject the per-attempt network_timeout as a control opt,
@@ -1353,7 +1354,7 @@ defmodule KafkaEx.API do
   def create_topics(client, topics, timeout, opts \\ []) do
     # The broker holds CreateTopics for up to its own `timeout`, so the per-attempt
     # socket-recv must cover that (not the generic :request_timeout), and the outer
-    # GenServer.call budget is derived from it.
+    # call budget is derived from it.
     network_timeout = timeout + @network_timeout_buffer
     opts = Keyword.put_new(opts, :network_timeout, network_timeout)
 
@@ -1438,7 +1439,7 @@ defmodule KafkaEx.API do
   def delete_topics(client, topics, timeout, opts \\ []) do
     # The broker holds DeleteTopics for up to its own `timeout`, so the per-attempt
     # socket-recv must cover that (not the generic :request_timeout), and the outer
-    # GenServer.call budget is derived from it.
+    # call budget is derived from it.
     network_timeout = timeout + @network_timeout_buffer
     opts = Keyword.put_new(opts, :network_timeout, network_timeout)
 

@@ -4,6 +4,19 @@
 
 ### Added
 
+* **`KafkaEx.Client.request(client, message, timeout)`** is the single entry point to the client:
+  `KafkaEx.API` and `KafkaEx.Client.send_request/4` both go through it. It runs the request in the
+  calling process and answers within `timeout` ms (a last attempt may overrun it, see below). A
+  client on another node runs the request there, through one `:erpc` call; see UPGRADING for
+  node-by-node upgrades.
+
+* **`request_concurrency: :serial | :multiplexed`** client start option, default `:multiplexed`.
+  A `:serial` client runs one request at a time, first come first served: each caller waits for
+  the one before it to finish, and a caller that dies hands its turn to the next. The wait counts
+  against the call's timeout. It guarantees only one request at a time; it does not change how
+  requests are retried. A request whose caller timed out may still be in flight at the broker when
+  the next one is sent.
+
 * **`:connection` and `:metadata_store` application settings** are now documented. They
   control connection liveness, idle and reconnect timing and the pacing of metadata-store refreshes.
   Defaults are unchanged. See `KafkaEx.Config.connection/0` and `KafkaEx.Config.metadata_store/0`.
@@ -28,20 +41,71 @@
 * **Elixir 1.17 is the minimum supported version** (`elixir: "~> 1.17"` in `mix.exs`).
   Elixir 1.14, 1.15 and 1.16 are no longer supported or tested. Unit tests run on Elixir 1.17 /
   OTP 25, 1.18 / OTP 27, 1.19 / OTP 28 and 1.20 / OTP 29. The OTP minimum stays at 25.
-* **Client messages carry a call budget.** Every `KafkaEx.API` call that reaches the network now puts
-  `call_budget: {ms, sent_at}` into the request's `opts`, and three messages change shape:
+* **Three client messages change shape:**
   `{:topic_metadata, topics, opts}` (with `allow_topic_creation:` in `opts`), sent by
   `KafkaEx.API.topics_metadata/3`; `{:network_request, request, node_selector, opts}`, which
   `KafkaEx.Client.send_request/4` now sends; and `{:cluster_metadata, opts}`, sent by
-  `KafkaEx.API.cluster_metadata/1`. The client still accepts the old shapes. If you
-  keep your own mock client that matches these messages or asserts on recorded `opts`, accept the new
-  shapes and ignore `:call_budget`.
+  `KafkaEx.API.cluster_metadata/1`. The old shapes `{:topic_metadata, topics, allow_topic_creation}`
+  and `{:network_request, request, node_selector}` are no longer accepted. These messages go to
+  `KafkaEx.Client.request/3`, not to the client process, so a mock client process no longer
+  receives them; stub `KafkaEx.Client.request/3` instead.
+* **Requests run in the calling process, not in the client process.** A slow or silent broker no
+  longer holds up requests to other brokers or other partitions. Requests keep their order only
+  within one caller; for one global order start the client with `request_concurrency: :serial`.
+  Request logs are written by the caller, so their `pid` metadata is the caller's, not the client's.
+* **A request that runs out of time answers `{:error, :timeout}` instead of exiting the caller.**
+  Operations answer `{:error, %KafkaEx.Client.Error{error: :timeout}}` where they answered an
+  `%Error{}` before, and `KafkaEx.API` turns it into `{:error, :timeout}` as for other errors. A last
+  attempt that started just before the deadline may answer up to 0.5 s after it. A call to a client
+  on a node that cannot be reached still exits, as before.
+* **Calling the client with `GenServer.call(client, {op, …})` or `GenServer.call(client, :update_metadata)`
+  is not supported**: the client logs a warning and answers `{:error, :unsupported_call}`. Use
+  `KafkaEx.API`, or `KafkaEx.Client.request/3` for a raw client message. In place of `:update_metadata`,
+  call `KafkaEx.API.metadata/3` with the topics you use.
+* **`KafkaEx.API.cluster_metadata/1` waits for a metadata table.** While the client has none (its
+  metadata store restarting or still loading), it waits up to its budget and then answers
+  `{:error, :timeout}` instead of the last metadata it saw. `KafkaEx.API.list_groups/2` passes that
+  error on. Every other request waits for the table the same way.
 * **`KafkaEx.Client.send_request/4` with `:first_available` tries the next broker after a `:parse_error`.**
   When a broker answered unparsably and no later broker answers correctly, the result is
-  `{:error, :broker_failed}` instead of `{:error, :parse_error}`. `:broker_failed` is not retried, so
-  `KafkaEx.API.find_coordinator/3` makes one attempt across all brokers instead of up to three, and on a
-  single-broker cluster one unparsable reply fails the call at once. Consumer-group coordinator
-  discovery (through the metadata store) is unaffected.
+  `{:error, :broker_failed}` instead of `{:error, :parse_error}`. A raw `send_request/4` makes one walk;
+  `KafkaEx.API.find_coordinator/3` repeats the walk, up to three attempts with the usual delays between
+  them, so a single-broker cluster still gets three tries. Consumer-group coordinator discovery (through
+  the metadata store) is unaffected.
+* **Retried requests wait between attempts.** After a retryable error the client waits a growing,
+  jittered delay before the next attempt: about 100 ms after the first, about 200 ms after the
+  second, never more than 1 s and never past the request's deadline. The number of attempts is
+  unchanged (3), and the last error is still returned when they run out.
+* **A fetch from a preferred read replica (KIP-392) falls back to the leader within the same call.**
+  After any error from the replica, the client forgets the replica and asks the leader at once,
+  without a delay and without using up an attempt. A retryable replica error such as `:closed` used
+  to be returned to the caller, with the leader asked only on the next fetch.
+* **Every fetched partition has its own connection to its broker.** A long-poll on one partition no
+  longer holds up a fetch of another partition on the same broker. A consumer of many partitions
+  opens more sockets and runs more handshakes (one per partition, not one per broker); a fetch
+  connection that sits idle is closed, as before.
+* **`KafkaEx.API.metadata/2,3` and `KafkaEx.API.api_versions/2` try the next broker.** Each call walks
+  the known brokers in random order until one answers, instead of asking one random broker. A walk in which
+  no broker answers is repeated, up to three attempts with the usual delays between them. When every
+  attempt fails after a broker was sent the request, the result is `{:error, :broker_failed}` (an
+  `%KafkaEx.Client.Error{error: :broker_failed}` from `metadata/2,3`) instead of the last broker's error.
+  A walk in which no broker was sent the request ends on `:no_broker`, and one in which every broker that
+  was sent the request timed out ends on `:timeout`, as does one the deadline cuts short.
+* **`KafkaEx.API.create_topics/4` and `KafkaEx.API.delete_topics/4` follow a controller move.** When the
+  broker answers `:not_controller` for every topic, the client refreshes metadata and sends the request
+  to the new controller, with the same attempts and delays as other retries. When every attempt gets
+  `:not_controller`, the result is `{:error, :not_controller}` instead of `{:ok, result}` with
+  `:not_controller` on each topic. A `:not_controller` on only some topics is returned as before.
+* **Broker walks wait for a broker that is still connecting.** `KafkaEx.API.find_coordinator/3`,
+  `KafkaEx.API.metadata/2,3`, `KafkaEx.API.api_versions/2` and `KafkaEx.Client.send_request/4` with
+  `:first_available` wait for each broker's connection, up to `connect_timeout` and never past the
+  request's deadline, instead of skipping a broker that is not connected yet. A broker that cannot be
+  reached can therefore cost up to `connect_timeout` before the next one is tried. The client and the
+  metadata store now walk the brokers with the same code. The client takes a connection to every
+  candidate broker before the walk, so `send_request/4` with `:first_available` for a request outside
+  the metadata role starts a connection process for each broker (sockets open only when a broker is
+  tried). A broker's unparsable answer no longer logs a warning; the walk still moves on to the next
+  broker and the result is unchanged.
 
 ### Removed
 

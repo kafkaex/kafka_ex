@@ -1,5 +1,7 @@
 defmodule KafkaEx.Consumer.StreamTest do
   use ExUnit.Case, async: true
+
+  setup {KafkaEx.Test.MockClient, :stub_request}
   import KafkaEx.TestHelpers, only: [opaque: 1]
 
   alias KafkaEx.Consumer.Stream

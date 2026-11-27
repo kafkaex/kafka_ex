@@ -7,6 +7,8 @@ defmodule KafkaEx.Consumer.ConsumerGroup.ManagerStaticMembershipTest do
   """
   use ExUnit.Case, async: false
 
+  setup {KafkaEx.Test.MockClient, :stub_request_globally}
+
   import KafkaEx.TestSupport.ProcessHelpers
 
   alias KafkaEx.Consumer.ConsumerGroup.Manager

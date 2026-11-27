@@ -35,28 +35,15 @@ defmodule KafkaEx.Client.PreferredReplicaFetchTest do
     assert fetched_from(fake, mark) == [@replica, @leader]
   end
 
-  @tag pin_set: :today_only, retired_by: 1497
-  test "the leader gets a single attempt after the replica's error", %{fake: fake, client: client} do
+  @tag pin_set: :invariant
+  test "the replica's error uses up no attempt, so the leader gets all of them", %{fake: fake, client: client} do
     mark = with_preferred_replica(fake, client, @replica)
     reply_by_node(fake, %{@replica => @offset_out_of_range, @leader => :close})
 
     {result, _log} = with_log(fn -> fetch(client) end)
 
     assert {:error, %{error: :closed}} = result
-    assert fetched_from(fake, mark) == [@replica, @leader]
-  end
-
-  @tag pin_set: :today_only, retired_by: 1497
-  test "a retryable error from the replica forgets it without asking the leader in the same call",
-       %{fake: fake, client: client} do
-    mark = with_preferred_replica(fake, client, @replica)
-    reply_by_node(fake, %{@replica => :close, @leader => 0})
-
-    {result, _log} = with_log(fn -> fetch(client) end)
-
-    assert {:error, %{error: :closed}} = result
-    refute @leader in fetched_from(fake, mark)
-    assert_preferred_replica_forgotten(fake, client)
+    assert fetched_from(fake, mark) == [@replica | List.duplicate(@leader, Client.retry_count())]
   end
 
   @tag pin_set: :invariant
@@ -69,12 +56,12 @@ defmodule KafkaEx.Client.PreferredReplicaFetchTest do
     assert fetched_from(fake, 0) == [@leader]
   end
 
-  defp fetch(client), do: GenServer.call(client, {:fetch, @topic, 0, 5, [api_version: 0]})
+  defp fetch(client), do: Client.request(client, {:fetch, @topic, 0, 5, [api_version: 0]}, 5_000)
 
   # The leader names the replica in a v11 answer; the client caches it for the next fetch.
   defp with_preferred_replica(fake, client, node_id) do
     FakeTransport.respond(fake, :fetch, &{:frame, fetch_frame(&1, node_id)})
-    {:ok, _} = GenServer.call(client, {:fetch, @topic, 0, 5, [api_version: 11]})
+    {:ok, _} = Client.request(client, {:fetch, @topic, 0, 5, [api_version: 11]}, 5_000)
     count(fake, :fetch)
   end
 
