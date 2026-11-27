@@ -310,7 +310,15 @@ messages = [
 ]
 
 {:ok, metadata} = KafkaEx.API.produce(client, "my-topic", 0, messages)
+
+# Partition chosen by the key
+{:ok, metadata} = KafkaEx.API.produce_one(client, "my-topic", nil, "message value", key: "user-123")
 ```
+
+A client that only produces and has no `:initial_topics` loads and refreshes the metadata of every
+topic in the cluster every `:metadata_update_interval`. Pass the topics it writes to, for example
+`KafkaEx.API.start_client(brokers: [{"localhost", 9092}], initial_topics: ["my-topic"])`, and only
+those are refreshed.
 
 #### Consuming Messages
 

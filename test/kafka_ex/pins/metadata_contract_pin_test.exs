@@ -3,6 +3,15 @@ defmodule KafkaEx.Pins.MetadataContractPinTest do
 
   @moduletag pin_set: :invariant
 
+  defmodule CountPartitioner do
+    @behaviour KafkaEx.Producer.Partitioner
+
+    def assign_partition(_topic, _key, _value, partition_count) do
+      send(:count_partitioner_test, {:partition_count, partition_count})
+      0
+    end
+  end
+
   describe "produce with a nil partition" do
     test "returns :topic_not_found for a topic the broker reports unknown" do
       %{fake: fake, client: client, host: host} = start_pinned()
@@ -21,6 +30,55 @@ defmodule KafkaEx.Pins.MetadataContractPinTest do
       {result, _log} = with_log(fn -> API.produce(client, "uncached", nil, [%{value: "v"}]) end)
 
       assert result == {:error, :topic_not_found}
+    end
+
+    test "takes the partition count from the client's metadata, sending no Metadata request" do
+      %{fake: fake, client: client} = start_pinned(topics: %{@topic => [1, 1, 2]})
+      FakeTransport.respond(fake, :produce, produce_reply())
+      sent = count(fake, :metadata)
+
+      for n <- 1..20, do: {:ok, _} = API.produce(client, @topic, nil, [%{key: "k#{n}", value: "v"}])
+
+      assert count(fake, :metadata) == sent
+    end
+
+    test "uses partitions added by the broker after the tracked refresh" do
+      %{fake: fake, client: client, host: host} = start_pinned(topics: %{@topic => [1, 1]})
+      FakeTransport.respond(fake, :produce, produce_reply())
+      Process.register(self(), :count_partitioner_test)
+      opts = [partitioner: __MODULE__.CountPartitioner]
+      {:ok, _} = API.produce(client, @topic, nil, [%{key: "k", value: "v"}], opts)
+      assert_received {:partition_count, 2}
+
+      FakeTransport.respond(fake, :metadata, metadata_reply(host, %{@topic => [1, 1, 2, 2]}))
+      {:ok, _} = refresh_tracked(client)
+      {:ok, _} = API.produce(client, @topic, nil, [%{key: "k", value: "v"}], opts)
+
+      assert_received {:partition_count, 4}
+    end
+
+    test "topics_metadata/2 asks the broker for a topic already in the table" do
+      %{fake: fake, client: client} = start_pinned()
+      sent = count(fake, :metadata)
+
+      {:ok, [_]} = API.topics_metadata(client, [@topic])
+
+      assert count(fake, :metadata) > sent
+    end
+
+    test "refreshes once for a topic the client has no metadata for, then tracks it" do
+      %{fake: fake, client: client, host: host} = start_pinned()
+      FakeTransport.respond(fake, :produce, produce_reply("fresh"))
+      FakeTransport.respond(fake, :metadata, metadata_reply(host, %{@topic => [1, 2], "fresh" => [1, 2]}))
+      sent = count(fake, :metadata)
+
+      {:ok, _} = API.produce(client, "fresh", nil, [%{key: "k", value: "v"}])
+      {:ok, _} = API.produce(client, "fresh", nil, [%{key: "k", value: "v"}])
+      refreshed = count(fake, :metadata)
+      {:ok, _} = refresh_tracked(client)
+
+      assert refreshed == sent + 1
+      assert fake |> requests(:metadata) |> List.last() |> metadata_topics() == ["fresh"]
     end
   end
 

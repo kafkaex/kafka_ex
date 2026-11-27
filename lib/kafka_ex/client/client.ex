@@ -463,9 +463,15 @@ defmodule KafkaEx.Client do
   defp operate({:cluster_metadata, _opts}, _spec, context, metadata), do: {cluster_metadata(context), metadata}
 
   defp operate({:topic_metadata, topics, opts}, _spec, context, metadata) do
-    allow_topic_creation = Keyword.get(opts, :allow_topic_creation, false)
-    result = refresh(context, %{topics: topics, allow_auto_topic_creation: allow_topic_creation})
-    {topics_reply(result, topics, cached_topics(context, topics)), metadata}
+    cached = cached_topics(context, topics)
+
+    if Keyword.get(opts, :refresh) == :when_missing and all_cached?(cached, topics) do
+      {{:ok, cached}, metadata}
+    else
+      allow_topic_creation = Keyword.get(opts, :allow_topic_creation, false)
+      result = refresh(context, %{topics: topics, allow_auto_topic_creation: allow_topic_creation})
+      {topics_reply(result, topics, cached_topics(context, topics)), metadata}
+    end
   end
 
   defp operate({:network_request, request, node_selector, _opts}, _spec, context, metadata) do
@@ -524,8 +530,10 @@ defmodule KafkaEx.Client do
   end
 
   defp topics_reply({:error, _reason} = error, topics, cached) do
-    if length(cached) == length(Enum.uniq(topics)), do: {:ok, cached}, else: error
+    if all_cached?(cached, topics), do: {:ok, cached}, else: error
   end
+
+  defp all_cached?(cached, topics), do: length(cached) == length(Enum.uniq(topics))
 
   defp rediscover_coordinator(context, group) do
     with_store(context, {:error, :timeout}, &round_call_timeout(context, &1), fn store, timeout ->

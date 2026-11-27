@@ -17,6 +17,8 @@ defmodule KafkaExBench.Scenarios.Basic do
     {"produce_c1", 1},
     {"produce_c10", 10},
     {"produce_c100", 100},
+    {"produce_keyed_c1", 1},
+    {"produce_keyed_c10", 10},
     {"fetch_c1", 1},
     {"fetch_c10", 10},
     {"fetch_c100", 100}
@@ -101,6 +103,10 @@ defmodule KafkaExBench.Scenarios.Basic do
 
     rem(partitions, brokers) == 0 and map_size(per_broker) == brokers and
       Enum.all?(per_broker, fn {_node, count} -> count == div(partitions, brokers) end)
+  end
+
+  defp job_fun("produce_keyed" <> _, client, topic, payload) do
+    fn -> {:ok, _} = API.produce_one(client, topic, nil, payload, key: "#{:rand.uniform(1_000_000)}", acks: @acks) end
   end
 
   defp job_fun("produce" <> _, client, topic, payload) do

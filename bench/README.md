@@ -52,7 +52,7 @@ Each scenario creates uniquely named topics (`bench-...`) with replication facto
 
 | Scenario | What it measures | Jobs | Default time / warmup (s) | `min_samples` | Gated metrics |
 |---|---|---|---|---|---|
-| `basic` | Produce (1 KiB, acks=-1) and fetch (64 KiB, max wait 100 ms) at 1, 10 and 100 callers over 6 partitions | `produce_c1`, `produce_c10`, `produce_c100`, `fetch_c1`, `fetch_c10`, `fetch_c100` | 10 / 2 | 500 | p50; throughput (c10, c100); `vm_reductions_per_op` |
+| `basic` | Produce (1 KiB, acks=-1) and fetch (64 KiB, max wait 100 ms) at 1, 10 and 100 callers over 6 partitions; keyed produce (`partition: nil`) at 1 and 10 callers | `produce_c1`, `produce_c10`, `produce_c100`, `produce_keyed_c1`, `produce_keyed_c10`, `fetch_c1`, `fetch_c10`, `fetch_c100` | 10 / 2 | 500 | p50; throughput (c10, c100); `vm_reductions_per_op` |
 | `mixed` | Produce and metadata calls while 3 callers long-poll idle partitions (fetch max wait 100 ms) | `produce_under_longpoll`, `metadata_under_longpoll` | 30 / 2 | 30 | p50 |
 | `one_broker` | 100 callers producing to partitions led by one broker: spread over all partitions versus a single partition | `produce_spread_c100`, `produce_single_partition_c100` | 10 / 2 | 500 | p50; throughput; `vm_reductions_per_op` |
 | `large_fetch` | 10 callers doing small produces or small fetches while 4 background workers fetch 100 KiB records with `max_bytes` 5 MB | `small_produce_c10`, `small_fetch_c10` | 15 / 2 | 200 | p50; throughput |
