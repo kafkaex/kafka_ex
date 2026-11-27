@@ -106,6 +106,12 @@
   the metadata role starts a connection process for each broker (sockets open only when a broker is
   tried). A broker's unparsable answer no longer logs a warning; the walk still moves on to the next
   broker and the result is unchanged.
+* **`KafkaEx.API.produce/5` and `produce_one/5` with `partition: nil` take the partition count from
+  the client's metadata.** They ask the broker only for a topic the client has no metadata for, instead
+  of on every call. Partitions added to a topic are seen after the next periodic refresh
+  (`metadata_update_interval`), as in the Java producer. `KafkaEx.API.topics_metadata/2,3` still asks
+  the broker on every call. A topic deleted since the last refresh gives `{:error, :no_broker}` on
+  the first call, as with an explicit partition, and `{:error, :topic_not_found}` on the next one.
 
 ### Removed
 

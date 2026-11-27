@@ -17,16 +17,6 @@ defmodule KafkaEx.Pins.SelectionPinTest do
 
   defp refresh(client), do: refresh_tracked(client)
 
-  defp metadata_topics(%{frame: frame}) do
-    <<_api::16, _version::16, _corr::32, client_id_size::16-signed, _client_id::binary-size(client_id_size),
-      count::32-signed, rest::binary>> = frame
-
-    if count < 0, do: :all, else: strings(rest, count)
-  end
-
-  defp strings(_rest, 0), do: []
-  defp strings(<<size::16-signed, value::binary-size(size), rest::binary>>, n), do: [value | strings(rest, n - 1)]
-
   defp new_metadata_requests(fake, before), do: fake |> requests(:metadata) |> Enum.drop(before)
 
   defp sequence(replies) do

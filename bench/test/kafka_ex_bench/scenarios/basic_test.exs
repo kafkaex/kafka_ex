@@ -63,11 +63,13 @@ defmodule KafkaExBench.Scenarios.BasicTest do
            }
   end
 
-  test "job specs list the six jobs with their concurrency" do
+  test "job specs list the eight jobs with their concurrency" do
     assert Basic.job_specs() == [
              {"produce_c1", 1},
              {"produce_c10", 10},
              {"produce_c100", 100},
+             {"produce_keyed_c1", 1},
+             {"produce_keyed_c10", 10},
              {"fetch_c1", 1},
              {"fetch_c10", 10},
              {"fetch_c100", 100}

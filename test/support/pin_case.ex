@@ -115,6 +115,16 @@ defmodule KafkaEx.TestSupport.PinCase do
 
   def apis_after(fake, mark), do: fake |> FakeTransport.requests() |> Enum.drop(mark) |> Enum.map(& &1.api)
 
+  def metadata_topics(%{frame: frame}) do
+    <<_api::16, _version::16, _corr::32, client_id_size::16-signed, _client_id::binary-size(client_id_size),
+      count::32-signed, rest::binary>> = frame
+
+    if count < 0, do: :all, else: strings(rest, count)
+  end
+
+  defp strings(_rest, 0), do: []
+  defp strings(<<size::16-signed, value::binary-size(size), rest::binary>>, n), do: [value | strings(rest, n - 1)]
+
   # A failed send never reaches the fake; the log line from ConnectionStateMachine is the only trace of the attempt.
   def failed_sends(log, host, reason), do: count_failures(log, "Sending data to", host, reason)
   def failed_async_sends(log, host, reason), do: count_failures(log, "Asynchronously sending data to", host, reason)

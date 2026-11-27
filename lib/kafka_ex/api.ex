@@ -279,6 +279,8 @@ defmodule KafkaEx.API do
       `auto.create.topics.enable`, a typo'd topic name can silently create a
       topic; set to `false` to disable.
     * `:initial_topics` — topics to fetch metadata for at startup (default `[]`).
+      A client with none loads and refreshes the metadata of every topic; list the
+      topics it uses to refresh only those.
     * `:uris` — **deprecated** alias for `:brokers`; still accepted.
     * `:name` — process registration. Accepts any value valid for
       `GenServer.start_link/3`'s `name:` option:
@@ -1107,6 +1109,10 @@ defmodule KafkaEx.API do
     * If message has a `:key`, the default partitioner uses murmur2 hash for consistent partitioning
     * If message has no `:key`, a random partition is selected
 
+  The partition count comes from the client's metadata; the broker is asked only for a
+  topic the client has no metadata for. Partitions added to a topic are used after the
+  next periodic refresh (`:metadata_update_interval`).
+
   You can configure the default partitioner globally:
 
       config :kafka_ex, partitioner: MyApp.CustomPartitioner
@@ -1183,7 +1189,9 @@ defmodule KafkaEx.API do
     key = Map.get(first_message, :key)
     value = Map.get(first_message, :value, "")
 
-    case topics_metadata(client, [topic], true) do
+    metadata_opts = [allow_topic_creation: true, refresh: :when_missing]
+
+    case call_client(client, &{:topic_metadata, [topic], &1}, metadata_opts, generic_call_budget()) do
       {:ok, [topic_info]} ->
         partition_count = map_size(topic_info.partition_leaders)
 

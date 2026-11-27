@@ -86,6 +86,20 @@ with `:first_available` wait for each broker's connection, up to
 skipping a broker that is not connected yet. A broker that cannot be reached
 can cost up to `:connect_timeout` before the next one is tried.
 
+## `produce` with `partition: nil` sees new partitions after the periodic refresh
+
+`produce/5` and `produce_one/5` with `partition: nil` take the partition count
+from the client's metadata and ask the broker only for a topic the client has no
+metadata for. Partitions added to a topic are used after the next periodic
+refresh (`:metadata_update_interval`, default 30 s), not on the next call. A topic
+deleted since the last refresh gives `{:error, :no_broker}` on the first call, as
+with an explicit partition, and `{:error, :topic_not_found}` on the next one.
+
+A client that only produces and has no `:initial_topics` loads and refreshes the
+metadata of every topic in the cluster, because a produce does not add its topic
+to the refreshed set. Pass `initial_topics: [...]` at startup to refresh only
+those topics.
+
 ## Clients on other nodes
 
 `KafkaEx.API` called with a client on another node runs the request on that
